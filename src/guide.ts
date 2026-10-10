@@ -56,3 +56,19 @@ export function checkCoverage(guide: Guide, files: string[]):
   for (const f of files) if (!placed.has(f)) errors.push(`missing: ${f} is in the diff but not in the guide`);
   return errors.length ? { ok: false, errors } : { ok: true };
 }
+
+/** Unplaced files would show nowhere in the workspace, so they become a final chapter. */
+export function placeUnplacedFiles(guide: Guide): Guide {
+  if (!guide.unplacedFiles.length) return guide;
+  const ids = new Set(guide.sections.map((s) => s.id));
+  let id = "other-files";
+  for (let n = 2; ids.has(id); n++) id = `other-files-${n}`;
+  return {
+    ...guide,
+    sections: [...guide.sections, {
+      id, title: "Other files", risk: "low", overview: "Files with nothing to review in the diff, such as binary files, mode changes, or pure renames.",
+      diffs: guide.unplacedFiles.map((file) => ({ file, summary: "Nothing to review in the diff." })),
+    }],
+    unplacedFiles: [],
+  };
+}

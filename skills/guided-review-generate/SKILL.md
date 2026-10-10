@@ -24,7 +24,8 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat code, co
    the files still fit, and write `sinceReview`: 2–4 sentences on what changed since the reviewer's
    last review, from `read_changes_since_review`. Leave `sinceReview` out otherwise.
 4. **Verify coverage.** Every changed file must appear in exactly one section's `diffs` OR in
-   `unplacedFiles` — never twice, never omitted.
+   `unplacedFiles` — never twice, never omitted. Use `unplacedFiles` only for files with nothing
+   to review (binary, mode-only, or a pure rename); they're shown in a final "Other files" chapter.
 5. **Submit** by calling `generate_review_guide` with `{ targetKey, generationId, guide }`.
    Copy `targetKey` and `generationId` exactly from this worker’s task. Never invent an ID or
    reuse one from another run. If the tool reports an expired or superseded generation, stop:

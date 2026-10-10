@@ -229,3 +229,16 @@ test("generate_review_guide advertises the guide's schema and accepts a guide wi
   expect(out.isError).toBeFalsy();
   expect(store.getGuide("pr-1")?.unplacedFiles).toEqual([]);
 });
+
+test("files the guide leaves unplaced get a final low-risk chapter, so the reviewer sees them", async () => {
+  const { harness, store, generationId } = await host();
+  store.savePatch("pr-1", patch + patch.replaceAll("a.ts", "logo.png"));
+  const out = await harness.behavior.callAgentTool("generate_review_guide", {
+    targetKey: "pr-1", generationId,
+    guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: ["logo.png"] },
+  });
+  expect(out.isError).toBeFalsy();
+  const saved = store.getGuide("pr-1");
+  expect(saved?.unplacedFiles).toEqual([]);
+  expect(saved?.sections.at(-1)).toMatchObject({ id: "other-files", title: "Other files", risk: "low", diffs: [{ file: "logo.png", summary: expect.any(String) }] });
+});

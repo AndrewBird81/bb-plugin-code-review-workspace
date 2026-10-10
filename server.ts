@@ -8,7 +8,7 @@ import { z } from "zod";
 import { rpcContract } from "./src/rpc-contract";
 import { createStore } from "./src/store";
 import { changedFiles, splitPatchByFile } from "./src/patch";
-import { validateGuide, checkCoverage, GuideInputSchema } from "./src/guide";
+import { validateGuide, checkCoverage, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
@@ -793,7 +793,7 @@ export default async function plugin(bb: BbPluginApi) {
       // submitted — the guide must never carry a wrong or stale review ref.
       const meta = store.getReview(targetKey);
       if (meta?.gitRef) v.guide.review = { gitRef: meta.gitRef, ...(meta.base ? { base: meta.base } : {}) };
-      store.saveGuide(targetKey, v.guide);
+      store.saveGuide(targetKey, placeUnplacedFiles(v.guide));
       return "Guide accepted.";
     },
   });
