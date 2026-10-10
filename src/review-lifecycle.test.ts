@@ -597,3 +597,9 @@ test("a pass that changes several reviews tells the list once", async () => {
   expect(lists()).toBe(1);
   expect(reviewSignals()).toEqual(["review:pr-1", "review:pr-2"]);
 });
+
+test("the sync keeps the PR's size", async () => {
+  const s = setup({ pr: { size: { additions: 120, deletions: 30, files: 8 } } });
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.prSize).toEqual({ additions: 120, deletions: 30, files: 8 });
+});

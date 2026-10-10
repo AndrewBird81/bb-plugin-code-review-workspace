@@ -106,6 +106,7 @@ function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: 
           <span className="break-all font-mono text-[11px]">{review.repo ?? review.gitRef}{review.number ? <span className="text-subtle-foreground"> #{review.number}</span> : null}</span>
           {review.author && <span className="inline-flex items-center gap-1.5"><Avatar login={review.author} size={16} />@{review.author}</span>}
           {when && <span className="text-subtle-foreground">{when}</span>}
+          {review.prSize && <span className="tabular-nums">+{review.prSize.additions.toLocaleString()} −{review.prSize.deletions.toLocaleString()} · {review.prSize.files} {review.prSize.files === 1 ? "file" : "files"}</span>}
         </span>
         <TurnMeta review={review} turn={state} />
       </span>

@@ -43,6 +43,8 @@ export interface PrFacts {
   headRefName: string;
   headSha: string;
   updatedAt: number;
+  /** Lines added and deleted, and files changed. */
+  size: { additions: number; deletions: number; files: number } | null;
   /** The head commit's combined status checks. */
   ci: "pass" | "fail" | "pending" | "expected" | "none";
   /** The viewer's real reviews, oldest first. */

@@ -150,6 +150,12 @@ test("mentions matches a whole handle only", () => {
   expect(mentions("thanks @octo-cat!", "octo-cat")).toBe(true);
 });
 
+test("size reads the PR's additions, deletions, and changed files", () => {
+  expect(one(pr({ additions: 120, deletions: 30, changedFiles: 8 })).size).toEqual({ additions: 120, deletions: 30, files: 8 });
+  expect(one(pr()).size).toBeNull();
+  expect(prFactsQuery([ref(1)]).query).toContain("additions deletions changedFiles");
+});
+
 test("ci maps the head commit's rollup state", () => {
   const ci = (state: string | null) => one(pr({ head: { nodes: [{ commit: { statusCheckRollup: state ? { state } : null } }] } })).ci;
   expect([ci("SUCCESS"), ci("FAILURE"), ci("ERROR"), ci("PENDING"), ci("EXPECTED"), ci(null)]).toEqual(["pass", "fail", "fail", "pending", "expected", "none"]);

@@ -162,3 +162,20 @@ test("waiting rows show outdated threads and how long the author has been quiet;
   expect(slot.getAllByText(/^author quiet/)).toHaveLength(1);
   slot.lifecycle.unmount();
 });
+
+test("a row shows the PR's size", async () => {
+  const { expect } = await import("vitest");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [
+      { targetKey: "a", kind: "pr", title: "Sized change", status: "ready", prSize: { additions: 1200, deletions: 30, files: 8 } },
+      { targetKey: "b", kind: "pr", title: "One file", status: "ready", prSize: { additions: 2, deletions: 0, files: 1 } },
+    ] }),
+  } });
+  await slot.findByText("Sized change");
+  expect(slot.getByText("+1,200 −30 · 8 files")).toBeTruthy();
+  expect(slot.getByText("+2 −0 · 1 file")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
