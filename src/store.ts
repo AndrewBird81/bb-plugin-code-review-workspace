@@ -206,8 +206,11 @@ export interface Store {
   isDiscoveryIgnored(targetKey: string): boolean;
   /** The text a draft comment's line had when it was drafted. */
   draftCommentCode(targetKey: string, at: CommentLocation): string | undefined;
-  /** Mark a draft comment as drafted against the current diff, at a possibly new line. */
-  rebaseDraftComment(targetKey: string, at: CommentLocation, line: number): void;
+  /**
+   * Mark draft comments as drafted against the current diff, each at a possibly new line, all at once.
+   * A comment whose new place another comment ends up on stays where it was, drafted against the older diff.
+   */
+  rebaseDraftComments(targetKey: string, placements: ReadonlyArray<{ at: CommentLocation; line: number }>): void;
 }
 
 /** A summary change: any of these fields, where undefined clears it. */
@@ -434,10 +437,7 @@ export function createStore(bb: BbPluginApi): Store {
         db.prepare(`UPDATE reviews SET head_sha=?, base=?, head=?, git_ref=? WHERE target_key=?`).run(kept.headSha, kept.base, kept.head, kept.gitRef, k);
         db.prepare(`DELETE FROM guide_backups WHERE target_key=?`).run(k);
         // Unsent comments moved to the replaced diff move back with it.
-        for (const comment of this.getDraft(k).comments) {
-          const placed = reanchor({ ...comment, code: this.draftCommentCode(k, comment) }, replaced, kept.patch);
-          if (placed.status !== "lost") this.rebaseDraftComment(k, comment, placed.status === "moved" ? placed.line : comment.line);
-        }
+        this.rebaseDraftComments(k, reanchorAll(this, k, replaced, kept.patch));
       })();
       return true;
     },
@@ -691,21 +691,37 @@ export function createStore(bb: BbPluginApi): Store {
     draftCommentCode(k, { file, line, side }) {
       return (db.prepare(`SELECT code FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).get(k, file, line, side) as any)?.code ?? undefined;
     },
-    rebaseDraftComment(k, at, line) {
+    rebaseDraftComments(k, placements) {
       const patch = this.readPatch(k, 0, this.readPatch(k, 0, 0).total).text;
+      const positions = diffPositions(patch);
       db.transaction(() => {
-        if (line !== at.line) {
-          const d = this.getDraft(k);
+        const d = this.getDraft(k);
+        const moves = new Map<DraftComment, number>();
+        for (const { at, line } of placements) {
           const comment = d.comments.find((c) => sameLocation(c, at));
-          if (!comment || d.comments.some((c) => sameLocation(c, { ...at, line }))) return;
-          comment.line = line;
-          writeDraft(db, d);
-          db.prepare(`DELETE FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).run(k, at.file, at.line, at.side);
+          if (comment) moves.set(comment, line);
         }
-        const code = diffPositions(patch).get(at.file)?.[at.side === "LEFT" ? "left" : "right"].get(line) ?? null;
-        db.prepare(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code) VALUES (?,?,?,?,?,?)
-          ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code`)
-          .run(k, at.file, line, at.side, patchHash(patch), code);
+        // Collisions count only among final places; a comment that would share one keeps its old place.
+        for (let clash = true; clash;) {
+          clash = false;
+          const places = new Map<string, DraftComment[]>();
+          for (const c of d.comments) {
+            const place = JSON.stringify([c.file, moves.get(c) ?? c.line, c.side]);
+            places.set(place, [...(places.get(place) ?? []), c]);
+          }
+          for (const group of places.values()) {
+            if (group.length > 1) for (const c of group) if (moves.has(c) && moves.get(c) !== c.line) { moves.delete(c); clash = true; }
+          }
+        }
+        for (const c of moves.keys()) db.prepare(`DELETE FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).run(k, c.file, c.line, c.side);
+        for (const [c, line] of moves) {
+          c.line = line;
+          const code = positions.get(c.file)?.[c.side === "LEFT" ? "left" : "right"].get(line) ?? null;
+          db.prepare(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code) VALUES (?,?,?,?,?,?)
+            ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code`)
+            .run(k, c.file, line, c.side, patchHash(patch), code);
+        }
+        writeDraft(db, d);
       })();
     },
   };
@@ -718,6 +734,14 @@ const REVIEW_TABLES = [
   "discussion_entries", "discussion_waits", "review_snapshots", "feedback_threads", "feedback_fetches",
   "assessment_items", "assessment_runs", "reply_drafts", "guide_backups",
 ] as const;
+
+/** Where each unsent comment's line is in `next`, for rebaseDraftComments; comments whose lines are gone are left out. */
+export function reanchorAll(store: Store, k: string, previous: string, next: string): Array<{ at: CommentLocation; line: number }> {
+  return store.getDraft(k).comments.flatMap((comment) => {
+    const placed = reanchor({ ...comment, code: store.draftCommentCode(k, comment) }, previous, next);
+    return placed.status === "lost" ? [] : [{ at: comment, line: placed.status === "moved" ? placed.line : comment.line }];
+  });
+}
 
 function patchHash(patch: string) { return createHash("sha256").update(patch).digest("hex"); }
 

@@ -236,7 +236,7 @@ test("a draft comment remembers its line's text and can move with it", () => {
   expect(s.draftCommentCode("pr-1", { file: "a.ts", line: 2, side: "RIGHT" })).toBe("added line");
   s.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,1 +1,3 @@\n context\n+new first\n+added line\n");
   expect(s.staleDraftComments("pr-1")).toHaveLength(1);
-  s.rebaseDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT" }, 3);
+  s.rebaseDraftComments("pr-1", [{ at: { file: "a.ts", line: 2, side: "RIGHT" }, line: 3 }]);
   expect(s.getDraft("pr-1").comments).toMatchObject([{ line: 3, body: "Why?" }]);
   expect(s.staleDraftComments("pr-1")).toHaveLength(0);
   expect(s.draftCommentCode("pr-1", { file: "a.ts", line: 3, side: "RIGHT" })).toBe("added line");
@@ -280,7 +280,7 @@ test("restoring a guide moves unsent comments back to the restored diff, and nev
   s.backupGuide("pr-1");
   // The rebuild moved the comment onto the new diff, then failed.
   s.savePatch("pr-1", p2);
-  s.rebaseDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT" }, 3);
+  s.rebaseDraftComments("pr-1", [{ at: { file: "a.ts", line: 2, side: "RIGHT" }, line: 3 }]);
   s.beginGeneration("pr-1");
   expect(s.restoreGuide("pr-1")).toBe(true);
   expect(s.getDraft("pr-1").comments).toMatchObject([{ line: 2 }]);
@@ -290,6 +290,34 @@ test("restoring a guide moves unsent comments back to the restored diff, and nev
   s.saveGuide("pr-1", { title: "New", intent: "I", sections: [], unplacedFiles: [] });
   expect(s.restoreGuide("pr-1")).toBe(false);
   expect(s.getGuide("pr-1")?.title).toBe("New");
+});
+
+test("restoring a guide moves comments on neighbouring lines back together", () => {
+  const s = store();
+  const diff = (lines: string[]) => ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", `@@ -0,0 +1,${lines.length} @@`, ...lines.map((l) => `+${l}`), ""].join("\n");
+  s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1, headSha: "sha1" });
+  s.savePatch("pr-1", diff(["a", "b", "c"]));
+  s.saveGuide("pr-1", { title: "Old", intent: "I", sections: [], unplacedFiles: [] });
+  s.backupGuide("pr-1");
+  s.savePatch("pr-1", diff(["x", "a", "b", "c"]));
+  s.upsertDraftComment("pr-1", { file: "a.ts", line: 3, side: "RIGHT", body: "on b" });
+  s.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "on a" });
+  s.beginGeneration("pr-1");
+  expect(s.restoreGuide("pr-1")).toBe(true);
+  expect(s.getDraft("pr-1").comments.map((c) => [c.body, c.line])).toEqual([["on b", 2], ["on a", 1]]);
+  expect(s.staleDraftComments("pr-1")).toEqual([]);
+});
+
+test("a comment whose new line another comment ends up on stays where it was, drafted against the older diff", () => {
+  const s = store();
+  s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
+  s.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+a\n+b\n");
+  s.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "first" });
+  s.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "second" });
+  s.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+b\n+b\n");
+  s.rebaseDraftComments("pr-1", [{ at: { file: "a.ts", line: 1, side: "RIGHT" }, line: 2 }, { at: { file: "a.ts", line: 2, side: "RIGHT" }, line: 2 }]);
+  expect(s.getDraft("pr-1").comments.map((c) => [c.body, c.line])).toEqual([["first", 1], ["second", 2]]);
+  expect(s.staleDraftComments("pr-1").map((c) => c.body)).toEqual(["first"]);
 });
 
 test("a thread known to be open and resolved since dates from now, even after an account switch", () => {

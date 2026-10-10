@@ -1,10 +1,9 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { Store } from "./store";
+import { reanchorAll, type Store } from "./store";
 import { ensureGitHeaders } from "./patch";
 import { generateGuide, guideWriterUnavailable } from "./generate";
 import { gitDiffArgs } from "./gh";
 import { readPrSnapshot } from "./pr-snapshot";
-import { reanchor } from "./reanchor";
 import { pruneDiffs } from "./feedback-view";
 
 interface Deps {
@@ -51,10 +50,7 @@ export async function rerunReview(deps: Deps, targetKey: string, options: { noti
   deps.store.saveReview({ ...m, status: "generating" });
   if (m.headSha) deps.store.saveSnapshot(targetKey, m.headSha, next);
   // Unsent draft comments follow their lines into the new diff; ones whose lines are gone stay flagged.
-  for (const comment of deps.store.getDraft(targetKey).comments) {
-    const placed = reanchor({ ...comment, code: deps.store.draftCommentCode(targetKey, comment) }, previous, next);
-    if (placed.status !== "lost") deps.store.rebaseDraftComment(targetKey, comment, placed.status === "moved" ? placed.line : comment.line);
-  }
+  deps.store.rebaseDraftComments(targetKey, reanchorAll(deps.store, targetKey, previous, next));
   pruneDiffs(deps.store, deps.store.getReview(targetKey)!);
   void generateGuide(deps.bb, deps.store, targetKey, m.projectId, options);
   return { ok: true };
