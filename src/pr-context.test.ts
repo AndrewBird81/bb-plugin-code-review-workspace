@@ -70,7 +70,7 @@ test("read_pr_context gives the PR's story, CI, others' threads, and the repo's 
 test("read_pr_context says when the PR is the reviewer's own, and when GitHub can't be read", async () => {
   const own = graphql();
   (own.data.repository.pullRequest as any).author = { login: "Me" };
-  expect(await readPrContext({ runGh: gh(own), runGit: git }, review, [], null)).toContain("This is the reviewer's own PR.");
+  expect(await readPrContext({ runGh: gh(own), runGit: git }, review, [], null)).toContain("This is the reviewer's own PR, so a review is a self-review: GitHub allows only a Comment review on it.");
   const failing = vi.fn(async () => ({ stdout: "", stderr: "HTTP 502", code: 1 }));
   await expect(readPrContext({ runGh: failing, runGit: git }, review, [], null)).rejects.toThrow("HTTP 502");
 });

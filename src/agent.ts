@@ -2,6 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store, AgentMessage } from "./store";
 import type { Guide } from "./guide";
 import { isMissingThread } from "./thread-errors";
+import { runGh } from "./gh";
 import { assistantPreferencesPrompt, spawnExecution, type AgentExecution, type ReviewPreferences } from "./preferences";
 import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
 
@@ -112,8 +113,13 @@ export async function startAutomaticReview(bb: BbPluginApi, store: Store, target
   if (!defaults) throw new Error("bb has no default agent for the review's project.");
   const context = store.getReviewContext(targetKey);
   const text = context ? `${prompt}\n\nContext from the thread that started this review:\n${context}` : prompt;
-  await startConversation(bb, store, { targetKey, text, agent: defaults });
+  const review = store.getReview(targetKey);
+  const login = review?.kind === "pr" && review.author ? await runGh(["api", "user", "--jq", ".login"]).then((r) => r.code === 0 ? r.stdout.trim() : "", () => "") : "";
+  const own = !!login && login.toLowerCase() === review?.author?.toLowerCase();
+  await startConversation(bb, store, { targetKey, text, agent: defaults, ...(own ? { context: SELF_REVIEW } : {}) });
 }
+
+const SELF_REVIEW = "This is the reviewer's own PR, so this is a self-review. GitHub allows only a Comment review on your own PR: suggest COMMENT, and frame comments as what to fix before asking for review.";
 
 /**
  * Send the reviewer's message to the review's assistant, after its current

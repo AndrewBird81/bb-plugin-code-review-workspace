@@ -98,7 +98,7 @@ async function pullRequestContext(run: Run, review: ReviewMeta, files: readonly 
   const stack = (repo.stack?.nodes ?? []).find((p: any) => p && !p.isCrossRepository);
   const labels: string[] = (pr.labels?.nodes ?? []).map((l: any) => l?.name).filter(Boolean);
   const sections = [
-    `PR #${review.number} in ${review.repo}, by @${author} (${pr.authorAssociation ?? "unknown association"}).${own ? " This is the reviewer's own PR." : ""}`,
+    `PR #${review.number} in ${review.repo}, by @${author} (${pr.authorAssociation ?? "unknown association"}).${own ? " This is the reviewer's own PR, so a review is a self-review: GitHub allows only a Comment review on it." : ""}`,
     untrusted("PR", [
       `Title: ${pr.title}`,
       `Branches: ${pr.baseRefName} ← ${pr.headRefName}`,
