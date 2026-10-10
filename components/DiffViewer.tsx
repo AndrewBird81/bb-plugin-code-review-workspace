@@ -195,8 +195,9 @@ export const DiffViewer = memo(function DiffViewer({
   // The chapter's files by value: a reload's new array with the same files mustn't re-parse every diff.
   const fileKey = files.join("\0");
   const { perFile, unchanged } = useMemo(() => {
-    const wanted = new Set(fileKey.split("\0"));
-    const chapter = splitPatchByFile(patch).filter((f) => wanted.has(f.path));
+    // In the guide's order, which reads the chapter's files on purpose.
+    const order = new Map(fileKey.split("\0").map((path, index) => [path, index]));
+    const chapter = splitPatchByFile(patch).filter((f) => order.has(f.path)).sort((a, b) => order.get(a.path)! - order.get(b.path)!);
     const shown = filtering ? chapter.filter((f) => since!.get(f.path)?.status !== "unchanged") : chapter;
     const perFile = shown.flatMap((f) => {
       const change = since?.get(f.path);
