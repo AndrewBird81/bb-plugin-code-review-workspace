@@ -182,3 +182,19 @@ test("while the guide rebuilds, comment saves and Submit wait; a comment from be
   await waitFor(() => expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull());
   slot.lifecycle.unmount();
 });
+
+test("removing a comment offers Undo, which puts it back", async () => {
+  const mine = { file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c2", body: "Keep me." };
+  let draft = draftOf({ comments: [mine] });
+  const removeDraftComment = vi.fn(async () => { draft = { ...draft, comments: [] }; return { draft, stale: [], discussions: [] }; });
+  const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = { ...draft, comments: [comment] }; return { draft, stale: [], discussions: [] }; });
+  const slot = await renderTray("undo", { getDraft: () => ({ draft, stale: [], discussions: [] }), removeDraftComment, saveDraftComment });
+  fireEvent.click(slot.getByRole("button", { name: "Remove comment on src/a.ts:2" }));
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Comment removed", expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) })));
+  await waitFor(() => expect(slot.queryByRole("button", { name: "src/a.ts:2" })).toBeNull());
+  const [, { action }] = vi.mocked(toast.info).mock.calls[0] as any;
+  action.onClick();
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo", revision: "r1", comment: mine }));
+  await slot.findByRole("button", { name: "src/a.ts:2" });
+  slot.lifecycle.unmount();
+});

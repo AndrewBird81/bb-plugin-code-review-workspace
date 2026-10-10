@@ -312,9 +312,18 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
       else setComposerError(message);
     });
   }
-  async function removeComment({ file, line, side }: DraftComment) {
+  async function removeComment(comment: DraftComment) {
+    const { file, line, side } = comment;
     await mutate(async () => {
       apply(await enqueue(() => rpc.call("removeDraftComment", { targetKey, file, line, side })) as { draft: Draft });
+      toast.info("Comment removed", { action: { label: "Undo", onClick: () => { void latest.current.restoreComment(comment); } } });
+    });
+  }
+  /** Put back a comment you removed, unless its line has another comment by now. */
+  async function restoreComment({ file, line, side, chapterId, body }: DraftComment) {
+    if (shownComments.current.some((c) => sameLocation(c, { file, line, side }))) { toast.info(`${file}:${line} has another comment now, so the removed one stays removed.`); return; }
+    await mutate(async () => {
+      apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), comment: { file, line, side, ...(chapterId ? { chapterId } : {}), body } })) as { draft: Draft });
     });
   }
   /** Save the summary as yours; an empty one removes it. */
@@ -363,8 +372,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   }, [targetKey, submittable, draft.verdict, draft.comments.length]);
   useEffect(() => () => setDraftStatus(targetKey, null), [targetKey]);
   // The diff shows the draft's comments and discussions, and the comment box while it's open there.
-  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff });
-  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff };
+  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComment });
+  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComment };
   const open = useCallback((at: CommentLocation) => latest.current.openComposer(at, true), []);
   const ask = useCallback((at: CommentLocation) => latest.current.openComposer(at, true, true), []);
   const remove = useCallback((comment: DraftComment) => { void latest.current.removeComment(comment); }, []);
