@@ -47,3 +47,18 @@ test("the status line follows saves: a failed submit's error clears when a later
   await waitFor(() => expect(status(slot).textContent).toBe("Couldn’t reach the server."));
   slot.lifecycle.unmount();
 });
+
+test("Edit puts the cursor at the end of the comment, and of the summary", async () => {
+  const draft = draftOf({ body: "The summary.", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "The comment." }] });
+  const slot = await renderTray("cursor", { getDraft: () => ({ draft, stale: [], discussions: [] }) });
+  fireEvent.click(slot.getByRole("button", { name: "Edit comment on src/a.ts:2" }));
+  const box = slot.getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  await waitFor(() => expect(document.activeElement).toBe(box));
+  expect([box.selectionStart, box.selectionEnd]).toEqual([12, 12]);
+  fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(slot.getByRole("button", { name: "Edit review summary" }));
+  const summaryBox = slot.getByRole("textbox", { name: "Review summary" }) as HTMLTextAreaElement;
+  await waitFor(() => expect(document.activeElement).toBe(summaryBox));
+  expect([summaryBox.selectionStart, summaryBox.selectionEnd]).toEqual([12, 12]);
+  slot.lifecycle.unmount();
+});

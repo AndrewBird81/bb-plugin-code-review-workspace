@@ -198,7 +198,11 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
       setShowComposer(true);
     }
     if (writing ? !inline : !inDiff) { setTab("draft"); setToolsOpen(true); }
-    requestAnimationFrame(() => bodyRef.current?.focus());
+    requestAnimationFrame(() => {
+      const box = bodyRef.current;
+      // Typing goes after the text being edited, not before it.
+      box?.focus(); box?.setSelectionRange(box.value.length, box.value.length);
+    });
   }
   useEffect(() => { if (prefill) openComposer(prefill, true, prefill.ask); }, [prefill]);
   function changeBody(text: string) {
