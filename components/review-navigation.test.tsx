@@ -143,3 +143,17 @@ test("under Since your review, opening a file unchanged since then turns the fil
   expect(filter.getAttribute("aria-pressed")).toBe("false");
   slot.lifecycle.unmount();
 }, 15_000);
+
+test("files no chapter lists show in a last Other files chapter, count toward viewed, and open from a comment", async () => {
+  const comment = { file: "src/c.ts", line: 1, side: "RIGHT", body: "Why?", author: "reviewer" };
+  const placed = { ...guide, unplacedFiles: ["src/c.ts"], sections: [guide.sections[0], { ...guide.sections[1], diffs: [guide.sections[1].diffs[0]] }] };
+  const { slot } = await renderWorkspace({ bundle: { guide: placed }, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [comment] } }) } });
+  await slot.findByText("aa");
+  expect(chapters(slot).getByText("0/3 files viewed")).toBeTruthy();
+  const draftTool = slot.getByRole("button", { name: "Draft review" });
+  if (draftTool.getAttribute("aria-pressed") !== "true") fireEvent.click(draftTool);
+  fireEvent.click(await slot.findByRole("button", { name: /^src\/c\.ts:1/ }));
+  await slot.findByText("cc");
+  expect(currentChapter(slot)?.textContent).toContain("Other files");
+  slot.lifecycle.unmount();
+}, 15_000);

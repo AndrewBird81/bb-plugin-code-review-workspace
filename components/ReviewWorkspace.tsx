@@ -30,12 +30,21 @@ import { Hint } from "./ui/hint";
 import { ReviewActions } from "./ReviewActions";
 import { defaultPreferences } from "../lib/review-preferences";
 import { useDraftStatus } from "../lib/draft-status";
+import { splitPatchByFile } from "../src/patch";
 
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 560;
 
 type View = "diff" | "feedback" | "threads";
 const VIEW_LOOK = { diff: { label: "Diff", icon: "FileDiff" }, feedback: { label: "Feedback", icon: "ChatFeedback" }, threads: { label: "Threads", icon: "MessageSquare" } } as const;
+
+/** The guide's chapters, then any changed files they don't list, such as an older guide's unplaced files. */
+function withOtherFiles(sections: any[], patch: string): any[] {
+  const placed = new Set(sections.flatMap((section) => section.diffs.map((diff: any) => diff.file)));
+  const other = splitPatchByFile(patch).map((f) => f.path).filter((path) => !placed.has(path));
+  return other.length ? [...sections, { id: OTHER_FILES, title: "Other files", overview: "Changed files the guide doesn’t place in a chapter.", diffs: other.map((file) => ({ file })) }] : sections;
+}
+const OTHER_FILES = "other-files";
 
 /** Turns where what matters first is whether the author addressed your feedback. */
 const FEEDBACK_FIRST = new Set<TurnReason>(["re-requested", "handled", "looks-ready", "question", "mentioned"]);
@@ -164,10 +173,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       }
       setPatch(patch);
       setChecks(checksRes);
-      if (guide?.sections?.length) {
+      const chapters = guide?.sections ? withOtherFiles(guide.sections, patch) : [];
+      if (chapters.length) {
         const saved = getReviewState(targetKey).activeId;
-        setActiveId((prev) => guide.sections.some((section: any) => section.id === prev)
-          ? prev : guide.sections.some((section: any) => section.id === saved) ? saved! : guide.sections[0].id);
+        setActiveId((prev) => chapters.some((section) => section.id === prev)
+          ? prev : chapters.some((section) => section.id === saved) ? saved! : chapters[0].id);
       }
       void loadViews();
     } catch (err) {
@@ -199,13 +209,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     return () => { cancelled = true; };
   }, [rpc, targetKey, sinceKey]);
   useEffect(() => { if (!since) setSinceOnly(false); }, [since]);
+  const sections = useMemo(() => guide?.sections ? withOtherFiles(guide.sections, patch) : [], [guide, patch]);
   const changedSince = useMemo(() => {
-    if (!since || !guide?.sections) return undefined;
-    return Object.fromEntries(guide.sections.map((section: any) => [section.id, section.diffs.filter((diff: any) => {
+    if (!since || !sections.length) return undefined;
+    return Object.fromEntries(sections.map((section: any) => [section.id, section.diffs.filter((diff: any) => {
       const status = since.get(diff.file)?.status;
       return status === "changed" || status === "added";
     }).length]));
-  }, [since, guide]);
+  }, [since, sections]);
 
   const snooze = useCallback(async (snoozed: boolean) => {
     setSnoozing(true);
@@ -262,8 +273,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     else if (rootRef.current?.requestFullscreen) void rootRef.current.requestFullscreen().catch(() => {});
   }, []);
 
-  const activeIndex: number = guide?.sections?.findIndex((x: any) => x.id === activeId) ?? -1;
-  const activeSection = activeIndex >= 0 ? guide.sections[activeIndex] : undefined;
+  const activeIndex = sections.findIndex((x: any) => x.id === activeId);
+  const activeSection = activeIndex >= 0 ? sections[activeIndex] : undefined;
   const activeFiles: string[] = useMemo(() => activeSection ? activeSection.diffs.map((d: any) => d.file) : [], [activeSection]);
   const summaries = useMemo(() => new Map<string, string>(activeSection?.diffs.flatMap((d: any) => d.summary ? [[d.file, d.summary]] : []) ?? []), [activeSection]);
 
@@ -316,9 +327,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useEffect(() => {
     if (!changedSince || !pickChangedChapter.current) return;
     pickChangedChapter.current = false;
-    const changed = guide?.sections.find((section: any) => changedSince[section.id] > 0);
+    const changed = sections.find((section: any) => changedSince[section.id] > 0);
     if (changed) setActiveId(changed.id);
-  }, [changedSince, guide]);
+  }, [changedSince, sections]);
   const selectChapter = useCallback((id: string) => {
     pickChangedChapter.current = false;
     setActiveId(id);
@@ -361,7 +372,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   // A comment chosen in the draft panel: show its line in the diff.
   const showComment = useCallback((at: CommentLocation) => {
-    const chapter = guide?.sections.find((section: any) => section.diffs.some((diff: any) => diff.file === at.file));
+    const chapter = sections.find((section: any) => section.diffs.some((diff: any) => diff.file === at.file));
     if (!chapter) return;
     setView("diff");
     unhide(at.file);
@@ -370,15 +381,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setActiveId(chapter.id);
     setMobileChapters(false);
     setReveal({ at, nonce: Date.now() });
-  }, [guide, activeId, unhide]);
+  }, [sections, activeId, unhide]);
   // A thread on a file outside every chapter can't be shown here; its GitHub link can.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   const outsideGuide = useCallback((file: string, url: string | null) => {
-    if (guide?.sections.some((section: any) => section.diffs.some((diff: any) => diff.file === file))) return false;
+    if (sections.some((section: any) => section.diffs.some((diff: any) => diff.file === file))) return false;
     toast.info(`${file} isn’t in any chapter.`, url ? { action: { label: "Open on GitHub", onClick: () => navigateRef.current.openUrl(url) } } : undefined);
     return true;
-  }, [guide]);
+  }, [sections]);
   // A line from the Feedback view: the whole diff, so the line is there. Without a line, the file.
   const showLocation = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
     if (outsideGuide(file, url)) return;
@@ -515,7 +526,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }
 
   const viewedCount = activeFiles.filter((f) => views.get(f)?.viewed).length;
-  const nextSection = activeIndex >= 0 ? guide.sections[activeIndex + 1] : undefined;
+  const nextSection = activeIndex >= 0 ? sections[activeIndex + 1] : undefined;
 
   return (
     <div
@@ -570,7 +581,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               style={{ width: compact ? "100%" : sidebarWidth }}
             >
               <ChapterNav
-                sections={guide.sections}
+                sections={sections}
                 activeId={activeId}
                 onSelect={selectChapter}
                 views={views}
@@ -691,7 +702,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-4">
             {view === "diff" ? (
               <>
-              {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={guide.sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
+              {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
               <DiffViewer
                 diffLayout={diffLayout}
                 themeMode={codeTheme.mode}
@@ -705,7 +716,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 reveal={reveal}
                 since={since}
                 sinceOnly={sinceOnly}
-                showRemoved={activeId === guide.sections.at(-1)?.id}
+                showRemoved={activeId === sections.at(-1)?.id}
               />
               {nextSection && (
                 <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
