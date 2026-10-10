@@ -25,6 +25,7 @@ import type { DockInjection } from "./AgentDock";
 import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { kindLook } from "./ReviewStatus";
 import { IconTile } from "./ui/icon-tile";
+import { InlineCode } from "./ui/inline-code";
 import { Hint } from "./ui/hint";
 import { ReviewActions } from "./ReviewActions";
 import { defaultPreferences } from "../lib/review-preferences";
@@ -298,6 +299,32 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     for (const f of todo) toggleViewed(f, true);
   }, [activeFiles, views, toggleViewed]);
 
+  // A new chapter opens at its top, unless you're jumping to a place in it.
+  const jumping = useRef(false);
+  const shownChapter = useRef(activeId);
+  useEffect(() => {
+    if (shownChapter.current === activeId) return;
+    const opening = !shownChapter.current;
+    shownChapter.current = activeId;
+    const keep = opening || jumping.current || !!pendingScroll.current;
+    jumping.current = false;
+    if (!keep && scrollBox.current) scrollBox.current.scrollTop = 0;
+  }, [activeId]);
+
+  // With no chapter of your own, a review back with changes opens on the first chapter that changed.
+  const pickChangedChapter = useRef(!persisted.activeId);
+  useEffect(() => {
+    if (!changedSince || !pickChangedChapter.current) return;
+    pickChangedChapter.current = false;
+    const changed = guide?.sections.find((section: any) => changedSince[section.id] > 0);
+    if (changed) setActiveId(changed.id);
+  }, [changedSince, guide]);
+  const selectChapter = useCallback((id: string) => {
+    pickChangedChapter.current = false;
+    setActiveId(id);
+    setMobileChapters(false);
+  }, []);
+
   const registerFileEl = useCallback((file: string, el: HTMLElement | null) => {
     if (el) fileEls.current.set(file, el);
     else fileEls.current.delete(file);
@@ -313,6 +340,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   const onSelectFile = useCallback(
     (chapterId: string, file: string) => {
+      pickChangedChapter.current = false;
       if (chapterId !== activeId) {
         pendingScroll.current = file;
         setActiveId(chapterId);
@@ -330,10 +358,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const chapter = guide?.sections.find((section: any) => section.diffs.some((diff: any) => diff.file === at.file));
     if (!chapter) return;
     setView("diff");
+    pickChangedChapter.current = false;
+    if (chapter.id !== activeId) jumping.current = true;
     setActiveId(chapter.id);
     setMobileChapters(false);
     setReveal({ at, nonce: Date.now() });
-  }, [guide]);
+  }, [guide, activeId]);
   // A thread on a file outside every chapter can't be shown here; its GitHub link can.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
@@ -478,6 +508,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }
 
   const viewedCount = activeFiles.filter((f) => views.get(f)?.viewed).length;
+  const nextSection = activeIndex >= 0 ? guide.sections[activeIndex + 1] : undefined;
 
   return (
     <div
@@ -534,7 +565,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               <ChapterNav
                 sections={guide.sections}
                 activeId={activeId}
-                onSelect={(id) => { setActiveId(id); setMobileChapters(false); }}
+                onSelect={selectChapter}
                 views={views}
                 onSelectFile={onSelectFile}
                 currentFile={currentFile}
@@ -669,6 +700,20 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 sinceOnly={sinceOnly}
                 showRemoved={activeId === guide.sections.at(-1)?.id}
               />
+              {nextSection && (
+                <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+                  {viewedCount < activeFiles.length && (
+                    <Button variant="outline" size="sm" onClick={() => { markAllViewed(); selectChapter(nextSection.id); }}>
+                      <Icon name="CircleCheck" className="size-3.5" aria-hidden />
+                      Mark chapter viewed and continue
+                    </Button>
+                  )}
+                  <Button variant={viewedCount < activeFiles.length ? "ghost" : "soft"} size="sm" className="min-w-0 max-w-full" onClick={() => selectChapter(nextSection.id)}>
+                    <span className="truncate">Next: <InlineCode text={nextSection.title} /></span>
+                    <Icon name="ArrowRight" className="size-3.5" aria-hidden />
+                  </Button>
+                </div>
+              )}
               </>
             ) : view === "feedback" ? (
               <FeedbackPanel

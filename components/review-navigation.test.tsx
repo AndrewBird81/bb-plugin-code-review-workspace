@@ -77,3 +77,43 @@ test("the diff opens on the chapter's intro and shows each file's summary in its
   expect(reopened.queryByText("Reads rows.")).toBeNull();
   again.slot.lifecycle.unmount();
 });
+
+const scroller = (slot: Slot) => slot.getByRole("main").querySelector<HTMLElement>(".overflow-y-auto")!;
+
+test("after a chapter's last file, Next opens the next chapter at its top", async () => {
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  scroller(slot).scrollTop = 400;
+  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Next: Caching" }));
+  await slot.findByText("bb");
+  expect(currentChapter(slot)?.textContent).toContain("Caching");
+  expect(scroller(slot).scrollTop).toBe(0);
+  // The last chapter has nothing next.
+  expect(within(slot.getByRole("main")).queryByRole("button", { name: /^Next:/ })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("Mark chapter viewed and continue marks the chapter's files and opens the next", async () => {
+  const { slot, rpc } = await renderWorkspace();
+  await slot.findByText("aa");
+  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Mark chapter viewed and continue" }));
+  await slot.findByText("bb");
+  expect(rpc.setFileViewed).toHaveBeenCalledWith({ targetKey: "pr-42", file: "src/a.ts", viewed: true });
+  expect(currentChapter(slot)?.textContent).toContain("Caching");
+  slot.lifecycle.unmount();
+});
+
+test("a review back with changes opens on the first chapter that changed, unless you were reading one", async () => {
+  const { interdiff } = await import("../src/interdiff");
+  const reviewed = patch.replace("+bb", "+b0");
+  const sinceReview = { review: { signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" }, rpc: { getSinceReview: () => ({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(reviewed, patch) }) } };
+  const { slot } = await renderWorkspace(sinceReview);
+  await slot.findByText("bb");
+  expect(currentChapter(slot)?.textContent).toContain("Caching");
+  slot.lifecycle.unmount();
+  patchReviewState("pr-42", { activeId: "c1" });
+  const again = await renderWorkspace(sinceReview);
+  await waitFor(() => expect(chapters(again.slot).getByText("1 changed")).toBeTruthy());
+  expect(currentChapter(again.slot)?.textContent).toContain("Parsing");
+  again.slot.lifecycle.unmount();
+});
