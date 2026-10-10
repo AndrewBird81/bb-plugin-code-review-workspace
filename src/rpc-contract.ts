@@ -19,6 +19,10 @@ const commentShape = z
   .strict();
 
 const location = { file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]) };
+const syncHealth = z.object({
+  lastReadAt: z.number().nullable(),
+  error: z.object({ kind: z.enum(["auth", "rate-limit", "partial", "teams", "other"]), at: z.number(), count: z.number().optional(), retryAt: z.number().optional() }).nullable(),
+});
 const discussion = z.object({
   ...location,
   entries: z.array(z.object({ author: z.enum(["reviewer", "agent"]), kind: z.enum(["message", "added", "edited", "removed", "restored"]), body: z.string(), createdAt: z.number() })),
@@ -62,9 +66,9 @@ export const rpcContract = defineRpcContract({
     output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }),
   },
 
-  // Task 10: read data plane
-  listReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()) }) },
-  refreshReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()) }) },
+  // Task 10: read data plane. sync: how reading GitHub went (src/review-lifecycle.ts SyncHealth).
+  listReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
+  refreshReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
   getReview: { input: targetKey, output: z.object({ review: z.any().nullable() }) },
   getGuide: { input: targetKey, output: z.object({ guide: z.any().nullable(), status: z.string() }) },
   getPatch: { input: targetKey, output: z.object({ patch: z.string() }) },

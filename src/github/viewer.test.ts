@@ -82,3 +82,11 @@ test("changed notices the active gh account switching, from its token, without c
   expect(await viewer.changed()).toBe(false);
   expect(run.mock.calls.every(([args]) => args.join(" ") === "auth token --hostname github.com")).toBe(true);
 });
+
+test("errors keeps the last failed login and teams reads", async () => {
+  const run = vi.fn(async (args: string[]) => (args.includes("user/teams") ? { code: 1, stderr: "HTTP 403: needs read:org\n", stdout: "" } : { code: 1, stderr: "HTTP 401: Bad credentials\n", stdout: "" }));
+  const viewer = createViewer(run);
+  await viewer.login();
+  await viewer.teams();
+  expect(viewer.errors!()).toEqual({ login: "HTTP 401: Bad credentials", teams: "HTTP 403: needs read:org" });
+});

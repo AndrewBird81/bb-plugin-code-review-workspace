@@ -18,6 +18,7 @@ import type { Turn, TurnGroup } from "../lib/turn";
 import { IconTile } from "./ui/icon-tile";
 import { InlineCode } from "./ui/inline-code";
 import { age, timeAgo } from "./time-ago";
+import type { SyncHealth } from "../src/review-lifecycle";
 
 /** Why it's your turn, with who asked when GitHub says. Null when the status badge says it all. */
 function turnWhy(review: ReviewItem, turn: Turn): string | null {
@@ -107,6 +108,19 @@ function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: 
   );
 }
 
+/** Why GitHub can't be read now, and when it last was. Null when reading is fine. */
+function syncProblem(health: SyncHealth | undefined): string | null {
+  const error = health?.error;
+  if (!error) return null;
+  const detail = error.kind === "auth" ? "GitHub CLI isn’t signed in. Run gh auth login on the BB server."
+    : error.kind === "rate-limit" ? `GitHub’s rate limit was reached. Reading again ${error.retryAt && error.retryAt > Date.now() ? `in ${Math.ceil((error.retryAt - Date.now()) / 60_000)}m` : "soon"}.`
+    : error.kind === "partial" ? `Couldn’t read ${error.count === 1 ? "1 pull request" : `${error.count} pull requests`}.`
+    : error.kind === "teams" ? "Couldn’t read your teams, so team requests may be missing. Run gh auth refresh -s read:org on the BB server."
+    : "Couldn’t reach GitHub.";
+  const read = timeAgo(health?.lastReadAt);
+  return `${read ? `GitHub last read ${read}` : "GitHub hasn’t been read yet"}: ${detail}`;
+}
+
 /** Shown in an empty list: an icon in a soft disc, a heading, and a line of help. */
 function EmptyState({ icon, tone, title, children }: { icon: Parameters<typeof Icon>[0]["name"]; tone: "success" | "neutral"; title: string; children: React.ReactNode }) {
   return (
@@ -133,14 +147,15 @@ export const ReviewList = memo(function ReviewList() {
   const [filter, setFilter] = useState<TurnGroup>("needs");
   const [refreshing, setRefreshing] = useState(false);
   const [syncError, setSyncError] = useState(false);
+  const [health, setHealth] = useState<SyncHealth>();
   const refresh = useCallback(async () => {
     setRefreshing(true); setSyncError(false);
-    try { const result = await rpc.call("refreshReviews", null); setReviews(result.reviews); }
+    try { const result = await rpc.call("refreshReviews", null); setReviews(result.reviews); setHealth(result.sync); }
     catch { setSyncError(true); }
     finally { setRefreshing(false); }
   }, [rpc]);
   const relist = useCallback(() => {
-    void rpc.call("listReviews", null).then((result) => setReviews(result.reviews)).catch(() => {});
+    void rpc.call("listReviews", null).then((result) => { setReviews(result.reviews); setHealth(result.sync); }).catch(() => {});
   }, [rpc]);
   useRealtime("reviews", relist);
   useRealtime("gh-account", () => { void refresh(); });
@@ -157,7 +172,7 @@ export const ReviewList = memo(function ReviewList() {
     rpc
       .call("listReviews", null)
       .then((r) => {
-        if (!cancelled) setReviews(r.reviews as ReviewItem[]);
+        if (!cancelled) { setReviews(r.reviews as ReviewItem[]); setHealth(r.sync); }
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -304,6 +319,7 @@ export const ReviewList = memo(function ReviewList() {
           </div>
           <Button variant="ghost" size="sm" aria-label={refreshing ? "Refreshing…" : "Refresh"} className="shrink-0 px-2 text-muted-foreground" disabled={refreshing} onClick={() => void refresh()}><Icon name="ArrowReloadHorizontal" className={cn("size-3.5", refreshing && "animate-spin motion-reduce:animate-none")} aria-hidden /><span className="hidden @min-[520px]/review-list:inline">{refreshing ? "Refreshing…" : "Refresh"}</span></Button>
         </div>
+        {!syncError && syncProblem(health) && <p role="status" className="flex items-center gap-2 border-b border-warning/20 bg-warning/10 px-4 py-2.5 text-sm text-warning-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden />{syncProblem(health)}</p>}
         {syncError && <p role="alert" className="flex items-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-2.5 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden />Couldn’t refresh GitHub status. Saved reviews are still available; try Refresh again.</p>}
         {loading ? <div role="status" aria-busy="true" className="divide-y divide-border"><span className="sr-only">Loading reviews…</span>{Array.from({ length: 4 }).map((_, i) => <div key={i} className="flex items-center gap-3.5 px-4 py-3.5"><Skeleton className="size-8 shrink-0 rounded-lg" /><div className="flex-1 space-y-2"><Skeleton className="h-3.5" style={{ width: `${62 - i * 7}%` }} /><Skeleton className="h-3 w-48" /></div><Skeleton className="h-5 w-16 rounded-full" /></div>)}</div>
           : loadError ? <div role="alert" className="px-4 py-10 text-center"><h2 className="font-medium">Couldn’t load your reviews</h2><p className="mt-2 text-sm text-muted-foreground">Your saved reviews haven’t been removed. Check the connection and try again.</p><Button variant="outline" className="mt-4" onClick={() => setReload((n) => n + 1)}>Try again</Button></div>

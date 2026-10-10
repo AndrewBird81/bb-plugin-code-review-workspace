@@ -8,6 +8,8 @@ export interface Viewer {
   reset(): void;
   /** Whether gh's active account changed since the last call, as `gh auth switch` outside the plugin does. Local; no API call. */
   changed?(): Promise<boolean>;
+  /** What gh said when the last read of each failed; null when it succeeded. */
+  errors?(): { login: string | null; teams: string | null };
 }
 
 /** Caches each read for ttlMs; after a failure returns null / an empty set until retryMs passes. */
@@ -36,14 +38,19 @@ export function createViewer(run: RunGh, options: { ttlMs?: number; retryMs?: nu
     };
   }
 
+  const errors: { login: string | null; teams: string | null } = { login: null, teams: null };
+  const failure = (out: { stderr: string; code: number }) => out.stderr.trim() || `gh exited ${out.code}`;
+
   const login = cached(async () => {
     const out = await run(["api", "user", "--jq", ".login"]);
     const value = out.stdout.trim();
-    return out.code === 0 && value ? value : null;
+    errors.login = out.code === 0 && value ? null : failure(out);
+    return errors.login ? null : value;
   }, null as string | null);
 
   const teams = cached(async () => {
     const out = await run(["api", "--paginate", "user/teams", "--jq", '.[] | "\\(.organization.login)/\\(.slug)"']);
+    errors.teams = out.code === 0 ? null : failure(out);
     if (out.code !== 0) return null;
     return new Set(out.stdout.split("\n").map((line) => line.trim().toLowerCase()).filter(Boolean)) as ReadonlySet<string>;
   }, new Set<string>() as ReadonlySet<string>);
@@ -60,5 +67,5 @@ export function createViewer(run: RunGh, options: { ttlMs?: number; retryMs?: nu
     return switched;
   }
 
-  return { login, teams, reset: () => { generation++; }, changed };
+  return { login, teams, reset: () => { generation++; }, changed, errors: () => ({ ...errors }) };
 }

@@ -32,6 +32,16 @@ export function githubReads(run: typeof runGh): GithubReads {
   };
 }
 
+/** How reading GitHub went: when it last read PRs, and what went wrong since, if anything. */
+export interface SyncHealth {
+  lastReadAt: number | null;
+  /**
+   * auth: gh isn't signed in or its token was refused. rate-limit: reading waits until retryAt.
+   * partial: `count` PRs couldn't be read. teams: your teams couldn't be read, so team requests may be missing.
+   */
+  error: { kind: "auth" | "rate-limit" | "partial" | "teams" | "other"; at: number; count?: number; retryAt?: number } | null;
+}
+
 /** What the plugin does when a review's turn changes. Each returns whether work started. */
 export interface TurnActions {
   /** A re-review came back to you: regenerate an out-of-date guide, then check your feedback. */
@@ -58,6 +68,8 @@ const DISCOVERED = "discovery:account";
 const THREADS_EVERY = 10 * MINUTE;
 /** How often a re-review that couldn't start is tried again. */
 const RETRY_PREPARE = 10 * MINUTE;
+/** How long reading waits after GitHub's rate limit. */
+const RATE_LIMIT_WAIT = 15 * MINUTE;
 /** Turns that prepare their re-review ahead of time. */
 const PREPARE = new Set<TurnReason>(["re-requested", "handled", "looks-ready", "dismissed"]);
 
@@ -74,6 +86,24 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
   let lastDiscovery = 0;
   let discovering: Promise<void> | null = null;
   let disposed = false;
+  let health: SyncHealth = { lastReadAt: null, error: null };
+  let waitUntil = 0;
+  const failed = (kind: NonNullable<SyncHealth["error"]>["kind"], extra: { count?: number; retryAt?: number } = {}) => {
+    health = { ...health, error: { kind, at: clock(), ...extra } };
+  };
+  /** Record a failed read; a rate limit stops reading for a while. */
+  const readFailed = (error: unknown) => {
+    if (!/rate.?limit/i.test(String(error))) return failed("other");
+    waitUntil = clock() + RATE_LIMIT_WAIT;
+    failed("rate-limit", { retryAt: waitUntil });
+  };
+  const limited = () => clock() < waitUntil;
+  /** Who you are on GitHub; null, recording why, when gh can't say. */
+  async function viewerLogin(): Promise<string | null> {
+    const login = await github.viewer.login();
+    if (!login) failed(/gh auth login|HTTP 401|Bad credentials/i.test(github.viewer.errors?.().login ?? "") ? "auth" : "other");
+    return login;
+  }
   bb.onDispose(() => { disposed = true; });
 
   const turnOf = (review: ReviewMeta, now = clock()) => computeTurn(review, turnOptions(store.getPreferences().preferences), now);
@@ -121,7 +151,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     const fresh = keys.filter((key) => !inflight.has(key));
     if (!fresh.length) { await Promise.allSettled(waiting); return; }
     const task = (async () => {
-      const login = await github.viewer.login();
+      if (limited()) return;
+      const login = await viewerLogin();
       if (!login || disposed) return;
       const teams = await github.viewer.teams();
       const reviews = fresh.map((key) => store.getReview(key)).filter(readable);
@@ -131,9 +162,14 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
         facts = await github.facts(reviews.map((r) => ({ targetKey: r.targetKey, repo: r.repo, number: r.number })), login, teams);
       } catch (error) {
         // A failed read preserves saved state.
-        if (!disposed) bb.log.warn(`Could not refresh reviews: ${String(error)}`);
+        if (!disposed) { readFailed(error); bb.log.warn(`Could not refresh reviews: ${String(error)}`); }
         return;
       }
+      const missing = reviews.filter((r) => !facts.has(r.targetKey)).length;
+      const teamsFailed = store.getPreferences().preferences.trackTeamRequests && !!github.viewer.errors?.().teams;
+      health = { lastReadAt: clock(), error: null };
+      if (missing) failed("partial", { count: missing });
+      else if (teamsFailed) failed("teams");
       for (const review of reviews) {
         if (disposed) return;
         checked.set(review.targetKey, clock());
@@ -300,7 +336,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       await bb.storage.kv.delete(DISCOVERED);
       return;
     }
-    const login = await github.viewer.login();
+    const login = await viewerLogin();
     if (!login) return;
     const found = await github.discover({ reviewed: true, teams: store.getPreferences().preferences.trackTeamRequests });
     const projectId = await actions.projectId();
@@ -348,9 +384,9 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       || now - (checked.get(r.targetKey) ?? 0) >= interval(turnOf(r, now).group));
     await read(due.map((r) => r.targetKey));
     for (const review of reviews) if (!disposed) await maintainThread(review.targetKey);
-    if (force || now - lastDiscovery >= DISCOVER_EVERY) {
+    if (!limited() && (force || now - lastDiscovery >= DISCOVER_EVERY)) {
       lastDiscovery = now;
-      discovering ??= discover().catch((error) => bb.log.warn(`Could not look for reviews on GitHub: ${String(error)}`)).finally(() => { discovering = null; });
+      discovering ??= discover().catch((error) => { readFailed(error); bb.log.warn(`Could not look for reviews on GitHub: ${String(error)}`); }).finally(() => { discovering = null; });
       await discovering;
     }
     // Turns also change with time, such as a quiet period ending, and waiting alerts may be ready.
@@ -366,5 +402,5 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     store.clearFeedbackFetches();
   }
 
-  return { one, all, evaluate, turnOf, resetViewer };
+  return { one, all, evaluate, turnOf, resetViewer, health: (): SyncHealth => health };
 }

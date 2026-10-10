@@ -183,7 +183,7 @@ test("a PR GitHub refuses is reported forbidden; one that failed for another rea
 });
 
 test("parsePrFacts rejects a response without data", () => {
-  expect(() => parsePrFacts({ errors: [{ message: "API rate limit exceeded" }] }, [ref(1)], "me", noTeams)).toThrow();
+  expect(() => parsePrFacts({ errors: [{ type: "RATE_LIMITED", message: "API rate limit exceeded" }] }, [ref(1)], "me", noTeams)).toThrow("RATE_LIMITED: API rate limit exceeded");
   expect(() => parsePrFacts(null, [ref(1)], "me", noTeams)).toThrow();
 });
 

@@ -299,11 +299,11 @@ export default async function plugin(bb: BbPluginApi) {
       // ReviewMeta rows carry optional fields as literal `undefined` own
       // properties (store.ts's rowToMeta), which the rpc layer's strict JSON
       // output check rejects; round-trip through JSON to drop them.
-      return { reviews: store.listReviews().map(decorate) };
+      return { reviews: store.listReviews().map(decorate), sync: sync.health() };
     },
     async refreshReviews() {
       await sync.all(true);
-      return { reviews: store.listReviews().map(decorate) };
+      return { reviews: store.listReviews().map(decorate), sync: sync.health() };
     },
     getReview({ targetKey }) {
       return { review: decorate(store.getReview(targetKey)) };

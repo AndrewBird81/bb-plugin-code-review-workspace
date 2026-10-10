@@ -546,3 +546,44 @@ test("a gh account switched outside the plugin is noticed on the next pass", asy
   expect(reset).toHaveBeenCalled();
   expect(s.harness.inspection.realtimeSignals.some((signal) => signal.channel === "gh-account")).toBe(true);
 });
+
+test("sync health: an expired gh login, then a good read", async () => {
+  const s = setup();
+  let login: string | null = null;
+  s.github.viewer.login = async () => login;
+  s.github.viewer.errors = () => ({ login: login ? null : "HTTP 401: Bad credentials (https://api.github.com/user)", teams: null });
+  await s.sync.all();
+  expect(s.sync.health()).toEqual({ lastReadAt: null, error: { kind: "auth", at: T0 } });
+  login = "me";
+  s.at(0.1);
+  await s.sync.all(true);
+  expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.1 * HOUR, error: null });
+});
+
+test("sync health: a rate limit backs off until it can read again", async () => {
+  const s = setup();
+  vi.mocked(s.github.facts).mockRejectedValueOnce(new Error("RATE_LIMITED: API rate limit exceeded for user ID 1."));
+  await s.sync.all();
+  expect(s.sync.health().error).toMatchObject({ kind: "rate-limit", retryAt: T0 + 15 * 60_000 });
+  s.at(0.1);
+  await s.sync.all(true);
+  expect(s.github.facts).toHaveBeenCalledTimes(1);
+  expect(s.github.discover).toHaveBeenCalledTimes(0);
+  s.at(0.3);
+  await s.sync.all(true);
+  expect(s.github.facts).toHaveBeenCalledTimes(2);
+  expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.3 * HOUR, error: null });
+});
+
+test("sync health: PRs left out of a read, and teams it couldn't read", async () => {
+  const s = setup({ preferences: { trackTeamRequests: true } });
+  s.store.saveReview({ targetKey: "pr-2", kind: "pr", repo: "acme/web", number: 2, createdAt: 2, status: "ready" });
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.filter((ref) => ref.number === 1).map((ref) => [ref.targetKey, facts(ref)])));
+  await s.sync.all();
+  expect(s.sync.health()).toEqual({ lastReadAt: T0, error: { kind: "partial", at: T0, count: 1 } });
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, facts(ref)])));
+  s.github.viewer.errors = () => ({ login: null, teams: "HTTP 403: Resource not accessible (read:org)" });
+  s.at(0.1);
+  await s.sync.all(true);
+  expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.1 * HOUR, error: { kind: "teams", at: T0 + 0.1 * HOUR } });
+});

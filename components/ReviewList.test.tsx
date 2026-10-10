@@ -84,3 +84,15 @@ test("a row says when GitHub can't read its PR", async () => {
   expect(slot.getByText("Can’t read on GitHub")).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+test("the list says when GitHub was last read, and why it can't be now", async () => {
+  const { expect } = await import("vitest");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [], sync: { lastReadAt: Date.now() - 14 * 60_000, error: { kind: "auth", at: Date.now() } } }),
+  } });
+  expect((await slot.findByText(/^GitHub last read/)).textContent).toBe("GitHub last read 14m ago: GitHub CLI isn’t signed in. Run gh auth login on the BB server.");
+  slot.lifecycle.unmount();
+});
