@@ -119,7 +119,7 @@ export const ChapterNav = memo(function ChapterNav({
                         </Badge>
                       )}
                       {skippable > 0 && <span>· {skippable} skippable</span>}
-                      {allSkippable && <span className="italic">· mostly tests — skim</span>}
+                      {allSkippable && <span className="italic">· generated files — skim</span>}
                     </div>
                   </button>
                   <button

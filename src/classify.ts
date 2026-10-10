@@ -1,6 +1,6 @@
 // Deterministic, LLM-free classification of a changed file by its path, so the
-// sidebar can tag files that are low-value to review (tests, generated output,
-// lockfiles) and let the reviewer skip them. Kept pure and shared between the
+// sidebar can tag files that are low-value to review (generated output,
+// lockfiles) and let the reviewer skip them. Tests get a tag but stay in review. Kept pure and shared between the
 // sidebar and the per-file diff badge.
 
 export type FileCategory = "test" | "generated" | "lockfile" | "docs" | "config" | "code";
@@ -23,6 +23,12 @@ const LOCKFILES = new Set([
   "composer.lock",
   "gemfile.lock",
   "go.sum",
+  "bun.lock",
+  "bun.lockb",
+  "uv.lock",
+  "pipfile.lock",
+  "flake.lock",
+  "package.resolved",
 ]);
 
 function base(path: string): string {
@@ -48,17 +54,21 @@ export function classifyFile(path: string): FileClass {
   if (
     /(^|\/)__tests__\//.test(p) ||
     /(^|\/)__snapshots__\//.test(p) ||
+    /(^|\/)(tests|spec)\//.test(p) ||
+    /(^|\/)src\/test\//.test(p) ||
     /\.(test|spec)\.[a-z0-9]+$/.test(name) ||
+    /_test\.(go|py)$/.test(name) ||
+    /^test_.+\.py$/.test(name) ||
     name.endsWith(".snap")
   ) {
-    return is("test", true);
+    return is("test", false);
   }
 
   if (
     /(^|\/)(dist|build|out|coverage)\//.test(p) ||
     /\.min\.[a-z0-9]+$/.test(name) ||
     /\.generated\.[a-z0-9]+$/.test(name) ||
-    name.endsWith(".d.ts")
+    (name.endsWith(".d.ts") && /(^|\/)generated\//.test(p))
   ) {
     return is("generated", true);
   }
