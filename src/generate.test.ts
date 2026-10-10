@@ -138,7 +138,7 @@ test("agents.configure exposes tools/skill only to this plugin's own generation 
   const mine = await h.harness.behavior.resolveAgentConfiguration(
     baseConfigContext("guided-review", "Generate guide: pr-1"),
   );
-  expect(mine.tools.map((t) => t.name)).toEqual(["read_review_patch", "read_changes_since_review", "generate_review_guide"]);
+  expect(mine.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_review_files", "read_changes_since_review", "generate_review_guide"]);
   expect(mine.skills).toEqual(["guided-review-generate"]);
 
   const foreign = await h.harness.behavior.resolveAgentConfiguration(
@@ -159,7 +159,7 @@ test("agents.configure exposes tools/skill only to this plugin's own generation 
   const agentThread = await h.harness.behavior.resolveAgentConfiguration(
     baseConfigContext("guided-review", "Review agent: pr-1"),
   );
-  expect(agentThread.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
+  expect(agentThread.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
     "list_feedback", "read_changes_since_review", "read_file", "assess_feedback", "draft_thread_reply"]);
   expect(agentThread.skills).toEqual([]);
 
@@ -241,4 +241,16 @@ test("files the guide leaves unplaced get a final low-risk chapter, so the revie
   const saved = store.getGuide("pr-1");
   expect(saved?.unplacedFiles).toEqual([]);
   expect(saved?.sections.at(-1)).toMatchObject({ id: "other-files", title: "Other files", risk: "low", diffs: [{ file: "logo.png", summary: expect.any(String) }] });
+});
+
+test("the guide writer lists the files first, and patch pages end on file boundaries", async () => {
+  const { buildGenerationPrompt } = await import("./generate");
+  expect(buildGenerationPrompt("pr-1", "g")).toContain("list_review_files");
+  const { harness, store } = await host();
+  const second = patch.replaceAll("a.ts", "b.ts");
+  store.savePatch("pr-1", patch + second);
+  const text = (out: any) => String(out.content?.[0]?.text ?? out);
+  expect(text(await harness.behavior.callAgentTool("list_review_files", { targetKey: "pr-1" }))).toMatch(/^a\.ts · modified · \+1 −1 · \d+ chars · code$/m);
+  const page = text(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", limit: patch.length + 20 }));
+  expect(page).toBe(`${patch}\n\n[${patch.length}/${patch.length + second.length} bytes — call again with offset=${patch.length}]`);
 });

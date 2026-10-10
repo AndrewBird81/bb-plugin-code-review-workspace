@@ -8,6 +8,7 @@ import { z } from "zod";
 import { rpcContract } from "./src/rpc-contract";
 import { createStore } from "./src/store";
 import { changedFiles, splitPatchByFile } from "./src/patch";
+import { describeReviewFiles, patchPage } from "./src/review-files";
 import { validateGuide, checkCoverage, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
@@ -57,7 +58,7 @@ export { rpcContract } from "./src/rpc-contract";
 
 
 // Raise when the review assistant's tools change.
-const ASSISTANT_TOOLS = 4;
+const ASSISTANT_TOOLS = 5;
 
 export default async function plugin(bb: BbPluginApi) {
   const store = createStore(bb);
@@ -558,11 +559,17 @@ export default async function plugin(bb: BbPluginApi) {
         const end = (offset ?? 0) + text.length;
         return text + (end < diff.text.length ? `\n\n[${end}/${diff.text.length} bytes — call again with offset=${end}]` : "");
       }
-      const { text, total } = store.readPatch(targetKey, offset, limit);
-      const end = (offset ?? 0) + text.length;
-      const more = end < total ? `\n\n[${end}/${total} bytes — call again with offset=${end}]` : "";
+      const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
+      const { text, end } = patchPage(patch, offset ?? 0, limit ?? 200_000);
+      const more = end < patch.length ? `\n\n[${end}/${patch.length} bytes — call again with offset=${end}]` : "";
       return text + more;
     },
+  });
+  bb.agents.registerTool({
+    name: "list_review_files",
+    description: "List a Guided Review target's changed files: path, status (added, deleted, modified, renamed), lines added and removed, diff size, and kind (code, test, docs, config, lockfile, generated).",
+    parameters: z.object({ targetKey: z.string() }),
+    execute: ({ targetKey }) => describeReviewFiles(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text),
   });
 
   // The review assistant's draft tools act only on its own review's local draft.
@@ -806,7 +813,7 @@ export default async function plugin(bb: BbPluginApi) {
     if (context.origin?.pluginId !== bb.pluginId) return { tools: [], skills: [] };
     const title = context.thread?.title ?? "";
     if (title.startsWith("Generate guide:")) {
-      return { tools: ["read_review_patch", "read_changes_since_review", "generate_review_guide"], skills: ["guided-review-generate"] };
+      return { tools: ["read_review_patch", "list_review_files", "read_changes_since_review", "generate_review_guide"], skills: ["guided-review-generate"] };
     }
     // The review assistant can read any file's diff on demand, so the chat
     // works across the whole review, and change its own review's local draft
@@ -816,7 +823,7 @@ export default async function plugin(bb: BbPluginApi) {
       const { targetKey } = context.pluginMetadata;
       const review = typeof targetKey === "string" ? store.getReview(targetKey) : null;
       return {
-        tools: ["read_review_patch", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
+        tools: ["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
           "list_feedback", "read_changes_since_review", "read_file", "assess_feedback", "draft_thread_reply"], skills: [],
         ...(review ? { instructions: assistantInstructions(review.targetKey, store.getGuide(review.targetKey), store.getPreferences().preferences) } : {}),
       };
