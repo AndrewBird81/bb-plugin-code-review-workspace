@@ -40,3 +40,18 @@ test("checkCoverage flags omitted, extra, and duplicated files", () => {
     expect(msg).toMatch(/missing.*b\.ts/i);
   }
 });
+
+test("validateGuide rejects duplicate chapter ids and chapters without files", () => {
+  const twice = validateGuide({ ...good, sections: [good.sections[0], { ...good.sections[0], diffs: [{ file: "b.ts", summary: "y" }] }] });
+  expect(twice.ok).toBe(false);
+  if (!twice.ok) expect(twice.errors.join(" ")).toContain("duplicate section id s1");
+  const empty = validateGuide({ ...good, sections: [{ ...good.sections[0], diffs: [] }] });
+  expect(empty.ok).toBe(false);
+  if (!empty.ok) expect(empty.errors.join(" ")).toMatch(/sections\.0\.diffs/);
+});
+
+test("validateGuide defaults a missing unplacedFiles to none", () => {
+  const { unplacedFiles: _, ...rest } = good;
+  const r = validateGuide(rest);
+  expect(r.ok && r.guide.unplacedFiles).toEqual([]);
+});

@@ -213,3 +213,19 @@ test("a failed rebuild keeps the guide you had", async () => {
   expect(store.getGuide("pr-1")?.title).toBe("Kept");
   expect(store.readPatch("pr-1").text).toBe(patch);
 });
+
+test("generate_review_guide advertises the guide's schema and accepts a guide without unplacedFiles", async () => {
+  const writer = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate"] });
+  await plugin(writer.bb);
+  const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("guided-review", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
+  const schema = JSON.stringify(tool?.inputSchema);
+  for (const field of ["intent", "overview", "risk", "summary", "unplacedFiles"]) expect(schema).toContain(`"${field}"`);
+  expect(schema).toContain("1–2 sentences");
+  const { harness, store, generationId } = await host();
+  const out = await harness.behavior.callAgentTool("generate_review_guide", {
+    targetKey: "pr-1", generationId,
+    guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] }] },
+  });
+  expect(out.isError).toBeFalsy();
+  expect(store.getGuide("pr-1")?.unplacedFiles).toEqual([]);
+});

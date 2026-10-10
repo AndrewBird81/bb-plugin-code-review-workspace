@@ -14,10 +14,12 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat code, co
 3. **Write** a one-line `title`, a 1–2 sentence `intent` (why the change exists), and for each
    section a concept-level `title`, a 2–6 sentence markdown `overview`, and its `diffs` — each
    `{ file, summary }` where `file` is the exact repo-relative path and `summary` is a 1–2
-   sentence semantic description of that file's change. Give each section a short kebab-case `id`.
-   Assign each section a `risk` of exactly `low`, `medium`, or `high` reflecting the blast radius
-   / likelihood of bugs in that chapter's changes (public API, auth, data, and concurrency changes
-   trend higher; docs/config trend lower).
+   sentence semantic description of that file's change. Give each section a short kebab-case `id`,
+   unique in the guide, and at least one file.
+   Assign each section a `risk` of exactly `low`, `medium`, or `high`: how closely the reviewer
+   must read it. `high` means read every line: auth or permissions, data migrations or deletes,
+   concurrency, money, a public API or wire format, or removed validation or error handling.
+   `low` means docs, tests only, or mechanical changes. Everything else is `medium`.
    On a re-review the task says so: keep the earlier guide's chapter ids, titles, and order where
    the files still fit, and write `sinceReview`: 2–4 sentences on what changed since the reviewer's
    last review, from `read_changes_since_review`. Leave `sinceReview` out otherwise.

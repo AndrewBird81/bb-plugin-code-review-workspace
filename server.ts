@@ -8,7 +8,7 @@ import { z } from "zod";
 import { rpcContract } from "./src/rpc-contract";
 import { createStore } from "./src/store";
 import { changedFiles, splitPatchByFile } from "./src/patch";
-import { validateGuide, checkCoverage } from "./src/guide";
+import { validateGuide, checkCoverage, GuideInputSchema } from "./src/guide";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
@@ -778,7 +778,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "generate_review_guide",
     description: "Submit the authored guide. Validates shape and coverage.",
-    parameters: z.object({ targetKey: z.string(), generationId: z.string(), guide: z.unknown() }),
+    parameters: z.object({ targetKey: z.string(), generationId: z.string(), guide: GuideInputSchema }),
     async execute({ targetKey, generationId, guide }) {
       if (!store.isCurrentGeneration(targetKey, generationId) || store.getReview(targetKey)?.status !== "generating") {
         return { content: [{ type: "text", text: "This generation was superseded or interrupted. Do not overwrite the current review." }], isError: true };
