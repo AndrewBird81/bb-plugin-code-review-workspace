@@ -148,9 +148,9 @@ export const ReviewList = memo(function ReviewList() {
   const [refreshing, setRefreshing] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [health, setHealth] = useState<SyncHealth>();
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = true) => {
     setRefreshing(true); setSyncError(false);
-    try { const result = await rpc.call("refreshReviews", null); setReviews(result.reviews); setHealth(result.sync); }
+    try { const result = await rpc.call("refreshReviews", { force }); setReviews(result.reviews); setHealth(result.sync); }
     catch { setSyncError(true); }
     finally { setRefreshing(false); }
   }, [rpc]);
@@ -160,7 +160,8 @@ export const ReviewList = memo(function ReviewList() {
   useRealtime("reviews", relist);
   useRealtime("gh-account", () => { void refresh(); });
   useEffect(() => {
-    const onFocus = () => { void refresh(); };
+    // Coming back to the window reads only what's due; Refresh reads everything.
+    const onFocus = () => { void refresh(false); };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);

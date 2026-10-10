@@ -68,7 +68,8 @@ export const rpcContract = defineRpcContract({
 
   // Task 10: read data plane. sync: how reading GitHub went (src/review-lifecycle.ts SyncHealth).
   listReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
-  refreshReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
+  /** force: false reads only what's due, as the background sync does; true or null reads everything now. */
+  refreshReviews: { input: z.object({ force: z.boolean() }).strict().nullable(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
   getReview: { input: targetKey, output: z.object({ review: z.any().nullable() }) },
   getGuide: { input: targetKey, output: z.object({ guide: z.any().nullable(), status: z.string() }) },
   getPatch: { input: targetKey, output: z.object({ patch: z.string() }) },

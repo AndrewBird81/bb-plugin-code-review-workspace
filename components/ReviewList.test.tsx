@@ -96,3 +96,22 @@ test("the list says when GitHub was last read, and why it can't be now", async (
   expect((await slot.findByText(/^GitHub last read/)).textContent).toBe("GitHub last read 14m ago: GitHub CLI isn’t signed in. Run gh auth login on the BB server.");
   slot.lifecycle.unmount();
 });
+
+test("focusing the window runs a normal pass; only Refresh forces a full read", async () => {
+  const { expect } = await import("vitest");
+  const { fireEvent, waitFor } = await import("@testing-library/react");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [] }),
+    refreshReviews: () => ({ reviews: [] }),
+  } });
+  const refreshes = () => slot.inspection.rpcCalls.filter((call) => call.method === "refreshReviews").map((call) => call.input);
+  await slot.findByText("No reviews yet");
+  fireEvent(window, new Event("focus"));
+  await waitFor(() => expect(refreshes()).toEqual([{ force: false }]));
+  fireEvent.click(slot.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(refreshes()).toEqual([{ force: false }, { force: true }]));
+  slot.lifecycle.unmount();
+});

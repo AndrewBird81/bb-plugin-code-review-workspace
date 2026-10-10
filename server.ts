@@ -301,8 +301,8 @@ export default async function plugin(bb: BbPluginApi) {
       // output check rejects; round-trip through JSON to drop them.
       return { reviews: store.listReviews().map(decorate), sync: sync.health() };
     },
-    async refreshReviews() {
-      await sync.all(true);
+    async refreshReviews(input) {
+      await sync.all(input?.force ?? true);
       return { reviews: store.listReviews().map(decorate), sync: sync.health() };
     },
     getReview({ targetKey }) {
