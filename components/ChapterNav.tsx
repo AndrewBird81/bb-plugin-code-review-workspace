@@ -16,8 +16,8 @@ interface Section {
   risk?: string;
 }
 
-const RISK_TONE: Record<string, Tone> = { high: "danger", medium: "warning", low: "neutral" };
-const RISK_LABEL: Record<string, string> = { high: "High risk", medium: "Medium risk", low: "Low risk" };
+export const RISK_TONE: Record<string, Tone> = { high: "danger", medium: "warning", low: "neutral" };
+export const RISK_LABEL: Record<string, string> = { high: "High risk", medium: "Medium risk", low: "Low risk" };
 
 /**
  * A chapter's step on the guide's path: its number inside a ring that fills

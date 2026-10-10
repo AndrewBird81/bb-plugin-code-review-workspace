@@ -14,6 +14,7 @@ import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { ReviewHeader, ReviewTitleLink } from "./ReviewHeader";
 import { ChapterNav } from "./ChapterNav";
+import { ChapterIntro } from "./ChapterIntro";
 import { DiffViewer, type FileViewFlags } from "./DiffViewer";
 import { DraftTray, type CommentPrefill } from "./DraftTray";
 import { RereviewBanner } from "./RereviewBanner";
@@ -260,10 +261,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     else if (rootRef.current?.requestFullscreen) void rootRef.current.requestFullscreen().catch(() => {});
   }, []);
 
-  const activeFiles: string[] = useMemo(() => {
-    const s = guide?.sections?.find((x: any) => x.id === activeId);
-    return s ? s.diffs.map((d: any) => d.file) : [];
-  }, [guide, activeId]);
+  const activeIndex: number = guide?.sections?.findIndex((x: any) => x.id === activeId) ?? -1;
+  const activeSection = activeIndex >= 0 ? guide.sections[activeIndex] : undefined;
+  const activeFiles: string[] = useMemo(() => activeSection ? activeSection.diffs.map((d: any) => d.file) : [], [activeSection]);
+  const summaries = useMemo(() => new Map<string, string>(activeSection?.diffs.flatMap((d: any) => d.summary ? [[d.file, d.summary]] : []) ?? []), [activeSection]);
 
   useEffect(() => {
     setCurrentFile(activeFiles[0]);
@@ -651,11 +652,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           </div>
           <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-4">
             {view === "diff" ? (
+              <>
+              {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={guide.sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
               <DiffViewer
                 diffLayout={diffLayout}
                 themeMode={codeTheme.mode}
                 patch={patch}
                 files={activeFiles}
+                summaries={summaries}
                 views={views}
                 onToggleViewed={toggleViewed}
                 registerFileEl={registerFileEl}
@@ -665,6 +669,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 sinceOnly={sinceOnly}
                 showRemoved={activeId === guide.sections.at(-1)?.id}
               />
+              </>
             ) : view === "feedback" ? (
               <FeedbackPanel
                 targetKey={targetKey}

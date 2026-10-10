@@ -10,6 +10,7 @@ import { Icon } from "./ui/icon";
 import { Badge } from "./ui/badge";
 import { DiffStat } from "./ui/diff-stat";
 import { FilePath } from "./ui/file-path";
+import { InlineCode } from "./ui/inline-code";
 import { FileTag } from "./FileTag";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { InlineDraftContext, InlineLocation, locationKey } from "./InlineDraft";
@@ -159,6 +160,7 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
 export const DiffViewer = memo(function DiffViewer({
   patch,
   files,
+  summaries,
   views,
   onToggleViewed,
   registerFileEl,
@@ -174,6 +176,8 @@ export const DiffViewer = memo(function DiffViewer({
   themeMode?: "light" | "dark";
   patch: string;
   files: string[];
+  /** The guide's summary of each file, shown under its path. */
+  summaries?: Map<string, string>;
   views: Map<string, FileViewFlags>;
   onToggleViewed: (file: string, viewed: boolean) => void;
   registerFileEl?: (file: string, el: HTMLElement | null) => void;
@@ -342,7 +346,10 @@ export const DiffViewer = memo(function DiffViewer({
               >
                 <Icon name="ChevronDown" className={cn("size-3.5 transition-transform duration-150", folded && "-rotate-90")} aria-hidden />
               </button>
-              <FilePath path={path} className="min-w-0 flex-1 text-xs" nameClassName="font-medium" />
+              <div className="min-w-0 flex-1">
+                <FilePath path={path} className="text-xs" nameClassName="font-medium" />
+                {summaries?.get(path) && <p className="mt-0.5 text-xs leading-snug text-muted-foreground"><InlineCode text={summaries.get(path)!} /></p>}
+              </div>
               <FileTag file={path} />
               {commentCount > 0 && (
                 <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 text-[11px] leading-5 text-primary" title={commentLabel}>

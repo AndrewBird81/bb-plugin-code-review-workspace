@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, within } from "@testing-library/react";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
@@ -57,4 +57,23 @@ test("reopening a review returns to the chapter you were on", async () => {
   await slot.findByText("bb");
   expect(currentChapter(slot)?.textContent).toContain("Caching");
   slot.lifecycle.unmount();
+});
+
+test("the diff opens on the chapter's intro and shows each file's summary in its header", async () => {
+  const overview = "Rows are cached by id. The cache evicts the **oldest** row first. Writes go through the cache. Reads fall back to the store. Nothing else changes.";
+  const { slot } = await renderWorkspace({ bundle: { guide: { ...guide, sections: [{ ...guide.sections[0], overview, risk: "high" }, guide.sections[1]] } } });
+  const main = within(slot.getByRole("main"));
+  const intro = within(await main.findByRole("region", { name: "Parsing" }));
+  expect(intro.getByText("High risk")).toBeTruthy();
+  expect(intro.getByText(/Nothing else changes\./)).toBeTruthy();
+  expect(within(slot.container.querySelector<HTMLElement>('[data-file="src/a.ts"]')!).getByText("Reads a row.")).toBeTruthy();
+  // Hiding the overview sticks in this browser.
+  fireEvent.click(intro.getByRole("button", { name: "Hide chapter overview" }));
+  expect(intro.queryByText(/Nothing else changes\./)).toBeNull();
+  slot.lifecycle.unmount();
+  const again = await renderWorkspace();
+  const reopened = within(await within(again.slot.getByRole("main")).findByRole("region", { name: "Parsing" }));
+  expect(reopened.getByRole("button", { name: "Show chapter overview" }).getAttribute("aria-expanded")).toBe("false");
+  expect(reopened.queryByText("Reads rows.")).toBeNull();
+  again.slot.lifecycle.unmount();
 });
