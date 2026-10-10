@@ -690,6 +690,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "read_file",
     description: "Read a file of this PR at the PR's head (ref \"current\") or at the commit the reviewer last reviewed (ref \"reviewed\"), with line numbers. Returns up to 400 lines from startLine.",
+    instructions: "To read code beyond the diff at the PR's head without changing anything: if your working directory is a git checkout of the PR's repository, run `git fetch origin +pull/<number>/head:refs/guided-review/pr-<number>`, then `git show refs/guided-review/pr-<number>:<path>` or `git grep <pattern> refs/guided-review/pr-<number>`. Never check out, commit, push, or change the working tree. Otherwise, use read_file.",
     parameters: z.object({
       path: z.string().min(1).describe("Repo-relative path."),
       ref: z.enum(["current", "reviewed"]).optional(),
