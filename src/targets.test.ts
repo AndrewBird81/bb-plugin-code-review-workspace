@@ -40,3 +40,16 @@ test("different repositories and local workspaces never share review or draft ke
 test.each(["https://evilgithub.com/acme/web/pull/7", "https://example.com/github.com/acme/web/pull/7", "https://github.com/acme/web/pull/7oops", "https://github.com/acme/web/pull/0"])("rejects misleading PR URL %s", (url) => {
   expect(parseTarget(url).kind).toBe("ref");
 });
+
+test.each([
+  "https://www.github.com/acme/web/pull/7",
+  "https://github.com/acme/web/pull/7/changes",
+  "https://github.com/acme/web/pull/7/files/abc123..def456",
+  "https://github.com/acme/web/pull/7/commits/0123456789abcdef",
+  "https://github.com/acme/web/pull/7/",
+  "https://github.com/acme/web/pull/7/files/?w=1",
+  "github.com/acme/web/pull/7#discussion_r1",
+  "https://github.com/acme/web/pull/7/changes?diff=split#r2",
+])("accepts the PR URL form %s", (url) => {
+  expect(parseTarget(url)).toEqual({ kind: "pr", number: 7, repo: "acme/web" });
+});
