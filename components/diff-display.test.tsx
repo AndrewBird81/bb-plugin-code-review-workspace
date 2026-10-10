@@ -139,3 +139,26 @@ test("the toolbar switches between split and unified, and saves the layout", asy
   expect(savePreferences).toHaveBeenCalledWith({ preferences: { ...defaultPreferences, diffLayout: "unified" }, revision: 0 });
   slot.lifecycle.unmount();
 });
+
+test("Wrap lines wraps the diff's code and sticks in this browser, and starts on in a compact workspace", async () => {
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  expect(drawn.at(-1)!.options.overflow).not.toBe("wrap");
+  const wrap = within(slot.getByRole("main")).getByRole("button", { name: "Wrap lines" });
+  expect(wrap.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(wrap);
+  await waitFor(() => expect(drawn.at(-1)!.options.overflow).toBe("wrap"));
+  slot.lifecycle.unmount();
+  drawn.length = 0;
+  const again = await renderWorkspace();
+  await again.slot.findByText("aa");
+  expect(drawn.at(-1)!.options.overflow).toBe("wrap");
+  again.slot.lifecycle.unmount();
+  localStorage.clear();
+  const restore = fakeWidth(600);
+  const compact = await renderWorkspace();
+  await compact.slot.findByText("aa");
+  await waitFor(() => expect(drawn.at(-1)!.options.overflow).toBe("wrap"));
+  compact.slot.lifecycle.unmount();
+  restore();
+});

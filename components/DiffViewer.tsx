@@ -88,7 +88,7 @@ function parseFileDiff(text: string): FileDiffMetadata | null {
 }
 
 /** A diff to read, not comment on: a removed file or changes gone since your review. */
-const StaticDiff = memo(function StaticDiff({ text, darkTheme, lightTheme, themeMode }: { text: string; darkTheme?: string; lightTheme?: string; themeMode?: "light" | "dark" }) {
+const StaticDiff = memo(function StaticDiff({ text, darkTheme, lightTheme, themeMode, wrap }: { text: string; darkTheme?: string; lightTheme?: string; themeMode?: "light" | "dark"; wrap: boolean }) {
   const fileDiff = useMemo(() => parseFileDiff(text), [text]);
   const options = useMemo<FileDiffOptions<undefined>>(() => ({
     ...(darkTheme && lightTheme ? { theme: { dark: darkTheme, light: lightTheme } } : {}),
@@ -96,20 +96,21 @@ const StaticDiff = memo(function StaticDiff({ text, darkTheme, lightTheme, theme
     diffStyle: "unified",
     disableFileHeader: true,
     tokenizeMaxLength: TOKENIZE_MAX_LENGTH,
-  }), [darkTheme, lightTheme, themeMode]);
+    overflow: wrap ? "wrap" : "scroll",
+  }), [darkTheme, lightTheme, themeMode, wrap]);
   if (!fileDiff) return null;
   return <div className="overflow-x-auto"><FileDiff fileDiff={fileDiff} options={options} /></div>;
 });
 
 /** A collapsible diff that draws only while open. */
-function DiffDetails({ summary, text, defaultOpen = false, className, theme, themeMode }: {
-  summary: ReactNode; text: string; defaultOpen?: boolean; className?: string; theme?: { dark: string; light: string }; themeMode?: "light" | "dark";
+function DiffDetails({ summary, text, defaultOpen = false, className, theme, themeMode, wrap }: {
+  summary: ReactNode; text: string; defaultOpen?: boolean; className?: string; theme?: { dark: string; light: string }; themeMode?: "light" | "dark"; wrap: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)} className={className}>
       {summary}
-      {open && <StaticDiff text={text} darkTheme={theme?.dark} lightTheme={theme?.light} themeMode={themeMode} />}
+      {open && <StaticDiff text={text} darkTheme={theme?.dark} lightTheme={theme?.light} themeMode={themeMode} wrap={wrap} />}
     </details>
   );
 }
@@ -129,13 +130,14 @@ function renderAnnotation({ metadata }: DiffLineAnnotation<Annotation>) {
 // One file's diff. Pierre redraws a file whenever its options or annotations
 // are new objects, which also takes focus from an open comment box, so both
 // stay the same until something in them changes.
-const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme, themeMode, diffStyle, annotations, selected, onLineSelected, onComment, unsafeCSS }: {
+const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme, themeMode, diffStyle, wrap, annotations, selected, onLineSelected, onComment, unsafeCSS }: {
   path: string;
   fileDiff: FileDiffMetadata;
   darkTheme?: string;
   lightTheme?: string;
   themeMode?: "light" | "dark";
   diffStyle: "split" | "unified";
+  wrap: boolean;
   annotations: DiffLineAnnotation<Annotation>[];
   /** The lines picked in this file, until the workspace is done with them. */
   selected: SelectedLineRange | null;
@@ -159,6 +161,7 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
     // The card's own header names the file, counts its changes, and marks it viewed.
     disableFileHeader: true,
     tokenizeMaxLength: TOKENIZE_MAX_LENGTH,
+    overflow: wrap ? "wrap" : "scroll",
     ...(unsafeCSS ? { unsafeCSS } : {}),
     // GitHub-style line picking: drag to select a range to comment on or ask
     // about, or use the gutter "+" to open a comment box at a line.
@@ -179,7 +182,7 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
       queueMicrotask(() => { fromGutter.current = false; });
       onComment({ file: path, line: range.end, side: (range.endSide ?? range.side) === "deletions" ? "LEFT" : "RIGHT" });
     },
-  }), [darkTheme, lightTheme, themeMode, diffStyle, path, onLineSelected, onComment, unsafeCSS]);
+  }), [darkTheme, lightTheme, themeMode, diffStyle, wrap, path, onLineSelected, onComment, unsafeCSS]);
   return (
     <div className="overflow-x-auto">
       <FileDiff fileDiff={fileDiff} options={options} lineAnnotations={annotations} selectedLines={shown} renderAnnotation={renderAnnotation} />
@@ -198,12 +201,15 @@ export const DiffViewer = memo(function DiffViewer({
   selectedLines,
   themeMode,
   diffLayout = "split",
+  wrapLines = false,
   reveal,
   since,
   sinceOnly = false,
   showRemoved = true,
 }: {
   diffLayout?: "split" | "unified";
+  /** Wrap long lines instead of scrolling them sideways. */
+  wrapLines?: boolean;
   themeMode?: "light" | "dark";
   patch: string;
   files: string[];
@@ -333,7 +339,7 @@ export const DiffViewer = memo(function DiffViewer({
   const unchangedNote = unchanged > 0 && <p className="text-center text-xs text-muted-foreground">{unchanged} file{unchanged === 1 ? "" : "s"} unchanged since your review</p>;
   const removedCards = removed.map((file) => (
     <section key={file.file} aria-label={`${file.file} removed`} className="overflow-clip rounded-lg border border-dashed border-border bg-card">
-      <DiffDetails text={file.dropped} theme={theme} themeMode={themeMode} summary={
+      <DiffDetails text={file.dropped} theme={theme} themeMode={themeMode} wrap={wrapLines} summary={
         <summary className="flex min-h-10 cursor-pointer items-center gap-2 px-2 py-1.5 text-xs">
           <Icon name="FileX2" className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
           <FilePath path={file.file} className="min-w-0 flex-1 line-through decoration-muted-foreground/50" />
@@ -426,6 +432,7 @@ export const DiffViewer = memo(function DiffViewer({
                 lightTheme={theme?.light}
                 themeMode={themeMode}
                 diffStyle={compact || narrow ? "unified" : diffLayout}
+                wrap={wrapLines}
                 annotations={annotations.get(path)?.list ?? []}
                 selected={selectedLines?.file === path ? selectedLines.range : null}
                 onLineSelected={onLineSelected}
@@ -434,7 +441,7 @@ export const DiffViewer = memo(function DiffViewer({
               />
             )}
             {!folded && filtering && change?.dropped && (
-              <DiffDetails text={change.dropped} defaultOpen={!fileDiff} theme={theme} themeMode={themeMode} className={cn(fileDiff && "border-t border-border")}
+              <DiffDetails text={change.dropped} defaultOpen={!fileDiff} theme={theme} themeMode={themeMode} wrap={wrapLines} className={cn(fileDiff && "border-t border-border")}
                 summary={<summary className="cursor-pointer px-3 py-1.5 text-xs text-muted-foreground">Changes gone since your review</summary>} />
             )}
           </div>

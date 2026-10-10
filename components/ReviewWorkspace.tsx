@@ -9,7 +9,7 @@ import { baselineOf, computeTurn, type TurnReason } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
-import { getReviewState, patchReviewState, setLastReview } from "../lib/panel-state";
+import { getReviewState, getWrapLines, patchReviewState, setLastReview, setWrapLines } from "../lib/panel-state";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { ReviewHeader, ReviewTitleLink } from "./ReviewHeader";
@@ -148,6 +148,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const compact = rootWidth === null ? compactViewport : rootWidth < 768;
   // Without a choice of your own, Focus gives a compact workspace's diff the room.
   const focus = chosenFocus ?? compact;
+  // Likewise long lines wrap there, rather than scroll sideways.
+  const [chosenWrap, setChosenWrap] = useState(getWrapLines);
+  const wrapLines = chosenWrap ?? compact;
   const didRestoreScroll = useRef(false);
   const reducedMotion =
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -825,6 +828,19 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   <span className="hidden @min-[1280px]/review:inline">Split</span>
                 </Button>
               </Hint>}
+              {view === "diff" && <Hint label="Wrap lines" container={rootEl}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Wrap lines"
+                  aria-pressed={wrapLines}
+                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
+                  onClick={() => { setChosenWrap(!wrapLines); setWrapLines(!wrapLines); }}
+                >
+                  <Icon name="TextWrap" className="size-3.5" aria-hidden />
+                  <span className="hidden @min-[1280px]/review:inline">Wrap</span>
+                </Button>
+              </Hint>}
               <Hint label="Focus mode" container={rootEl}>
                 <Button
                   variant="ghost"
@@ -859,6 +875,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
               <DiffViewer
                 diffLayout={diffLayout}
+                wrapLines={wrapLines}
                 themeMode={codeTheme.mode}
                 patch={patch}
                 files={activeFiles}
