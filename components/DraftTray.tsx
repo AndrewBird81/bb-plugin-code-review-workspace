@@ -4,7 +4,7 @@ import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
-import { isSummary, sameLocation, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type CommentLocation, type Discussion, type Draft, type DraftComment, type Verdict } from "../src/draft";
+import { commentsKey, isSummary, sameLocation, summaryChanges, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type CommentLocation, type Discussion, type Draft, type DraftComment, type Verdict } from "../src/draft";
 import { Button, buttonVariants } from "./ui/button";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
@@ -78,6 +78,12 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
   const [writeAnother, setWriteAnother] = useState(false);
   const [receipt, setReceipt] = useState<Verdict | null>(null);
+  // Submit asked whether you're sure; any change to the draft asks again.
+  const [confirming, setConfirming] = useState(false);
+  const confirmCancelRef = useRef<HTMLButtonElement>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
+  const draftKey = `${draft.verdict}\0${draft.body}\0${commentsKey(draft.comments)}`;
+  useEffect(() => setConfirming(false), [draftKey]);
   // The review this panel posted, on GitHub.
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [tab, setTab] = useState<"draft" | "notes" | "agent">(() => {
@@ -361,8 +367,11 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
       focusSummary();
     });
   }
-  async function submit() {
+  /** Submit the draft; against the agent's suggestion or with the summary out of date, only once you confirm. */
+  async function submit(confirmed = false) {
     if (isLocal || !loaded || body.trim()) return;
+    if (doubts.length && !confirmed) { setConfirming(true); requestAnimationFrame(() => confirmCancelRef.current?.focus()); return; }
+    setConfirming(false);
     await mutate(async () => {
       // What this page shows; the server refuses a draft that changed since.
       const { verdict, body: summary } = draft;
@@ -440,6 +449,15 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     : needsSummary ? "Requesting changes needs a summary: say what has to change."
     : "Drafts stay in BB until you submit.";
   const suggested = draft.suggestedVerdict;
+  const changes = summaryChanges(draft);
+  // Why Submit asks once more: the agent suggested another verdict, or its summary no longer fits.
+  const doubts = [
+    ...(suggested && suggested !== draft.verdict ? [`The agent suggested ${VERDICT_LABEL[suggested]}.`] : []),
+    ...(changes.comments && changes.verdict ? [`Your comments changed, and the summary was written for ${VERDICT_LABEL[changes.verdict]}.`]
+      : changes.comments ? ["Your comments changed since the agent wrote the summary."]
+      : changes.verdict ? [`The summary was written for ${VERDICT_LABEL[changes.verdict]}.`] : []),
+  ];
+  const commentCount = draft.comments.length;
   return <InlineDraftContext.Provider value={inlineDraft}><InlineComposerContext.Provider value={inlineComposer}>
   {children}
   <aside aria-label="Review tools" className={cn("flex max-h-[50vh] min-h-0 shrink-0 flex-col border-t border-border bg-background @min-[1024px]/review:h-full @min-[1024px]/review:max-h-none @min-[1024px]/review:flex-row-reverse @min-[1024px]/review:border-l @min-[1024px]/review:border-t-0", toolsOpen ? "@min-[1024px]/review:w-[384px]" : "@min-[1024px]/review:w-11", toolsOpen && tab === "agent" && "h-[50vh]")}>
@@ -527,7 +545,14 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
                 </Button>)}
               </div>
               {suggested && (suggested !== draft.verdict || !verdictPicked(draft)) && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />Agent suggests {VERDICT_LABEL[suggested]}</p>}
-              <Button className="w-full gap-2" disabled={busy || rebuilding || !hasReview || writing || needsSummary || staleComments.length > 0} onClick={() => void submit()}>{busy ? <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-4" aria-hidden />}{busy ? "Saving…" : "Submit to GitHub"}</Button>
+              {confirming ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
+                <p>Submit {VERDICT_LABEL[draft.verdict]}{commentCount ? ` with ${commentCount} comment${commentCount === 1 ? "" : "s"}` : ""}? {doubts.join(" ")}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" disabled={busy || rebuilding || !hasReview || writing || needsSummary || staleComments.length > 0} onClick={() => void submit(true)}>Submit anyway</Button>
+                  <Button ref={confirmCancelRef} size="sm" variant="ghost" onClick={() => { setConfirming(false); requestAnimationFrame(() => submitRef.current?.focus()); }}>Cancel</Button>
+                </div>
+              </div>
+              : <Button ref={submitRef} className="w-full gap-2" disabled={busy || rebuilding || !hasReview || writing || needsSummary || staleComments.length > 0} onClick={() => void submit()}>{busy ? <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-4" aria-hidden />}{busy ? "Saving…" : "Submit to GitHub"}</Button>}
             </>}
             <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
           </footer>

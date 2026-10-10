@@ -223,3 +223,40 @@ test("after saving, focus goes to the saved comment; after cancelling, back to w
   await waitFor(() => expect(document.activeElement?.getAttribute("data-comment-at")).toBe("src/a.ts:1:RIGHT"));
   slot.lifecycle.unmount();
 });
+
+test("Submit asks once more when the verdict isn't the agent's suggestion or the summary is out of date", async () => {
+  const comments = [1, 2, 3].map((line) => ({ file: "src/a.ts", line, side: "RIGHT", body: `Note ${line}` }));
+  let draft = draftOf({ verdict: "APPROVE", verdictChosen: true, suggestedVerdict: "REQUEST_CHANGES", body: "One blocker.", comments });
+  const submitReview = vi.fn(async () => ({ ok: true }));
+  const slot = await renderTray("confirm", { getDraft: () => ({ draft, stale: [], discussions: [] }), submitReview });
+  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  const ask = await slot.findByRole("alert");
+  expect(ask.textContent).toContain("Submit Approve with 3 comments? The agent suggested Request changes.");
+  expect(submitReview).not.toHaveBeenCalled();
+  await waitFor(() => expect(document.activeElement).toBe(within(ask).getByRole("button", { name: "Cancel" })));
+  fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+  expect(slot.queryByRole("alert")).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(slot.getByRole("button", { name: "Submit to GitHub" })));
+  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  fireEvent.click(within(await slot.findByRole("alert")).getByRole("button", { name: "Submit anyway" }));
+  await waitFor(() => expect(submitReview).toHaveBeenCalledTimes(1));
+  slot.lifecycle.unmount();
+});
+
+test("an out-of-date summary asks once more; a verdict matching the suggestion and a current summary submit in one click", async () => {
+  const comments = [{ file: "src/a.ts", line: 1, side: "RIGHT", body: "Nit" }];
+  let draft = draftOf({ suggestedVerdict: "COMMENT", body: "All fine.", bodyAuthor: "agent", written: { verdict: null, comments: "0:0" }, comments });
+  const submitReview = vi.fn(async () => ({ ok: false, error: "Not now." }));
+  const slot = await renderTray("outdated", { getDraft: () => ({ draft, stale: [], discussions: [] }), submitReview });
+  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  expect((await slot.findByRole("alert")).textContent).toContain("Submit Comment with 1 comment? Your comments changed since the agent wrote the summary.");
+  expect(submitReview).not.toHaveBeenCalled();
+  fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
+  // The summary is yours now.
+  draft = draftOf({ suggestedVerdict: "COMMENT", body: "All fine.", comments });
+  await slot.emitRealtime("draft:outdated", {});
+  await waitFor(() => expect(slot.queryByText("Your comments changed since the agent wrote this.")).toBeNull());
+  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  await waitFor(() => expect(submitReview).toHaveBeenCalledTimes(1));
+  slot.lifecycle.unmount();
+});
