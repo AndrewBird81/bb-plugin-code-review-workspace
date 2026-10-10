@@ -215,7 +215,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
         placeholder={mode === "ask" ? summary ? "Ask about the summary, or say what to change" : "Ask about this, or say what to change" : summary ? "What should the author know overall?" : "What should the author know?"}
         className={cn("bg-background text-sm", summary && mode !== "ask" ? "min-h-28" : "min-h-20")}
       />
-      {mode !== "ask" && <ComposerNotes {...composer} />}
+      {mode !== "ask" && <ComposerNotes error={composer.error} rebuilding={composer.rebuilding} keepOnCurrentDiff={composer.keepOnCurrentDiff} />}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {mode === "ask" && <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Goes to the agent, not GitHub.</span>}
         <Button variant="ghost" size="sm" disabled={busy} onClick={composer.cancel}>Cancel</Button>
