@@ -1,7 +1,7 @@
 // Draft comments as agents and `bb review comment` change them. Everything
 // here edits this bb's local draft; only the reviewer submits it to GitHub.
-import type { ReviewMeta, Store } from "./store";
-import { sameLocation, type CommentLocation } from "./draft";
+import type { PreviousState, ReviewMeta, Store } from "./store";
+import { isSummary, sameLocation, type CommentLocation, type DraftComment } from "./draft";
 import { diffPositions } from "./review-positions";
 
 /** A comment's location as callers give it; side defaults to RIGHT. */
@@ -71,17 +71,20 @@ export function addComment(store: Store, targetKey: string, input: NewComment): 
   const existing = store.getDraft(targetKey).comments.find((c) => sameLocation(c, at));
   if (existing) return { ok: false, error: `${where(at)} already has a draft comment: "${existing.body.slice(0, 300)}". Edit it instead, or make your point elsewhere. Nothing was added.` };
   store.upsertDraftComment(targetKey, { ...at, author: "agent", body: input.body.trim() });
-  store.noteDiscussionChange(targetKey, at, "added");
+  store.noteDiscussionChange(targetKey, at, "added", { body: input.body.trim(), previous: null });
   return { ok: true, text: `Added a draft comment on ${where(at)}. It stays in bb until the reviewer submits the review.` };
 }
+
+const before = (comment: DraftComment): PreviousState => ({ body: comment.body, ...(comment.author ? { author: comment.author } : {}), ...(comment.chapterId ? { chapterId: comment.chapterId } : {}) });
 
 /** Replace a comment's text. Its location, author, and the diff it was drafted against stay. */
 export function editComment(store: Store, targetKey: string, input: LocationInput & { body: string }): DraftResult {
   const refused = unchangeable(store.getReview(targetKey));
   if (refused) return { ok: false, error: refused };
   const at = located(input);
-  if (!store.editDraftComment(targetKey, at, input.body.trim())) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
-  store.noteDiscussionChange(targetKey, at, "edited");
+  const comment = store.getDraft(targetKey).comments.find((c) => sameLocation(c, at));
+  if (!comment || !store.editDraftComment(targetKey, at, input.body.trim())) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
+  store.noteDiscussionChange(targetKey, at, "edited", { body: input.body.trim(), previous: before(comment) });
   return { ok: true, text: `Updated the draft comment on ${where(at)}.` };
 }
 
@@ -89,9 +92,47 @@ export function deleteComment(store: Store, targetKey: string, input: LocationIn
   const refused = unchangeable(store.getReview(targetKey));
   if (refused) return { ok: false, error: refused };
   const at = located(input);
-  if (!store.deleteDraftComment(targetKey, at)) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
-  store.noteDiscussionChange(targetKey, at, "removed");
+  const comment = store.getDraft(targetKey).comments.find((c) => sameLocation(c, at));
+  if (!comment || !store.deleteDraftComment(targetKey, at)) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
+  store.noteDiscussionChange(targetKey, at, "removed", { body: "", previous: before(comment) });
   return { ok: true, text: `Deleted the draft comment on ${where(at)}.` };
+}
+
+/** The comment's text at a location, or the summary's; null when there's none. */
+function textAt(store: Store, targetKey: string, at: CommentLocation): string | null {
+  const draft = store.getDraft(targetKey);
+  if (isSummary(at)) return draft.body.trim() ? draft.body : null;
+  return draft.comments.find((c) => sameLocation(c, at))?.body ?? null;
+}
+
+/** Whether the agent's latest change in a discussion can be undone: nothing changed its comment or the summary since. */
+export function canUndo(store: Store, targetKey: string, at: CommentLocation): boolean {
+  const change = store.lastDiscussionChange(targetKey, at);
+  if (!change) return false;
+  const text = textAt(store, targetKey, at);
+  return change.kind === "removed" ? text === null : text === change.body;
+}
+
+/** Put back what the agent's latest change in a discussion replaced: a comment's text, a removed comment, or the summary. */
+export function undoChange(store: Store, targetKey: string, at: CommentLocation): DraftResult {
+  const refused = unchangeable(store.getReview(targetKey));
+  if (refused) return { ok: false, error: refused };
+  const change = store.lastDiscussionChange(targetKey, at);
+  if (!change || !canUndo(store, targetKey, at)) return { ok: false, error: `It changed since the agent's edit, so there's nothing to undo. Edit it instead.` };
+  const { previous } = change;
+  if (isSummary(at)) {
+    store.updateSummary(targetKey, { body: previous?.body ?? "", bodyAuthor: previous?.author, written: previous?.written });
+  } else if (!previous) {
+    store.deleteDraftComment(targetKey, at);
+  } else if (change.kind === "removed") {
+    const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
+    if (!diffPositions(patch).get(at.file)?.[at.side === "RIGHT" ? "right" : "left"].has(at.line)) return { ok: false, error: `${where(at)} isn't in the diff anymore, so the comment can't go back there.` };
+    store.upsertDraftComment(targetKey, { ...at, body: previous.body, ...(previous.author ? { author: previous.author } : {}), ...(previous.chapterId ? { chapterId: previous.chapterId } : {}) });
+  } else {
+    store.editDraftComment(targetKey, at, previous.body);
+  }
+  store.noteDiscussionRestored(targetKey, at);
+  return { ok: true, text: isSummary(at) ? "Put the summary back." : `Put the comment on ${where(at)} back.` };
 }
 
 /** Answer the reviewer in the discussion they started at a line. */

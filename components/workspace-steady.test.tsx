@@ -34,7 +34,7 @@ const thread = (id: string, path: string, url: string | null) => ({
   thread: { id, commentId: 1, reviewId: "R1", path, line: 2, originalLine: 2, startLine: null, side: "RIGHT" as const, subjectType: "LINE" as const, body: "Handle it.", createdAt: now - 3 * DAY, isResolved: false, resolvedBy: null, isOutdated: false, replies: [], status: "open" as const, replyAt: null, url },
 });
 const feedback: FeedbackView = {
-  baseline: { sha: "old", at: now - 3 * DAY, verdict: "REQUEST_CHANGES" }, head: "new", fetchedAt: now, run: null,
+  baseline: { sha: "old", at: now - 3 * DAY, verdict: "REQUEST_CHANGES" }, head: "new", fetchedAt: now, run: null, suggestionInDraft: false,
   items: [thread("T1", "src/gone.ts", "https://github.com/acme/web/pull/42#discussion_r1")],
 };
 

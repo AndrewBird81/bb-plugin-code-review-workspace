@@ -13,7 +13,8 @@ import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
 import { listMachines } from "./src/machines";
-import { addComment, assistantReview, deleteComment, describeComments, editComment, replyInDiscussion, type DraftResult } from "./src/draft-comments";
+import { addComment, assistantReview, canUndo, deleteComment, describeComments, editComment, replyInDiscussion, undoChange, type DraftResult } from "./src/draft-comments";
+import { commentsKey } from "./src/draft";
 import { askAgent, settleDiscussions } from "./src/discussions";
 import { runCommentCommand } from "./src/comment-command";
 import { isMissingThread } from "./src/thread-errors";
@@ -204,8 +205,9 @@ export default async function plugin(bb: BbPluginApi) {
           if (!body) return { ok: false, error: "Nothing is left open. Consider approving." };
           verdict = "REQUEST_CHANGES";
         }
-        const draft = store.setVerdict(targetKey, verdict, body);
-        bb.realtime.publish(`draft-summary:${targetKey}`, { ts: Date.now() });
+        // You chose the verdict; the words are still the assistant's until you edit them.
+        const draft = store.updateSummary(targetKey, { verdict, verdictChosen: true, body, bodyAuthor: "agent", written: { verdict, comments: commentsKey(store.getDraft(targetKey).comments) } });
+        bb.realtime.publish(`draft:${targetKey}`, {});
         return { ok: true, draft };
       },
       async getSinceReview({ targetKey }: { targetKey: string }) {
@@ -221,11 +223,11 @@ export default async function plugin(bb: BbPluginApi) {
     };
   }
 
-  // The draft, its comments drafted against an older diff (which submitting refuses), and the discussions at its lines.
+  // The draft, its comments drafted against an older diff (which submitting refuses), and the discussions at its lines and summary.
   const draftState = (targetKey: string, draft = store.getDraft(targetKey)) => ({
     draft,
     stale: store.staleDraftComments(targetKey).map(({ file, line, side }) => ({ file, line, side })),
-    discussions: store.listDiscussions(targetKey),
+    discussions: store.listDiscussions(targetKey).map((d) => canUndo(store, targetKey, d) ? { ...d, undoable: true } : d),
   });
 
   const handlers: Omit<Parameters<typeof bb.rpc.register<typeof rpcContract>>[1], keyof typeof import("./src/plugin-updates").releaseRpc> = {
@@ -423,9 +425,20 @@ export default async function plugin(bb: BbPluginApi) {
       store.deleteDiscussion(targetKey, { file, line, side });
       return draftState(targetKey);
     },
+    undoAgentChange({ targetKey, file, line, side }) {
+      const result = undoChange(store, targetKey, { file, line, side });
+      if (!result.ok) throw new Error(result.error);
+      bb.realtime.publish(`draft:${targetKey}`, {});
+      return draftState(targetKey);
+    },
     setVerdict({ targetKey, verdict, body, revision }) {
       requireReviewRevision(store, targetKey, revision);
       return { draft: store.setVerdict(targetKey, verdict, body) };
+    },
+    saveSummary({ targetKey, body, revision }) {
+      requireReviewRevision(store, targetKey, revision);
+      // Your words now, whoever wrote them before.
+      return draftState(targetKey, store.updateSummary(targetKey, { body, bodyAuthor: undefined, written: undefined }));
     },
     async submitReview({ targetKey, revision, account, comments }) {
       if (!account) return { ok: false, error: "Verify your GitHub account before submitting. Reload this review to check access." };

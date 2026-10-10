@@ -122,10 +122,11 @@ function DiscussionBar({ discussion, draft, boxOpen }: { discussion: Discussion;
   );
 }
 
-const changes: Record<Exclude<DiscussionEntry["kind"], "message">, { text: string; icon: "Sparkles" | "Edit" | "Trash2" }> = {
+const changes: Record<Exclude<DiscussionEntry["kind"], "message">, { text: string; icon: "Sparkles" | "Edit" | "Trash2" | "ArrowTurnBackward" }> = {
   added: { text: "Agent added this comment.", icon: "Sparkles" },
   edited: { text: "Agent edited the comment.", icon: "Edit" },
   removed: { text: "Agent removed the comment.", icon: "Trash2" },
+  restored: { text: "You undid that change.", icon: "ArrowTurnBackward" },
 };
 
 function DiscussionView({ discussion, draft, titled }: { discussion: Discussion; draft: InlineDraft; titled: boolean }) {

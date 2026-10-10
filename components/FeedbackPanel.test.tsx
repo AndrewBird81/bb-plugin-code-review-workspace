@@ -32,6 +32,7 @@ const checkedView: FeedbackView = {
   baseline: { sha: "base000", at: now - 72 * HOUR, verdict: "REQUEST_CHANGES" },
   head: "abcdef1234",
   fetchedAt: now,
+  suggestionInDraft: false,
   run: { headSha: "abcdef1234", summary: "Mostly there.", suggestedVerdict: "REQUEST_CHANGES", suggestedBody: "Two asks remain.", assessedAt: now - 2 * HOUR, current: false },
   items: [
     item("A", "Rename the helper", { thread: { status: "resolved", isResolved: true }, assessment: assessed("addressed", "Renamed to `parseRows`.") }),
@@ -194,10 +195,10 @@ test("without the assistant's check: thread tally, questions then open first, no
 });
 
 test("empty states: never reviewed, and reviewed without line comments", async () => {
-  const never = render({ baseline: { sha: null, at: null, verdict: null }, head: "h", items: [], run: null, fetchedAt: null });
+  const never = render({ baseline: { sha: null, at: null, verdict: null }, head: "h", items: [], run: null, fetchedAt: null, suggestionInDraft: false });
   await never.slot.findByText("Your feedback appears here after you submit a review.");
   cleanup();
-  const { slot, rpc } = render({ baseline: { sha: "base", at: now, verdict: "COMMENT" }, head: "h", items: [], run: null, fetchedAt: now });
+  const { slot, rpc } = render({ baseline: { sha: "base", at: now, verdict: "COMMENT" }, head: "h", items: [], run: null, fetchedAt: now, suggestionInDraft: false });
   await slot.findByText("Your last review had no line comments.");
   fireEvent.click(slot.getByRole("button", { name: "Check again" }));
   await vi.waitFor(() => expect(rpc.checkFeedback).toHaveBeenCalledWith({ targetKey: "pr-1" }));

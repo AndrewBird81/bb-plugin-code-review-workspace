@@ -25,7 +25,7 @@ const guide = {
 };
 const turn = (over: Record<string, unknown>) => ({ group: "needs", reason: "re-requested", label: "Re-requested", action: "Review changes", signal: null, at: now, notify: true, blocking: false, updated: true, ...over });
 const feedback: FeedbackView = {
-  baseline: { sha: "old", at: now - 3 * DAY, verdict: "REQUEST_CHANGES" }, head: "new", fetchedAt: now,
+  baseline: { sha: "old", at: now - 3 * DAY, verdict: "REQUEST_CHANGES" }, head: "new", fetchedAt: now, suggestionInDraft: false,
   run: { headSha: "new", summary: "", suggestedVerdict: "APPROVE", suggestedBody: "Looks good now.", assessedAt: now, current: true },
   items: [{
     id: "T1", kind: "thread", title: "Handle the empty list", replyDraft: null, assessment: null,

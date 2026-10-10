@@ -79,10 +79,12 @@ export function feedbackView(store: Store, review: ReviewMeta): FeedbackView {
     if (isSummaryItem(item.id)) items.push({ id: item.id, kind: "summary", title: item.title ?? "From your review summary", thread: null, assessment: item, replyDraft: null });
   }
   const run = assessment.run ?? (checkedHead ? null : latest);
+  const suggested = run?.suggestedBody.trim();
   return {
     baseline: baselineOf(review), head, items,
     run: run ? { ...run, current: run.headSha === head } : null,
     fetchedAt: store.feedbackFetched(review.targetKey)?.fetchedAt ?? null,
+    suggestionInDraft: !!suggested && store.getDraft(review.targetKey).body.trim() === suggested,
   };
 }
 

@@ -17,10 +17,18 @@ export function sameLocation(a: CommentLocation, b: CommentLocation): boolean {
   return a.file === b.file && a.line === b.line && a.side === b.side;
 }
 
-/** A message in a line's discussion with the review assistant, or the assistant's change to the line's draft comment. */
+/** Where the review summary's discussion is kept: no line of a diff is here. */
+export const SUMMARY_AT: CommentLocation = { file: "", line: 0, side: "RIGHT" };
+export const isSummary = (at: CommentLocation) => sameLocation(at, SUMMARY_AT);
+
+/**
+ * A message in a discussion with the review assistant, the assistant's change to the
+ * draft comment or summary there, or the reviewer undoing that change ("restored").
+ */
 export interface DiscussionEntry {
   author: "reviewer" | "agent";
-  kind: "message" | "added" | "edited" | "removed";
+  kind: "message" | "added" | "edited" | "removed" | "restored";
+  /** A message's text. For a change, the text the agent left; empty for a removal. */
   body: string;
   createdAt: number;
 }
@@ -35,13 +43,46 @@ export interface Discussion extends CommentLocation {
   startLine?: number;
   /** The assistant hasn't answered the reviewer's latest message yet, and may still. */
   waiting: boolean;
+  /** The agent's latest change here can still be undone: nothing changed the comment or summary since. */
+  undoable?: boolean;
 }
 
 export interface Draft {
   targetKey: string;
   verdict: Verdict;
+  /** The review summary: the top-level comment GitHub shows with the verdict. */
   body: string;
   comments: DraftComment[];
+  /** Written by an agent, through a tool or `bb review summary`. Absent once the reviewer writes or edits it. */
+  bodyAuthor?: "agent";
+  /** The verdict the assistant suggests. Only the reviewer picks one. */
+  suggestedVerdict?: Verdict;
+  /** When an agent wrote the summary: the verdict it wrote it for, if any, and commentsKey of the comments then. */
+  written?: { verdict: Verdict | null; comments: string };
+  /** The reviewer picked the verdict, rather than it being the default. */
+  verdictChosen?: true;
+}
+
+/** A short fingerprint of the comments' places and text, to tell when they changed. */
+export function commentsKey(comments: readonly Pick<DraftComment, "file" | "line" | "side" | "body">[]): string {
+  // FNV-1a: the same value on the server and in the panel, without crypto.
+  let hash = 0x811c9dc5;
+  const text = JSON.stringify(comments.map((c) => [c.file, c.line, c.side, c.body]));
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return `${comments.length}:${hash.toString(16)}`;
+}
+
+/**
+ * What changed since an agent wrote the summary: the comments, and the verdict, when the
+ * reviewer picked one other than the summary was written for. Nothing for a summary the reviewer wrote.
+ */
+export function summaryChanges(draft: Draft): { comments: boolean; verdict: Verdict | null } {
+  const written = draft.bodyAuthor === "agent" && draft.body.trim() ? draft.written : undefined;
+  if (!written) return { comments: false, verdict: null };
+  return {
+    comments: written.comments !== commentsKey(draft.comments),
+    verdict: written.verdict && draft.verdictChosen && draft.verdict !== written.verdict ? written.verdict : null,
+  };
 }
 
 /** Whether two lists hold the same comments, in the same order. */

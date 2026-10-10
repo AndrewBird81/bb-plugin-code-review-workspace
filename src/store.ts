@@ -134,15 +134,25 @@ export interface Store {
   editDraftComment(targetKey: string, at: CommentLocation, body: string): Draft | null;
   /** Null when there's no comment there. */
   deleteDraftComment(targetKey: string, at: CommentLocation): Draft | null;
-  setVerdict(targetKey: string, verdict: Verdict, body: string): Draft;
+  /** The reviewer picks a verdict. With body, they also write the summary. */
+  setVerdict(targetKey: string, verdict: Verdict, body?: string): Draft;
+  /** Change the summary and its verdicts. A field given as undefined is cleared. */
+  updateSummary(targetKey: string, change: SummaryChange): Draft;
   staleDraftComments(targetKey: string): DraftComment[];
   clearSubmittedDraft(draft: Draft): void;
   // Discussions with the review assistant at lines of the diff.
   listDiscussions(targetKey: string): Discussion[];
   /** A reviewer's message waits for the assistant; the assistant's answers it. */
   addDiscussionMessage(targetKey: string, at: CommentLocation, author: DiscussionEntry["author"], body: string, startLine?: number): void;
-  /** Record an agent's change to the draft comment at a line that has a discussion, which answers it. */
-  noteDiscussionChange(targetKey: string, at: CommentLocation, kind: "added" | "edited" | "removed"): void;
+  /**
+   * Record an agent's change to the draft comment or summary at a discussion, which answers it:
+   * `body`, the text it left, and `previous`, what was there before, to undo it.
+   */
+  noteDiscussionChange(targetKey: string, at: CommentLocation, kind: "added" | "edited" | "removed", change?: { body: string; previous: PreviousState }): void;
+  /** The latest entry at a discussion, when it's an agent's change that recorded what came before. */
+  lastDiscussionChange(targetKey: string, at: CommentLocation): { kind: "added" | "edited" | "removed"; body: string; previous: PreviousState } | null;
+  /** Record that the reviewer undid the agent's latest change there. */
+  noteDiscussionRestored(targetKey: string, at: CommentLocation): void;
   deleteDiscussion(targetKey: string, at: CommentLocation): void;
   clearDiscussions(targetKey: string): void;
   /** Stop waiting for answers, for example once the assistant finishes. False when none were waiting. */
@@ -192,6 +202,12 @@ export interface Store {
   /** Mark a draft comment as drafted against the current diff, at a possibly new line. */
   rebaseDraftComment(targetKey: string, at: CommentLocation, line: number): void;
 }
+
+/** A summary change: any of these fields, where undefined clears it. */
+export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor" | "suggestedVerdict" | "written" | "verdictChosen">>;
+
+/** What a comment or the summary was before an agent changed it; null when there was none. */
+export type PreviousState = { body: string; author?: "agent"; chapterId?: string; written?: Draft["written"] } | null;
 
 export function createStore(bb: BbPluginApi): Store {
   const db = bb.storage.database();
@@ -250,6 +266,10 @@ export function createStore(bb: BbPluginApi): Store {
     `CREATE TABLE IF NOT EXISTS discovery_ignores (target_key TEXT PRIMARY KEY, ignored_at INTEGER NOT NULL)`,
     `ALTER TABLE draft_comment_revisions ADD COLUMN code TEXT`,
     `CREATE TABLE IF NOT EXISTS guide_backups (target_key TEXT PRIMARY KEY, data TEXT NOT NULL)`,
+    // Who wrote the summary, and the verdicts around it (Draft's bodyAuthor, suggestedVerdict, written, verdictChosen).
+    `ALTER TABLE drafts ADD COLUMN meta TEXT`,
+    // Before an agent's change, the comment or summary it replaced, as JSON.
+    `ALTER TABLE discussion_entries ADD COLUMN previous TEXT`,
   ]);
   const at = (k: string, { file, line, side }: CommentLocation) => [k, file, line, side] as const;
   const hasDiscussion = (k: string, location: CommentLocation) =>
@@ -414,7 +434,7 @@ export function createStore(bb: BbPluginApi): Store {
     getDraft(k) {
       const row: any = db.prepare(`SELECT * FROM drafts WHERE target_key=?`).get(k);
       if (!row) return { targetKey: k, verdict: "COMMENT", body: "", comments: [] };
-      return { targetKey: k, verdict: row.verdict, body: row.body, comments: JSON.parse(row.comments) };
+      return { targetKey: k, verdict: row.verdict, body: row.body, comments: JSON.parse(row.comments), ...(row.meta ? JSON.parse(row.meta) : {}) };
     },
     upsertDraftComment(k, c) {
       const d = this.getDraft(k);
@@ -445,10 +465,12 @@ export function createStore(bb: BbPluginApi): Store {
       return d;
     },
     setVerdict(k, verdict, body) {
-      const d = this.getDraft(k);
-      d.verdict = verdict; d.body = body;
+      return this.updateSummary(k, { verdict, verdictChosen: true, ...(body === undefined ? {} : { body, bodyAuthor: undefined, written: undefined }) });
+    },
+    updateSummary(k, change) {
+      const d = { ...this.getDraft(k), ...change };
       writeDraft(db, d);
-      return d;
+      return this.getDraft(k);
     },
     staleDraftComments(k) {
       const hash = patchHash(this.readPatch(k, 0, this.readPatch(k, 0, 0).total).text);
@@ -463,6 +485,7 @@ export function createStore(bb: BbPluginApi): Store {
       if (current.body === submitted.body && current.verdict === submitted.verdict) {
         current.body = "";
         current.verdict = "COMMENT";
+        delete current.bodyAuthor; delete current.suggestedVerdict; delete current.written; delete current.verdictChosen;
       }
       writeDraft(db, current);
     },
@@ -486,13 +509,23 @@ export function createStore(bb: BbPluginApi): Store {
         else stopWaitingAt(k, location);
       })();
     },
-    noteDiscussionChange(k, location, kind) {
+    noteDiscussionChange(k, location, kind, change) {
       if (!hasDiscussion(k, location)) return;
       db.transaction(() => {
-        db.prepare(`INSERT INTO discussion_entries (target_key,file,line,side,author,kind,body,created_at) VALUES (?,?,?,?,'agent',?,'',?)`)
-          .run(...at(k, location), kind, Date.now());
+        db.prepare(`INSERT INTO discussion_entries (target_key,file,line,side,author,kind,body,created_at,previous) VALUES (?,?,?,?,'agent',?,?,?,?)`)
+          .run(...at(k, location), kind, change?.body ?? "", Date.now(), change ? JSON.stringify(change.previous) : null);
         stopWaitingAt(k, location);
       })();
+    },
+    lastDiscussionChange(k, location) {
+      const row = db.prepare(`SELECT kind, body, previous FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=? AND kind != 'message' ORDER BY id DESC LIMIT 1`)
+        .get(...at(k, location)) as { kind: string; body: string; previous: string | null } | undefined;
+      if (!row || row.kind === "restored" || row.previous === null) return null;
+      return { kind: row.kind as "added" | "edited" | "removed", body: row.body, previous: JSON.parse(row.previous) };
+    },
+    noteDiscussionRestored(k, location) {
+      db.prepare(`INSERT INTO discussion_entries (target_key,file,line,side,author,kind,body,created_at) VALUES (?,?,?,?,'reviewer','restored','',?)`)
+        .run(...at(k, location), Date.now());
     },
     deleteDiscussion(k, location) {
       db.transaction(() => {
@@ -674,8 +707,11 @@ const REVIEW_TABLES = [
 function patchHash(patch: string) { return createHash("sha256").update(patch).digest("hex"); }
 
 function writeDraft(db: any, d: Draft) {
+  const { bodyAuthor, suggestedVerdict, written, verdictChosen } = d;
+  // JSON leaves out the undefined ones, which a change clears.
+  const meta = JSON.stringify({ bodyAuthor, suggestedVerdict, written, verdictChosen });
   db.prepare(
-    `INSERT INTO drafts (target_key,verdict,body,comments) VALUES (?,?,?,?)
-     ON CONFLICT(target_key) DO UPDATE SET verdict=excluded.verdict,body=excluded.body,comments=excluded.comments`,
-  ).run(d.targetKey, d.verdict, d.body, JSON.stringify(d.comments));
+    `INSERT INTO drafts (target_key,verdict,body,comments,meta) VALUES (?,?,?,?,?)
+     ON CONFLICT(target_key) DO UPDATE SET verdict=excluded.verdict,body=excluded.body,comments=excluded.comments,meta=excluded.meta`,
+  ).run(d.targetKey, d.verdict, d.body, JSON.stringify(d.comments), meta === "{}" ? null : meta);
 }

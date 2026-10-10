@@ -21,9 +21,10 @@ const commentShape = z
 const location = { file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]) };
 const discussion = z.object({
   ...location,
-  entries: z.array(z.object({ author: z.enum(["reviewer", "agent"]), kind: z.enum(["message", "added", "edited", "removed"]), body: z.string(), createdAt: z.number() })),
+  entries: z.array(z.object({ author: z.enum(["reviewer", "agent"]), kind: z.enum(["message", "added", "edited", "removed", "restored"]), body: z.string(), createdAt: z.number() })),
   startLine: z.number().int().optional(),
   waiting: z.boolean(),
+  undoable: z.boolean().optional(),
 });
 
 // A draft, where its comments were drafted against an older diff, and the discussions at its lines.
@@ -111,22 +112,30 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]) }).strict(),
     output: draftOutput,
   },
-  // A message from a line's discussion to the review assistant, which answers there.
+  // A message from a line's discussion, or the summary's (src/draft.ts SUMMARY_AT), to the review assistant, which answers there.
   askAgent: {
     input: z.object({ targetKey: z.string(), ...location, startLine: z.number().int().min(1).optional(), body: z.string().trim().min(1).max(20_000) }).strict(),
     output: draftOutput,
   },
   dismissDiscussion: { input: z.object({ targetKey: z.string(), ...location }).strict(), output: draftOutput },
+  /** Undo the agent's latest change in the discussion at a line, or the summary's. */
+  undoAgentChange: { input: z.object({ targetKey: z.string(), ...location }).strict(), output: draftOutput },
+  /** The reviewer picks a verdict. With body, from panels before the summary had its own box, it also saves the summary as theirs. */
   setVerdict: {
     input: z
       .object({
         targetKey: z.string(),
         revision: z.string().optional(),
         verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
-        body: z.string(),
+        body: z.string().optional(),
       })
       .strict(),
     output: z.object({ draft: z.any() }),
+  },
+  /** The reviewer writes, edits, or (with an empty body) removes the review summary. */
+  saveSummary: {
+    input: z.object({ targetKey: z.string(), revision: z.string().optional(), body: z.string().max(65_000) }).strict(),
+    output: draftOutput,
   },
   submitReview: {
     input: z.object({

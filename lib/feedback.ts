@@ -51,6 +51,8 @@ export interface FeedbackView {
   items: FeedbackItem[];
   /** The assistant's latest check; `current` when it checked this head. */
   run: (AssessmentRun & { current: boolean }) | null;
+  /** The draft's summary is the check's suggested summary, so Use as draft has nothing to add. */
+  suggestionInDraft: boolean;
   /** When your threads were last read from GitHub. */
   fetchedAt: number | null;
 }

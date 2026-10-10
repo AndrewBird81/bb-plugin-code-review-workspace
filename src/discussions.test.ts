@@ -74,7 +74,7 @@ test("a question about selected lines quotes them, and the comment the assistant
   expect(message.input[1].text).toContain("If they ask for a draft comment there, add it with add_draft_comment.");
   await tool("add_draft_comment", { ...at, code: "const c = b * 2;", body: "c is unused." });
   expect(store.listDiscussions("pr-1")).toEqual([{ ...at, startLine: 2, waiting: false, entries: [
-    expect.objectContaining({ author: "reviewer", kind: "message" }), expect.objectContaining({ author: "agent", kind: "added", body: "" }),
+    expect.objectContaining({ author: "reviewer", kind: "message" }), expect.objectContaining({ author: "agent", kind: "added", body: "c is unused." }),
   ] }]);
   // A follow-up still quotes the lines first asked about.
   await ask({ body: "Thanks" });
