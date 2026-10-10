@@ -15,7 +15,7 @@ export type DraftResult = { ok: true; text: string } | { ok: false; error: strin
 
 const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
 const located = (input: LocationInput): CommentLocation => ({ file: input.file, line: input.line, side: input.side ?? "RIGHT" });
-const where = (at: CommentLocation) => `${at.file}:${at.line}${at.side === "LEFT" ? " (LEFT side)" : ""}`;
+const where = (at: CommentLocation) => isSummary(at) ? "the review summary" : `${at.file}:${at.line}${at.side === "LEFT" ? " (LEFT side)" : ""}`;
 
 /** The review whose assistant conversation this thread is. */
 export function assistantReview(store: Store, threadId: string): string | null {
@@ -126,7 +126,11 @@ export function undoChange(store: Store, targetKey: string, at: CommentLocation)
     store.deleteDraftComment(targetKey, at);
   } else if (change.kind === "removed") {
     const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
-    if (!diffPositions(patch).get(at.file)?.[at.side === "RIGHT" ? "right" : "left"].has(at.line)) return { ok: false, error: `${where(at)} isn't in the diff anymore, so the comment can't go back there.` };
+    const code = diffPositions(patch).get(at.file)?.[at.side === "RIGHT" ? "right" : "left"].get(at.line);
+    // Putting it back binds it to the current diff, so the line must still hold the code it was drafted on.
+    const drafted = store.draftCommentCode(targetKey, at);
+    if (code === undefined) return { ok: false, error: `${where(at)} isn't in the diff anymore, so the comment can't go back there.` };
+    if (drafted !== undefined && code !== drafted) return { ok: false, error: `The code at ${where(at)} changed since the comment was drafted, so it can't go back there.` };
     store.upsertDraftComment(targetKey, { ...at, body: previous.body, ...(previous.author ? { author: previous.author } : {}), ...(previous.chapterId ? { chapterId: previous.chapterId } : {}) });
   } else {
     store.editDraftComment(targetKey, at, previous.body);
@@ -135,7 +139,7 @@ export function undoChange(store: Store, targetKey: string, at: CommentLocation)
   return { ok: true, text: isSummary(at) ? "Put the summary back." : `Put the comment on ${where(at)} back.` };
 }
 
-/** Answer the reviewer in the discussion they started at a line. */
+/** Answer the reviewer in the discussion they started at a line, or on the summary (SUMMARY_AT). */
 export function replyInDiscussion(store: Store, targetKey: string, input: LocationInput & { body: string }): DraftResult {
   if (!store.getReview(targetKey)) return { ok: false, error: "This review no longer exists." };
   const at = located(input);

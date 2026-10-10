@@ -56,6 +56,8 @@ test("adding never replaces a comment; editing and deleting change only the one 
   store.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "LEFT", author: "agent", body: "Theirs" });
   expect(error(await add({ file: "a.ts", line: 3, code: "const c = b * 2;", body: "New" }))).toContain('already has a draft comment: "Mine"');
   expect(await call("list_draft_comments", {})).toBe([
+    "The draft has no review summary yet.",
+    "Verdict: the reviewer hasn't picked one, so it's Comment by default.",
     "2 draft comments:",
     "a.ts:3 RIGHT · added by the reviewer\n  Mine",
     "a.ts:2 LEFT · added by an agent\n  Theirs",

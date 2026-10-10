@@ -7,6 +7,7 @@ vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh, runGit: vi.fn(
 import plugin from "../server";
 import { createStore } from "./store";
 import { reviewRevision } from "./review-revision";
+import { commentsKey } from "./draft";
 import type { FeedbackThread } from "./github/types";
 
 const reviewed = "diff --git a/a.ts b/a.ts\nindex 1..2 100644\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n keep\n-return cache.get(key);\n+return cache.get(key) ?? load(key);\n";
@@ -107,9 +108,33 @@ test("the suggested verdict and what's left fill the draft, bound to the display
   await tool("assess_feedback", { items: [{ id: "t1", verdict: "partial", evidence: "Only the write path invalidates" }], suggestedVerdict: "REQUEST_CHANGES", suggestedBody: "Close! One path left." });
   expect((await call("useSuggestedVerdict", { targetKey: "pr-1", mode: "suggested" })).ok).toBe(false);
   const revision = reviewRevision(store, "pr-1");
-  expect(await call("useSuggestedVerdict", { targetKey: "pr-1", revision, mode: "suggested" })).toMatchObject({ ok: true, draft: { verdict: "REQUEST_CHANGES", body: "Close! One path left." } });
+  store.updateSummary("pr-1", { body: "Mine." });
+  const used = await call("useSuggestedVerdict", { targetKey: "pr-1", revision, mode: "suggested" });
+  expect(used).toMatchObject({ ok: true, draft: { verdict: "REQUEST_CHANGES", verdictChosen: true, body: "Close! One path left.", bodyAuthor: "agent", written: { verdict: "REQUEST_CHANGES", comments: commentsKey([]) } } });
+  expect((await call("getFeedback", { targetKey: "pr-1" })).feedback.suggestionInDraft).toBe(true);
   const remaining = await call("useSuggestedVerdict", { targetKey: "pr-1", revision, mode: "remaining" });
   expect(remaining.draft.body).toContain("Can this return stale data after a write? (`a.ts:2`) — Only the write path invalidates");
+});
+
+test("a check's suggested summary goes into the draft, but never over the reviewer's own", async () => {
+  const { tool, call, store, harness } = await setup();
+  const drafts = () => harness.inspection.realtimeSignals.filter((signal) => signal.channel === "draft:pr-1").length;
+  const item = { id: "t1", verdict: "partial", evidence: "Only the write path invalidates" };
+  expect(await tool("assess_feedback", { items: [item], suggestedVerdict: "APPROVE" })).toContain("1 item");
+  expect(store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "", comments: [], suggestedVerdict: "APPROVE" });
+  expect(drafts()).toBe(1);
+
+  expect(await tool("assess_feedback", { items: [item], suggestedVerdict: "REQUEST_CHANGES", suggestedBody: "One path left." })).toContain("Your suggested summary is in the reviewer's draft.");
+  expect(store.getDraft("pr-1")).toMatchObject({ verdict: "COMMENT", body: "One path left.", bodyAuthor: "agent", suggestedVerdict: "REQUEST_CHANGES", written: { verdict: "REQUEST_CHANGES" } });
+  expect((await call("getFeedback", { targetKey: "pr-1" })).feedback.suggestionInDraft).toBe(true);
+  expect(drafts()).toBe(2);
+
+  await call("saveSummary", { targetKey: "pr-1", body: "My own words.", revision: reviewRevision(store, "pr-1") });
+  expect(await tool("assess_feedback", { items: [item], suggestedVerdict: "APPROVE", suggestedBody: "All done." })).toContain("The reviewer wrote the draft's summary, so yours waits in the Feedback view.");
+  expect(store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "My own words.", comments: [], suggestedVerdict: "REQUEST_CHANGES" });
+  const { feedback } = await call("getFeedback", { targetKey: "pr-1" });
+  expect(feedback).toMatchObject({ suggestionInDraft: false, run: { suggestedVerdict: "APPROVE", suggestedBody: "All done." } });
+  expect(drafts()).toBe(2);
 });
 
 test("replying from the Feedback view posts to the thread and clears the drafted reply", async () => {

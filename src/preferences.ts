@@ -3,6 +3,9 @@ import { z } from "zod";
 import type { AgentExecution, ReviewPreferences } from "../lib/review-preferences";
 export { defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
 
+/** The automatic review's default before the review summary; saved settings that kept it read as the current default. */
+export const AUTOMATIC_REVIEW_BEFORE_SUMMARY = "Review this change adversarially. Look up related code or PRs when you need context.\nAdd each finding as an inline draft comment with add_draft_comment. Put general points in your reply.\nKeep every comment terse. Skip nitpicks.";
+
 export const agentExecutionSchema = z.object({
   hostId: z.string().min(1).max(200).optional(),
   providerId: z.string().min(1).max(200),

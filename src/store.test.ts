@@ -132,6 +132,57 @@ test("draft comments upsert and delete", () => {
   expect(s.deleteDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT" })).toBeNull();
 });
 
+test("the summary keeps who wrote it and the verdicts around it, and a change clears the fields it leaves undefined", () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const s = createStore(bb);
+  s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
+  const written = { verdict: null, comments: "0:811c9dc5" };
+  s.updateSummary("pr-1", { body: "Looks good.", bodyAuthor: "agent", suggestedVerdict: "APPROVE", written });
+  expect(createStore(bb).getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "Looks good.", comments: [], bodyAuthor: "agent", suggestedVerdict: "APPROVE", written });
+  // A comment change keeps the summary's fields.
+  s.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "x" });
+  expect(s.getDraft("pr-1")).toMatchObject({ bodyAuthor: "agent", suggestedVerdict: "APPROVE", written });
+  s.updateSummary("pr-1", { bodyAuthor: undefined, written: undefined });
+  expect(s.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "Looks good.", comments: [{ file: "a.ts", line: 1, side: "RIGHT", body: "x" }], suggestedVerdict: "APPROVE" });
+});
+
+test("picking a verdict keeps the summary and its author; a verdict with a body makes the summary the reviewer's", () => {
+  const s = store();
+  s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
+  const written = { verdict: null, comments: "0:811c9dc5" };
+  s.updateSummary("pr-1", { body: "Agent's words", bodyAuthor: "agent", written, suggestedVerdict: "APPROVE" });
+  expect(s.setVerdict("pr-1", "REQUEST_CHANGES")).toMatchObject({ verdict: "REQUEST_CHANGES", verdictChosen: true, body: "Agent's words", bodyAuthor: "agent", written });
+  const mine = s.setVerdict("pr-1", "APPROVE", "My words");
+  expect(mine).toMatchObject({ verdict: "APPROVE", verdictChosen: true, body: "My words", suggestedVerdict: "APPROVE" });
+  expect(mine).not.toHaveProperty("bodyAuthor");
+  expect(mine).not.toHaveProperty("written");
+
+  // Submitting the summary and verdict clears them, and what was around them.
+  s.clearSubmittedDraft(s.getDraft("pr-1"));
+  expect(s.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "", comments: [] });
+});
+
+test("a discussion's latest agent change keeps what it replaced, until the reviewer undoes it", () => {
+  const s = store();
+  const at = { file: "a.ts", line: 1, side: "RIGHT" } as const;
+  s.noteDiscussionChange("pr-1", at, "added", { body: "x", previous: null });
+  // Recorded only where the reviewer started a discussion.
+  expect(s.listDiscussions("pr-1")).toEqual([]);
+  s.addDiscussionMessage("pr-1", at, "reviewer", "Comment here?");
+  s.noteDiscussionChange("pr-1", at, "added", { body: "Added", previous: null });
+  expect(s.lastDiscussionChange("pr-1", at)).toEqual({ kind: "added", body: "Added", previous: null });
+  s.noteDiscussionChange("pr-1", at, "edited", { body: "Edited", previous: { body: "Added", author: "agent" } });
+  // A reply after the change doesn't hide it.
+  s.addDiscussionMessage("pr-1", at, "agent", "Done.");
+  expect(s.lastDiscussionChange("pr-1", at)).toEqual({ kind: "edited", body: "Edited", previous: { body: "Added", author: "agent" } });
+  s.noteDiscussionRestored("pr-1", at);
+  expect(s.lastDiscussionChange("pr-1", at)).toBeNull();
+  expect(s.listDiscussions("pr-1")[0].entries.map((e) => [e.author, e.kind])).toEqual([["reviewer", "message"], ["agent", "added"], ["agent", "edited"], ["agent", "message"], ["reviewer", "restored"]]);
+  // Changes recorded before entries kept what they replaced can't be undone.
+  s.noteDiscussionChange("pr-1", at, "removed");
+  expect(s.lastDiscussionChange("pr-1", at)).toBeNull();
+});
+
 const thread = (id: string, isResolved: boolean): import("./github/types").FeedbackThread => ({
   id, commentId: 1, reviewId: null, path: "a.ts", line: 1, originalLine: 1, startLine: null, side: "RIGHT", subjectType: "LINE",
   body: "Fix this", createdAt: 1, isResolved, resolvedBy: null, isOutdated: false, replies: [], status: isResolved ? "resolved" : "open", replyAt: null,

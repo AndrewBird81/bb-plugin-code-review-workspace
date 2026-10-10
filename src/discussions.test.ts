@@ -129,6 +129,31 @@ test("without a conversation, asking starts one on the default agent; a new conv
   expect(signals("draft:pr-1")).toBe(1);
 });
 
+test("asking on the review summary sends the summary, the verdicts, and the comments, and the assistant changes the summary there", async () => {
+  const summary = { file: "", line: 0, side: "RIGHT" } as const;
+  const { store, ask, tool, sent, harness } = await host();
+  await tool("add_draft_comment", { ...at, code: "const c = b * 2;", body: "Can this overflow?" });
+  store.updateSummary("pr-1", { body: "Fine by me.", suggestedVerdict: "APPROVE" });
+  await ask({ ...summary, body: "Mention the overflow." });
+  const [message] = sent();
+  expect(message.input[0].text).toBe("On the review summary: Mention the overflow.");
+  const context: string = message.input[1].text;
+  for (const part of ["discussion on the review summary in Draft review", "with set_review_summary instead of describing it", "reply_in_discussion with summary: true", "one short line",
+    "Review summary · written by the reviewer\n  Fine by me.", "Verdict: the reviewer hasn't picked one, so it's Comment by default.", "An agent's suggested verdict: Approve.",
+    "a.ts:3 RIGHT · added by an agent\n  Can this overflow?"]) expect(context).toContain(part);
+  expect(context).not.toContain("Earlier in this discussion");
+
+  // The reviewer asked, so the assistant may change their summary, which stays theirs.
+  await tool("set_review_summary", { body: "Fine, but see the overflow at a.ts:3." });
+  expect(store.getDraft("pr-1")).toMatchObject({ body: "Fine, but see the overflow at a.ts:3." });
+  expect(store.getDraft("pr-1")).not.toHaveProperty("bodyAuthor");
+  await tool("reply_in_discussion", { summary: true, body: "Done." });
+  await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", ...summary });
+  await ask({ ...summary, body: "Try again." });
+  expect(sent()[1].input[1].text).toContain("Earlier in this discussion:\nReviewer: Mention the overflow.\n(An agent edited the review summary.)\nYou: Done.\n(The reviewer undid that change.)");
+  expect(sent()[1].input[1].text).toContain("Review summary · written by the reviewer\n  Fine by me.");
+});
+
 test("a merged PR's discussions take no new messages", async () => {
   const { store, ask, sent } = await host();
   store.setLifecycle("pr-1", { prState: "MERGED" });
