@@ -52,6 +52,8 @@ export async function getConversation(bb: BbPluginApi, store: Store, targetKey: 
       if (!isMissingThread(error)) throw error;
     }
     store.clearAssistantThread(targetKey);
+    // A conversation archived or deleted won't answer, and its turn's end won't reach this review.
+    endAssistantWaits(bb, store, targetKey);
   }
   const custom = store.getPreferences().preferences.assistantAgent;
   if (custom) return { threadId: null, legacy, defaults: choice(custom), machine: await machineStatus(bb, custom.hostId) };
@@ -141,6 +143,34 @@ export async function newConversation(bb: BbPluginApi, store: Store, targetKey: 
   store.clearAgentThread(targetKey);
   store.clearAgentMessages(targetKey);
   for (const threadId of workers) if (threadId) await bb.sdk.threads.archive({ threadId }).catch(() => {});
+}
+
+/**
+ * The assistant won't answer what waits for it: discussions stop waiting, and a feedback check ends as
+ * a finished turn ends it. Returns whether a check ended, so the review's turn can be evaluated again.
+ */
+export function endAssistantWaits(bb: BbPluginApi, store: Store, targetKey: string): boolean {
+  if (store.stopWaiting(targetKey)) bb.realtime.publish(`draft:${targetKey}`, {});
+  if (!store.getReview(targetKey)?.verifyingSince) return false;
+  store.setLifecycle(targetKey, { verifyingSince: null, verifyingHead: null, preparedAt: Date.now() });
+  bb.realtime.publish(`feedback:${targetKey}`, { ts: Date.now() });
+  return true;
+}
+
+/**
+ * Whether the review's assistant may still answer: its thread is live and busy, or has a message
+ * queued. A thread bb cannot find, archived, or idle with an empty queue won't. Unknown counts as may.
+ */
+export async function assistantMayAnswer(bb: BbPluginApi, store: Store, targetKey: string): Promise<boolean> {
+  const threadId = store.getAssistantThread(targetKey);
+  if (!threadId) return false;
+  try {
+    const thread = await bb.sdk.threads.get({ threadId });
+    if (thread.archivedAt != null || thread.deletedAt != null) return false;
+    return !["idle", "error"].includes(thread.status) || thread.queuedMessageCount > 0;
+  } catch (error) {
+    return !isMissingThread(error);
+  }
 }
 
 /** Whether the review's assistant is mid-answer. A thread bb cannot find is not. */

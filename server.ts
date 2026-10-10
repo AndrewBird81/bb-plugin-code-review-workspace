@@ -11,7 +11,7 @@ import { changedFiles, splitPatchByFile } from "./src/patch";
 import { validateGuide, checkCoverage } from "./src/guide";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
-import { assistantInstructions, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
+import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
 import { listMachines } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
 import { commentsKey, isSummary, SUMMARY_AT } from "./src/draft";
@@ -91,6 +91,14 @@ export default async function plugin(bb: BbPluginApi) {
     },
   } });
   onPrepared(bb, (targetKey) => { void sync.evaluate(targetKey); });
+  // A turn that ended while the plugin was down never settled what waited for it.
+  void (async () => {
+    for (const review of store.listReviews()) {
+      if (!review.verifyingSince && !store.listDiscussions(review.targetKey).some((d) => d.waiting)) continue;
+      if (await assistantMayAnswer(bb, store, review.targetKey)) continue;
+      if (endAssistantWaits(bb, store, review.targetKey)) await sync.evaluate(review.targetKey);
+    }
+  })().catch((error) => bb.log.warn(`Could not settle reviews waiting on their assistants: ${String(error)}`));
   const updates = createPluginUpdates(bb, () => hasGuideGenerations(bb));
   bb.background.service("plugin-updates", {
     async start(signal) {
@@ -508,8 +516,8 @@ export default async function plugin(bb: BbPluginApi) {
     async newConversation({ targetKey }) {
       await newConversation(bb, store, targetKey);
       store.setLifecycle(targetKey, { summaryAsk: null });
-      // The archived conversation won't answer discussions waiting for it.
-      if (store.stopWaiting(targetKey)) bb.realtime.publish(`draft:${targetKey}`, {});
+      // The archived conversation won't answer discussions or a feedback check waiting for it.
+      if (endAssistantWaits(bb, store, targetKey)) await sync.evaluate(targetKey);
       return { ok: true };
     },
     // GitHub account indicator + switcher
