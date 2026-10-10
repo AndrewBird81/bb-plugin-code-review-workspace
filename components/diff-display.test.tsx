@@ -50,7 +50,8 @@ async function renderWorkspace({ rpc = {} }: { rpc?: Record<string, unknown> } =
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("heading", { name: "Parse rows" });
+  // Focus mode shows the title without the full header's heading.
+  await slot.findAllByText("Parse rows");
   return { slot, rpc: handlers };
 }
 
@@ -93,4 +94,34 @@ test("Mark chapter viewed marks every file in one call, then refreshes once", as
   expect(rpc.setFileViewed).not.toHaveBeenCalled();
   await waitFor(() => expect(rpc.getFileViews).toHaveBeenCalledTimes(2));
   slot.lifecycle.unmount();
+});
+
+/** Every ResizeObserver reports this width, as if the workspace sat in a pane that wide. */
+function fakeWidth(width: number) {
+  const original = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    constructor(private notify: ResizeObserverCallback) {}
+    observe(target: Element) { this.notify([{ target, contentRect: { width } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver); }
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  return () => { globalThis.ResizeObserver = original; };
+}
+
+test("a narrow workspace on a wide screen goes compact and starts in Focus, until you turn it off", async () => {
+  const restore = fakeWidth(600);
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  const main = within(slot.getByRole("main"));
+  await waitFor(() => expect(main.getByRole("button", { name: "Show chapters" }).textContent).toContain("Chapters"));
+  const focus = main.getByRole("button", { name: "Focus mode" });
+  expect(focus.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(focus);
+  expect(focus.getAttribute("aria-pressed")).toBe("false");
+  slot.lifecycle.unmount();
+  const again = await renderWorkspace();
+  await again.slot.findByText("aa");
+  expect(within(again.slot.getByRole("main")).getByRole("button", { name: "Focus mode" }).getAttribute("aria-pressed")).toBe("false");
+  again.slot.lifecycle.unmount();
+  restore();
 });

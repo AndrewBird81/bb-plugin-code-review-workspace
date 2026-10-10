@@ -86,7 +86,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const codeTheme = experimental_useCodeTheme();
-  const compact = useMediaQuery("(max-width: 767px)");
+  const compactViewport = useMediaQuery("(max-width: 767px)");
   const [mobileChapters, setMobileChapters] = useState(false);
   const [diffLayout, setDiffLayout] = useState(defaultPreferences.diffLayout);
   const [loading, setLoading] = useState(true);
@@ -128,7 +128,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Screen utilization: resizable/collapsible sidebar, focus mode, fullscreen.
   const [sidebarWidth, setSidebarWidth] = useState(persisted.sidebarWidth ?? 288);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [focus, setFocus] = useState(persisted.focus ?? false);
+  const [chosenFocus, setFocus] = useState(persisted.focus);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const fileEls = useRef<Map<string, HTMLElement>>(new Map());
@@ -136,6 +136,17 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const scrollBox = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
+  // Compact by the workspace's own width: a narrow BB pane on a wide screen is as tight as a phone.
+  const [rootWidth, setRootWidth] = useState<number | null>(null);
+  useEffect(() => {
+    if (!rootEl || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => setRootWidth(entry.contentRect.width));
+    observer.observe(rootEl);
+    return () => observer.disconnect();
+  }, [rootEl]);
+  const compact = rootWidth === null ? compactViewport : rootWidth < 768;
+  // Without a choice of your own, Focus gives a compact workspace's diff the room.
+  const focus = chosenFocus ?? compact;
   const didRestoreScroll = useRef(false);
   const reducedMotion =
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -148,7 +159,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [rpc]);
   useEffect(loadPreferences, [loadPreferences]);
   useRealtime("preferences", loadPreferences);
-  useEffect(() => patchReviewState(targetKey, { activeId, view: chosenView ?? undefined, sidebarWidth, focus }), [targetKey, activeId, chosenView, sidebarWidth, focus]);
+  useEffect(() => patchReviewState(targetKey, { activeId, view: chosenView ?? undefined, sidebarWidth, focus: chosenFocus }), [targetKey, activeId, chosenView, sidebarWidth, chosenFocus]);
   const isPr = review?.kind === "pr";
   const view: View = chosenView && chosenView !== "diff" && review && !isPr ? "diff" : chosenView ?? defaultView ?? "diff";
 
@@ -689,11 +700,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       <div className="flex min-h-0 flex-1 flex-col @min-[1024px]/review:flex-row">
       {/* The draft panel owns the draft and shares it with the diff, which shows each comment under its line. */}
       <DraftTray reviewRevision={revision} account={repoAccess?.account ?? undefined} agent={{ patch, injection, container: rootEl }} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} prefill={draftPrefill} showDraft={showDraft}>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col @min-[768px]/review:flex-row">
         {(compact ? mobileChapters : !sidebarCollapsed) && (
           <>
             <aside
-              className="max-h-[40vh] shrink-0 overflow-y-auto border-b border-border bg-surface-raised p-2 md:max-h-none md:border-b-0"
+              className="max-h-[40vh] shrink-0 overflow-y-auto border-b border-border bg-surface-raised p-2 @min-[768px]/review:max-h-none @min-[768px]/review:border-b-0"
               style={{ width: compact ? "100%" : sidebarWidth }}
             >
               <ChapterNav
@@ -795,7 +806,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   aria-label="Focus mode"
                   aria-pressed={focus}
                   className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
-                  onClick={() => setFocus((f) => !f)}
+                  onClick={() => setFocus(!focus)}
                 >
                   <Icon name="Minimize2" className="size-3.5" aria-hidden />
                   <span className="hidden @min-[1280px]/review:inline">Focus</span>
