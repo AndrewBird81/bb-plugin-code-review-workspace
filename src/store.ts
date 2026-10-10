@@ -134,7 +134,10 @@ export interface Store {
   restoreGuide(targetKey: string): boolean;
   dropGuideBackup(targetKey: string): void;
   isCurrentGeneration(targetKey: string, generationId: string): boolean;
-  interruptGenerations(): void;
+  /** Record the hidden thread writing a generation's guide, to stop it if the plugin reloads first. */
+  setGenerationWorker(targetKey: string, generationId: string, workerId: string): void;
+  /** End the generations a reload interrupted, putting back their previous guides. Returns them, with their workers. */
+  interruptGenerations(): Array<{ targetKey: string; workerId: string | null }>;
   getDraft(targetKey: string): Draft;
   upsertDraftComment(targetKey: string, c: DraftComment): Draft;
   /** Change only a comment's text, keeping who added it and the diff it was drafted against. Null when there's no comment there. */
@@ -284,6 +287,7 @@ export function createStore(bb: BbPluginApi): Store {
     `ALTER TABLE drafts ADD COLUMN meta TEXT`,
     // Before an agent's change, the comment or summary it replaced, as JSON.
     `ALTER TABLE discussion_entries ADD COLUMN previous TEXT`,
+    `ALTER TABLE generations ADD COLUMN worker_id TEXT`,
   ]);
   const at = (k: string, { file, line, side }: CommentLocation) => [k, file, line, side] as const;
   const hasDiscussion = (k: string, location: CommentLocation) =>
@@ -392,7 +396,7 @@ export function createStore(bb: BbPluginApi): Store {
     beginGeneration(k) {
       const id = randomUUID();
       db.transaction(() => {
-        db.prepare(`INSERT INTO generations VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET generation_id=excluded.generation_id`).run(k, id);
+        db.prepare(`INSERT INTO generations (target_key,generation_id) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET generation_id=excluded.generation_id, worker_id=NULL`).run(k, id);
         db.prepare(`DELETE FROM guides WHERE target_key=?`).run(k);
         db.prepare(`UPDATE reviews SET status='generating' WHERE target_key=?`).run(k);
         // Restarting a review (new PR link, `bb review`, Re-review) takes it out of the reviewer's archive.
@@ -403,15 +407,21 @@ export function createStore(bb: BbPluginApi): Store {
     isCurrentGeneration(k, id) {
       return (db.prepare(`SELECT generation_id FROM generations WHERE target_key=?`).get(k) as any)?.generation_id === id;
     },
+    setGenerationWorker(k, id, workerId) {
+      db.prepare(`UPDATE generations SET worker_id=? WHERE target_key=? AND generation_id=?`).run(workerId, k, id);
+    },
     interruptGenerations() {
+      const interrupted = (db.prepare(`SELECT r.target_key, g.worker_id FROM reviews r LEFT JOIN generations g ON g.target_key=r.target_key WHERE r.status='generating'`).all() as Array<{ target_key: string; worker_id: string | null }>)
+        .map((row) => ({ targetKey: row.target_key, workerId: row.worker_id ?? null }));
       db.transaction(() => {
         // An interrupted rebuild gets its previous guide back.
-        for (const { target_key } of db.prepare(`SELECT target_key FROM reviews WHERE status='generating'`).all() as Array<{ target_key: string }>) this.restoreGuide(target_key);
+        for (const { targetKey } of interrupted) this.restoreGuide(targetKey);
         // Completed identities are also durable notification receipts. Only
         // workers interrupted by this reload lose the right to finalize.
         db.prepare(`DELETE FROM generations WHERE target_key IN (SELECT target_key FROM reviews WHERE status='generating')`).run();
         db.prepare(`UPDATE reviews SET status='error' WHERE status='generating'`).run();
       })();
+      return interrupted;
     },
     backupGuide(k) {
       const guide = this.getGuide(k);

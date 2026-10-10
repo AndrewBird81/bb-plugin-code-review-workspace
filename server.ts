@@ -61,7 +61,7 @@ const ASSISTANT_TOOLS = 4;
 
 export default async function plugin(bb: BbPluginApi) {
   const store = createStore(bb);
-  store.interruptGenerations();
+  const interrupted = store.interruptGenerations();
   // An ask on a summary can't know whether its turn ended while the plugin was down; it gives way.
   for (const review of store.listReviews()) if (review.summaryAsk) store.setLifecycle(review.targetKey, { summaryAsk: null });
   const submitReview = createReviewSubmitter(store, runGh);
@@ -91,6 +91,17 @@ export default async function plugin(bb: BbPluginApi) {
     },
   } });
   onPrepared(bb, (targetKey) => { void sync.evaluate(targetKey); });
+  // Guides a reload interrupted: their workers stop, and the rebuilds start again without alerting.
+  void (async () => {
+    for (const { targetKey, workerId } of interrupted) {
+      if (workerId) {
+        await bb.sdk.threads.archive({ threadId: workerId }).catch(() => {});
+        await bb.sdk.threads.stop({ threadId: workerId }).catch(() => {});
+      }
+      const restarted = await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey, { notify: false });
+      if (!restarted.ok) bb.log.warn(`The interrupted guide for ${targetKey} didn't restart: ${restarted.error}`);
+    }
+  })().catch((error) => bb.log.warn(`Could not restart interrupted guides: ${String(error)}`));
   // A turn that ended while the plugin was down never settled what waited for it.
   void (async () => {
     for (const review of store.listReviews()) {

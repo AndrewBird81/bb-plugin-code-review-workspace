@@ -66,6 +66,7 @@ export async function generateGuide(
       ...spawnExecution(preferences.guideAgent),
     });
     workerId = worker.id;
+    store.setGenerationWorker(targetKey, generationId, worker.id);
     await threads.wait({ threadId: worker.id, status: "idle", timeoutMs: 600_000, signal: controller.signal });
   } catch (error) {
     // spawn/wait failed — fall through and finalize as error below. The log
