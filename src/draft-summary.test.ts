@@ -168,8 +168,9 @@ test("the reviewer's summary and verdict: saving makes it theirs, and picking a 
   expect((await call("setVerdict", { verdict: "APPROVE", revision })).draft).toMatchObject({ verdict: "APPROVE", verdictChosen: true, body: "Agent's.", bodyAuthor: "agent" });
   const saved = await call("saveSummary", { body: "Mine.", revision });
   expect(saved).toEqual({ draft: { targetKey: "pr-1", verdict: "APPROVE", verdictChosen: true, body: "Mine.", comments: [], suggestedVerdict: "APPROVE" }, stale: [], discussions: [] });
-  await expect(call("saveSummary", { body: "Stale.", revision: "old" })).rejects.toThrow("changed in another window");
-  expect(store.getDraft("pr-1").body).toBe("Mine.");
+  // The summary doesn't depend on the diff, so a window on an older one still saves it.
+  await call("saveSummary", { body: "From an older window.", revision: "old" });
+  expect(store.getDraft("pr-1").body).toBe("From an older window.");
 });
 
 test("the assistant replies in the summary's discussion", async () => {

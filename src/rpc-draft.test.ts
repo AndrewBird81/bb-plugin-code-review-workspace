@@ -78,3 +78,17 @@ test("saveDraftComment refuses a line outside the current diff, naming it", asyn
     .rejects.toThrow("b.ts:1 isn’t in the current diff.");
   expect(store.getDraft("pr-3").comments).toEqual([]);
 });
+
+test("while the guide rebuilds, the summary and verdict save, and a comment's save says why it waits", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-4", kind: "pr", number: 4, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
+  store.savePatch("pr-4", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-4" }) as any;
+  store.setStatus("pr-4", "generating");
+  expect(await harness.behavior.callRpc("saveSummary", { targetKey: "pr-4", revision, body: "Mine." })).toMatchObject({ draft: { body: "Mine." } });
+  expect(await harness.behavior.callRpc("setVerdict", { targetKey: "pr-4", revision, verdict: "APPROVE" })).toMatchObject({ draft: { verdict: "APPROVE" } });
+  await expect(harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-4", revision, comment: { file: "a.ts", line: 1, side: "RIGHT", body: "nit" } }))
+    .rejects.toThrow("The guide is rebuilding for new commits; your text is kept. Save again when it’s ready.");
+});

@@ -152,3 +152,33 @@ test("Submit waits while comments are on an older diff, and names them", async (
   expect(slot.getByText("The diff changed after these comments were drafted. Edit and save, or remove: src/a.ts:9")).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+test("while the guide rebuilds, comment saves and Submit wait; a comment from before offers to keep it on the new diff", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { DraftTray } = await import("./DraftTray");
+  const { useState } = await import("react");
+  let draft = draftOf({ body: "Summary." });
+  const saveDraftComment = vi.fn(async ({ revision, comment }: any) => {
+    if (revision !== "r2") throw new Error("This review changed in another window. Open the latest diff before saving or submitting feedback. Your text is still here.");
+    draft = { ...draft, comments: [comment] };
+    return { draft, stale: [], discussions: [] };
+  });
+  const component = () => {
+    const [rebuilt, setRebuilt] = useState(false);
+    return <><button onClick={() => setRebuilt(true)}>Rebuilt</button><DraftTray targetKey="rebuild" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision={rebuilt ? "r2" : "r1"} rebuilding={!rebuilt} account="reviewer" /></>;
+  };
+  const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft, stale: [], discussions: [] }), saveDraftComment } as any });
+  await slot.findByText("Draft saved");
+  expect(slot.getByRole("button", { name: "Submit to GitHub" }).hasAttribute("disabled")).toBe(true);
+  writeComment(slot, "Written during the rebuild.");
+  expect(slot.getByRole("button", { name: "Add to draft" }).hasAttribute("disabled")).toBe(true);
+  expect(slot.getByText("The guide is rebuilding for new commits; your text is kept. Save when it’s ready.")).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: "Rebuilt" }));
+  fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledTimes(1));
+  fireEvent.click(await slot.findByRole("button", { name: "Keep on current diff" }));
+  fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenLastCalledWith(expect.objectContaining({ revision: "r2" })));
+  await waitFor(() => expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull());
+  slot.lifecycle.unmount();
+});

@@ -48,6 +48,10 @@ export interface InlineComposer {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   /** Why the server refused the last save. */
   error?: string | null;
+  /** The guide is rebuilding for new commits, so the comment can't be saved yet. */
+  rebuilding?: boolean;
+  /** The save was refused because the text was written against an older diff: keep it on the current one. */
+  keepOnCurrentDiff?: (() => void) | null;
 }
 
 export const InlineDraftContext = createContext<InlineDraft | null>(null);
@@ -171,6 +175,18 @@ export function composerKeys(event: KeyboardEvent<HTMLTextAreaElement>, primary:
   else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
 }
 
+/** Under a comment's box: why its save was refused, or why it waits. */
+export function ComposerNotes({ error, rebuilding, keepOnCurrentDiff }: Pick<InlineComposer, "error" | "rebuilding" | "keepOnCurrentDiff">) {
+  return <>
+    {rebuilding && <p className="text-xs text-muted-foreground">The guide is rebuilding for new commits; your text is kept. Save when it’s ready.</p>}
+    {keepOnCurrentDiff && <p role="alert" className="flex flex-wrap items-center gap-x-2 text-xs text-warning-text">
+      Written against an older diff. Check it still fits.
+      <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={keepOnCurrentDiff}>Keep on current diff</Button>
+    </p>}
+    {error && <p role="alert" className="text-xs text-destructive-text">{error}</p>}
+  </>;
+}
+
 /** The box for a new comment in the diff, an edit, or a message to the agent, wherever DraftTray opened it. */
 function ComposerBox({ mode, divided = false }: { mode: "new" | "edit" | "ask"; divided?: boolean }) {
   const draft = useContext(InlineDraftContext);
@@ -186,6 +202,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
   const empty = !composer.body.trim();
   const summary = subject === "summary";
   const primary = mode === "ask" ? composer.askAgent : composer.save;
+  const held = busy || empty || mode !== "ask" && !!composer.rebuilding;
   return (
     <div className={cn("space-y-2 p-2.5", divided && "border-t border-border")}>
       <Textarea
@@ -194,16 +211,16 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
         disabled={busy}
         value={composer.body}
         onChange={(event) => composer.change(event.target.value)}
-        onKeyDown={(event) => composerKeys(event, busy || empty ? null : primary, () => { if (!busy) composer.cancel(); })}
+        onKeyDown={(event) => composerKeys(event, held ? null : primary, () => { if (!busy) composer.cancel(); })}
         placeholder={mode === "ask" ? summary ? "Ask about the summary, or say what to change" : "Ask about this, or say what to change" : summary ? "What should the author know overall?" : "What should the author know?"}
         className={cn("bg-background text-sm", summary && mode !== "ask" ? "min-h-28" : "min-h-20")}
       />
-      {composer.error && <p role="alert" className="text-xs text-destructive-text">{composer.error}</p>}
+      {mode !== "ask" && <ComposerNotes {...composer} />}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {mode === "ask" && <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Goes to the agent, not GitHub.</span>}
         <Button variant="ghost" size="sm" disabled={busy} onClick={composer.cancel}>Cancel</Button>
         {mode === "new" && <Button variant="outline" size="sm" disabled={busy || empty} onClick={composer.askAgent}><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Ask agent</Button>}
-        <Button size="sm" disabled={busy || empty} onClick={primary}>
+        <Button size="sm" disabled={held} onClick={primary}>
           {mode === "ask" ? "Send to agent" : summary ? "Save summary" : mode === "edit" ? "Save comment" : "Add to draft"}
         </Button>
       </div>

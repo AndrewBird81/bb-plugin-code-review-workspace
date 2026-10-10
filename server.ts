@@ -446,16 +446,15 @@ export default async function plugin(bb: BbPluginApi) {
       bb.realtime.publish(`draft:${targetKey}`, {});
       return draftState(targetKey);
     },
-    setVerdict({ targetKey, verdict, body, revision }) {
-      requireReviewRevision(store, targetKey, revision);
+    // The summary and verdict don't depend on the diff, so they save while it changes; submit checks everything.
+    setVerdict({ targetKey, verdict, body }) {
       // A summary you wrote yourself ends an ask on it.
       if (body !== undefined && body !== store.getDraft(targetKey).body) store.setLifecycle(targetKey, { summaryAsk: null });
       const draft = store.setVerdict(targetKey, verdict, body);
       bb.realtime.publish(`draft:${targetKey}`, {});
       return { draft };
     },
-    saveSummary({ targetKey, body, revision }) {
-      requireReviewRevision(store, targetKey, revision);
+    saveSummary({ targetKey, body }) {
       // Your words now, whoever wrote them before, and an ask on the summary is over.
       store.setLifecycle(targetKey, { summaryAsk: null });
       const draft = store.updateSummary(targetKey, { body, bodyAuthor: undefined, written: undefined });
