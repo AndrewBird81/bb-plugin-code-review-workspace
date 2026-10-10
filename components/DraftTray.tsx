@@ -343,6 +343,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     const rank = (file: string) => { const index = files.indexOf(file); return index < 0 ? files.length : index; };
     return [...draft.comments].sort((a, b) => rank(a.file) - rank(b.file) || a.file.localeCompare(b.file) || a.line - b.line || (a.side === b.side ? 0 : a.side === "LEFT" ? -1 : 1));
   }, [draft.comments, files]);
+  // Submitting refuses comments drafted against an older diff.
+  const staleComments = sortedComments.filter((comment) => stale.some((at) => sameLocation(at, comment)));
   const summaryDiscussion = discussions.find(isSummary);
   const lineDiscussions = useMemo(() => discussions.filter((d) => !isSummary(d)), [discussions]);
   // The Submit review button in the review's top bar follows this draft.
@@ -388,6 +390,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   ] as const;
   const hint = isLocal ? "Local review. Comments and notes stay in this BB installation."
     : writing ? asking ? "Send or cancel your message to the agent before submitting." : onSummary ? "Save or cancel the summary before submitting." : "Add the comment you’re writing to the draft before submitting."
+    : staleComments.length ? `The diff changed after these comments were drafted. Edit and save, or remove: ${staleComments.map((c) => `${c.file}:${c.line}`).join(", ")}`
     : needsSummary ? "Requesting changes needs a summary: say what has to change."
     : "Drafts stay in BB until you submit.";
   const suggested = draft.suggestedVerdict;
@@ -475,7 +478,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
                 </Button>)}
               </div>
               {suggested && (suggested !== draft.verdict || !verdictPicked(draft)) && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />Agent suggests {VERDICT_LABEL[suggested]}</p>}
-              <Button className="w-full gap-2" disabled={busy || !hasReview || writing || needsSummary} onClick={() => void submit()}>{busy ? <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-4" aria-hidden />}{busy ? "Saving…" : "Submit to GitHub"}</Button>
+              <Button className="w-full gap-2" disabled={busy || !hasReview || writing || needsSummary || staleComments.length > 0} onClick={() => void submit()}>{busy ? <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-4" aria-hidden />}{busy ? "Saving…" : "Submit to GitHub"}</Button>
             </>}
             <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
           </footer>

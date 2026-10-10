@@ -69,7 +69,7 @@ test("concurrent submit clicks send one write and retain edits made during the r
 test("re-review cannot silently reuse comments whose line still exists in a changed diff", async () => {
   const { store, run, submit } = setup();
   store.savePatch("pr-test", patch.replace("+new", "+different"));
-  expect(await submit("pr-test")).toMatchObject({ ok: false, error: expect.stringContaining("diff changed") });
+  expect(await submit("pr-test")).toEqual({ ok: false, error: "The diff changed after these comments were drafted. Edit and save, or remove: a.ts:1" });
   expect(run).not.toHaveBeenCalled();
 });
 

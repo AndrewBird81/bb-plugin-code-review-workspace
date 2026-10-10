@@ -144,3 +144,11 @@ test("the Add comment form picks from the review's files, and says why the serve
   expect(form.queryByRole("alert")).toBeNull();
   slot.lifecycle.unmount();
 });
+
+test("Submit waits while comments are on an older diff, and names them", async () => {
+  const draft = draftOf({ body: "Summary.", comments: [{ file: "src/a.ts", line: 9, side: "RIGHT", body: "Old." }, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Current." }] });
+  const slot = await renderTray("stale", { getDraft: () => ({ draft, stale: [{ file: "src/a.ts", line: 9, side: "RIGHT" }], discussions: [] }) });
+  expect(slot.getByRole("button", { name: "Submit to GitHub" }).hasAttribute("disabled")).toBe(true);
+  expect(slot.getByText("The diff changed after these comments were drafted. Edit and save, or remove: src/a.ts:9")).toBeTruthy();
+  slot.lifecycle.unmount();
+});

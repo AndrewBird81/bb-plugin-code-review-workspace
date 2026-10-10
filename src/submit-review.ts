@@ -24,7 +24,8 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       if (draft.verdict === "COMMENT" && !draft.body.trim() && !draft.comments.length) return { ok: false, error: "Add a summary or at least one comment before submitting a Comment review." };
       if (draft.verdict === "REQUEST_CHANGES" && !draft.body.trim()) return { ok: false, error: "Add a summary explaining the requested changes before submitting." };
       if (draft.comments.some((c) => !c.body.trim())) return { ok: false, error: "Draft comments cannot be blank." };
-      if (store.staleDraftComments(targetKey).length) return { ok: false, error: "The diff changed after these comments were drafted. Remove affected comments and add them again against the current diff before submitting." };
+      const stale = store.staleDraftComments(targetKey);
+      if (stale.length) return { ok: false, error: `The diff changed after these comments were drafted. Edit and save, or remove: ${stale.map((c) => `${c.file}:${c.line}`).join(", ")}` };
       const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
       const bad = invalidComments(patch, draft.comments);
       if (bad.length) return { ok: false, error: `These comments are outside the current diff: ${bad.map((c) => `${c.file}:${c.line}`).join(", ")}. Remove them and add any replacement comments on lines in the current diff.` };
