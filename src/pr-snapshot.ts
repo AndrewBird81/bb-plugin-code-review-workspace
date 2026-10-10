@@ -11,13 +11,52 @@ export async function readPrSnapshot(run: typeof runGh, number: number, repo: st
   } catch {
     throw new Error("Unexpected gh PR output. Could not identify the revision to review.");
   }
-  const diff = await run(ghPrDiffArgs(number, repo), { cwd });
-  if (diff.code !== 0) throw new Error(ghErrorMessage(diff));
+  const diff = await readPrDiff(run, number, repo, cwd);
   const head = await run(ghPrHeadArgs(number, repo), { cwd });
   if (head.code !== 0) throw new Error(ghErrorMessage(head));
   let current: unknown;
   try { current = JSON.parse(head.stdout)?.headRefOid; } catch { /* reject below */ }
   if (current !== pr.headRefOid) throw new Error("The PR changed while its diff was loading. Retry to review the latest revision.");
-  if (!diff.stdout.trim()) throw new Error("No changes found for that PR.");
-  return { pr, patch: diff.stdout };
+  if (!diff.trim()) throw new Error("No changes found for that PR.");
+  return { pr, patch: diff };
+}
+
+/** GitHub won't send a diff over 20,000 lines or 300 files (HTTP 406). */
+export const diffTooLarge = (r: { stdout: string; stderr: string }) => /HTTP 406|too_large|diff exceeded the maximum/i.test(r.stderr + r.stdout);
+
+/** The PR's diff, rebuilt from its list of files when GitHub won't send one that large. */
+export async function readPrDiff(run: typeof runGh, number: number, repo: string, cwd?: string): Promise<string> {
+  const diff = await run(ghPrDiffArgs(number, repo), { cwd });
+  if (diff.code === 0) return diff.stdout;
+  if (!diffTooLarge(diff)) throw new Error(ghErrorMessage(diff));
+  return readFilesPatch(run, ["api", "--paginate", `repos/${repo}/pulls/${number}/files?per_page=100`, "--jq", ".[] | @json"], cwd);
+}
+
+interface GithubFile { filename: string; previous_filename?: string; status: string; patch?: string }
+
+/** Read GitHub's file list (one JSON file per line) as a patch. */
+export async function readFilesPatch(run: typeof runGh, args: string[], cwd?: string): Promise<string> {
+  const out = await run(args, { cwd });
+  if (out.code !== 0) throw new Error(ghErrorMessage(out));
+  return patchFromFiles(out.stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line) as GithubFile));
+}
+
+/** Git C-quotes a name with `"`, `\` or control characters. */
+function quoted(name: string): string {
+  if (!/["\\\x00-\x1f\x7f]/.test(name)) return name;
+  const escapes: Record<string, string> = { "\t": "\\t", "\n": "\\n", "\r": "\\r" };
+  return `"${name.replace(/["\\]/g, "\\$&").replace(/[\x00-\x1f\x7f]/g, (c) => escapes[c] ?? `\\${c.charCodeAt(0).toString(8).padStart(3, "0")}`)}"`;
+}
+
+/** A git-style patch from GitHub's files, each with its hunks; a file GitHub sent no hunks for says so. */
+function patchFromFiles(files: GithubFile[]): string {
+  return files.map((f) => {
+    const from = f.previous_filename ?? f.filename;
+    const [a, b] = [quoted(`a/${from}`), quoted(`b/${f.filename}`)];
+    const lines = [`diff --git ${a} ${b}`];
+    if (f.status === "renamed") lines.push(`rename from ${quoted(from)}`, `rename to ${quoted(f.filename)}`);
+    if (f.patch) lines.push(`--- ${f.status === "added" ? "/dev/null" : a}`, `+++ ${f.status === "removed" ? "/dev/null" : b}`, f.patch.replace(/\n$/, ""));
+    else lines.push("GitHub didn't send this file's diff: it's too large or binary.");
+    return lines.join("\n") + "\n";
+  }).join("");
 }

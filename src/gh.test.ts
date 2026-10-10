@@ -152,3 +152,19 @@ test("a hung command is killed after its timeout", async () => {
   expect(result.stderr).toMatch(/timed out/);
   expect(Date.now() - started).toBeLessThan(3000);
 });
+
+test("a command's output keeps characters split across reads, and stops at the buffer limit", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "gr-run-"));
+  try {
+    await runGit(["init", "-q"], { cwd });
+    const text = "x" + "é".repeat(300_000) + "\n";
+    await writeFile(join(cwd, "big.txt"), text);
+    const blob = (await runGit(["hash-object", "-w", "big.txt"], { cwd })).stdout.trim();
+    expect((await runGit(["cat-file", "-p", blob], { cwd })).stdout).toBe(text);
+    const capped = await runGit(["cat-file", "-p", blob], { cwd, maxBuffer: 1000 });
+    expect(capped).toMatchObject({ stdout: "", code: 1 });
+    expect(capped.stderr).toMatch(/^git printed more than \d+ MB, too much to read\.$/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

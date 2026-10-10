@@ -2,7 +2,8 @@
 // check, assembled for the Feedback view and the assistant's tools.
 import type { Store, ReviewMeta } from "./store";
 import type { runGh } from "./gh";
-import { ghPrDiffArgs, ghErrorMessage } from "./gh";
+import { ghErrorMessage } from "./gh";
+import { diffTooLarge, readFilesPatch, readPrDiff } from "./pr-snapshot";
 import { ensureGitHeaders } from "./patch";
 import { interdiff, type FileInterdiff } from "./interdiff";
 import { firstLine, type AssessmentItem, type FeedbackItem, type FeedbackView } from "../lib/feedback";
@@ -28,15 +29,18 @@ export async function diffAt(store: Store, run: Run, review: ReviewMeta, sha: st
   if (!review.repo || !review.number) throw new Error("This review has no GitHub PR.");
   let patch: string;
   if (sha === headOf(review)) {
-    const diff = await run(ghPrDiffArgs(review.number, review.repo));
-    if (diff.code !== 0) throw new Error(ghErrorMessage(diff));
-    patch = diff.stdout;
+    patch = await readPrDiff(run, review.number, review.repo);
   } else {
     // GitHub diffs the base branch with that commit from their merge base, as the PR did then.
-    const base = review.base ?? "HEAD";
-    const diff = await run(["api", "-H", "Accept: application/vnd.github.diff", `repos/${review.repo}/compare/${encodeURIComponent(base)}...${sha}`]);
-    if (diff.code !== 0) throw new Error(`Couldn't read the PR as of ${sha.slice(0, 7)}: ${ghErrorMessage(diff)}`);
-    patch = diff.stdout;
+    const compare = `repos/${review.repo}/compare/${encodeURIComponent(review.base ?? "HEAD")}...${sha}`;
+    const diff = await run(["api", "-H", "Accept: application/vnd.github.diff", compare]);
+    if (diff.code === 0) patch = diff.stdout;
+    else if (!diffTooLarge(diff)) throw new Error(`Couldn't read the PR as of ${sha.slice(0, 7)}: ${ghErrorMessage(diff)}`);
+    else {
+      // Too large for a diff: rebuild it from the comparison's files.
+      patch = await readFilesPatch(run, ["api", compare, "--jq", ".files[] | @json"])
+        .catch((error: Error) => { throw new Error(`Couldn't read the PR as of ${sha.slice(0, 7)}: ${error.message}`); });
+    }
   }
   patch = ensureGitHeaders(patch);
   store.saveSnapshot(review.targetKey, sha, patch);

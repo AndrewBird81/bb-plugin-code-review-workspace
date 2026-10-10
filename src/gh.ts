@@ -58,9 +58,11 @@ export function ghUnresolveThreadArgs(threadId: string): string[] {
 }
 
 /** timeoutMs 0 waits for as long as it takes: a write killed mid-flight may still land, and a retry would duplicate it. */
-interface RunOpts { cwd?: string; stdin?: string; authToken?: string; timeoutMs?: number }
+interface RunOpts { cwd?: string; stdin?: string; authToken?: string; timeoutMs?: number; maxBuffer?: number }
 /** A hung `gh` or `git` mustn't stall the review sync; long diffs still finish well inside this. */
 const DEFAULT_TIMEOUT_MS = 120_000;
+/** Output a review can't use anyway mustn't grow the server's memory without bound. */
+const DEFAULT_MAX_BUFFER = 64 * 1024 * 1024;
 interface RunResult { stdout: string; stderr: string; code: number }
 
 function run(bin: string, args: string[], opts: RunOpts = {}): Promise<RunResult> {
@@ -72,8 +74,19 @@ function run(bin: string, args: string[], opts: RunOpts = {}): Promise<RunResult
     const limit = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     // Settle at the deadline: a grandchild holding the pipes open would delay "close".
     const timer = limit > 0 ? setTimeout(() => { child.kill("SIGKILL"); resolve({ stdout, stderr: `${bin} timed out after ${Math.round(limit / 1000)}s`, code: 124 }); }, limit) : undefined;
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
+    const maxBuffer = opts.maxBuffer ?? DEFAULT_MAX_BUFFER;
+    // Decoded as a stream, so a character split across two reads stays whole.
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (d: string) => {
+      stdout += d;
+      if (stdout.length <= maxBuffer) return;
+      clearTimeout(timer);
+      child.kill("SIGKILL");
+      child.stdout.destroy();
+      resolve({ stdout: "", stderr: `${bin} printed more than ${Math.round(maxBuffer / 1024 / 1024)} MB, too much to read.`, code: 1 });
+    });
+    child.stderr.on("data", (d: string) => (stderr += d));
     child.on("error", (error) => { clearTimeout(timer); resolve({ stdout, stderr: `${bin} could not start: ${error.message}`, code: 1 }); });
     child.stdin.on("error", () => {}); // A failed spawn/early exit can close stdin first.
     child.on("close", (code) => { clearTimeout(timer); resolve({ stdout, stderr, code: code ?? 1 }); });
