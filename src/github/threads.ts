@@ -76,3 +76,32 @@ export function isQuestion(body: string, viewer: string): boolean {
   // A "?" in a link's query string isn't a question.
   return prose.split("\n").filter((line) => !/^\s*>/.test(line)).join("\n").replace(/https?:\/\/\S+/g, "").includes("?");
 }
+
+/** A review thread anyone started on the PR, briefly. */
+export interface PrThread {
+  id: string;
+  path: string | null;
+  line: number | null;
+  isResolved: boolean;
+  isOutdated: boolean;
+  author: string;
+  bot: boolean;
+  /** The first comment. */
+  body: string;
+  latestReply: { author: string; bot: boolean; body: string } | null;
+}
+
+/** Every review thread in a response shaped like QUERY's, whoever started it. */
+export function parseAllThreads(json: unknown): PrThread[] {
+  const nodes: any[] = (json as any)?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+  return nodes.flatMap((t) => {
+    const first = t?.first?.nodes?.[0];
+    if (!first) return [];
+    const last = (t.recent?.nodes ?? []).filter((c: any) => c && c.id !== first.id).at(-1);
+    return [{
+      id: t.id, path: t.path ?? null, line: t.line ?? null, isResolved: !!t.isResolved, isOutdated: !!t.isOutdated,
+      author: first.author?.login ?? "ghost", bot: isBot(first.author), body: first.body ?? "",
+      latestReply: last ? { author: last.author?.login ?? "ghost", bot: isBot(last.author), body: last.body ?? "" } : null,
+    }];
+  });
+}

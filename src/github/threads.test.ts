@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { fetchMyThreads, isQuestion, parseMyThreads } from "./threads";
+import { fetchMyThreads, isQuestion, parseAllThreads, parseMyThreads } from "./threads";
 import cli9083 from "./fixtures/threads-cli-9083.json";
 
 const user = (login: string) => ({ __typename: "User", login });
@@ -112,4 +112,15 @@ test("fetchMyThreads stops at the last page", async () => {
 test("fetchMyThreads rejects on a failed or unreadable response", async () => {
   await expect(fetchMyThreads(vi.fn(async () => ({ code: 1, stderr: "HTTP 502", stdout: "" })), "cli/cli", 1, "me")).rejects.toThrow(/502/);
   await expect(fetchMyThreads(vi.fn(async () => ({ code: 0, stderr: "", stdout: "<html>" })), "cli/cli", 1, "me")).rejects.toThrow();
+});
+
+test("parseAllThreads keeps everyone's threads, bots included, with the first comment and the latest reply", () => {
+  const botFirst = { ...thread("x", []), id: "PRRT_2", first: { nodes: [{ id: "b0", author: bot("coderabbitai"), body: "Possible null deref." }] }, recent: { nodes: [{ id: "b0", author: bot("coderabbitai"), body: "Possible null deref." }] } };
+  const threads = parseAllThreads(page([thread("bob", [[user("alice"), "Fixed.", 1], [user("bob"), "Thanks!", 2]]), botFirst, thread("me", [], { isResolved: true })]));
+  expect(threads).toEqual([
+    { id: "PRRT_1", path: "src/a.ts", line: 12, isResolved: false, isOutdated: false, author: "bob", bot: false, body: "Rename this?", latestReply: { author: "bob", bot: false, body: "Thanks!" } },
+    { id: "PRRT_2", path: "src/a.ts", line: 12, isResolved: false, isOutdated: false, author: "coderabbitai", bot: true, body: "Possible null deref.", latestReply: null },
+    { id: "PRRT_1", path: "src/a.ts", line: 12, isResolved: true, isOutdated: false, author: "me", bot: false, body: "Rename this?", latestReply: null },
+  ]);
+  expect(parseAllThreads(cli9083)).toHaveLength(4);
 });

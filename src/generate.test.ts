@@ -138,7 +138,7 @@ test("agents.configure exposes tools/skill only to this plugin's own generation 
   const mine = await h.harness.behavior.resolveAgentConfiguration(
     baseConfigContext("guided-review", "Generate guide: pr-1"),
   );
-  expect(mine.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_review_files", "read_changes_since_review", "generate_review_guide"]);
+  expect(mine.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"]);
   expect(mine.skills).toEqual(["guided-review-generate"]);
 
   const foreign = await h.harness.behavior.resolveAgentConfiguration(
@@ -160,7 +160,7 @@ test("agents.configure exposes tools/skill only to this plugin's own generation 
     baseConfigContext("guided-review", "Review agent: pr-1"),
   );
   expect(agentThread.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
-    "list_feedback", "read_changes_since_review", "read_file", "assess_feedback", "draft_thread_reply"]);
+    "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"]);
   expect(agentThread.skills).toEqual([]);
 
   // An unrelated same-plugin thread still gets nothing.
@@ -245,7 +245,7 @@ test("files the guide leaves unplaced get a final low-risk chapter, so the revie
 
 test("the guide writer lists the files first, and patch pages end on file boundaries", async () => {
   const { buildGenerationPrompt } = await import("./generate");
-  expect(buildGenerationPrompt("pr-1", "g")).toContain("list_review_files");
+  expect(buildGenerationPrompt("pr-1", "g")).toMatch(/Start with read_pr_context, then list_review_files.*\n.*intent from what the PR says it does/);
   const { harness, store } = await host();
   const second = patch.replaceAll("a.ts", "b.ts");
   store.savePatch("pr-1", patch + second);

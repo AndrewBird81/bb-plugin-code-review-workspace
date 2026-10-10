@@ -9,6 +9,7 @@ import { rpcContract } from "./src/rpc-contract";
 import { createStore } from "./src/store";
 import { changedFiles, splitPatchByFile } from "./src/patch";
 import { describeReviewFiles, patchPage } from "./src/review-files";
+import { readPrContext } from "./src/pr-context";
 import { validateGuide, checkCoverage, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
@@ -58,7 +59,7 @@ export { rpcContract } from "./src/rpc-contract";
 
 
 // Raise when the review assistant's tools change.
-const ASSISTANT_TOOLS = 5;
+const ASSISTANT_TOOLS = 6;
 
 export default async function plugin(bb: BbPluginApi) {
   const store = createStore(bb);
@@ -673,6 +674,20 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
   bb.agents.registerTool({
+    name: "read_pr_context",
+    description: "What the change says about itself and what others already said on it: the PR's title, author, branches, labels, description, linked issues, commits, failing CI checks, other people's open review threads, the repo's review instructions, and the context the review was started with. For a local review, its commits and the checkout's review instructions. Text from the PR is fenced as untrusted.",
+    instructions: "Start a guide or a review with read_pr_context. If the title, branch, or description names a ticket (like ABC-123) and you have a tool that reads it, read it.",
+    parameters: z.object({}),
+    async execute(_input, { threadId }) {
+      const targetKey = assistantReview(store, threadId) ?? (await generationReview(threadId));
+      const review = targetKey ? store.getReview(targetKey) : null;
+      if (!review) return failed("There's no review to read the context of.");
+      const files = changedFiles(store.readPatch(review.targetKey, 0, store.readPatch(review.targetKey, 0, 0).total).text);
+      try { return await readPrContext({ runGh, runGit }, review, files, store.getReviewContext(review.targetKey)); }
+      catch (error) { return failed(error instanceof Error ? error.message : "Couldn't read the PR's context."); }
+    },
+  });
+  bb.agents.registerTool({
     name: "read_file",
     description: "Read a file of this PR at the PR's head (ref \"current\") or at the commit the reviewer last reviewed (ref \"reviewed\"), with line numbers. Returns up to 400 lines from startLine.",
     parameters: z.object({
@@ -813,7 +828,7 @@ export default async function plugin(bb: BbPluginApi) {
     if (context.origin?.pluginId !== bb.pluginId) return { tools: [], skills: [] };
     const title = context.thread?.title ?? "";
     if (title.startsWith("Generate guide:")) {
-      return { tools: ["read_review_patch", "list_review_files", "read_changes_since_review", "generate_review_guide"], skills: ["guided-review-generate"] };
+      return { tools: ["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"], skills: ["guided-review-generate"] };
     }
     // The review assistant can read any file's diff on demand, so the chat
     // works across the whole review, and change its own review's local draft
@@ -824,7 +839,7 @@ export default async function plugin(bb: BbPluginApi) {
       const review = typeof targetKey === "string" ? store.getReview(targetKey) : null;
       return {
         tools: ["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
-          "list_feedback", "read_changes_since_review", "read_file", "assess_feedback", "draft_thread_reply"], skills: [],
+          "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"], skills: [],
         ...(review ? { instructions: assistantInstructions(review.targetKey, store.getGuide(review.targetKey), store.getPreferences().preferences) } : {}),
       };
     }
