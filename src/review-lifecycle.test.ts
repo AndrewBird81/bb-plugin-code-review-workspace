@@ -369,7 +369,7 @@ test("re-reviews of PRs found on GitHub start guides only in auto-start reposito
 });
 
 test("team requests auto-start in listed repositories", async () => {
-  const s = setup({ preferences: { autoStartRepos: ["acme/web"] } });
+  const s = setup({ preferences: { autoStartRepos: ["acme/web"], trackTeamRequests: true } });
   s.store.setStatus("pr-1", "tracked");
   s.store.setLifecycle("pr-1", { newRequest: true });
   s.pr({ requestPending: { via: "team", team: "acme/web-core" }, requests: [{ at: T0 - HOUR, by: "dan", via: "team", team: "acme/web-core" }] });
@@ -481,4 +481,14 @@ test("with push checks on, checks that stay pending an hour after the push don't
   s.at(1.2);
   await s.sync.all();
   expect(s.actions.checkPushes).toHaveBeenCalledWith("pr-1");
+});
+
+test("a tracked team request leaves Needs review when team requests are turned off", async () => {
+  const s = setup({ preferences: { trackTeamRequests: true } });
+  s.store.setStatus("pr-1", "tracked");
+  s.pr({ requestPending: { via: "team", team: "acme/web-core" }, requests: [{ at: T0 - HOUR, by: "dan", via: "team", team: "acme/web-core" }] });
+  await s.sync.all();
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs", reason: "team-requested" });
+  s.store.savePreferences({ ...defaultPreferences, trackTeamRequests: false }, 1);
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "archive", reason: "unrequested" });
 });

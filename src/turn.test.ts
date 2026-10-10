@@ -46,6 +46,17 @@ test("a request for your review alerts you; a team request is quieter", () => {
   expect(team).toMatchObject({ group: "needs", reason: "team-requested", notify: false });
 });
 
+test("a PR found on GitHub whose request was withdrawn, or a team's with team requests off, leaves Needs review", () => {
+  const tracked = (signals: TurnInput["signals"], status: TurnInput["status"] = "tracked"): TurnInput => ({ targetKey: "a", kind: "pr", status, signals });
+  expect(turn(tracked({ requestedAt: t(30), requestPending: false }))).toMatchObject({ group: "archive", reason: "unrequested", label: "No longer requested", signal: null });
+  const team = tracked({ requestedAt: t(1), requestedVia: "team", requestPending: true });
+  expect(turn(team, { teamRequests: false })).toMatchObject({ group: "archive", reason: "unrequested" });
+  expect(turn(team, { teamRequests: true })).toMatchObject({ group: "needs", reason: "team-requested" });
+  // Not read from GitHub yet, or with a guide you started, it stays.
+  expect(turn(tracked(null))).toMatchObject({ group: "needs", label: "Tracked" });
+  expect(turn(tracked({ requestPending: false }, "ready"))).toMatchObject({ group: "needs", label: "Ready" });
+});
+
 test("a team request after your review isn't a re-request, and doesn't undo your archive", () => {
   const team = { requestedAt: t(1), requestedBy: "carol", requestedVia: "team" as const, requestPending: true };
   expect(turn(changesRequested({}, team))).toMatchObject({ group: "waiting", reason: "waiting" });

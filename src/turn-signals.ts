@@ -6,7 +6,7 @@ import { feedbackProgress, type Turn, type TurnOptions, type TurnSignals } from 
 import { verdictFromMine } from "./review-verdict";
 
 export function turnOptions(preferences: ReviewPreferences): TurnOptions {
-  return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks };
+  return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks, teamRequests: preferences.trackTeamRequests };
 }
 
 /**

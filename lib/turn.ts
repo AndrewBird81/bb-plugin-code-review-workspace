@@ -6,7 +6,7 @@ import type { Verdict } from "../src/draft";
 export type TurnGroup = "needs" | "waiting" | "reviewed" | "archive";
 
 export type TurnReason =
-  | "merged" | "closed" | "archived"
+  | "merged" | "closed" | "archived" | "unrequested"
   | "failed"
   | "new" | "requested" | "team-requested" | "re-requested"
   | "question" | "mentioned" | "handled" | "looks-ready" | "dismissed"
@@ -114,6 +114,8 @@ export interface TurnOptions {
   pushChecks: "off" | "progress" | "ready";
   /** How long the author must be quiet before "Feedback handled" counts. */
   quietMs?: number;
+  /** false: a PR found on GitHub only through a team request leaves your list. */
+  teamRequests?: boolean;
 }
 
 export interface Turn {
@@ -187,6 +189,10 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     const tracked = review.status === "tracked";
     if (!reviewed) {
       if (tracked && s.isDraft) return make("waiting", "draft", "Draft", "Open review");
+      // A PR found on GitHub that no longer asks for you, or only asks a team when you've left those out.
+      if (tracked && review.signals && (!s.requestPending || s.requestedVia === "team" && options.teamRequests === false)) {
+        return make("archive", "unrequested", "No longer requested", "View review");
+      }
       if (s.requestPending || s.requestedAt) {
         const team = s.requestedVia === "team";
         return make("needs", team ? "team-requested" : "requested", team ? "Team review requested" : "Review requested", tracked ? "Start review" : "Open review", {
