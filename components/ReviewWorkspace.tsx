@@ -3,7 +3,7 @@ import { useRpc, useRealtime, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { SelectedLineRange } from "@pierre/diffs";
 import type { rpcContract } from "../src/rpc-contract";
-import type { CommentLocation } from "../src/draft";
+import { VERDICT_LABEL, type CommentLocation } from "../src/draft";
 import type { FileInterdiff } from "../src/interdiff";
 import { baselineOf, computeTurn, type TurnReason } from "../lib/turn";
 import { cn } from "../lib/utils";
@@ -27,7 +27,7 @@ import { IconTile } from "./ui/icon-tile";
 import { Hint } from "./ui/hint";
 import { ReviewActions } from "./ReviewActions";
 import { defaultPreferences } from "../lib/review-preferences";
-import { useDraftStatus, VERDICT_LABEL } from "../lib/draft-status";
+import { useDraftStatus } from "../lib/draft-status";
 
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 560;

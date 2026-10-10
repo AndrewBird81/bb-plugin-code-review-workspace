@@ -1,10 +1,8 @@
 // The review summary as agents and `bb review summary` write it. Like the draft
 // comments, it stays in this bb's local draft until the reviewer submits it.
 import type { Store } from "./store";
-import { commentsKey, isSummary, SUMMARY_AT, type Verdict } from "./draft";
+import { commentsKey, isSummary, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "./draft";
 import { describeComments, unchangeable, type DraftResult } from "./draft-comments";
-
-export const VERDICT_LABEL: Record<Verdict, string> = { APPROVE: "Approve", COMMENT: "Comment", REQUEST_CHANGES: "Request changes" };
 
 /**
  * Write the summary as an agent, and suggest a verdict. An agent writes an empty summary or
@@ -16,13 +14,15 @@ export function writeSummary(store: Store, targetKey: string, input: { body: str
   const draft = store.getDraft(targetKey);
   const body = input.body.trim();
   const reviewers = !draft.bodyAuthor && !!draft.body.trim();
-  if (reviewers && !store.listDiscussions(targetKey).some((d) => isSummary(d) && d.waiting)) {
+  // Asking on the summary opens it to the agent for the turn that answers, replies and all.
+  const asked = !!store.getReview(targetKey)?.summaryAsk || store.listDiscussions(targetKey).some((d) => isSummary(d) && d.waiting);
+  if (reviewers && !asked) {
     return { ok: false, error: "The reviewer wrote the review summary, so it stays as they wrote it. Put your suggested summary in your reply instead; the reviewer can ask on the summary (Ask agent on the review summary, in Draft review) to apply it. Nothing was changed." };
   }
   const suggested = input.verdict ? { suggestedVerdict: input.verdict } : {};
   store.updateSummary(targetKey, reviewers ? { body, ...suggested } : {
     body, bodyAuthor: "agent", ...suggested,
-    written: { verdict: input.verdict ?? (draft.verdictChosen ? draft.verdict : null), comments: commentsKey(draft.comments) },
+    written: { verdict: input.verdict ?? (verdictPicked(draft) ? draft.verdict : null), comments: commentsKey(draft.comments) },
   });
   store.noteDiscussionChange(targetKey, SUMMARY_AT, draft.body.trim() ? "edited" : "added", {
     body, previous: { body: draft.body, ...(draft.bodyAuthor ? { author: draft.bodyAuthor } : {}), ...(draft.written ? { written: draft.written } : {}) },
@@ -38,8 +38,7 @@ export function describeSummary(store: Store, targetKey: string): string {
     draft.body.trim()
       ? [`Review summary · written by ${draft.bodyAuthor === "agent" ? "an agent" : "the reviewer"}`, ...draft.body.trim().split("\n").map((line) => `  ${line}`)].join("\n")
       : "The draft has no review summary yet.",
-    // Drafts from before verdictChosen only had a verdict other than Comment when the reviewer picked it.
-    draft.verdictChosen || draft.verdict !== "COMMENT" ? `Verdict: the reviewer picked ${VERDICT_LABEL[draft.verdict]}.` : "Verdict: the reviewer hasn't picked one, so it's Comment by default.",
+    verdictPicked(draft) ? `Verdict: the reviewer picked ${VERDICT_LABEL[draft.verdict]}.` : "Verdict: the reviewer hasn't picked one, so it's Comment by default.",
     ...(draft.suggestedVerdict ? [`An agent's suggested verdict: ${VERDICT_LABEL[draft.suggestedVerdict]}.`] : []),
   ].join("\n");
 }

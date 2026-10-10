@@ -1,4 +1,5 @@
 export type Verdict = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+export const VERDICT_LABEL: Record<Verdict, string> = { APPROVE: "Approve", COMMENT: "Comment", REQUEST_CHANGES: "Request changes" };
 
 export interface DraftComment {
   file: string;
@@ -72,6 +73,9 @@ export function commentsKey(comments: readonly Pick<DraftComment, "file" | "line
   return `${comments.length}:${hash.toString(16)}`;
 }
 
+/** Whether the reviewer picked the verdict. Drafts from before verdictChosen only left Comment when they picked another. */
+export const verdictPicked = (draft: Draft) => !!draft.verdictChosen || draft.verdict !== "COMMENT";
+
 /**
  * What changed since an agent wrote the summary: the comments, and the verdict, when the
  * reviewer picked one other than the summary was written for. Nothing for a summary the reviewer wrote.
@@ -81,7 +85,7 @@ export function summaryChanges(draft: Draft): { comments: boolean; verdict: Verd
   if (!written) return { comments: false, verdict: null };
   return {
     comments: written.comments !== commentsKey(draft.comments),
-    verdict: written.verdict && draft.verdictChosen && draft.verdict !== written.verdict ? written.verdict : null,
+    verdict: written.verdict && verdictPicked(draft) && draft.verdict !== written.verdict ? written.verdict : null,
   };
 }
 

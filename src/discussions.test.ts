@@ -161,3 +161,24 @@ test("a merged PR's discussions take no new messages", async () => {
   expect(sent()).toEqual([]);
   expect(store.listDiscussions("pr-1")).toEqual([]);
 });
+
+test("asking on a summary you wrote opens it to the agent for the whole turn that answers, replies first or not", async () => {
+  const { store, ask, tool, harness } = await host();
+  store.updateSummary("pr-1", { body: "My long summary." });
+  const summary = { file: "", line: 0, side: "RIGHT" } as const;
+  await ask({ ...summary, body: "Shorter, and mention the test." });
+  // Queued behind other work, the ask waits for its turn.
+  harness.inspection.sdk.stub("threads.queuedMessages.list", async () => [makeQueueEntry()]);
+  await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: "Earlier work" });
+  harness.inspection.sdk.stub("threads.queuedMessages.list", async () => []);
+  await tool("reply_in_discussion", { summary: true, body: "On it." });
+  expect((await tool("set_review_summary", { body: "Short." })).isError).toBeFalsy();
+  expect((await tool("set_review_summary", { body: "Short, with the test." })).isError).toBeFalsy();
+  expect(store.getDraft("pr-1")).toMatchObject({ body: "Short, with the test." });
+  expect(store.getDraft("pr-1").bodyAuthor).toBeUndefined();
+  // Once that turn ends, the summary is the reviewer's to change again.
+  await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: "Done" });
+  expect(store.getReview("pr-1")?.summaryAsk).toBeNull();
+  expect((await tool("set_review_summary", { body: "Unasked." })).isError).toBe(true);
+  expect(store.getDraft("pr-1").body).toBe("Short, with the test.");
+});

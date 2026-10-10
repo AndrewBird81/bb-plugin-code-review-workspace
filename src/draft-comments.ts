@@ -105,32 +105,39 @@ function textAt(store: Store, targetKey: string, at: CommentLocation): string | 
   return draft.comments.find((c) => sameLocation(c, at))?.body ?? null;
 }
 
-/** Whether the agent's latest change in a discussion can be undone: nothing changed its comment or the summary since. */
-export function canUndo(store: Store, targetKey: string, at: CommentLocation): boolean {
+/**
+ * Why the agent's latest change in a discussion can't be undone, or null when it can: nothing changed
+ * its comment or the summary since, and a removed comment's line still holds the code it was drafted on.
+ */
+function undoProblem(store: Store, targetKey: string, at: CommentLocation): string | null {
   const change = store.lastDiscussionChange(targetKey, at);
-  if (!change) return false;
+  if (!change) return "There's no change of the agent's to undo there.";
   const text = textAt(store, targetKey, at);
-  return change.kind === "removed" ? text === null : text === change.body;
+  if (change.kind === "removed" ? text !== null : text !== change.body) return "It changed since the agent's edit, so there's nothing to undo. Edit it instead.";
+  if (change.kind !== "removed" || isSummary(at)) return null;
+  const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
+  const code = diffPositions(patch).get(at.file)?.[at.side === "RIGHT" ? "right" : "left"].get(at.line);
+  // Putting it back binds it to the current diff, so the line must still hold the code it was drafted on.
+  const drafted = store.draftCommentCode(targetKey, at);
+  if (code === undefined) return `${where(at)} isn't in the diff anymore, so the comment can't go back there.`;
+  if (drafted !== undefined && code !== drafted) return `The code at ${where(at)} changed since the comment was drafted, so it can't go back there.`;
+  return null;
 }
+
+export const canUndo = (store: Store, targetKey: string, at: CommentLocation) => undoProblem(store, targetKey, at) === null;
 
 /** Put back what the agent's latest change in a discussion replaced: a comment's text, a removed comment, or the summary. */
 export function undoChange(store: Store, targetKey: string, at: CommentLocation): DraftResult {
   const refused = unchangeable(store.getReview(targetKey));
   if (refused) return { ok: false, error: refused };
-  const change = store.lastDiscussionChange(targetKey, at);
-  if (!change || !canUndo(store, targetKey, at)) return { ok: false, error: `It changed since the agent's edit, so there's nothing to undo. Edit it instead.` };
-  const { previous } = change;
+  const problem = undoProblem(store, targetKey, at);
+  if (problem) return { ok: false, error: problem };
+  const { kind, previous } = store.lastDiscussionChange(targetKey, at)!;
   if (isSummary(at)) {
     store.updateSummary(targetKey, { body: previous?.body ?? "", bodyAuthor: previous?.author, written: previous?.written });
   } else if (!previous) {
     store.deleteDraftComment(targetKey, at);
-  } else if (change.kind === "removed") {
-    const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
-    const code = diffPositions(patch).get(at.file)?.[at.side === "RIGHT" ? "right" : "left"].get(at.line);
-    // Putting it back binds it to the current diff, so the line must still hold the code it was drafted on.
-    const drafted = store.draftCommentCode(targetKey, at);
-    if (code === undefined) return { ok: false, error: `${where(at)} isn't in the diff anymore, so the comment can't go back there.` };
-    if (drafted !== undefined && code !== drafted) return { ok: false, error: `The code at ${where(at)} changed since the comment was drafted, so it can't go back there.` };
+  } else if (kind === "removed") {
     store.upsertDraftComment(targetKey, { ...at, body: previous.body, ...(previous.author ? { author: previous.author } : {}), ...(previous.chapterId ? { chapterId: previous.chapterId } : {}) });
   } else {
     store.editDraftComment(targetKey, at, previous.body);

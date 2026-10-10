@@ -39,6 +39,8 @@ export interface ReviewLifecycle {
   preparedAt?: number | null;
   /** Your latest review summaries, newest last, for the assistant. */
   reviewBodies?: Array<{ state: string; at: number; body: string }>;
+  /** The reviewer asked on the review summary; the agent may change their summary until the turn that answers it ends. */
+  summaryAsk?: number | null;
   /** When bb first read the PR's state. Earlier events don't alert or start work. */
   watchingSince?: number | null;
   /** Found on GitHub with a request for your review that you haven't been told about. */

@@ -1,8 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import type { Verdict } from "../src/draft";
 
-export const VERDICT_LABEL: Record<Verdict, string> = { APPROVE: "Approve", COMMENT: "Comment", REQUEST_CHANGES: "Request changes" };
-
 /** What the open draft would submit, for the Submit review button outside the draft panel. */
 export interface DraftStatus { verdict: Verdict; comments: number; summary: boolean }
 

@@ -23,7 +23,7 @@ type Slot = Awaited<ReturnType<typeof renderTray>>;
 const pressed = (slot: Slot, name: string) =>
   within(slot.getByRole("group", { name: "Review verdict" })).getByRole("button", { name }).getAttribute("aria-pressed");
 const summary = (slot: Slot) => within(slot.getByRole("region", { name: "Review summary" }));
-const draftOf = (over: Record<string, unknown> = {}) => ({ targetKey: "k", verdict: "COMMENT", body: "", comments: [] as any[], ...over });
+const draftOf = (over: Record<string, unknown> = {}): Record<string, any> => ({ targetKey: "k", verdict: "COMMENT", body: "", comments: [] as any[], ...over });
 const comment = { file: "src/a.ts", line: 2, side: "RIGHT", body: "Stale after a write?" };
 
 test("the draft's verdict and summary reload when they change elsewhere", async () => {

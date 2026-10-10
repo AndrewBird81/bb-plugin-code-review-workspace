@@ -100,7 +100,7 @@ test("the reviewer undoes the agent's latest change to the summary, until someth
   expect(undone.draft).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "", comments: [] });
   expect(undone.discussions[0].entries.at(-1)).toMatchObject({ author: "reviewer", kind: "restored" });
   expect(undone.discussions[0]).not.toHaveProperty("undoable");
-  await expect(call("undoAgentChange", SUMMARY_AT)).rejects.toThrow("It changed since the agent's edit, so there's nothing to undo. Edit it instead.");
+  await expect(call("undoAgentChange", SUMMARY_AT)).rejects.toThrow("There's no change of the agent's to undo there.");
 
   await tool("set_review_summary", { body: "Second." });
   const second = store.getDraft("pr-1");

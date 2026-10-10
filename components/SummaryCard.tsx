@@ -1,6 +1,5 @@
 import { Markdown } from "@get-bb/plugin-sdk/app";
-import { summaryChanges, type Discussion, type Draft, type Verdict } from "../src/draft";
-import { VERDICT_LABEL } from "../lib/draft-status";
+import { summaryChanges, VERDICT_LABEL, type Discussion, type Draft, type Verdict } from "../src/draft";
 import { cn } from "../lib/utils";
 import { withLineBreaks } from "../src/line-breaks";
 import { Badge, TONE_TEXT } from "./ui/badge";

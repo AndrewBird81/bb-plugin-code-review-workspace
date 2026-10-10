@@ -449,6 +449,7 @@ export default async function plugin(bb: BbPluginApi) {
       // The discussions were about this draft. The assistant's conversation keeps them.
       if (result.ok) {
         store.clearDiscussions(targetKey);
+        store.setLifecycle(targetKey, { summaryAsk: null });
         const review = store.getReview(targetKey)!;
         // The diff you reviewed is what "since your review" compares against.
         if (review.headSha) store.saveSnapshot(targetKey, review.headSha, store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text);
@@ -490,6 +491,7 @@ export default async function plugin(bb: BbPluginApi) {
     },
     async newConversation({ targetKey }) {
       await newConversation(bb, store, targetKey);
+      store.setLifecycle(targetKey, { summaryAsk: null });
       // The archived conversation won't answer discussions waiting for it.
       if (store.stopWaiting(targetKey)) bb.realtime.publish(`draft:${targetKey}`, {});
       return { ok: true };
@@ -723,13 +725,17 @@ export default async function plugin(bb: BbPluginApi) {
   const settle = async ({ thread }: { thread: { id: string } }) => {
     const targetKey = await settleDiscussions(bb, store, thread.id);
     if (targetKey) bb.realtime.publish(`draft:${targetKey}`, {});
-    // A feedback check ends with the assistant's turn; an alert waiting for it can go now. A check still
-    // queued behind another message hasn't run yet.
-    const checked = assistantReview(store, thread.id);
-    if (checked && store.getReview(checked)?.verifyingSince && !(await bb.sdk.threads.queuedMessages.list({ threadId: thread.id }).catch(() => [])).length) {
-      store.setLifecycle(checked, { verifyingSince: null, verifyingHead: null, preparedAt: Date.now() });
-      await sync.evaluate(checked);
-      bb.realtime.publish(`feedback:${checked}`, { ts: Date.now() });
+    const reviewKey = assistantReview(store, thread.id);
+    const review = reviewKey ? store.getReview(reviewKey) : null;
+    if (!reviewKey || !(review?.verifyingSince || review?.summaryAsk)) return;
+    // A check or an ask on the summary still queued behind another message hasn't run yet.
+    if ((await bb.sdk.threads.queuedMessages.list({ threadId: thread.id }).catch(() => [])).length) return;
+    if (review.summaryAsk) store.setLifecycle(reviewKey, { summaryAsk: null });
+    // A feedback check ends with the assistant's turn; an alert waiting for it can go now.
+    if (review.verifyingSince) {
+      store.setLifecycle(reviewKey, { verifyingSince: null, verifyingHead: null, preparedAt: Date.now() });
+      await sync.evaluate(reviewKey);
+      bb.realtime.publish(`feedback:${reviewKey}`, { ts: Date.now() });
     }
   };
   bb.events.on("thread.idle", settle);

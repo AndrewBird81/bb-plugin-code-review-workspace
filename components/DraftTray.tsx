@@ -4,7 +4,7 @@ import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
-import { isSummary, sameLocation, SUMMARY_AT, type CommentLocation, type Discussion, type Draft, type DraftComment, type Verdict } from "../src/draft";
+import { isSummary, sameLocation, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type CommentLocation, type Discussion, type Draft, type DraftComment, type Verdict } from "../src/draft";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
@@ -14,7 +14,7 @@ import { cn } from "../lib/utils";
 import { AgentDock, type AgentDockProps } from "./AgentDock";
 import { getReviewState, patchReviewState } from "../lib/panel-state";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
-import { setDraftStatus, VERDICT_LABEL } from "../lib/draft-status";
+import { setDraftStatus } from "../lib/draft-status";
 import { usePortalScopeProps } from "../lib/portal-scope";
 import { InlineComposerContext, InlineDraftContext, type InlineComposer, type InlineDraft } from "./InlineDraft";
 import { SummaryCard } from "./SummaryCard";
@@ -395,7 +395,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
                   <Icon name={icon} className="size-3.5" aria-hidden />{VERDICT_LABEL[verdict]}{suggested === verdict && <span title="Suggested by the agent" className="flex"><Icon name="Sparkles" className="size-3 text-(--ansi-13)" aria-hidden /></span>}
                 </Button>)}
               </div>
-              {suggested && (suggested !== draft.verdict || !draft.verdictChosen) && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />Agent suggests {VERDICT_LABEL[suggested]}</p>}
+              {suggested && (suggested !== draft.verdict || !verdictPicked(draft)) && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />Agent suggests {VERDICT_LABEL[suggested]}</p>}
               <Button className="w-full gap-2" disabled={busy || !hasReview || writing || needsSummary} onClick={() => void submit()}>{busy ? <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-4" aria-hidden />}{busy ? "Saving…" : "Submit to GitHub"}</Button>
             </>}
             <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
