@@ -115,3 +115,13 @@ test("only old-side comments carry a side badge, and the form's sides are New an
   expect(within(side).getAllByRole("option").map((option) => option.textContent)).toEqual(["New line", "Old line"]);
   slot.lifecycle.unmount();
 });
+
+test("line comments list in the review's order: chapter by chapter, then file, line, and side", async () => {
+  const at = (file: string, line: number, side = "RIGHT") => ({ file, line, side, body: `${file}:${line}:${side}` });
+  const draft = draftOf({ comments: [at("src/z.ts", 1), at("src/a.ts", 3), at("src/b.ts", 5), at("src/a.ts", 1), at("src/b.ts", 2), at("src/a.ts", 1, "LEFT")] });
+  // src/b.ts is in the first chapter, src/a.ts in the second; src/z.ts in none.
+  const slot = await renderTray("order", { getDraft: () => ({ draft, stale: [], discussions: [] }) }, { files: ["src/b.ts", "src/a.ts"] });
+  const list = slot.getAllByRole("button", { name: /^src\/.\.ts:\d/ }).map((button) => button.getAttribute("aria-label"));
+  expect(list).toEqual(["src/b.ts:2", "src/b.ts:5", "src/a.ts:1 · Old line", "src/a.ts:1", "src/a.ts:3", "src/z.ts:1"]);
+  slot.lifecycle.unmount();
+});

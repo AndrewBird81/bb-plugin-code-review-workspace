@@ -36,8 +36,11 @@ const VERDICTS = [
   ["REQUEST_CHANGES", "aria-pressed:bg-warning/15 aria-pressed:text-warning-text aria-pressed:ring-warning/30 aria-pressed:hover:bg-warning/20"],
 ] as const;
 
-export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, activeFiles, prefill, isLocal = false, review, onSubmitted, onShowComment, agent, reviewRevision, account, showDraft, children }: {
-  targetKey: string; activeChapterId: string; activeFiles: string[]; prefill?: CommentPrefill; isLocal?: boolean; review?: ReviewItem; onSubmitted?: () => void; onShowComment?: (at: CommentLocation) => void;
+export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, activeFiles, files = activeFiles, prefill, isLocal = false, review, onSubmitted, onShowComment, agent, reviewRevision, account, showDraft, children }: {
+  targetKey: string; activeChapterId: string; activeFiles: string[];
+  /** The review's changed files, chapter by chapter. */
+  files?: string[];
+  prefill?: CommentPrefill; isLocal?: boolean; review?: ReviewItem; onSubmitted?: () => void; onShowComment?: (at: CommentLocation) => void;
   reviewRevision?: string; account?: string;
   /** A new value opens Draft review at its summary. `replaced`: you agreed the assistant's suggestion replaces your summary. */
   showDraft?: { at: number; replaced?: boolean };
@@ -331,6 +334,11 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const submittedVerdict = review ? review.submittedVerdict : receipt;
   const closed = review?.prState === "MERGED" || review?.prState === "CLOSED";
   const completed = submittedVerdict && !hasReview && !writeAnother && !body.trim();
+  // In the order the review reads: chapter by chapter, then file, line, and side.
+  const sortedComments = useMemo(() => {
+    const rank = (file: string) => { const index = files.indexOf(file); return index < 0 ? files.length : index; };
+    return [...draft.comments].sort((a, b) => rank(a.file) - rank(b.file) || a.file.localeCompare(b.file) || a.line - b.line || (a.side === b.side ? 0 : a.side === "LEFT" ? -1 : 1));
+  }, [draft.comments, files]);
   const summaryDiscussion = discussions.find(isSummary);
   const lineDiscussions = useMemo(() => discussions.filter((d) => !isSummary(d)), [discussions]);
   // The Submit review button in the review's top bar follows this draft.
@@ -426,7 +434,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
               <span className="flex-1" />
               <Button variant="ghost" size="sm" className="-mr-2 text-primary hover:text-primary" aria-expanded={showComposer && !inline && !onSummary} onClick={() => openComposer(null, false)}><Icon name="Plus" className="size-4" aria-hidden /> Add comment</Button>
             </div>
-            {draft.comments.length ? <ul className="space-y-2 text-sm">{draft.comments.map((comment) => {
+            {draft.comments.length ? <ul className="space-y-2 text-sm">{sortedComments.map((comment) => {
               const isStale = stale.some((at) => sameLocation(at, comment));
               const discussion = discussions.find((d) => sameLocation(d, comment));
               const messages = discussion?.entries.filter((entry) => entry.kind === "message").length ?? 0;
