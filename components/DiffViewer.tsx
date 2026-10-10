@@ -6,6 +6,8 @@ import { splitPatchByFile } from "../src/patch";
 import type { FileInterdiff } from "../src/interdiff";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import { cn } from "../lib/utils";
+import { classifyFile } from "../src/classify";
+import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { Badge } from "./ui/badge";
 import { DiffStat } from "./ui/diff-stat";
@@ -43,6 +45,17 @@ function diffStats(text: string): { add: number; del: number } {
 }
 
 const annotationSide = (side: "LEFT" | "RIGHT"): AnnotationSide => (side === "LEFT" ? "deletions" : "additions");
+
+/** More changed lines than this start a file folded. */
+const LARGE_DIFF = 1500;
+/** Pierre highlights a file up to this many lines, and shows longer ones as plain text. */
+const TOKENIZE_MAX_LENGTH = 5000;
+
+/** Lockfiles, generated output, and huge diffs: noise to fold until asked for. */
+function startsFolded(path: string, stats: { add: number; del: number }): boolean {
+  const { category } = classifyFile(path);
+  return category === "lockfile" || category === "generated" || stats.add + stats.del > LARGE_DIFF;
+}
 
 /** Below this width the diff shows one column, whatever the reading layout. */
 const UNIFIED_BELOW = 720;
@@ -82,6 +95,7 @@ const StaticDiff = memo(function StaticDiff({ text, darkTheme, lightTheme, theme
     themeType: themeMode,
     diffStyle: "unified",
     disableFileHeader: true,
+    tokenizeMaxLength: TOKENIZE_MAX_LENGTH,
   }), [darkTheme, lightTheme, themeMode]);
   if (!fileDiff) return null;
   return <div className="overflow-x-auto"><FileDiff fileDiff={fileDiff} options={options} /></div>;
@@ -144,6 +158,7 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
     diffStyle,
     // The card's own header names the file, counts its changes, and marks it viewed.
     disableFileHeader: true,
+    tokenizeMaxLength: TOKENIZE_MAX_LENGTH,
     ...(unsafeCSS ? { unsafeCSS } : {}),
     // GitHub-style line picking: drag to select a range to comment on or ask
     // about, or use the gutter "+" to open a comment box at a line.
@@ -228,9 +243,11 @@ export const DiffViewer = memo(function DiffViewer({
       const fileDiff = text ? parseFileDiff(text) : null;
       // A file whose only change since your review is removed hunks shows just those.
       if (!fileDiff && !(filtering && change?.dropped)) return [];
+      const stats = diffStats(text);
       return [{
         path: f.path,
-        stats: diffStats(text),
+        stats,
+        noisy: startsFolded(f.path, stats),
         fileDiff,
         change,
         css: change?.status === "changed" ? sinceReviewCSS(change.newLines, change.newDeletions) : "",
@@ -251,9 +268,10 @@ export const DiffViewer = memo(function DiffViewer({
     return () => observer.disconnect();
   }, [hasFiles]);
 
-  // Explicit collapse overrides; when unset a file follows its "viewed" flag.
+  // Explicit collapse overrides; when unset a file follows its "viewed" flag, and noise starts folded.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const isCollapsed = (file: string) => collapsed[file] ?? (views.get(file)?.viewed ?? false);
+  const noisy = useMemo(() => new Set(perFile.filter((f) => f.noisy).map((f) => f.path)), [perFile]);
+  const isCollapsed = (file: string) => collapsed[file] ?? ((views.get(file)?.viewed ?? false) || noisy.has(file));
   const toggleCollapsed = (file: string) => setCollapsed((c) => ({ ...c, [file]: !isCollapsed(file) }));
 
   function handleToggleViewed(file: string, next: boolean) {
@@ -369,6 +387,9 @@ export const DiffViewer = memo(function DiffViewer({
                 {summaries?.get(path) && <p className="mt-0.5 text-xs leading-snug text-muted-foreground"><InlineCode text={summaries.get(path)!} /></p>}
               </div>
               <FileTag file={path} />
+              {folded && !viewed && noisy.has(path) && (
+                <Button variant="ghost" size="sm" className="h-6 shrink-0 px-2 text-[11px]" onClick={() => toggleCollapsed(path)}>Show diff</Button>
+              )}
               {commentCount > 0 && (
                 <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 text-[11px] leading-5 text-primary" title={commentLabel}>
                   <Icon name="MessageSquare" className="size-3" aria-hidden />
