@@ -23,7 +23,7 @@ interface Hunk {
   adds: DiffLine[];
   dels: DiffLine[];
 }
-interface ParsedFile { path: string; text: string; headers: string; hunks: Hunk[] }
+interface ParsedFile { path: string; oldPath?: string; text: string; headers: string; hunks: Hunk[] }
 
 function parseHunk(lines: string[]): Hunk {
   const h = lines[0].match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
@@ -53,7 +53,7 @@ function parseFiles(patch: string): Map<string, ParsedFile> {
     const starts = lines.flatMap((l, i) => (l.startsWith("@@") ? [i] : []));
     const end = starts[0] ?? lines.length;
     const hunks = starts.map((s, i) => parseHunk(lines.slice(s, starts[i + 1] ?? lines.length)));
-    files.set(f.path, { path: f.path, text: f.text, headers: lines.slice(0, end).join("\n") + "\n", hunks });
+    files.set(f.path, { path: f.path, oldPath: f.oldPath, text: f.text, headers: lines.slice(0, end).join("\n") + "\n", hunks });
   }
   return files;
 }
@@ -141,17 +141,21 @@ export function interdiff(reviewedPatch: string, currentPatch: string): FileInte
   const reviewed = parseFiles(reviewedPatch);
   const current = parseFiles(currentPatch);
   const out: FileInterdiff[] = [];
+  // A file renamed since your review is compared with its diff under the old name.
+  const matched = new Set<string>();
   for (const now of current.values()) {
-    const before = reviewed.get(now.path);
-    if (before) out.push(compareFile(before, now));
-    else {
+    const before = reviewed.get(now.path) ?? (now.oldPath && !current.has(now.oldPath) ? reviewed.get(now.oldPath) : undefined);
+    if (before) {
+      matched.add(before.path);
+      out.push(compareFile(before, now));
+    } else {
       const adds = now.hunks.flatMap((h) => h.adds.map((l) => l.line));
       const dels = now.hunks.flatMap((h) => h.dels.map((l) => l.line));
       out.push({ file: now.path, status: "added", newLines: adds, newDeletions: dels, patch: now.text, dropped: "" });
     }
   }
   for (const before of reviewed.values()) {
-    if (!current.has(before.path)) {
+    if (!matched.has(before.path)) {
       out.push({ file: before.path, status: "removed", newLines: [], newDeletions: [], patch: "", dropped: before.text });
     }
   }

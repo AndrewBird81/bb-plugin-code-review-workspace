@@ -8,6 +8,7 @@ import type { AssessmentItem, AssessmentRun, ReplyDraft } from "../lib/feedback"
 import type { FeedbackThread } from "./github/types";
 import { diffPositions } from "./review-positions";
 import { reanchor } from "./reanchor";
+import { renamedPaths } from "./patch";
 
 export interface ReviewLifecycle {
   prState?: "OPEN" | "CLOSED" | "MERGED";
@@ -287,6 +288,23 @@ export function createStore(bb: BbPluginApi): Store {
     !!db.prepare(`SELECT 1 FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=? LIMIT 1`).get(...at(k, location));
   const stopWaitingAt = (k: string, location: CommentLocation) =>
     db.prepare(`DELETE FROM discussion_waits WHERE target_key=? AND file=? AND line=? AND side=?`).run(...at(k, location));
+  // Files were once keyed by their old path when renamed; a draft saved then moves to the new path when read.
+  const renamesOf = (k: string) => renamedPaths((db.prepare(`SELECT patch FROM patches WHERE target_key=?`).get(k) as any)?.patch ?? "");
+  const followRenames = (draft: Draft): Draft => {
+    if (!draft.comments.length) return draft;
+    const renamed = renamesOf(draft.targetKey);
+    if (!draft.comments.some((c) => renamed.has(c.file))) return draft;
+    const moved = { ...draft, comments: draft.comments.map((c) => ({ ...c, file: renamed.get(c.file) ?? c.file })) };
+    db.transaction(() => {
+      for (const [from, to] of renamed) {
+        for (const table of ["draft_comment_revisions", "discussion_entries", "discussion_waits"]) {
+          db.prepare(`UPDATE OR IGNORE ${table} SET file=? WHERE target_key=? AND file=?`).run(to, draft.targetKey, from);
+        }
+      }
+      writeDraft(db, moved);
+    })();
+    return moved;
+  };
 
   const rowToMeta = (r: any): ReviewMeta => ({
     targetKey: r.target_key, kind: r.kind, number: r.number ?? undefined, repo: r.repo ?? undefined,
@@ -384,7 +402,11 @@ export function createStore(bb: BbPluginApi): Store {
     },
     getGuide(k) {
       const row: any = db.prepare(`SELECT guide FROM guides WHERE target_key=?`).get(k);
-      return row ? (JSON.parse(row.guide) as Guide) : null;
+      if (!row) return null;
+      const guide = JSON.parse(row.guide) as Guide;
+      const renamed = renamesOf(k);
+      if (!renamed.size) return guide;
+      return { ...guide, sections: guide.sections.map((s) => ({ ...s, diffs: s.diffs.map((d) => ({ ...d, file: renamed.get(d.file) ?? d.file })) })), unplacedFiles: guide.unplacedFiles.map((f) => renamed.get(f) ?? f) };
     },
     beginGeneration(k) {
       const id = randomUUID();
@@ -447,7 +469,7 @@ export function createStore(bb: BbPluginApi): Store {
     getDraft(k) {
       const row: any = db.prepare(`SELECT * FROM drafts WHERE target_key=?`).get(k);
       if (!row) return { targetKey: k, verdict: "COMMENT", body: "", comments: [] };
-      return { targetKey: k, verdict: row.verdict, body: row.body, comments: JSON.parse(row.comments), ...(row.meta ? JSON.parse(row.meta) : {}) };
+      return followRenames({ targetKey: k, verdict: row.verdict, body: row.body, comments: JSON.parse(row.comments), ...(row.meta ? JSON.parse(row.meta) : {}) });
     },
     upsertDraftComment(k, c) {
       const d = this.getDraft(k);

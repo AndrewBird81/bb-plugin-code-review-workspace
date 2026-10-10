@@ -68,7 +68,7 @@ test("identical inputs: every file is unchanged", () => {
   expect(files.map((f) => [f.file, f.status])).toEqual([
     ["src/app.ts", "unchanged"],
     ["src/new.ts", "unchanged"],
-    ["src/name.ts", "unchanged"],
+    ["src/rename.ts", "unchanged"],
     ["img/logo.png", "unchanged"],
   ]);
   expect(files.every((f) => f.patch === "" && f.dropped === "" && !f.newLines.length)).toBe(true);
@@ -162,12 +162,18 @@ test("a deleted file still deleted after a rebase is unchanged", () => {
   expect(interdiff(deletedFile, rebased)[0].status).toBe("unchanged");
 });
 
-test("a rename is matched by its old path across a rebase, and changes when its edit does", () => {
+test("a rename is matched by its new path across a rebase, and changes when its edit does", () => {
   const reviewed = renamed("7777777..8888888", "@@ -1,3 +1,3 @@");
-  expect(interdiff(reviewed, renamed("1234567..8888888", "@@ -3,3 +3,3 @@"))[0]).toMatchObject({ file: "src/name.ts", status: "unchanged" });
+  expect(interdiff(reviewed, renamed("1234567..8888888", "@@ -3,3 +3,3 @@"))[0]).toMatchObject({ file: "src/rename.ts", status: "unchanged" });
   const edited = interdiff(reviewed, renamed("7777777..8888888", "@@ -1,3 +1,3 @@").replace("return 2", "return 3"))[0];
-  expect(edited).toMatchObject({ file: "src/name.ts", status: "changed", newLines: [2] });
+  expect(edited).toMatchObject({ file: "src/rename.ts", status: "changed", newLines: [2] });
   expect(edited.patch).toContain("rename to src/rename.ts");
+});
+
+test("a file renamed since your review is compared with its old path's diff", () => {
+  const reviewed = renamed("7777777..8888888", "@@ -1,3 +1,3 @@").replace(/^similarity.*\nrename.*\nrename.*\n/m, "").replaceAll("src/rename.ts", "src/name.ts");
+  const files = interdiff(reviewed, renamed("7777777..8888888", "@@ -1,3 +1,3 @@").replace("return 2", "return 3"));
+  expect(files.map((f) => [f.file, f.status])).toEqual([["src/rename.ts", "changed"]]);
 });
 
 test("a binary file: rebased (same new blob) is unchanged; replaced (new blob) is changed", () => {
