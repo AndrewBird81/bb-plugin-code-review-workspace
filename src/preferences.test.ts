@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
-import { AUTOMATIC_REVIEW_BEFORE_SUMMARY, defaultPreferences } from "./preferences";
+import { AUTOMATIC_REVIEW_BEFORE_SUMMARY, VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, defaultPreferences } from "./preferences";
 import { buildGenerationPrompt } from "./generate";
 import { generateGuide } from "./generate";
 import { startConversation } from "./agent";
@@ -127,4 +127,17 @@ test("assistant instructions are capped at 2,000 characters; a longer saved text
   bb.storage.database().prepare(`INSERT INTO review_preferences (id,value,revision) VALUES (1,?,1)`)
     .run(JSON.stringify({ ...defaultPreferences, assistantInstructions: "x".repeat(5000) }));
   expect(store.getPreferences().preferences.assistantInstructions).toBe("x".repeat(2000));
+});
+
+test("a feedback check saved with the default that replied on every thread reads as the current default; a custom one stays", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  expect(VERIFICATION_PROMPT_BEFORE_OPEN_THREADS).toContain("Draft a short reply for each of my threads");
+  store.savePreferences({ ...defaultPreferences, verificationPrompt: VERIFICATION_PROMPT_BEFORE_OPEN_THREADS }, 0);
+  expect(store.getPreferences().preferences.verificationPrompt).toBe(defaultPreferences.verificationPrompt);
+  expect(defaultPreferences.verificationPrompt).toContain("only on open threads where one adds something");
+  const custom = `${VERIFICATION_PROMPT_BEFORE_OPEN_THREADS}\nBe kind.`;
+  store.savePreferences({ ...defaultPreferences, verificationPrompt: custom }, 1);
+  expect(store.getPreferences().preferences.verificationPrompt).toBe(custom);
 });
