@@ -306,3 +306,36 @@ test("Use as draft asks before replacing a summary you wrote, saved or unsaved",
   expect(unsaved.rpc.useSuggestedVerdict).not.toHaveBeenCalled();
   sessionStorage.clear();
 });
+
+test("Use as draft asks only over words that are yours: the box's unsaved text, or a summary you saved", async () => {
+  const key = "guided-review:draft-recovery:pr-1";
+  const agentDraft = { getDraft: vi.fn(() => ({ draft: { verdict: "COMMENT", body: "Agent words.", bodyAuthor: "agent", comments: [] } })) };
+  // The summary's box open on the agent's words, unchanged: nothing of yours to lose.
+  sessionStorage.setItem(key, JSON.stringify({ composer: { file: "", line: "0", side: "RIGHT", body: "Agent words.", summary: true } }));
+  const unchanged = render(checkedView, agentDraft);
+  fireEvent.click(await unchanged.slot.findByRole("button", { name: "Use as draft" }));
+  await vi.waitFor(() => expect(unchanged.rpc.useSuggestedVerdict).toHaveBeenCalled());
+  expect(unchanged.onDraftUpdated).toHaveBeenCalledWith(true);
+  cleanup();
+  // Changed in the box, it's yours.
+  sessionStorage.setItem(key, JSON.stringify({ composer: { file: "", line: "0", side: "RIGHT", body: "Agent words, and mine.", summary: true } }));
+  const edited = render(checkedView, agentDraft);
+  fireEvent.click(await edited.slot.findByRole("button", { name: "Use as draft" }));
+  await edited.slot.findByRole("dialog", { name: "Replace your summary?" });
+  expect(edited.rpc.useSuggestedVerdict).not.toHaveBeenCalled();
+  cleanup();
+  // A line comment's box doesn't count.
+  sessionStorage.setItem(key, JSON.stringify({ composer: { file: "a.ts", line: "1", side: "RIGHT", body: "A line comment" } }));
+  const line = render(checkedView, agentDraft);
+  fireEvent.click(await line.slot.findByRole("button", { name: "Use as draft" }));
+  await vi.waitFor(() => expect(line.rpc.useSuggestedVerdict).toHaveBeenCalled());
+  sessionStorage.clear();
+});
+
+test("a suggestion already in the draft offers to open it instead", async () => {
+  const { slot, onDraftUpdated } = render({ ...checkedView, suggestionInDraft: true });
+  await slot.findByText("In your draft");
+  expect(slot.queryByRole("button", { name: "Use as draft" })).toBeNull();
+  fireEvent.click(slot.getByRole("button", { name: "Open draft" }));
+  expect(onDraftUpdated).toHaveBeenCalledWith();
+});

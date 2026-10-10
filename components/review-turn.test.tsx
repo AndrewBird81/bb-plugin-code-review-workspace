@@ -172,3 +172,22 @@ test("a tracked review that can't start says why", async () => {
   await waitFor(() => expect(toast.error).toHaveBeenCalledWith("No coding agent is set up."));
   slot.lifecycle.unmount();
 });
+
+test("Submit review in the top bar says what the draft would submit, and opens it at the summary", async () => {
+  patchReviewState("pr-42", { activeTool: "notes", toolsOpen: false });
+  const draft = { targetKey: "pr-42", verdict: "REQUEST_CHANGES", body: "Two asks.", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "Handle it." }] };
+  const { slot } = await renderWorkspace({}, { getDraft: vi.fn(() => ({ draft })) });
+  const open = await slot.findByRole("button", { name: "Submit review · Request changes · 1 comment" });
+  expect(slot.getByRole("button", { name: "Draft review" }).getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(open);
+  await waitFor(() => expect(slot.getByRole("button", { name: "Draft review" }).getAttribute("aria-pressed")).toBe("true"));
+  await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Review summary"));
+  slot.lifecycle.unmount();
+});
+
+test("a merged review offers no Submit review", async () => {
+  const { slot } = await renderWorkspace({ prState: "MERGED", archivedAt: 1 });
+  await slot.findByRole("region", { name: "Archived review" });
+  expect(slot.queryByRole("button", { name: /^Submit review/ })).toBeNull();
+  slot.lifecycle.unmount();
+});

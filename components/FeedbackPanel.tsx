@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState, type FocusEvent, type R
 import { Markdown, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
-import { isSummary, type Verdict } from "../src/draft";
+import type { Verdict } from "../src/draft";
 import type { FeedbackThread } from "../src/github/types";
 import type { AssessmentVerdict, FeedbackItem, FeedbackView } from "../lib/feedback";
 import { withLineBreaks } from "../src/line-breaks";
@@ -282,7 +282,8 @@ export const FeedbackPanel = memo(function FeedbackPanel({ targetKey, review, re
   /** Open a comment box at the line, or show the file when the thread has no current line. */
   onFollowUp: (file: string, line: number | null, side: Side, url: string | null) => void;
   /** The assistant's suggestion went into the draft. */
-  onDraftUpdated: () => void;
+  /** Open the draft at its summary; `replaced` when you agreed the suggestion replaces your summary. */
+  onDraftUpdated: (replaced?: boolean) => void;
 }) {
   const rpc = useRpc<typeof rpcContract>();
   const [feedback, setFeedback] = useState<FeedbackView | null>(null);
@@ -344,15 +345,16 @@ export const FeedbackPanel = memo(function FeedbackPanel({ targetKey, review, re
   async function applySuggestion(mode: "suggested" | "remaining") {
     const result = await rpc.call("useSuggestedVerdict", { targetKey, mode, ...(revision ? { revision } : {}) });
     if (!result.ok) return void toast.error(result.error ?? "Couldn’t update the draft.");
-    onDraftUpdated();
+    onDraftUpdated(true);
     toast.success("Draft updated — review it before submitting.");
   }
   // A summary you wrote, saved or still unsaved in this tab, is replaced only once you say so.
   const suggest = (mode: "suggested" | "remaining") => act(mode, async () => {
     const { draft } = await rpc.call("getDraft", { targetKey });
-    const box = readDraftRecovery(targetKey).composer;
-    const unsaved = box && !box.asking && isSummary({ file: box.file, line: Number(box.line), side: box.side }) ? box.body : "";
-    if (unsaved.trim() || (draft?.body?.trim() && draft.bodyAuthor !== "agent")) setConfirming(mode);
+    const recovery = readDraftRecovery(targetKey);
+    const saved = (draft?.body ?? "").trim();
+    const unsaved = (recovery.composer?.summary && !recovery.composer.asking ? recovery.composer.body : recovery.summary?.body ?? "").trim();
+    if ((unsaved && unsaved !== saved) || (saved && draft.bodyAuthor !== "agent")) setConfirming(mode);
     else await applySuggestion(mode);
   });
   const replace = () => {
@@ -452,7 +454,7 @@ export const FeedbackPanel = memo(function FeedbackPanel({ targetKey, review, re
           {(run.suggestedVerdict || left) && (
             <div className="flex flex-wrap items-center gap-2">
               {feedback.suggestionInDraft
-                ? <><span className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />In your draft</span><Button size="sm" variant="outline" onClick={onDraftUpdated}>Open draft</Button></>
+                ? <><span className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />In your draft</span><Button size="sm" variant="outline" onClick={() => onDraftUpdated()}>Open draft</Button></>
                 : run.suggestedVerdict && <Button size="sm" disabled={!!busy} onClick={() => void suggest("suggested")}>Use as draft</Button>}
               {left && <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void suggest("remaining")}>Request what’s left</Button>}
             </div>

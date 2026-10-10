@@ -301,7 +301,7 @@ test("an assistant's comment appears in an open draft, and Submit sends only the
   await slot.emitRealtime("draft:live", {});
   await slot.findByText("The assistant's comment");
   fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
-  await waitFor(() => expect(submitReview).toHaveBeenCalledWith({ targetKey: "live", revision: "r1", account: "reviewer", comments: [mine, theirs] }));
+  await waitFor(() => expect(submitReview).toHaveBeenCalledWith({ targetKey: "live", revision: "r1", account: "reviewer", comments: [mine, theirs], body: "", verdict: "COMMENT" }));
   slot.lifecycle.unmount();
 });
 

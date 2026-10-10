@@ -69,7 +69,7 @@ export function ReviewActions({ review, onChanged, onDeleted, describedBy, class
   async function remove() {
     if (!await run(() => rpc.call("deleteReview", { targetKey: review.targetKey }), "Review deleted")) return;
     // This tab's unsaved-text recovery must not resurface if the PR is reviewed again.
-    updateDraftRecovery(review.targetKey, { composer: undefined });
+    updateDraftRecovery(review.targetKey, { composer: undefined, summary: undefined });
     setConfirming(false);
     onDeleted?.();
   }

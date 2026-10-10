@@ -122,7 +122,11 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.reload();
     await verdicts.waitFor();
     await verdicts.getByRole("button", { name: "Approve", exact: true }).scrollIntoViewIfNeeded();
-    expect(await verdicts.evaluate((element) => element.scrollWidth <= element.clientWidth + 1 && element.getBoundingClientRect().right <= innerWidth)).toBe(true);
+    expect(await verdicts.evaluate((element) => element.getBoundingClientRect().right <= innerWidth)).toBe(true);
+    // One row of verdicts, and Submit pinned below the draft, in view.
+    expect(new Set(await verdicts.getByRole("button").evaluateAll((buttons) => buttons.map((button) => Math.round(button.getBoundingClientRect().top)))).size).toBe(1);
+    const submit = await page.getByRole("button", { name: "Submit to GitHub", exact: true }).boundingBox();
+    expect(submit && submit.y >= 0 && submit.y + submit.height <= 844).toBe(true);
     await page.screenshot({ animations: "disabled", path: `${dir}/review-mobile.png` });
     await page.getByRole("button", { name: "Reviewer notes", exact: true }).click();
     expect(await page.getByRole("textbox", { name: "Private reviewer notes", exact: true }).inputValue()).toBe("Private: verify the staged rollout.");

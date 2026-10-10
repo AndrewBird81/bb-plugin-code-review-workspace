@@ -90,7 +90,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [sel, setSel] = useState<{ x: number; y: number; file: string; code: string } | null>(null);
   const [lineSel, setLineSel] = useState<{ file: string; range: SelectedLineRange } | null>(null);
   const [draftPrefill, setDraftPrefill] = useState<CommentPrefill | undefined>();
-  const [showDraft, setShowDraft] = useState<number | undefined>();
+  const [showDraft, setShowDraft] = useState<{ at: number; replaced?: boolean } | undefined>();
   const [since, setSince] = useState<Map<string, FileInterdiff> | null>(null);
   const [sinceError, setSinceError] = useState<string | null>(null);
   const [sinceOnly, setSinceOnly] = useState(false);
@@ -351,7 +351,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     showLocation(file, line, side);
     if (line != null) setDraftPrefill({ file, line, side, nonce: Date.now() });
   }, [outsideGuide, showLocation]);
-  const showDraftSummary = useCallback(() => setShowDraft(Date.now()), []);
+  const showDraftSummary = useCallback((replaced = false) => setShowDraft({ at: Date.now(), replaced }), []);
   const showFeedback = useMemo(() => isPr ? () => setView("feedback") : undefined, [isPr]);
   const snoozeFromHeader = useMemo(() => isPr ? (snoozed: boolean) => void snooze(snoozed) : undefined, [isPr, snooze]);
   const archived = !!review?.archivedAt;
@@ -487,7 +487,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
       {loadError && <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden /><span className="min-w-0 flex-1">{loadError}</span><Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button></div>}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><SubmitReviewButton targetKey={targetKey} onOpen={showDraftSummary} /><Button variant="ghost" size="sm" aria-label="Ask the review agent" className="text-muted-foreground" onClick={() => setInjection({ context: { file: currentFile, chapterId: activeId }, nonce: Date.now() })}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask assistant</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={async () => { if (document.fullscreenElement) await document.exitFullscreen(); navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` }); }}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button><ReviewActions review={review} className="size-8" onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} /><Button variant="ghost" size="sm" aria-label="Ask the review agent" className="text-muted-foreground" onClick={() => setInjection({ context: { file: currentFile, chapterId: activeId }, nonce: Date.now() })}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask assistant</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={async () => { if (document.fullscreenElement) await document.exitFullscreen(); navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` }); }}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button><ReviewActions review={review} className="size-8" onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
       {/* Header — full when reviewing normally, slim in focus mode. */}
       {focus ? (
         <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-3 py-2">

@@ -77,7 +77,7 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
   return (
     <div data-draft-at={locationKey(at)} className={cn(card, "border-l-[3px]", edge)}>
       {box === "edit" ? <ComposerBox mode="edit" /> : comment ? <CommentView comment={comment} draft={draft} /> : discussion && <DiscussionBar discussion={discussion} draft={draft} boxOpen={!!box} />}
-      {discussion && <DiscussionView discussion={discussion} titled={!!comment || box === "edit"} chat={draft.chat} busy={draft.busy} onUndo={draft.editable ? () => draft.undo(discussion) : undefined} />}
+      {discussion && <DiscussionView discussion={discussion} titled={!!comment || box === "edit"} chat={draft.chat} busy={draft.busy} onUndo={draft.editable && !box ? () => draft.undo(discussion) : undefined} />}
       {box && box !== "edit" && <ComposerBox mode={box} divided={!!(comment || discussion)} />}
     </div>
   );

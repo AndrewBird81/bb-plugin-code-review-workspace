@@ -39,8 +39,8 @@ const VERDICTS = [
 export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, activeFiles, prefill, isLocal = false, review, onSubmitted, onShowComment, agent, reviewRevision, account, showDraft, children }: {
   targetKey: string; activeChapterId: string; activeFiles: string[]; prefill?: CommentPrefill; isLocal?: boolean; review?: ReviewItem; onSubmitted?: () => void; onShowComment?: (at: CommentLocation) => void;
   reviewRevision?: string; account?: string;
-  /** A new value opens Draft review at its summary, after something else changed the draft. */
-  showDraft?: number;
+  /** A new value opens Draft review at its summary. `replaced`: you agreed the assistant's suggestion replaces your summary. */
+  showDraft?: { at: number; replaced?: boolean };
   agent?: Omit<AgentDockProps, "targetKey" | "active" | "onDock" | "onCollapse">;
   /** The diff, which shows the draft's comments under their lines. */
   children?: ReactNode;
@@ -73,7 +73,6 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const [toolsOpen, setToolsOpen] = useState(() => getReviewState(targetKey).toolsOpen !== false);
   const panelId = useId();
   const railRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const scopeProps = usePortalScopeProps();
   useEffect(() => { patchReviewState(targetKey, { activeTool: tab, toolsOpen }); }, [targetKey, tab, toolsOpen]);
   useEffect(() => { if (agent?.injection) { setTab("agent"); setToolsOpen(true); } }, [agent?.injection]);
@@ -92,13 +91,22 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const revisionRef = useRef(reviewRevision); revisionRef.current = reviewRevision;
   const composerRevision = useRef(reviewRevision);
   const shownComments = useRef(draft.comments); shownComments.current = draft.comments;
-  // The box is open on the review summary rather than a line.
-  const onSummary = showComposer && isSummary({ file, line: Number(line), side });
+  // The box is on the review summary rather than a line; it says so, rather than its location fields.
+  const [summaryBox, setSummaryBox] = useState(false);
+  const onSummary = showComposer && summaryBox;
+  // The summary as the box opened on it, to tell when it changes underneath.
+  const summaryBase = useRef<string | null>(null);
+  // A verdict you picked that the server hasn't confirmed; refreshes don't put the old one back meanwhile.
+  const pendingVerdict = useRef<Verdict | null>(null);
+  // Summary text kept from before the summary had its own box, until the box is free.
+  const legacySummary = useRef<{ body: string; revision?: string } | null>(null);
+  const summaryRef = useRef<HTMLElement>(null);
+  const focusSummary = () => requestAnimationFrame(() => summaryRef.current?.focus());
 
   useEffect(() => {
     if (!loaded) return;
-    updateDraftRecovery(targetKey, { composer: body ? { file, line, side, body, revision: composerRevision.current, inline, ...(asking ? { asking } : {}), ...(startLine ? { startLine } : {}) } : undefined });
-  }, [loaded, targetKey, file, line, side, body, inline, asking, startLine]);
+    updateDraftRecovery(targetKey, { composer: body ? { file, line, side, body, revision: composerRevision.current, inline, ...(asking ? { asking } : {}), ...(startLine ? { startLine } : {}), ...(summaryBox ? { summary: true } : {}) } : undefined });
+  }, [loaded, targetKey, file, line, side, body, inline, asking, startLine, summaryBox]);
   useEffect(() => {
     const protect = (event: BeforeUnloadEvent) => { if (body.trim()) event.preventDefault(); };
     window.addEventListener("beforeunload", protect);
@@ -111,10 +119,10 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     return next;
   }, []);
 
-  /** Show the draft as the server has it. The comment box keeps its own text. */
+  /** Show the draft as the server has it. The comment box keeps its own text, and a verdict you just picked stays. */
   const apply = useCallback((next: { draft: Draft; stale?: CommentLocation[]; discussions?: Discussion[] }) => {
     if (!mounted.current) return;
-    setDraft(next.draft);
+    setDraft(pendingVerdict.current ? { ...next.draft, verdict: pendingVerdict.current, verdictChosen: true } : next.draft);
     setStale(next.stale ?? []);
     setDiscussions(next.discussions ?? []);
   }, []);
@@ -130,8 +138,13 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
         const comment = recovered.composer;
         composerRevision.current = comment.revision;
         setFile(comment.file); setLine(comment.line); setSide(comment.side); setBody(comment.body); setInline(comment.inline === true); setShowComposer(true);
-        setAsking(comment.asking === true); setStartLine(comment.startLine);
-        setEditing(comment.asking ? null : (result.draft as Draft).comments.find((c) => sameLocation(c, { file: comment.file, line: Number(comment.line), side: comment.side })) ?? null);
+        setAsking(comment.asking === true); setStartLine(comment.startLine); setSummaryBox(comment.summary === true);
+        summaryBase.current = comment.summary ? (result.draft as Draft).body : null;
+        setEditing(comment.asking || comment.summary ? null : (result.draft as Draft).comments.find((c) => sameLocation(c, { file: comment.file, line: Number(comment.line), side: comment.side })) ?? null);
+      }
+      if (recovered.summary) {
+        legacySummary.current = recovered.summary;
+        toast.info("Your unsaved summary from before this update opens once you finish the comment you’re writing.");
       }
       setLoaded(true);
     } catch {
@@ -152,7 +165,10 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   useEffect(() => {
     if (!showDraft) return;
     setTab("draft"); setToolsOpen(true);
-    requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 0 }));
+    // You agreed the suggestion replaces the summary you were writing.
+    if (showDraft.replaced) latest.current.dropSummaryEdit();
+    // Focusing the summary scrolls it into view.
+    focusSummary();
     refresh();
   }, [showDraft, refresh]);
 
@@ -171,9 +187,11 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
       setEditing(existing ?? null);
       if (at) { setFile(at.file); setLine(String(at.line)); setSide(at.side); }
       // A new comment from the panel doesn't start where the summary's box was.
-      else if (isSummary({ file, line: Number(line), side })) { setFile(activeFiles[0] ?? ""); setLine("1"); setSide("RIGHT"); }
+      else if (summaryBox) { setFile(activeFiles[0] ?? ""); setLine("1"); setSide("RIGHT"); }
       setStartLine(at?.startLine !== at?.line ? at?.startLine : undefined);
       setAsking(ask);
+      setSummaryBox(summary);
+      summaryBase.current = summary ? draft.body : null;
       setBody(summary && !ask ? draft.body : existing ? existing.body : "");
       setInline(inDiff);
       setShowComposer(true);
@@ -187,9 +205,26 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     setBody(text);
   }
   function closeComposer() {
-    setBody(""); setEditing(null); setAsking(false); setStartLine(undefined); setShowComposer(false);
+    setEditing(null); setAsking(false); setStartLine(undefined);
+    const kept = legacySummary.current;
+    if (kept) {
+      // The box is free for the summary text kept from before this update.
+      legacySummary.current = null;
+      updateDraftRecovery(targetKey, { summary: undefined });
+      composerRevision.current = kept.revision;
+      summaryBase.current = draft.body;
+      setFile(SUMMARY_AT.file); setLine(String(SUMMARY_AT.line)); setSide(SUMMARY_AT.side); setInline(false); setSummaryBox(true); setBody(kept.body);
+      setTab("draft"); setToolsOpen(true);
+      return;
+    }
+    setBody(""); setShowComposer(false);
     // The next comment doesn't start where the summary's box was.
-    if (isSummary({ file, line: Number(line), side })) { setFile(activeFiles[0] ?? ""); setLine("1"); }
+    if (summaryBox) { setFile(activeFiles[0] ?? ""); setLine("1"); setSide("RIGHT"); }
+    setSummaryBox(false);
+  }
+  /** Close the summary's box, unsaved text and all, unless it holds a message to the agent. */
+  function dropSummaryEdit() {
+    if (onSummary && !asking) { closeComposer(); focusSummary(); }
   }
 
   async function mutate(operation: () => Promise<void>) {
@@ -202,10 +237,19 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
 
   /** The verdict is yours to pick; it saves at once. */
   function chooseVerdict(verdict: Verdict) {
+    pendingVerdict.current = verdict;
     setDraft((previous) => ({ ...previous, verdict, verdictChosen: true }));
     void enqueue(() => rpc.call("setVerdict", { targetKey, verdict, ...(revisionRef.current ? { revision: revisionRef.current } : {}) }))
-      .then((result) => { if (mounted.current) setDraft(result.draft as Draft); })
-      .catch((error) => { toast.error(error instanceof Error ? error.message : "Couldn’t save the verdict. Try again."); refresh(); });
+      .then((result) => {
+        if (pendingVerdict.current === verdict) pendingVerdict.current = null;
+        const next = result.draft as Draft;
+        if (mounted.current) setDraft(pendingVerdict.current ? { ...next, verdict: pendingVerdict.current, verdictChosen: true } : next);
+      })
+      .catch((error) => {
+        if (pendingVerdict.current === verdict) pendingVerdict.current = null;
+        toast.error(error instanceof Error ? error.message : "Couldn’t save the verdict. Try again.");
+        refresh();
+      });
   }
   /** Send the box's text to the agent, which answers in the line's discussion, or the summary's. */
   async function askAgent() {
@@ -219,6 +263,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   async function requestSummary(text: string) {
     await mutate(async () => {
       apply(await enqueue(() => rpc.call("askAgent", { targetKey, ...SUMMARY_AT, body: text })) as { draft: Draft });
+      focusSummary();
     });
   }
   async function dismissDiscussion({ file, line, side }: CommentLocation) {
@@ -229,6 +274,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   async function undo({ file, line, side }: CommentLocation) {
     await mutate(async () => {
       apply(await enqueue(() => rpc.call("undoAgentChange", { targetKey, file, line, side })) as { draft: Draft });
+      if (isSummary({ file, line, side })) focusSummary();
     });
   }
   async function addComment() {
@@ -248,13 +294,15 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     await mutate(async () => {
       apply(await enqueue(() => rpc.call("saveSummary", { targetKey, body: text, ...(revision ? { revision } : {}) })) as { draft: Draft });
       if (text) closeComposer();
+      focusSummary();
     });
   }
   async function submit() {
     if (isLocal || !loaded || body.trim()) return;
     await mutate(async () => {
-      const verdict = draft.verdict;
-      const result = await enqueue(() => rpc.call("submitReview", { targetKey, ...(reviewRevision ? { revision: reviewRevision } : {}), ...(account ? { account } : {}), comments: shownComments.current }));
+      // What this page shows; the server refuses a draft that changed since.
+      const { verdict, body: summary } = draft;
+      const result = await enqueue(() => rpc.call("submitReview", { targetKey, ...(reviewRevision ? { revision: reviewRevision } : {}), ...(account ? { account } : {}), comments: shownComments.current, body: summary, verdict }));
       if (!result.ok) { setSaved(result.error ?? "Submit failed. Your draft is still here."); toast.error(result.error ?? "Submit failed. Your draft is still here."); refresh(); return; }
       setReceipt(verdict);
       setWriteAnother(false);
@@ -278,12 +326,12 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   // The Submit review button in the review's top bar follows this draft.
   const submittable = loaded && !loadError && !closed && !isLocal && !completed;
   useEffect(() => {
-    setDraftStatus(targetKey, submittable ? { verdict: draft.verdict, comments: draft.comments.length, summary: !!draft.body.trim() } : null);
-  }, [targetKey, submittable, draft.verdict, draft.comments.length, draft.body]);
+    setDraftStatus(targetKey, submittable ? { verdict: draft.verdict, comments: draft.comments.length } : null);
+  }, [targetKey, submittable, draft.verdict, draft.comments.length]);
   useEffect(() => () => setDraftStatus(targetKey, null), [targetKey]);
   // The diff shows the draft's comments and discussions, and the comment box while it's open there.
-  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer });
-  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer };
+  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit });
+  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit };
   const open = useCallback((at: CommentLocation) => latest.current.openComposer(at, true), []);
   const ask = useCallback((at: CommentLocation) => latest.current.openComposer(at, true, true), []);
   const remove = useCallback((comment: DraftComment) => { void latest.current.removeComment(comment); }, []);
@@ -307,7 +355,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   } : null, [composerInDiff, body]);
   const summaryComposer = editable && onSummary ? {
     mode: asking ? "ask" as const : "edit" as const, body, textareaRef: bodyRef,
-    change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: closeComposer,
+    change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: () => { closeComposer(); focusSummary(); },
   } : null;
   const toolItems = [
     { id: "draft", label: "Draft review", icon: "MessageSquare", count: draft.comments.length },
@@ -353,9 +401,10 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
           <p className="text-xs text-muted-foreground">Review submitted to GitHub</p>
           <Button variant="outline" size="sm" onClick={() => setWriteAnother(true)}>Add another review</Button>
         </section> : <section aria-label="Review draft" className="flex min-h-0 flex-1 flex-col">
-          <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
             <span role="status" className={cn("flex items-center gap-1.5 text-xs", savedTone === "error" ? "text-destructive-text" : "text-muted-foreground")}>{savedTone === "error" ? <Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden /> : <Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />}{saved}</span>
-            <SummaryCard draft={draft} discussion={summaryDiscussion} editable={editable} busy={busy} writing={writing && !onSummary} composer={summaryComposer} isLocal={isLocal} chat={chat}
+            <SummaryCard cardRef={summaryRef} draft={draft} discussion={summaryDiscussion} editable={editable} busy={busy} writing={writing && !onSummary} composer={summaryComposer} isLocal={isLocal} chat={chat}
+              changedWhileEditing={onSummary && !asking && summaryBase.current !== null && summaryBase.current !== draft.body}
               onEdit={() => openComposer(SUMMARY_AT, false)} onAsk={() => openComposer(SUMMARY_AT, false, true)} onRemove={() => void saveSummary("", revisionRef.current)}
               onUndo={() => void undo(SUMMARY_AT)} onRequest={(text) => void requestSummary(text)} />
             <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -395,8 +444,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
           <footer className="shrink-0 space-y-2.5 border-t border-border p-3">
             {!isLocal && <>
               <div role="group" aria-label="Review verdict" className="flex max-w-full flex-wrap gap-0.5 rounded-lg bg-muted/40 p-1 ring-1 ring-inset ring-border">
-                {VERDICTS.map(([verdict, pressed]) => <Button key={verdict} type="button" variant="ghost" size="sm" disabled={busy} aria-pressed={draft.verdict === verdict} className={cn("relative h-8 grow basis-auto whitespace-nowrap px-2 text-xs text-muted-foreground ring-1 ring-inset ring-transparent aria-pressed:shadow-xs", suggested === verdict && "pr-3.5", pressed)} onClick={() => chooseVerdict(verdict)}>
-                  {VERDICT_LABEL[verdict]}{suggested === verdict && <span title="Suggested by the agent" className="absolute right-0.5 top-0.5 flex"><Icon name="Sparkles" className="size-2.5 text-(--ansi-13)" aria-hidden /></span>}
+                {VERDICTS.map(([verdict, pressed]) => <Button key={verdict} type="button" variant="ghost" size="sm" disabled={busy} aria-pressed={draft.verdict === verdict} aria-label={suggested === verdict ? `${VERDICT_LABEL[verdict]}, suggested by the agent` : undefined} className={cn("relative h-8 grow basis-auto whitespace-nowrap px-2 text-xs text-muted-foreground ring-1 ring-inset ring-transparent aria-pressed:shadow-xs", suggested === verdict && "pr-3.5", pressed)} onClick={() => chooseVerdict(verdict)}>
+                  {VERDICT_LABEL[verdict]}{suggested === verdict && <span aria-hidden title="Suggested by the agent" className="absolute right-0.5 top-0.5 flex"><Icon name="Sparkles" className="size-2.5 text-(--ansi-13)" /></span>}
                 </Button>)}
               </div>
               {suggested && (suggested !== draft.verdict || !verdictPicked(draft)) && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />Agent suggests {VERDICT_LABEL[suggested]}</p>}

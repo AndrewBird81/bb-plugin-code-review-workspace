@@ -1,3 +1,4 @@
+import type { Ref } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { summaryChanges, VERDICT_LABEL, type Discussion, type Draft, type Verdict } from "../src/draft";
 import { cn } from "../lib/utils";
@@ -18,7 +19,9 @@ export function updateRequest(changes: { comments: boolean; verdict: Verdict | n
  * The review summary, the comment GitHub shows with your verdict. It works like a line comment:
  * the agent can write it, you edit or remove it, and Ask agent discusses it with the agent here.
  */
-export function SummaryCard({ draft, discussion, editable, busy, writing, composer, isLocal, chat, onEdit, onAsk, onRemove, onUndo, onRequest }: {
+export function SummaryCard({ cardRef, draft, discussion, editable, busy, writing, composer, changedWhileEditing = false, isLocal, chat, onEdit, onAsk, onRemove, onUndo, onRequest }: {
+  /** Takes focus after the summary changes from here, so focus doesn't fall to the page. */
+  cardRef?: Ref<HTMLElement>;
   draft: Draft;
   discussion?: Discussion;
   /** The draft loaded and its PR is open. */
@@ -28,6 +31,8 @@ export function SummaryCard({ draft, discussion, editable, busy, writing, compos
   writing: boolean;
   /** The comment box, while it's open on the summary. */
   composer: (InlineComposer & { mode: "edit" | "ask" }) | null;
+  /** The summary changed since the box opened on it, so saving replaces that. */
+  changedWhileEditing?: boolean;
   isLocal: boolean;
   chat: (() => void) | null;
   onEdit(): void;
@@ -42,21 +47,26 @@ export function SummaryCard({ draft, discussion, editable, busy, writing, compos
   const changes = summaryChanges(draft);
   const outdated = editable && !discussion?.waiting && !composer && (changes.comments || !!changes.verdict);
   const blocked = busy || writing;
+  // While the agent works on the summary, an edit could overwrite what it's about to write.
+  const working = !!discussion?.waiting;
   return (
-    <section aria-label="Review summary" className={cn("overflow-hidden rounded-lg border border-border bg-card border-l-[3px]", agent ? "border-l-(--ansi-13)/60" : "border-l-primary/60")}>
+    <section ref={cardRef} tabIndex={-1} aria-label="Review summary" className={cn("overflow-hidden rounded-lg border border-border bg-card border-l-[3px] outline-none", agent ? "border-l-(--ansi-13)/60" : "border-l-primary/60")}>
       <div className={bar}>
         <Icon name="FileText" className="size-3.5 shrink-0 text-primary" aria-hidden />
         <span className="font-medium text-foreground">Review summary</span>
         {agent && <Badge tone="agent" icon={<Icon name="Sparkles" aria-hidden />}>Added by agent</Badge>}
         {editable && body && composer?.mode !== "edit" && (
           <span className="ml-auto flex">
-            <Button variant="ghost" size="sm" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={blocked || !!composer} onClick={onAsk}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
-            <Button variant="ghost" size="sm" className={action} disabled={blocked || !!composer} onClick={onEdit}>Edit</Button>
-            <Button variant="ghost" size="sm" className={cn(action, "hover:text-destructive-text")} disabled={busy} onClick={onRemove}>Remove</Button>
+            <Button variant="ghost" size="sm" aria-label="Ask agent about the review summary" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={blocked || !!composer} onClick={onAsk}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
+            <Button variant="ghost" size="sm" aria-label="Edit review summary" className={action} disabled={blocked || !!composer || working} onClick={onEdit}>Edit</Button>
+            <Button variant="ghost" size="sm" aria-label="Remove review summary" className={cn(action, "hover:text-destructive-text")} disabled={busy} onClick={onRemove}>Remove</Button>
           </span>
         )}
       </div>
-      {composer?.mode === "edit" ? <ComposerFields mode="edit" subject="summary" busy={busy} composer={composer} />
+      {composer?.mode === "edit" ? <>
+          {changedWhileEditing && <p role="status" className="flex items-center gap-1.5 border-b border-warning/20 bg-warning/10 px-3 py-1.5 text-xs text-warning-text"><Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden />The summary changed while you were editing. Saving replaces it.</p>}
+          <ComposerFields mode="edit" subject="summary" busy={busy} composer={composer} />
+        </>
         : body ? <div className="px-3 py-2.5"><Markdown content={withLineBreaks(draft.body)} className="text-sm leading-relaxed" /></div>
         : <div className="space-y-2.5 px-3 py-3">
             <p className="text-sm leading-relaxed text-muted-foreground">{isLocal ? "Saved with your local draft." : "What should the author know overall? It goes to GitHub with your verdict, above your line comments."}</p>
@@ -74,7 +84,7 @@ export function SummaryCard({ draft, discussion, editable, busy, writing, compos
           <Button variant="outline" size="sm" className="h-6 px-2 text-xs" disabled={blocked} onClick={() => onRequest(updateRequest(changes, draft.verdict))}>Update</Button>
         </div>
       )}
-      {discussion && <DiscussionView discussion={discussion} titled summary chat={chat} busy={busy} onUndo={editable ? onUndo : undefined} />}
+      {discussion && <DiscussionView discussion={discussion} titled summary chat={chat} busy={busy} onUndo={editable && !composer ? onUndo : undefined} />}
       {composer?.mode === "ask" && <ComposerFields mode="ask" subject="summary" divided busy={busy} composer={composer} />}
     </section>
   );

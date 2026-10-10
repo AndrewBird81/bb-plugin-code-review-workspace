@@ -140,3 +140,19 @@ test("the comment box takes the place of the comment it edits", () => {
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(composer.cancel).toHaveBeenCalled();
 });
+
+test("Undo under a line puts back the agent's latest change there, except while its box is open", () => {
+  const at = { file: "src/a.ts", line: 2, side: "RIGHT" as const };
+  const discussion = { ...at, waiting: false, undoable: true, entries: [
+    { author: "reviewer" as const, kind: "message" as const, body: "Shorter?", createdAt: 1 },
+    { author: "agent" as const, kind: "edited" as const, body: comment.body, createdAt: 2 },
+  ] };
+  const draft = renderWithDraft({ comments: [comment], discussions: [discussion] });
+  const thread = screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" });
+  expect(within(thread).getByText("Agent edited the comment.")).toBeTruthy();
+  fireEvent.click(within(thread).getByRole("button", { name: "Undo" }));
+  expect(draft.undo).toHaveBeenCalledWith(discussion);
+  cleanup();
+  renderWithDraft({ comments: [comment], discussions: [discussion], composer: { ...at, editing: true, asking: false } }, {}, { body: comment.body, change: vi.fn(), save: vi.fn(), askAgent: vi.fn(), cancel: vi.fn(), textareaRef: { current: null } });
+  expect(within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).queryByRole("button", { name: "Undo" })).toBeNull();
+});
