@@ -50,7 +50,8 @@ export interface TurnSignals {
   isDraft?: boolean;
   /** When bb first saw the current head commit. */
   headSeenAt?: number | null;
-  ci?: "pass" | "fail" | "pending" | "none";
+  /** expected: a required check that hasn't reported. */
+  ci?: "pass" | "fail" | "pending" | "expected" | "none";
   threads?: ThreadTally | null;
   /** The latest reply on one of your threads that asks you something: the author's, or a mention of you. */
   questionAt?: number | null;
@@ -139,6 +140,8 @@ export interface Turn {
 }
 
 export const QUIET_MS = 10 * 60_000;
+/** How long after a push checks may stay pending or expected before they count as settled: some never report. */
+export const CI_STALE_MS = 60 * 60_000;
 export const defaultTurnOptions: TurnOptions = { wakeOnReplies: "questions", pushChecks: "off" };
 
 const VERDICT_LABEL: Record<Verdict, string> = { APPROVE: "Approved", REQUEST_CHANGES: "Changes requested", COMMENT: "Commented" };
@@ -226,7 +229,7 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     if (held && after(held.at, lastReviewAt, snoozedAt)) return needs(held.reason, held.label, held.signal, held.at, false);
     // Every thread resolved or answered, new commits, CI settled, and the author quiet for a while.
     const quietAt = Math.max(s.headSeenAt ?? 0, s.handledAt ?? 0) + (options.quietMs ?? QUIET_MS);
-    if (hasThreads && updated && s.ci !== "fail" && s.ci !== "pending" && now >= quietAt && after(s.handledAt, lastReviewAt, snoozedAt)) {
+    if (hasThreads && updated && s.ci !== "fail" && ciSettled(s, now) && now >= quietAt && after(s.handledAt, lastReviewAt, snoozedAt)) {
       return needs("handled", "Feedback handled", `handled:${s.handledAt}`, quietAt, true, s.handledAt);
     }
     const assessment = review.assessment;
@@ -239,6 +242,11 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     if (snoozedAt && snoozedAt >= (lastReviewAt ?? 0)) return make("waiting", "snoozed", "Not yet", "View review", { at: snoozedAt, blocking });
     return make("waiting", "waiting", VERDICT_LABEL[verdict], "View review", { at: lastReviewAt, blocking });
   }
+}
+
+/** Whether the head's checks are done, or have been pending or expected so long they never will be. */
+export function ciSettled(s: TurnSignals, now = Date.now()): boolean {
+  return (s.ci !== "pending" && s.ci !== "expected") || now - (s.headSeenAt ?? now) >= CI_STALE_MS;
 }
 
 /** Progress on your feedback for a list row, such as "2/5 addressed". Null when there's nothing to count. */

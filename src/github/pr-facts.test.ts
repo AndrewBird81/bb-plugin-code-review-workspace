@@ -152,7 +152,7 @@ test("mentions matches a whole handle only", () => {
 
 test("ci maps the head commit's rollup state", () => {
   const ci = (state: string | null) => one(pr({ head: { nodes: [{ commit: { statusCheckRollup: state ? { state } : null } }] } })).ci;
-  expect([ci("SUCCESS"), ci("FAILURE"), ci("ERROR"), ci("PENDING"), ci("EXPECTED"), ci(null)]).toEqual(["pass", "fail", "fail", "pending", "pending", "none"]);
+  expect([ci("SUCCESS"), ci("FAILURE"), ci("ERROR"), ci("PENDING"), ci("EXPECTED"), ci(null)]).toEqual(["pass", "fail", "fail", "pending", "expected", "none"]);
   expect(one(pr({ head: { nodes: [] } })).ci).toBe("none");
 });
 

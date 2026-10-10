@@ -2,7 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store, ReviewMeta } from "./store";
 import { isMissingThread } from "./thread-errors";
 import type { runGh } from "./gh";
-import { computeTurn, type Turn, type TurnReason } from "../lib/turn";
+import { ciSettled, computeTurn, type Turn, type TurnReason } from "../lib/turn";
 import { alertBody, factsUpdate, threadSignals, turnOptions } from "./turn-signals";
 import { completionNotifications } from "./completion-notifications";
 import { matchesRepo } from "./preferences";
@@ -247,7 +247,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     // While you wait, the assistant checks the author's pushes once they settle; ones from before bb watched are history.
     const s = review.signals ?? {};
     if (actions && preferences.pushChecks !== "off" && turn.group === "waiting" && turn.updated && head && head !== review.watchedHead && review.status === "ready"
-      && review.autoRunHead !== head && review.assessment?.headSha !== head && s.ci !== "pending" && now - (s.headSeenAt ?? now) >= PUSH_QUIET) {
+      && review.autoRunHead !== head && review.assessment?.headSha !== head && ciSettled(s, now) && now - (s.headSeenAt ?? now) >= PUSH_QUIET) {
       store.setLifecycle(key, { autoRunHead: head });
       if (!await actions.checkPushes(key).catch(() => false) && store.getReview(key)) store.setLifecycle(key, { autoRunHead: review.autoRunHead ?? null });
     }

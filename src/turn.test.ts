@@ -90,7 +90,11 @@ test("feedback handled: every thread resolved or answered, new commits, CI settl
   expect(turn(changesRequested({ latestHeadSha: "sha2" }, handled))).toMatchObject({ group: "needs", reason: "handled", notify: true, signal: `handled:${t(1)}`, eventAt: t(1) });
   // Without new commits, CI still running or failing, or within the quiet period, it waits.
   expect(turn(changesRequested({}, handled)).group).toBe("waiting");
-  expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, ci: "pending" })).group).toBe("waiting");
+  expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, ci: "pending", headSeenAt: t(0.5) })).group).toBe("waiting");
+  expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, ci: "expected", headSeenAt: t(0.5) })).group).toBe("waiting");
+  // Checks still pending, or expected but never reported, an hour after the push count as settled.
+  expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, ci: "pending" })).reason).toBe("handled");
+  expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, ci: "expected" })).reason).toBe("handled");
   expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, ci: "fail" })).group).toBe("waiting");
   expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, handledAt: NOW - QUIET_MS / 2 })).group).toBe("waiting");
   // Handled before your last review doesn't count.

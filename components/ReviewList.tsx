@@ -39,6 +39,7 @@ const CI_LOOK = {
   pass: { label: "Checks passing", tone: "success", icon: "Check" },
   fail: { label: "Checks failing", tone: "danger", icon: "X" },
   pending: { label: "Checks pending", tone: "warning", icon: "CircleDashed" },
+  expected: { label: "Checks expected", tone: "warning", icon: "CircleDashed" },
 } as const;
 
 /** The row's second line: why, progress on your feedback, new commits, CI, and how long it's been your turn. */

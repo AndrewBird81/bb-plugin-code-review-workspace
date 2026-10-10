@@ -468,3 +468,17 @@ test("an approval dismissed after a later comment review leaves no verdict, date
   expect(s.store.getReview("pr-1")).toMatchObject({ submittedVerdict: null, signals: { dismissedAt: T0 + 0.1 * HOUR } });
   expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs", reason: "dismissed", eventAt: T0 + 0.1 * HOUR });
 });
+
+test("with push checks on, checks that stay pending an hour after the push don't hold up the check", async () => {
+  const s = setup({ reviewed: true, preferences: { pushChecks: "progress" } });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], ci: "expected" });
+  s.at(0.1);
+  await s.sync.all(true);
+  s.at(0.5);
+  await s.sync.all();
+  expect(s.actions.checkPushes).not.toHaveBeenCalled();
+  s.at(1.2);
+  await s.sync.all();
+  expect(s.actions.checkPushes).toHaveBeenCalledWith("pr-1");
+});

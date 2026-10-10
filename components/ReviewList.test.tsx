@@ -45,3 +45,16 @@ test("approved reviews leave the active queue and merged reviews are only in Arc
   expect(slot.getByText("Merged")).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+test("a row labels checks GitHub expects but that never reported", async () => {
+  const { expect } = await import("vitest");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [{ targetKey: "a", title: "Expected change", status: "ready", signals: { ci: "expected" } }] }),
+  } });
+  await slot.findByText("Expected change");
+  expect(slot.getByText("Checks expected")).toBeTruthy();
+  slot.lifecycle.unmount();
+});

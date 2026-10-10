@@ -107,7 +107,7 @@ function realReview(r: any): boolean {
   return (r.comments?.totalCount ?? 0) > 0 && !comments.every((c: any) => c?.replyTo);
 }
 
-const CI: Record<string, PrFacts["ci"]> = { SUCCESS: "pass", FAILURE: "fail", ERROR: "fail", PENDING: "pending", EXPECTED: "pending" };
+const CI: Record<string, PrFacts["ci"]> = { SUCCESS: "pass", FAILURE: "fail", ERROR: "fail", PENDING: "pending", EXPECTED: "expected" };
 
 function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<string>): PrFacts {
   const events: any[] = (pr.events?.nodes ?? []).filter(Boolean);

@@ -44,7 +44,7 @@ export interface PrFacts {
   headSha: string;
   updatedAt: number;
   /** The head commit's combined status checks. */
-  ci: "pass" | "fail" | "pending" | "none";
+  ci: "pass" | "fail" | "pending" | "expected" | "none";
   /** The viewer's real reviews, oldest first. */
   myReviews: MyReview[];
   /** Every other reviewer's latest approve or changes-requested review. */
