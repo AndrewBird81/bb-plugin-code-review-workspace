@@ -49,10 +49,13 @@ function TurnMeta({ review, turn }: { review: ReviewItem; turn: Turn }) {
   const commits = review.signals?.commitsSince ?? 0;
   const ci = review.signals?.ci && review.signals.ci !== "none" ? CI_LOOK[review.signals.ci] : null;
   const waited = turn.group === "needs" ? age(turn.at) : null;
-  if (!why && !progress && commits <= 0 && !ci && !waited && !turn.blocking) return null;
+  // The badge says it once the PR is archived for it.
+  const unreachable = turn.reason !== "unreachable" ? review.unreachable : null;
+  if (!why && !progress && commits <= 0 && !ci && !waited && !turn.blocking && !unreachable) return null;
   return (
     <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
       {turn.blocking && <Badge tone="warning" size="sm">Blocks merge</Badge>}
+      {unreachable && <span className="inline-flex items-center gap-1" title={unreachable.reason === "forbidden" ? "GitHub refused access, for example for SSO" : "Deleted, or you lost access"}><Icon name="AlertCircle" className={cn("size-3", TONE_TEXT.warning)} aria-hidden />Can’t read on GitHub</span>}
       {why && <span>{why}</span>}
       {progress && <span className="tabular-nums" title={progress.source === "assistant" ? undefined : "Resolved or answered"}>{progress.done}/{progress.total} {progress.source === "assistant" ? "addressed" : "handled"}</span>}
       {commits > 0 && <span className="inline-flex items-center gap-1 tabular-nums"><Icon name="GitCommit" className="size-3" aria-hidden />+{commits} {commits === 1 ? "commit" : "commits"}</span>}

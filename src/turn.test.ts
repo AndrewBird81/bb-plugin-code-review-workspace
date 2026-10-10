@@ -67,6 +67,14 @@ test("your own PR needs your review until you've reviewed it, then it's Reviewed
   expect(turn(own({ prState: "MERGED" })).group).toBe("archive");
 });
 
+test("a PR GitHub can't find for a week goes to Archive", () => {
+  const gone = (days: number, reason: "not-found" | "forbidden" = "not-found") => changesRequested({ unreachable: { since: NOW - days * 24 * hour, reason } });
+  expect(turn(gone(1)).group).toBe("waiting");
+  expect(turn(gone(8))).toMatchObject({ group: "archive", reason: "unreachable", label: "Can’t read on GitHub" });
+  // Access refused, say for SSO, may come back: it stays.
+  expect(turn(gone(8, "forbidden")).group).toBe("waiting");
+});
+
 test("a team request after your review isn't a re-request, and doesn't undo your archive", () => {
   const team = { requestedAt: t(1), requestedBy: "carol", requestedVia: "team" as const, requestPending: true };
   expect(turn(changesRequested({}, team))).toMatchObject({ group: "waiting", reason: "waiting" });

@@ -59,6 +59,9 @@ export interface PrFacts {
   commits: string[];
 }
 
+/** A PR's read: its facts, null when GitHub can't find it, or "forbidden" when GitHub refuses access (permissions, SSO). */
+export type PrRead = PrFacts | null | "forbidden";
+
 /** One review thread the viewer started, with where it stands. */
 export interface FeedbackThread {
   /** GraphQL node id, used to resolve the thread. */

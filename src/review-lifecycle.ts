@@ -12,13 +12,13 @@ import { fetchMyThreads } from "./github/threads";
 import { createNotificationGate, type NotificationGate } from "./github/notifications";
 import { discoverPrs } from "./github/discovery";
 import { createViewer, type Viewer } from "./github/viewer";
-import type { DiscoveredPr, FeedbackThread, PrFacts, PrRef } from "./github/types";
+import type { DiscoveredPr, FeedbackThread, PrFacts, PrRead, PrRef } from "./github/types";
 
 /** Everything the sync reads from GitHub. */
 export interface GithubReads {
   viewer: Viewer;
   gate: NotificationGate;
-  facts(refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Promise<Map<string, PrFacts | null>>;
+  facts(refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Promise<Map<string, PrRead>>;
   threads(repo: string, number: number, viewer: string, author: string | null): Promise<FeedbackThread[]>;
   discover(options: { reviewed: boolean; teams: boolean }): Promise<DiscoveredPr[]>;
 }
@@ -126,7 +126,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       const teams = await github.viewer.teams();
       const reviews = fresh.map((key) => store.getReview(key)).filter(readable);
       const startedAt = clock();
-      let facts: Map<string, PrFacts | null>;
+      let facts: Map<string, PrRead>;
       try {
         facts = await github.facts(reviews.map((r) => ({ targetKey: r.targetKey, repo: r.repo, number: r.number })), login, teams);
       } catch (error) {
@@ -138,8 +138,10 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
         if (disposed) return;
         checked.set(review.targetKey, clock());
         const fact = facts.get(review.targetKey);
-        // Missing: GitHub couldn't be read for it. Null: the PR is gone or out of reach. Keep what's saved.
-        if (fact) await apply(review.targetKey, fact, login, startedAt).catch((error) => bb.log.warn(`Could not refresh ${review.targetKey}: ${String(error)}`));
+        // Missing: GitHub couldn't be read for it; keep what's saved. Null or "forbidden": the PR is gone or out of reach.
+        const done = fact === null || fact === "forbidden" ? unreachable(review.targetKey, fact ? "forbidden" : "not-found")
+          : fact ? apply(review.targetKey, fact, login, startedAt) : null;
+        await done?.catch((error) => bb.log.warn(`Could not refresh ${review.targetKey}: ${String(error)}`));
         await maintainThread(review.targetKey);
       }
     })().finally(() => { for (const key of fresh) if (inflight.get(key) === task) inflight.delete(key); });
@@ -175,6 +177,15 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       store.setLifecycle(key, { signals: { ...store.getReview(key)!.signals, ...threadSignals(store.listFeedbackThreads(key)) } });
     }
     await evaluate(key, firstRead);
+    if (JSON.stringify(before) !== JSON.stringify(store.getReview(key))) publish(key);
+  }
+
+  /** Record that GitHub can't find the PR, or refuses access, since the first read that saw it. */
+  async function unreachable(key: string, reason: "not-found" | "forbidden") {
+    const before = store.getReview(key);
+    if (!before) return;
+    store.setLifecycle(key, { unreachable: { since: before.unreachable?.since ?? clock(), reason } });
+    await evaluate(key);
     if (JSON.stringify(before) !== JSON.stringify(store.getReview(key))) publish(key);
   }
 

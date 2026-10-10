@@ -1,5 +1,5 @@
 // Batched reads of the PR facts the turn rules need, one aliased GraphQL query per batch.
-import type { MyReview, PrFacts, PrRef, ReviewRequestEvent, ReviewState, RunGh } from "./types";
+import type { MyReview, PrFacts, PrRead, PrRef, ReviewRequestEvent, ReviewState, RunGh } from "./types";
 
 export const BATCH_SIZE = 10;
 
@@ -33,15 +33,16 @@ export function prFactsQuery(refs: PrRef[]): { query: string; variables: Record<
 }
 
 /**
- * Normalizes one batch's response. A PR GitHub reports NOT_FOUND (or returns null for) maps to null;
- * a PR whose alias failed for another reason (say, SSO or permissions) is left out of the map.
+ * Normalizes one batch's response. A PR GitHub reports NOT_FOUND (or returns null for) maps to null,
+ * one it refuses (FORBIDDEN: permissions, SSO) to "forbidden"; one whose alias failed for another reason is left out of the map.
  */
-export function parsePrFacts(json: unknown, refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Map<string, PrFacts | null> {
+export function parsePrFacts(json: unknown, refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Map<string, PrRead> {
   const root = json as { data?: Record<string, any> | null; errors?: Array<{ type?: string; path?: unknown[] }> } | null;
   if (!root || typeof root !== "object" || !root.data || typeof root.data !== "object") throw new Error("GitHub returned no PR data");
-  const failed = new Set((root.errors ?? []).filter((e) => e.type !== "NOT_FOUND").map((e) => String(e.path?.[0] ?? "")));
-  const result = new Map<string, PrFacts | null>();
+  const failed = new Map((root.errors ?? []).filter((e) => e.type !== "NOT_FOUND").map((e) => [String(e.path?.[0] ?? ""), e.type]));
+  const result = new Map<string, PrRead>();
   refs.forEach((ref, i) => {
+    if (failed.get(`p${i}`) === "FORBIDDEN") result.set(ref.targetKey, "forbidden");
     if (failed.has(`p${i}`)) return;
     const pr = root.data![`p${i}`]?.pullRequest;
     result.set(ref.targetKey, pr ? normalize(pr, ref, viewer, teams) : null);
@@ -53,8 +54,8 @@ export function parsePrFacts(json: unknown, refs: PrRef[], viewer: string, teams
  * Batches by BATCH_SIZE through `gh api graphql`. A PR GitHub can't find maps to null; a batch that
  * fails leaves its PRs out of the map, and only when every batch fails does this reject.
  */
-export async function fetchPrFacts(run: RunGh, refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Promise<Map<string, PrFacts | null>> {
-  const result = new Map<string, PrFacts | null>();
+export async function fetchPrFacts(run: RunGh, refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Promise<Map<string, PrRead>> {
+  const result = new Map<string, PrRead>();
   let failure: Error | null = null;
   let read = 0;
   for (let i = 0; i < refs.length; i += BATCH_SIZE) {

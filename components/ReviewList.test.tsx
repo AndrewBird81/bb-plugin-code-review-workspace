@@ -71,3 +71,16 @@ test("your own PR is labelled as yours", async () => {
   expect(slot.getByText("Your PR")).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+test("a row says when GitHub can't read its PR", async () => {
+  const { expect } = await import("vitest");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [{ targetKey: "a", kind: "pr", title: "Gone change", status: "ready", unreachable: { since: 1, reason: "forbidden" } }] }),
+  } });
+  await slot.findByText("Gone change");
+  expect(slot.getByText("Can’t read on GitHub")).toBeTruthy();
+  slot.lifecycle.unmount();
+});

@@ -6,7 +6,7 @@ import type { Verdict } from "../src/draft";
 export type TurnGroup = "needs" | "waiting" | "reviewed" | "archive";
 
 export type TurnReason =
-  | "merged" | "closed" | "archived" | "unrequested"
+  | "merged" | "closed" | "archived" | "unrequested" | "unreachable"
   | "failed"
   | "new" | "requested" | "team-requested" | "re-requested"
   | "question" | "mentioned" | "handled" | "looks-ready" | "dismissed"
@@ -104,6 +104,8 @@ export interface TurnInput {
   signals?: TurnSignals | null;
   snoozedAt?: number | null;
   assessment?: AssessmentSummary | null;
+  /** GitHub can't find the PR, or refuses access, since `since`. */
+  unreachable?: { since: number; reason: "not-found" | "forbidden" } | null;
   /** You wrote the PR: GitHub allows you only a comment review, and there's no author to wait on. */
   ownPr?: boolean | null;
   /** A turn that came from a passing state (feedback handled, looks ready); it holds until you act. */
@@ -145,6 +147,8 @@ export interface Turn {
 }
 
 export const QUIET_MS = 10 * 60_000;
+/** How long GitHub must not find a PR before it goes to Archive. */
+export const UNREACHABLE_MS = 7 * 86_400_000;
 /** How long after a push checks may stay pending or expected before they count as settled: some never report. */
 export const CI_STALE_MS = 60 * 60_000;
 export const defaultTurnOptions: TurnOptions = { wakeOnReplies: "questions", pushChecks: "off" };
@@ -169,6 +173,8 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
 
   if (review.prState === "MERGED") return make("archive", "merged", "Merged", "View review");
   if (review.prState === "CLOSED" || review.archivedAt) return make("archive", "closed", "Closed", "View review");
+  // Deleted, or out of your reach for good; access refused (say, for SSO) may come back.
+  if (review.unreachable?.reason === "not-found" && now - review.unreachable.since >= UNREACHABLE_MS) return make("archive", "unreachable", "Can’t read on GitHub", "View review");
 
   // A local receipt counts until GitHub reports the review.
   const lastReviewAt = Math.max(s.lastReviewAt ?? 0, review.submittedAt ?? 0) || null;

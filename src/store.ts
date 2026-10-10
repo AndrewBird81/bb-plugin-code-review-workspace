@@ -64,6 +64,8 @@ export interface ReviewLifecycle {
   prepareTriedAt?: number | null;
   /** The PR's author is the GitHub account reading it. */
   ownPr?: boolean | null;
+  /** GitHub can't find the PR, or refuses access, since this time. */
+  unreachable?: { since: number; reason: "not-found" | "forbidden" } | null;
 }
 
 export interface ReviewMeta extends ReviewLifecycle {

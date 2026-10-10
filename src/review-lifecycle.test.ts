@@ -513,3 +513,22 @@ test("discovery doesn't add a second row for a PR whose repository was renamed",
   await s.sync.all(true);
   expect(s.store.listReviews().map((r) => r.targetKey)).toEqual(["pr-1"]);
 });
+
+test("a PR GitHub can't read is recorded, cleared when it can again, and archived after a week of not found", async () => {
+  const s = setup({ reviewed: true });
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, null])));
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.unreachable).toEqual({ since: T0, reason: "not-found" });
+  s.at(24);
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, "forbidden" as const])));
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")?.unreachable).toEqual({ since: T0, reason: "forbidden" });
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, facts(ref, { myReviews: [review("CHANGES_REQUESTED", T0 - 5 * HOUR)] })])));
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")?.unreachable).toBeNull();
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, null])));
+  await s.sync.all(true);
+  s.at(24 * 8);
+  await s.sync.all(true);
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "archive", reason: "unreachable" });
+});

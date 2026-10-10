@@ -171,11 +171,15 @@ test("a PR or repository GitHub can't find maps to null and the rest of the batc
   expect(facts.get("pr-3")).toBeNull();
 });
 
-test("a PR that failed for another reason is left out rather than reported missing", () => {
-  const json = { data: { p0: null, p1: { pullRequest: pr() } }, errors: [{ type: "FORBIDDEN", path: ["p0"], message: "SAML enforcement" }] };
-  const facts = parsePrFacts(json, [ref(1, "sso/repo"), ref(2)], "me", noTeams);
-  expect(facts.has("pr-1")).toBe(false);
-  expect(facts.get("pr-2")).not.toBeNull();
+test("a PR GitHub refuses is reported forbidden; one that failed for another reason is left out", () => {
+  const json = { data: { p0: null, p1: { pullRequest: pr() }, p2: null }, errors: [
+    { type: "FORBIDDEN", path: ["p0"], message: "Resource protected by organization SAML enforcement." },
+    { type: "SERVICE_UNAVAILABLE", path: ["p2"], message: "Try again" },
+  ] };
+  const facts = parsePrFacts(json, [ref(1, "sso/repo"), ref(2), ref(3)], "me", noTeams);
+  expect(facts.get("pr-1")).toBe("forbidden");
+  expect(facts.get("pr-2")).toMatchObject({ number: 1 });
+  expect(facts.has("pr-3")).toBe(false);
 });
 
 test("parsePrFacts rejects a response without data", () => {
