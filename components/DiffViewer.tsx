@@ -57,8 +57,8 @@ function startsFolded(path: string, stats: { add: number; del: number }): boolea
   return category === "lockfile" || category === "generated" || stats.add + stats.del > LARGE_DIFF;
 }
 
-/** Below this width the diff shows one column, whatever the reading layout. */
-const UNIFIED_BELOW = 720;
+/** Below this width the diff shows one column, whatever the reading layout: each side of a split needs about 480px. */
+const UNIFIED_BELOW = 960;
 
 // Scrolls the review only vertically: scrollIntoView would also scroll the diff's code sideways.
 function scrollToCenter(el: HTMLElement, behavior: ScrollBehavior) {

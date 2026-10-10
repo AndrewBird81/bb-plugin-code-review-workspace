@@ -125,3 +125,17 @@ test("a narrow workspace on a wide screen goes compact and starts in Focus, unti
   again.slot.lifecycle.unmount();
   restore();
 });
+
+test("the toolbar switches between split and unified, and saves the layout", async () => {
+  const savePreferences = vi.fn(({ preferences }: any) => ({ preferences, revision: 1 }));
+  const { slot } = await renderWorkspace({ rpc: { savePreferences } });
+  await slot.findByText("aa");
+  expect(drawn.at(-1)!.options.diffStyle).toBe("split");
+  const split = within(slot.getByRole("main")).getByRole("button", { name: "Split view" });
+  expect(split.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(split);
+  await waitFor(() => expect(drawn.at(-1)!.options.diffStyle).toBe("unified"));
+  expect(split.getAttribute("aria-pressed")).toBe("false");
+  expect(savePreferences).toHaveBeenCalledWith({ preferences: { ...defaultPreferences, diffLayout: "unified" }, revision: 0 });
+  slot.lifecycle.unmount();
+});

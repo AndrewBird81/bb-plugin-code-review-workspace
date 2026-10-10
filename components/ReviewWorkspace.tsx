@@ -29,7 +29,7 @@ import { InlineCode } from "./ui/inline-code";
 import { Hint } from "./ui/hint";
 import { ReviewActions } from "./ReviewActions";
 import { AccountBar } from "./AccountBar";
-import { defaultPreferences } from "../lib/review-preferences";
+import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
 import { useDraftStatus } from "../lib/draft-status";
 import { inDiffOrder, shortcutKey } from "../lib/review-shortcuts";
 import { InlineDraftContext } from "./InlineDraft";
@@ -88,7 +88,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const codeTheme = experimental_useCodeTheme();
   const compactViewport = useMediaQuery("(max-width: 767px)");
   const [mobileChapters, setMobileChapters] = useState(false);
-  const [diffLayout, setDiffLayout] = useState(defaultPreferences.diffLayout);
+  const [preferences, setPreferences] = useState<{ preferences: ReviewPreferences; revision: number } | null>(null);
+  const diffLayout = preferences?.preferences.diffLayout ?? defaultPreferences.diffLayout;
   const [loading, setLoading] = useState(true);
   const [generatingReplacement, setGeneratingReplacement] = useState(false);
   const hasDisplayedGuide = useRef(false);
@@ -155,10 +156,22 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Opening the review clears its Needs You alert.
   useEffect(() => { void rpc.call("markSeen", { targetKey }).catch(() => {}); }, [rpc, targetKey]);
   const loadPreferences = useCallback(() => {
-    void rpc.call("getPreferences", null).then(({ preferences }) => setDiffLayout(preferences.diffLayout)).catch(() => {});
+    void rpc.call("getPreferences", null).then(setPreferences).catch(() => {});
   }, [rpc]);
   useEffect(loadPreferences, [loadPreferences]);
   useRealtime("preferences", loadPreferences);
+  // The reading layout is a setting, saved for every review like the one in Settings.
+  const toggleLayout = useCallback(async () => {
+    if (!preferences) return;
+    const next = { ...preferences.preferences, diffLayout: preferences.preferences.diffLayout === "split" ? "unified" as const : "split" as const };
+    setPreferences({ ...preferences, preferences: next });
+    try {
+      setPreferences(await rpc.call("savePreferences", { preferences: next, revision: preferences.revision }));
+    } catch {
+      toast.error("Couldn’t save the layout.");
+      loadPreferences();
+    }
+  }, [rpc, preferences, loadPreferences]);
   useEffect(() => patchReviewState(targetKey, { activeId, view: chosenView ?? undefined, sidebarWidth, focus: chosenFocus }), [targetKey, activeId, chosenView, sidebarWidth, chosenFocus]);
   const isPr = review?.kind === "pr";
   const view: View = chosenView && chosenView !== "diff" && review && !isPr ? "diff" : chosenView ?? defaultView ?? "diff";
@@ -799,6 +812,19 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   <span className="h-4 w-px bg-border" />
                 </>
               )}
+              {view === "diff" && <Hint label="Split view" container={rootEl}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Split view"
+                  aria-pressed={diffLayout === "split"}
+                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
+                  onClick={() => void toggleLayout()}
+                >
+                  <Icon name="Columns2" className="size-3.5" aria-hidden />
+                  <span className="hidden @min-[1280px]/review:inline">Split</span>
+                </Button>
+              </Hint>}
               <Hint label="Focus mode" container={rootEl}>
                 <Button
                   variant="ghost"

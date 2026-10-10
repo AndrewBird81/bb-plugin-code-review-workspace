@@ -40,3 +40,21 @@ test("a file stops highlighting well before a huge diff would freeze the page", 
   show(file("src/a.ts", ["a"]), ["src/a.ts"]);
   expect(drawn.at(-1)!.options.tokenizeMaxLength).toBeLessThanOrEqual(5000);
 });
+
+test("split view goes unified when a side would be narrower than about 480px", () => {
+  const original = globalThis.ResizeObserver;
+  let width = 900;
+  globalThis.ResizeObserver = class {
+    constructor(private notify: ResizeObserverCallback) {}
+    observe(target: Element) { this.notify([{ target, contentRect: { width } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver); }
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  show(file("src/a.ts", ["a"]), ["src/a.ts"]);
+  expect(drawn.at(-1)!.options.diffStyle).toBe("unified");
+  cleanup();
+  width = 1000;
+  show(file("src/a.ts", ["a"]), ["src/a.ts"]);
+  expect(drawn.at(-1)!.options.diffStyle).toBe("split");
+  globalThis.ResizeObserver = original;
+});
