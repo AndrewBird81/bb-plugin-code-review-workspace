@@ -16,7 +16,7 @@ import { getReviewState, patchReviewState } from "../lib/panel-state";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
 import { setDraftStatus } from "../lib/draft-status";
 import { usePortalScopeProps } from "../lib/portal-scope";
-import { InlineComposerContext, InlineDraftContext, type InlineComposer, type InlineDraft } from "./InlineDraft";
+import { composerKeys, InlineComposerContext, InlineDraftContext, type InlineComposer, type InlineDraft } from "./InlineDraft";
 import { SummaryCard } from "./SummaryCard";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { Badge } from "./ui/badge";
@@ -324,6 +324,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     });
   }
 
+  const canAdd = !busy && !!file.trim() && !!body.trim() && Number.isInteger(Number(line)) && Number(line) >= 1;
   const hasReview = draft.comments.length > 0 || draft.body.trim().length > 0 || draft.verdict === "APPROVE";
   // GitHub refuses Request changes without a summary.
   const needsSummary = draft.verdict === "REQUEST_CHANGES" && !draft.body.trim();
@@ -449,8 +450,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
                 <label className="space-y-1 text-xs text-muted-foreground">Line<Input aria-label="Comment line" disabled={busy || !!editing} type="number" min={1} value={line} onChange={(event) => setLine(event.target.value)} /></label>
                 <label className="space-y-1 text-xs text-muted-foreground">Side<select aria-label="Comment side" disabled={busy || !!editing} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground" value={side} onChange={(event) => setSide(event.target.value as "LEFT" | "RIGHT")}><option value="RIGHT">Changed lines</option><option value="LEFT">Original lines</option></select></label>
               </div>
-              <Textarea ref={bodyRef} aria-label="Draft comment" disabled={busy} value={body} onChange={(event) => changeBody(event.target.value)} placeholder="What should the author know?" />
-              <div className="flex flex-wrap gap-2"><Button disabled={busy || !file.trim() || !body.trim() || !Number.isInteger(Number(line)) || Number(line) < 1} onClick={() => void addComment()}>{editing ? "Save comment" : "Add to draft"}</Button><Button variant="ghost" disabled={busy} onClick={closeComposer}>Cancel</Button></div>
+              <Textarea ref={bodyRef} aria-label="Draft comment" disabled={busy} value={body} onChange={(event) => changeBody(event.target.value)} onKeyDown={(event) => composerKeys(event, canAdd ? () => void addComment() : null, () => { if (!busy) closeComposer(); })} placeholder="What should the author know?" />
+              <div className="flex flex-wrap gap-2"><Button disabled={!canAdd} onClick={() => void addComment()}>{editing ? "Save comment" : "Add to draft"}</Button><Button variant="ghost" disabled={busy} onClick={closeComposer}>Cancel</Button></div>
             </div>)}
           </div>
           <footer className="shrink-0 space-y-2.5 border-t border-border p-3">

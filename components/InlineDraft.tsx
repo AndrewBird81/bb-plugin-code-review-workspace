@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, type ReactNode, type RefObject } from "react";
+import { createContext, memo, useContext, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { sameLocation, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment } from "../src/draft";
 import { cn } from "../lib/utils";
@@ -162,6 +162,13 @@ export function DiscussionView({ discussion, titled, chat, busy = false, onUndo,
   );
 }
 
+/** Cmd/Ctrl+Enter runs a box's primary action, when it can run; Esc cancels, without reaching a drawer around the panel. */
+export function composerKeys(event: KeyboardEvent<HTMLTextAreaElement>, primary: (() => void) | null, cancel: () => void) {
+  if (event.nativeEvent.isComposing) return;
+  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); primary?.(); }
+  else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
+}
+
 /** The box for a new comment in the diff, an edit, or a message to the agent, wherever DraftTray opened it. */
 function ComposerBox({ mode, divided = false }: { mode: "new" | "edit" | "ask"; divided?: boolean }) {
   const draft = useContext(InlineDraftContext);
@@ -176,6 +183,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
 }) {
   const empty = !composer.body.trim();
   const summary = subject === "summary";
+  const primary = mode === "ask" ? composer.askAgent : composer.save;
   return (
     <div className={cn("space-y-2 p-2.5", divided && "border-t border-border")}>
       <Textarea
@@ -184,6 +192,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
         disabled={busy}
         value={composer.body}
         onChange={(event) => composer.change(event.target.value)}
+        onKeyDown={(event) => composerKeys(event, busy || empty ? null : primary, () => { if (!busy) composer.cancel(); })}
         placeholder={mode === "ask" ? summary ? "Ask about the summary, or say what to change" : "Ask about this, or say what to change" : summary ? "What should the author know overall?" : "What should the author know?"}
         className={cn("bg-background text-sm", summary && mode !== "ask" ? "min-h-28" : "min-h-20")}
       />
@@ -191,7 +200,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
         {mode === "ask" && <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Goes to the agent, not GitHub.</span>}
         <Button variant="ghost" size="sm" disabled={busy} onClick={composer.cancel}>Cancel</Button>
         {mode === "new" && <Button variant="outline" size="sm" disabled={busy || empty} onClick={composer.askAgent}><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Ask agent</Button>}
-        <Button size="sm" disabled={busy || empty} onClick={mode === "ask" ? composer.askAgent : composer.save}>
+        <Button size="sm" disabled={busy || empty} onClick={primary}>
           {mode === "ask" ? "Send to agent" : summary ? "Save summary" : mode === "edit" ? "Save comment" : "Add to draft"}
         </Button>
       </div>

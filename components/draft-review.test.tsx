@@ -62,3 +62,43 @@ test("Edit puts the cursor at the end of the comment, and of the summary", async
   expect([summaryBox.selectionStart, summaryBox.selectionEnd]).toEqual([12, 12]);
   slot.lifecycle.unmount();
 });
+
+test("Cmd/Ctrl+Enter runs a box's primary action when it has text, and Esc cancels without reaching the page", async () => {
+  let draft = draftOf({ body: "Old summary." });
+  const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = { ...draft, comments: [comment] }; return { draft, stale: [], discussions: [] }; });
+  const saveSummary = vi.fn(async ({ body }: any) => { draft = { ...draft, body }; return { draft, stale: [], discussions: [] }; });
+  const askAgent = vi.fn(async () => ({ draft, stale: [], discussions: [] }));
+  const slot = await renderTray("keys", { getDraft: () => ({ draft, stale: [], discussions: [] }), saveDraftComment, saveSummary, askAgent });
+  const pageEscape = vi.fn();
+  document.addEventListener("keydown", pageEscape);
+  // The panel's Add comment form: empty, Ctrl+Enter does nothing; with text, it saves.
+  fireEvent.click(slot.getByRole("button", { name: "Add comment" }));
+  fireEvent.keyDown(slot.getByRole("textbox", { name: "Draft comment" }), { key: "Enter", ctrlKey: true });
+  expect(saveDraftComment).not.toHaveBeenCalled();
+  fireEvent.change(slot.getByRole("textbox", { name: "Draft comment" }), { target: { value: "Saved by keyboard." } });
+  fireEvent.keyDown(slot.getByRole("textbox", { name: "Draft comment" }), { key: "Enter", ctrlKey: true });
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ body: "Saved by keyboard." }) })));
+  await waitFor(() => expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull());
+  // Esc cancels the form.
+  writeComment(slot, "Never mind.");
+  fireEvent.keyDown(slot.getByRole("textbox", { name: "Draft comment" }), { key: "Escape" });
+  expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull();
+  // The summary's editor.
+  fireEvent.click(slot.getByRole("button", { name: "Edit review summary" }));
+  fireEvent.change(slot.getByRole("textbox", { name: "Review summary" }), { target: { value: "New summary." } });
+  fireEvent.keyDown(slot.getByRole("textbox", { name: "Review summary" }), { key: "Enter", metaKey: true });
+  await waitFor(() => expect(saveSummary).toHaveBeenCalledWith(expect.objectContaining({ body: "New summary." })));
+  // An ask box sends to the agent, and Esc closes it.
+  await waitFor(() => expect(slot.getByRole("button", { name: "Ask agent about the review summary" }).hasAttribute("disabled")).toBe(false));
+  fireEvent.click(slot.getByRole("button", { name: "Ask agent about the review summary" }));
+  fireEvent.change(slot.getByRole("textbox", { name: "Message to agent" }), { target: { value: "Shorter?" } });
+  fireEvent.keyDown(slot.getByRole("textbox", { name: "Message to agent" }), { key: "Enter", metaKey: true });
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith(expect.objectContaining({ body: "Shorter?" })));
+  await waitFor(() => expect(slot.getByRole("button", { name: "Ask agent about the review summary" }).hasAttribute("disabled")).toBe(false));
+  fireEvent.click(slot.getByRole("button", { name: "Ask agent about the review summary" }));
+  fireEvent.keyDown(slot.getByRole("textbox", { name: "Message to agent" }), { key: "Escape" });
+  expect(slot.queryByRole("textbox", { name: "Message to agent" })).toBeNull();
+  expect(pageEscape.mock.calls.some(([event]) => event.key === "Escape")).toBe(false);
+  document.removeEventListener("keydown", pageEscape);
+  slot.lifecycle.unmount();
+});
