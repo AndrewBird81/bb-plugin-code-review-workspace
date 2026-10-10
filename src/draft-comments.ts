@@ -144,7 +144,9 @@ export function undoChange(store: Store, targetKey: string, at: CommentLocation)
   if (problem) return { ok: false, error: problem };
   const { kind, previous } = store.lastDiscussionChange(targetKey, at)!;
   if (isSummary(at)) {
-    store.updateSummary(targetKey, { body: previous?.body ?? "", bodyAuthor: previous?.author, written: previous?.written, suggestedVerdict: previous?.suggestedVerdict });
+    // The suggested verdict goes back only if this change suggested it and nothing suggested another since.
+    const verdict = previous?.suggested && store.getDraft(targetKey).suggestedVerdict === previous.suggested ? { suggestedVerdict: previous.suggestedVerdict ?? undefined } : {};
+    store.updateSummary(targetKey, { body: previous?.body ?? "", bodyAuthor: previous?.author, written: previous?.written, ...verdict });
   } else if (!previous) {
     store.deleteDraftComment(targetKey, at);
   } else if (kind === "removed") {

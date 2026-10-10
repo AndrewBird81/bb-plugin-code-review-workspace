@@ -4,6 +4,9 @@ import type { Store } from "./store";
 import { commentsKey, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "./draft";
 import { describeComments, unchangeable, type DraftResult } from "./draft-comments";
 
+/** An ask on the summary whose turn's end bb never reported gives way after this. */
+export const ASK_LIFETIME = 30 * 60_000;
+
 /**
  * Write the summary as an agent, and suggest a verdict. An agent writes an empty summary or
  * an agent's; the reviewer's only when they asked on the summary, and then it stays theirs.
@@ -14,9 +17,9 @@ export function writeSummary(store: Store, targetKey: string, input: { body: str
   const draft = store.getDraft(targetKey);
   const body = input.body.trim();
   const reviewers = !draft.bodyAuthor && !!draft.body.trim();
-  // Asking on the summary opens it to the turn that answers, replies and all: on that conversation, with no turn ahead.
+  // Asking on the summary opens it to the turn that carries the ask, replies and all, on that conversation.
   const ask = store.getReview(targetKey)?.summaryAsk;
-  const asked = !!threadId && !!ask && ask.ahead === 0 && ask.threadId === threadId;
+  const asked = !!threadId && ask?.state === "running" && ask.threadId === threadId && Date.now() - ask.at < ASK_LIFETIME;
   if (reviewers && !asked) {
     return { ok: false, error: "The reviewer wrote the review summary, so it stays as they wrote it. Put your suggested summary in your reply instead; the reviewer can ask on the summary (Ask agent on the review summary, in Draft review) to apply it. Nothing was changed." };
   }
@@ -26,7 +29,10 @@ export function writeSummary(store: Store, targetKey: string, input: { body: str
     written: { verdict: input.verdict ?? (verdictPicked(draft) ? draft.verdict : null), comments: commentsKey(draft.comments) },
   });
   store.noteDiscussionChange(targetKey, SUMMARY_AT, draft.body.trim() ? "edited" : "added", {
-    body, previous: { body: draft.body, ...(draft.bodyAuthor ? { author: draft.bodyAuthor } : {}), ...(draft.written ? { written: draft.written } : {}), ...(draft.suggestedVerdict ? { suggestedVerdict: draft.suggestedVerdict } : {}) },
+    body, previous: {
+      body: draft.body, ...(draft.bodyAuthor ? { author: draft.bodyAuthor } : {}), ...(draft.written ? { written: draft.written } : {}),
+      ...(input.verdict ? { suggested: input.verdict, suggestedVerdict: draft.suggestedVerdict ?? null } : {}),
+    },
   });
   const verdict = input.verdict ? ` Your suggested verdict, ${VERDICT_LABEL[input.verdict]}, is marked for the reviewer, who picks the verdict.` : "";
   return { ok: true, text: `${reviewers ? "Updated the reviewer's review summary, as they asked." : "Wrote the review summary."}${verdict} It stays in bb until the reviewer submits the review.` };

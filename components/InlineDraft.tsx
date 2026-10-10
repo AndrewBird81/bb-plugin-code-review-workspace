@@ -22,6 +22,8 @@ export interface InlineDraft {
   writing: boolean;
   /** Where the diff shows the comment box, while it's open there. `asking` when it writes to the agent. */
   composer: (CommentLocation & { editing: boolean; asking: boolean }) | null;
+  /** The line whose comment the box is open on, in the diff or the panel. */
+  editingAt: CommentLocation | null;
   /** Open the comment box at a line, on the line's comment if it has one. */
   open(at: CommentLocation): void;
   /** Open a box at a line for a message to the review assistant. */
@@ -77,7 +79,7 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
   return (
     <div data-draft-at={locationKey(at)} className={cn(card, "border-l-[3px]", edge)}>
       {box === "edit" ? <ComposerBox mode="edit" /> : comment ? <CommentView comment={comment} draft={draft} /> : discussion && <DiscussionBar discussion={discussion} draft={draft} boxOpen={!!box} />}
-      {discussion && <DiscussionView discussion={discussion} titled={!!comment || box === "edit"} chat={draft.chat} busy={draft.busy} onUndo={draft.editable && !box ? () => draft.undo(discussion) : undefined} />}
+      {discussion && <DiscussionView discussion={discussion} titled={!!comment || box === "edit"} chat={draft.chat} busy={draft.busy} onUndo={draft.editable && !box && !(draft.editingAt && sameLocation(draft.editingAt, at)) ? () => draft.undo(discussion) : undefined} />}
       {box && box !== "edit" && <ComposerBox mode={box} divided={!!(comment || discussion)} />}
     </div>
   );

@@ -75,7 +75,7 @@ test("a stale file shows a 'changed' pill", () => {
 const comment = { file: "src/a.ts", line: 2, side: "RIGHT" as const, author: "agent" as const, body: "Is the empty case tested?" };
 
 function renderWithDraft(draft: Partial<InlineDraft>, props: Partial<Parameters<typeof DiffViewer>[0]> = {}, composer?: InlineComposer) {
-  const value: InlineDraft = { comments: [], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), dismiss: vi.fn(), undo: vi.fn(), chat: null, ...draft };
+  const value: InlineDraft = { comments: [], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), dismiss: vi.fn(), undo: vi.fn(), chat: null, editingAt: null, ...draft };
   render(
     <InlineDraftContext.Provider value={value}>
       <InlineComposerContext.Provider value={composer ?? null}>
@@ -154,5 +154,12 @@ test("Undo under a line puts back the agent's latest change there, except while 
   expect(draft.undo).toHaveBeenCalledWith(discussion);
   cleanup();
   renderWithDraft({ comments: [comment], discussions: [discussion], composer: { ...at, editing: true, asking: false } }, {}, { body: comment.body, change: vi.fn(), save: vi.fn(), askAgent: vi.fn(), cancel: vi.fn(), textareaRef: { current: null } });
+  expect(within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).queryByRole("button", { name: "Undo" })).toBeNull();
+});
+
+test("Undo under a line waits while the panel's box edits that comment", () => {
+  const at = { file: "src/a.ts", line: 2, side: "RIGHT" as const };
+  const discussion = { ...at, waiting: false, undoable: true, entries: [{ author: "agent" as const, kind: "edited" as const, body: comment.body, createdAt: 2 }] };
+  renderWithDraft({ comments: [comment], discussions: [discussion], editingAt: at });
   expect(within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).queryByRole("button", { name: "Undo" })).toBeNull();
 });

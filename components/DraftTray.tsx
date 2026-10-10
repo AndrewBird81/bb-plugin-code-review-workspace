@@ -342,10 +342,12 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const writing = !!body.trim();
   const composerInDiff = editable && showComposer && inline;
   const chat = agent ? showChat : null;
+  const editingLine = showComposer && !summaryBox && !asking;
   const inlineDraft = useMemo<InlineDraft>(() => ({
     comments: draft.comments, stale, discussions: lineDiscussions, editable, busy, writing, open, ask, remove, dismiss, undo: undoAt, chat,
     composer: composerInDiff ? { file, line: Number(line), side, editing: editing !== null, asking } : null,
-  }), [draft.comments, stale, lineDiscussions, editable, busy, writing, open, ask, remove, dismiss, undoAt, chat, composerInDiff, file, line, side, editing, asking]);
+    editingAt: editingLine ? { file, line: Number(line), side } : null,
+  }), [draft.comments, stale, lineDiscussions, editable, busy, writing, open, ask, remove, dismiss, undoAt, chat, composerInDiff, editingLine, file, line, side, editing, asking]);
   const inlineComposer = useMemo<InlineComposer | null>(() => composerInDiff ? {
     body, textareaRef: bodyRef,
     change: (text) => latest.current.changeBody(text),

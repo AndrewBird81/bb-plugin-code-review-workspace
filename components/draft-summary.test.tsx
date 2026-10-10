@@ -221,6 +221,7 @@ test("while the agent works on the summary, Edit waits; a change under an open e
   ] }];
   const slot = await renderTray("waiting", { getDraft: () => ({ draft, stale: [], discussions }) });
   expect(summary(slot).getByRole("button", { name: "Edit review summary" }).hasAttribute("disabled")).toBe(true);
+  expect(summary(slot).getByRole("button", { name: "Remove review summary" }).hasAttribute("disabled")).toBe(true);
   discussions = [{ ...discussions[0], waiting: false }];
   await slot.emitRealtime("draft:waiting", {});
   await waitFor(() => expect(summary(slot).getByRole("button", { name: "Edit review summary" }).hasAttribute("disabled")).toBe(false));

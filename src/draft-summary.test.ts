@@ -72,16 +72,19 @@ test("a summary the reviewer wrote is refused, unless they asked on it; then it 
   // Asked on the summary, but the turn that answers hasn't started, or runs on another conversation.
   ask(SUMMARY_AT, "Make it shorter.");
   expect(error(await tool("set_review_summary", { body: "Short." }))).toBe(refused);
-  store.setLifecycle("pr-1", { summaryAsk: { threadId: "another", ahead: 0, at: 1 } });
+  store.setLifecycle("pr-1", { summaryAsk: { threadId: "another", state: "running", at: Date.now() } });
   expect(error(await tool("set_review_summary", { body: "Short." }))).toBe(refused);
-  store.setLifecycle("pr-1", { summaryAsk: { threadId: "assistant", ahead: 1, at: 1 } });
+  store.setLifecycle("pr-1", { summaryAsk: { threadId: "assistant", state: "queued", queuedMessageId: "q1", at: Date.now() } });
   expect(error(await tool("set_review_summary", { body: "Short." }))).toBe(refused);
-  store.setLifecycle("pr-1", { summaryAsk: { threadId: "assistant", ahead: 0, at: 1 } });
+  // A turn whose end bb never reported doesn't keep it open.
+  store.setLifecycle("pr-1", { summaryAsk: { threadId: "assistant", state: "running", at: Date.now() - 31 * 60_000 } });
+  expect(error(await tool("set_review_summary", { body: "Short." }))).toBe(refused);
+  store.setLifecycle("pr-1", { summaryAsk: { threadId: "assistant", state: "running", at: Date.now() } });
   expect(await tool("set_review_summary", { body: "Short.", verdict: "COMMENT" })).toContain("Updated the reviewer's review summary, as they asked.");
   expect(store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "Short.", comments: [], suggestedVerdict: "COMMENT" });
   const summary = store.listDiscussions("pr-1").find((d) => d.file === "")!;
   expect(summary).toMatchObject({ waiting: false, entries: [{ kind: "message" }, { author: "agent", kind: "edited", body: "Short." }] });
-  expect(store.lastDiscussionChange("pr-1", SUMMARY_AT)).toEqual({ kind: "edited", body: "Short.", previous: { body: "My summary." } });
+  expect(store.lastDiscussionChange("pr-1", SUMMARY_AT)).toEqual({ kind: "edited", body: "Short.", previous: { body: "My summary.", suggested: "COMMENT", suggestedVerdict: null } });
   // The CLI isn't the turn that answers.
   expect(writeSummary(store, "pr-1", { body: "From a script." })).toEqual({ ok: false, error: refused });
 });
@@ -182,13 +185,20 @@ test("the assistant replies in the summary's discussion", async () => {
   expect(signals()).toBe(1);
 });
 
-test("Undo puts the suggested verdict back too, and isn't offered where the draft can't change", async () => {
+test("Undo puts back the verdict that change suggested, unless another came since, and isn't offered where the draft can't change", async () => {
   const { store, tool, call, ask } = await host();
   ask(SUMMARY_AT, "Write one.");
   await tool("set_review_summary", { body: "First." });
   await tool("set_review_summary", { body: "Approve it.", verdict: "APPROVE" });
   expect((await call("undoAgentChange", SUMMARY_AT)).draft).toMatchObject({ body: "First." });
   expect(store.getDraft("pr-1").suggestedVerdict).toBeUndefined();
+  // A change that suggested no verdict leaves the suggestion alone; so does one after a newer suggestion.
+  await tool("set_review_summary", { body: "Approve it.", verdict: "APPROVE" });
+  await tool("set_review_summary", { body: "Approve it, shorter." });
+  expect((await call("undoAgentChange", SUMMARY_AT)).draft).toMatchObject({ body: "Approve it.", suggestedVerdict: "APPROVE" });
+  await tool("set_review_summary", { body: "Request changes.", verdict: "REQUEST_CHANGES" });
+  store.updateSummary("pr-1", { suggestedVerdict: "COMMENT" });
+  expect((await call("undoAgentChange", SUMMARY_AT)).draft).toMatchObject({ body: "Approve it.", suggestedVerdict: "COMMENT" });
 
   await tool("set_review_summary", { body: "Approve it.", verdict: "APPROVE" });
   store.setLifecycle("pr-1", { prState: "MERGED" });
@@ -213,7 +223,7 @@ test("an ask on the summary left from before the plugin started gives way", asyn
   const { bb } = createFakePluginHost({ pluginId: "guided-review" });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
-  store.setLifecycle("pr-1", { summaryAsk: { threadId: "assistant", ahead: 0, at: 1 } });
+  store.setLifecycle("pr-1", { summaryAsk: { threadId: "assistant", state: "running", at: Date.now() } });
   await plugin(bb);
   expect(store.getReview("pr-1")?.summaryAsk).toBeNull();
 });

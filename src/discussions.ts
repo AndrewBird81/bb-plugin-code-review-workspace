@@ -59,35 +59,23 @@ export async function askAgent(bb: BbPluginApi, store: Store, targetKey: string,
   const refused = unchangeable(store.getReview(targetKey));
   if (refused) throw new Error(refused);
   const { text, context } = discussionMessage(store, targetKey, input);
-  // Placed before it's sent, so even a turn that ends at once finds it.
+  // An ask on the summary opens the reviewer's summary to the turn that carries it, and only that turn.
   const summary = isSummary(input);
-  if (summary) store.setLifecycle(targetKey, { summaryAsk: await askPlace(bb, store, targetKey) });
-  let result: { started: boolean; threadId: string };
+  const before = store.getReview(targetKey)?.summaryAsk ?? null;
+  if (summary) store.setLifecycle(targetKey, { summaryAsk: { threadId: store.getAssistantThread(targetKey), state: "sending", at: Date.now() } });
+  let result: Awaited<ReturnType<typeof messageAssistant>>;
   try {
     result = await messageAssistant(bb, store, targetKey, text, context);
   } catch (error) {
-    if (summary) store.setLifecycle(targetKey, { summaryAsk: null });
+    if (summary) store.setLifecycle(targetKey, { summaryAsk: before });
     throw error;
   }
-  const ask = store.getReview(targetKey)?.summaryAsk;
-  if (summary && ask && ask.threadId !== result.threadId) store.setLifecycle(targetKey, { summaryAsk: { ...ask, threadId: result.threadId, ahead: 0 } });
+  if (summary && store.getReview(targetKey)?.summaryAsk?.state === "sending") {
+    const { threadId, queuedMessageId } = result;
+    store.setLifecycle(targetKey, { summaryAsk: queuedMessageId ? { threadId, state: "queued", queuedMessageId, at: Date.now() } : { threadId, state: "running", at: Date.now() } });
+  }
   store.addDiscussionMessage(targetKey, input, "reviewer", input.body, input.startLine !== input.line ? input.startLine : undefined);
   return { started: result.started };
-}
-
-/**
- * Where an ask on the summary lands: the conversation's thread, and how many turns run before it,
- * the one in progress and those queued. Only the turn that answers the ask may change the reviewer's summary.
- */
-async function askPlace(bb: BbPluginApi, store: Store, targetKey: string): Promise<{ threadId: string | null; ahead: number; at: number }> {
-  const threadId = store.getAssistantThread(targetKey);
-  if (!threadId) return { threadId: null, ahead: 0, at: Date.now() };
-  const [thread, queued] = await Promise.all([
-    bb.sdk.threads.get({ threadId }).catch(() => null),
-    bb.sdk.threads.queuedMessages.list({ threadId }).catch(() => []),
-  ]);
-  const busy = thread?.status === "active" || thread?.status === "starting";
-  return { threadId, ahead: (busy ? 1 : 0) + queued.length, at: Date.now() };
 }
 
 /**

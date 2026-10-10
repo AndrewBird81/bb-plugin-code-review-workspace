@@ -40,10 +40,12 @@ export interface ReviewLifecycle {
   /** Your latest review summaries, newest last, for the assistant. */
   reviewBodies?: Array<{ state: string; at: number; body: string }>;
   /**
-   * The reviewer asked on the review summary. Their summary is open to the turn that answers: on this
-   * conversation thread (null until a new one is spawned), once the `ahead` turns before it have ended.
+   * The reviewer asked on the review summary. Their summary is open to the turn that carries the ask, on
+   * this conversation thread (null until a new one is spawned): "sending" until the send returns,
+   * "queued" while the message waits in the thread's queue as `queuedMessageId`, "running" once its
+   * turn is under way, since `at`.
    */
-  summaryAsk?: { threadId: string | null; ahead: number; at: number } | null;
+  summaryAsk?: { threadId: string | null; state: "sending" | "queued" | "running"; queuedMessageId?: string; at: number } | null;
   /** When bb first read the PR's state. Earlier events don't alert or start work. */
   watchingSince?: number | null;
   /** Found on GitHub with a request for your review that you haven't been told about. */
@@ -212,7 +214,11 @@ export interface Store {
 export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor" | "suggestedVerdict" | "written" | "verdictChosen">>;
 
 /** What a comment or the summary was before an agent changed it; null when there was none. */
-export type PreviousState = { body: string; author?: "agent"; chapterId?: string; written?: Draft["written"]; suggestedVerdict?: Verdict } | null;
+/**
+ * What a comment or the summary was before an agent changed it; null when there was none. For a summary
+ * change that suggested a verdict, `suggested` is that verdict and `suggestedVerdict` the one before (null for none).
+ */
+export type PreviousState = { body: string; author?: "agent"; chapterId?: string; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
 
 export function createStore(bb: BbPluginApi): Store {
   const db = bb.storage.database();

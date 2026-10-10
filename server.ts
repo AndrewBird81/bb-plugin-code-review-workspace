@@ -209,7 +209,8 @@ export default async function plugin(bb: BbPluginApi) {
           if (!body) return { ok: false, error: "Nothing is left open. Consider approving." };
           verdict = "REQUEST_CHANGES";
         }
-        // You chose the verdict; the words are still the assistant's until you edit them.
+        // You chose the verdict; the words are still the assistant's until you edit them. You've settled the summary.
+        store.setLifecycle(targetKey, { summaryAsk: null });
         const draft = store.updateSummary(targetKey, { verdict, verdictChosen: true, body, bodyAuthor: "agent", written: { verdict, comments: commentsKey(store.getDraft(targetKey).comments) } });
         bb.realtime.publish(`draft:${targetKey}`, {});
         return { ok: true, draft };
@@ -442,13 +443,16 @@ export default async function plugin(bb: BbPluginApi) {
     },
     setVerdict({ targetKey, verdict, body, revision }) {
       requireReviewRevision(store, targetKey, revision);
+      // A summary you wrote yourself ends an ask on it.
+      if (body !== undefined && body !== store.getDraft(targetKey).body) store.setLifecycle(targetKey, { summaryAsk: null });
       const draft = store.setVerdict(targetKey, verdict, body);
       bb.realtime.publish(`draft:${targetKey}`, {});
       return { draft };
     },
     saveSummary({ targetKey, body, revision }) {
       requireReviewRevision(store, targetKey, revision);
-      // Your words now, whoever wrote them before.
+      // Your words now, whoever wrote them before, and an ask on the summary is over.
+      store.setLifecycle(targetKey, { summaryAsk: null });
       const draft = store.updateSummary(targetKey, { body, bodyAuthor: undefined, written: undefined });
       bb.realtime.publish(`draft:${targetKey}`, {});
       return draftState(targetKey, draft);
@@ -737,14 +741,15 @@ export default async function plugin(bb: BbPluginApi) {
 
   // A discussion the assistant didn't answer by the end of its turn stops waiting for it.
   const settle = async ({ thread }: { thread: { id: string } }) => {
+    // A turn ended; an ask on the summary ends with the turn that carried it. Before anything awaits,
+    // so a turn after it can't find it open.
+    const reviewKey = assistantReview(store, thread.id);
+    const ask = reviewKey ? store.getReview(reviewKey)?.summaryAsk : null;
+    if (reviewKey && ask?.state === "running" && ask.threadId === thread.id) store.setLifecycle(reviewKey, { summaryAsk: null });
     const targetKey = await settleDiscussions(bb, store, thread.id);
     if (targetKey) bb.realtime.publish(`draft:${targetKey}`, {});
-    const reviewKey = assistantReview(store, thread.id);
     const review = reviewKey ? store.getReview(reviewKey) : null;
     if (!reviewKey || !review) return;
-    // A turn ended. An ask on the summary waits out the turns ahead of it, and ends with its own.
-    const ask = review.summaryAsk;
-    if (ask && (ask.threadId ?? thread.id) === thread.id) store.setLifecycle(reviewKey, { summaryAsk: ask.ahead > 0 ? { ...ask, ahead: ask.ahead - 1 } : null });
     // A feedback check ends with the assistant's turn; an alert waiting for it can go now. A check still
     // queued behind another message hasn't run yet.
     if (review.verifyingSince && !(await bb.sdk.threads.queuedMessages.list({ threadId: thread.id }).catch(() => [])).length) {
@@ -755,6 +760,20 @@ export default async function plugin(bb: BbPluginApi) {
   };
   bb.events.on("thread.idle", settle);
   bb.events.on("thread.failed", settle);
+  // A queued ask on the summary: its turn comes when its message dispatches, and never if it's deleted from the queue.
+  const queuedAsk = (entry: { id: string; threadId: string }) => {
+    const reviewKey = assistantReview(store, entry.threadId);
+    const ask = reviewKey ? store.getReview(reviewKey)?.summaryAsk : null;
+    return reviewKey && ask?.state === "queued" && ask.queuedMessageId === entry.id ? { reviewKey, ask } : null;
+  };
+  bb.events.on("message.dispatched", ({ entry }) => {
+    const found = queuedAsk(entry);
+    if (found) store.setLifecycle(found.reviewKey, { summaryAsk: { threadId: found.ask.threadId, state: "running", at: Date.now() } });
+  });
+  bb.events.on("message.cancelled", ({ entry }) => {
+    const found = queuedAsk(entry);
+    if (found) store.setLifecycle(found.reviewKey, { summaryAsk: null });
+  });
 
   bb.agents.registerTool({
     name: "generate_review_guide",

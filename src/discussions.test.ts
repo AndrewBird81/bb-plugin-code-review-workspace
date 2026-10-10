@@ -162,22 +162,24 @@ test("a merged PR's discussions take no new messages", async () => {
   expect(store.listDiscussions("pr-1")).toEqual([]);
 });
 
-test("asking on a summary you wrote opens it only to the turn that answers, replies first or not", async () => {
+test("asking on a summary you wrote opens it only to the turn that carries the ask, replies first or not", async () => {
   const { store, ask, tool, harness } = await host();
   store.updateSummary("pr-1", { body: "My long summary." });
   const summary = { file: "", line: 0, side: "RIGHT" } as const;
   const idle = (text: string) => harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: text });
-  // The assistant is busy with a check, and a message waits behind it: the ask is third in line.
-  harness.inspection.sdk.stub("threads.get", async () => ({ archivedAt: null, deletedAt: null, status: "active" }));
-  harness.inspection.sdk.stub("threads.queuedMessages.list", async () => [makeQueueEntry()]);
+  // The assistant is busy with a check, so the ask waits in the queue.
+  const row = makeQueueEntry({ id: "q-ask", threadId: "assistant" });
+  harness.inspection.sdk.stub("threads.send", async () => ({ ok: true, delivery: "queued", queuedMessage: row }));
   await ask({ ...summary, body: "Shorter, and mention the test." });
-  expect(store.getReview("pr-1")?.summaryAsk).toMatchObject({ threadId: "assistant", ahead: 2 });
-  // The check's turn, then the queued one, can't touch the reviewer's summary.
+  expect(store.getReview("pr-1")?.summaryAsk).toMatchObject({ threadId: "assistant", state: "queued", queuedMessageId: "q-ask" });
+  // The check's turn, and any other turn before the ask's, can't touch the reviewer's summary.
   expect((await tool("set_review_summary", { body: "From the check." })).isError).toBe(true);
   await idle("Checked");
-  expect((await tool("set_review_summary", { body: "From the queued message." })).isError).toBe(true);
+  await harness.behavior.emitThreadEvent("message.dispatched", { entry: makeQueueEntry({ id: "someone-else", threadId: "assistant" }) });
+  expect((await tool("set_review_summary", { body: "From another message." })).isError).toBe(true);
   await idle("Answered the other message");
-  // The ask's own turn may reply first and edit twice.
+  // The ask's message dispatches: its turn may reply first and edit twice.
+  await harness.behavior.emitThreadEvent("message.dispatched", { entry: row });
   await tool("reply_in_discussion", { summary: true, body: "On it." });
   expect((await tool("set_review_summary", { body: "Short." })).isError).toBeFalsy();
   expect((await tool("set_review_summary", { body: "Short, with the test." })).isError).toBeFalsy();
@@ -190,20 +192,50 @@ test("asking on a summary you wrote opens it only to the turn that answers, repl
   expect(store.getDraft("pr-1").body).toBe("Short, with the test.");
 });
 
-test("an ask on the summary is withdrawn when it can't be sent, is dismissed, or its conversation goes", async () => {
+test("an ask sent straight to an idle assistant opens the summary for that turn only", async () => {
+  const { store, ask, tool, harness } = await host();
+  store.updateSummary("pr-1", { body: "Mine." });
+  await ask({ file: "", line: 0, side: "RIGHT", body: "Shorter?" });
+  expect(store.getReview("pr-1")?.summaryAsk).toMatchObject({ threadId: "assistant", state: "running" });
+  expect((await tool("set_review_summary", { body: "Short." })).isError).toBeFalsy();
+  await harness.behavior.emitThreadEvent("thread.failed", { thread: makeThreadResponse({ id: "assistant" }), error: "Stopped" });
+  expect(store.getReview("pr-1")?.summaryAsk).toBeNull();
+});
+
+test("an ask on the summary is withdrawn when it can't be sent, is deleted from the queue, is dismissed, or you settle the summary yourself", async () => {
   const { store, ask, harness } = await host();
   const summary = { file: "", line: 0, side: "RIGHT" } as const;
+  const asked = () => store.getReview("pr-1")?.summaryAsk;
+  // A failed send leaves an earlier ask as it was.
+  await ask({ ...summary, body: "Shorter?" });
+  const earlier = asked();
   harness.inspection.sdk.stub("threads.send", async () => { throw new Error("offline"); });
-  await expect(ask({ ...summary, body: "Shorter?" })).rejects.toThrow("offline");
-  expect(store.getReview("pr-1")?.summaryAsk).toBeNull();
-  harness.inspection.sdk.stub("threads.send", async () => ({ delivery: "sent" }));
+  await expect(ask({ ...summary, body: "And mention the test?" })).rejects.toThrow("offline");
+  expect(asked()).toEqual(earlier);
+  const row = makeQueueEntry({ id: "q1", threadId: "assistant" });
+  harness.inspection.sdk.stub("threads.send", async () => ({ ok: true, delivery: "queued", queuedMessage: row }));
   await ask({ ...summary, body: "Shorter?" });
-  expect(store.getReview("pr-1")?.summaryAsk).toMatchObject({ threadId: "assistant", ahead: 0 });
+  await harness.behavior.emitThreadEvent("message.cancelled", { entry: row });
+  expect(asked()).toBeNull();
+  harness.inspection.sdk.stub("threads.send", async () => ({ ok: true, delivery: "sent" }));
+  await ask({ ...summary, body: "Shorter?" });
   await harness.behavior.callRpc("dismissDiscussion", { targetKey: "pr-1", ...summary });
-  expect(store.getReview("pr-1")?.summaryAsk).toBeNull();
+  expect(asked()).toBeNull();
   await ask({ ...summary, body: "Shorter?" });
-  // The conversation was archived outside the plugin; the next message starts another.
+  const { reviewRevision } = await import("./review-revision");
+  await harness.behavior.callRpc("saveSummary", { targetKey: "pr-1", body: "My own, now.", revision: reviewRevision(store, "pr-1") });
+  expect(asked()).toBeNull();
+});
+
+test("an ask on the summary follows the conversation it starts when the old one was archived", async () => {
+  const { store, ask, tool, harness } = await host();
+  store.updateSummary("pr-1", { body: "Mine." });
   harness.inspection.sdk.stub("threads.get", async () => ({ archivedAt: 1, deletedAt: null, status: "idle" }));
-  await ask({ body: "Why?" });
-  expect(store.getReview("pr-1")?.summaryAsk).toBeNull();
+  harness.inspection.sdk.stub("threads.spawn", async () => ({ id: "fresh" }));
+  await ask({ file: "", line: 0, side: "RIGHT", body: "Shorter?" });
+  expect(store.getAssistantThread("pr-1")).toBe("fresh");
+  expect(store.getReview("pr-1")?.summaryAsk).toMatchObject({ threadId: "fresh", state: "running" });
+  expect((await harness.behavior.callAgentTool("set_review_summary", { body: "Short." }, { threadId: "fresh" }) as any).isError).toBeFalsy();
+  // The archived conversation's thread is no longer this review's assistant.
+  expect((await tool("set_review_summary", { body: "From the old thread." })).isError).toBe(true);
 });

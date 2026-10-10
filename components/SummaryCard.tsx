@@ -59,7 +59,7 @@ export function SummaryCard({ cardRef, draft, discussion, editable, busy, writin
           <span className="ml-auto flex">
             <Button variant="ghost" size="sm" aria-label="Ask agent about the review summary" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={blocked || !!composer} onClick={onAsk}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
             <Button variant="ghost" size="sm" aria-label="Edit review summary" className={action} disabled={blocked || !!composer || working} onClick={onEdit}>Edit</Button>
-            <Button variant="ghost" size="sm" aria-label="Remove review summary" className={cn(action, "hover:text-destructive-text")} disabled={busy} onClick={onRemove}>Remove</Button>
+            <Button variant="ghost" size="sm" aria-label="Remove review summary" className={cn(action, "hover:text-destructive-text")} disabled={busy || working} onClick={onRemove}>Remove</Button>
           </span>
         )}
       </div>
