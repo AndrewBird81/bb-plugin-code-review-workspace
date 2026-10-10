@@ -6,6 +6,9 @@ export { defaultPreferences, type AgentExecution, type ReviewPreferences } from 
 /** The automatic review's default before the review summary; saved settings that kept it read as the current default. */
 export const AUTOMATIC_REVIEW_BEFORE_SUMMARY = "Review this change adversarially. Look up related code or PRs when you need context.\nAdd each finding as an inline draft comment with add_draft_comment. Put general points in your reply.\nKeep every comment terse. Skip nitpicks.";
 
+/** The automatic review's default before it was precision-first; saved settings that kept it read as the current default. */
+export const AUTOMATIC_REVIEW_BEFORE_PRECISION = "Review this change adversarially. Look up related code or PRs when you need context.\nAdd each finding as an inline draft comment with add_draft_comment. Then write the review summary with set_review_summary: your overall assessment, what blocks merging, and the verdict you'd suggest. Don't repeat the line comments there.\nKeep every comment terse. Skip nitpicks.";
+
 /** The feedback check's default before it replied only on open threads; saved settings that kept it read as the current default. */
 export const VERIFICATION_PROMPT_BEFORE_OPEN_THREADS = "Check whether the author properly addressed each piece of my earlier feedback. Start with list_feedback and read_changes_since_review, and read files with read_file when you need context.\nRecord a verdict with one line of evidence for every item with assess_feedback.\nThen look for new problems the fix commits introduce, and add each as an inline draft comment.\nDraft a short reply for each of my threads with draft_thread_reply. Keep everything terse.";
 
@@ -42,7 +45,7 @@ export const preferencesSchema = z.object({
 export function readPreferences(saved: Partial<ReviewPreferences>): ReviewPreferences {
   // Assistant instructions saved before their cap are cut to fit it.
   const preferences = preferencesSchema.parse({ ...defaultPreferences, ...saved, assistantInstructions: (saved.assistantInstructions ?? "").slice(0, ASSISTANT_INSTRUCTIONS_LIMIT) });
-  if (preferences.automaticReview === AUTOMATIC_REVIEW_BEFORE_SUMMARY) preferences.automaticReview = defaultPreferences.automaticReview;
+  if (preferences.automaticReview === AUTOMATIC_REVIEW_BEFORE_SUMMARY || preferences.automaticReview === AUTOMATIC_REVIEW_BEFORE_PRECISION) preferences.automaticReview = defaultPreferences.automaticReview;
   if (preferences.verificationPrompt === VERIFICATION_PROMPT_BEFORE_OPEN_THREADS) preferences.verificationPrompt = defaultPreferences.verificationPrompt;
   return preferences;
 }

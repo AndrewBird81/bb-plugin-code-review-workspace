@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
-import { AUTOMATIC_REVIEW_BEFORE_SUMMARY, VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, defaultPreferences } from "./preferences";
+import { AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_SUMMARY, VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, defaultPreferences } from "./preferences";
 import { buildGenerationPrompt } from "./generate";
 import { generateGuide } from "./generate";
 import { startConversation } from "./agent";
@@ -140,4 +140,18 @@ test("a feedback check saved with the default that replied on every thread reads
   const custom = `${VERIFICATION_PROMPT_BEFORE_OPEN_THREADS}\nBe kind.`;
   store.savePreferences({ ...defaultPreferences, verificationPrompt: custom }, 1);
   expect(store.getPreferences().preferences.verificationPrompt).toBe(custom);
+});
+
+test("an automatic review saved with the default from before precision-first reviews reads as the current default; a custom one stays", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  // The default as Settings saved it before.
+  expect(AUTOMATIC_REVIEW_BEFORE_PRECISION).toBe("Review this change adversarially. Look up related code or PRs when you need context.\nAdd each finding as an inline draft comment with add_draft_comment. Then write the review summary with set_review_summary: your overall assessment, what blocks merging, and the verdict you'd suggest. Don't repeat the line comments there.\nKeep every comment terse. Skip nitpicks.");
+  store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_PRECISION }, 0);
+  expect(store.getPreferences().preferences.automaticReview).toBe(defaultPreferences.automaticReview);
+  expect(defaultPreferences.automaticReview).toMatch(/^Review this change for defects a careful senior engineer would block on or want fixed\. Precision over recall.*\n1\. Start with read_pr_context.*\n6\. Then set_review_summary.*otherwise COMMENT\.$/s);
+  const custom = `${AUTOMATIC_REVIEW_BEFORE_PRECISION} Focus on security.`;
+  store.savePreferences({ ...defaultPreferences, automaticReview: custom }, 1);
+  expect(store.getPreferences().preferences.automaticReview).toBe(custom);
 });
