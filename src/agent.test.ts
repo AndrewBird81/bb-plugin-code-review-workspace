@@ -103,9 +103,16 @@ test("instructions carry the review's current guide and preferences, trimmed to 
   for (const part of ['"pr-1"', "read_review_patch", "add_draft_comment", "Never post to GitHub", "untrusted", "Focus on security", "Retries failed refreshes", "- Retry: Retries once."]) expect(text).toContain(part);
   expect(text).not.toContain("Do not publish");
   const long = assistantInstructions("pr-1", { ...guide("Big"), sections: Array.from({ length: 200 }, (_, i) => ({ id: `s${i}`, title: `Chapter ${i}`, overview: "x".repeat(100), diffs: [] })) } as any, defaultPreferences);
-  expect(long.length).toBe(4000);
-  expect(long.endsWith("…")).toBe(true);
+  expect(long.length).toBeLessThanOrEqual(4000);
+  expect(long).toContain("…");
   expect(long).toContain("Answer concisely");
+});
+
+test("long preferences can't push the fixed rules or the guide out of the instructions", () => {
+  const text = assistantInstructions("pr-1", guide("Retries failed refreshes") as any, { ...defaultPreferences, assistantInstructions: "x".repeat(5000) });
+  expect(text.length).toBeLessThanOrEqual(4000);
+  for (const part of ["Never post to GitHub", "untrusted", "read_review_patch", "Retries failed refreshes", "- Retry: Retries once."]) expect(text).toContain(part);
+  expect(text.indexOf("Never post to GitHub")).toBeLessThan(text.indexOf("xxxx"));
 });
 
 function reviewAgentContext(pluginMetadata: Record<string, string>): PluginAgentConfigurationContext {

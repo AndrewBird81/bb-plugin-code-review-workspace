@@ -118,3 +118,13 @@ test("custom selections start from the personal project's remembered defaults", 
   harness.inspection.sdk.stub("projects.defaultExecutionOptions", async () => { throw new Error("Connection unavailable"); });
   expect(await harness.behavior.callRpc("getAgentDefaults", null)).toEqual({ defaults: null });
 });
+
+test("assistant instructions are capped at 2,000 characters; a longer saved text loads cut to fit", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  expect(() => store.savePreferences({ ...defaultPreferences, assistantInstructions: "x".repeat(2001) }, 0)).toThrow();
+  bb.storage.database().prepare(`INSERT INTO review_preferences (id,value,revision) VALUES (1,?,1)`)
+    .run(JSON.stringify({ ...defaultPreferences, assistantInstructions: "x".repeat(5000) }));
+  expect(store.getPreferences().preferences.assistantInstructions).toBe("x".repeat(2000));
+});

@@ -35,6 +35,9 @@ export interface ReviewPreferences {
   verificationPrompt: string;
 }
 
+/** Assistant instructions share bb's 4,096-character instructions with the fixed rules and the guide. */
+export const ASSISTANT_INSTRUCTIONS_LIMIT = 2000;
+
 export const defaultPreferences: ReviewPreferences = {
   guideDetail: "standard", guideInstructions: "", assistantInstructions: "",
   automaticReview: "Review this change adversarially. Look up related code or PRs when you need context.\nAdd each finding as an inline draft comment with add_draft_comment. Then write the review summary with set_review_summary: your overall assessment, what blocks merging, and the verdict you'd suggest. Don't repeat the line comments there.\nKeep every comment terse. Skip nitpicks.",

@@ -2,7 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Guide } from "./guide";
 import { sameLocation, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
-import { AUTOMATIC_REVIEW_BEFORE_SUMMARY, defaultPreferences, preferencesSchema, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
+import { defaultPreferences, preferencesSchema, readPreferences, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
 import type { AssessmentItem, AssessmentRun, ReplyDraft } from "../lib/feedback";
 import type { FeedbackThread } from "./github/types";
@@ -300,8 +300,7 @@ export function createStore(bb: BbPluginApi): Store {
   return {
     getPreferences() {
       const row = db.prepare(`SELECT value,revision FROM review_preferences WHERE id=1`).get() as { value: string; revision: number } | undefined;
-      const preferences = row ? preferencesSchema.parse({ ...defaultPreferences, ...JSON.parse(row.value) }) : { ...defaultPreferences };
-      if (preferences.automaticReview === AUTOMATIC_REVIEW_BEFORE_SUMMARY) preferences.automaticReview = defaultPreferences.automaticReview;
+      const preferences = row ? readPreferences(JSON.parse(row.value)) : { ...defaultPreferences };
       return { preferences, revision: row?.revision ?? 0 };
     },
     savePreferences(preferences, revision) {

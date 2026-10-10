@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import type { AgentExecution, ReviewPreferences } from "../lib/review-preferences";
+import { ASSISTANT_INSTRUCTIONS_LIMIT, defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
 export { defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
 
 /** The automatic review's default before the review summary; saved settings that kept it read as the current default. */
@@ -22,7 +22,7 @@ export const agentChoiceSchema = agentExecutionSchema.omit({ permissionMode: tru
 export const preferencesSchema = z.object({
   guideDetail: z.enum(["concise", "standard", "detailed"]),
   guideInstructions: z.string().max(12000),
-  assistantInstructions: z.string().max(12000),
+  assistantInstructions: z.string().max(ASSISTANT_INSTRUCTIONS_LIMIT),
   automaticReview: z.string().max(12000),
   diffLayout: z.enum(["split", "unified"]),
   guideAgent: agentExecutionSchema.nullable(),
@@ -34,6 +34,14 @@ export const preferencesSchema = z.object({
   autoStartRepos: z.array(z.string().trim().toLowerCase().regex(REPO_PATTERN, "Use owner/repo, owner/*, or *.")).max(50),
   verificationPrompt: z.string().max(12000),
 }).strict();
+
+/** Saved settings as they read now: missing fields take their defaults, and older defaults the current ones. */
+export function readPreferences(saved: Partial<ReviewPreferences>): ReviewPreferences {
+  // Assistant instructions saved before their cap are cut to fit it.
+  const preferences = preferencesSchema.parse({ ...defaultPreferences, ...saved, assistantInstructions: (saved.assistantInstructions ?? "").slice(0, ASSISTANT_INSTRUCTIONS_LIMIT) });
+  if (preferences.automaticReview === AUTOMATIC_REVIEW_BEFORE_SUMMARY) preferences.automaticReview = defaultPreferences.automaticReview;
+  return preferences;
+}
 
 export interface PreferencesRecord { preferences: ReviewPreferences; revision: number; }
 export interface ReviewerNotesRecord { body: string; revision: number; }
@@ -71,7 +79,7 @@ export function guidePreferencesPrompt(preferences: ReviewPreferences): string {
 }
 
 export function assistantPreferencesPrompt(preferences: ReviewPreferences): string {
-  return `Current reviewer preferences (replace any earlier preferences):\n${preferences.assistantInstructions.trim() || "Answer concisely, ground claims in the diff, and explain uncertainty. Keep draft comments terse and skip nitpicks."}\nNever post to GitHub, modify code, or include private reviewer notes. Put line feedback in the reviewer's draft with add_draft_comment; only the reviewer submits it.`;
+  return `Current reviewer preferences (replace any earlier preferences):\n${preferences.assistantInstructions.trim().slice(0, ASSISTANT_INSTRUCTIONS_LIMIT) || "Answer concisely, ground claims in the diff, and explain uncertainty. Keep draft comments terse and skip nitpicks."}`;
 }
 
 /** Whether a repository ("owner/repo") matches one of the auto-start patterns. */
