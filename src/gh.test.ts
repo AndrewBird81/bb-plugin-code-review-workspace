@@ -2,8 +2,12 @@ import { test, expect } from "vitest";
 import {
   ghPrViewArgs, ghPrDiffArgs, ghRepoViewArgs, ghSubmitReviewArgs, gitDiffArgs,
   ghPrChecksJsonArgs, ghPrHeadArgs, ghReviewThreadsArgs, ghReplyThreadArgs,
-  ghResolveThreadArgs, ghUnresolveThreadArgs, ghErrorMessage,
+  ghResolveThreadArgs, ghUnresolveThreadArgs, ghErrorMessage, runGit,
 } from "./gh";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { changedFiles } from "./patch";
 
 test("ghErrorMessage surfaces GitHub's message + field errors from a 422 body", () => {
   const stderr =
@@ -35,7 +39,7 @@ test("pr view requests the json fields we need, with optional -R", () => {
 });
 
 test("pr diff targets the number", () => {
-  expect(ghPrDiffArgs(12)).toEqual(["pr", "diff", "12"]);
+  expect(ghPrDiffArgs(12)).toEqual(["pr", "diff", "12", "--color", "never"]);
 });
 
 test("repo view returns nameWithOwner", () => {
@@ -49,8 +53,30 @@ test("submit review posts to the reviews endpoint reading json from stdin", () =
 });
 
 test("git diff builds a range", () => {
-  expect(gitDiffArgs("feature/x", "main")).toEqual(["diff", "--no-ext-diff", "--no-textconv", "main...feature/x", "--"]);
-  expect(gitDiffArgs("main...HEAD")).toEqual(["diff", "--no-ext-diff", "--no-textconv", "main...HEAD", "--"]);
+  const standard = ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "--no-relative"];
+  expect(gitDiffArgs("feature/x", "main")).toEqual([...standard, "main...feature/x", "--"]);
+  expect(gitDiffArgs("main...HEAD")).toEqual([...standard, "main...HEAD", "--"]);
+});
+
+test("a local diff keeps the standard format whatever the repo's git config says", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "gr-gitconfig-"));
+  try {
+    for (const args of [["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "t"]]) await runGit(args, { cwd });
+    await mkdir(join(cwd, "sub"));
+    await writeFile(join(cwd, "sub", "a.txt"), "one\n");
+    await runGit(["add", "."], { cwd });
+    await runGit(["commit", "-qm", "init"], { cwd });
+    await writeFile(join(cwd, "sub", "a.txt"), "two\n");
+    for (const [key, value] of [["diff.noprefix", "true"], ["diff.mnemonicPrefix", "true"], ["color.diff", "always"], ["color.ui", "always"], ["diff.relative", "true"]]) {
+      await runGit(["config", key, value], { cwd });
+    }
+    const out = await runGit(gitDiffArgs("HEAD"), { cwd: join(cwd, "sub") });
+    expect(out.code).toBe(0);
+    expect(changedFiles(out.stdout)).toEqual(["sub/a.txt"]);
+    expect(out.stdout).not.toContain("\x1b[");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
 
 test("pr checks json requests the fields we need, with optional -R", () => {

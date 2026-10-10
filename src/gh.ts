@@ -7,7 +7,8 @@ export function ghPrViewArgs(number: number, repo?: string): string[] {
   return repo ? [...a, "-R", repo] : a;
 }
 export function ghPrDiffArgs(number: number, repo?: string): string[] {
-  const a = ["pr", "diff", String(number)];
+  // Uncolored even when the server's environment forces color (CLICOLOR_FORCE, GH_FORCE_TTY).
+  const a = ["pr", "diff", String(number), "--color", "never"];
   return repo ? [...a, "-R", repo] : a;
 }
 export function ghRepoViewArgs(): string[] {
@@ -22,7 +23,8 @@ export function ghSubmitReviewArgs(repo: string, number: number): string[] {
 export function gitDiffArgs(gitRef: string, base?: string): string[] {
   if (!gitRef || gitRef.startsWith("-") || base?.startsWith("-")) throw new Error("Expected a git ref, not an option.");
   const range = gitRef.includes("..") ? gitRef : base ? `${base}...${gitRef}` : gitRef;
-  return ["diff", "--no-ext-diff", "--no-textconv", range, "--"];
+  // The standard format whatever the user's git config says (diff.noprefix, diff.mnemonicPrefix, color.diff, diff.relative).
+  return ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "--no-relative", range, "--"];
 }
 export function ghPrChecksJsonArgs(number: number, repo?: string): string[] {
   const a = ["pr", "checks", String(number), "--json", "name,state,bucket,link"];
