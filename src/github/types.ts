@@ -53,7 +53,7 @@ export interface PrFacts {
   requests: ReviewRequestEvent[];
   /** A request for the viewer, or a team the viewer is on, is pending now. */
   requestPending: { via: "user" | "team"; team?: string } | null;
-  /** The latest comment on the PR conversation, by someone else and not a bot, that mentions the viewer after the viewer last commented there. */
+  /** The latest comment or review on the PR, by someone else and not a bot, that mentions the viewer after the viewer last commented or reviewed there. */
   mention: { at: number; by: string } | null;
   /** Commit oids on the PR, oldest first (the last 100). */
   commits: string[];

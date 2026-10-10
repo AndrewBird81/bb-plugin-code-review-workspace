@@ -133,6 +133,17 @@ test("mention is the latest conversation comment by another person that mentions
   expect(answered.mention).toBeNull();
 });
 
+test("a mention in a review summary or inline comment counts, and your own review answers it", () => {
+  const reviewNode = (author: unknown, body: string, submittedAt: string, comments: string[] = []) =>
+    ({ __typename: "PullRequestReview", author, body, submittedAt, comments: { nodes: comments.map((c) => ({ body: c })) } });
+  expect(one(pr({ conversation: { nodes: [reviewNode(user("bob"), "Looks fine; @me should check the cache", "2026-10-02T00:00:00Z")] } })).mention)
+    .toEqual({ at: Date.parse("2026-10-02T00:00:00Z"), by: "bob" });
+  expect(one(pr({ conversation: { nodes: [reviewNode(user("carol"), "", "2026-10-03T00:00:00Z", ["nit", "@me is this right?"])] } })).mention)
+    .toEqual({ at: Date.parse("2026-10-03T00:00:00Z"), by: "carol" });
+  expect(one(pr({ conversation: { nodes: [reviewNode(user("carol"), "@me thoughts?", "2026-10-03T00:00:00Z"), reviewNode(user("me"), "", "2026-10-04T00:00:00Z", ["Replied"])] } })).mention).toBeNull();
+  expect(prFactsQuery([ref(1)]).query).toContain("PULL_REQUEST_REVIEW]");
+});
+
 test("mentions matches a whole handle only", () => {
   for (const body of ["@me", "hey @me.", "(@ME)", "@me, thoughts?", "line\n@me: see", "**@me**"]) expect(mentions(body, "me"), body).toBe(true);
   for (const body of ["me@me.com", "@meow", "@me-two", "@me_x", "email@me", "@@me", "@me/reviewers", "@org/me", "me"]) expect(mentions(body, "me"), body).toBe(false);
