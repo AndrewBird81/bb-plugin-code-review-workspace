@@ -44,6 +44,7 @@ async function renderWorkspace({ review = {}, rpc = {}, bundle = {} }: { review?
     getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
     getFileViews: vi.fn(() => ({ views: [] })),
     setFileViewed: vi.fn(() => ({ ok: true })),
+    setFilesViewed: vi.fn(() => ({ ok: true })),
     checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
     checkForUpdates: () => ({ hasNewCommits: false }),
     getDraft: vi.fn(() => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] } })),
@@ -107,7 +108,7 @@ test("Mark chapter viewed and continue marks the chapter's files and opens the n
   await slot.findByText("aa");
   fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Mark chapter viewed and continue" }));
   await slot.findByText("bb");
-  expect(rpc.setFileViewed).toHaveBeenCalledWith({ targetKey: "pr-42", file: "src/a.ts", viewed: true });
+  expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/a.ts"] });
   expect(currentChapter(slot)?.textContent).toContain("Caching");
   slot.lifecycle.unmount();
 });
@@ -320,7 +321,7 @@ test("the toolbar counts the chapter's viewed files as such, and marks the chapt
   const main = within(slot.getByRole("main"));
   await main.findByText("0/2 in this chapter");
   fireEvent.click(main.getByRole("button", { name: "Mark chapter viewed" }));
-  expect(rpc.setFileViewed).toHaveBeenCalledWith({ targetKey: "pr-42", file: "src/c.ts", viewed: true });
+  expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts", "src/c.ts"] });
   slot.lifecycle.unmount();
 }, 15_000);
 

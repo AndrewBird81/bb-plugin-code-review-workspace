@@ -50,6 +50,10 @@ function withOtherFiles(sections: any[], patch: string): any[] {
 }
 const OTHER_FILES = "other-files";
 
+function viewMap(views: { file: string; viewed: boolean; stale: boolean }[]): Map<string, FileViewFlags> {
+  return new Map(views.map((v) => [v.file, { viewed: v.viewed, stale: v.stale }]));
+}
+
 /** Hands the workspace the lines with draft comments or discussions, which the draft panel provides. */
 function DraftLines({ into }: { into: MutableRefObject<CommentLocation[]> }) {
   const draft = useContext(InlineDraftContext);
@@ -91,6 +95,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rebuilding, setRebuilding] = useState(false);
   const request = useRef(0);
+  const viewsRequest = useRef(0);
   // The guide as last shown; a reload with the same guide keeps its object, so the diff doesn't redraw.
   const shownGuide = useRef("");
   const resizeCleanup = useRef<(() => void) | null>(null);
@@ -147,10 +152,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const isPr = review?.kind === "pr";
   const view: View = chosenView && chosenView !== "diff" && review && !isPr ? "diff" : chosenView ?? defaultView ?? "diff";
 
+  // Only the latest refresh applies: marks made while an older one was out would come undone.
   const loadViews = useCallback(async () => {
+    const id = ++viewsRequest.current;
     try {
       const { views } = await rpc.call("getFileViews", { targetKey });
-      setViews(new Map(views.map((v: any) => [v.file, { viewed: v.viewed, stale: v.stale }])));
+      if (id === viewsRequest.current) setViews(viewMap(views));
     } catch {
       // Non-fatal — the diff just won't show viewed state.
     }
@@ -158,11 +165,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   const load = useCallback(async () => {
     const id = ++request.current;
+    const viewsId = ++viewsRequest.current;
     setLoadError(null);
     try {
-      const [{ review, guide, patch, revision }, checksRes] = await Promise.all([
+      // Views come with the diff, so viewed files are folded before it first draws.
+      const [{ review, guide, patch, revision }, checksRes, viewsRes] = await Promise.all([
         rpc.call("getReviewBundle", { targetKey }),
         rpc.call("getChecks", { targetKey }).catch(() => null),
+        rpc.call("getFileViews", { targetKey }).catch(() => null),
       ]);
       if (id !== request.current) return;
       // A deleted review shows "Review not found" rather than a pending regeneration.
@@ -183,6 +193,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         setGuide(guide);
       }
       setPatch(patch);
+      if (viewsRes && viewsId === viewsRequest.current) setViews(viewMap(viewsRes.views));
       setChecks(checksRes);
       const chapters = guide?.sections ? withOtherFiles(guide.sections, patch) : [];
       if (chapters.length) {
@@ -190,13 +201,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         setActiveId((prev) => chapters.some((section) => section.id === prev)
           ? prev : chapters.some((section) => section.id === saved) ? saved! : chapters[0].id);
       }
-      void loadViews();
     } catch (err) {
       if (id === request.current) setLoadError(err instanceof Error ? err.message : "Check the connection and try again.");
     } finally {
       if (id === request.current) setLoading(false);
     }
-  }, [rpc, targetKey, loadViews]);
+  }, [rpc, targetKey]);
 
   useEffect(() => {
     void load();
@@ -318,8 +328,17 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   const markAllViewed = useCallback(() => {
     const todo = activeFiles.filter((f) => !views.get(f)?.viewed);
-    for (const f of todo) toggleViewed(f, true);
-  }, [activeFiles, views, toggleViewed]);
+    if (!todo.length) return;
+    setViews((prev) => {
+      const next = new Map(prev);
+      for (const f of todo) next.set(f, { viewed: true, stale: false });
+      return next;
+    });
+    rpc
+      .call("setFilesViewed", { targetKey, files: todo })
+      .then(() => loadViews())
+      .catch(() => loadViews());
+  }, [activeFiles, views, rpc, targetKey, loadViews]);
 
   // A new chapter opens at its top, unless you're jumping to a place in it.
   const jumping = useRef(false);
