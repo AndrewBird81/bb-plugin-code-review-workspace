@@ -1,7 +1,14 @@
 // Who the gh account is and which teams it's on, cached.
+import { createHash } from "node:crypto";
 import type { RunGh } from "./types";
 
-export interface Viewer { login(): Promise<string | null>; teams(): Promise<ReadonlySet<string>>;  reset(): void }
+export interface Viewer {
+  login(): Promise<string | null>;
+  teams(): Promise<ReadonlySet<string>>;
+  reset(): void;
+  /** Whether gh's active account changed since the last call, as `gh auth switch` outside the plugin does. Local; no API call. */
+  changed?(): Promise<boolean>;
+}
 
 /** Caches each read for ttlMs; after a failure returns null / an empty set until retryMs passes. */
 export function createViewer(run: RunGh, options: { ttlMs?: number; retryMs?: number; now?: () => number } = {}): Viewer {
@@ -41,5 +48,17 @@ export function createViewer(run: RunGh, options: { ttlMs?: number; retryMs?: nu
     return new Set(out.stdout.split("\n").map((line) => line.trim().toLowerCase()).filter(Boolean)) as ReadonlySet<string>;
   }, new Set<string>() as ReadonlySet<string>);
 
-  return { login, teams, reset: () => { generation++; } };
+  // A hash of the active token, so the token itself isn't kept.
+  let token: string | null = null;
+  async function changed(): Promise<boolean> {
+    const out = await run(["auth", "token", "--hostname", "github.com"]).catch(() => null);
+    const value = out?.code === 0 ? out.stdout.trim() : "";
+    if (!value) return false;
+    const hash = createHash("sha256").update(value).digest("hex");
+    const switched = token !== null && token !== hash;
+    token = hash;
+    return switched;
+  }
+
+  return { login, teams, reset: () => { generation++; }, changed };
 }

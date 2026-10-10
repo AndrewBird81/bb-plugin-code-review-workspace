@@ -332,6 +332,11 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
 
   async function all(force = false): Promise<void> {
     if (disposed) return;
+    // `gh auth switch` outside the plugin: read as the new account, and let the panel know.
+    if (await github.viewer.changed?.().catch(() => false)) {
+      resetViewer();
+      bb.realtime.publish("gh-account", { active: null });
+    }
     // A failed check of notifications is no reason to read everything more often.
     const gate = await github.gate.poll().catch(() => ({ kind: "unchanged" as const }));
     const changed = new Set(gate.kind === "changed" ? gate.prs.map((pr) => `${pr.repo}#${pr.number}`) : []);

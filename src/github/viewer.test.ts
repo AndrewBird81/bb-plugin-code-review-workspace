@@ -67,3 +67,18 @@ test("reset forgets the account, including a read still in flight", async () => 
   expect(await viewer.login()).toBe("new");
   expect(run).toHaveBeenCalledTimes(2);
 });
+
+test("changed notices the active gh account switching, from its token, without calling GitHub", async () => {
+  let token = "gho_one";
+  const run = vi.fn(async (args: string[]) => (args[0] === "auth" ? (token ? ok(`${token}\n`) : fail) : ok("me")));
+  const viewer = createViewer(run);
+  expect(await viewer.changed()).toBe(false);
+  expect(await viewer.changed()).toBe(false);
+  token = "gho_two";
+  expect(await viewer.changed()).toBe(true);
+  expect(await viewer.changed()).toBe(false);
+  // A failed read isn't a switch.
+  token = "";
+  expect(await viewer.changed()).toBe(false);
+  expect(run.mock.calls.every(([args]) => args.join(" ") === "auth token --hostname github.com")).toBe(true);
+});

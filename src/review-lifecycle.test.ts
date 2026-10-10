@@ -532,3 +532,17 @@ test("a PR GitHub can't read is recorded, cleared when it can again, and archive
   await s.sync.all(true);
   expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "archive", reason: "unreachable" });
 });
+
+test("a gh account switched outside the plugin is noticed on the next pass", async () => {
+  const s = setup({ reviewed: true, threads: [thread("t1", "open")] });
+  const reset = vi.fn();
+  (s.github.gate as any).reset = reset;
+  let switched = false;
+  s.github.viewer.changed = async () => switched;
+  await s.sync.all();
+  expect(reset).not.toHaveBeenCalled();
+  switched = true;
+  await s.sync.all();
+  expect(reset).toHaveBeenCalled();
+  expect(s.harness.inspection.realtimeSignals.some((signal) => signal.channel === "gh-account")).toBe(true);
+});
