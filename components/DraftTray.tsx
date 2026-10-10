@@ -90,11 +90,13 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     const saved = getReviewState(targetKey).activeTool;
     return saved === "notes" || saved === "agent" && agent ? saved : "draft";
   });
-  const [toolsOpen, setToolsOpen] = useState(() => getReviewState(targetKey).toolsOpen !== false);
+  // On a narrow screen the open panel crowds out the diff, so it starts collapsed there, and that isn't saved.
+  const [narrow] = useState(() => window.matchMedia?.("(max-width: 767px)").matches ?? false);
+  const [toolsOpen, setToolsOpen] = useState(() => !narrow && getReviewState(targetKey).toolsOpen !== false);
   const panelId = useId();
   const railRef = useRef<HTMLDivElement>(null);
   const scopeProps = usePortalScopeProps();
-  useEffect(() => { patchReviewState(targetKey, { activeTool: tab, toolsOpen }); }, [targetKey, tab, toolsOpen]);
+  useEffect(() => { patchReviewState(targetKey, { activeTool: tab, ...(narrow ? {} : { toolsOpen }) }); }, [targetKey, tab, toolsOpen, narrow]);
   useEffect(() => { if (agent?.injection) { setTab("agent"); setToolsOpen(true); } }, [agent?.injection]);
   function collapse() {
     setToolsOpen(false);

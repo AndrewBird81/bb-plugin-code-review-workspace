@@ -260,3 +260,19 @@ test("an out-of-date summary asks once more; a verdict matching the suggestion a
   await waitFor(() => expect(submitReview).toHaveBeenCalledTimes(1));
   slot.lifecycle.unmount();
 });
+
+test("below 768px wide the review panel starts collapsed, and doesn't forget it was open on a wider screen", async () => {
+  localStorage.setItem("gr:panelstate", JSON.stringify({ perReview: { narrow: { activeTool: "draft", toolsOpen: true } } }));
+  const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(max-width: 767px)", media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }) as MediaQueryList);
+  try {
+    await loadPluginApp(() => import("../app"));
+    const { DraftTray } = await import("./DraftTray");
+    const slot = renderSlot({ component: () => <DraftTray targetKey="narrow" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" /> }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }) } as any });
+    const tool = await slot.findByRole("button", { name: "Draft review" });
+    expect(tool.getAttribute("aria-expanded")).toBe("false");
+    expect(JSON.parse(localStorage.getItem("gr:panelstate")!).perReview.narrow.toolsOpen).toBe(true);
+    fireEvent.click(tool);
+    expect(tool.getAttribute("aria-expanded")).toBe("true");
+    slot.lifecycle.unmount();
+  } finally { matchMedia.mockRestore(); }
+});
