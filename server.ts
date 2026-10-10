@@ -13,7 +13,7 @@ import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
 import { listMachines } from "./src/machines";
-import { addComment, assistantReview, canUndo, deleteComment, editComment, replyInDiscussion, undoChange, type DraftResult } from "./src/draft-comments";
+import { addComment, assistantReview, canUndo, deleteComment, editComment, replyInDiscussion, unchangeable, undoChange, type DraftResult } from "./src/draft-comments";
 import { commentsKey, SUMMARY_AT } from "./src/draft";
 import { describeDraft, writeSummary } from "./src/draft-summary";
 import { runSummaryCommand } from "./src/summary-command";
@@ -687,7 +687,8 @@ export default async function plugin(bb: BbPluginApi) {
       let note = "";
       if (input.suggestedBody?.trim()) {
         const written = writeSummary(store, review.targetKey, { body: input.suggestedBody, verdict: input.suggestedVerdict });
-        note = written.ok ? " Your suggested summary is in the reviewer's draft." : " The reviewer wrote the draft's summary, so yours waits in the Feedback view.";
+        note = written.ok ? " Your suggested summary is in the reviewer's draft."
+          : unchangeable(store.getReview(review.targetKey)) ? "" : " The reviewer wrote the draft's summary, so yours waits in the Feedback view.";
         if (written.ok) bb.realtime.publish(`draft:${review.targetKey}`, {});
       } else if (input.suggestedVerdict) {
         store.updateSummary(review.targetKey, { suggestedVerdict: input.suggestedVerdict });
