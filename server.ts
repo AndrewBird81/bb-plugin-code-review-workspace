@@ -38,7 +38,7 @@ import { createReviewSync } from "./src/review-lifecycle";
 import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { createReviewSubmitter } from "./src/submit-review";
-import { stopGuideGenerations, hasGuideGenerations } from "./src/generate";
+import { stopGuideGenerations, hasGuideGenerations, guideWorkerFailed } from "./src/generate";
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { rerunReview } from "./src/rereview";
 import { getGhAccounts, switchGhAccount, checkRepoAccess } from "./src/gh-accounts";
@@ -779,6 +779,7 @@ export default async function plugin(bb: BbPluginApi) {
   };
   bb.events.on("thread.idle", settle);
   bb.events.on("thread.failed", settle);
+  bb.events.on("thread.failed", ({ thread }) => guideWorkerFailed(bb, thread.id));
   // A queued ask on the summary: its turn comes when its message dispatches, and never if it's deleted from the queue.
   const queuedAsk = (entry: { id: string; threadId: string }) => {
     const reviewKey = assistantReview(store, entry.threadId);

@@ -13,6 +13,14 @@ const preparedListeners = new WeakMap<BbPluginApi, (targetKey: string) => void>(
 export function onPrepared(bb: BbPluginApi, listener: (targetKey: string) => void) { preparedListeners.set(bb, listener); }
 
 const active = new WeakMap<BbPluginApi, Set<AbortController>>();
+const failures = new WeakMap<BbPluginApi, Map<string, AbortController>>();
+/** thread.failed: a guide worker that failed ends its generation now, instead of at the wait's timeout. */
+export function guideWorkerFailed(bb: BbPluginApi, threadId: string) { failures.get(bb)?.get(threadId)?.abort(); }
+
+// Each wait lasts up to WAIT_STEP; a worker still working is waited for again, up to a cap that grows with the diff.
+const WAIT_STEP = 600_000;
+const workerActive = (status: string) => status === "starting" || status === "active" || status === "pending";
+const waitCap = (patchBytes: number) => Math.min(60 * 60_000, WAIT_STEP + Math.ceil(patchBytes / 10_000) * 60_000);
 export function hasGuideGenerations(bb: BbPluginApi) { return (active.get(bb)?.size ?? 0) > 0; }
 export function stopGuideGenerations(bb: BbPluginApi) {
   for (const controller of active.get(bb) ?? []) controller.abort();
@@ -67,7 +75,27 @@ export async function generateGuide(
     });
     workerId = worker.id;
     store.setGenerationWorker(targetKey, generationId, worker.id);
-    await threads.wait({ threadId: worker.id, status: "idle", timeoutMs: 600_000, signal: controller.signal });
+    const failed = new AbortController();
+    const watched = failures.get(bb) ?? new Map<string, AbortController>();
+    failures.set(bb, watched);
+    watched.set(worker.id, failed);
+    try {
+      const deadline = Date.now() + waitCap(store.readPatch(targetKey, 0, 0).total);
+      const signal = AbortSignal.any([controller.signal, failed.signal]);
+      for (;;) {
+        try {
+          await threads.wait({ threadId: worker.id, status: "idle", timeoutMs: Math.min(WAIT_STEP, deadline - Date.now()), signal });
+          break;
+        } catch (error) {
+          if (signal.aborted || Date.now() >= deadline) throw error;
+          const thread = await threads.get({ threadId: worker.id }).catch(() => null);
+          if (!thread || !workerActive(thread.status)) throw error;
+        }
+      }
+      if (failed.signal.aborted) throw new Error("the worker failed");
+    } finally {
+      watched.delete(worker.id);
+    }
   } catch (error) {
     // spawn/wait failed — fall through and finalize as error below. The log
     // carries the reason, such as a custom agent bb can no longer start.
