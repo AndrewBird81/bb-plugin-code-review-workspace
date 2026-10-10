@@ -400,8 +400,9 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
           <p className="flex items-center gap-2 text-sm font-medium text-diff-added"><Icon name="BadgeCheck" className="size-5" aria-hidden />{RECEIPT_LABEL[submittedVerdict]}</p>
           <p className="text-xs text-muted-foreground">Review submitted to GitHub</p>
           <Button variant="outline" size="sm" onClick={() => setWriteAnother(true)}>Add another review</Button>
-        </section> : <section aria-label="Review draft" className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+        </section> : <section aria-label="Review draft" className="flex min-h-0 flex-1 flex-col [@media(max-height:560px)]:overflow-y-auto">
+          {/* On short screens the draft and its foot scroll together, so the foot doesn't crowd out the draft. */}
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 [@media(max-height:560px)]:flex-none [@media(max-height:560px)]:overflow-visible">
             <span role="status" className={cn("flex items-center gap-1.5 text-xs", savedTone === "error" ? "text-destructive-text" : "text-muted-foreground")}>{savedTone === "error" ? <Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden /> : <Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />}{saved}</span>
             <SummaryCard cardRef={summaryRef} draft={draft} discussion={summaryDiscussion} editable={editable} busy={busy} writing={writing && !onSummary} composer={summaryComposer} isLocal={isLocal} chat={chat}
               changedWhileEditing={onSummary && !asking && summaryBase.current !== null && summaryBase.current !== draft.body}
