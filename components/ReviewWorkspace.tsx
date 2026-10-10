@@ -28,6 +28,7 @@ import { IconTile } from "./ui/icon-tile";
 import { InlineCode } from "./ui/inline-code";
 import { Hint } from "./ui/hint";
 import { ReviewActions } from "./ReviewActions";
+import { AccountBar } from "./AccountBar";
 import { defaultPreferences } from "../lib/review-preferences";
 import { useDraftStatus } from "../lib/draft-status";
 import { inDiffOrder, shortcutKey } from "../lib/review-shortcuts";
@@ -144,7 +145,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useRealtime("preferences", loadPreferences);
   useEffect(() => patchReviewState(targetKey, { activeId, view: chosenView ?? undefined, sidebarWidth, focus }), [targetKey, activeId, chosenView, sidebarWidth, focus]);
   const isPr = review?.kind === "pr";
-  const view: View = chosenView === "feedback" && review && !isPr ? "diff" : chosenView ?? defaultView ?? "diff";
+  const view: View = chosenView && chosenView !== "diff" && review && !isPr ? "diff" : chosenView ?? defaultView ?? "diff";
 
   const loadViews = useCallback(async () => {
     try {
@@ -632,7 +633,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
       {loadError && <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden /><span className="min-w-0 flex-1">{loadError}</span><Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button></div>}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} /><Button variant="ghost" size="sm" aria-label="Ask the review agent" className="text-muted-foreground" onClick={askAgent}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask assistant</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={async () => { if (document.fullscreenElement) await document.exitFullscreen(); navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` }); }}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button><ReviewActions review={review} className="size-8" onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} /><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={askAgent}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask agent</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={async () => { if (document.fullscreenElement) await document.exitFullscreen(); navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` }); }}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button><ReviewActions review={review} className="size-8" onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
       {/* Header — full when reviewing normally, slim in focus mode. */}
       {focus ? (
         <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-3 py-2">
@@ -654,14 +655,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       {repoAccess && !repoAccess.accessible && (
         <p className="flex items-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-1.5 text-xs text-destructive-text">
           <Icon name="Lock" className="size-3.5 shrink-0" aria-hidden />
-          <span>Active GitHub account {repoAccess.account ? `@${repoAccess.account}` : ""} can't access{" "}
-          {repoAccess.repo ?? "this repo"} — switch account in the review list.</span>
+          <span>Active GitHub account {repoAccess.account ? `@${repoAccess.account}` : ""} can’t access{" "}
+          {repoAccess.repo ?? "this repo"}. Switch account:</span>
+          <AccountBar />
         </p>
       )}
       {review?.status === "error" && (
         <p className="flex items-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-1.5 text-xs text-destructive-text">
           <Icon name="AlertTriangle" className="size-3.5 shrink-0" aria-hidden />
-          Re-review failed — showing the previous guide. Try again.
+          <span className="min-w-0 flex-1">Re-review failed — showing the previous guide.</span>
+          <Button variant="outline" size="sm" className="h-7" disabled={rebuilding} onClick={() => void rebuild()}>Retry</Button>
         </p>
       )}
       <div className="flex min-h-0 flex-1 flex-col @min-[1024px]/review:flex-row">
@@ -716,7 +719,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               {compact && "Chapters"}
             </Button>
             <div className="inline-flex items-center gap-0.5 rounded-lg bg-muted/40 p-0.5 ring-1 ring-inset ring-border">
-              {(isPr ? (["diff", "feedback", "threads"] as const) : (["diff", "threads"] as const)).map((value) => (
+              {/* A local review has nothing on GitHub, so only its diff. */}
+              {(isPr ? (["diff", "feedback", "threads"] as const) : (["diff"] as const)).map((value) => (
                 <Button
                   key={value}
                   variant="ghost"
@@ -751,7 +755,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground md:ml-auto">
               {view === "diff" && activeFiles.length > 0 && (
                 <>
-                  <span className={cn("tabular-nums", viewedCount === activeFiles.length && "text-diff-added")}>{viewedCount} / {activeFiles.length} viewed</span>
+                  <span className={cn("tabular-nums", viewedCount === activeFiles.length && "text-diff-added")}>{viewedCount}/{activeFiles.length} in this chapter</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -760,7 +764,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                     onClick={markAllViewed}
                   >
                     <Icon name="CircleCheck" className="size-3.5" aria-hidden />
-                    Mark all
+                    Mark chapter viewed
                   </Button>
                   <span className="h-4 w-px bg-border" />
                 </>

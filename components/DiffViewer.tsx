@@ -358,7 +358,7 @@ export const DiffViewer = memo(function DiffViewer({
             <div className={cn("sticky top-0 z-10 flex min-h-10 items-center gap-2 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] px-2 py-1.5", !folded && "border-b border-border")}>
               <button
                 type="button"
-                aria-label={folded ? "Expand file" : "Collapse file"}
+                aria-label={`${folded ? "Expand" : "Collapse"} ${path}`}
                 className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-state-hover hover:text-foreground"
                 onClick={() => toggleCollapsed(path)}
               >
@@ -391,6 +391,7 @@ export const DiffViewer = memo(function DiffViewer({
                   type="checkbox"
                   className="size-3.5 accent-(--success)"
                   checked={viewed}
+                  aria-label={`Viewed ${path}`}
                   onChange={(e) => handleToggleViewed(path, e.target.checked)}
                 />
                 Viewed

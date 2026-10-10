@@ -55,3 +55,11 @@ test("a viewed file is struck through in the sidebar list", () => {
   render(<ChapterNav sections={sections} activeId="c1" onSelect={() => {}} views={views} onSelectFile={() => {}} />);
   expect(screen.getByText("auth.ts").className).toContain("line-through");
 });
+
+test("the current file is marked for screen readers, and viewed files say so", () => {
+  const views = new Map<string, FileViewFlags>([["src/auth.test.ts", { viewed: true, stale: false }]]);
+  render(<ChapterNav sections={sections} activeId="c1" onSelect={() => {}} views={views} onSelectFile={() => {}} currentFile="src/auth.ts" />);
+  expect(screen.getByRole("button", { name: /^auth\.ts/ }).getAttribute("aria-current")).toBe("true");
+  expect(screen.getByRole("button", { name: /^auth\.test\.ts/ }).getAttribute("aria-current")).toBeNull();
+  expect(screen.getByRole("button", { name: /^auth\.test\.ts/ }).textContent).toContain("viewed");
+});

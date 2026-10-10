@@ -50,3 +50,10 @@ test("pierre paints the lines being dragged over, then only the selection the wo
   expect(screen.getByTestId("filediff").dataset.selected).toBe("");
   expect(onLineSelected).toHaveBeenCalledTimes(1);
 });
+
+test("each file's Viewed and collapse controls name the file", () => {
+  render(<DiffViewer patch={patch} files={["src/handler.ts", "README.md"]} views={new Map()} onToggleViewed={() => {}} />);
+  expect(screen.getByRole("checkbox", { name: "Viewed src/handler.ts" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Collapse README.md" }));
+  expect(screen.getByRole("button", { name: "Expand README.md" })).toBeTruthy();
+});

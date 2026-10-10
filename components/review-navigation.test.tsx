@@ -302,7 +302,7 @@ test("a asks the agent, s opens the draft to submit, and ? lists the shortcuts u
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
   press("a");
-  await waitFor(() => expect(slot.getByRole("button", { name: "Ask agent" }).getAttribute("aria-pressed")).toBe("true"));
+  await waitFor(() => expect(slot.container.querySelector("[data-tool=\"agent\"]")!.getAttribute("aria-pressed")).toBe("true"));
   press("s");
   await waitFor(() => expect(slot.getByRole("button", { name: "Draft review" }).getAttribute("aria-pressed")).toBe("true"));
   press("?");
@@ -310,5 +310,40 @@ test("a asks the agent, s opens the draft to submit, and ? lists the shortcuts u
   expect(within(help).getByText("Next unviewed file, in any chapter")).toBeTruthy();
   fireEvent.keyDown(help, { key: "Escape" });
   await waitFor(() => expect(slot.queryByRole("dialog", { name: "Keyboard shortcuts" })).toBeNull());
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("the toolbar counts the chapter's viewed files as such, and marks the chapter viewed", async () => {
+  const { slot, rpc } = await renderWorkspace();
+  await slot.findByText("aa");
+  fireEvent.click(chapters(slot).getByText("Caching"));
+  const main = within(slot.getByRole("main"));
+  await main.findByText("0/2 in this chapter");
+  fireEvent.click(main.getByRole("button", { name: "Mark chapter viewed" }));
+  expect(rpc.setFileViewed).toHaveBeenCalledWith({ targetKey: "pr-42", file: "src/c.ts", viewed: true });
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a failed re-review offers Retry, and an account without access offers the account switcher", async () => {
+  const rereview = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ review: { status: "error" }, rpc: {
+    rereview,
+    checkRepoAccess: () => ({ accessible: false, repo: "acme/web", account: "me" }),
+    getGhAccounts: () => ({ active: "me", accounts: [{ login: "me", active: true }, { login: "work", active: false }] }),
+  } });
+  await slot.findByText(/Re-review failed/);
+  fireEvent.click(slot.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  await slot.findByText(/can’t access acme\/web/);
+  expect(slot.getByRole("button", { name: "GitHub account: @me" })).toBeTruthy();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a local review has no Threads view, and the agent goes by one name", async () => {
+  const { slot } = await renderWorkspace({ review: { kind: "ref", targetKey: "pr-42" } });
+  await slot.findByText("aa");
+  expect(within(slot.getByRole("main")).queryByRole("button", { name: "Threads" })).toBeNull();
+  expect(slot.queryByRole("button", { name: /assistant/i })).toBeNull();
+  expect(slot.getAllByRole("button", { name: "Ask agent" }).length).toBeGreaterThan(0);
   slot.lifecycle.unmount();
 }, 15_000);

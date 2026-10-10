@@ -142,6 +142,7 @@ export const ChapterNav = memo(function ChapterNav({
                           <button
                             type="button"
                             onClick={() => onSelectFile(s.id, d.file)}
+                            aria-current={current ? "true" : undefined}
                             className={cn("flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left hover:bg-state-hover", current && "bg-state-hover")}
                             title={d.summary ? `${d.file} — ${d.summary}` : d.file}
                           >
@@ -158,6 +159,7 @@ export const ChapterNav = memo(function ChapterNav({
                             >
                               {d.file.split("/").pop()}
                             </span>
+                            {viewed && <span className="sr-only">viewed</span>}
                             <FileTag file={d.file} />
                           </button>
                         </li>
