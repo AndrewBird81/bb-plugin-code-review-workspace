@@ -8,7 +8,7 @@ import { invalidComments } from "./review-positions";
 export function createReviewSubmitter(store: Store, run: typeof runGh) {
   const inFlight = new Set<string>();
   /** `shown` is the list of comments the reviewer's page displays, and `summary` its summary and verdict; the draft must still match them. */
-  return async (targetKey: string, revision?: string, account?: string, shown?: Pick<DraftComment, "file" | "line" | "side" | "body">[], summary?: { body: string; verdict: Verdict }): Promise<{ ok: boolean; error?: string }> => {
+  return async (targetKey: string, revision?: string, account?: string, shown?: Pick<DraftComment, "file" | "line" | "side" | "body">[], summary?: { body: string; verdict: Verdict }): Promise<{ ok: boolean; error?: string; url?: string }> => {
     if (inFlight.has(targetKey)) return { ok: false, error: "This review is already being submitted." };
     inFlight.add(targetKey);
     try {
@@ -52,15 +52,17 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       if (result.code !== 0) return { ok: false, error: ghErrorMessage(result) };
       let reviewer: string | undefined;
       let reviewId: string | null = null;
+      let url: string | undefined;
       try {
         const receipt = JSON.parse(result.stdout);
         if (typeof receipt?.user?.login === "string") reviewer = receipt.user.login;
         // The review's GraphQL id, to recognize it when the sync reads it back.
         if (typeof receipt?.node_id === "string") reviewId = receipt.node_id;
+        if (typeof receipt?.html_url === "string") url = receipt.html_url;
       } catch { /* A successful response still records the submitted verdict. */ }
       store.setLifecycle(targetKey, { submittedVerdict: draft.verdict, submittedAt: Date.now(), submittedHeadSha: m.headSha, submittedReviewId: reviewId, ...(reviewer ? { reviewer } : {}) });
       store.clearSubmittedDraft(draft);
-      return { ok: true };
+      return { ok: true, ...(url ? { url } : {}) };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Could not submit the review. Your draft has been kept." };
     } finally {

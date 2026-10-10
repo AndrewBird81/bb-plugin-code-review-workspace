@@ -198,3 +198,13 @@ test("removing a comment offers Undo, which puts it back", async () => {
   await slot.findByRole("button", { name: "src/a.ts:2" });
   slot.lifecycle.unmount();
 });
+
+test("the receipt after submitting links to the review on GitHub", async () => {
+  let draft = draftOf({ body: "Looks good." });
+  const submitReview = vi.fn(async () => { draft = draftOf(); return { ok: true, url: "https://github.com/acme/web/pull/7#pullrequestreview-12" }; });
+  const slot = await renderTray("receipt", { getDraft: () => ({ draft, stale: [], discussions: [] }), submitReview });
+  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  const receipt = await slot.findByRole("region", { name: "Submitted review" });
+  expect(within(receipt).getByRole("link", { name: "View on GitHub" }).getAttribute("href")).toBe("https://github.com/acme/web/pull/7#pullrequestreview-12");
+  slot.lifecycle.unmount();
+});

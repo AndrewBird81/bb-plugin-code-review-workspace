@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
 import { isSummary, sameLocation, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type CommentLocation, type Discussion, type Draft, type DraftComment, type Verdict } from "../src/draft";
-import { Button } from "./ui/button";
+import { Button, buttonVariants } from "./ui/button";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { Icon } from "./ui/icon";
@@ -18,7 +18,7 @@ import { setDraftStatus } from "../lib/draft-status";
 import { usePortalScopeProps } from "../lib/portal-scope";
 import { ComposerNotes, composerKeys, InlineComposerContext, InlineDraftContext, type InlineComposer, type InlineDraft } from "./InlineDraft";
 import { SummaryCard } from "./SummaryCard";
-import { Markdown } from "@get-bb/plugin-sdk/app";
+import { Markdown, UrlLink } from "@get-bb/plugin-sdk/app";
 import { Badge } from "./ui/badge";
 import { FilePath } from "./ui/file-path";
 import { withLineBreaks } from "../src/line-breaks";
@@ -78,6 +78,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
   const [writeAnother, setWriteAnother] = useState(false);
   const [receipt, setReceipt] = useState<Verdict | null>(null);
+  // The review this panel posted, on GitHub.
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [tab, setTab] = useState<"draft" | "notes" | "agent">(() => {
     const saved = getReviewState(targetKey).activeTool;
     return saved === "notes" || saved === "agent" && agent ? saved : "draft";
@@ -341,7 +343,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
       const { verdict, body: summary } = draft;
       const result = await enqueue(() => rpc.call("submitReview", { targetKey, ...(reviewRevision ? { revision: reviewRevision } : {}), ...(account ? { account } : {}), comments: shownComments.current, body: summary, verdict }));
       if (!result.ok) { refresh(); throw new Error(result.error ?? "Submit failed. Your draft is still here."); }
-      setReceipt(verdict);
+      setReceipt(verdict); setReceiptUrl(result.url ?? null);
       setWriteAnother(false);
       onSubmitted?.();
       toast.success("Review submitted to GitHub");
@@ -445,7 +447,10 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
         <section aria-label="Submitted review" className="m-3 space-y-3 rounded-lg border border-success/25 bg-success/10 p-3">
           <p className="flex items-center gap-2 text-sm font-medium text-diff-added"><Icon name="BadgeCheck" className="size-5" aria-hidden />{RECEIPT_LABEL[submittedVerdict]}</p>
           <p className="text-xs text-muted-foreground">Review submitted to GitHub</p>
-          <Button variant="outline" size="sm" onClick={() => setWriteAnother(true)}>Add another review</Button>
+          <div className="flex flex-wrap gap-2">
+            {(receiptUrl ?? review?.url) && <UrlLink href={(receiptUrl ?? review?.url)!} className={buttonVariants({ variant: "outline", size: "sm" })}><Icon name="Github" className="size-4" aria-hidden />View on GitHub</UrlLink>}
+            <Button variant="outline" size="sm" onClick={() => setWriteAnother(true)}>Add another review</Button>
+          </div>
         </section> : <section aria-label="Review draft" className="flex min-h-0 flex-1 flex-col [@media(max-height:560px)]:overflow-y-auto">
           {/* On short screens the draft and its foot scroll together, so the foot doesn't crowd out the draft. */}
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 [@media(max-height:560px)]:flex-none [@media(max-height:560px)]:overflow-visible">

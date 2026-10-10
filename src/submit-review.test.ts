@@ -129,3 +129,10 @@ test("submission refuses a summary or verdict the page didn't show", async () =>
   expect(run).not.toHaveBeenCalled();
   expect(await submit("pr-test", undefined, undefined, comments, { body: "The assistant's newer summary", verdict: "COMMENT" })).toEqual({ ok: true });
 });
+
+test("a submitted review returns its link on GitHub", async () => {
+  const { run, submit } = setup();
+  run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha1"}' })
+    .mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"id":12,"html_url":"https://github.com/acme/web/pull/7#pullrequestreview-12"}' });
+  expect(await submit("pr-test")).toEqual({ ok: true, url: "https://github.com/acme/web/pull/7#pullrequestreview-12" });
+});

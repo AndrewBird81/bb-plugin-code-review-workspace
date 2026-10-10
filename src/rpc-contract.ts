@@ -145,7 +145,8 @@ export const rpcContract = defineRpcContract({
       body: z.string().optional(),
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional(),
     }).strict(),
-    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+    // url: the posted review on GitHub.
+    output: z.object({ ok: z.boolean(), error: z.string().optional(), url: z.string().optional() }),
   },
 
   // Feature 1: per-file "Viewed" state
