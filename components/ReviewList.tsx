@@ -43,25 +43,36 @@ const CI_LOOK = {
   expected: { label: "Checks expected", tone: "warning", icon: "CircleDashed" },
 } as const;
 
-/** The row's second line: why, progress on your feedback, new commits, CI, and how long it's been your turn. */
+/** How long the author has gone without pushing or replying to you since your review, when it's a day or more. */
+function authorQuiet(review: ReviewItem): string | null {
+  const s = review.signals ?? {};
+  const last = Math.max(s.lastReviewAt ?? 0, s.headSeenAt ?? 0, s.replyAt ?? 0);
+  return last && Date.now() - last >= 86_400_000 ? age(last) : null;
+}
+
+/** The row's second line: why, progress on your feedback, new commits, CI, and how long it's been your turn or the author's. */
 function TurnMeta({ review, turn }: { review: ReviewItem; turn: Turn }) {
   const why = turnWhy(review, turn);
   const progress = review.progress;
   const commits = review.signals?.commitsSince ?? 0;
   const ci = review.signals?.ci && review.signals.ci !== "none" ? CI_LOOK[review.signals.ci] : null;
   const waited = turn.group === "needs" ? age(turn.at) : null;
+  const outdated = turn.group === "waiting" ? review.signals?.threads?.outdated ?? 0 : 0;
+  const quiet = turn.group === "waiting" ? authorQuiet(review) : null;
   // The badge says it once the PR is archived for it.
   const unreachable = turn.reason !== "unreachable" ? review.unreachable : null;
-  if (!why && !progress && commits <= 0 && !ci && !waited && !turn.blocking && !unreachable) return null;
+  if (!why && !progress && commits <= 0 && !ci && !waited && !turn.blocking && !unreachable && !outdated && !quiet) return null;
   return (
     <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
       {turn.blocking && <Badge tone="warning" size="sm">Blocks merge</Badge>}
       {unreachable && <span className="inline-flex items-center gap-1" title={unreachable.reason === "forbidden" ? "GitHub refused access, for example for SSO" : "Deleted, or you lost access"}><Icon name="AlertCircle" className={cn("size-3", TONE_TEXT.warning)} aria-hidden />Can’t read on GitHub</span>}
       {why && <span>{why}</span>}
       {progress && <span className="tabular-nums" title={progress.source === "assistant" ? undefined : "Resolved or answered"}>{progress.done}/{progress.total} {progress.source === "assistant" ? "addressed" : "handled"}</span>}
+      {outdated > 0 && <span className="tabular-nums" title="The code under these threads changed">{outdated} outdated</span>}
       {commits > 0 && <span className="inline-flex items-center gap-1 tabular-nums"><Icon name="GitCommit" className="size-3" aria-hidden />+{commits} {commits === 1 ? "commit" : "commits"}</span>}
       {ci && <span className="inline-flex items-center gap-1"><Icon name={ci.icon} className={cn("size-3", TONE_TEXT[ci.tone])} aria-hidden />{ci.label}</span>}
       {waited && <span className="text-subtle-foreground">your turn · {waited}</span>}
+      {quiet && <span className="text-subtle-foreground">author quiet {quiet}</span>}
     </span>
   );
 }

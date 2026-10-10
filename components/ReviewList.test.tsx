@@ -134,3 +134,31 @@ test("a burst of review updates re-lists once", async () => {
   expect(lists()).toBe(2);
   slot.lifecycle.unmount();
 });
+
+test("waiting rows show outdated threads and how long the author has been quiet; needs rows how long ago the request came", async () => {
+  const { expect } = await import("vitest");
+  const { fireEvent, within } = await import("@testing-library/react");
+  const DAY = 86_400_000;
+  const now = Date.now();
+  const turn = (group: string, reason: string, label: string, at: number) => ({ group, reason, label, action: "Open review", signal: null, at, notify: false, blocking: false, updated: false, eventAt: null, failed: false });
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [
+      { targetKey: "a", title: "Old request", status: "tracked", signals: { requestedAt: now - 800 * DAY }, turn: turn("needs", "requested", "Review requested", now - 800 * DAY) },
+      { targetKey: "b", title: "Quiet change", status: "ready", turn: turn("waiting", "waiting", "Changes requested", now - 9 * DAY),
+        signals: { lastReviewAt: now - 9 * DAY, headSeenAt: now - 5 * DAY, replyAt: now - 6 * DAY, threads: { total: 4, resolved: 0, answered: 0, questions: 0, open: 4, outdated: 3 } } },
+      { targetKey: "c", title: "Busy change", status: "ready", turn: turn("waiting", "waiting", "Changes requested", now - 9 * DAY), signals: { lastReviewAt: now - 9 * DAY, headSeenAt: now - 3_600_000 } },
+    ] }),
+  } });
+  await slot.findByText("Old request");
+  expect(slot.getByText("your turn · 2y")).toBeTruthy();
+  fireEvent.click(within(slot.getByRole("group", { name: "Filter reviews" })).getByRole("button", { name: /^Waiting on author/ }));
+  await slot.findByText("Quiet change");
+  expect(slot.getByText("3 outdated")).toBeTruthy();
+  expect(slot.getByText("author quiet 5d")).toBeTruthy();
+  // Activity within the day isn't news.
+  expect(slot.getAllByText(/^author quiet/)).toHaveLength(1);
+  slot.lifecycle.unmount();
+});
