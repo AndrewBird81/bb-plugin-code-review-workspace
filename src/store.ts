@@ -132,6 +132,8 @@ export interface Store {
   backupGuide(targetKey: string): void;
   /** Put the kept guide and diff back. False when there's nothing kept. */
   restoreGuide(targetKey: string): boolean;
+  /** The head commit of the guide kept by backupGuide, if any. */
+  guideBackupHead(targetKey: string): string | null;
   dropGuideBackup(targetKey: string): void;
   isCurrentGeneration(targetKey: string, generationId: string): boolean;
   interruptGenerations(): void;
@@ -439,6 +441,10 @@ export function createStore(bb: BbPluginApi): Store {
         }
       })();
       return true;
+    },
+    guideBackupHead(k) {
+      const row = db.prepare(`SELECT data FROM guide_backups WHERE target_key=?`).get(k) as { data: string } | undefined;
+      return row ? JSON.parse(row.data).headSha ?? null : null;
     },
     dropGuideBackup(k) {
       db.prepare(`DELETE FROM guide_backups WHERE target_key=?`).run(k);

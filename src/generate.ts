@@ -81,6 +81,7 @@ export async function generateGuide(
   try {
     if (!generationId || !store.isCurrentGeneration(targetKey, generationId)) return;
     const ok = !controller.signal.aborted && store.getGuide(targetKey) !== null;
+    const before = ok ? store.guideBackupHead(targetKey) : null;
     // A failed rebuild keeps the guide you had; a guide this run already submitted stands.
     if (ok) store.dropGuideBackup(targetKey);
     else store.restoreGuide(targetKey);
@@ -92,7 +93,8 @@ export async function generateGuide(
     // A review you already reviewed gets its feedback checked; a new one, the automatic review.
     const review = store.getReview(targetKey);
     const checking = ok && !!review && !!baselineOf(review).at && await startVerification(bb, store, targetKey, "the guide was rebuilt for the PR's new commits");
-    if (ok && !checking && !(review && baselineOf(review).at)) await startAutomaticReview(bb, store, targetKey).catch((error) => {
+    const newCommits = before && review?.headSha && before !== review.headSha ? { from: before, to: review.headSha } : undefined;
+    if (ok && !checking && !(review && baselineOf(review).at)) await startAutomaticReview(bb, store, targetKey, newCommits).catch((error) => {
       bb.log.warn(`The automatic review of ${targetKey} didn't start: ${String(error)}`);
     });
     if (!checking) store.setLifecycle(targetKey, { preparedAt: Date.now() });

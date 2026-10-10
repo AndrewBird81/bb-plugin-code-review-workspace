@@ -102,14 +102,21 @@ export async function startConversation(bb: BbPluginApi, store: Store, args: { t
 /**
  * Once a guide is ready, a review without a conversation starts one with the
  * reviewer's automatic review prompt, and any context `bb review --context`
- * gave it, on the agent a new conversation defaults to. A blank prompt turns
- * this off.
+ * gave it, on the agent a new conversation defaults to. A review whose
+ * conversation left comments in the draft hears of `newCommits` instead. A
+ * blank prompt turns this off.
  */
-export async function startAutomaticReview(bb: BbPluginApi, store: Store, targetKey: string): Promise<void> {
+export async function startAutomaticReview(bb: BbPluginApi, store: Store, targetKey: string, newCommits?: { from: string; to: string }): Promise<void> {
   const prompt = store.getPreferences().preferences.automaticReview.trim();
   if (!prompt) return;
   const { threadId, defaults } = await getConversation(bb, store, targetKey);
-  if (threadId) return;
+  if (threadId) {
+    if (newCommits && store.getDraft(targetKey).comments.some((comment) => comment.author === "agent")) await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{
+      type: "text", mentions: [], visibility: "agent-only",
+      text: `New commits: ${newCommits.from.slice(0, 7)}→${newCommits.to.slice(0, 7)}. Re-check your draft comments against the new diff, delete the ones the commits fixed, and review only what changed.`,
+    }] });
+    return;
+  }
   if (!defaults) throw new Error("bb has no default agent for the review's project.");
   const context = store.getReviewContext(targetKey);
   const text = context ? `${prompt}\n\nContext from the thread that started this review:\n${context}` : prompt;
