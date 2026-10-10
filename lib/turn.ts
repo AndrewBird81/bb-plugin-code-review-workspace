@@ -234,6 +234,8 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
       && assessment.addressed === assessment.total && after(assessment.assessedAt, lastReviewAt, snoozedAt)) {
       return needs("looks-ready", "Looks ready", `looks-ready:${head}`, assessment.assessedAt, true);
     }
+    // A comment review with nothing open isn't waiting on anyone.
+    if (verdict === "COMMENT" && threads!.open + threads!.questions === 0) return make("reviewed", "commented", "Commented", "View review");
     if (snoozedAt && snoozedAt >= (lastReviewAt ?? 0)) return make("waiting", "snoozed", "Not yet", "View review", { at: snoozedAt, blocking });
     return make("waiting", "waiting", VERDICT_LABEL[verdict], "View review", { at: lastReviewAt, blocking });
   }

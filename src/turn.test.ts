@@ -117,6 +117,10 @@ test("a dismissed review is yours again, without an alert", () => {
 test("a comment review waits on the author only while it has threads", () => {
   expect(turn(changesRequested({ submittedVerdict: "COMMENT" }, { threads: null }))).toMatchObject({ group: "reviewed", label: "Commented" });
   expect(turn(changesRequested({ submittedVerdict: "COMMENT" }))).toMatchObject({ group: "waiting", label: "Commented" });
+  // With every thread resolved or answered, nothing is open; new commits on top bring it back as handled.
+  const handled = { threads: { total: 2, resolved: 1, answered: 1, questions: 0, open: 0, outdated: 0 }, handledAt: t(1), headSeenAt: t(2) };
+  expect(turn(changesRequested({ submittedVerdict: "COMMENT" }, handled))).toMatchObject({ group: "reviewed", reason: "commented", label: "Commented" });
+  expect(turn(changesRequested({ submittedVerdict: "COMMENT", latestHeadSha: "sha2" }, handled))).toMatchObject({ group: "needs", reason: "handled" });
 });
 
 test("a draft PR waits on the author", () => {
