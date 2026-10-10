@@ -92,3 +92,13 @@ test("while the guide rebuilds, the summary and verdict save, and a comment's sa
   await expect(harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-4", revision, comment: { file: "a.ts", line: 1, side: "RIGHT", body: "nit" } }))
     .rejects.toThrow("The guide is rebuilding for new commits; your text is kept. Save again when it’s ready.");
 });
+
+test("the review bundle says whether the signed-in account wrote the PR", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "mine", kind: "pr", number: 5, repo: "acme/web", author: "Casey", headSha: "sha123", status: "ready", createdAt: 1 });
+  store.saveReview({ targetKey: "theirs", kind: "pr", number: 6, repo: "acme/web", author: "dana", headSha: "sha123", status: "ready", createdAt: 1 });
+  expect((await harness.behavior.callRpc("getReviewBundle", { targetKey: "mine" }) as any).review.ownPr).toBe(true);
+  expect((await harness.behavior.callRpc("getReviewBundle", { targetKey: "theirs" }) as any).review.ownPr).toBe(false);
+});

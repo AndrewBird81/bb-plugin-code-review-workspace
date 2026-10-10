@@ -23,6 +23,7 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       if (summary && (draft.body !== summary.body || draft.verdict !== summary.verdict)) return { ok: false, error: "Your review summary or verdict changed since this page showed it, possibly from the assistant or another window. Check them, then submit again." };
       if (draft.verdict === "COMMENT" && !draft.body.trim() && !draft.comments.length) return { ok: false, error: "Add a summary or at least one comment before submitting a Comment review." };
       if (draft.verdict === "REQUEST_CHANGES" && !draft.body.trim()) return { ok: false, error: "Add a summary explaining the requested changes before submitting." };
+      if (account && m.author && draft.verdict !== "COMMENT" && account.toLowerCase() === m.author.toLowerCase()) return { ok: false, error: "GitHub allows only a Comment review on your own PR. Choose Comment, then submit again." };
       if (draft.comments.some((c) => !c.body.trim())) return { ok: false, error: "Draft comments cannot be blank." };
       const stale = store.staleDraftComments(targetKey);
       if (stale.length) return { ok: false, error: `The diff changed after these comments were drafted. Edit and save, or remove: ${stale.map((c) => `${c.file}:${c.line}`).join(", ")}` };

@@ -276,3 +276,23 @@ test("below 768px wide the review panel starts collapsed, and doesn't forget it 
     slot.lifecycle.unmount();
   } finally { matchMedia.mockRestore(); }
 });
+
+test("on your own PR, the panel offers Comment only, and picks it", async () => {
+  let draft = draftOf({ verdict: "APPROVE", verdictChosen: true, body: "Notes.", suggestedVerdict: "APPROVE" });
+  const setVerdict = vi.fn(({ verdict }: any) => { draft = { ...draft, verdict, verdictChosen: true }; return { draft }; });
+  const submitReview = vi.fn(async () => ({ ok: true }));
+  const slot = await renderTray("own", { getDraft: () => ({ draft, stale: [], discussions: [] }), setVerdict, submitReview }, { ownPr: true });
+  const group = within(slot.getByRole("group", { name: "Review verdict" }));
+  await waitFor(() => expect(setVerdict).toHaveBeenCalledWith(expect.objectContaining({ verdict: "COMMENT" })));
+  await waitFor(() => expect(group.getByRole("button", { name: /^Comment/ }).getAttribute("aria-pressed")).toBe("true"));
+  for (const name of [/^Approve/, /^Request changes/]) {
+    const button = group.getByRole("button", { name });
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(button.getAttribute("title")).toBe("This is your PR, so GitHub allows only a Comment review.");
+  }
+  expect(slot.getByText("This is your PR, so GitHub allows only a Comment review.")).toBeTruthy();
+  // The agent's other suggestion doesn't hold up Submit.
+  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  await waitFor(() => expect(submitReview).toHaveBeenCalledWith(expect.objectContaining({ verdict: "COMMENT" })));
+  slot.lifecycle.unmount();
+});

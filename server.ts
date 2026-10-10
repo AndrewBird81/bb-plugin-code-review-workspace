@@ -51,6 +51,7 @@ import { feedbackProgress } from "./lib/turn";
 import { baselineOf, feedbackView, headOf, pruneDiffs, remainingBody, sinceReview } from "./src/feedback-view";
 import { assess, changesSinceReview, describeFeedback, readFileAt, startVerification } from "./src/verification";
 import { fetchMyThreads } from "./src/github/threads";
+import { createViewer } from "./src/github/viewer";
 import type { ReviewMeta } from "./src/store";
 import { threadSignals } from "./src/turn-signals";
 
@@ -117,6 +118,13 @@ export default async function plugin(bb: BbPluginApi) {
   // Reviews leave the server with whose turn they are and how far your feedback got.
   // JSON round-trips drop the literal `undefined` fields rowToMeta leaves, which strict rpc output rejects.
   const decorate = (review: ReviewMeta | null) => review && JSON.parse(JSON.stringify({ ...review, turn: sync.turnOf(review), progress: feedbackProgress(review) }));
+  // Who you are on GitHub, to tell your own PRs: GitHub allows only a Comment review on them.
+  const viewer = createViewer(runGh);
+  const withOwnPr = async (review: ReturnType<typeof decorate>) => {
+    if (!review || review.kind !== "pr" || !review.author || "ownPr" in review) return review;
+    const login = await viewer.login();
+    return { ...review, ownPr: !!login && login.toLowerCase() === review.author.toLowerCase() };
+  };
   const changed = (targetKey: string) => {
     bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
     bb.realtime.publish("reviews", { ts: Date.now() });
@@ -247,8 +255,8 @@ export default async function plugin(bb: BbPluginApi) {
       ]);
       return { githubCli: cli.code === 0, account: user.code === 0 ? user.stdout.trim() || null : null, agentAvailable: providers ? providers.some(p => p.available) : null, projectAvailable: projects ? projects.length > 0 : null };
     },
-    getReviewBundle({ targetKey }) {
-      return { review: decorate(store.getReview(targetKey)), guide: store.getGuide(targetKey),
+    async getReviewBundle({ targetKey }) {
+      return { review: await withOwnPr(decorate(store.getReview(targetKey))), guide: store.getGuide(targetKey),
         patch: store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, revision: reviewRevision(store, targetKey) };
     },
     getPreferences() { return store.getPreferences(); },
@@ -524,6 +532,7 @@ export default async function plugin(bb: BbPluginApi) {
       const r = await switchGhAccount(runGh, login);
       if (r.ok) {
         sync.resetViewer();
+        viewer.reset();
         bb.realtime.publish("gh-account", { active: r.active });
       }
       return r;

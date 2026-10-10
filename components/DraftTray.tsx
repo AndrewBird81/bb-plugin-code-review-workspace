@@ -29,6 +29,7 @@ import { withLineBreaks } from "../src/line-breaks";
  */
 export interface CommentPrefill { file: string; line: number; side: "LEFT" | "RIGHT"; startLine?: number; ask?: boolean; nonce: number; }
 
+const OWN_PR = "This is your PR, so GitHub allows only a Comment review.";
 const RECEIPT_LABEL: Record<Verdict, string> = { APPROVE: "Approved", REQUEST_CHANGES: "Changes requested", COMMENT: "Commented" };
 const VERDICTS = [
   ["APPROVE", "aria-pressed:bg-success/15 aria-pressed:text-diff-added aria-pressed:ring-success/30 aria-pressed:hover:bg-success/20"],
@@ -36,7 +37,7 @@ const VERDICTS = [
   ["REQUEST_CHANGES", "aria-pressed:bg-warning/15 aria-pressed:text-warning-text aria-pressed:ring-warning/30 aria-pressed:hover:bg-warning/20"],
 ] as const;
 
-export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, activeFiles, files = activeFiles, prefill, isLocal = false, review, onSubmitted, onShowComment, agent, reviewRevision, rebuilding = false, account, showDraft, children }: {
+export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, activeFiles, files = activeFiles, prefill, isLocal = false, review, onSubmitted, onShowComment, agent, reviewRevision, rebuilding = false, ownPr = false, account, showDraft, children }: {
   targetKey: string; activeChapterId: string; activeFiles: string[];
   /** The review's changed files, chapter by chapter. */
   files?: string[];
@@ -44,6 +45,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   reviewRevision?: string; account?: string;
   /** The guide is rebuilding for new commits: comments and submit wait for the new diff. */
   rebuilding?: boolean;
+  /** The signed-in account wrote the PR, so GitHub allows only a Comment review. */
+  ownPr?: boolean;
   /** A new value opens Draft review at its summary. `replaced`: you agreed the assistant's suggestion replaces your summary. */
   showDraft?: { at: number; replaced?: boolean };
   agent?: Omit<AgentDockProps, "targetKey" | "active" | "onDock" | "onCollapse">;
@@ -419,6 +422,9 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const undoAt = useCallback((at: CommentLocation) => { void latest.current.undo(at); }, []);
   const showChat = useCallback(() => { setTab("agent"); setToolsOpen(true); }, []);
   const editable = loaded && !loadError && !closed;
+  // On your own PR, Comment is the only verdict GitHub takes.
+  useEffect(() => { if (ownPr && editable && !isLocal && draft.verdict !== "COMMENT" && !pendingVerdict.current) chooseVerdict("COMMENT"); }, [ownPr, editable, isLocal, draft.verdict]);
+  const ownPrId = useId();
   const writing = !!body.trim();
   const composerInDiff = editable && showComposer && inline;
   const chat = agent ? showChat : null;
@@ -454,7 +460,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const changes = summaryChanges(draft);
   // Why Submit asks once more: the agent suggested another verdict, or its summary no longer fits.
   const doubts = [
-    ...(suggested && suggested !== draft.verdict ? [`The agent suggested ${VERDICT_LABEL[suggested]}.`] : []),
+    ...(suggested && suggested !== draft.verdict && !ownPr ? [`The agent suggested ${VERDICT_LABEL[suggested]}.`] : []),
     ...(changes.comments && changes.verdict ? [`Your comments changed, and the summary was written for ${VERDICT_LABEL[changes.verdict]}.`]
       : changes.comments ? ["Your comments changed since the agent wrote the summary."]
       : changes.verdict ? [`The summary was written for ${VERDICT_LABEL[changes.verdict]}.`] : []),
@@ -542,10 +548,11 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
           <footer className="shrink-0 space-y-2.5 border-t border-border p-3">
             {!isLocal && <>
               <div role="group" aria-label="Review verdict" className="flex max-w-full flex-wrap gap-0.5 rounded-lg bg-muted/40 p-1 ring-1 ring-inset ring-border">
-                {VERDICTS.map(([verdict, pressed]) => <Button key={verdict} type="button" variant="ghost" size="sm" disabled={busy} aria-pressed={draft.verdict === verdict} aria-label={suggested === verdict ? `${VERDICT_LABEL[verdict]}, suggested by the agent` : undefined} className={cn("relative h-8 grow basis-auto whitespace-nowrap px-2 text-xs text-muted-foreground ring-1 ring-inset ring-transparent aria-pressed:shadow-xs", suggested === verdict && "pr-3.5", pressed)} onClick={() => chooseVerdict(verdict)}>
+                {VERDICTS.map(([verdict, pressed]) => <Button key={verdict} type="button" variant="ghost" size="sm" disabled={busy || ownPr && verdict !== "COMMENT"} {...(ownPr && verdict !== "COMMENT" ? { title: OWN_PR, "aria-describedby": ownPrId } : {})} aria-pressed={draft.verdict === verdict} aria-label={suggested === verdict ? `${VERDICT_LABEL[verdict]}, suggested by the agent` : undefined} className={cn("relative h-8 grow basis-auto whitespace-nowrap px-2 text-xs text-muted-foreground ring-1 ring-inset ring-transparent aria-pressed:shadow-xs", suggested === verdict && "pr-3.5", pressed)} onClick={() => chooseVerdict(verdict)}>
                   {VERDICT_LABEL[verdict]}{suggested === verdict && <span aria-hidden title="Suggested by the agent" className="absolute right-0.5 top-0.5 flex"><Icon name="Sparkles" className="size-2.5 text-(--ansi-13)" /></span>}
                 </Button>)}
               </div>
+              {ownPr && <p id={ownPrId} className="text-xs text-muted-foreground">{OWN_PR}</p>}
               {suggested && (suggested !== draft.verdict || !verdictPicked(draft)) && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />Agent suggests {VERDICT_LABEL[suggested]}</p>}
               {confirming ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
                 <p>Submit {VERDICT_LABEL[draft.verdict]}{commentCount ? ` with ${commentCount} comment${commentCount === 1 ? "" : "s"}` : ""}? {doubts.join(" ")}</p>
