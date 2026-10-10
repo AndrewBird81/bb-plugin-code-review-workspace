@@ -104,3 +104,31 @@ test("--context is kept with the review for the automatic review, until replaced
   }
   expect(store.getReviewContext(key)).toBeNull();
 });
+
+test("bb review of a review that hasn't changed opens it without rebuilding, and still keeps --context", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "abc123" });
+  store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+n\n");
+  store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
+  const res = await runReviewCommand({ bb, store, gh }, [url, "--context", "LIN-42"], { projectId: "p1", cwd: laptop });
+  expect(res).toEqual({ exitCode: 0, stdout: `Guided Review for ${key} is up to date. Open the Guided Review panel to review it.\nThe guide is current, so the automatic review won't run again. Paste the context into Ask agent instead.` });
+  expect(store.getReviewContext(key)).toBe("LIN-42");
+  expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
+  expect(store.getGuide(key)?.title).toBe("Kept");
+});
+
+test("bb review of a review with new commits backs up its guide and moves its comments", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: async () => ({ id: "w" }), wait: async () => { throw new Error("worker failed"); }, archive: async () => ({}), stop: async () => ({}),
+  } } as any });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "old" });
+  store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
+  store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
+  store.upsertDraftComment(key, { file: "a.ts", line: 1, side: "RIGHT", body: "Why n?" });
+  expect((await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1", cwd: laptop })).exitCode).toBe(0);
+  await vi.waitFor(() => expect(store.getReview(key)?.status).toBe("error"));
+  expect(store.getGuide(key)?.title).toBe("Kept");
+  expect(store.staleDraftComments(key)).toEqual([]);
+});

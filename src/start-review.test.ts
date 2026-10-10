@@ -96,3 +96,37 @@ test("an offline guide writer machine stops the review before the PR is fetched"
   expect(store.getReview(key)).toBeNull();
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
 });
+
+const reviewed = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+n\n";
+function seedReady(store: ReturnType<typeof createStore>, headSha: string, patch: string) {
+  store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha, gitRef: "main...f" });
+  store.savePatch(key, patch);
+  store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
+  store.upsertDraftComment(key, { file: "a.ts", line: 1, side: "RIGHT", body: "Why n?" });
+}
+
+test("pasting the link of a review that hasn't changed opens it without rebuilding", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const store = createStore(bb);
+  seedReady(store, "abc123", reviewed);
+  store.setLifecycle(key, { userArchivedAt: 1 });
+  expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
+  expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
+  expect(store.getReview(key)).toMatchObject({ status: "ready", userArchivedAt: null });
+  expect(store.getGuide(key)?.title).toBe("Kept");
+  expect(store.staleDraftComments(key)).toEqual([]);
+});
+
+test("pasting the link of a review with new commits rebuilds it like Re-review, keeping the guide and comments if it fails", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: async () => ({ id: "w" }), wait: async () => { throw new Error("worker failed"); }, archive: async () => ({}), stop: async () => ({}),
+  } } as any });
+  const store = createStore(bb);
+  seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
+  expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
+  await vi.waitFor(() => expect(store.getReview(key)?.status).toBe("error"));
+  expect(store.getGuide(key)?.title).toBe("Kept");
+  expect(store.getReview(key)?.headSha).toBe("old");
+  expect(store.getDraft(key).comments).toMatchObject([{ line: 1, body: "Why n?" }]);
+  expect(store.staleDraftComments(key)).toEqual([]);
+});

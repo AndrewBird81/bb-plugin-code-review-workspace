@@ -1,9 +1,10 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { Store } from "./store";
+import type { ReviewMeta, Store } from "./store";
 import { parseTarget, targetKey } from "./targets";
 import { ensureGitHeaders } from "./patch";
 import { generateGuide, guideWriterUnavailable } from "./generate";
 import { readPrSnapshot } from "./pr-snapshot";
+import { rebuildReview, upToDate } from "./rereview";
 
 interface Deps {
   bb: BbPluginApi;
@@ -43,7 +44,13 @@ export async function createPrReview(
   const key = targetKey(target);
   const now = Date.now();
 
-  deps.store.saveReview({
+  const existing = deps.store.getReview(key);
+  // A review already building, or showing this diff, just opens.
+  if (existing && (existing.status === "generating" || upToDate(deps.store, existing, pr.headRefOid, patch))) {
+    if (existing.userArchivedAt) deps.store.setLifecycle(key, { userArchivedAt: null });
+    return { ok: true, targetKey: key };
+  }
+  const meta: ReviewMeta & { projectId: string } = {
     targetKey: key,
     kind: "pr",
     number: target.number,
@@ -58,7 +65,13 @@ export async function createPrReview(
     projectId: args.projectId,
     status: "generating",
     createdAt: now,
-  });
+  };
+  // An existing review rebuilds as Re-review does, keeping its guide and comments.
+  if (existing) {
+    rebuildReview(deps, meta, patch);
+    return { ok: true, targetKey: key };
+  }
+  deps.store.saveReview(meta);
   deps.store.savePatch(key, ensureGitHeaders(patch));
   // Starting a PR again brings it back into discovery after a delete.
   deps.store.unignoreDiscovery(key);
