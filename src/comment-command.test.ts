@@ -35,14 +35,23 @@ test("bb review comment adds, lists, edits, and deletes local draft comments, an
   ].join("\n"));
   expect(JSON.parse((await cli("list", url, "--json")).stdout).comments[2]).toEqual({ file: "a.ts", line: 1, side: "RIGHT", author: "reviewer", body: "Reviewer's own", stale: false });
 
-  expect(await cli("edit", url, "a.ts:1", "--body", "Reworded")).toMatchObject({ exitCode: 0, stdout: "Updated the draft comment on a.ts:1." });
+  expect(await cli("edit", url, "a.ts:2", "--body", "Reworded")).toMatchObject({ exitCode: 0, stdout: "Updated the draft comment on a.ts:2." });
   expect(await cli("delete", url, "a.ts:2", "--side", "LEFT")).toMatchObject({ exitCode: 0, stdout: "Deleted the draft comment on a.ts:2 (LEFT side)." });
   expect(store.getDraft(key).comments.map((c) => [c.line, c.side, c.author ?? "reviewer", c.body])).toEqual([
-    [2, "RIGHT", "agent", "Why rename?\nIt breaks callers."], [1, "RIGHT", "reviewer", "Reworded"],
+    [2, "RIGHT", "agent", "Reworded"], [1, "RIGHT", "reviewer", "Reviewer's own"],
   ]);
   // An open panel refreshes after each change.
   expect(harness.inspection.realtimeSignals.filter((signal) => signal.channel === `draft:${key}`)).toHaveLength(4);
   expect(runGh).not.toHaveBeenCalled();
+});
+
+test("bb review comment changes an agent's comments but not the reviewer's", async () => {
+  const { store, cli } = await host();
+  store.upsertDraftComment(key, { file: "a.ts", line: 1, side: "RIGHT", body: "Reviewer's own" });
+  const refused = { exitCode: 1, stderr: "The reviewer wrote this comment. Suggest the change in chat; they can ask on the comment to have you apply it. Nothing was changed." };
+  expect(await cli("edit", url, "a.ts:1", "--body", "Reworded")).toMatchObject(refused);
+  expect(await cli("delete", url, "a.ts:1")).toMatchObject(refused);
+  expect(store.getDraft(key).comments).toEqual([{ file: "a.ts", line: 1, side: "RIGHT", body: "Reviewer's own" }]);
 });
 
 test("bb review comment explains refusals and usage mistakes", async () => {

@@ -14,10 +14,11 @@ import { createPrReview } from "./src/start-review";
 import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
 import { listMachines } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
-import { commentsKey, isSummary, SUMMARY_AT } from "./src/draft";
+import { commentsKey, SUMMARY_AT } from "./src/draft";
 import { describeDraft, writeSummary } from "./src/draft-summary";
 import { runSummaryCommand } from "./src/summary-command";
 import { askAgent, settleDiscussions } from "./src/discussions";
+import { clearAsks, listAsks, setAsk } from "./src/asks";
 import { runCommentCommand } from "./src/comment-command";
 import { isMissingThread } from "./src/thread-errors";
 import { computeFileViewState, hashForFile } from "./src/file-views";
@@ -57,13 +58,13 @@ export { rpcContract } from "./src/rpc-contract";
 
 
 // Raise when the review assistant's tools change.
-const ASSISTANT_TOOLS = 4;
+const ASSISTANT_TOOLS = 5;
 
 export default async function plugin(bb: BbPluginApi) {
   const store = createStore(bb);
   const interrupted = store.interruptGenerations();
-  // An ask on a summary can't know whether its turn ended while the plugin was down; it gives way.
-  for (const review of store.listReviews()) if (review.summaryAsk) store.setLifecycle(review.targetKey, { summaryAsk: null });
+  // An ask on a summary or comment can't know whether its turn ended while the plugin was down; it gives way.
+  for (const review of store.listReviews()) if (listAsks(review).length) clearAsks(store, review.targetKey);
   const submitReview = createReviewSubmitter(store, runGh);
   const notifications = completionNotifications(bb, store);
   let personalProject: string | null = null;
@@ -435,12 +436,15 @@ export default async function plugin(bb: BbPluginApi) {
     },
     saveDraftComment({ targetKey, comment, revision }) {
       requireReviewRevision(store, targetKey, revision);
+      // Your words now, and an ask on the comment is over.
+      setAsk(store, targetKey, comment, null);
       return draftState(targetKey, store.upsertDraftComment(targetKey, comment));
     },
     removeDraftComment({ targetKey, file, line, side }) {
       // Already gone, for example deleted by an agent: the current draft shows that.
       const draft = store.deleteDraftComment(targetKey, { file, line, side }) ?? store.getDraft(targetKey);
       store.deleteDiscussion(targetKey, { file, line, side });
+      setAsk(store, targetKey, { file, line, side }, null);
       return draftState(targetKey, draft);
     },
     async askAgent({ targetKey, ...input }) {
@@ -450,8 +454,8 @@ export default async function plugin(bb: BbPluginApi) {
     },
     dismissDiscussion({ targetKey, file, line, side }) {
       store.deleteDiscussion(targetKey, { file, line, side });
-      // Dismissed, the ask on the summary is withdrawn.
-      if (isSummary({ file, line, side })) store.setLifecycle(targetKey, { summaryAsk: null });
+      // Dismissed, the ask there is withdrawn.
+      setAsk(store, targetKey, { file, line, side }, null);
       return draftState(targetKey);
     },
     undoAgentChange({ targetKey, file, line, side }) {
@@ -483,7 +487,7 @@ export default async function plugin(bb: BbPluginApi) {
       // The discussions were about this draft. The assistant's conversation keeps them.
       if (result.ok) {
         store.clearDiscussions(targetKey);
-        store.setLifecycle(targetKey, { summaryAsk: null });
+        clearAsks(store, targetKey);
         bb.realtime.publish(`draft:${targetKey}`, {});
         const review = store.getReview(targetKey)!;
         // The diff you reviewed is what "since your review" compares against.
@@ -526,7 +530,7 @@ export default async function plugin(bb: BbPluginApi) {
     },
     async newConversation({ targetKey }) {
       await newConversation(bb, store, targetKey);
-      store.setLifecycle(targetKey, { summaryAsk: null });
+      clearAsks(store, targetKey);
       // The archived conversation won't answer discussions or a feedback check waiting for it.
       if (endAssistantWaits(bb, store, targetKey)) await sync.evaluate(targetKey);
       return { ok: true };
@@ -617,15 +621,15 @@ export default async function plugin(bb: BbPluginApi) {
   });
   bb.agents.registerTool({
     name: "edit_draft_comment",
-    description: "Replace the text of the draft comment at a file, line, and side in the reviewer's local draft. Its location stays; to move a comment, delete it and add it again. Nothing reaches GitHub.",
+    description: "Replace the text of the draft comment at a file, line, and side in the reviewer's local draft. Its location stays; to move a comment, delete it and add it again. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked on that comment for the change.",
     parameters: z.object({ ...location, body }),
-    execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => editComment(store, targetKey, input)),
+    execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => editComment(store, targetKey, input, threadId)),
   });
   bb.agents.registerTool({
     name: "delete_draft_comment",
-    description: "Delete the draft comment at a file, line, and side from the reviewer's local draft. Nothing reaches GitHub.",
+    description: "Delete the draft comment at a file, line, and side from the reviewer's local draft. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked on that comment for it.",
     parameters: z.object(location),
-    execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => deleteComment(store, targetKey, input)),
+    execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => deleteComment(store, targetKey, input, threadId)),
   });
   bb.agents.registerTool({
     name: "set_review_summary",
@@ -760,11 +764,11 @@ export default async function plugin(bb: BbPluginApi) {
 
   // A discussion the assistant didn't answer by the end of its turn stops waiting for it.
   const settle = async ({ thread }: { thread: { id: string } }) => {
-    // A turn ended; an ask on the summary ends with the turn that carried it. Before anything awaits,
-    // so a turn after it can't find it open.
+    // A turn ended; an ask on the summary or a comment ends with the turn that carried it. Before anything
+    // awaits, so a turn after it can't find it open.
     const reviewKey = assistantReview(store, thread.id);
-    const ask = reviewKey ? store.getReview(reviewKey)?.summaryAsk : null;
-    if (reviewKey && ask?.state === "running" && ask.threadId === thread.id) store.setLifecycle(reviewKey, { summaryAsk: null });
+    const asking = reviewKey ? store.getReview(reviewKey) : null;
+    for (const { at, ask } of asking ? listAsks(asking) : []) if (ask.state === "running" && ask.threadId === thread.id) setAsk(store, reviewKey!, at, null);
     const targetKey = await settleDiscussions(bb, store, thread.id);
     if (targetKey) bb.realtime.publish(`draft:${targetKey}`, {});
     const review = reviewKey ? store.getReview(reviewKey) : null;
@@ -780,19 +784,20 @@ export default async function plugin(bb: BbPluginApi) {
   bb.events.on("thread.idle", settle);
   bb.events.on("thread.failed", settle);
   bb.events.on("thread.failed", ({ thread }) => guideWorkerFailed(bb, thread.id));
-  // A queued ask on the summary: its turn comes when its message dispatches, and never if it's deleted from the queue.
+  // A queued ask: its turn comes when its message dispatches, and never if it's deleted from the queue.
   const queuedAsk = (entry: { id: string; threadId: string }) => {
     const reviewKey = assistantReview(store, entry.threadId);
-    const ask = reviewKey ? store.getReview(reviewKey)?.summaryAsk : null;
-    return reviewKey && ask?.state === "queued" && ask.queuedMessageId === entry.id ? { reviewKey, ask } : null;
+    const review = reviewKey ? store.getReview(reviewKey) : null;
+    const found = review ? listAsks(review).find(({ ask }) => ask.state === "queued" && ask.queuedMessageId === entry.id) : undefined;
+    return found ? { reviewKey: reviewKey!, ...found } : null;
   };
   bb.events.on("message.dispatched", ({ entry }) => {
     const found = queuedAsk(entry);
-    if (found) store.setLifecycle(found.reviewKey, { summaryAsk: { threadId: found.ask.threadId, state: "running", at: Date.now() } });
+    if (found) setAsk(store, found.reviewKey, found.at, { threadId: found.ask.threadId, state: "running", at: Date.now() });
   });
   bb.events.on("message.cancelled", ({ entry }) => {
     const found = queuedAsk(entry);
-    if (found) store.setLifecycle(found.reviewKey, { summaryAsk: null });
+    if (found) setAsk(store, found.reviewKey, found.at, null);
   });
 
   bb.agents.registerTool({

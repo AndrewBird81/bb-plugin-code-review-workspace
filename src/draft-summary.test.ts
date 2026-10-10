@@ -132,6 +132,8 @@ test("the reviewer undoes the agent's latest change to a comment: added, edited,
   expect((await call("undoAgentChange", at)).draft.comments).toEqual([]);
 
   store.upsertDraftComment("pr-1", { ...at, chapterId: "c1", body: "Mine." });
+  // The reviewer's comment changes in the turn that carries their ask on it.
+  store.setLifecycle("pr-1", { commentAsks: [{ ...at, ask: { threadId: "assistant", state: "running", at: Date.now() } }] });
   await tool("edit_draft_comment", { ...at, body: "Theirs." });
   expect((await call("undoAgentChange", at)).draft.comments).toEqual([{ ...at, chapterId: "c1", body: "Mine." }]);
 
@@ -151,6 +153,7 @@ test("a removed comment goes back only to the line it was on", async () => {
   const { store, tool, call, ask } = await host();
   store.upsertDraftComment("pr-1", { ...at, body: "Mine." });
   ask(at, "Drop it?");
+  store.setLifecycle("pr-1", { commentAsks: [{ ...at, ask: { threadId: "assistant", state: "running", at: Date.now() } }] });
   await tool("delete_draft_comment", at);
   store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n const a = 1;\n-const b = 2;\n+const b = 3;\n");
   await expect(call("undoAgentChange", at)).rejects.toThrow("a.ts:3 isn't in the diff anymore, so the comment can't go back there.");

@@ -7,6 +7,7 @@ import { extractSelectedLines } from "./assistant-context";
 import { messageAssistant } from "./agent";
 import { assistantReview, describeComments, unchangeable } from "./draft-comments";
 import { describeSummary } from "./draft-summary";
+import { askAt, setAsk } from "./asks";
 
 const MAX_HISTORY = 20_000;
 
@@ -59,20 +60,19 @@ export async function askAgent(bb: BbPluginApi, store: Store, targetKey: string,
   const refused = unchangeable(store.getReview(targetKey));
   if (refused) throw new Error(refused);
   const { text, context } = discussionMessage(store, targetKey, input);
-  // An ask on the summary opens the reviewer's summary to the turn that carries it, and only that turn.
-  const summary = isSummary(input);
-  const before = store.getReview(targetKey)?.summaryAsk ?? null;
-  if (summary) store.setLifecycle(targetKey, { summaryAsk: { threadId: store.getAssistantThread(targetKey), state: "sending", at: Date.now() } });
+  // An ask on the summary or a comment opens what the reviewer wrote there to the turn that carries it, and only that turn.
+  const before = askAt(store.getReview(targetKey), input);
+  setAsk(store, targetKey, input, { threadId: store.getAssistantThread(targetKey), state: "sending", at: Date.now() });
   let result: Awaited<ReturnType<typeof messageAssistant>>;
   try {
     result = await messageAssistant(bb, store, targetKey, text, context);
   } catch (error) {
-    if (summary) store.setLifecycle(targetKey, { summaryAsk: before });
+    setAsk(store, targetKey, input, before);
     throw error;
   }
-  if (summary && store.getReview(targetKey)?.summaryAsk?.state === "sending") {
+  if (askAt(store.getReview(targetKey), input)?.state === "sending") {
     const { threadId, queuedMessageId } = result;
-    store.setLifecycle(targetKey, { summaryAsk: queuedMessageId ? { threadId, state: "queued", queuedMessageId, at: Date.now() } : { threadId, state: "running", at: Date.now() } });
+    setAsk(store, targetKey, input, queuedMessageId ? { threadId, state: "queued", queuedMessageId, at: Date.now() } : { threadId, state: "running", at: Date.now() });
   }
   store.addDiscussionMessage(targetKey, input, "reviewer", input.body, input.startLine !== input.line ? input.startLine : undefined);
   return { started: result.started };

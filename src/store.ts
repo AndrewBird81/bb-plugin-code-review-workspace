@@ -45,7 +45,9 @@ export interface ReviewLifecycle {
    * "queued" while the message waits in the thread's queue as `queuedMessageId`, "running" once its
    * turn is under way, since `at`.
    */
-  summaryAsk?: { threadId: string | null; state: "sending" | "queued" | "running"; queuedMessageId?: string; at: number } | null;
+  summaryAsk?: Ask | null;
+  /** The reviewer asked on draft comments: each opens the reviewer's comment there as summaryAsk opens the summary. */
+  commentAsks?: Array<CommentLocation & { ask: Ask }>;
   /** When bb first read the PR's state. Earlier events don't alert or start work. */
   watchingSince?: number | null;
   /** Found on GitHub with a request for your review that you haven't been told about. */
@@ -63,6 +65,9 @@ export interface ReviewLifecycle {
   /** When preparing a re-review was last tried, to retry a failed start now and then. */
   prepareTriedAt?: number | null;
 }
+
+/** The turn of the reviewer's ask on the summary or a draft comment (src/asks.ts). */
+export type Ask = { threadId: string | null; state: "sending" | "queued" | "running"; queuedMessageId?: string; at: number };
 
 export interface ReviewMeta extends ReviewLifecycle {
   targetKey: string;
