@@ -2,10 +2,11 @@
 // They live beside the draft comments, in this bb only; nothing here reaches GitHub.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store } from "./store";
-import { sameLocation, type CommentLocation, type DiscussionEntry } from "./draft";
+import { isSummary, sameLocation, type CommentLocation, type DiscussionEntry } from "./draft";
 import { extractSelectedLines } from "./assistant-context";
 import { messageAssistant } from "./agent";
-import { assistantReview, unchangeable } from "./draft-comments";
+import { assistantReview, describeComments, unchangeable } from "./draft-comments";
+import { describeSummary } from "./draft-summary";
 
 const MAX_HISTORY = 20_000;
 
@@ -15,8 +16,9 @@ export interface AskInput extends CommentLocation {
   body: string;
 }
 
-function historyLine(entry: DiscussionEntry): string {
-  if (entry.kind !== "message") return `(An agent ${entry.kind} the draft comment.)`;
+function historyLine(entry: DiscussionEntry, at: CommentLocation): string {
+  if (entry.kind === "restored") return "(The reviewer undid that change.)";
+  if (entry.kind !== "message") return `(An agent ${entry.kind} ${isSummary(at) ? "the review summary" : "the draft comment"}.)`;
   return `${entry.author === "agent" ? "You" : "Reviewer"}: ${entry.body}`;
 }
 
@@ -27,12 +29,19 @@ function historyLine(entry: DiscussionEntry): string {
 export function discussionMessage(store: Store, targetKey: string, input: AskInput): { text: string; context: string } {
   const at: CommentLocation = { file: input.file, line: input.line, side: input.side };
   const discussion = store.listDiscussions(targetKey).find((d) => sameLocation(d, at));
+  const history = (discussion?.entries ?? []).map((entry) => historyLine(entry, at)).join("\n").slice(-MAX_HISTORY);
+  if (isSummary(at)) return { text: `On the review summary: ${input.body}`, context: [
+    "This message comes from the reviewer's discussion on the review summary in Draft review, not from the chat. They read replies there.",
+    "When they ask you to change the summary, or to write one, do it with set_review_summary instead of describing it, and before you reply: a summary the reviewer wrote is open to you only until you answer. If a reply is warranted, answer with reply_in_discussion with summary: true. Keep your reply in this chat to one short line.",
+    describeSummary(store, targetKey),
+    describeComments(store, targetKey),
+    history ? `Earlier in this discussion:\n${history}` : "",
+  ].filter(Boolean).join("\n\n") };
   const from = input.startLine ?? discussion?.startLine ?? at.line;
   const lines = from === at.line ? `${at.line}` : `${Math.min(from, at.line)}–${Math.max(from, at.line)}`;
   const comment = store.getDraft(targetKey).comments.find((c) => sameLocation(c, at));
   const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
   const code = extractSelectedLines(patch, at.file, from, at.line, at.side === "LEFT" ? "deletions" : "additions");
-  const history = (discussion?.entries ?? []).map(historyLine).join("\n").slice(-MAX_HISTORY);
   const context = [
     `This message comes from the reviewer's discussion at ${at.file}:${lines} (${at.side} side) in the diff, not from the chat. They read replies there.`,
     `If a reply is warranted, answer with reply_in_discussion on file ${JSON.stringify(at.file)}, line ${at.line}, side ${at.side}. ${comment

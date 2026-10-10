@@ -15,7 +15,7 @@ export type DraftResult = { ok: true; text: string } | { ok: false; error: strin
 
 const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
 const located = (input: LocationInput): CommentLocation => ({ file: input.file, line: input.line, side: input.side ?? "RIGHT" });
-const where = (at: CommentLocation) => `${at.file}:${at.line}${at.side === "LEFT" ? " (LEFT side)" : ""}`;
+const where = (at: CommentLocation) => isSummary(at) ? "the review summary" : `${at.file}:${at.line}${at.side === "LEFT" ? " (LEFT side)" : ""}`;
 
 /** The review whose assistant conversation this thread is. */
 export function assistantReview(store: Store, threadId: string): string | null {
@@ -135,7 +135,7 @@ export function undoChange(store: Store, targetKey: string, at: CommentLocation)
   return { ok: true, text: isSummary(at) ? "Put the summary back." : `Put the comment on ${where(at)} back.` };
 }
 
-/** Answer the reviewer in the discussion they started at a line. */
+/** Answer the reviewer in the discussion they started at a line, or on the summary (SUMMARY_AT). */
 export function replyInDiscussion(store: Store, targetKey: string, input: LocationInput & { body: string }): DraftResult {
   if (!store.getReview(targetKey)) return { ok: false, error: "This review no longer exists." };
   const at = located(input);

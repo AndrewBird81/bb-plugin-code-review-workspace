@@ -20,6 +20,7 @@ interface Ctx { projectId?: string; threadId?: string; cwd?: string }
 const USAGE = [
   "usage: bb review <pr-url | pr-number | git-ref> [--base <ref>] [--context <text>]",
   "       bb review comment <list | add | edit | delete> …   (see bb review comment --help)",
+  "       bb review summary <review> [--body <text>] …        (see bb review summary --help)",
   "",
   "  --context  text for the assistant's automatic review, such as the ticket the change implements. It's kept with the review; '' removes it.",
 ].join("\n");

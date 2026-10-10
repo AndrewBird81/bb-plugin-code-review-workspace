@@ -13,8 +13,10 @@ import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
 import { listMachines } from "./src/machines";
-import { addComment, assistantReview, canUndo, deleteComment, describeComments, editComment, replyInDiscussion, undoChange, type DraftResult } from "./src/draft-comments";
-import { commentsKey } from "./src/draft";
+import { addComment, assistantReview, canUndo, deleteComment, editComment, replyInDiscussion, undoChange, type DraftResult } from "./src/draft-comments";
+import { commentsKey, SUMMARY_AT } from "./src/draft";
+import { describeDraft, writeSummary } from "./src/draft-summary";
+import { runSummaryCommand } from "./src/summary-command";
 import { askAgent, settleDiscussions } from "./src/discussions";
 import { runCommentCommand } from "./src/comment-command";
 import { isMissingThread } from "./src/thread-errors";
@@ -55,7 +57,7 @@ export { rpcContract } from "./src/rpc-contract";
 
 
 // Raise when the review assistant's tools change.
-const ASSISTANT_TOOLS = 3;
+const ASSISTANT_TOOLS = 4;
 
 export default async function plugin(bb: BbPluginApi) {
   const store = createStore(bb);
@@ -561,14 +563,14 @@ export default async function plugin(bb: BbPluginApi) {
   const body = z.string().trim().min(1).describe("The comment, in GitHub Markdown.");
   bb.agents.registerTool({
     name: "list_draft_comments",
-    description: "List the comments in the reviewer's local draft for this review: each one's location, who added it (an agent or the reviewer), and text.",
+    description: "Show the reviewer's local draft for this review: the review summary and who wrote it (an agent or the reviewer), the verdict the reviewer picked and the one suggested, then each comment's location, who added it, and text.",
     parameters: z.object({}),
-    execute: (_input, { threadId }) => assistantDraft(threadId, false, (targetKey) => ({ ok: true, text: describeComments(store, targetKey) })),
+    execute: (_input, { threadId }) => assistantDraft(threadId, false, (targetKey) => ({ ok: true, text: describeDraft(store, targetKey) })),
   });
   bb.agents.registerTool({
     name: "add_draft_comment",
     description: "Add an inline comment to the reviewer's local draft for this review, on one line of the current diff. Nothing reaches GitHub: the reviewer edits, removes, or submits it. Refuses a line that already has a draft comment.",
-    instructions: "Whenever a comment is warranted, such as a bug, a risk, a missing case, or a question about specific lines, add it with add_draft_comment on the line it concerns. Prefer this to a general remark, because an inline comment keeps the issue's location. Put one issue in each comment. Points about the change as a whole go in your reply. list_draft_comments shows the draft and who added each comment; edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit, remove, and submit it. Never post to GitHub yourself, for example with gh pr review, gh pr comment, gh api writes, or git push.",
+    instructions: "Whenever a comment is warranted, such as a bug, a risk, a missing case, or a question about specific lines, add it with add_draft_comment on the line it concerns. Prefer this to a general remark, because an inline comment keeps the issue's location. Put one issue in each comment. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment; edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit, remove, and submit it. Never post to GitHub yourself, for example with gh pr review, gh pr comment, gh api writes, or git push.",
     parameters: z.object({
       ...location,
       code: z.string().describe("The line's text, without the diff's leading +, -, or space. It must match the line."),
@@ -589,11 +591,28 @@ export default async function plugin(bb: BbPluginApi) {
     execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => deleteComment(store, targetKey, input)),
   });
   bb.agents.registerTool({
+    name: "set_review_summary",
+    description: "Write the review summary in the reviewer's local draft for this review: the top-level comment GitHub shows with the verdict and the line comments. Optionally suggest a verdict; the reviewer picks it. Nothing reaches GitHub. Refuses a summary the reviewer wrote, unless they asked on the summary for the change.",
+    instructions: "Write the review summary with set_review_summary: the overall assessment, what blocks merging and what doesn't, and points that have no line. Don't repeat your line comments, since GitHub shows them with the review; refer to them by file:line. Keep it short, in GitHub Markdown. Give the verdict you'd suggest; the reviewer picks the verdict, and yours is marked on it. Messages from the summary's discussion ask for changes to it: make them with set_review_summary, then answer with reply_in_discussion (summary: true).",
+    parameters: z.object({
+      body: z.string().trim().min(1).describe("The summary, in GitHub Markdown."),
+      verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional().describe("The verdict you'd suggest; the reviewer picks."),
+    }),
+    execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => writeSummary(store, targetKey, input)),
+  });
+  bb.agents.registerTool({
     name: "reply_in_discussion",
-    description: "Reply in the reviewer's discussion at a line of the diff, shown under the line's draft comment, or in its place when there's none. Only the reviewer sees it; nothing reaches GitHub. The reviewer starts discussions, so there must be one at that file, line, and side.",
+    description: "Reply in the reviewer's discussion at a line of the diff, shown under the line's draft comment, or in its place when there's none; or, with summary: true, in the discussion on the review summary. Only the reviewer sees it; nothing reaches GitHub. The reviewer starts discussions, so there must be one there.",
     instructions: "Messages from a discussion in the diff say which line they're about. When a reply is warranted, answer with reply_in_discussion on that line, where the reviewer reads it, and keep your chat reply to one short line. When they ask for a change to the draft comment there, make it with add_draft_comment, edit_draft_comment, or delete_draft_comment instead of describing it.",
-    parameters: z.object({ ...location, body: z.string().trim().min(1).describe("The reply, in Markdown.") }),
-    execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => replyInDiscussion(store, targetKey, input)),
+    parameters: z.object({
+      summary: z.boolean().optional().describe("true to reply in the review summary's discussion, without file and line."),
+      file: location.file.optional(), line: location.line.optional(), side: location.side,
+      body: z.string().trim().min(1).describe("The reply, in Markdown."),
+    }),
+    execute: ({ summary, file, line, side, body }, { threadId }) => assistantDraft(threadId, true, (targetKey) =>
+      summary ? replyInDiscussion(store, targetKey, { ...SUMMARY_AT, body })
+      : file === undefined || line === undefined ? { ok: false, error: "Give the discussion's file and line, or summary: true for the review summary's discussion." }
+      : replyInDiscussion(store, targetKey, { file, line, side, body })),
   });
   // Checking your feedback: the review assistant reads it and what changed, then records a verdict per item.
   async function assistantReviewOf(threadId: string): Promise<ReviewMeta | string> {
@@ -607,7 +626,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "list_feedback",
     description: "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries.",
-    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review, then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict with a short summary the reviewer could submit. Draft a reply on each thread with draft_thread_reply when one helps, such as \"Fixed in abc123, thanks.\" or what's still missing. The reviewer posts replies and resolves threads; you never do.",
+    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review, then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in the Feedback view. Draft a reply on each thread with draft_thread_reply when one helps, such as \"Fixed in abc123, thanks.\" or what's still missing. The reviewer posts replies and resolves threads; you never do.",
     parameters: z.object({}),
     async execute(_input, { threadId }) {
       const review = await assistantReviewOf(threadId);
@@ -645,7 +664,7 @@ export default async function plugin(bb: BbPluginApi) {
   });
   bb.agents.registerTool({
     name: "assess_feedback",
-    description: "Record whether each piece of the reviewer's feedback was addressed at the PR's current head. Items are thread ids from list_feedback, or \"summary:<n>\" (with a title) for asks in a review summary. Optionally add an overall summary and the verdict you'd suggest. The reviewer sees it in the Feedback view; nothing reaches GitHub.",
+    description: "Record whether each piece of the reviewer's feedback was addressed at the PR's current head. Items are thread ids from list_feedback, or \"summary:<n>\" (with a title) for asks in a review summary. Optionally add an overall summary, the verdict you'd suggest, and a review summary for the reviewer's draft. The reviewer sees it in the Feedback view and their draft; nothing reaches GitHub.",
     parameters: z.object({
       items: z.array(z.object({
         id: z.string().min(1),
@@ -657,17 +676,27 @@ export default async function plugin(bb: BbPluginApi) {
       })).min(1),
       summary: z.string().optional().describe("Two or three sentences on where the PR stands."),
       suggestedVerdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional(),
-      suggestedBody: z.string().optional().describe("The review summary you'd submit with that verdict, in GitHub Markdown."),
+      suggestedBody: z.string().optional().describe("The review summary you'd submit with that verdict, in GitHub Markdown. It goes into the reviewer's draft, unless they wrote the draft's summary."),
     }),
     async execute(input, { threadId }) {
       const review = await assistantReviewOf(threadId);
       if (typeof review === "string") return failed(review);
       const result = assess(store, review, input);
       if (!result.ok) return failed(result.error);
+      // The suggestion fills the draft's summary when the rules allow; over the reviewer's own, it waits in the Feedback view for Use as draft.
+      let note = "";
+      if (input.suggestedBody?.trim()) {
+        const written = writeSummary(store, review.targetKey, { body: input.suggestedBody, verdict: input.suggestedVerdict });
+        note = written.ok ? " Your suggested summary is in the reviewer's draft." : " The reviewer wrote the draft's summary, so yours waits in the Feedback view.";
+        if (written.ok) bb.realtime.publish(`draft:${review.targetKey}`, {});
+      } else if (input.suggestedVerdict) {
+        store.updateSummary(review.targetKey, { suggestedVerdict: input.suggestedVerdict });
+        bb.realtime.publish(`draft:${review.targetKey}`, {});
+      }
       bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
       await sync.evaluate(review.targetKey);
       changed(review.targetKey);
-      return result.text;
+      return result.text + note;
     },
   });
   bb.agents.registerTool({
@@ -746,7 +775,7 @@ export default async function plugin(bb: BbPluginApi) {
       const { targetKey } = context.pluginMetadata;
       const review = typeof targetKey === "string" ? store.getReview(targetKey) : null;
       return {
-        tools: ["read_review_patch", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "reply_in_discussion",
+        tools: ["read_review_patch", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
           "list_feedback", "read_changes_since_review", "read_file", "assess_feedback", "draft_thread_reply"], skills: [],
         ...(review ? { instructions: assistantInstructions(review.targetKey, store.getGuide(review.targetKey), store.getPreferences().preferences) } : {}),
       };
@@ -754,7 +783,7 @@ export default async function plugin(bb: BbPluginApi) {
     return { tools: [], skills: [] };
   });
   // An assistant's runtime keeps the tools it started with. Restart idle ones
-  // once, so conversations from before reply_in_discussion get it.
+  // once, so conversations from before set_review_summary get it.
   void (async () => {
     if (await bb.storage.kv.get<number>("assistant-tools") === ASSISTANT_TOOLS) return;
     await refreshAssistants(bb, store);
@@ -763,15 +792,17 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.cli.register({
     name: "review",
-    summary: "Open a Guided Review of a GitHub PR or local git ref, or change its local draft comments",
+    summary: "Open a Guided Review of a GitHub PR or local git ref, or change its local draft",
     rendersHelp: true,
     commands: [
       { name: "review", summary: "Review a PR or ref", usage: "bb review <pr-url | pr-number | git-ref> [--base <ref>] [--context <text>]" },
       { name: "comment", summary: "List, add, edit, or delete a review's local draft comments; never posts to GitHub", usage: "bb review comment <list | add | edit | delete> <review> [<file>:<line>] [--side LEFT|RIGHT] [--code <text>] [--body <text>] [--json]" },
+      { name: "summary", summary: "Show or write a review's local review summary and suggested verdict; never posts to GitHub", usage: "bb review summary <review> [--json] | [--body <text> [--suggest APPROVE|COMMENT|REQUEST_CHANGES]]" },
     ],
     async run(argv, ctx) {
-      return updates.run(() => argv[0] === "comment"
-        ? runCommentCommand(store, argv.slice(1), (targetKey) => bb.realtime.publish(`draft:${targetKey}`, {}))
+      const changedDraft = (targetKey: string) => bb.realtime.publish(`draft:${targetKey}`, {});
+      return updates.run(() => argv[0] === "comment" ? runCommentCommand(store, argv.slice(1), changedDraft)
+        : argv[0] === "summary" ? runSummaryCommand(store, argv.slice(1), changedDraft)
         : runReviewCommand({ bb, store, gh: { runGh, runGit } }, argv, ctx));
     },
   });
