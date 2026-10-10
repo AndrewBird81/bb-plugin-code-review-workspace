@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
-import { defaultPreferences } from "./preferences";
+import { AUTOMATIC_REVIEW_BEFORE_SUMMARY, defaultPreferences } from "./preferences";
 import { buildGenerationPrompt } from "./generate";
 import { generateGuide } from "./generate";
 import { startConversation } from "./agent";
@@ -21,6 +21,19 @@ test("settings persist across stores, reject stale edits, and validate input", a
   expect(buildGenerationPrompt("pr-1", "run-1", preferences)).toContain("Explain migration risks");
   expect(buildGenerationPrompt("pr-1", "run-1", preferences)).toContain("Detailed");
   expect(buildGenerationPrompt("pr-1", "run-1", preferences)).not.toContain("Focus on security");
+});
+
+test("an automatic review saved with the default from before the review summary reads as the current default; a custom one stays", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_SUMMARY, diffLayout: "unified" }, 0);
+  expect(store.getPreferences()).toEqual({ preferences: { ...defaultPreferences, diffLayout: "unified" }, revision: 1 });
+  expect(defaultPreferences.automaticReview).toContain("set_review_summary");
+  expect(defaultPreferences.automaticReview).not.toContain("Put general points in your reply.");
+  const custom = `${AUTOMATIC_REVIEW_BEFORE_SUMMARY}\nFocus on security.`;
+  store.savePreferences({ ...defaultPreferences, automaticReview: custom }, 1);
+  expect(store.getPreferences().preferences.automaticReview).toBe(custom);
 });
 
 test("private notes persist independently of drafts, with conflict protection", async () => {
