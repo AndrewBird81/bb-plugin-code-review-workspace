@@ -869,7 +869,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               </Hint>
             </div>
           </div>
-          <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-4">
+          {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
+          <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
             {view === "diff" ? (
               <>
               {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
