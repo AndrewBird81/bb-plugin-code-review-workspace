@@ -64,3 +64,17 @@ test("draft reads and writes report comments drafted against an older diff", asy
   const removed = await harness.behavior.callRpc("removeDraftComment", { targetKey: "pr-2", file: "a.ts", line: 1, side: "RIGHT" }) as any;
   expect(removed).toMatchObject({ draft: { comments: [] }, stale: [] });
 });
+
+test("saveDraftComment refuses a line outside the current diff, naming it", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-3", kind: "pr", number: 3, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
+  store.savePatch("pr-3", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-3" }) as any;
+  await expect(harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-3", revision, comment: { file: "a.ts", line: 99, side: "RIGHT", body: "nit" } }))
+    .rejects.toThrow("a.ts:99 isn’t in the current diff. Choose a line the diff shows.");
+  await expect(harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-3", revision, comment: { file: "b.ts", line: 1, side: "RIGHT", body: "nit" } }))
+    .rejects.toThrow("b.ts:1 isn’t in the current diff.");
+  expect(store.getDraft("pr-3").comments).toEqual([]);
+});

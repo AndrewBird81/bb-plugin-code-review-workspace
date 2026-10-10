@@ -125,3 +125,22 @@ test("line comments list in the review's order: chapter by chapter, then file, l
   expect(list).toEqual(["src/b.ts:2", "src/b.ts:5", "src/a.ts:1 · Old line", "src/a.ts:1", "src/a.ts:3", "src/z.ts:1"]);
   slot.lifecycle.unmount();
 });
+
+test("the Add comment form picks from the review's files, and says why the server refused a line", async () => {
+  const saveDraftComment = vi.fn(async () => { throw new Error("src/b.ts:99 isn’t in the current diff. Choose a line the diff shows."); });
+  const slot = await renderTray("outside", { getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), saveDraftComment }, { files: ["src/a.ts", "src/b.ts"] });
+  writeComment(slot, "Out of range.");
+  const file = slot.getByRole("combobox", { name: "Comment file" }) as HTMLSelectElement;
+  expect(within(file).getAllByRole("option").map((option) => option.textContent)).toEqual(["src/a.ts", "src/b.ts"]);
+  expect(file.value).toBe("src/a.ts");
+  fireEvent.change(file, { target: { value: "src/b.ts" } });
+  fireEvent.change(slot.getByRole("spinbutton", { name: "Comment line" }), { target: { value: "99" } });
+  fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
+  const form = within(slot.getByRole("textbox", { name: "Draft comment" }).parentElement!);
+  expect((await form.findByRole("alert")).textContent).toBe("src/b.ts:99 isn’t in the current diff. Choose a line the diff shows.");
+  expect((slot.getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Out of range.");
+  // Changing the line clears it.
+  fireEvent.change(slot.getByRole("spinbutton", { name: "Comment line" }), { target: { value: "2" } });
+  expect(form.queryByRole("alert")).toBeNull();
+  slot.lifecycle.unmount();
+});

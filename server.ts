@@ -37,6 +37,7 @@ import {
 import { createReviewSync } from "./src/review-lifecycle";
 import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
+import { invalidComments } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
 import { stopGuideGenerations, hasGuideGenerations } from "./src/generate";
 import { parseChecks, parseReviewThreads } from "./src/threads";
@@ -416,6 +417,10 @@ export default async function plugin(bb: BbPluginApi) {
     },
     saveDraftComment({ targetKey, comment, revision }) {
       requireReviewRevision(store, targetKey, revision);
+      // GitHub refuses a comment on a line the diff doesn't show; say so now, not at submit.
+      if (invalidComments(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, [comment]).length) {
+        throw new Error(`${comment.file}:${comment.line} isn’t in the current diff. Choose a line the diff shows.`);
+      }
       return draftState(targetKey, store.upsertDraftComment(targetKey, comment));
     },
     removeDraftComment({ targetKey, file, line, side }) {

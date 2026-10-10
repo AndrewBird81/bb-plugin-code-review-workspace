@@ -66,6 +66,9 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   // Whether the box's text is a message to the agent rather than a comment, and the other end of the lines it's about.
   const [asking, setAsking] = useState(false);
   const [startLine, setStartLine] = useState<number | undefined>();
+  // Why the server refused the comment in the box; it clears when you change the comment.
+  const [composerError, setComposerError] = useState<string | null>(null);
+  useEffect(() => setComposerError(null), [file, line, side, body, showComposer]);
   const [stale, setStale] = useState<CommentLocation[]>([]);
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
   const [writeAnother, setWriteAnother] = useState(false);
@@ -235,13 +238,14 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     if (onSummary && !asking) { closeComposer(); focusSummary(); }
   }
 
-  async function mutate(operation: () => Promise<void>) {
+  /** Run a change to the draft; its error goes to `onError` when given, rather than a toast. */
+  async function mutate(operation: () => Promise<void>, onError?: (message: string) => void) {
     if (lock.current) return;
     lock.current = true; setBusy(true); setStatus({ saving: true });
     try { await operation(); if (mounted.current) setStatus({}); }
     catch (error) {
       const message = error instanceof Error ? error.message : "Couldn’t save the draft. Try again.";
-      toast.error(message);
+      if (onError) onError(message); else toast.error(message);
       if (mounted.current) setStatus({ error: message });
     }
     finally { lock.current = false; if (mounted.current) setBusy(false); }
@@ -297,7 +301,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     await mutate(async () => {
       const result = await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(composerRevision.current ? { revision: composerRevision.current } : {}), comment: { file, line: Number(line), side, chapterId: editing?.chapterId ?? activeChapterId, body: body.trim() } }));
       apply(result as { draft: Draft }); closeComposer();
-    });
+    }, (message) => { if (mounted.current) setComposerError(message); });
   }
   async function removeComment({ file, line, side }: DraftComment) {
     await mutate(async () => {
@@ -367,12 +371,12 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     editingAt: editingLine ? { file, line: Number(line), side } : null,
   }), [draft.comments, stale, lineDiscussions, editable, busy, writing, open, ask, remove, dismiss, undoAt, chat, composerInDiff, editingLine, file, line, side, editing, asking]);
   const inlineComposer = useMemo<InlineComposer | null>(() => composerInDiff ? {
-    body, textareaRef: bodyRef,
+    body, textareaRef: bodyRef, error: composerError,
     change: (text) => latest.current.changeBody(text),
     save: () => { void latest.current.addComment(); },
     askAgent: () => { void latest.current.askAgent(); },
     cancel: () => latest.current.closeComposer(),
-  } : null, [composerInDiff, body]);
+  } : null, [composerInDiff, body, composerError]);
   const summaryComposer = editable && onSummary ? {
     mode: asking ? "ask" as const : "edit" as const, body, textareaRef: bodyRef,
     change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: () => { closeComposer(); focusSummary(); },
@@ -453,12 +457,13 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
               <span className="min-w-0 flex-1 break-words">{asking ? `Writing to the agent about ${file}:${line} in the diff.` : `Writing a comment on ${file}:${line} in the diff.`}</span>
               <Button variant="ghost" size="sm" onClick={() => onShowComment?.({ file, line: Number(line), side })}>Show in diff</Button>
             </div> : <div className="space-y-3 border-t border-border pt-3">
-              <label className="block space-y-1 text-xs text-muted-foreground">File<Input aria-label="Comment file" disabled={busy || !!editing} value={file} onChange={(event) => setFile(event.target.value)} /></label>
+              <label className="block space-y-1 text-xs text-muted-foreground">File<select aria-label="Comment file" disabled={busy || !!editing} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground" value={file} onChange={(event) => setFile(event.target.value)}>{(file && !files.includes(file) ? [file, ...files] : files).map((choice) => <option key={choice} value={choice}>{choice}</option>)}</select></label>
               <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-3">
                 <label className="space-y-1 text-xs text-muted-foreground">Line<Input aria-label="Comment line" disabled={busy || !!editing} type="number" min={1} value={line} onChange={(event) => setLine(event.target.value)} /></label>
                 <label className="space-y-1 text-xs text-muted-foreground">Side<select aria-label="Comment side" disabled={busy || !!editing} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground" value={side} onChange={(event) => setSide(event.target.value as "LEFT" | "RIGHT")}><option value="RIGHT">New line</option><option value="LEFT">Old line</option></select></label>
               </div>
               <Textarea ref={bodyRef} aria-label="Draft comment" disabled={busy} value={body} onChange={(event) => changeBody(event.target.value)} onKeyDown={(event) => composerKeys(event, canAdd ? () => void addComment() : null, () => { if (!busy) closeComposer(); })} placeholder="What should the author know?" />
+              {composerError && <p role="alert" className="text-xs text-destructive-text">{composerError}</p>}
               <div className="flex flex-wrap gap-2"><Button disabled={!canAdd} onClick={() => void addComment()}>{editing ? "Save comment" : "Add to draft"}</Button><Button variant="ghost" disabled={busy} onClick={closeComposer}>Cancel</Button></div>
             </div>)}
           </div>
