@@ -667,17 +667,19 @@ export default async function plugin(bb: BbPluginApi) {
   });
   bb.agents.registerTool({
     name: "read_file",
-    description: "Read a file of this PR at the PR's head (ref \"current\") or at the commit the reviewer last reviewed (ref \"reviewed\"), with line numbers. Returns up to 400 lines from startLine.",
+    description: "Read a file of this review with line numbers, up to 400 lines from startLine. ref \"current\" (the default) is the PR's head now, or a local review's changed side; \"base\" is the commit the diff starts from, before the change; \"reviewed\" is the commit the reviewer last reviewed (PRs only).",
     parameters: z.object({
       path: z.string().min(1).describe("Repo-relative path."),
-      ref: z.enum(["current", "reviewed"]).optional(),
+      ref: z.enum(["current", "base", "reviewed"]).optional(),
       startLine: z.number().int().min(1).optional(),
       endLine: z.number().int().min(1).optional(),
     }),
     async execute({ path, ref, startLine, endLine }, { threadId }) {
-      const review = await assistantReviewOf(threadId);
-      if (typeof review === "string") return failed(review);
-      return readFileAt(runGh, review, path, ref ?? "current", startLine, endLine);
+      // Local reviews too, unlike the feedback tools.
+      const targetKey = assistantReview(store, threadId);
+      const review = targetKey ? store.getReview(targetKey) : null;
+      if (!review) return failed("This conversation is no longer a review's assistant.");
+      return readFileAt(runGh, runGit, review, path, ref ?? "current", startLine, endLine);
     },
   });
   bb.agents.registerTool({

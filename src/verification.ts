@@ -2,7 +2,7 @@
 // starts, and what its tools return. Nothing here writes to GitHub.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store, ReviewMeta } from "./store";
-import type { runGh } from "./gh";
+import { ghErrorMessage, type runGh, type runGit } from "./gh";
 import { messageAssistant } from "./agent";
 import { baselineOf, diffAt, feedbackView, headOf, isSummaryItem, summarize } from "./feedback-view";
 import { describeInterdiff, interdiff } from "./interdiff";
@@ -93,21 +93,59 @@ async function commitsSince(run: Run, review: ReviewMeta, sha: string): Promise<
   return after.length ? after.map(([oid, message]) => `- ${short(oid)} ${message}`).join("\n") + (index < 0 ? "\n(The reviewed commit is no longer on the branch; it was rebased or force-pushed.)" : "") : "None.";
 }
 
-/** read_file: a file at your reviewed commit or the PR's head, with line numbers. */
-export async function readFileAt(run: Run, review: ReviewMeta, path: string, ref: "current" | "reviewed", startLine = 1, endLine?: number): Promise<string> {
-  const sha = ref === "reviewed" ? baselineOf(review).sha : headOf(review);
+/** A PR's file at a commit: its head now, your reviewed commit, or the commit its diff starts from. */
+async function prFile(run: Run, review: ReviewMeta, path: string, ref: FileRef): Promise<{ at: string; text: string } | string> {
+  let sha = ref === "reviewed" ? baselineOf(review).sha : headOf(review);
+  if (ref === "base") {
+    const head = review.headSha ?? headOf(review);
+    if (!head || !review.base || !review.repo) return "There's no such commit for this review.";
+    const out = await run(["api", `repos/${review.repo}/compare/${encodeURIComponent(review.base)}...${head}`, "--jq", ".merge_base_commit.sha"]);
+    if (out.code !== 0 || !out.stdout.trim()) return `Couldn't find the PR's base commit: ${ghErrorMessage(out)}`;
+    sha = out.stdout.trim();
+  }
   if (!sha || !review.repo) return "There's no such commit for this review.";
+  const encoded = path.split("/").map(encodeURIComponent).join("/");
+  const out = await run(["api", "-H", "Accept: application/vnd.github.raw", `repos/${review.repo}/contents/${encoded}?ref=${sha}`]);
+  if (out.code !== 0) return `Couldn't read ${path} at ${short(sha)}: ${out.stderr.trim() || "not found"}`;
+  return { at: short(sha), text: out.stdout };
+}
+
+/** A local review's file on either side of its diff: `a...b` starts from their merge base, `a..b` from a, and a single ref is compared with the working tree. */
+async function localFile(git: typeof runGit, review: ReviewMeta, path: string, ref: FileRef): Promise<{ at: string; text: string } | string> {
+  if (!review.cwd || !review.gitRef) return "There's no such commit for this review.";
+  if (ref === "reviewed") return "A local review has no reviewed commit. Use ref \"current\" or \"base\".";
+  const [, from, dots, to] = review.gitRef.match(/^(.*?)(\.\.\.?)(.*)$/) ?? [];
+  let rev: string;
+  if (ref === "current") {
+    if (!dots) return `This review compares ${review.gitRef} with the working tree, so read ${path} from the working tree in ${review.cwd}.`;
+    rev = to || "HEAD";
+  } else if (!dots) rev = review.gitRef;
+  else if (dots === "..") rev = from || "HEAD";
+  else {
+    const base = await git(["merge-base", from || "HEAD", to || "HEAD"], { cwd: review.cwd });
+    if (base.code !== 0) return `Couldn't find where ${review.gitRef} starts: ${base.stderr.trim()}`;
+    rev = base.stdout.trim();
+  }
+  const out = await git(["show", "--no-textconv", `${rev}:${path}`], { cwd: review.cwd });
+  if (out.code !== 0) return `Couldn't read ${path} at ${rev}: ${out.stderr.trim() || "not found"}`;
+  return { at: /^[0-9a-f]{40}$/.test(rev) ? short(rev) : rev, text: out.stdout };
+}
+
+type FileRef = "base" | "current" | "reviewed";
+const MAX_FILE_LINES = 400;
+
+/** read_file: a file at the diff's base, your reviewed commit, or the PR's head (a local review's new side), with line numbers. */
+export async function readFileAt(run: Run, git: typeof runGit, review: ReviewMeta, path: string, ref: FileRef, startLine = 1, endLine?: number): Promise<string> {
   // A repo-relative path only: no "." or ".." segments that could reach another GitHub endpoint.
   const segments = path.split("/");
   if (path.startsWith("/") || segments.some((segment) => !segment || segment === "." || segment === "..")) return `${path} isn't a repo-relative file path.`;
-  const encoded = segments.map(encodeURIComponent).join("/");
-  const out = await run(["api", "-H", "Accept: application/vnd.github.raw", `repos/${review.repo}/contents/${encoded}?ref=${sha}`]);
-  if (out.code !== 0) return `Couldn't read ${path} at ${short(sha)}: ${out.stderr.trim() || "not found"}`;
-  const lines = out.stdout.split("\n");
+  const file = review.kind === "pr" ? await prFile(run, review, path, ref) : await localFile(git, review, path, ref);
+  if (typeof file === "string") return file;
+  const lines = file.text.replace(/\n$/, "").split("\n");
   const from = Math.max(1, startLine);
-  const to = Math.min(lines.length, endLine ?? from + 399);
+  const to = Math.min(lines.length, from + MAX_FILE_LINES - 1, endLine ?? Infinity);
   const body = lines.slice(from - 1, to).map((line, i) => `${String(from + i).padStart(5)}  ${line}`).join("\n");
-  return `${path} at ${short(sha)}, lines ${from}–${to} of ${lines.length}:\n${body}${to < lines.length ? `\n[Call again with startLine=${to + 1} for more.]` : ""}`;
+  return `${path} at ${file.at}, lines ${from}–${to} of ${lines.length}:\n${body}${to < lines.length ? `\n[Call again with startLine=${to + 1} for more.]` : ""}`;
 }
 
 export interface AssessInput {

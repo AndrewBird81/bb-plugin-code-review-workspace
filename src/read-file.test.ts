@@ -1,0 +1,81 @@
+import { expect, test, vi } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import plugin from "../server";
+import { createStore, type ReviewMeta } from "./store";
+import { runGit } from "./gh";
+import { readFileAt } from "./verification";
+
+vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
+
+const ok = (stdout: string) => ({ stdout, stderr: "", code: 0 });
+const pr: ReviewMeta = { targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "sha2", status: "ready", createdAt: 1 };
+const noGit = vi.fn(async () => ok(""));
+
+test("read_file counts a file's last line once", async () => {
+  const gh = vi.fn(async () => ok("a\nb\n"));
+  expect(await readFileAt(gh, noGit, pr, "a.ts", "current")).toBe("a.ts at sha2, lines 1–2 of 2:\n    1  a\n    2  b");
+});
+
+test("read_file returns at most 400 lines, even for a later endLine", async () => {
+  const gh = vi.fn(async () => ok(Array.from({ length: 1000 }, (_, i) => `l${i + 1}`).join("\n") + "\n"));
+  const text = await readFileAt(gh, noGit, pr, "a.ts", "current", 1, 5000);
+  expect(text).toContain("lines 1–400 of 1000");
+  expect(text).toContain("[Call again with startLine=401 for more.]");
+  expect(await readFileAt(gh, noGit, pr, "a.ts", "current", 10, 12)).toContain("lines 10–12 of 1000");
+});
+
+test("read_file reads a PR's file at the commit its diff starts from", async () => {
+  const gh = vi.fn(async (args: string[]) => args.some((a) => a.includes("/compare/")) ? ok("base1\n") : ok("old\n"));
+  expect(await readFileAt(gh, noGit, pr, "src/a.ts", "base")).toContain("src/a.ts at base1, lines 1–1 of 1:\n    1  old");
+  expect(gh.mock.calls[0][0]).toEqual(["api", "repos/acme/web/compare/main...sha2", "--jq", ".merge_base_commit.sha"]);
+  expect(gh.mock.calls[1][0].at(-1)).toBe("repos/acme/web/contents/src/a.ts?ref=base1");
+});
+
+test("read_file reads a local review's files with git, from either side of its diff", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "gr-read-file-"));
+  try {
+    const git = (...args: string[]) => runGit(args, { cwd });
+    await git("init", "-q", "-b", "main");
+    await git("config", "user.email", "t@example.com");
+    await git("config", "user.name", "t");
+    await writeFile(join(cwd, "a.ts"), "one\n");
+    await git("add", ".");
+    await git("commit", "-qm", "base");
+    await git("checkout", "-qb", "feature");
+    await writeFile(join(cwd, "a.ts"), "two\n");
+    await git("commit", "-qam", "change");
+    await git("checkout", "-q", "main");
+    await writeFile(join(cwd, "a.ts"), "main moved on\n");
+    await git("commit", "-qam", "later");
+    const local: ReviewMeta = { targetKey: "ref-1", kind: "ref", gitRef: "main...feature", cwd, status: "ready", createdAt: 1 };
+    expect(await readFileAt(vi.fn(), runGit, local, "a.ts", "current")).toBe("a.ts at feature, lines 1–1 of 1:\n    1  two");
+    expect(await readFileAt(vi.fn(), runGit, local, "a.ts", "base")).toContain("    1  one");
+    expect(await readFileAt(vi.fn(), runGit, { ...local, gitRef: "main..feature" }, "a.ts", "base")).toContain("    1  main moved on");
+    const worktree = { ...local, gitRef: "HEAD" };
+    expect(await readFileAt(vi.fn(), runGit, worktree, "a.ts", "base")).toContain("    1  main moved on");
+    expect(await readFileAt(vi.fn(), runGit, worktree, "a.ts", "current")).toContain("working tree");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("the assistant of a local review can read files", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "gr-read-file-"));
+  try {
+    for (const args of [["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "t"]]) await runGit(args, { cwd });
+    await writeFile(join(cwd, "a.ts"), "one\n");
+    await runGit(["add", "."], { cwd });
+    await runGit(["commit", "-qm", "base"], { cwd });
+    const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+    await plugin(bb);
+    const store = createStore(bb);
+    store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "HEAD", cwd, status: "ready", createdAt: 1 });
+    store.setAssistantThread("ref-1", "assistant");
+    expect(await harness.behavior.callAgentTool("read_file", { path: "a.ts", ref: "base" }, { threadId: "assistant" })).toContain("    1  one");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
