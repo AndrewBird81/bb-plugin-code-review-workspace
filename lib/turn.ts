@@ -164,7 +164,8 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   const lastReviewAt = Math.max(s.lastReviewAt ?? 0, review.submittedAt ?? 0) || null;
   const reviewed = lastReviewAt !== null || !!review.submittedVerdict;
   const snoozedAt = review.snoozedAt ?? null;
-  const reRequested = reviewed && after(s.requestedAt, lastReviewAt);
+  // Only a request to you asks you again; a team you're on being asked doesn't.
+  const reRequested = reviewed && s.requestedVia !== "team" && after(s.requestedAt, lastReviewAt);
 
   // A person asking you again outranks your own archive.
   if (review.userArchivedAt && !(reRequested && after(s.requestedAt, review.userArchivedAt))) {

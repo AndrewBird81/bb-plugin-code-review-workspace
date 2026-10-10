@@ -438,3 +438,11 @@ test("a re-review that couldn't start is tried again later, alerting once", asyn
   expect(s.actions.prepare).toHaveBeenCalledTimes(2);
   expect(s.published).toHaveLength(1);
 });
+
+test("a direct request isn't demoted by a later team request", async () => {
+  const s = setup({ pr: { requestPending: { via: "user" }, requests: [{ at: T0 - 2 * HOUR, by: "alice", via: "user" }, { at: T0 - HOUR, by: "bob", via: "team", team: "acme/core" }] } });
+  s.store.setStatus("pr-1", "tracked");
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.signals).toMatchObject({ requestedAt: T0 - 2 * HOUR, requestedBy: "alice", requestedVia: "user" });
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ reason: "requested", notify: true });
+});

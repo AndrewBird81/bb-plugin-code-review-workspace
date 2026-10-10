@@ -30,8 +30,8 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
     }
   }
   const verdict = "submittedVerdict" in update ? update.submittedVerdict : previous.submittedVerdict;
-  // A pending request keeps its time if its event scrolls out of the timeline.
-  const request = facts.requests.at(-1)
+  // A request to you outranks a later one to a team you're on. A pending request keeps its time if its event scrolls out of the timeline.
+  const request = facts.requests.filter((r) => r.via === "user").at(-1) ?? facts.requests.at(-1)
     ?? (facts.requestPending && s.requestedAt ? { at: s.requestedAt, by: s.requestedBy ?? null, via: s.requestedVia ?? facts.requestPending.via } : undefined);
   const others = facts.otherOpinions;
   const reviewedAt = own?.sha ? facts.commits.lastIndexOf(own.sha) : -1;

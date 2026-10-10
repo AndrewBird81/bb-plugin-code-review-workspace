@@ -46,6 +46,12 @@ test("a request for your review alerts you; a team request is quieter", () => {
   expect(team).toMatchObject({ group: "needs", reason: "team-requested", notify: false });
 });
 
+test("a team request after your review isn't a re-request, and doesn't undo your archive", () => {
+  const team = { requestedAt: t(1), requestedBy: "carol", requestedVia: "team" as const, requestPending: true };
+  expect(turn(changesRequested({}, team))).toMatchObject({ group: "waiting", reason: "waiting" });
+  expect(turn(changesRequested({ userArchivedAt: t(2) }, team)).group).toBe("archive");
+});
+
 test("a push alone doesn't make it your turn", () => {
   const pushed = turn(changesRequested({ latestHeadSha: "sha2" }, { headSeenAt: t(3) }));
   expect(pushed).toMatchObject({ group: "waiting", reason: "waiting", label: "Changes requested", updated: true, signal: null });
