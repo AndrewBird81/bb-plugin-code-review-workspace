@@ -83,11 +83,14 @@ export async function generateGuide(
       const deadline = Date.now() + waitCap(store.readPatch(targetKey, 0, 0).total);
       const signal = AbortSignal.any([controller.signal, failed.signal]);
       for (;;) {
+        const started = Date.now();
+        const timeoutMs = Math.min(WAIT_STEP, deadline - started);
         try {
-          await threads.wait({ threadId: worker.id, status: "idle", timeoutMs: Math.min(WAIT_STEP, deadline - Date.now()), signal });
+          await threads.wait({ threadId: worker.id, status: "idle", timeoutMs, signal });
           break;
         } catch (error) {
-          if (signal.aborted || Date.now() >= deadline) throw error;
+          // Only a wait that ran its full time is tried again; any other failure ends the generation.
+          if (signal.aborted || Date.now() >= deadline || Date.now() - started < timeoutMs) throw error;
           const thread = await threads.get({ threadId: worker.id }).catch(() => null);
           if (!thread || !workerActive(thread.status)) throw error;
         }

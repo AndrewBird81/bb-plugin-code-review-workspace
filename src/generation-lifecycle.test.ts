@@ -99,6 +99,7 @@ test("a guide worker that fails ends its generation at once", async () => {
 });
 
 test("a guide worker still working when the wait times out is waited for longer", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
   const waits: number[] = [];
   let store!: ReturnType<typeof createStore>;
   const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
@@ -106,15 +107,36 @@ test("a guide worker still working when the wait times out is waited for longer"
     get: async () => ({ id: "worker", status: "active", archivedAt: null, deletedAt: null }),
     wait: async ({ timeoutMs }: { timeoutMs: number }) => {
       waits.push(timeoutMs);
-      if (waits.length === 1) throw new Error("Timed out waiting for thread worker");
+      if (waits.length === 1) {
+        vi.setSystemTime(Date.now() + timeoutMs);
+        throw new Error("Timed out waiting for thread worker");
+      }
       store.saveGuide("target", guide);
       return { matched: true };
     },
   } } as any });
   store = createStore(bb);
   store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
-  await generateGuide(bb, store, "target", "p1");
-  expect(waits).toHaveLength(2);
-  expect(waits[0]).toBeLessThanOrEqual(600_000);
+  // A 50 KB diff gets five more minutes.
+  store.savePatch("target", "x".repeat(50_000));
+  try {
+    await generateGuide(bb, store, "target", "p1");
+  } finally {
+    vi.useRealTimers();
+  }
+  expect(waits).toEqual([600_000, 300_000]);
   expect(store.getReview("target")?.status).toBe("ready");
+});
+
+test("a wait that fails before its time ends the generation, even while the worker looks active", async () => {
+  const wait = vi.fn(async () => { throw new Error("bb unreachable"); });
+  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}), wait,
+    get: async () => ({ id: "worker", status: "active", archivedAt: null, deletedAt: null }),
+  } } as any });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  await generateGuide(bb, store, "target", "p1");
+  expect(wait).toHaveBeenCalledTimes(1);
+  expect(store.getReview("target")?.status).toBe("error");
 });
