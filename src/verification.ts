@@ -8,6 +8,7 @@ import { baselineOf, diffAt, feedbackView, headOf, isSummaryItem, summarize } fr
 import { describeInterdiff, interdiff } from "./interdiff";
 import type { AssessmentItem, AssessmentVerdict } from "../lib/feedback";
 import type { Verdict } from "./draft";
+import { untrusted } from "./untrusted";
 
 type Run = typeof runGh;
 const short = (sha: string | null | undefined) => sha ? sha.slice(0, 7) : "unknown";
@@ -50,7 +51,6 @@ export function describeFeedback(store: Store, review: ReviewMeta): string {
   const view = feedbackView(store, review);
   const threads = view.items.filter((item) => item.thread);
   const lines: string[] = [];
-  lines.push(threads.length ? `${threads.length} review thread${threads.length === 1 ? "" : "s"} the reviewer started:` : "The reviewer started no review threads.");
   for (const { thread, assessment } of threads) {
     if (!thread) continue;
     const where = thread.path ? `${thread.path}${thread.line ? `:${thread.line}` : thread.originalLine ? ` (was line ${thread.originalLine}; the code there changed)` : ""}${thread.side === "LEFT" ? " (LEFT side)" : ""}` : "the PR";
@@ -60,12 +60,13 @@ export function describeFeedback(store: Store, review: ReviewMeta): string {
     for (const reply of thread.replies.slice(-5)) lines.push(`  @${reply.author}${reply.mine ? " (reviewer)" : ""}${reply.bot ? " (bot)" : ""}: ${reply.body.replace(/\s+/g, " ").slice(0, 1500)}`);
     if (assessment) lines.push(`  Earlier check: ${assessment.verdict} — ${assessment.evidence}`);
   }
+  const out = [threads.length ? `${threads.length} review thread${threads.length === 1 ? "" : "s"} the reviewer started:\n${untrusted("review threads", lines.join("\n").trim())}` : "The reviewer started no review threads."];
   const bodies = review.reviewBodies ?? [];
   if (bodies.length) {
-    lines.push("", "The reviewer's review summaries, newest last. Record each distinct ask in them as an item with id \"summary:1\", \"summary:2\", … and a short title:");
-    for (const body of bodies) lines.push("", `(${body.state}, ${date(body.at)})`, ...body.body.split("\n").map((l) => `  > ${l}`));
+    const summaries = bodies.flatMap((body) => ["", `(${body.state}, ${date(body.at)})`, ...body.body.split("\n").map((l) => `  > ${l}`)]);
+    out.push("", "The reviewer's review summaries, newest last. Record each distinct ask in them as an item with id \"summary:1\", \"summary:2\", … and a short title:", untrusted("review summaries", summaries.join("\n").trim()));
   }
-  return lines.join("\n");
+  return out.join("\n");
 }
 
 /** read_changes_since_review: the diff of diffs since your review, with the commits made since. */
