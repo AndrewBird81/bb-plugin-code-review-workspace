@@ -62,6 +62,8 @@ export interface ReviewLifecycle {
   preparedSignal?: string | null;
   /** When preparing a re-review was last tried, to retry a failed start now and then. */
   prepareTriedAt?: number | null;
+  /** The PR's author is the GitHub account reading it. */
+  ownPr?: boolean | null;
 }
 
 export interface ReviewMeta extends ReviewLifecycle {

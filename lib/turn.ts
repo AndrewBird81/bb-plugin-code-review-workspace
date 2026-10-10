@@ -11,7 +11,8 @@ export type TurnReason =
   | "new" | "requested" | "team-requested" | "re-requested"
   | "question" | "mentioned" | "handled" | "looks-ready" | "dismissed"
   | "waiting" | "draft" | "snoozed"
-  | "approved" | "commented";
+  | "approved" | "commented"
+  | "own";
 
 /** Your review threads on the PR, by where each stands. */
 export interface ThreadTally {
@@ -103,6 +104,8 @@ export interface TurnInput {
   signals?: TurnSignals | null;
   snoozedAt?: number | null;
   assessment?: AssessmentSummary | null;
+  /** You wrote the PR: GitHub allows you only a comment review, and there's no author to wait on. */
+  ownPr?: boolean | null;
   /** A turn that came from a passing state (feedback handled, looks ready); it holds until you act. */
   heldTurn?: { reason: TurnReason; label: string; signal: string; at: number } | null;
 }
@@ -187,6 +190,11 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   function reviewerTurn(): Turn {
     if (review.kind === "ref") return make("needs", "new", "Ready", "Open review", { at: review.createdAt ?? null });
     const tracked = review.status === "tracked";
+    // Your own PR is yours to review until you have; then nothing brings it back.
+    if (review.ownPr) {
+      if (!reviewed) return make("needs", "own", "Your PR", tracked ? "Start review" : "Open review", { at: review.createdAt ?? null });
+      return make("reviewed", "own", updated ? "Your PR · updated" : "Your PR", "View review");
+    }
     if (!reviewed) {
       if (tracked && s.isDraft) return make("waiting", "draft", "Draft", "Open review");
       // A PR found on GitHub that no longer asks for you, or only asks a team when you've left those out.

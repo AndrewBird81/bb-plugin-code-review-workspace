@@ -58,3 +58,16 @@ test("a row labels checks GitHub expects but that never reported", async () => {
   expect(slot.getByText("Checks expected")).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+test("your own PR is labelled as yours", async () => {
+  const { expect } = await import("vitest");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [{ targetKey: "a", kind: "pr", title: "My change", status: "ready", ownPr: true }] }),
+  } });
+  await slot.findByText("My change");
+  expect(slot.getByText("Your PR")).toBeTruthy();
+  slot.lifecycle.unmount();
+});

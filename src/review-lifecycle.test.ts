@@ -121,6 +121,17 @@ test("deleted workers are detached without losing the review conversation", asyn
   expect(store.listAgentMessages("pr-1")[0].text).toBe("Keep this answer");
 });
 
+test("a PR you wrote is marked yours, and a mention there doesn't alert", async () => {
+  const s = setup({ pr: { author: "Me", myReviews: [review("COMMENTED", T0 - HOUR, "sha1", "Self-review")] } });
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")).toMatchObject({ ownPr: true });
+  s.pr({ updatedAt: 2, mention: { at: T0 + 0.1 * HOUR, by: "bob" } });
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "reviewed", label: "Your PR" });
+  expect(s.published).toHaveLength(0);
+});
+
 test("a dismissed approval returns to the review queue", async () => {
   const { sync, store } = setup({ pr: { myReviews: [review("DISMISSED", T0 - HOUR)] } });
   store.setLifecycle("pr-1", { submittedVerdict: "APPROVE", submittedAt: 1 });

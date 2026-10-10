@@ -16,7 +16,7 @@ export function turnOptions(preferences: ReviewPreferences): TurnOptions {
 export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string, startedAt: number, now: number): ReviewLifecycle {
   const s = previous.signals ?? {};
   const update: ReviewLifecycle = {
-    prState: facts.state, latestHeadSha: facts.headSha,
+    prState: facts.state, latestHeadSha: facts.headSha, ownPr: !!facts.author && facts.author.toLowerCase() === viewer.toLowerCase(),
     archivedAt: facts.state === "OPEN" ? null : previous.archivedAt ?? now,
   };
   const own = verdictFromMine(facts.myReviews);

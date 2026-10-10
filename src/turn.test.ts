@@ -57,6 +57,16 @@ test("a PR found on GitHub whose request was withdrawn, or a team's with team re
   expect(turn(tracked({ requestPending: false }, "ready"))).toMatchObject({ group: "needs", label: "Ready" });
 });
 
+test("your own PR needs your review until you've reviewed it, then it's Reviewed, never waiting and never alerting", () => {
+  const own = (extra: Partial<TurnInput> = {}, signals: TurnInput["signals"] = {}) => changesRequested({ ownPr: true, ...extra }, signals);
+  expect(turn({ targetKey: "a", kind: "pr", status: "ready", ownPr: true, createdAt: t(2) })).toMatchObject({ group: "needs", reason: "own", label: "Your PR", notify: false, signal: null, at: t(2) });
+  expect(turn(own({ submittedVerdict: "COMMENT" }))).toMatchObject({ group: "reviewed", reason: "own", label: "Your PR" });
+  // Open threads, questions, mentions, and pushes don't move it.
+  expect(turn(own({ submittedVerdict: "COMMENT", latestHeadSha: "sha2" }, { questionAt: t(1), mentionAt: t(1), headSeenAt: t(1) })))
+    .toMatchObject({ group: "reviewed", label: "Your PR · updated", updated: true, signal: null });
+  expect(turn(own({ prState: "MERGED" })).group).toBe("archive");
+});
+
 test("a team request after your review isn't a re-request, and doesn't undo your archive", () => {
   const team = { requestedAt: t(1), requestedBy: "carol", requestedVia: "team" as const, requestPending: true };
   expect(turn(changesRequested({}, team))).toMatchObject({ group: "waiting", reason: "waiting" });
