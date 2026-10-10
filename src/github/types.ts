@@ -16,6 +16,8 @@ export interface MyReview {
   /** The commit the review was made on. */
   sha: string | null;
   body: string;
+  /** When GitHub dismissed it, if the timeline still shows it. */
+  dismissedAt?: number | null;
 }
 
 /** A request for the viewer's review, directly or through a team the viewer is on. */

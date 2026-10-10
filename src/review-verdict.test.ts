@@ -27,4 +27,8 @@ test("your standing verdict survives later comments and replies", () => {
 test("a dismissed review leaves no verdict until you comment again", () => {
   expect(verdictOf([review("DISMISSED", "1")])?.verdict).toBeNull();
   expect(verdictOf([review("DISMISSED", "1"), review("COMMENTED", "2", { body: "Re-checked" })])?.verdict).toBe("COMMENT");
+  // Dismissed after that comment: the comment came before, so there's no verdict.
+  const dismissed = (at: string) => review("DISMISSED", "1", { dismissedAt: Date.parse(`2026-10-0${at}T10:00:00Z`) });
+  expect(verdictOf([dismissed("3"), review("COMMENTED", "2", { body: "One more nit" })])).toEqual({ verdict: null, at: Date.parse("2026-10-02T10:00:00Z"), sha: "sha2" });
+  expect(verdictOf([dismissed("2"), review("COMMENTED", "3", { body: "Re-checked" })])?.verdict).toBe("COMMENT");
 });

@@ -73,6 +73,15 @@ test("myReviews drops pending and blank comment-only reviews, keeps blank review
   expect(facts.myReviews[2]).toEqual({ id: "late", state: "CHANGES_REQUESTED", submittedAt: Date.parse("2026-10-03T00:00:00Z"), sha: "c1", body: "Please fix" });
 });
 
+test("a dismissed review carries when GitHub dismissed it, from the timeline", () => {
+  const facts = one(pr({
+    reviews: { nodes: [{ id: "r1", state: "DISMISSED", submittedAt: "2026-10-01T00:00:00Z", body: "", commit: { oid: "c1" } }] },
+    events: { nodes: [{ __typename: "ReviewDismissedEvent", createdAt: "2026-10-03T00:00:00Z", review: { id: "r1" } }] },
+  }));
+  expect(facts.myReviews[0]).toMatchObject({ id: "r1", state: "DISMISSED", dismissedAt: Date.parse("2026-10-03T00:00:00Z") });
+  expect(prFactsQuery([ref(1)]).query).toContain("REVIEW_DISMISSED_EVENT");
+});
+
 test("requests match the viewer case-insensitively and teams the viewer is on", () => {
   const requested = (createdAt: string, actor: string, requestedReviewer: unknown) =>
     ({ __typename: "ReviewRequestedEvent", createdAt, actor: { login: actor }, requestedReviewer });

@@ -458,3 +458,13 @@ test("a question from someone other than the author names them in the alert", as
   await vi.waitFor(() => expect(s.published).toHaveLength(1));
   expect(s.published[0].body).toContain("@bob asked you something");
 });
+
+test("an approval dismissed after a later comment review leaves no verdict, dated by the dismissal", async () => {
+  const s = setup({ pr: { myReviews: [review("APPROVED", T0 - 5 * HOUR), review("COMMENTED", T0 - 4 * HOUR, "sha1", "One more nit")] } });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], myReviews: [{ ...review("DISMISSED", T0 - 5 * HOUR), dismissedAt: T0 + 0.1 * HOUR }, review("COMMENTED", T0 - 4 * HOUR, "sha1", "One more nit")] });
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")).toMatchObject({ submittedVerdict: null, signals: { dismissedAt: T0 + 0.1 * HOUR } });
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs", reason: "dismissed", eventAt: T0 + 0.1 * HOUR });
+});

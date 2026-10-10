@@ -35,8 +35,9 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
     ?? (facts.requestPending && s.requestedAt ? { at: s.requestedAt, by: s.requestedBy ?? null, via: s.requestedVia ?? facts.requestPending.via } : undefined);
   const others = facts.otherOpinions;
   const reviewedAt = own?.sha ? facts.commits.lastIndexOf(own.sha) : -1;
-  // GitHub doesn't say when it dismissed your review; the first read that saw it stands in.
-  const dismissed = own?.verdict === null ? (s.dismissedAt ?? (previous.submittedVerdict ? now : own.at)) : null;
+  // When the timeline no longer says when GitHub dismissed your review, the first read that saw it stands in.
+  const dismissedAt = facts.myReviews.filter((r) => r.state === "DISMISSED").at(-1)?.dismissedAt;
+  const dismissed = own?.verdict === null ? (dismissedAt ?? s.dismissedAt ?? (previous.submittedVerdict ? now : own.at)) : null;
   // A new review of yours ends a turn that was holding for you.
   if (own && own.at > (s.lastReviewAt ?? 0) && previous.heldTurn) update.heldTurn = null;
   update.signals = {

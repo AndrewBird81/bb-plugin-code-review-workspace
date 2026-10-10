@@ -11,9 +11,10 @@ const FRAGMENT = `fragment F on PullRequest{
   latestOpinionatedReviews(first:50){nodes{state author{__typename login}}}
   reviewRequests(first:50){nodes{requestedReviewer{${REVIEWER}}}}
   reviews(last:30,author:$viewer){nodes{id state submittedAt body commit{oid} comments(first:20){totalCount nodes{replyTo{id}}}}}
-  events:timelineItems(last:30,itemTypes:[REVIEW_REQUESTED_EVENT,REVIEW_REQUEST_REMOVED_EVENT]){nodes{__typename
+  events:timelineItems(last:30,itemTypes:[REVIEW_REQUESTED_EVENT,REVIEW_REQUEST_REMOVED_EVENT,REVIEW_DISMISSED_EVENT]){nodes{__typename
     ... on ReviewRequestedEvent{createdAt actor{login} requestedReviewer{${REVIEWER}}}
-    ... on ReviewRequestRemovedEvent{createdAt actor{login} requestedReviewer{${REVIEWER}}}}}
+    ... on ReviewRequestRemovedEvent{createdAt actor{login} requestedReviewer{${REVIEWER}}}
+    ... on ReviewDismissedEvent{createdAt review{id}}}}
   conversation:timelineItems(last:15,itemTypes:[ISSUE_COMMENT]){nodes{... on IssueComment{author{__typename login} body createdAt}}}
 }`;
 
@@ -111,8 +112,12 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
   const at = (type: string, keep: (e: any) => boolean = () => true) =>
     latest(events.filter((e) => e.__typename === type && keep(e)).map((e) => time(e.createdAt)).filter(Number.isFinite));
 
+  const dismissals = new Map<string, number>(events.filter((e) => e.__typename === "ReviewDismissedEvent" && e.review?.id).map((e) => [e.review.id, time(e.createdAt)]));
   const myReviews: MyReview[] = (pr.reviews?.nodes ?? []).filter((r: any) => r && realReview(r))
-    .map((r: any) => ({ id: r.id, state: r.state as ReviewState, submittedAt: time(r.submittedAt), sha: r.commit?.oid ?? null, body: r.body ?? "" }))
+    .map((r: any) => ({
+      id: r.id, state: r.state as ReviewState, submittedAt: time(r.submittedAt), sha: r.commit?.oid ?? null, body: r.body ?? "",
+      ...(dismissals.has(r.id) ? { dismissedAt: dismissals.get(r.id) } : {}),
+    }))
     .sort((a: MyReview, b: MyReview) => a.submittedAt - b.submittedAt);
 
   // A request withdrawn later, for the same reviewer (you, or that team), doesn't count.
