@@ -2,7 +2,7 @@ import { test, expect } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { BbPluginApi, PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
 import { createStore } from "./store";
-import { assistantInstructions, getConversation, newConversation, refreshAssistants, startAutomaticReview, startConversation } from "./agent";
+import { assistantInstructions, getConversation, messageAssistant, newConversation, refreshAssistants, startAutomaticReview, startConversation } from "./agent";
 import { defaultPreferences } from "./preferences";
 import { generateGuide } from "./generate";
 import plugin from "../server";
@@ -210,4 +210,21 @@ test("a finished guide restarts the review's idle assistant so it reads the new 
   await generateGuide(bb, store, "pr-1", "p1");
   expect(store.getReview("pr-1")?.status).toBe("ready");
   await expect.poll(() => harness.inspection.sdk.callsTo("threads.stop").map(([args]) => (args as any).threadId)).toContain("assistant");
+});
+
+test("messages sent at once start one conversation; the later one goes to it", async () => {
+  let release!: () => void;
+  const spawned = new Promise<void>((resolve) => { release = resolve; });
+  const { bb, harness, store } = host({ spawn: async () => { await spawned; return { id: "worker" }; }, send: async () => ({ delivery: "sent" }) },
+    { defaultExecutionOptions: async () => opus });
+  const first = messageAssistant(bb, store, "pr-1", "Why retry?", "ctx");
+  const second = messageAssistant(bb, store, "pr-1", "And the timeout?", "ctx");
+  const automatic = startAutomaticReview(bb, store, "pr-1");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  release();
+  expect(await first).toMatchObject({ started: true, threadId: "worker" });
+  expect(await second).toMatchObject({ started: false, threadId: "worker" });
+  await automatic;
+  expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1);
+  expect(harness.inspection.sdk.callsTo("threads.send").map(([args]) => (args as any).input[0].text)).toEqual(["And the timeout?"]);
 });

@@ -66,17 +66,35 @@ function choice(agent: AgentChoice): AgentChoice {
   return { ...(agent.hostId ? { hostId: agent.hostId } : {}), providerId: agent.providerId, model: agent.model, reasoningLevel: agent.reasoningLevel, ...(agent.serviceTier ? { serviceTier: agent.serviceTier } : {}) };
 }
 
+const starts = new WeakMap<BbPluginApi, Map<string, Promise<{ threadId: string }>>>();
+/** A conversation being started for the review, until its thread is stored. */
+const starting = (bb: BbPluginApi, targetKey: string) => starts.get(bb)?.get(targetKey);
+
 /** Start the review's assistant thread with the reviewer's first message, plus `context` only the assistant sees. */
 export async function startConversation(bb: BbPluginApi, store: Store, args: { targetKey: string; text: string; context?: string; agent: AgentChoice }): Promise<{ threadId: string }> {
+  // One start at a time per review: a later caller waits, then finds the conversation it started.
+  for (let pending = starting(bb, args.targetKey); pending; pending = starting(bb, args.targetKey)) await pending.catch(() => {});
   const review = store.getReview(args.targetKey);
   if (!review?.projectId) throw new Error("This review has no associated project; re-run `bb review` inside a project.");
   if (store.getAssistantThread(args.targetKey)) throw new Error("This review already has a conversation. Reload it to continue.");
+  const run = spawnConversation(bb, store, args, review.projectId);
+  const runs = starts.get(bb) ?? new Map<string, Promise<{ threadId: string }>>();
+  starts.set(bb, runs);
+  runs.set(args.targetKey, run);
+  try {
+    return await run;
+  } finally {
+    runs.delete(args.targetKey);
+  }
+}
+
+async function spawnConversation(bb: BbPluginApi, store: Store, args: { targetKey: string; text: string; context?: string; agent: AgentChoice }, projectId: string): Promise<{ threadId: string }> {
   const unavailable = await machineUnavailable(bb, args.agent, "review assistant");
   if (unavailable) throw new Error(unavailable);
   const { assistantAgent } = store.getPreferences().preferences;
   const legacy = store.listAgentMessages(args.targetKey).slice(-20).map((entry) => `${entry.role}: ${entry.text}`).join("\n\n").slice(-80_000);
   const worker = await bb.sdk.threads.spawn({
-    ...(await agentPlacement(bb, args.agent, review.projectId)),
+    ...(await agentPlacement(bb, args.agent, projectId)),
     input: [
       { type: "text", text: args.text, mentions: [] },
       ...(args.context ? [{ type: "text" as const, text: args.context, mentions: [], visibility: "agent-only" as const }] : []),
@@ -112,6 +130,8 @@ export async function startAutomaticReview(bb: BbPluginApi, store: Store, target
   if (!defaults) throw new Error("bb has no default agent for the review's project.");
   const context = store.getReviewContext(targetKey);
   const text = context ? `${prompt}\n\nContext from the thread that started this review:\n${context}` : prompt;
+  // A conversation the reviewer is starting comes first.
+  if (starting(bb, targetKey)) return;
   await startConversation(bb, store, { targetKey, text, agent: defaults });
 }
 
@@ -130,6 +150,12 @@ export async function messageAssistant(bb: BbPluginApi, store: Store, targetKey:
     // Queued behind the assistant's current work, the message runs in a later turn.
     const queuedMessageId = sent?.delivery === "queued" ? sent.queuedMessage?.id : undefined;
     return { started: false, threadId, ...(queuedMessageId ? { queuedMessageId } : {}) };
+  }
+  // A conversation being started takes this message once it's up.
+  const pending = starting(bb, targetKey);
+  if (pending) {
+    await pending.catch(() => {});
+    return messageAssistant(bb, store, targetKey, text, context);
   }
   if (!defaults) throw new Error("Choose this review's agent first: open Ask agent and send it a message.");
   const started = await startConversation(bb, store, { targetKey, text, context, agent: defaults });

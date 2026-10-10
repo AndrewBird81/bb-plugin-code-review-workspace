@@ -11,8 +11,23 @@ interface Deps {
   gh: { runGh: typeof import("./gh").runGh; runGit: typeof import("./gh").runGit };
 }
 
+const rerunning = new WeakMap<BbPluginApi, Set<string>>();
+
 /** Re-read the target and regenerate its guide. `notify: false` leaves alerts to the turn that asked for it. */
 export async function rerunReview(deps: Deps, targetKey: string, options: { notify?: boolean } = {}): Promise<{ ok: boolean; error?: string }> {
+  // A re-review already reading the target starts the guide for both callers.
+  const running = rerunning.get(deps.bb) ?? new Set<string>();
+  rerunning.set(deps.bb, running);
+  if (running.has(targetKey)) return { ok: true };
+  running.add(targetKey);
+  try {
+    return await rerun(deps, targetKey, options);
+  } finally {
+    running.delete(targetKey);
+  }
+}
+
+async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean }): Promise<{ ok: boolean; error?: string }> {
   const m = deps.store.getReview(targetKey);
   if (!m || !m.projectId) return { ok: false, error: "Unknown review or missing project." };
   const unavailable = await guideWriterUnavailable(deps.bb, deps.store);

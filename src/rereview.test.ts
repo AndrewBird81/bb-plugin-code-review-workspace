@@ -124,3 +124,15 @@ test("comments on neighbouring lines all follow their lines into the new diff", 
   expect(store.getDraft("pr-1").comments.map((c) => [c.body, c.line])).toEqual([["on a", 2], ["on b", 3]]);
   expect(store.staleDraftComments("pr-1")).toEqual([]);
 });
+
+test("Re-review asked twice at once starts one guide writer", async () => {
+  const { bb, harness } = host();
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  store.savePatch("pr-1", fileDiff(["a"]));
+  const runGh = prGh(fileDiff(["b"]));
+  const deps = { bb, store, gh: { runGh: runGh as any, runGit: vi.fn() as any } };
+  expect(await Promise.all([rerunReview(deps, "pr-1"), rerunReview(deps, "pr-1")])).toEqual([{ ok: true }, { ok: true }]);
+  await vi.waitFor(() => expect(store.getReview("pr-1")?.status).not.toBe("generating"));
+  expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1);
+});
