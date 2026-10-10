@@ -50,7 +50,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState("Draft saved");
+  // The status line: the draft is saved, being saved, or why the last save or submit failed.
+  const [status, setStatus] = useState<{ saving?: true; error?: string }>({});
   const [file, setFile] = useState(activeFiles[0] ?? "");
   const [line, setLine] = useState("1");
   const [side, setSide] = useState<"LEFT" | "RIGHT">("RIGHT");
@@ -229,9 +230,13 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
 
   async function mutate(operation: () => Promise<void>) {
     if (lock.current) return;
-    lock.current = true; setBusy(true);
-    try { await operation(); }
-    catch (error) { toast.error(error instanceof Error ? error.message : "Couldn’t save the draft. Try again."); }
+    lock.current = true; setBusy(true); setStatus({ saving: true });
+    try { await operation(); if (mounted.current) setStatus({}); }
+    catch (error) {
+      const message = error instanceof Error ? error.message : "Couldn’t save the draft. Try again.";
+      toast.error(message);
+      if (mounted.current) setStatus({ error: message });
+    }
     finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
 
@@ -239,15 +244,18 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   function chooseVerdict(verdict: Verdict) {
     pendingVerdict.current = verdict;
     setDraft((previous) => ({ ...previous, verdict, verdictChosen: true }));
+    setStatus({ saving: true });
     void enqueue(() => rpc.call("setVerdict", { targetKey, verdict, ...(revisionRef.current ? { revision: revisionRef.current } : {}) }))
       .then((result) => {
         if (pendingVerdict.current === verdict) pendingVerdict.current = null;
         const next = result.draft as Draft;
-        if (mounted.current) setDraft(pendingVerdict.current ? { ...next, verdict: pendingVerdict.current, verdictChosen: true } : next);
+        if (mounted.current) { setDraft(pendingVerdict.current ? { ...next, verdict: pendingVerdict.current, verdictChosen: true } : next); setStatus({}); }
       })
       .catch((error) => {
         if (pendingVerdict.current === verdict) pendingVerdict.current = null;
-        toast.error(error instanceof Error ? error.message : "Couldn’t save the verdict. Try again.");
+        const message = error instanceof Error ? error.message : "Couldn’t save the verdict. Try again.";
+        toast.error(message);
+        if (mounted.current) setStatus({ error: message });
         refresh();
       });
   }
@@ -303,21 +311,18 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
       // What this page shows; the server refuses a draft that changed since.
       const { verdict, body: summary } = draft;
       const result = await enqueue(() => rpc.call("submitReview", { targetKey, ...(reviewRevision ? { revision: reviewRevision } : {}), ...(account ? { account } : {}), comments: shownComments.current, body: summary, verdict }));
-      if (!result.ok) { setSaved(result.error ?? "Submit failed. Your draft is still here."); toast.error(result.error ?? "Submit failed. Your draft is still here."); refresh(); return; }
+      if (!result.ok) { refresh(); throw new Error(result.error ?? "Submit failed. Your draft is still here."); }
       setReceipt(verdict);
       setWriteAnother(false);
       onSubmitted?.();
       toast.success("Review submitted to GitHub");
       await load();
-      setSaved("Review submitted");
     });
   }
 
   const hasReview = draft.comments.length > 0 || draft.body.trim().length > 0 || draft.verdict === "APPROVE";
   // GitHub refuses Request changes without a summary.
   const needsSummary = draft.verdict === "REQUEST_CHANGES" && !draft.body.trim();
-  // The status line also carries submit failures; only these two are good news.
-  const savedTone = saved === "Draft saved" || saved === "Review submitted" ? "ok" : "error";
   const submittedVerdict = review ? review.submittedVerdict : receipt;
   const closed = review?.prState === "MERGED" || review?.prState === "CLOSED";
   const completed = submittedVerdict && !hasReview && !writeAnother && !body.trim();
@@ -405,7 +410,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
         </section> : <section aria-label="Review draft" className="flex min-h-0 flex-1 flex-col [@media(max-height:560px)]:overflow-y-auto">
           {/* On short screens the draft and its foot scroll together, so the foot doesn't crowd out the draft. */}
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 [@media(max-height:560px)]:flex-none [@media(max-height:560px)]:overflow-visible">
-            <span role="status" className={cn("flex items-center gap-1.5 text-xs", savedTone === "error" ? "text-destructive-text" : "text-muted-foreground")}>{savedTone === "error" ? <Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden /> : <Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />}{saved}</span>
+            <span role="status" className={cn("flex items-center gap-1.5 text-xs", status.error ? "text-destructive-text" : "text-muted-foreground")}>{status.error ? <Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden /> : status.saving ? <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />}{status.error ?? (status.saving ? "Saving…" : "Draft saved")}</span>
             <SummaryCard cardRef={summaryRef} draft={draft} discussion={summaryDiscussion} editable={editable} busy={busy} writing={writing && !onSummary} composer={summaryComposer} isLocal={isLocal} chat={chat}
               changedWhileEditing={onSummary && !asking && summaryBase.current !== null && summaryBase.current !== draft.body}
               onEdit={() => openComposer(SUMMARY_AT, false)} onAsk={() => openComposer(SUMMARY_AT, false, true)} onRemove={() => void saveSummary("", revisionRef.current)}
