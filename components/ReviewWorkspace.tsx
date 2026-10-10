@@ -338,9 +338,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     [reducedMotion],
   );
 
+  // Since your review hides files unchanged since then; showing one turns the filter off.
+  const unhide = useCallback((file: string) => {
+    if (since?.get(file)?.status === "unchanged") setSinceOnly(false);
+  }, [since]);
+
   const onSelectFile = useCallback(
     (chapterId: string, file: string) => {
       pickChangedChapter.current = false;
+      unhide(file);
       if (chapterId !== activeId) {
         pendingScroll.current = file;
         setActiveId(chapterId);
@@ -350,7 +356,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       setCurrentFile(file);
       setMobileChapters(false);
     },
-    [activeId, scrollToFile],
+    [activeId, scrollToFile, unhide],
   );
 
   // A comment chosen in the draft panel: show its line in the diff.
@@ -358,12 +364,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const chapter = guide?.sections.find((section: any) => section.diffs.some((diff: any) => diff.file === at.file));
     if (!chapter) return;
     setView("diff");
+    unhide(at.file);
     pickChangedChapter.current = false;
     if (chapter.id !== activeId) jumping.current = true;
     setActiveId(chapter.id);
     setMobileChapters(false);
     setReveal({ at, nonce: Date.now() });
-  }, [guide, activeId]);
+  }, [guide, activeId, unhide]);
   // A thread on a file outside every chapter can't be shown here; its GitHub link can.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;

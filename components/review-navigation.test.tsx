@@ -117,3 +117,29 @@ test("a review back with changes opens on the first chapter that changed, unless
   expect(currentChapter(again.slot)?.textContent).toContain("Parsing");
   again.slot.lifecycle.unmount();
 });
+
+const reviewedPatch = patch.replace("+bb", "+b0");
+async function sinceReviewSetup() {
+  const { interdiff } = await import("../src/interdiff");
+  return { review: { signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" }, rpc: { getSinceReview: () => ({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(reviewedPatch, patch) }) } };
+}
+
+test("under Since your review, opening a file unchanged since then turns the filter off to show it", async () => {
+  const setup = await sinceReviewSetup();
+  const comment = { file: "src/a.ts", line: 1, side: "RIGHT", body: "Why?", author: "reviewer" };
+  const { slot } = await renderWorkspace({ ...setup, rpc: { ...setup.rpc, getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [comment] } }) } });
+  const filter = await slot.findByRole("button", { name: "Since your review" });
+  fireEvent.click(chapters(slot).getByText("Parsing"));
+  fireEvent.click(filter);
+  expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeNull();
+  fireEvent.click(chapters(slot).getByText("a.ts"));
+  expect(filter.getAttribute("aria-pressed")).toBe("false");
+  expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeTruthy();
+  // A draft comment's Show in diff does the same.
+  fireEvent.click(filter);
+  const draftTool = slot.getByRole("button", { name: "Draft review" });
+  if (draftTool.getAttribute("aria-pressed") !== "true") fireEvent.click(draftTool);
+  fireEvent.click(await slot.findByRole("button", { name: /^src\/a\.ts:1/ }));
+  expect(filter.getAttribute("aria-pressed")).toBe("false");
+  slot.lifecycle.unmount();
+}, 15_000);
