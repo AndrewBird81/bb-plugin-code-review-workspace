@@ -126,7 +126,11 @@ export function undoChange(store: Store, targetKey: string, at: CommentLocation)
     store.deleteDraftComment(targetKey, at);
   } else if (change.kind === "removed") {
     const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
-    if (!diffPositions(patch).get(at.file)?.[at.side === "RIGHT" ? "right" : "left"].has(at.line)) return { ok: false, error: `${where(at)} isn't in the diff anymore, so the comment can't go back there.` };
+    const code = diffPositions(patch).get(at.file)?.[at.side === "RIGHT" ? "right" : "left"].get(at.line);
+    // Putting it back binds it to the current diff, so the line must still hold the code it was drafted on.
+    const drafted = store.draftCommentCode(targetKey, at);
+    if (code === undefined) return { ok: false, error: `${where(at)} isn't in the diff anymore, so the comment can't go back there.` };
+    if (drafted !== undefined && code !== drafted) return { ok: false, error: `The code at ${where(at)} changed since the comment was drafted, so it can't go back there.` };
     store.upsertDraftComment(targetKey, { ...at, body: previous.body, ...(previous.author ? { author: previous.author } : {}), ...(previous.chapterId ? { chapterId: previous.chapterId } : {}) });
   } else {
     store.editDraftComment(targetKey, at, previous.body);
