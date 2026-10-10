@@ -208,3 +208,18 @@ test("the receipt after submitting links to the review on GitHub", async () => {
   expect(within(receipt).getByRole("link", { name: "View on GitHub" }).getAttribute("href")).toBe("https://github.com/acme/web/pull/7#pullrequestreview-12");
   slot.lifecycle.unmount();
 });
+
+test("after saving, focus goes to the saved comment; after cancelling, back to where the box was opened", async () => {
+  let draft = draftOf();
+  const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = { ...draft, comments: [comment] }; return { draft, stale: [], discussions: [] }; });
+  const slot = await renderTray("focus", { getDraft: () => ({ draft, stale: [], discussions: [] }), saveDraftComment });
+  const add = slot.getByRole("button", { name: "Add comment" });
+  add.focus();
+  writeComment(slot, "Never mind.");
+  fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(document.activeElement).toBe(add));
+  writeComment(slot, "Saved.");
+  fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
+  await waitFor(() => expect(document.activeElement?.getAttribute("data-comment-at")).toBe("src/a.ts:1:RIGHT"));
+  slot.lifecycle.unmount();
+});

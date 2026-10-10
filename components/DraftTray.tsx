@@ -16,7 +16,7 @@ import { getReviewState, patchReviewState } from "../lib/panel-state";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
 import { setDraftStatus } from "../lib/draft-status";
 import { usePortalScopeProps } from "../lib/portal-scope";
-import { ComposerNotes, composerKeys, InlineComposerContext, InlineDraftContext, type InlineComposer, type InlineDraft } from "./InlineDraft";
+import { ComposerNotes, composerKeys, InlineComposerContext, InlineDraftContext, locationKey, type InlineComposer, type InlineDraft } from "./InlineDraft";
 import { SummaryCard } from "./SummaryCard";
 import { Markdown, UrlLink } from "@get-bb/plugin-sdk/app";
 import { Badge } from "./ui/badge";
@@ -99,6 +99,9 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     else { setTab(next); setToolsOpen(true); }
   }
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  // What had focus when the box opened, for focus to return to when it's cancelled.
+  const opener = useRef<HTMLElement | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const mounted = useRef(true);
   const lock = useRef(false);
   const writes = useRef<Promise<unknown>>(Promise.resolve());
@@ -195,6 +198,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     const writing = !!body.trim();
     if (writing) toast.info(asking ? "Send or cancel your message to the agent first." : onSummary ? "Save or cancel the summary you’re writing first." : "Finish or cancel the comment you’re writing first.");
     else {
+      opener.current = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
       const summary = !!at && isSummary(at);
       const existing = !ask && at && !summary ? draft.comments.find((comment) => sameLocation(comment, at)) : undefined;
       composerRevision.current = revisionRef.current;
@@ -239,6 +243,26 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     // The next comment doesn't start where the summary's box was.
     if (summaryBox) { setFile(activeFiles[0] ?? ""); setLine("1"); setSide("RIGHT"); }
     setSummaryBox(false);
+  }
+  /** Focus a comment's card where its box was: in the diff, or in this panel's list. */
+  function focusComment(at: CommentLocation, inDiff: boolean, frames = 10) {
+    requestAnimationFrame(() => {
+      const key = locationKey(at);
+      const card = inDiff
+        ? Array.from(document.querySelectorAll<HTMLElement>("[data-draft-at]")).find((el) => el.dataset.draftAt === key)?.querySelector<HTMLElement>("article")
+        : Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-comment-at]") ?? []).find((el) => el.dataset.commentAt === key);
+      // The card may not have rendered yet.
+      if (card) card.focus();
+      else if (frames > 1) focusComment(at, inDiff, frames - 1);
+    });
+  }
+  /** Close a line's box unsaved, and return focus to where it was opened, or else to the comment it edited. */
+  function cancelComposer() {
+    const at = { file, line: Number(line), side };
+    closeComposer();
+    const from = opener.current;
+    if (from?.isConnected) requestAnimationFrame(() => from.focus());
+    else focusComment(at, inline);
   }
   /** Close the summary's box, unsaved text and all, unless it holds a message to the agent. */
   function dropSummaryEdit() {
@@ -308,6 +332,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     await mutate(async () => {
       const result = await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(composerRevision.current ? { revision: composerRevision.current } : {}), comment: { file, line: Number(line), side, chapterId: editing?.chapterId ?? activeChapterId, body: body.trim() } }));
       apply(result as { draft: Draft }); closeComposer();
+      focusComment({ file, line: Number(line), side }, inline);
     }, (message) => {
       if (!mounted.current) return;
       if (!rebuilding && composerRevision.current !== revisionRef.current) setOlderDiff(true);
@@ -374,8 +399,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   }, [targetKey, submittable, draft.verdict, draft.comments.length]);
   useEffect(() => () => setDraftStatus(targetKey, null), [targetKey]);
   // The diff shows the draft's comments and discussions, and the comment box while it's open there.
-  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComment });
-  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComment };
+  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComment, cancelComposer });
+  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComment, cancelComposer };
   const open = useCallback((at: CommentLocation) => latest.current.openComposer(at, true), []);
   const ask = useCallback((at: CommentLocation) => latest.current.openComposer(at, true, true), []);
   const remove = useCallback((comment: DraftComment) => { void latest.current.removeComment(comment); }, []);
@@ -397,7 +422,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     change: (text) => latest.current.changeBody(text),
     save: () => { void latest.current.addComment(); },
     askAgent: () => { void latest.current.askAgent(); },
-    cancel: () => latest.current.closeComposer(),
+    cancel: () => latest.current.cancelComposer(),
   } : null, [composerInDiff, body, composerError, rebuilding, olderDiff]);
   const summaryComposer = editable && onSummary ? {
     mode: asking ? "ask" as const : "edit" as const, body, textareaRef: bodyRef,
@@ -465,11 +490,11 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
               <span className="flex-1" />
               <Button variant="ghost" size="sm" className="-mr-2 text-primary hover:text-primary" aria-expanded={showComposer && !inline && !onSummary} onClick={() => openComposer(null, false)}><Icon name="Plus" className="size-4" aria-hidden /> Add comment</Button>
             </div>
-            {draft.comments.length ? <ul className="space-y-2 text-sm">{sortedComments.map((comment) => {
+            {draft.comments.length ? <ul ref={listRef} className="space-y-2 text-sm">{sortedComments.map((comment) => {
               const isStale = stale.some((at) => sameLocation(at, comment));
               const discussion = discussions.find((d) => sameLocation(d, comment));
               const messages = discussion?.entries.filter((entry) => entry.kind === "message").length ?? 0;
-              return <li key={`${comment.file}:${comment.line}:${comment.side}`} className={cn("group/comment space-y-2 rounded-lg border border-border bg-card p-3 transition-colors hover:border-input", comment.author === "agent" ? "border-l-[3px] border-l-(--ansi-13)/60" : "border-l-[3px] border-l-primary/60")}>
+              return <li key={`${comment.file}:${comment.line}:${comment.side}`} tabIndex={-1} data-comment-at={locationKey(comment)} className={cn("group/comment space-y-2 rounded-lg border border-border bg-card p-3 outline-none transition-colors hover:border-input focus-visible:ring-2 focus-visible:ring-ring/50", comment.author === "agent" ? "border-l-[3px] border-l-(--ansi-13)/60" : "border-l-[3px] border-l-primary/60")}>
               <button type="button" aria-label={`${comment.file}:${comment.line}${comment.side === "LEFT" ? " · Old line" : ""}${comment.author === "agent" ? " · Added by agent" : ""}${isStale ? " · Older diff" : ""}${discussionLabel(discussion)}`} className="flex w-full min-w-0 flex-wrap items-center gap-1.5 rounded-sm text-left text-xs hover:[&_.gr-path]:underline" onClick={() => onShowComment?.(comment)}>
                 <span className="gr-path flex min-w-0 max-w-full items-center decoration-muted-foreground/50 underline-offset-2"><FilePath path={comment.file} className="min-w-0 text-[11px]" /><span className="shrink-0 font-mono text-[11px] text-primary">:{comment.line}</span></span>
                 {comment.side === "LEFT" && <Badge size="sm">Old line</Badge>}
@@ -489,9 +514,9 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
                 <label className="space-y-1 text-xs text-muted-foreground">Line<Input aria-label="Comment line" disabled={busy || !!editing} type="number" min={1} value={line} onChange={(event) => setLine(event.target.value)} /></label>
                 <label className="space-y-1 text-xs text-muted-foreground">Side<select aria-label="Comment side" disabled={busy || !!editing} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground" value={side} onChange={(event) => setSide(event.target.value as "LEFT" | "RIGHT")}><option value="RIGHT">New line</option><option value="LEFT">Old line</option></select></label>
               </div>
-              <Textarea ref={bodyRef} aria-label="Draft comment" disabled={busy} value={body} onChange={(event) => changeBody(event.target.value)} onKeyDown={(event) => composerKeys(event, canAdd ? () => void addComment() : null, () => { if (!busy) closeComposer(); })} placeholder="What should the author know?" />
+              <Textarea ref={bodyRef} aria-label="Draft comment" disabled={busy} value={body} onChange={(event) => changeBody(event.target.value)} onKeyDown={(event) => composerKeys(event, canAdd ? () => void addComment() : null, () => { if (!busy) cancelComposer(); })} placeholder="What should the author know?" />
               <ComposerNotes error={composerError} rebuilding={rebuilding} keepOnCurrentDiff={olderDiff ? keepOnCurrentDiff : null} />
-              <div className="flex flex-wrap gap-2"><Button disabled={!canAdd} onClick={() => void addComment()}>{editing ? "Save comment" : "Add to draft"}</Button><Button variant="ghost" disabled={busy} onClick={closeComposer}>Cancel</Button></div>
+              <div className="flex flex-wrap gap-2"><Button disabled={!canAdd} onClick={() => void addComment()}>{editing ? "Save comment" : "Add to draft"}</Button><Button variant="ghost" disabled={busy} onClick={cancelComposer}>Cancel</Button></div>
             </div>)}
           </div>
           <footer className="shrink-0 space-y-2.5 border-t border-border p-3">

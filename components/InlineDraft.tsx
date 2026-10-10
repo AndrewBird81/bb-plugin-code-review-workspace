@@ -95,7 +95,7 @@ InlineLocation.displayName = "InlineLocation";
 function CommentView({ comment, draft }: { comment: DraftComment; draft: InlineDraft }) {
   const stale = draft.stale.some((at) => sameLocation(at, comment));
   return (
-    <article aria-label={`Draft comment on ${comment.file}:${comment.line}`}>
+    <article tabIndex={-1} aria-label={`Draft comment on ${comment.file}:${comment.line}`} className="outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50">
       <div className={bar}>
         <Icon name="MessageSquare" className="size-3.5 shrink-0 text-primary" aria-hidden />
         <span className="font-medium text-foreground">Draft</span>

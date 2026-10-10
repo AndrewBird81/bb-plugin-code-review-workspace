@@ -240,3 +240,18 @@ test("a comment the agent removed leaves its discussion at the line, and an unse
   expect((diff().getByRole("textbox", { name: "Message to agent" }) as HTMLTextAreaElement).value).toBe("Why?");
   slot.lifecycle.unmount();
 });
+
+test("after saving or cancelling an edit in the diff, focus goes to the comment's card", async () => {
+  const mine = { file: "src/a.ts", line: 2, side: "RIGHT", body: "Mine" };
+  const saveDraftComment = vi.fn(async ({ comment }: any) => ({ draft: { ...empty("refocus"), comments: [comment] }, stale: [] }));
+  const { slot, diff } = await renderReview("refocus", { getDraft: () => ({ draft: { ...empty("refocus"), comments: [mine] }, stale: [] }), saveDraftComment });
+  const card = () => diff().getByRole("article", { name: "Draft comment on src/a.ts:2" });
+  fireEvent.click(within(await diff().findByRole("article")).getByRole("button", { name: "Edit" }));
+  fireEvent.click(diff().getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(document.activeElement).toBe(card()));
+  fireEvent.click(within(card()).getByRole("button", { name: "Edit" }));
+  fireEvent.change(diff().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Mine, edited" } });
+  fireEvent.click(diff().getByRole("button", { name: "Save comment" }));
+  await waitFor(() => expect(document.activeElement).toBe(card()));
+  slot.lifecycle.unmount();
+});
