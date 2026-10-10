@@ -408,6 +408,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const headerTrailing = useMemo(() => !archived && <RereviewBanner targetKey={targetKey} />, [archived, targetKey]);
   // The diff remounts after Threads; it shouldn't jump back to an old comment.
   useEffect(() => { if (view !== "diff") setReveal(undefined); }, [view]);
+  // A selection's actions go with the chapter and view it was made in.
+  useEffect(() => { setSel(null); setLineSel(null); }, [activeId, view]);
 
   useEffect(() => {
     if (pendingScroll.current && activeFiles.includes(pendingScroll.current)) {
@@ -434,6 +436,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       }
     }
     if (best) setCurrentFile(best);
+    // The popover sits where the text was.
+    setSel(null);
     if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current);
     const value = box.scrollTop;
     scrollSaveTimer.current = setTimeout(() => patchReviewState(targetKey, { scrollTop: value }), 200);
@@ -713,6 +717,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 onToggleViewed={toggleViewed}
                 registerFileEl={registerFileEl}
                 onLineSelected={onLineSelected}
+                selectedLines={lineSel}
                 reveal={reveal}
                 since={since}
                 sinceOnly={sinceOnly}

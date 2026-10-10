@@ -1,5 +1,5 @@
 import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { parsePatchFiles } from "@pierre/diffs";
+import { areSelectionsEqual, parsePatchFiles } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
 import type { AnnotationSide, DiffLineAnnotation, FileDiffMetadata, FileDiffOptions, SelectedLineRange } from "@pierre/diffs";
 import { splitPatchByFile } from "../src/patch";
@@ -115,7 +115,7 @@ function renderAnnotation({ metadata }: DiffLineAnnotation<Annotation>) {
 // One file's diff. Pierre redraws a file whenever its options or annotations
 // are new objects, which also takes focus from an open comment box, so both
 // stay the same until something in them changes.
-const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme, themeMode, diffStyle, annotations, onLineSelected, onComment, unsafeCSS }: {
+const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme, themeMode, diffStyle, annotations, selected, onLineSelected, onComment, unsafeCSS }: {
   path: string;
   fileDiff: FileDiffMetadata;
   darkTheme?: string;
@@ -123,12 +123,21 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
   themeMode?: "light" | "dark";
   diffStyle: "split" | "unified";
   annotations: DiffLineAnnotation<Annotation>[];
+  /** The lines picked in this file, until the workspace is done with them. */
+  selected: SelectedLineRange | null;
   onLineSelected?: (file: string, range: SelectedLineRange | null) => void;
   onComment?: (at: CommentLocation) => void;
   /** Extra styles inside pierre's shadow root, such as lines new since your review. */
   unsafeCSS?: string;
 }) {
   const fromGutter = useRef(false);
+  // Pierre paints the selection we give it: the lines being dragged over, then the workspace's.
+  // Giving it a selection reports that selection back, which isn't the reviewer's pick.
+  const [dragging, setDragging] = useState<SelectedLineRange | null>();
+  const shown = dragging !== undefined ? dragging : selected;
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  const ended = useRef(false);
   const options = useMemo<FileDiffOptions<Annotation>>(() => ({
     ...(darkTheme && lightTheme ? { theme: { dark: darkTheme, light: lightTheme } } : {}),
     themeType: themeMode,
@@ -138,10 +147,16 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
     ...(unsafeCSS ? { unsafeCSS } : {}),
     // GitHub-style line picking: drag to select a range to comment on or ask
     // about, or use the gutter "+" to open a comment box at a line.
-    // Uncontrolled — pierre paints the highlight.
     enableLineSelection: true,
     enableGutterUtility: true,
-    onLineSelected: (range) => { if (!fromGutter.current) onLineSelected?.(path, range); },
+    onLineSelectionStart: (range) => setDragging(range),
+    onLineSelectionChange: (range) => setDragging(range),
+    onLineSelectionEnd: () => { ended.current = true; setDragging(undefined); },
+    onLineSelected: (range) => {
+      const picked = ended.current || !areSelectionsEqual(range ?? undefined, shownRef.current ?? undefined);
+      ended.current = false;
+      if (picked && !fromGutter.current) onLineSelected?.(path, range);
+    },
     onGutterUtilityClick: (range) => {
       if (!onComment) return onLineSelected?.(path, range);
       // Pierre reports the "+" as a line selection too, which would offer the selection's actions over the box.
@@ -152,7 +167,7 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
   }), [darkTheme, lightTheme, themeMode, diffStyle, path, onLineSelected, onComment, unsafeCSS]);
   return (
     <div className="overflow-x-auto">
-      <FileDiff fileDiff={fileDiff} options={options} lineAnnotations={annotations} renderAnnotation={renderAnnotation} />
+      <FileDiff fileDiff={fileDiff} options={options} lineAnnotations={annotations} selectedLines={shown} renderAnnotation={renderAnnotation} />
     </div>
   );
 });
@@ -165,6 +180,7 @@ export const DiffViewer = memo(function DiffViewer({
   onToggleViewed,
   registerFileEl,
   onLineSelected,
+  selectedLines,
   themeMode,
   diffLayout = "split",
   reveal,
@@ -182,6 +198,8 @@ export const DiffViewer = memo(function DiffViewer({
   onToggleViewed: (file: string, viewed: boolean) => void;
   registerFileEl?: (file: string, el: HTMLElement | null) => void;
   onLineSelected?: (file: string, range: SelectedLineRange | null) => void;
+  /** The lines picked in the diff, highlighted until cleared. */
+  selectedLines?: { file: string; range: SelectedLineRange } | null;
   /** Scroll to a comment's line, opening its file if it's collapsed. */
   reveal?: { at: CommentLocation; nonce: number };
   /** Each file compared with the diff at your last review. */
@@ -387,6 +405,7 @@ export const DiffViewer = memo(function DiffViewer({
                 themeMode={themeMode}
                 diffStyle={compact || narrow ? "unified" : diffLayout}
                 annotations={annotations.get(path)?.list ?? []}
+                selected={selectedLines?.file === path ? selectedLines.range : null}
                 onLineSelected={onLineSelected}
                 onComment={draft?.editable ? draft.open : undefined}
                 unsafeCSS={css}

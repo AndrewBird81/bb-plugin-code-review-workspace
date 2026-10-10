@@ -6,8 +6,17 @@ import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+// Each diff's new lines, the lines pierre would highlight, and a pick of line 1 as pierre reports it.
 vi.mock("@pierre/diffs/react", () => ({
-  FileDiff: ({ fileDiff }: any) => <pre data-testid="filediff">{fileDiff.additionLines.join("\n")}</pre>,
+  FileDiff: ({ fileDiff, options, selectedLines }: any) => {
+    const pick = () => { const range = { start: 1, end: 1, side: "additions" }; options.onLineSelectionStart?.(range); options.onLineSelectionEnd?.(range); options.onLineSelected?.(range); };
+    return (
+      <div data-testid="filediff" data-selected={selectedLines ? `${selectedLines.start}-${selectedLines.end}` : ""}>
+        <pre>{fileDiff.additionLines.join("\n")}</pre>
+        <button onClick={pick}>Pick line 1</button>
+      </div>
+    );
+  },
 }));
 
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); });
@@ -155,5 +164,42 @@ test("files no chapter lists show in a last Other files chapter, count toward vi
   fireEvent.click(await slot.findByRole("button", { name: /^src\/c\.ts:1/ }));
   await slot.findByText("cc");
   expect(currentChapter(slot)?.textContent).toContain("Other files");
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a line selection's bar and highlight go once it's used, cleared, or its chapter closes", async () => {
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  const highlighted = () => slot.getByTestId("filediff").dataset.selected;
+  const bar = () => slot.queryByRole("button", { name: "Clear selection" })?.parentElement ?? null;
+  fireEvent.click(slot.getByRole("button", { name: "Pick line 1" }));
+  expect(highlighted()).toBe("1-1");
+  fireEvent.click(within(bar()!).getByRole("button", { name: "Add comment" }));
+  expect(bar()).toBeNull();
+  await waitFor(() => expect(highlighted()).toBe(""));
+  fireEvent.click(slot.getByRole("button", { name: "Pick line 1" }));
+  fireEvent.click(slot.getByRole("button", { name: "Clear selection" }));
+  expect(highlighted()).toBe("");
+  fireEvent.click(slot.getByRole("button", { name: "Pick line 1" }));
+  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Next: Caching" }));
+  await slot.findByText("bb");
+  expect(bar()).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("Ask agent about this goes when the diff scrolls away from its text", async () => {
+  const { slot } = await renderWorkspace();
+  const text = await slot.findByText("aa");
+  const measure = Range.prototype.getBoundingClientRect;
+  Range.prototype.getBoundingClientRect = () => ({ left: 10, top: 10, width: 10, height: 10 }) as DOMRect;
+  const range = document.createRange();
+  range.selectNodeContents(text);
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  fireEvent.mouseUp(scroller(slot));
+  expect(slot.getByRole("button", { name: "Ask agent about this" })).toBeTruthy();
+  fireEvent.scroll(scroller(slot));
+  expect(slot.queryByRole("button", { name: "Ask agent about this" })).toBeNull();
+  Range.prototype.getBoundingClientRect = measure;
   slot.lifecycle.unmount();
 }, 15_000);
