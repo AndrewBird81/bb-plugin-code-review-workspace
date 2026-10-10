@@ -345,8 +345,20 @@ export default async function plugin(bb: BbPluginApi) {
       const m = store.getReview(targetKey);
       if (!m || m.kind !== "pr" || !m.number || !m.repo) return { threads: [] };
       const [owner, repo] = m.repo.split("/");
-      const r = await runGh(ghReviewThreadsArgs(owner, repo, m.number));
-      return { threads: parseReviewThreads(r.code === 0 ? r.stdout : "").threads };
+      // Threads come oldest first: page through them all, up to 1,000, so the newest aren't the ones dropped.
+      const threads: ReturnType<typeof parseReviewThreads>["threads"] = [];
+      let after: string | undefined;
+      for (let page = 0; page < 10; page++) {
+        const r = await runGh(ghReviewThreadsArgs(owner, repo, m.number, after));
+        let json: any = null;
+        try { json = JSON.parse(r.stdout); } catch { /* reported below */ }
+        if (r.code !== 0 || !json?.data) return { threads, error: ghErrorMessage(r) };
+        threads.push(...parseReviewThreads(r.stdout).threads);
+        const info = json.data.repository?.pullRequest?.reviewThreads?.pageInfo;
+        if (!info?.hasNextPage || !info.endCursor) break;
+        after = info.endCursor;
+      }
+      return { threads };
     },
     async replyToThread({ targetKey, inReplyTo, body }) {
       const m = store.getReview(targetKey);

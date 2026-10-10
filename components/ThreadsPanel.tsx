@@ -13,20 +13,20 @@ export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKe
   const rpc = useRpc<typeof rpcContract>();
   const [threads, setThreads] = useState<any[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const cancelledRef = useRef(false);
 
   async function load() {
     try {
-      const { threads } = await rpc.call("getReviewThreads", { targetKey });
+      const { threads, error } = await rpc.call("getReviewThreads", { targetKey });
       if (cancelledRef.current) return;
       setThreads(threads);
-      setLoadError(false);
+      setLoadError(error ?? null);
     } catch (err) {
       if (cancelledRef.current) return;
-      setLoadError(true);
+      setLoadError("");
       toast.error(err instanceof Error ? err.message : "Failed to load review threads");
     } finally {
       if (!cancelledRef.current) setLoaded(true);
@@ -79,11 +79,11 @@ export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKe
     }
   }
 
-  if (loaded && loadError) {
+  if (loaded && loadError !== null && threads.length === 0) {
     return (
       <div className="m-4 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text">
         <Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />
-        <p>Couldn't load review threads.</p>
+        <div><p>Couldn't load review threads.</p>{loadError && <p className="mt-1 break-words text-xs">{loadError}</p>}</div>
       </div>
     );
   }
@@ -101,6 +101,7 @@ export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKe
 
   return (
     <div className="space-y-3">
+      {loadError && <p role="status" className="flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning-text"><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />Couldn't load every thread: {loadError}</p>}
       {threads.map((t) => (
         <div key={t.id} className="rounded-xl border border-border bg-card p-3 shadow-xs">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

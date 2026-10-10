@@ -78,7 +78,8 @@ export const rpcContract = defineRpcContract({
   getChecks: { input: targetKey, output: z.object({ bucket: z.string(), checks: z.array(z.any()) }) },
 
   // Phase 2: review threads, reply/resolve, staleness, re-review
-  getReviewThreads: { input: targetKey, output: z.object({ threads: z.array(z.any()) }) },
+  /** error: GitHub couldn't be read, or not every page; threads holds what was. */
+  getReviewThreads: { input: targetKey, output: z.object({ threads: z.array(z.any()), error: z.string().optional() }) },
   replyToThread: {
     input: z.object({ targetKey: z.string(), inReplyTo: z.number().int(), body: z.string().min(1) }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),

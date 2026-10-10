@@ -99,3 +99,15 @@ test("shows a distinct error state when loading threads fails", async () => {
   await slot.findByText("Couldn't load review threads.");
   expect(slot.queryByText("No review threads yet.")).toBeNull();
 });
+
+test("says when GitHub couldn't be read instead of showing no threads, and when only some were", async () => {
+  const { ThreadsPanel } = await import("./ThreadsPanel");
+  const failed = renderSlot({ component: ThreadsPanel }, { targetKey: "pr-1" }, { rpc: { getReviewThreads: () => ({ threads: [], error: "HTTP 502: Bad Gateway" }) } as any });
+  await failed.findByText("Couldn't load review threads.");
+  expect(failed.getByText("HTTP 502: Bad Gateway")).toBeTruthy();
+  expect(failed.queryByText("No review threads yet.")).toBeNull();
+  failed.lifecycle.unmount();
+  const partial = renderSlot({ component: ThreadsPanel }, { targetKey: "pr-1" }, { rpc: { getReviewThreads: () => ({ threads: [thread], error: "gh timed out after 120s" }) } as any });
+  await partial.findByText("please fix");
+  expect(partial.getByText("Couldn't load every thread: gh timed out after 120s")).toBeTruthy();
+});
