@@ -97,7 +97,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.getByRole("tooltip", { name: "Reviewer notes", exact: true }).waitFor();
     await notesTool.press("Enter");
     expect(await notes.inputValue()).toBe("Private: verify the staged rollout.");
-    await page.getByRole("button", { name: "Draft comments", exact: true }).click();
+    await page.getByRole("button", { name: "Draft review", exact: true }).click();
     await page.getByRole("button", { name: "Add comment", exact: true }).click();
     await page.getByRole("textbox", { name: "Draft comment", exact: true }).fill("Please cover blank input in a test.");
     await page.getByRole("button", { name: "Add to draft", exact: true }).click();
@@ -109,10 +109,12 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     // The diff shows the comment under its line too.
     await page.getByRole("article", { name: "Draft comment on src/input.ts:1", exact: true }).getByText("Please test whitespace-only input too.", { exact: true }).waitFor();
     expect(store.getDraft(key).comments).toHaveLength(1);
-    await page.getByRole("button", { name: "Review summary", exact: true }).click();
-    await page.getByRole("textbox", { name: "Review summary", exact: true }).fill("The validation looks good with this test follow-up.");
-    await page.getByRole("textbox", { name: "Review summary", exact: true }).blur();
-    await page.getByRole("button", { name: "Review summary", exact: true }).click();
+    const summary = page.getByRole("region", { name: "Review summary", exact: true });
+    await summary.getByRole("button", { name: "Write summary", exact: true }).click();
+    await summary.getByRole("textbox", { name: "Review summary", exact: true }).fill("The validation looks good with this test follow-up.");
+    await summary.getByRole("button", { name: "Save summary", exact: true }).click();
+    await summary.getByText("The validation looks good with this test follow-up.", { exact: true }).waitFor();
+    expect(store.getDraft(key).body).toBe("The validation looks good with this test follow-up.");
     const verdicts = page.getByRole("group", { name: "Review verdict" });
     await verdicts.getByRole("button", { name: "Approve", exact: true }).waitFor();
     expect(await page.getByRole("combobox", { name: "Review verdict" }).count()).toBe(0);
@@ -129,7 +131,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     expect(await reviewTools.isVisible()).toBe(true);
     expect(await reviewTools.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(45);
     await page.screenshot({ animations: "disabled", path: `${dir}/sidebar-collapsed-mobile.png` });
-    await page.getByRole("button", { name: "Draft comments", exact: true }).click();
+    await page.getByRole("button", { name: "Draft review", exact: true }).click();
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.getByRole("button", { name: "src/input.ts:1 · Changed", exact: true }).click();
     await page.getByRole("button", { name: "Full screen", exact: true }).click();
@@ -150,6 +152,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     const submission = vi.mocked(runGh).mock.calls.find(([args]) => args.includes("POST"));
     expect(submission?.[1]?.stdin).not.toContain("Private:");
     expect(submission?.[1]?.stdin).toContain("Please test whitespace-only input too.");
+    expect(submission?.[1]?.stdin).toContain("The validation looks good with this test follow-up.");
     await page.getByRole("button", { name: "Ask the review agent", exact: true }).click();
     const assistant = page.getByRole("region", { name: "Review assistant", exact: true });
     await assistant.waitFor();
@@ -186,7 +189,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.evaluate(() => document.exitFullscreen());
     await page.reload();
     await assistant.waitFor();
-    await page.getByRole("button", { name: "Draft comments", exact: true }).click();
+    await page.getByRole("button", { name: "Draft review", exact: true }).click();
     await page.getByRole("region", { name: "Submitted review" }).waitFor();
     await page.getByRole("button", { name: "Reviewer notes", exact: true }).click();
     expect(await page.getByRole("textbox", { name: "Private reviewer notes", exact: true }).inputValue()).toBe("Private: verify the staged rollout.");
@@ -205,7 +208,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.getByText("Merged", { exact: true }).waitFor();
     await page.screenshot({ animations: "disabled", path: `${dir}/archive-desktop.png` });
     await page.getByRole("button", { name: /Validate incoming review data/ }).click();
-    await page.getByRole("button", { name: "Draft comments", exact: true }).click();
+    await page.getByRole("button", { name: "Draft review", exact: true }).click();
     await page.getByRole("region", { name: "Archived review" }).waitFor();
     expect(await page.getByRole("button", { name: "Submit to GitHub" }).count()).toBe(0);
     expect(await page.getByRole("button", { name: "Re-review", exact: true }).count()).toBe(0);

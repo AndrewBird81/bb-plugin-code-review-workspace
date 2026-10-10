@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 — 2026-10-10
+
+- The review summary works like a draft comment. It sits at the top of **Draft review** (formerly Draft comments): the review assistant writes it, labeled **Added by agent**, with the verdict it suggests marked on the verdict buttons; **Edit** makes it yours; **Ask agent** discusses it with the assistant under it, and the assistant changes it there. Only you pick the verdict.
+- The assistant never replaces a summary you wrote unless you ask on it. A summary it wrote before your comments or verdict changed says so, with **Update**.
+- **Undo** puts back the assistant's latest change in a discussion: a summary, or a line comment it edited, removed, or added.
+- The verdict and **Submit to GitHub** stay pinned to the foot of Draft review; Request changes waits for a summary. **Submit review** in the review's top bar opens it, showing what you'd submit.
+- The re-review check's suggested summary goes straight into your draft. **Use as draft** remains for when you wrote your own.
+- New `bb review summary` shows or writes a review's summary, like `bb review comment`.
+- The automatic review now writes the summary instead of putting general points in the chat. Settings that kept the old default prompt get the new one; custom prompts are untouched.
+- The Ask agent tool has a chat-with-sparkle icon instead of a question mark.
+
 ## 0.3.0 — 2026-10-10
 
 - Track whose turn each review is. New **Waiting on author** list; a push alone no longer brings a changes-requested review back. Re-requests, questions or mentions, handled feedback, and (opt-in) the assistant's all-addressed check do. **Not yet** waits for a newer reason. Approvals no longer bounce on pushes. A re-request takes a review out of your archive.
