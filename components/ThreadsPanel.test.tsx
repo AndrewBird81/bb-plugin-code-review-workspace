@@ -111,3 +111,19 @@ test("says when GitHub couldn't be read instead of showing no threads, and when 
   await partial.findByText("please fix");
   expect(partial.getByText("Couldn't load every thread: gh timed out after 120s")).toBeTruthy();
 });
+
+test("a reply being written survives switching views, until it's sent", async () => {
+  const { ThreadsPanel } = await import("./ThreadsPanel");
+  const rpc = { getReviewThreads: () => ({ threads: [thread] }), replyToThread: vi.fn(() => ({ ok: true })) } as any;
+  const first = renderSlot({ component: ThreadsPanel }, { targetKey: "pr-1" }, { rpc });
+  fireEvent.change(await first.findByRole("textbox", { name: "Reply on src/foo.ts:42" }), { target: { value: "half a thought" } });
+  first.lifecycle.unmount();
+  const second = renderSlot({ component: ThreadsPanel }, { targetKey: "pr-1" }, { rpc });
+  const box = await second.findByRole("textbox", { name: "Reply on src/foo.ts:42" }) as HTMLTextAreaElement;
+  expect(box.value).toBe("half a thought");
+  fireEvent.click(second.getByText("Reply"));
+  await vi.waitFor(() => expect(box.value).toBe(""));
+  second.lifecycle.unmount();
+  const third = renderSlot({ component: ThreadsPanel }, { targetKey: "pr-1" }, { rpc });
+  expect((await third.findByRole("textbox", { name: "Reply on src/foo.ts:42" }) as HTMLTextAreaElement).value).toBe("");
+});

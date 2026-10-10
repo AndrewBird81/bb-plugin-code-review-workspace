@@ -17,6 +17,16 @@ export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKe
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const cancelledRef = useRef(false);
+  // Replies being written outlive the view, which unmounts when you switch to Diff or Feedback.
+  const draftKey = (threadId: string) => `gr:thread-reply:${targetKey}:${threadId}`;
+  const draftOf = (threadId: string) => {
+    if (threadId in drafts) return drafts[threadId];
+    try { return sessionStorage.getItem(draftKey(threadId)) ?? ""; } catch { return ""; }
+  };
+  function setDraft(threadId: string, body: string) {
+    setDrafts((d) => ({ ...d, [threadId]: body }));
+    try { if (body) sessionStorage.setItem(draftKey(threadId), body); else sessionStorage.removeItem(draftKey(threadId)); } catch { /* best effort */ }
+  }
 
   async function load() {
     try {
@@ -43,14 +53,14 @@ export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKe
   }, [rpc, targetKey]);
 
   async function reply(thread: any) {
-    const body = (drafts[thread.id] ?? "").trim();
+    const body = draftOf(thread.id).trim();
     const inReplyTo = thread.comments?.[0]?.databaseId;
     if (!body || inReplyTo == null) return;
     setBusyId(thread.id);
     try {
       const res = await rpc.call("replyToThread", { targetKey, inReplyTo, body });
       if (res.ok) {
-        setDrafts((d) => ({ ...d, [thread.id]: "" }));
+        setDraft(thread.id, "");
         await load();
       } else {
         toast.error(res.error ?? "Reply failed");
@@ -136,14 +146,15 @@ export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKe
           </ul>
           <div className="mt-3 flex items-end gap-2 border-t border-border pt-3">
             <Textarea
-              value={drafts[t.id] ?? ""}
-              onChange={(e) => setDrafts((d) => ({ ...d, [t.id]: e.target.value }))}
+              value={draftOf(t.id)}
+              onChange={(e) => setDraft(t.id, e.target.value)}
+              aria-label={`Reply on ${t.path ?? "unknown file"}${t.line != null ? `:${t.line}` : ""}`}
               placeholder="Reply…"
               className="flex-1"
             />
             <Button
               size="sm"
-              disabled={busyId === t.id || !(drafts[t.id] ?? "").trim()}
+              disabled={busyId === t.id || !draftOf(t.id).trim()}
               onClick={() => reply(t)}
             >
               Reply
