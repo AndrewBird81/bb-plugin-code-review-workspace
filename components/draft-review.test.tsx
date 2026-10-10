@@ -102,3 +102,16 @@ test("Cmd/Ctrl+Enter runs a box's primary action when it has text, and Esc cance
   document.removeEventListener("keydown", pageEscape);
   slot.lifecycle.unmount();
 });
+
+test("only old-side comments carry a side badge, and the form's sides are New and Old", async () => {
+  const draft = draftOf({ comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "New side." }, { file: "src/a.ts", line: 1, side: "LEFT", body: "Old side." }] });
+  const slot = await renderTray("side", { getDraft: () => ({ draft, stale: [], discussions: [] }) });
+  expect(slot.getByRole("button", { name: "src/a.ts:2" })).toBeTruthy();
+  expect(slot.getByRole("button", { name: "src/a.ts:1 · Old line" })).toBeTruthy();
+  expect(slot.queryByText("Changed")).toBeNull();
+  expect(slot.getAllByText("Old line")).toHaveLength(1);
+  fireEvent.click(slot.getByRole("button", { name: "Add comment" }));
+  const side = slot.getByRole("combobox", { name: "Comment side" });
+  expect(within(side).getAllByRole("option").map((option) => option.textContent)).toEqual(["New line", "Old line"]);
+  slot.lifecycle.unmount();
+});
