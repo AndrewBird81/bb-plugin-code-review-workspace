@@ -162,23 +162,48 @@ test("a merged PR's discussions take no new messages", async () => {
   expect(store.listDiscussions("pr-1")).toEqual([]);
 });
 
-test("asking on a summary you wrote opens it to the agent for the whole turn that answers, replies first or not", async () => {
+test("asking on a summary you wrote opens it only to the turn that answers, replies first or not", async () => {
   const { store, ask, tool, harness } = await host();
   store.updateSummary("pr-1", { body: "My long summary." });
   const summary = { file: "", line: 0, side: "RIGHT" } as const;
-  await ask({ ...summary, body: "Shorter, and mention the test." });
-  // Queued behind other work, the ask waits for its turn.
+  const idle = (text: string) => harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: text });
+  // The assistant is busy with a check, and a message waits behind it: the ask is third in line.
+  harness.inspection.sdk.stub("threads.get", async () => ({ archivedAt: null, deletedAt: null, status: "active" }));
   harness.inspection.sdk.stub("threads.queuedMessages.list", async () => [makeQueueEntry()]);
-  await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: "Earlier work" });
-  harness.inspection.sdk.stub("threads.queuedMessages.list", async () => []);
+  await ask({ ...summary, body: "Shorter, and mention the test." });
+  expect(store.getReview("pr-1")?.summaryAsk).toMatchObject({ threadId: "assistant", ahead: 2 });
+  // The check's turn, then the queued one, can't touch the reviewer's summary.
+  expect((await tool("set_review_summary", { body: "From the check." })).isError).toBe(true);
+  await idle("Checked");
+  expect((await tool("set_review_summary", { body: "From the queued message." })).isError).toBe(true);
+  await idle("Answered the other message");
+  // The ask's own turn may reply first and edit twice.
   await tool("reply_in_discussion", { summary: true, body: "On it." });
   expect((await tool("set_review_summary", { body: "Short." })).isError).toBeFalsy();
   expect((await tool("set_review_summary", { body: "Short, with the test." })).isError).toBeFalsy();
   expect(store.getDraft("pr-1")).toMatchObject({ body: "Short, with the test." });
   expect(store.getDraft("pr-1").bodyAuthor).toBeUndefined();
-  // Once that turn ends, the summary is the reviewer's to change again.
-  await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: "Done" });
+  // Once it ends, the summary is the reviewer's to change again.
+  await idle("Done");
   expect(store.getReview("pr-1")?.summaryAsk).toBeNull();
   expect((await tool("set_review_summary", { body: "Unasked." })).isError).toBe(true);
   expect(store.getDraft("pr-1").body).toBe("Short, with the test.");
+});
+
+test("an ask on the summary is withdrawn when it can't be sent, is dismissed, or its conversation goes", async () => {
+  const { store, ask, harness } = await host();
+  const summary = { file: "", line: 0, side: "RIGHT" } as const;
+  harness.inspection.sdk.stub("threads.send", async () => { throw new Error("offline"); });
+  await expect(ask({ ...summary, body: "Shorter?" })).rejects.toThrow("offline");
+  expect(store.getReview("pr-1")?.summaryAsk).toBeNull();
+  harness.inspection.sdk.stub("threads.send", async () => ({ delivery: "sent" }));
+  await ask({ ...summary, body: "Shorter?" });
+  expect(store.getReview("pr-1")?.summaryAsk).toMatchObject({ threadId: "assistant", ahead: 0 });
+  await harness.behavior.callRpc("dismissDiscussion", { targetKey: "pr-1", ...summary });
+  expect(store.getReview("pr-1")?.summaryAsk).toBeNull();
+  await ask({ ...summary, body: "Shorter?" });
+  // The conversation was archived outside the plugin; the next message starts another.
+  harness.inspection.sdk.stub("threads.get", async () => ({ archivedAt: 1, deletedAt: null, status: "idle" }));
+  await ask({ body: "Why?" });
+  expect(store.getReview("pr-1")?.summaryAsk).toBeNull();
 });

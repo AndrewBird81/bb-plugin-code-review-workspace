@@ -27,7 +27,7 @@ async function host() {
   const error = (result: any) => (result.isError ? result.content[0].text : null) as string | null;
   const signals = () => harness.inspection.realtimeSignals.filter((signal) => signal.channel === "draft:pr-1").length;
   const ask = (where: typeof at | typeof SUMMARY_AT, body: string) => store.addDiscussionMessage("pr-1", where, "reviewer", body);
-  return { store, tool, call, error, signals, ask };
+  return { bb, harness, store, tool, call, error, signals, ask };
 }
 
 test("the assistant writes an empty or an agent's summary and suggests a verdict, and nothing reaches GitHub", async () => {
@@ -69,14 +69,21 @@ test("a summary the reviewer wrote is refused, unless they asked on it; then it 
   expect(error(await tool("set_review_summary", { body: "Better summary." }))).toBe(refused);
   expect(await tool("list_draft_comments", {})).toContain("Review summary · written by the reviewer\n  My summary.\nVerdict: the reviewer hasn't picked one, so it's Comment by default.\nThe draft has no comments.");
 
+  // Asked on the summary, but the turn that answers hasn't started, or runs on another conversation.
   ask(SUMMARY_AT, "Make it shorter.");
+  expect(error(await tool("set_review_summary", { body: "Short." }))).toBe(refused);
+  store.setLifecycle("pr-1", { summaryAsk: { threadId: "another", ahead: 0, at: 1 } });
+  expect(error(await tool("set_review_summary", { body: "Short." }))).toBe(refused);
+  store.setLifecycle("pr-1", { summaryAsk: { threadId: "assistant", ahead: 1, at: 1 } });
+  expect(error(await tool("set_review_summary", { body: "Short." }))).toBe(refused);
+  store.setLifecycle("pr-1", { summaryAsk: { threadId: "assistant", ahead: 0, at: 1 } });
   expect(await tool("set_review_summary", { body: "Short.", verdict: "COMMENT" })).toContain("Updated the reviewer's review summary, as they asked.");
   expect(store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "Short.", comments: [], suggestedVerdict: "COMMENT" });
   const summary = store.listDiscussions("pr-1").find((d) => d.file === "")!;
   expect(summary).toMatchObject({ waiting: false, entries: [{ kind: "message" }, { author: "agent", kind: "edited", body: "Short." }] });
   expect(store.lastDiscussionChange("pr-1", SUMMARY_AT)).toEqual({ kind: "edited", body: "Short.", previous: { body: "My summary." } });
-  // Answered, the request is over.
-  expect(error(await tool("set_review_summary", { body: "Shorter." }))).toBe(refused);
+  // The CLI isn't the turn that answers.
+  expect(writeSummary(store, "pr-1", { body: "From a script." })).toEqual({ ok: false, error: refused });
 });
 
 test("a review being regenerated, merged, or closed takes no summary", async () => {
@@ -173,4 +180,40 @@ test("the assistant replies in the summary's discussion", async () => {
     expect.objectContaining({ author: "reviewer", body: "Is Approve right?" }), expect.objectContaining({ author: "agent", kind: "message", body: "Yes: nothing blocks merging." }),
   ] }]);
   expect(signals()).toBe(1);
+});
+
+test("Undo puts the suggested verdict back too, and isn't offered where the draft can't change", async () => {
+  const { store, tool, call, ask } = await host();
+  ask(SUMMARY_AT, "Write one.");
+  await tool("set_review_summary", { body: "First." });
+  await tool("set_review_summary", { body: "Approve it.", verdict: "APPROVE" });
+  expect((await call("undoAgentChange", SUMMARY_AT)).draft).toMatchObject({ body: "First." });
+  expect(store.getDraft("pr-1").suggestedVerdict).toBeUndefined();
+
+  await tool("set_review_summary", { body: "Approve it.", verdict: "APPROVE" });
+  store.setLifecycle("pr-1", { prState: "MERGED" });
+  expect((await call("getDraft", {})).discussions[0]).not.toHaveProperty("undoable");
+  await expect(call("undoAgentChange", SUMMARY_AT)).rejects.toThrow("merged");
+});
+
+test("a removed comment drafted before bb kept its line's code doesn't go back", async () => {
+  const { bb, store, tool, call, ask } = await host();
+  ask(at, "Drop it?");
+  await tool("add_draft_comment", { ...at, code: "const c = b * 2;", body: "Overflow?" });
+  // As a version before 0.3.0 left it.
+  bb.storage.database().prepare(`UPDATE draft_comment_revisions SET code=NULL`).run();
+  await tool("delete_draft_comment", at);
+  expect(store.lastDiscussionChange("pr-1", at)).toMatchObject({ kind: "removed" });
+  expect((await call("getDraft", {})).discussions[0]).not.toHaveProperty("undoable");
+  await expect(call("undoAgentChange", at)).rejects.toThrow("bb didn't keep the code the comment on a.ts:3 was drafted on");
+  expect(store.getDraft("pr-1").comments).toEqual([]);
+});
+
+test("an ask on the summary left from before the plugin started gives way", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
+  store.setLifecycle("pr-1", { summaryAsk: { threadId: "assistant", ahead: 0, at: 1 } });
+  await plugin(bb);
+  expect(store.getReview("pr-1")?.summaryAsk).toBeNull();
 });

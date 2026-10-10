@@ -117,3 +117,15 @@ test("submission records the reviewer from GitHub so account switches cannot mis
   expect(await submit("pr-test")).toEqual({ ok: true });
   expect(store.getReview("pr-test")?.reviewer).toBe("reviewer");
 });
+
+test("submission refuses a summary or verdict the page didn't show", async () => {
+  const { store, run, submit } = setup();
+  const comments = store.getDraft("pr-test").comments;
+  // The assistant rewrote the summary after the page last showed it.
+  store.updateSummary("pr-test", { body: "The assistant's newer summary", bodyAuthor: "agent" });
+  expect(await submit("pr-test", undefined, undefined, comments, { body: "My summary", verdict: "COMMENT" }))
+    .toEqual({ ok: false, error: expect.stringContaining("Your review summary or verdict changed since this page showed it") });
+  expect(await submit("pr-test", undefined, undefined, comments, { body: "The assistant's newer summary", verdict: "APPROVE" })).toMatchObject({ ok: false });
+  expect(run).not.toHaveBeenCalled();
+  expect(await submit("pr-test", undefined, undefined, comments, { body: "The assistant's newer summary", verdict: "COMMENT" })).toEqual({ ok: true });
+});

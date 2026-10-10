@@ -130,11 +130,13 @@ test("a check's suggested summary goes into the draft, but never over the review
   expect(drafts()).toBe(2);
 
   await call("saveSummary", { targetKey: "pr-1", body: "My own words.", revision: reviewRevision(store, "pr-1") });
+  expect(drafts()).toBe(3);
   expect(await tool("assess_feedback", { items: [item], suggestedVerdict: "APPROVE", suggestedBody: "All done." })).toContain("The reviewer wrote the draft's summary, so yours waits in the Feedback view.");
-  expect(store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "My own words.", comments: [], suggestedVerdict: "REQUEST_CHANGES" });
+  // The reviewer's words stay; the check's verdict is still marked for them.
+  expect(store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "My own words.", comments: [], suggestedVerdict: "APPROVE" });
   const { feedback } = await call("getFeedback", { targetKey: "pr-1" });
   expect(feedback).toMatchObject({ suggestionInDraft: false, run: { suggestedVerdict: "APPROVE", suggestedBody: "All done." } });
-  expect(drafts()).toBe(2);
+  expect(drafts()).toBe(4);
 });
 
 test("replying from the Feedback view posts to the thread and clears the drafted reply", async () => {

@@ -52,6 +52,8 @@ export async function getConversation(bb: BbPluginApi, store: Store, targetKey: 
       if (!isMissingThread(error)) throw error;
     }
     store.clearAssistantThread(targetKey);
+    // An ask on the summary was for that conversation.
+    if (store.getReview(targetKey)?.summaryAsk) store.setLifecycle(targetKey, { summaryAsk: null });
   }
   const custom = store.getPreferences().preferences.assistantAgent;
   if (custom) return { threadId: null, legacy, defaults: choice(custom), machine: await machineStatus(bb, custom.hostId) };
@@ -118,18 +120,18 @@ export async function startAutomaticReview(bb: BbPluginApi, store: Store, target
  * work if it's busy, plus `context` only the assistant sees. Without a
  * conversation, this starts one on the agent a new conversation defaults to.
  */
-export async function messageAssistant(bb: BbPluginApi, store: Store, targetKey: string, text: string, context: string): Promise<{ started: boolean }> {
+export async function messageAssistant(bb: BbPluginApi, store: Store, targetKey: string, text: string, context: string): Promise<{ started: boolean; threadId: string }> {
   const { threadId, defaults } = await getConversation(bb, store, targetKey);
   if (threadId) {
     await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [
       { type: "text", text, mentions: [] },
       { type: "text", text: context, mentions: [], visibility: "agent-only" },
     ] });
-    return { started: false };
+    return { started: false, threadId };
   }
   if (!defaults) throw new Error("Choose this review's agent first: open Ask agent and send it a message.");
-  await startConversation(bb, store, { targetKey, text, context, agent: defaults });
-  return { started: true };
+  const started = await startConversation(bb, store, { targetKey, text, context, agent: defaults });
+  return { started: true, threadId: started.threadId };
 }
 
 /** Archive the review's conversation so the next message starts a fresh one. */

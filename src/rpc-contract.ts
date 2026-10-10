@@ -140,8 +140,10 @@ export const rpcContract = defineRpcContract({
   submitReview: {
     input: z.object({
       targetKey: z.string(), revision: z.string().optional(), account: z.string().optional(),
-      // The comments the page shows; submission refuses a draft that no longer matches.
+      // The comments, summary, and verdict the page shows; submission refuses a draft that no longer matches.
       comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), body: z.string() })).optional(),
+      body: z.string().optional(),
+      verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional(),
     }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },

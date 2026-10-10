@@ -152,6 +152,8 @@ test("picking a verdict keeps the summary and its author; a verdict with a body 
   const written = { verdict: null, comments: "0:811c9dc5" };
   s.updateSummary("pr-1", { body: "Agent's words", bodyAuthor: "agent", written, suggestedVerdict: "APPROVE" });
   expect(s.setVerdict("pr-1", "REQUEST_CHANGES")).toMatchObject({ verdict: "REQUEST_CHANGES", verdictChosen: true, body: "Agent's words", bodyAuthor: "agent", written });
+  // A panel from before the summary's own box sends the summary with the verdict; unchanged, it stays the agent's.
+  expect(s.setVerdict("pr-1", "REQUEST_CHANGES", "Agent's words")).toMatchObject({ bodyAuthor: "agent", written });
   const mine = s.setVerdict("pr-1", "APPROVE", "My words");
   expect(mine).toMatchObject({ verdict: "APPROVE", verdictChosen: true, body: "My words", suggestedVerdict: "APPROVE" });
   expect(mine).not.toHaveProperty("bodyAuthor");

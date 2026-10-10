@@ -59,10 +59,35 @@ export async function askAgent(bb: BbPluginApi, store: Store, targetKey: string,
   const refused = unchangeable(store.getReview(targetKey));
   if (refused) throw new Error(refused);
   const { text, context } = discussionMessage(store, targetKey, input);
-  const result = await messageAssistant(bb, store, targetKey, text, context);
+  // Placed before it's sent, so even a turn that ends at once finds it.
+  const summary = isSummary(input);
+  if (summary) store.setLifecycle(targetKey, { summaryAsk: await askPlace(bb, store, targetKey) });
+  let result: { started: boolean; threadId: string };
+  try {
+    result = await messageAssistant(bb, store, targetKey, text, context);
+  } catch (error) {
+    if (summary) store.setLifecycle(targetKey, { summaryAsk: null });
+    throw error;
+  }
+  const ask = store.getReview(targetKey)?.summaryAsk;
+  if (summary && ask && ask.threadId !== result.threadId) store.setLifecycle(targetKey, { summaryAsk: { ...ask, threadId: result.threadId, ahead: 0 } });
   store.addDiscussionMessage(targetKey, input, "reviewer", input.body, input.startLine !== input.line ? input.startLine : undefined);
-  if (isSummary(input)) store.setLifecycle(targetKey, { summaryAsk: Date.now() });
-  return result;
+  return { started: result.started };
+}
+
+/**
+ * Where an ask on the summary lands: the conversation's thread, and how many turns run before it,
+ * the one in progress and those queued. Only the turn that answers the ask may change the reviewer's summary.
+ */
+async function askPlace(bb: BbPluginApi, store: Store, targetKey: string): Promise<{ threadId: string | null; ahead: number; at: number }> {
+  const threadId = store.getAssistantThread(targetKey);
+  if (!threadId) return { threadId: null, ahead: 0, at: Date.now() };
+  const [thread, queued] = await Promise.all([
+    bb.sdk.threads.get({ threadId }).catch(() => null),
+    bb.sdk.threads.queuedMessages.list({ threadId }).catch(() => []),
+  ]);
+  const busy = thread?.status === "active" || thread?.status === "starting";
+  return { threadId, ahead: (busy ? 1 : 0) + queued.length, at: Date.now() };
 }
 
 /**

@@ -105,36 +105,46 @@ function textAt(store: Store, targetKey: string, at: CommentLocation): string | 
   return draft.comments.find((c) => sameLocation(c, at))?.body ?? null;
 }
 
+type Positions = () => ReturnType<typeof diffPositions>;
+const positionsOf = (store: Store, targetKey: string): Positions => {
+  let positions: ReturnType<typeof diffPositions> | undefined;
+  return () => positions ??= diffPositions(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text);
+};
+
 /**
- * Why the agent's latest change in a discussion can't be undone, or null when it can: nothing changed
- * its comment or the summary since, and a removed comment's line still holds the code it was drafted on.
+ * Why the agent's latest change in a discussion can't be undone, or null when it can: the draft can still
+ * change, nothing changed its comment or the summary since, and a removed comment's line still holds the code it was drafted on.
  */
-function undoProblem(store: Store, targetKey: string, at: CommentLocation): string | null {
+function undoProblem(store: Store, targetKey: string, at: CommentLocation, positions: Positions): string | null {
+  const refused = unchangeable(store.getReview(targetKey));
+  if (refused) return refused;
   const change = store.lastDiscussionChange(targetKey, at);
   if (!change) return "There's no change of the agent's to undo there.";
   const text = textAt(store, targetKey, at);
   if (change.kind === "removed" ? text !== null : text !== change.body) return "It changed since the agent's edit, so there's nothing to undo. Edit it instead.";
   if (change.kind !== "removed" || isSummary(at)) return null;
-  const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
-  const code = diffPositions(patch).get(at.file)?.[at.side === "RIGHT" ? "right" : "left"].get(at.line);
+  const code = positions().get(at.file)?.[at.side === "RIGHT" ? "right" : "left"].get(at.line);
   // Putting it back binds it to the current diff, so the line must still hold the code it was drafted on.
   const drafted = store.draftCommentCode(targetKey, at);
   if (code === undefined) return `${where(at)} isn't in the diff anymore, so the comment can't go back there.`;
-  if (drafted !== undefined && code !== drafted) return `The code at ${where(at)} changed since the comment was drafted, so it can't go back there.`;
+  if (drafted === undefined) return `bb didn't keep the code the comment on ${where(at)} was drafted on, so it can't go back there. Add it again instead.`;
+  if (code !== drafted) return `The code at ${where(at)} changed since the comment was drafted, so it can't go back there.`;
   return null;
 }
 
-export const canUndo = (store: Store, targetKey: string, at: CommentLocation) => undoProblem(store, targetKey, at) === null;
+/** Which discussions' latest change of the agent's can be undone. Reads the diff at most once. */
+export function undoable(store: Store, targetKey: string): (at: CommentLocation) => boolean {
+  const positions = positionsOf(store, targetKey);
+  return (at) => undoProblem(store, targetKey, at, positions) === null;
+}
 
 /** Put back what the agent's latest change in a discussion replaced: a comment's text, a removed comment, or the summary. */
 export function undoChange(store: Store, targetKey: string, at: CommentLocation): DraftResult {
-  const refused = unchangeable(store.getReview(targetKey));
-  if (refused) return { ok: false, error: refused };
-  const problem = undoProblem(store, targetKey, at);
+  const problem = undoProblem(store, targetKey, at, positionsOf(store, targetKey));
   if (problem) return { ok: false, error: problem };
   const { kind, previous } = store.lastDiscussionChange(targetKey, at)!;
   if (isSummary(at)) {
-    store.updateSummary(targetKey, { body: previous?.body ?? "", bodyAuthor: previous?.author, written: previous?.written });
+    store.updateSummary(targetKey, { body: previous?.body ?? "", bodyAuthor: previous?.author, written: previous?.written, suggestedVerdict: previous?.suggestedVerdict });
   } else if (!previous) {
     store.deleteDraftComment(targetKey, at);
   } else if (kind === "removed") {

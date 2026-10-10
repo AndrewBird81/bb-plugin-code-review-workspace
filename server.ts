@@ -13,8 +13,8 @@ import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
 import { listMachines } from "./src/machines";
-import { addComment, assistantReview, canUndo, deleteComment, editComment, replyInDiscussion, unchangeable, undoChange, type DraftResult } from "./src/draft-comments";
-import { commentsKey, SUMMARY_AT } from "./src/draft";
+import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
+import { commentsKey, isSummary, SUMMARY_AT } from "./src/draft";
 import { describeDraft, writeSummary } from "./src/draft-summary";
 import { runSummaryCommand } from "./src/summary-command";
 import { askAgent, settleDiscussions } from "./src/discussions";
@@ -62,6 +62,8 @@ const ASSISTANT_TOOLS = 4;
 export default async function plugin(bb: BbPluginApi) {
   const store = createStore(bb);
   store.interruptGenerations();
+  // An ask on a summary can't know whether its turn ended while the plugin was down; it gives way.
+  for (const review of store.listReviews()) if (review.summaryAsk) store.setLifecycle(review.targetKey, { summaryAsk: null });
   const submitReview = createReviewSubmitter(store, runGh);
   const notifications = completionNotifications(bb, store);
   let personalProject: string | null = null;
@@ -226,11 +228,14 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   // The draft, its comments drafted against an older diff (which submitting refuses), and the discussions at its lines and summary.
-  const draftState = (targetKey: string, draft = store.getDraft(targetKey)) => ({
-    draft,
-    stale: store.staleDraftComments(targetKey).map(({ file, line, side }) => ({ file, line, side })),
-    discussions: store.listDiscussions(targetKey).map((d) => canUndo(store, targetKey, d) ? { ...d, undoable: true } : d),
-  });
+  const draftState = (targetKey: string, draft = store.getDraft(targetKey)) => {
+    const canUndo = undoable(store, targetKey);
+    return {
+      draft,
+      stale: store.staleDraftComments(targetKey).map(({ file, line, side }) => ({ file, line, side })),
+      discussions: store.listDiscussions(targetKey).map((d) => canUndo(d) ? { ...d, undoable: true } : d),
+    };
+  };
 
   const handlers: Omit<Parameters<typeof bb.rpc.register<typeof rpcContract>>[1], keyof typeof import("./src/plugin-updates").releaseRpc> = {
     async getSetupStatus() {
@@ -425,6 +430,8 @@ export default async function plugin(bb: BbPluginApi) {
     },
     dismissDiscussion({ targetKey, file, line, side }) {
       store.deleteDiscussion(targetKey, { file, line, side });
+      // Dismissed, the ask on the summary is withdrawn.
+      if (isSummary({ file, line, side })) store.setLifecycle(targetKey, { summaryAsk: null });
       return draftState(targetKey);
     },
     undoAgentChange({ targetKey, file, line, side }) {
@@ -435,21 +442,26 @@ export default async function plugin(bb: BbPluginApi) {
     },
     setVerdict({ targetKey, verdict, body, revision }) {
       requireReviewRevision(store, targetKey, revision);
-      return { draft: store.setVerdict(targetKey, verdict, body) };
+      const draft = store.setVerdict(targetKey, verdict, body);
+      bb.realtime.publish(`draft:${targetKey}`, {});
+      return { draft };
     },
     saveSummary({ targetKey, body, revision }) {
       requireReviewRevision(store, targetKey, revision);
       // Your words now, whoever wrote them before.
-      return draftState(targetKey, store.updateSummary(targetKey, { body, bodyAuthor: undefined, written: undefined }));
+      const draft = store.updateSummary(targetKey, { body, bodyAuthor: undefined, written: undefined });
+      bb.realtime.publish(`draft:${targetKey}`, {});
+      return draftState(targetKey, draft);
     },
-    async submitReview({ targetKey, revision, account, comments }) {
+    async submitReview({ targetKey, revision, account, comments, body, verdict }) {
       if (!account) return { ok: false, error: "Verify your GitHub account before submitting. Reload this review to check access." };
       try { requireReviewRevision(store, targetKey, revision); } catch (error) { return { ok: false, error: (error as Error).message }; }
-      const result = await submitReview(targetKey, revision, account, comments);
+      const result = await submitReview(targetKey, revision, account, comments, body === undefined || verdict === undefined ? undefined : { body, verdict });
       // The discussions were about this draft. The assistant's conversation keeps them.
       if (result.ok) {
         store.clearDiscussions(targetKey);
         store.setLifecycle(targetKey, { summaryAsk: null });
+        bb.realtime.publish(`draft:${targetKey}`, {});
         const review = store.getReview(targetKey)!;
         // The diff you reviewed is what "since your review" compares against.
         if (review.headSha) store.saveSnapshot(targetKey, review.headSha, store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text);
@@ -595,12 +607,12 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "set_review_summary",
     description: "Write the review summary in the reviewer's local draft for this review: the top-level comment GitHub shows with the verdict and the line comments. Optionally suggest a verdict; the reviewer picks it. Nothing reaches GitHub. Refuses a summary the reviewer wrote, unless they asked on the summary for the change.",
-    instructions: "Write the review summary with set_review_summary: the overall assessment, what blocks merging and what doesn't, and points that have no line. Don't repeat your line comments, since GitHub shows them with the review; refer to them by file:line. Keep it short, in GitHub Markdown. Give the verdict you'd suggest; the reviewer picks the verdict, and yours is marked on it. Messages from the summary's discussion ask for changes to it: make them with set_review_summary, then answer with reply_in_discussion (summary: true).",
+    instructions: "Write the review summary with set_review_summary: the overall assessment, what blocks merging and what doesn't, and points that have no line. Don't repeat your line comments, since GitHub shows them with the review; refer to them by file:line. Keep it short, in GitHub Markdown. Give the verdict you'd suggest; the reviewer picks the verdict, and yours is marked on it. Without verdict, your earlier suggestion stays marked. Messages from the summary's discussion ask for changes to it: make them with set_review_summary, and answer with reply_in_discussion (summary: true).",
     parameters: z.object({
       body: z.string().trim().min(1).describe("The summary, in GitHub Markdown."),
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional().describe("The verdict you'd suggest; the reviewer picks."),
     }),
-    execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => writeSummary(store, targetKey, input)),
+    execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => writeSummary(store, targetKey, input, threadId)),
   });
   bb.agents.registerTool({
     name: "reply_in_discussion",
@@ -688,10 +700,12 @@ export default async function plugin(bb: BbPluginApi) {
       // The suggestion fills the draft's summary when the rules allow; over the reviewer's own, it waits in the Feedback view for Use as draft.
       let note = "";
       if (input.suggestedBody?.trim()) {
-        const written = writeSummary(store, review.targetKey, { body: input.suggestedBody, verdict: input.suggestedVerdict });
-        note = written.ok ? " Your suggested summary is in the reviewer's draft."
-          : unchangeable(store.getReview(review.targetKey)) ? "" : " The reviewer wrote the draft's summary, so yours waits in the Feedback view.";
-        if (written.ok) bb.realtime.publish(`draft:${review.targetKey}`, {});
+        const written = writeSummary(store, review.targetKey, { body: input.suggestedBody, verdict: input.suggestedVerdict }, threadId);
+        const refused = !written.ok && unchangeable(store.getReview(review.targetKey));
+        note = written.ok ? " Your suggested summary is in the reviewer's draft." : refused ? "" : " The reviewer wrote the draft's summary, so yours waits in the Feedback view.";
+        // Over the reviewer's summary, the suggested verdict is still marked.
+        if (!written.ok && !refused && input.suggestedVerdict) store.updateSummary(review.targetKey, { suggestedVerdict: input.suggestedVerdict });
+        if (!refused) bb.realtime.publish(`draft:${review.targetKey}`, {});
       } else if (input.suggestedVerdict) {
         store.updateSummary(review.targetKey, { suggestedVerdict: input.suggestedVerdict });
         bb.realtime.publish(`draft:${review.targetKey}`, {});
@@ -727,12 +741,13 @@ export default async function plugin(bb: BbPluginApi) {
     if (targetKey) bb.realtime.publish(`draft:${targetKey}`, {});
     const reviewKey = assistantReview(store, thread.id);
     const review = reviewKey ? store.getReview(reviewKey) : null;
-    if (!reviewKey || !(review?.verifyingSince || review?.summaryAsk)) return;
-    // A check or an ask on the summary still queued behind another message hasn't run yet.
-    if ((await bb.sdk.threads.queuedMessages.list({ threadId: thread.id }).catch(() => [])).length) return;
-    if (review.summaryAsk) store.setLifecycle(reviewKey, { summaryAsk: null });
-    // A feedback check ends with the assistant's turn; an alert waiting for it can go now.
-    if (review.verifyingSince) {
+    if (!reviewKey || !review) return;
+    // A turn ended. An ask on the summary waits out the turns ahead of it, and ends with its own.
+    const ask = review.summaryAsk;
+    if (ask && (ask.threadId ?? thread.id) === thread.id) store.setLifecycle(reviewKey, { summaryAsk: ask.ahead > 0 ? { ...ask, ahead: ask.ahead - 1 } : null });
+    // A feedback check ends with the assistant's turn; an alert waiting for it can go now. A check still
+    // queued behind another message hasn't run yet.
+    if (review.verifyingSince && !(await bb.sdk.threads.queuedMessages.list({ threadId: thread.id }).catch(() => [])).length) {
       store.setLifecycle(reviewKey, { verifyingSince: null, verifyingHead: null, preparedAt: Date.now() });
       await sync.evaluate(reviewKey);
       bb.realtime.publish(`feedback:${reviewKey}`, { ts: Date.now() });

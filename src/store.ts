@@ -39,8 +39,11 @@ export interface ReviewLifecycle {
   preparedAt?: number | null;
   /** Your latest review summaries, newest last, for the assistant. */
   reviewBodies?: Array<{ state: string; at: number; body: string }>;
-  /** The reviewer asked on the review summary; the agent may change their summary until the turn that answers it ends. */
-  summaryAsk?: number | null;
+  /**
+   * The reviewer asked on the review summary. Their summary is open to the turn that answers: on this
+   * conversation thread (null until a new one is spawned), once the `ahead` turns before it have ended.
+   */
+  summaryAsk?: { threadId: string | null; ahead: number; at: number } | null;
   /** When bb first read the PR's state. Earlier events don't alert or start work. */
   watchingSince?: number | null;
   /** Found on GitHub with a request for your review that you haven't been told about. */
@@ -209,7 +212,7 @@ export interface Store {
 export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor" | "suggestedVerdict" | "written" | "verdictChosen">>;
 
 /** What a comment or the summary was before an agent changed it; null when there was none. */
-export type PreviousState = { body: string; author?: "agent"; chapterId?: string; written?: Draft["written"] } | null;
+export type PreviousState = { body: string; author?: "agent"; chapterId?: string; written?: Draft["written"]; suggestedVerdict?: Verdict } | null;
 
 export function createStore(bb: BbPluginApi): Store {
   const db = bb.storage.database();
@@ -469,7 +472,9 @@ export function createStore(bb: BbPluginApi): Store {
       return d;
     },
     setVerdict(k, verdict, body) {
-      return this.updateSummary(k, { verdict, verdictChosen: true, ...(body === undefined ? {} : { body, bodyAuthor: undefined, written: undefined }) });
+      // A summary saved unchanged keeps whoever wrote it.
+      const changed = body !== undefined && body !== this.getDraft(k).body;
+      return this.updateSummary(k, { verdict, verdictChosen: true, ...(changed ? { body, bodyAuthor: undefined, written: undefined } : {}) });
     },
     updateSummary(k, change) {
       const d = { ...this.getDraft(k), ...change };
