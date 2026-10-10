@@ -203,3 +203,112 @@ test("Ask agent about this goes when the diff scrolls away from its text", async
   Range.prototype.getBoundingClientRect = measure;
   slot.lifecycle.unmount();
 }, 15_000);
+
+// jsdom has no layout: the file last scrolled to sits at the top, the others far below or above it.
+function fakeLayout() {
+  let top: string | undefined;
+  const scrollIntoView = Element.prototype.scrollIntoView;
+  const measure = Element.prototype.getBoundingClientRect;
+  Element.prototype.scrollIntoView = function (this: Element) { top = (this as HTMLElement).dataset.file ?? top; };
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    const file = (this as HTMLElement).dataset?.file;
+    const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-file]")).map((el) => el.dataset.file);
+    const offset = file && top ? (cards.indexOf(file) - cards.indexOf(top)) * 1000 : file ? 500 : 0;
+    return { top: offset, left: 0, width: 0, height: 0, right: 0, bottom: 0 } as DOMRect;
+  };
+  return { top: () => top, restore: () => { Element.prototype.scrollIntoView = scrollIntoView; Element.prototype.getBoundingClientRect = measure; } };
+}
+const press = (key: string, init: KeyboardEventInit = {}, target: Element = document.body) => fireEvent.keyDown(target, { key, ...init });
+
+test("j and k move between files, n and p between chapters, and v marks the file viewed and moves on", async () => {
+  const layout = fakeLayout();
+  const { slot, rpc } = await renderWorkspace();
+  await slot.findByText("aa");
+  press("n");
+  await slot.findByText("bb");
+  expect(currentChapter(slot)?.textContent).toContain("Caching");
+  press("j");
+  expect(layout.top()).toBe("src/b.ts");
+  press("j");
+  expect(layout.top()).toBe("src/c.ts");
+  press("k");
+  expect(layout.top()).toBe("src/b.ts");
+  press("v");
+  expect(rpc.setFileViewed).toHaveBeenCalledWith({ targetKey: "pr-42", file: "src/b.ts", viewed: true });
+  await waitFor(() => expect(layout.top()).toBe("src/c.ts"));
+  press("p");
+  await slot.findByText("aa");
+  expect(currentChapter(slot)?.textContent).toContain("Parsing");
+  layout.restore();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("shortcuts wait while you type, and with Ctrl, Meta, or Alt held", async () => {
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  press("n", { ctrlKey: true });
+  press("n", { metaKey: true });
+  press("n", { altKey: true });
+  const draftTool = slot.getByRole("button", { name: "Draft review" });
+  if (draftTool.getAttribute("aria-pressed") !== "true") fireEvent.click(draftTool);
+  fireEvent.click(await slot.findByRole("button", { name: "Add comment" }));
+  press("n", {}, slot.getByRole("textbox", { name: "Comment file" }));
+  expect(currentChapter(slot)?.textContent).toContain("Parsing");
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("u opens the next unviewed file in any chapter", async () => {
+  const layout = fakeLayout();
+  const { slot } = await renderWorkspace({ rpc: { getFileViews: () => ({ views: [{ file: "src/b.ts", viewed: true, stale: false }] }) } });
+  await slot.findByText("aa");
+  await waitFor(() => expect(chapters(slot).getByText("1/3 files viewed")).toBeTruthy());
+  press("j");
+  press("u");
+  await slot.findByText("cc");
+  expect(currentChapter(slot)?.textContent).toContain("Caching");
+  await waitFor(() => expect(layout.top()).toBe("src/c.ts"));
+  layout.restore();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("] and [ go through draft comments and discussions in the guide's order", async () => {
+  const comments = [
+    { file: "src/c.ts", line: 1, side: "RIGHT", body: "Third", author: "reviewer" },
+    { file: "src/a.ts", line: 1, side: "RIGHT", body: "First", author: "reviewer" },
+  ];
+  const discussions = [{ file: "src/b.ts", line: 1, side: "RIGHT", waiting: false, undoable: false, entries: [{ author: "reviewer", kind: "message", body: "Second?", createdAt: 1 }] }];
+  const { slot } = await renderWorkspace({ rpc: {
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments, discussions } }),
+  } });
+  await slot.findByText("aa");
+  const draftTool = slot.getByRole("button", { name: "Draft review" });
+  if (draftTool.getAttribute("aria-pressed") !== "true") fireEvent.click(draftTool);
+  await slot.findByRole("button", { name: /^src\/a\.ts:1/ });
+  press("]");
+  expect(currentChapter(slot)?.textContent).toContain("Parsing");
+  press("]");
+  await slot.findByText("bb");
+  expect(currentChapter(slot)?.textContent).toContain("Caching");
+  press("[");
+  await slot.findByText("aa");
+  press("[");
+  // Before the first, the last.
+  await slot.findByText("cc");
+  expect(currentChapter(slot)?.textContent).toContain("Caching");
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a asks the agent, s opens the draft to submit, and ? lists the shortcuts until Esc", async () => {
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  press("a");
+  await waitFor(() => expect(slot.getByRole("button", { name: "Ask agent" }).getAttribute("aria-pressed")).toBe("true"));
+  press("s");
+  await waitFor(() => expect(slot.getByRole("button", { name: "Draft review" }).getAttribute("aria-pressed")).toBe("true"));
+  press("?");
+  const help = await slot.findByRole("dialog", { name: "Keyboard shortcuts" });
+  expect(within(help).getByText("Next unviewed file, in any chapter")).toBeTruthy();
+  fireEvent.keyDown(help, { key: "Escape" });
+  await waitFor(() => expect(slot.queryByRole("dialog", { name: "Keyboard shortcuts" })).toBeNull());
+  slot.lifecycle.unmount();
+}, 15_000);

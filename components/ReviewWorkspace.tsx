@@ -1,9 +1,9 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useRpc, useRealtime, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { SelectedLineRange } from "@pierre/diffs";
 import type { rpcContract } from "../src/rpc-contract";
-import { VERDICT_LABEL, type CommentLocation } from "../src/draft";
+import { VERDICT_LABEL, sameLocation, type CommentLocation } from "../src/draft";
 import type { FileInterdiff } from "../src/interdiff";
 import { baselineOf, computeTurn, type TurnReason } from "../lib/turn";
 import { cn } from "../lib/utils";
@@ -30,6 +30,9 @@ import { Hint } from "./ui/hint";
 import { ReviewActions } from "./ReviewActions";
 import { defaultPreferences } from "../lib/review-preferences";
 import { useDraftStatus } from "../lib/draft-status";
+import { inDiffOrder, shortcutKey } from "../lib/review-shortcuts";
+import { InlineDraftContext } from "./InlineDraft";
+import { ShortcutsHelp } from "./ShortcutsHelp";
 import { splitPatchByFile } from "../src/patch";
 
 const SIDEBAR_MIN = 200;
@@ -45,6 +48,13 @@ function withOtherFiles(sections: any[], patch: string): any[] {
   return other.length ? [...sections, { id: OTHER_FILES, title: "Other files", overview: "Changed files the guide doesn’t place in a chapter.", diffs: other.map((file) => ({ file })) }] : sections;
 }
 const OTHER_FILES = "other-files";
+
+/** Hands the workspace the lines with draft comments or discussions, which the draft panel provides. */
+function DraftLines({ into }: { into: MutableRefObject<CommentLocation[]> }) {
+  const draft = useContext(InlineDraftContext);
+  useEffect(() => { into.current = [...(draft?.comments ?? []), ...(draft?.discussions ?? [])]; }, [draft, into]);
+  return null;
+}
 
 /** Turns where what matters first is whether the author addressed your feedback. */
 const FEEDBACK_FIRST = new Set<TurnReason>(["re-requested", "handled", "looks-ready", "question", "mentioned"]);
@@ -402,6 +412,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (line != null) setDraftPrefill({ file, line, side, nonce: Date.now() });
   }, [outsideGuide, showLocation]);
   const showDraftSummary = useCallback((replaced = false) => setShowDraft({ at: Date.now(), replaced }), []);
+  const askAgent = useCallback(() => setInjection({ context: { file: currentFile, chapterId: activeId }, nonce: Date.now() }), [currentFile, activeId]);
   const showFeedback = useMemo(() => isPr ? () => setView("feedback") : undefined, [isPr]);
   const snoozeFromHeader = useMemo(() => isPr ? (snoozed: boolean) => void snooze(snoozed) : undefined, [isPr, snooze]);
   const archived = !!review?.archivedAt;
@@ -422,9 +433,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Persist scroll (debounced) and track the file nearest the viewport top.
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current); }, []);
-  const onScroll = useCallback(() => {
+  // The file whose header is at the top of the diff, if you've scrolled to one.
+  const fileAtTop = useCallback(() => {
     const box = scrollBox.current;
-    if (!box) return;
+    if (!box) return undefined;
     const top = box.getBoundingClientRect().top;
     let best: string | undefined;
     let bestTop = -Infinity;
@@ -435,13 +447,19 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         best = file;
       }
     }
+    return best;
+  }, []);
+  const onScroll = useCallback(() => {
+    const box = scrollBox.current;
+    if (!box) return;
+    const best = fileAtTop();
     if (best) setCurrentFile(best);
     // The popover sits where the text was.
     setSel(null);
     if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current);
     const value = box.scrollTop;
     scrollSaveTimer.current = setTimeout(() => patchReviewState(targetKey, { scrollTop: value }), 200);
-  }, [targetKey]);
+  }, [targetKey, fileAtTop]);
 
   const onMouseUp = useCallback(() => {
     const s = window.getSelection();
@@ -497,6 +515,78 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setLineSel(null);
   }
 
+  // Keyboard shortcuts, anywhere in the workspace or with nothing focused, except while typing.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const draftLines = useRef<CommentLocation[]>([]);
+  const lastLine = useRef<CommentLocation | null>(null);
+  const shortcut = useRef<(key: string) => boolean>(() => false);
+  shortcut.current = (key) => {
+    const shown = Array.from(scrollBox.current?.querySelectorAll<HTMLElement>("[data-file]") ?? []).map((el) => el.dataset.file!);
+    const top = fileAtTop();
+    const at = top ? shown.indexOf(top) : -1;
+    const goToFile = (file: string | undefined) => {
+      if (!file) return;
+      setCurrentFile(file);
+      fileEls.current.get(file)?.scrollIntoView({ block: "start" });
+    };
+    const allFiles: string[] = sections.flatMap((section: any) => section.diffs.map((diff: any) => diff.file));
+    const diffOnly = view === "diff";
+    switch (key) {
+      case "j": case "k":
+        if (diffOnly) goToFile(shown[key === "j" ? at + 1 : Math.max(at - 1, 0)]);
+        return diffOnly;
+      case "n": case "p": {
+        const next = sections[activeIndex + (key === "n" ? 1 : -1)];
+        if (diffOnly && next) selectChapter(next.id);
+        return diffOnly;
+      }
+      case "v": {
+        const file = shown[Math.max(at, 0)];
+        if (!diffOnly || !file) return diffOnly;
+        toggleViewed(file, !views.get(file)?.viewed);
+        const after = shown[shown.indexOf(file) + 1];
+        requestAnimationFrame(() => goToFile(after));
+        return true;
+      }
+      case "u": {
+        const from = Math.max(top ? allFiles.indexOf(top) : allFiles.indexOf(activeFiles[0]) - 1, -1);
+        const rest = [...allFiles.slice(from + 1), ...allFiles.slice(0, from + 1)];
+        const file = rest.find((f) => !views.get(f)?.viewed);
+        const chapter = file && sections.find((section: any) => section.diffs.some((diff: any) => diff.file === file));
+        if (!file || !chapter) toast.info("Every file is viewed.");
+        else { setView("diff"); onSelectFile(chapter.id, file); }
+        return true;
+      }
+      case "]": case "[": {
+        const lines = inDiffOrder(draftLines.current, allFiles);
+        if (!lines.length) return true;
+        // From the line you last went to, or else from the current file.
+        const last = lastLine.current ? lines.findIndex((line) => sameLocation(line, lastLine.current!)) : -1;
+        const here = allFiles.indexOf(top ?? activeFiles[0]);
+        const after = lines.findIndex((line) => allFiles.indexOf(line.file) >= here);
+        const index = last >= 0 ? last + (key === "]" ? 1 : -1) : key === "]" ? Math.max(after, 0) : (after > 0 ? after : lines.length) - 1;
+        const next = lines[(index + lines.length) % lines.length];
+        lastLine.current = next;
+        showComment(next);
+        return true;
+      }
+      case "a": askAgent(); return true;
+      case "s": showDraftSummary(); return true;
+      case "?": setShortcutsOpen(true); return true;
+    }
+    return false;
+  };
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const key = shortcutKey(event);
+      const root = rootRef.current;
+      if (!key || !root || (event.target !== document.body && !root.contains(event.target as Node))) return;
+      if (shortcut.current(key)) event.preventDefault();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   // Sidebar resize drag.
   function startSidebarResize(e: React.PointerEvent) {
     e.preventDefault();
@@ -542,7 +632,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
       {loadError && <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden /><span className="min-w-0 flex-1">{loadError}</span><Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button></div>}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} /><Button variant="ghost" size="sm" aria-label="Ask the review agent" className="text-muted-foreground" onClick={() => setInjection({ context: { file: currentFile, chapterId: activeId }, nonce: Date.now() })}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask assistant</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={async () => { if (document.fullscreenElement) await document.exitFullscreen(); navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` }); }}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button><ReviewActions review={review} className="size-8" onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} /><Button variant="ghost" size="sm" aria-label="Ask the review agent" className="text-muted-foreground" onClick={askAgent}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask assistant</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={async () => { if (document.fullscreenElement) await document.exitFullscreen(); navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` }); }}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button><ReviewActions review={review} className="size-8" onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
       {/* Header — full when reviewing normally, slim in focus mode. */}
       {focus ? (
         <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-3 py-2">
@@ -753,6 +843,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           </div>
         </main>
       </div>
+      <DraftLines into={draftLines} />
       </DraftTray>
       </div>
 
@@ -786,6 +877,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           </button>
         </div>
       )}
+
+      <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
 
       {sel && (
         <button
