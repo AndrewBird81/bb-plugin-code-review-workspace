@@ -155,3 +155,21 @@ test("a submitted review's receipt names its verdict", async () => {
   expect(within(receipt).getByText("Changes requested")).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+test("a line comment after the summary's box starts on a real line", async () => {
+  const draft = draftOf({ body: "Words." });
+  const slot = await renderTray("after", { getDraft: () => ({ draft }) });
+  fireEvent.click(summary(slot).getByRole("button", { name: "Edit" }));
+  fireEvent.click(summary(slot).getByRole("button", { name: "Cancel" }));
+  fireEvent.click(slot.getByRole("button", { name: "Add comment" }));
+  expect((slot.getByRole("textbox", { name: "Comment file" }) as HTMLInputElement).value).toBe("src/a.ts");
+  expect((slot.getByRole("spinbutton", { name: "Comment line" }) as HTMLInputElement).value).toBe("1");
+  // With the summary's box open but empty, Add comment opens the panel's box instead.
+  fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(summary(slot).getByRole("button", { name: "Edit" }));
+  fireEvent.change(summary(slot).getByRole("textbox", { name: "Review summary" }), { target: { value: "" } });
+  fireEvent.click(slot.getByRole("button", { name: "Add comment" }));
+  expect(slot.getByRole("textbox", { name: "Draft comment" })).toBeTruthy();
+  expect(summary(slot).queryByRole("textbox")).toBeNull();
+  slot.lifecycle.unmount();
+});

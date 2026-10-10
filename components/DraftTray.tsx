@@ -186,7 +186,11 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     if (!body) composerRevision.current = revisionRef.current;
     setBody(text);
   }
-  function closeComposer() { setBody(""); setEditing(null); setAsking(false); setStartLine(undefined); setShowComposer(false); }
+  function closeComposer() {
+    setBody(""); setEditing(null); setAsking(false); setStartLine(undefined); setShowComposer(false);
+    // The next comment doesn't start where the summary's box was.
+    if (isSummary({ file, line: Number(line), side })) { setFile(activeFiles[0] ?? ""); setLine("1"); }
+  }
 
   async function mutate(operation: () => Promise<void>) {
     if (lock.current) return;
