@@ -59,7 +59,7 @@ test("merged reviews can be deleted but not unarchived", async () => {
 });
 
 test("deleting asks for confirmation first, then removes the review and its unsaved recovery text", async () => {
-  updateDraftRecovery("d", { summary: { verdict: "COMMENT", body: "Unsaved thoughts" } });
+  updateDraftRecovery("d", { composer: { file: "", line: "0", side: "RIGHT", body: "Unsaved thoughts" } });
   const { slot, menu, calls } = await list([{ targetKey: "d", title: "Unwanted change", status: "error" }]);
   await slot.findByText("Unwanted change");
   menu();

@@ -4,7 +4,7 @@ import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
-import { sameLocation, type CommentLocation, type Discussion, type Draft, type DraftComment, type Verdict } from "../src/draft";
+import { isSummary, sameLocation, SUMMARY_AT, type CommentLocation, type Discussion, type Draft, type DraftComment, type Verdict } from "../src/draft";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
@@ -14,8 +14,10 @@ import { cn } from "../lib/utils";
 import { AgentDock, type AgentDockProps } from "./AgentDock";
 import { getReviewState, patchReviewState } from "../lib/panel-state";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
+import { setDraftStatus, VERDICT_LABEL } from "../lib/draft-status";
 import { usePortalScopeProps } from "../lib/portal-scope";
 import { InlineComposerContext, InlineDraftContext, type InlineComposer, type InlineDraft } from "./InlineDraft";
+import { SummaryCard } from "./SummaryCard";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { Badge } from "./ui/badge";
 import { FilePath } from "./ui/file-path";
@@ -28,11 +30,16 @@ import { withLineBreaks } from "../src/line-breaks";
 export interface CommentPrefill { file: string; line: number; side: "LEFT" | "RIGHT"; startLine?: number; ask?: boolean; nonce: number; }
 
 const RECEIPT_LABEL: Record<Verdict, string> = { APPROVE: "Approved", REQUEST_CHANGES: "Changes requested", COMMENT: "Commented" };
+const VERDICTS = [
+  ["APPROVE", "Check", "aria-pressed:bg-success/15 aria-pressed:text-diff-added aria-pressed:ring-success/30 aria-pressed:hover:bg-success/20"],
+  ["COMMENT", "MessageSquare", "aria-pressed:bg-primary/15 aria-pressed:text-primary aria-pressed:ring-primary/30 aria-pressed:hover:bg-primary/20"],
+  ["REQUEST_CHANGES", "FileDiff", "aria-pressed:bg-warning/15 aria-pressed:text-warning-text aria-pressed:ring-warning/30 aria-pressed:hover:bg-warning/20"],
+] as const;
 
 export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, activeFiles, prefill, isLocal = false, review, onSubmitted, onShowComment, agent, reviewRevision, account, showDraft, children }: {
   targetKey: string; activeChapterId: string; activeFiles: string[]; prefill?: CommentPrefill; isLocal?: boolean; review?: ReviewItem; onSubmitted?: () => void; onShowComment?: (at: CommentLocation) => void;
   reviewRevision?: string; account?: string;
-  /** A new value opens Draft comments and its summary, after something else changed the draft. */
+  /** A new value opens Draft review at its summary, after something else changed the draft. */
   showDraft?: number;
   agent?: Omit<AgentDockProps, "targetKey" | "active" | "onDock" | "onCollapse">;
   /** The diff, which shows the draft's comments under their lines. */
@@ -59,9 +66,6 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
   const [writeAnother, setWriteAnother] = useState(false);
   const [receipt, setReceipt] = useState<Verdict | null>(null);
-  const [showNotes, setShowNotes] = useState(false);
-  // Unsaved summary edits the assistant's suggestion replaced, to restore.
-  const [replaced, setReplaced] = useState<Pick<Draft, "verdict" | "body"> | null>(null);
   const [tab, setTab] = useState<"draft" | "notes" | "agent">(() => {
     const saved = getReviewState(targetKey).activeTool;
     return saved === "notes" || saved === "agent" && agent ? saved : "draft";
@@ -69,6 +73,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const [toolsOpen, setToolsOpen] = useState(() => getReviewState(targetKey).toolsOpen !== false);
   const panelId = useId();
   const railRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const scopeProps = usePortalScopeProps();
   useEffect(() => { patchReviewState(targetKey, { activeTool: tab, toolsOpen }); }, [targetKey, tab, toolsOpen]);
   useEffect(() => { if (agent?.injection) { setTab("agent"); setToolsOpen(true); } }, [agent?.injection]);
@@ -84,20 +89,18 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const mounted = useRef(true);
   const lock = useRef(false);
   const writes = useRef<Promise<unknown>>(Promise.resolve());
-  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   const revisionRef = useRef(reviewRevision); revisionRef.current = reviewRevision;
-  const summaryRevision = useRef(reviewRevision);
-  const summaryRecoveryId = useRef<string | undefined>(undefined);
   const composerRevision = useRef(reviewRevision);
-  const summary = useRef({ verdict: "COMMENT" as Verdict, body: "", revision: 0, dirty: false });
   const shownComments = useRef(draft.comments); shownComments.current = draft.comments;
+  // The box is open on the review summary rather than a line.
+  const onSummary = showComposer && isSummary({ file, line: Number(line), side });
 
   useEffect(() => {
     if (!loaded) return;
     updateDraftRecovery(targetKey, { composer: body ? { file, line, side, body, revision: composerRevision.current, inline, ...(asking ? { asking } : {}), ...(startLine ? { startLine } : {}) } : undefined });
   }, [loaded, targetKey, file, line, side, body, inline, asking, startLine]);
   useEffect(() => {
-    const protect = (event: BeforeUnloadEvent) => { if (body.trim() || summary.current.dirty) event.preventDefault(); };
+    const protect = (event: BeforeUnloadEvent) => { if (body.trim()) event.preventDefault(); };
     window.addEventListener("beforeunload", protect);
     return () => window.removeEventListener("beforeunload", protect);
   }, [body]);
@@ -108,114 +111,70 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     return next;
   }, []);
 
-  const flush = useCallback(() => {
-    if (pending.current) clearTimeout(pending.current);
-    pending.current = null;
-    const current = summary.current;
-    if (!current.dirty) return writes.current;
-    const { verdict, body, revision } = current;
-    const viewedRevision = summaryRevision.current;
-    const recoveryId = summaryRecoveryId.current;
-    current.dirty = false;
-    return enqueue(async () => {
-      try {
-        await rpc.call("setVerdict", { targetKey, verdict, body, ...(viewedRevision ? { revision: viewedRevision } : {}) });
-        if (summary.current.revision === revision) {
-          if (recoveryId && readDraftRecovery(targetKey).summary?.editId === recoveryId) updateDraftRecovery(targetKey, { summary: undefined });
-          if (mounted.current) setSaved("Draft saved");
-        }
-      } catch (error) {
-        if (summary.current.revision === revision) {
-          summary.current.dirty = true;
-          if (mounted.current) setSaved(error instanceof Error ? `Couldn’t save summary. ${error.message}` : "Couldn’t save summary. Try again.");
-        }
-        throw error;
-      }
-    });
-  }, [enqueue, rpc, targetKey]);
+  /** Show the draft as the server has it. The comment box keeps its own text. */
+  const apply = useCallback((next: { draft: Draft; stale?: CommentLocation[]; discussions?: Discussion[] }) => {
+    if (!mounted.current) return;
+    setDraft(next.draft);
+    setStale(next.stale ?? []);
+    setDiscussions(next.discussions ?? []);
+  }, []);
 
   const load = useCallback(async () => {
     setLoadError(false);
     try {
       const result = await rpc.call("getDraft", { targetKey });
       if (!mounted.current) return;
-      const next = result.draft as Draft;
+      apply(result as { draft: Draft; stale?: CommentLocation[]; discussions?: Discussion[] });
       const recovered = readDraftRecovery(targetKey);
-      setDraft({ ...next, ...(recovered.summary ? { verdict: recovered.summary.verdict, body: recovered.summary.body } : {}) });
-      setStale(result.stale ?? []);
-      setDiscussions(result.discussions ?? []);
-      summary.current = { verdict: recovered.summary?.verdict ?? next.verdict, body: recovered.summary?.body ?? next.body, revision: 0, dirty: !!recovered.summary };
-      if (recovered.summary) {
-        summaryRevision.current = recovered.summary.revision;
-        summaryRecoveryId.current = recovered.summary.editId;
-        setShowNotes(true);
-        setSaved("Couldn’t save earlier edits. Recovered in this tab; check the revision before saving again.");
-      }
       if (recovered.composer) {
         const comment = recovered.composer;
         composerRevision.current = comment.revision;
         setFile(comment.file); setLine(comment.line); setSide(comment.side); setBody(comment.body); setInline(comment.inline === true); setShowComposer(true);
         setAsking(comment.asking === true); setStartLine(comment.startLine);
-        setEditing(comment.asking ? null : next.comments.find((c) => sameLocation(c, { file: comment.file, line: Number(comment.line), side: comment.side })) ?? null);
+        setEditing(comment.asking ? null : (result.draft as Draft).comments.find((c) => sameLocation(c, { file: comment.file, line: Number(comment.line), side: comment.side })) ?? null);
       }
       setLoaded(true);
     } catch {
       if (mounted.current) setLoadError(true);
     }
-  }, [rpc, targetKey]);
+  }, [rpc, targetKey, apply]);
 
   useEffect(() => {
     mounted.current = true;
     void load();
-    return () => { mounted.current = false; void flush().catch(() => {}); };
-  }, [load, flush]);
-  // The review assistant adds comments while the draft is open.
-  const refreshComments = useCallback(() => {
-    void enqueue(() => rpc.call("getDraft", { targetKey })).then(updateComments).catch(() => {});
-  }, [enqueue, rpc, targetKey]);
-  useRealtime(`draft:${targetKey}`, refreshComments);
-  // The verdict and summary changed elsewhere: the assistant's suggestion, which the reviewer agreed would
-  // replace their summary. Unsaved edits are set aside to restore rather than saved over it.
-  const reloadSummary = useCallback(() => {
-    void enqueue(() => rpc.call("getDraft", { targetKey })).then((result) => {
-      updateComments(result);
-      if (!mounted.current) return;
-      const next = result.draft as Draft;
-      const mine = summary.current;
-      if (mine.dirty || pending.current) {
-        if (pending.current) clearTimeout(pending.current);
-        pending.current = null;
-        if (mine.body !== next.body || mine.verdict !== next.verdict) setReplaced({ verdict: mine.verdict, body: mine.body });
-        updateDraftRecovery(targetKey, { summary: undefined });
-        setSaved("Draft saved");
-      }
-      summary.current = { ...mine, verdict: next.verdict, body: next.body, dirty: false };
-      setDraft((previous) => ({ ...previous, verdict: next.verdict, body: next.body }));
-    }).catch(() => {});
-  }, [enqueue, rpc, targetKey]);
-  useRealtime(`draft-summary:${targetKey}`, reloadSummary);
+    return () => { mounted.current = false; };
+  }, [load]);
+  // The review assistant, `bb review`, or another window changed the draft while it's open.
+  const refresh = useCallback(() => {
+    void enqueue(() => rpc.call("getDraft", { targetKey })).then((result) => apply(result as { draft: Draft })).catch(() => {});
+  }, [enqueue, rpc, targetKey, apply]);
+  useRealtime(`draft:${targetKey}`, refresh);
   useEffect(() => {
     if (!showDraft) return;
-    setTab("draft"); setToolsOpen(true); setShowNotes(true);
-    reloadSummary();
-  }, [showDraft, reloadSummary]);
+    setTab("draft"); setToolsOpen(true);
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 0 }));
+    refresh();
+  }, [showDraft, refresh]);
 
   useEffect(() => { if (!showComposer && !body.trim()) setFile(activeFiles[0] ?? ""); }, [activeFiles, showComposer, body]);
   /**
-   * Open the comment box, in the diff or this panel, on a line's comment if it has one;
-   * with `ask`, a box for a message to the agent. An unfinished comment or message is shown instead.
+   * Open the comment box, in the diff or this panel, on a line's comment if it has one, or on the
+   * summary (SUMMARY_AT); with `ask`, a box for a message to the agent. An unfinished comment or message is shown instead.
    */
   function openComposer(at: (CommentLocation & { startLine?: number }) | null, inDiff: boolean, ask = false) {
     const writing = !!body.trim();
-    if (writing) toast.info(asking ? "Send or cancel your message to the agent first." : "Finish or cancel the comment you’re writing first.");
+    if (writing) toast.info(asking ? "Send or cancel your message to the agent first." : onSummary ? "Save or cancel the summary you’re writing first." : "Finish or cancel the comment you’re writing first.");
     else {
-      const existing = !ask && at ? draft.comments.find((comment) => sameLocation(comment, at)) : undefined;
+      const summary = !!at && isSummary(at);
+      const existing = !ask && at && !summary ? draft.comments.find((comment) => sameLocation(comment, at)) : undefined;
       composerRevision.current = revisionRef.current;
       setEditing(existing ?? null);
       if (at) { setFile(at.file); setLine(String(at.line)); setSide(at.side); }
+      // A new comment from the panel doesn't start where the summary's box was.
+      else if (isSummary({ file, line: Number(line), side })) { setFile(activeFiles[0] ?? ""); setLine("1"); setSide("RIGHT"); }
       setStartLine(at?.startLine !== at?.line ? at?.startLine : undefined);
       setAsking(ask);
-      setBody(existing ? existing.body : "");
+      setBody(summary && !ask ? draft.body : existing ? existing.body : "");
       setInline(inDiff);
       setShowComposer(true);
     }
@@ -229,17 +188,6 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   }
   function closeComposer() { setBody(""); setEditing(null); setAsking(false); setStartLine(undefined); setShowComposer(false); }
 
-  function updateSummary(change: Partial<Pick<Draft, "verdict" | "body">>) {
-    setDraft((previous) => ({ ...previous, ...change }));
-    summaryRevision.current = revisionRef.current;
-    summary.current = { ...summary.current, ...change, revision: summary.current.revision + 1, dirty: true };
-    summaryRecoveryId.current = crypto.randomUUID();
-    updateDraftRecovery(targetKey, { summary: { editId: summaryRecoveryId.current, verdict: summary.current.verdict, body: summary.current.body, revision: summaryRevision.current } });
-    setSaved("Saving draft…");
-    if (pending.current) clearTimeout(pending.current);
-    pending.current = setTimeout(() => { void flush().catch(() => {}); }, 400);
-  }
-
   async function mutate(operation: () => Promise<void>) {
     if (lock.current) return;
     lock.current = true; setBusy(true);
@@ -248,45 +196,63 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
 
-  function updateComments(next: { draft: Draft; stale?: CommentLocation[]; discussions?: Discussion[] }) {
-    if (!mounted.current) return;
-    setDraft((previous) => ({ ...previous, comments: next.draft.comments }));
-    setStale(next.stale ?? []);
-    setDiscussions(next.discussions ?? []);
+  /** The verdict is yours to pick; it saves at once. */
+  function chooseVerdict(verdict: Verdict) {
+    setDraft((previous) => ({ ...previous, verdict, verdictChosen: true }));
+    void enqueue(() => rpc.call("setVerdict", { targetKey, verdict, ...(revisionRef.current ? { revision: revisionRef.current } : {}) }))
+      .then((result) => { if (mounted.current) setDraft(result.draft as Draft); })
+      .catch((error) => { toast.error(error instanceof Error ? error.message : "Couldn’t save the verdict. Try again."); refresh(); });
   }
-  /** Send the box's text to the agent, which answers in the line's discussion. */
+  /** Send the box's text to the agent, which answers in the line's discussion, or the summary's. */
   async function askAgent() {
     if (!body.trim()) return;
     await mutate(async () => {
       const result = await enqueue(() => rpc.call("askAgent", { targetKey, file, line: Number(line), side, ...(startLine ? { startLine } : {}), body: body.trim() }));
-      updateComments(result); closeComposer();
+      apply(result as { draft: Draft }); closeComposer();
+    });
+  }
+  /** A message to the agent from the summary, without the box: write it, or update it. */
+  async function requestSummary(text: string) {
+    await mutate(async () => {
+      apply(await enqueue(() => rpc.call("askAgent", { targetKey, ...SUMMARY_AT, body: text })) as { draft: Draft });
     });
   }
   async function dismissDiscussion({ file, line, side }: CommentLocation) {
     await mutate(async () => {
-      updateComments(await enqueue(() => rpc.call("dismissDiscussion", { targetKey, file, line, side })));
+      apply(await enqueue(() => rpc.call("dismissDiscussion", { targetKey, file, line, side })) as { draft: Draft });
+    });
+  }
+  async function undo({ file, line, side }: CommentLocation) {
+    await mutate(async () => {
+      apply(await enqueue(() => rpc.call("undoAgentChange", { targetKey, file, line, side })) as { draft: Draft });
     });
   }
   async function addComment() {
     if (!file.trim() || !body.trim() || !Number.isInteger(Number(line)) || Number(line) < 1) return;
     await mutate(async () => {
       const result = await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(composerRevision.current ? { revision: composerRevision.current } : {}), comment: { file, line: Number(line), side, chapterId: editing?.chapterId ?? activeChapterId, body: body.trim() } }));
-      updateComments(result); closeComposer();
+      apply(result as { draft: Draft }); closeComposer();
     });
   }
   async function removeComment({ file, line, side }: DraftComment) {
     await mutate(async () => {
-      const result = await enqueue(() => rpc.call("removeDraftComment", { targetKey, file, line, side }));
-      updateComments(result);
+      apply(await enqueue(() => rpc.call("removeDraftComment", { targetKey, file, line, side })) as { draft: Draft });
+    });
+  }
+  /** Save the summary as yours; an empty one removes it. */
+  async function saveSummary(text: string, revision = composerRevision.current) {
+    await mutate(async () => {
+      apply(await enqueue(() => rpc.call("saveSummary", { targetKey, body: text, ...(revision ? { revision } : {}) })) as { draft: Draft });
+      if (text) closeComposer();
     });
   }
   async function submit() {
     if (isLocal || !loaded || body.trim()) return;
     await mutate(async () => {
-      await flush();
+      const verdict = draft.verdict;
       const result = await enqueue(() => rpc.call("submitReview", { targetKey, ...(reviewRevision ? { revision: reviewRevision } : {}), ...(account ? { account } : {}), comments: shownComments.current }));
-      if (!result.ok) { setSaved(result.error ?? "Submit failed. Your draft is still here."); toast.error(result.error ?? "Submit failed. Your draft is still here."); refreshComments(); return; }
-      setReceipt(summary.current.verdict);
+      if (!result.ok) { setSaved(result.error ?? "Submit failed. Your draft is still here."); toast.error(result.error ?? "Submit failed. Your draft is still here."); refresh(); return; }
+      setReceipt(verdict);
       setWriteAnother(false);
       onSubmitted?.();
       toast.success("Review submitted to GitHub");
@@ -296,27 +262,38 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   }
 
   const hasReview = draft.comments.length > 0 || draft.body.trim().length > 0 || draft.verdict === "APPROVE";
-  // The status line also carries save and submit failures; only these two are good news.
-  const savedTone = saved === "Saving draft…" ? "saving" : saved === "Draft saved" || saved === "Review submitted" ? "ok" : "error";
+  // GitHub refuses Request changes without a summary.
+  const needsSummary = draft.verdict === "REQUEST_CHANGES" && !draft.body.trim();
+  // The status line also carries submit failures; only these two are good news.
+  const savedTone = saved === "Draft saved" || saved === "Review submitted" ? "ok" : "error";
   const submittedVerdict = review ? review.submittedVerdict : receipt;
   const closed = review?.prState === "MERGED" || review?.prState === "CLOSED";
   const completed = submittedVerdict && !hasReview && !writeAnother && !body.trim();
+  const summaryDiscussion = discussions.find(isSummary);
+  const lineDiscussions = useMemo(() => discussions.filter((d) => !isSummary(d)), [discussions]);
+  // The Submit review button in the review's top bar follows this draft.
+  const submittable = loaded && !loadError && !closed && !isLocal && !completed;
+  useEffect(() => {
+    setDraftStatus(targetKey, submittable ? { verdict: draft.verdict, comments: draft.comments.length, summary: !!draft.body.trim() } : null);
+  }, [targetKey, submittable, draft.verdict, draft.comments.length, draft.body]);
+  useEffect(() => () => setDraftStatus(targetKey, null), [targetKey]);
   // The diff shows the draft's comments and discussions, and the comment box while it's open there.
-  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, changeBody, closeComposer });
-  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, changeBody, closeComposer };
+  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer });
+  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer };
   const open = useCallback((at: CommentLocation) => latest.current.openComposer(at, true), []);
   const ask = useCallback((at: CommentLocation) => latest.current.openComposer(at, true, true), []);
   const remove = useCallback((comment: DraftComment) => { void latest.current.removeComment(comment); }, []);
   const dismiss = useCallback((at: CommentLocation) => { void latest.current.dismissDiscussion(at); }, []);
+  const undoAt = useCallback((at: CommentLocation) => { void latest.current.undo(at); }, []);
   const showChat = useCallback(() => { setTab("agent"); setToolsOpen(true); }, []);
   const editable = loaded && !loadError && !closed;
   const writing = !!body.trim();
   const composerInDiff = editable && showComposer && inline;
   const chat = agent ? showChat : null;
   const inlineDraft = useMemo<InlineDraft>(() => ({
-    comments: draft.comments, stale, discussions, editable, busy, writing, open, ask, remove, dismiss, chat,
+    comments: draft.comments, stale, discussions: lineDiscussions, editable, busy, writing, open, ask, remove, dismiss, undo: undoAt, chat,
     composer: composerInDiff ? { file, line: Number(line), side, editing: editing !== null, asking } : null,
-  }), [draft.comments, stale, discussions, editable, busy, writing, open, ask, remove, dismiss, chat, composerInDiff, file, line, side, editing, asking]);
+  }), [draft.comments, stale, lineDiscussions, editable, busy, writing, open, ask, remove, dismiss, undoAt, chat, composerInDiff, file, line, side, editing, asking]);
   const inlineComposer = useMemo<InlineComposer | null>(() => composerInDiff ? {
     body, textareaRef: bodyRef,
     change: (text) => latest.current.changeBody(text),
@@ -324,11 +301,20 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     askAgent: () => { void latest.current.askAgent(); },
     cancel: () => latest.current.closeComposer(),
   } : null, [composerInDiff, body]);
+  const summaryComposer = editable && onSummary ? {
+    mode: asking ? "ask" as const : "edit" as const, body, textareaRef: bodyRef,
+    change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: closeComposer,
+  } : null;
   const toolItems = [
-    { id: "draft", label: "Draft comments", icon: "MessageSquare", count: draft.comments.length },
+    { id: "draft", label: "Draft review", icon: "MessageSquare", count: draft.comments.length },
     { id: "notes", label: "Reviewer notes", icon: "EditFile", count: 0 },
-    ...(agent ? [{ id: "agent", label: "Ask agent", icon: "MessageQuestion", count: 0 }] as const : []),
+    ...(agent ? [{ id: "agent", label: "Ask agent", icon: "BubbleChatSpark", count: 0 }] as const : []),
   ] as const;
+  const hint = isLocal ? "Local review. Comments and notes stay in this BB installation."
+    : writing ? asking ? "Send or cancel your message to the agent before submitting." : onSummary ? "Save or cancel the summary before submitting." : "Add the comment you’re writing to the draft before submitting."
+    : needsSummary ? "Requesting changes needs a summary: say what has to change."
+    : "Drafts stay in BB until you submit.";
+  const suggested = draft.suggestedVerdict;
   return <InlineDraftContext.Provider value={inlineDraft}><InlineComposerContext.Provider value={inlineComposer}>
   {children}
   <aside aria-label="Review tools" className={cn("flex max-h-[50vh] min-h-0 shrink-0 flex-col border-t border-border bg-background @min-[1024px]/review:h-full @min-[1024px]/review:max-h-none @min-[1024px]/review:flex-row-reverse @min-[1024px]/review:border-l @min-[1024px]/review:border-t-0", toolsOpen ? "@min-[1024px]/review:w-[384px]" : "@min-[1024px]/review:w-11", toolsOpen && tab === "agent" && "h-[50vh]")}>
@@ -348,24 +334,32 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
       {toolsOpen && <Button variant="ghost" size="icon" className="size-8 shrink-0 text-muted-foreground @min-[1024px]/review:hidden" aria-label="Collapse review panel" onClick={collapse}><Icon name="X" aria-hidden /></Button>}
     </div>
     <div id={panelId} hidden={!toolsOpen} className={cn("flex min-h-0 min-w-0 flex-1 flex-col", !toolsOpen && "hidden")}>
-      {tab !== "agent" && <div className="hidden h-11 shrink-0 items-center gap-2 border-b border-border px-3 @min-[1024px]/review:flex"><Icon name={tab === "draft" ? "MessageSquare" : "EditFile"} className="size-4 text-primary" aria-hidden /><h2 className="min-w-0 truncate text-sm font-medium">{tab === "draft" ? "Draft comments" : "Reviewer notes"}</h2>{tab === "draft" && draft.comments.length > 0 && <span className="rounded-full bg-muted px-1.5 text-[11px] leading-[18px] tabular-nums text-muted-foreground">{draft.comments.length}</span>}<span className="flex-1" /><Button variant="ghost" size="icon" className="size-7 text-muted-foreground" aria-label="Collapse review panel" onClick={collapse}><Icon name="X" aria-hidden /></Button></div>}
+      {tab !== "agent" && <div className="hidden h-11 shrink-0 items-center gap-2 border-b border-border px-3 @min-[1024px]/review:flex"><Icon name={tab === "draft" ? "MessageSquare" : "EditFile"} className="size-4 text-primary" aria-hidden /><h2 className="min-w-0 truncate text-sm font-medium">{tab === "draft" ? "Draft review" : "Reviewer notes"}</h2><span className="flex-1" /><Button variant="ghost" size="icon" className="size-7 text-muted-foreground" aria-label="Collapse review panel" onClick={collapse}><Icon name="X" aria-hidden /></Button></div>}
     {agent && <AgentDock targetKey={targetKey} {...agent} active={toolsOpen && tab === "agent"} onDock={() => { setTab("agent"); setToolsOpen(true); }} onCollapse={collapse} />}
     <div hidden={tab !== "notes"} className={cn("min-h-0 overflow-y-auto", tab !== "notes" && "hidden")}><ReviewerNotes targetKey={targetKey} /></div>
-    <div hidden={tab !== "draft"} className={cn("min-h-0 flex-1 overflow-y-auto", tab !== "draft" && "hidden")}>
-      {loadError ? <div role="alert" className="space-y-3 p-3 text-sm"><p>Couldn’t load your draft. Editing is paused to protect it.</p><Button variant="outline" onClick={() => void load()}>Retry draft</Button></div> : !loaded ? <p role="status" className="p-3 text-sm text-muted-foreground">Loading draft…</p> : closed ?
-        <section aria-label="Archived review" className="m-3 space-y-2 rounded-lg border border-border bg-muted/25 p-3">
+    <div hidden={tab !== "draft"} className={cn("flex min-h-0 flex-1 flex-col", tab !== "draft" && "hidden")}>
+      {loadError ? <div role="alert" className="space-y-3 overflow-y-auto p-3 text-sm"><p>Couldn’t load your draft. Editing is paused to protect it.</p><Button variant="outline" onClick={() => void load()}>Retry draft</Button></div> : !loaded ? <p role="status" className="p-3 text-sm text-muted-foreground">Loading draft…</p> : closed ?
+        <div className="min-h-0 overflow-y-auto"><section aria-label="Archived review" className="m-3 space-y-2 rounded-lg border border-border bg-muted/25 p-3">
           <p className="flex items-center gap-2 text-sm font-medium"><Icon name={review?.prState === "MERGED" ? "GitMerge" : "GitPullRequestClosed"} className={cn("size-4", review?.prState === "MERGED" ? "text-pr-merged" : "text-destructive-text")} aria-hidden />{review?.prState === "MERGED" ? "Merged" : "Closed"} · Archived</p>
           <p className="text-xs leading-relaxed text-muted-foreground">This review is saved in Archive. The guide, notes, and conversation remain available.</p>
           {(draft.comments.length > 0 || draft.body) && <details className="text-sm"><summary className="cursor-pointer">Unsubmitted draft</summary><p className="mt-2 whitespace-pre-wrap">{draft.body}</p>{draft.comments.map((comment, index) => <p key={index} className="mt-2 break-words">{comment.file}:{comment.line} — {comment.body}</p>)}</details>}
-        </section> : completed ?
+        </section></div> : completed ?
         <section aria-label="Submitted review" className="m-3 space-y-3 rounded-lg border border-success/25 bg-success/10 p-3">
           <p className="flex items-center gap-2 text-sm font-medium text-diff-added"><Icon name="BadgeCheck" className="size-5" aria-hidden />{RECEIPT_LABEL[submittedVerdict]}</p>
           <p className="text-xs text-muted-foreground">Review submitted to GitHub</p>
           <Button variant="outline" size="sm" onClick={() => setWriteAnother(true)}>Add another review</Button>
-        </section> : <section aria-label="Review draft" className="flex flex-col">
-          <div className="space-y-3 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2"><span role="status" className={cn("flex items-center gap-1.5 text-xs", savedTone === "error" ? "text-destructive-text" : "text-muted-foreground")}>{savedTone === "saving" ? <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : savedTone === "error" ? <Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden /> : <Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />}{saved}</span><Button variant="ghost" size="sm" className="text-primary hover:text-primary" aria-expanded={showComposer && !inline} onClick={() => openComposer(null, false)}><Icon name="Plus" className="size-4" aria-hidden /> Add comment</Button></div>
-            {saved.startsWith("Couldn’t") && <Button variant="outline" size="sm" onClick={() => void flush().catch(() => {})}>Save again</Button>}
+        </section> : <section aria-label="Review draft" className="flex min-h-0 flex-1 flex-col">
+          <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+            <span role="status" className={cn("flex items-center gap-1.5 text-xs", savedTone === "error" ? "text-destructive-text" : "text-muted-foreground")}>{savedTone === "error" ? <Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden /> : <Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />}{saved}</span>
+            <SummaryCard draft={draft} discussion={summaryDiscussion} editable={editable} busy={busy} writing={writing && !onSummary} composer={summaryComposer} isLocal={isLocal} chat={chat}
+              onEdit={() => openComposer(SUMMARY_AT, false)} onAsk={() => openComposer(SUMMARY_AT, false, true)} onRemove={() => void saveSummary("", revisionRef.current)}
+              onUndo={() => void undo(SUMMARY_AT)} onRequest={(text) => void requestSummary(text)} />
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">Line comments</h3>
+              {draft.comments.length > 0 && <span className="rounded-full bg-muted px-1.5 text-[11px] leading-[18px] tabular-nums text-muted-foreground">{draft.comments.length}</span>}
+              <span className="flex-1" />
+              <Button variant="ghost" size="sm" className="-mr-2 text-primary hover:text-primary" aria-expanded={showComposer && !inline && !onSummary} onClick={() => openComposer(null, false)}><Icon name="Plus" className="size-4" aria-hidden /> Add comment</Button>
+            </div>
             {draft.comments.length ? <ul className="space-y-2 text-sm">{draft.comments.map((comment) => {
               const isStale = stale.some((at) => sameLocation(at, comment));
               const discussion = discussions.find((d) => sameLocation(d, comment));
@@ -380,8 +374,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
               </button>
               <Markdown content={withLineBreaks(comment.body)} className="text-sm leading-relaxed" />
               <div className="-mb-1 -ml-2 flex gap-0.5"><Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" disabled={busy || !!body.trim()} aria-label={`Edit comment on ${comment.file}:${comment.line}`} onClick={() => openComposer(comment, false)}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button><Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive-text" disabled={busy} aria-label={`Remove comment on ${comment.file}:${comment.line}`} onClick={() => void removeComment(comment)}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove</Button></div>
-            </li>; })}</ul> : !showComposer && <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-4 py-6 text-center"><Icon name="MessageSquarePlus" className="size-5 text-subtle-foreground" aria-hidden /><p className="text-sm leading-relaxed text-muted-foreground">Select a line in the diff or add a comment here.</p></div>}
-            {showComposer && (inline ? <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
+            </li>; })}</ul> : !(showComposer && !onSummary) && <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-4 py-6 text-center"><Icon name="MessageSquarePlus" className="size-5 text-subtle-foreground" aria-hidden /><p className="text-sm leading-relaxed text-muted-foreground">Select a line in the diff or add a comment here.</p></div>}
+            {showComposer && !onSummary && (inline ? <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
               <span className="min-w-0 flex-1 break-words">{asking ? `Writing to the agent about ${file}:${line} in the diff.` : `Writing a comment on ${file}:${line} in the diff.`}</span>
               <Button variant="ghost" size="sm" onClick={() => onShowComment?.({ file, line: Number(line), side })}>Show in diff</Button>
             </div> : <div className="space-y-3 border-t border-border pt-3">
@@ -394,24 +388,18 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
               <div className="flex flex-wrap gap-2"><Button disabled={busy || !file.trim() || !body.trim() || !Number.isInteger(Number(line)) || Number(line) < 1} onClick={() => void addComment()}>{editing ? "Save comment" : "Add to draft"}</Button><Button variant="ghost" disabled={busy} onClick={closeComposer}>Cancel</Button></div>
             </div>)}
           </div>
-          <div className="space-y-3 border-t border-border p-3">
-            <Button variant="ghost" size="sm" className="-ml-2 text-muted-foreground" aria-expanded={showNotes} onClick={() => setShowNotes((value) => !value)}><Icon name="ChevronDown" className={cn("size-4 transition-transform duration-150", !showNotes && "-rotate-90")} aria-hidden /> Review summary</Button>
-            {replaced && <div role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-warning/20 bg-warning/10 px-2.5 py-1.5 text-xs text-warning-text">
-              <span className="min-w-0 flex-1">The assistant’s suggestion replaced your unsaved summary.</span>
-              <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={busy} onClick={() => { updateSummary(replaced); setReplaced(null); setShowNotes(true); }}>Restore yours</Button>
-              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setReplaced(null)}>Dismiss</Button>
-            </div>}
-            {showNotes ? <label className="block space-y-2"><span className="text-xs text-muted-foreground">{isLocal ? "Saved with your local draft." : "Included with your GitHub review."}</span><Textarea aria-label="Review summary" disabled={busy} value={draft.body} onChange={(event) => updateSummary({ body: event.target.value })} onBlur={() => void flush().catch(() => {})} placeholder={isLocal ? "Summary of this review" : "What should the author know overall?"} /></label> : draft.body.trim() && <p className="line-clamp-3 whitespace-pre-wrap text-sm text-muted-foreground">{draft.body}</p>}
-          </div>
-          <div className="space-y-3 border-t border-border p-3">
+          <footer className="shrink-0 space-y-2.5 border-t border-border p-3">
             {!isLocal && <>
-              <div role="group" aria-label="Review verdict" className="flex max-w-full flex-col gap-0.5 rounded-lg bg-muted/40 p-1 ring-1 ring-inset ring-border">
-                {([["APPROVE", "Approve", "Check", "aria-pressed:bg-success/15 aria-pressed:text-diff-added aria-pressed:ring-success/30 aria-pressed:hover:bg-success/20"], ["COMMENT", "Comment", "MessageSquare", "aria-pressed:bg-primary/15 aria-pressed:text-primary aria-pressed:ring-primary/30 aria-pressed:hover:bg-primary/20"], ["REQUEST_CHANGES", "Request changes", "FileDiff", "aria-pressed:bg-warning/15 aria-pressed:text-warning-text aria-pressed:ring-warning/30 aria-pressed:hover:bg-warning/20"]] as const).map(([verdict, label, icon, pressed]) => <Button key={verdict} type="button" variant="ghost" size="sm" disabled={busy} aria-pressed={draft.verdict === verdict} className={cn("w-full justify-start gap-2 px-2.5 text-muted-foreground ring-1 ring-inset ring-transparent aria-pressed:shadow-xs", pressed)} onClick={() => { updateSummary({ verdict }); if (verdict === "REQUEST_CHANGES") setShowNotes(true); }}><Icon name={icon} className="size-3.5" aria-hidden />{label}</Button>)}
+              <div role="group" aria-label="Review verdict" className="flex max-w-full flex-wrap gap-0.5 rounded-lg bg-muted/40 p-1 ring-1 ring-inset ring-border">
+                {VERDICTS.map(([verdict, icon, pressed]) => <Button key={verdict} type="button" variant="ghost" size="sm" disabled={busy} aria-pressed={draft.verdict === verdict} className={cn("h-8 grow basis-auto gap-1.5 whitespace-nowrap px-2 text-xs text-muted-foreground ring-1 ring-inset ring-transparent aria-pressed:shadow-xs", pressed)} onClick={() => chooseVerdict(verdict)}>
+                  <Icon name={icon} className="size-3.5" aria-hidden />{VERDICT_LABEL[verdict]}{suggested === verdict && <span title="Suggested by the agent" className="flex"><Icon name="Sparkles" className="size-3 text-(--ansi-13)" aria-hidden /></span>}
+                </Button>)}
               </div>
-              <Button className="w-full gap-2" disabled={busy || !hasReview || !!body.trim()} onClick={() => void submit()}>{busy ? <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-4" aria-hidden />}{busy ? "Saving…" : "Submit to GitHub"}</Button>
+              {suggested && (suggested !== draft.verdict || !draft.verdictChosen) && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />Agent suggests {VERDICT_LABEL[suggested]}</p>}
+              <Button className="w-full gap-2" disabled={busy || !hasReview || writing || needsSummary} onClick={() => void submit()}>{busy ? <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-4" aria-hidden />}{busy ? "Saving…" : "Submit to GitHub"}</Button>
             </>}
-            <p className="text-xs leading-relaxed text-muted-foreground">{isLocal ? "Local review. Comments and notes stay in this BB installation." : body.trim() ? asking ? "Send or cancel your message to the agent before submitting." : "Add the comment you’re writing to the draft before submitting." : "Drafts stay in BB until you submit."}</p>
-          </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
+          </footer>
         </section>}
     </div>
     </div>

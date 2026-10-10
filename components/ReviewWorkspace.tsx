@@ -27,6 +27,7 @@ import { IconTile } from "./ui/icon-tile";
 import { Hint } from "./ui/hint";
 import { ReviewActions } from "./ReviewActions";
 import { defaultPreferences } from "../lib/review-preferences";
+import { useDraftStatus, VERDICT_LABEL } from "../lib/draft-status";
 
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 560;
@@ -40,6 +41,19 @@ function opensOnFeedback(review: any): boolean {
   if (review?.kind !== "pr") return false;
   const turn = review.turn ?? computeTurn(review);
   return turn.group === "needs" && FEEDBACK_FIRST.has(turn.reason);
+}
+
+/** Where GitHub puts it: what your draft would submit, opening Draft review at its summary. */
+function SubmitReviewButton({ targetKey, onOpen }: { targetKey: string; onOpen: () => void }) {
+  const status = useDraftStatus(targetKey);
+  if (!status) return null;
+  const detail = [VERDICT_LABEL[status.verdict], status.comments ? `${status.comments} comment${status.comments === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ");
+  return (
+    <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={onOpen}>
+      <Icon name="Github" className="size-4" aria-hidden />Submit review
+      <span className="hidden text-xs text-subtle-foreground @min-[640px]/review:inline">· {detail}</span>
+    </Button>
+  );
 }
 
 export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { targetKey: string }) {
@@ -473,7 +487,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
       {loadError && <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden /><span className="min-w-0 flex-1">{loadError}</span><Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button></div>}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><Button variant="ghost" size="sm" aria-label="Ask the review agent" className="text-muted-foreground" onClick={() => setInjection({ context: { file: currentFile, chapterId: activeId }, nonce: Date.now() })}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask assistant</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={async () => { if (document.fullscreenElement) await document.exitFullscreen(); navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` }); }}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button><ReviewActions review={review} className="size-8" onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><SubmitReviewButton targetKey={targetKey} onOpen={showDraftSummary} /><Button variant="ghost" size="sm" aria-label="Ask the review agent" className="text-muted-foreground" onClick={() => setInjection({ context: { file: currentFile, chapterId: activeId }, nonce: Date.now() })}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask assistant</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={async () => { if (document.fullscreenElement) await document.exitFullscreen(); navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` }); }}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button><ReviewActions review={review} className="size-8" onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
       {/* Header — full when reviewing normally, slim in focus mode. */}
       {focus ? (
         <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-3 py-2">

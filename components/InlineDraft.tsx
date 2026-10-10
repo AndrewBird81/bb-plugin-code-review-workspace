@@ -29,6 +29,8 @@ export interface InlineDraft {
   remove(comment: DraftComment): void;
   /** Drop the discussion at a line that has no comment. */
   dismiss(at: CommentLocation): void;
+  /** Undo the agent's latest change in the discussion at a line. */
+  undo(at: CommentLocation): void;
   /** Show the review assistant's chat, when the review has one. */
   chat: (() => void) | null;
 }
@@ -52,8 +54,9 @@ export const locationKey = (at: CommentLocation) => `${at.file}:${at.line}:${at.
 
 // The diff renders these inside its code view, so set the text style instead of inheriting the code's.
 const card = "mx-2 my-2 max-w-3xl overflow-hidden rounded-lg border border-border bg-card font-sans text-sm leading-normal whitespace-normal text-foreground shadow-md";
-const bar = "flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-muted/25 px-3 py-1 text-xs text-muted-foreground";
-const action = "h-7 px-2 text-xs";
+/** A card's title row, and the small actions in it. */
+export const bar = "flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-muted/25 px-3 py-1 text-xs text-muted-foreground";
+export const action = "h-7 px-2 text-xs";
 
 /** Who wrote it: the agent, in its own color, or you. */
 function Speaker({ agent, children }: { agent: boolean; children: ReactNode }) {
@@ -74,7 +77,7 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
   return (
     <div data-draft-at={locationKey(at)} className={cn(card, "border-l-[3px]", edge)}>
       {box === "edit" ? <ComposerBox mode="edit" /> : comment ? <CommentView comment={comment} draft={draft} /> : discussion && <DiscussionBar discussion={discussion} draft={draft} boxOpen={!!box} />}
-      {discussion && <DiscussionView discussion={discussion} draft={draft} titled={!!comment || box === "edit"} />}
+      {discussion && <DiscussionView discussion={discussion} titled={!!comment || box === "edit"} chat={draft.chat} busy={draft.busy} onUndo={draft.editable ? () => draft.undo(discussion) : undefined} />}
       {box && box !== "edit" && <ComposerBox mode={box} divided={!!(comment || discussion)} />}
     </div>
   );
@@ -122,58 +125,72 @@ function DiscussionBar({ discussion, draft, boxOpen }: { discussion: Discussion;
   );
 }
 
-const changes: Record<Exclude<DiscussionEntry["kind"], "message">, { text: string; icon: "Sparkles" | "Edit" | "Trash2" | "ArrowTurnBackward" }> = {
-  added: { text: "Agent added this comment.", icon: "Sparkles" },
-  edited: { text: "Agent edited the comment.", icon: "Edit" },
-  removed: { text: "Agent removed the comment.", icon: "Trash2" },
-  restored: { text: "You undid that change.", icon: "ArrowTurnBackward" },
-};
+type Change = Exclude<DiscussionEntry["kind"], "message">;
+const changeIcons: Record<Change, "Sparkles" | "Edit" | "Trash2" | "ArrowTurnBackward"> = { added: "Sparkles", edited: "Edit", removed: "Trash2", restored: "ArrowTurnBackward" };
+const changeText = (kind: Change, summary: boolean) => kind === "restored" ? "You undid that change." : summary
+  ? { added: "Agent wrote the summary.", edited: "Agent edited the summary.", removed: "Agent removed the summary." }[kind]
+  : { added: "Agent added this comment.", edited: "Agent edited the comment.", removed: "Agent removed the comment." }[kind];
 
-function DiscussionView({ discussion, draft, titled }: { discussion: Discussion; draft: InlineDraft; titled: boolean }) {
+/** A discussion with the agent, under a line's comment or the review summary. `onUndo` undoes the agent's latest change while it can be. */
+export function DiscussionView({ discussion, titled, chat, busy = false, onUndo, summary = false }: {
+  discussion: Discussion; titled: boolean; chat: (() => void) | null; busy?: boolean; onUndo?: () => void; summary?: boolean;
+}) {
   const last = discussion.entries[discussion.entries.length - 1];
   const unanswered = !discussion.waiting && last?.kind === "message" && last.author === "reviewer";
+  const latestChange = discussion.entries.map((entry) => entry.kind !== "message").lastIndexOf(true);
   return (
-    <section aria-label={`Discussion with agent on ${discussion.file}:${discussion.line}`} className={cn("space-y-3 bg-muted/20 px-3 py-2.5", titled && "border-t border-border")}>
+    <section aria-label={summary ? "Discussion with agent on the review summary" : `Discussion with agent on ${discussion.file}:${discussion.line}`} className={cn("space-y-3 bg-muted/20 px-3 py-2.5", titled && "border-t border-border")}>
       {titled && <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">Discussion with agent</p>}
       {discussion.entries.map((entry, index) => entry.kind === "message"
         ? <div key={index} className="space-y-1">
             <Speaker agent={entry.author === "agent"}>{entry.author === "agent" ? "Agent" : "You"}</Speaker>
             <div className="pl-6"><Markdown content={entry.author === "agent" ? entry.body : withLineBreaks(entry.body)} className="text-sm leading-relaxed" /></div>
           </div>
-        : <p key={index} className="flex items-center gap-1.5 pl-0.5 text-xs italic text-muted-foreground"><Icon name={changes[entry.kind].icon} className="size-3 text-(--ansi-13)" aria-hidden />{changes[entry.kind].text}</p>)}
+        : <p key={index} className="flex flex-wrap items-center gap-x-1.5 pl-0.5 text-xs italic text-muted-foreground">
+            <Icon name={changeIcons[entry.kind]} className="size-3 text-(--ansi-13)" aria-hidden />{changeText(entry.kind, summary)}
+            {index === latestChange && discussion.undoable && onUndo && <Button variant="link" size="sm" className="h-auto p-0 text-xs not-italic" disabled={busy} onClick={onUndo}>Undo</Button>}
+          </p>)}
       {discussion.waiting
         ? <p role="status" className="flex items-center gap-2 pl-0.5 text-xs text-(--ansi-13)"><span aria-hidden className="flex gap-0.5">{[0, 1, 2].map((dot) => <span key={dot} className="size-1 rounded-full bg-current motion-safe:animate-bounce" style={{ animationDelay: `${dot * 140}ms` }} />)}</span>Waiting for agent…</p>
         : unanswered && <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
             The agent didn’t reply here.
-            {draft.chat && <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={draft.chat}>Open Ask agent</Button>}
+            {chat && <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={chat}>Open Ask agent</Button>}
           </p>}
     </section>
   );
 }
 
-/** The box for a new comment, an edit, or a message to the agent. */
+/** The box for a new comment in the diff, an edit, or a message to the agent, wherever DraftTray opened it. */
 function ComposerBox({ mode, divided = false }: { mode: "new" | "edit" | "ask"; divided?: boolean }) {
   const draft = useContext(InlineDraftContext);
   const composer = useContext(InlineComposerContext);
   if (!draft?.composer || !composer) return null;
+  return <ComposerFields mode={mode} divided={divided} busy={draft.busy} composer={composer} />;
+}
+
+/** The comment box itself: a line comment's, the summary's, or a message to the agent about either. */
+export function ComposerFields({ mode, subject = "comment", divided = false, busy, composer }: {
+  mode: "new" | "edit" | "ask"; subject?: "comment" | "summary"; divided?: boolean; busy: boolean; composer: InlineComposer;
+}) {
   const empty = !composer.body.trim();
+  const summary = subject === "summary";
   return (
     <div className={cn("space-y-2 p-2.5", divided && "border-t border-border")}>
       <Textarea
         ref={composer.textareaRef}
-        aria-label={mode === "ask" ? "Message to agent" : "Draft comment"}
-        disabled={draft.busy}
+        aria-label={mode === "ask" ? "Message to agent" : summary ? "Review summary" : "Draft comment"}
+        disabled={busy}
         value={composer.body}
         onChange={(event) => composer.change(event.target.value)}
-        placeholder={mode === "ask" ? "Ask about this, or say what to change" : "What should the author know?"}
-        className="min-h-20 bg-background text-sm"
+        placeholder={mode === "ask" ? summary ? "Ask about the summary, or say what to change" : "Ask about this, or say what to change" : summary ? "What should the author know overall?" : "What should the author know?"}
+        className={cn("bg-background text-sm", summary && mode !== "ask" ? "min-h-28" : "min-h-20")}
       />
       <div className="flex flex-wrap items-center justify-end gap-2">
         {mode === "ask" && <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Goes to the agent, not GitHub.</span>}
-        <Button variant="ghost" size="sm" disabled={draft.busy} onClick={composer.cancel}>Cancel</Button>
-        {mode === "new" && <Button variant="outline" size="sm" disabled={draft.busy || empty} onClick={composer.askAgent}><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Ask agent</Button>}
-        <Button size="sm" disabled={draft.busy || empty} onClick={mode === "ask" ? composer.askAgent : composer.save}>
-          {mode === "edit" ? "Save comment" : mode === "ask" ? "Send to agent" : "Add to draft"}
+        <Button variant="ghost" size="sm" disabled={busy} onClick={composer.cancel}>Cancel</Button>
+        {mode === "new" && <Button variant="outline" size="sm" disabled={busy || empty} onClick={composer.askAgent}><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Ask agent</Button>}
+        <Button size="sm" disabled={busy || empty} onClick={mode === "ask" ? composer.askAgent : composer.save}>
+          {mode === "ask" ? "Send to agent" : summary ? "Save summary" : mode === "edit" ? "Save comment" : "Add to draft"}
         </Button>
       </div>
     </div>

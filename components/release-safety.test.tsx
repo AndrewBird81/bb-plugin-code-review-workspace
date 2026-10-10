@@ -22,45 +22,52 @@ test("closing a document releases its lease, while a cached page keeps its edito
   } finally { Object.defineProperty(navigator, "sendBeacon", { configurable: true, value: original }); }
 });
 
-test("an unmounted editor's delayed save cannot remove a newer recovery edit", async () => {
+test("an unsaved summary survives closing the panel and reopens in its box", async () => {
   await loadPluginApp(() => import("../app"));
   const { DraftTray } = await import("./DraftTray");
-  let finish!: (result: any) => void;
-  const save = vi.fn().mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockRejectedValue(new Error("Offline"));
-  const component = () => <DraftTray targetKey="delayed-recovery" activeChapterId="chapter" activeFiles={[]} reviewRevision="revision" />;
-  const rpc = { getDraft: () => ({ draft: { targetKey: "delayed-recovery", verdict: "COMMENT", body: "", comments: [] } }), setVerdict: save };
+  const save = vi.fn();
+  const component = () => <DraftTray targetKey="kept-summary" activeChapterId="chapter" activeFiles={[]} reviewRevision="revision" />;
+  const rpc = { getDraft: () => ({ draft: { targetKey: "kept-summary", verdict: "COMMENT", body: "", comments: [] } }), saveSummary: save };
   const first = renderSlot({ component }, {}, { rpc }); await first.findByText("Draft saved");
-  fireEvent.click(first.getByRole("button", { name: "Review summary" }));
+  fireEvent.click(first.getByRole("button", { name: "Write summary" }));
   fireEvent.change(first.getByRole("textbox", { name: "Review summary" }), { target: { value: "First version" } });
-  first.lifecycle.unmount(); await waitFor(() => expect(finish).toBeTypeOf("function"));
+  first.lifecycle.unmount();
+  expect(readDraftRecovery("kept-summary").composer).toMatchObject({ file: "", line: "0", body: "First version" });
   const second = renderSlot({ component }, {}, { rpc });
-  const summary = await second.findByRole("textbox", { name: "Review summary" });
-  fireEvent.change(summary, { target: { value: "Newer recovered edits" } }); fireEvent.blur(summary);
-  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
-  finish({ draft: {} });
-  await Promise.resolve(); await Promise.resolve();
-  expect(readDraftRecovery("delayed-recovery").summary?.body).toBe("Newer recovered edits");
+  expect(((await second.findByRole("textbox", { name: "Review summary" })) as HTMLTextAreaElement).value).toBe("First version");
+  expect(save).not.toHaveBeenCalled();
 });
 
-test("a rejected unmount save recovers text with its original revision after reopening", async () => {
+test("recovered summary text saves with the revision it was written against", async () => {
   await loadPluginApp(() => import("../app"));
   const { DraftTray } = await import("./DraftTray");
   const draft = { targetKey: "recovery", verdict: "COMMENT", body: "", comments: [] };
-  const save = vi.fn(async (_input: any) => { throw new Error("Review changed"); });
-  const rpc = { getDraft: () => ({ draft }), setVerdict: save };
+  const save = vi.fn(async (_input: any) => { throw new Error("This review changed in another window."); });
+  const rpc = { getDraft: () => ({ draft }), saveSummary: save };
   const component = (props: any) => <DraftTray targetKey="recovery" activeChapterId="chapter" activeFiles={["a.ts"]} {...props} />;
   const first = renderSlot({ component }, { reviewRevision: "old" }, { rpc });
   await first.findByText("Draft saved");
-  fireEvent.click(first.getByRole("button", { name: "Review summary" }));
+  fireEvent.click(first.getByRole("button", { name: "Write summary" }));
   fireEvent.change(first.getByRole("textbox", { name: "Review summary" }), { target: { value: "Unsaved reasoning" } });
   first.lifecycle.unmount();
-  await waitFor(() => expect(save).toHaveBeenCalled());
   const second = renderSlot({ component }, { reviewRevision: "new" }, { rpc });
   const summary = await second.findByRole("textbox", { name: "Review summary" });
   expect((summary as HTMLTextAreaElement).value).toBe("Unsaved reasoning");
-  fireEvent.click(second.getByRole("button", { name: "Save again" }));
-  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
-  expect(save.mock.calls.at(-1)?.[0]).toMatchObject({ revision: "old", body: "Unsaved reasoning" });
+  fireEvent.click(second.getByRole("button", { name: "Save summary" }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(save.mock.calls[0]?.[0]).toMatchObject({ revision: "old", body: "Unsaved reasoning" });
+  // Refused: the text stays in its box.
+  expect((second.getByRole("textbox", { name: "Review summary" }) as HTMLTextAreaElement).value).toBe("Unsaved reasoning");
+});
+
+test("summary text saved for recovery before the summary had its own box reopens in it", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { DraftTray } = await import("./DraftTray");
+  sessionStorage.setItem("guided-review:draft-recovery:legacy", JSON.stringify({ summary: { verdict: "REQUEST_CHANGES", body: "Older unsaved words", revision: "old" } }));
+  const rpc = { getDraft: () => ({ draft: { targetKey: "legacy", verdict: "COMMENT", body: "", comments: [] } }) };
+  const slot = renderSlot({ component: () => <DraftTray targetKey="legacy" activeChapterId="chapter" activeFiles={[]} reviewRevision="new" /> }, {}, { rpc });
+  expect(((await slot.findByRole("textbox", { name: "Review summary" })) as HTMLTextAreaElement).value).toBe("Older unsaved words");
+  slot.lifecycle.unmount();
 });
 
 test("manual update locks settings editors until replacement completes", async () => {

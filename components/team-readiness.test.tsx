@@ -36,24 +36,26 @@ test("workspace load failure has retry instead of an endless generation skeleton
   slot.lifecycle.unmount();
 });
 
-test("draft summary persists on leaving the field; submit is explicit and locked", async () => {
+test("a saved summary persists; submit is explicit and locked", async () => {
   await loadPluginApp(() => import("../app"));
   const { DraftTray } = await import("./DraftTray");
   let stored = { targetKey: "pr-7", verdict: "COMMENT", body: "", comments: [] };
-  const setVerdict = vi.fn(async (input: any) => { stored = { ...stored, ...input }; return { draft: stored }; });
+  const saveSummary = vi.fn(async (input: any) => { stored = { ...stored, body: input.body }; return { draft: stored, stale: [], discussions: [] }; });
   let release: (result: { ok: boolean }) => void = () => {};
   const submitReview = vi.fn(() => new Promise<{ ok: boolean }>((resolve) => { release = resolve; }));
   const slot = renderSlot({ component: (props: any) => <DraftTray {...props} /> }, { targetKey: "pr-7", activeChapterId: "core", activeFiles: ["file.ts"] }, { rpc: {
     setReviewPresence: () => ({ ok: true }),
-    getDraft: () => ({ draft: stored }), setVerdict, submitReview,
+    getDraft: () => ({ draft: stored }), saveSummary, submitReview,
   } });
   await slot.findByText("Draft saved");
   expect(submitReview).not.toHaveBeenCalled();
-  fireEvent.click(slot.getByRole("button", { name: "Review summary" }));
-  const notes = slot.getByRole("textbox", { name: "Review summary" });
-  fireEvent.change(notes, { target: { value: "A considered review" } });
-  fireEvent.blur(notes);
+  fireEvent.click(slot.getByRole("button", { name: "Write summary" }));
+  fireEvent.change(slot.getByRole("textbox", { name: "Review summary" }), { target: { value: "A considered review" } });
+  // Unsaved text holds the submission back.
+  expect(slot.getByRole("button", { name: "Submit to GitHub" }).hasAttribute("disabled")).toBe(true);
+  fireEvent.click(slot.getByRole("button", { name: "Save summary" }));
   await waitFor(() => expect(stored.body).toBe("A considered review"));
+  await slot.findByText("A considered review");
   const submit = slot.getByRole("button", { name: "Submit to GitHub" });
   fireEvent.click(submit); fireEvent.click(submit);
   await waitFor(() => expect(submitReview).toHaveBeenCalledTimes(1));

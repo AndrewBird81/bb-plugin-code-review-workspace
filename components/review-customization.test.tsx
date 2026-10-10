@@ -105,9 +105,9 @@ test("the review activity rail collapses each tool without losing editor state",
   } });
   fireEvent.click(await slot.findByRole("button", { name: "Add comment" }));
   fireEvent.change(slot.getByRole("textbox", { name: "Draft comment" }), { target: { value: "Keep this unfinished comment" } });
-  fireEvent.click(slot.getByRole("button", { name: "Draft comments" }));
+  fireEvent.click(slot.getByRole("button", { name: "Draft review" }));
   expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull();
-  for (const name of ["Draft comments", "Reviewer notes", "Ask agent"]) {
+  for (const name of ["Draft review", "Reviewer notes", "Ask agent"]) {
     expect(slot.getByRole("button", { name }).querySelector("svg")).toBeTruthy();
   }
   fireEvent.click(slot.getByRole("button", { name: "Reviewer notes" }));
@@ -122,7 +122,7 @@ test("the review activity rail collapses each tool without losing editor state",
   expect((slot.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("Keep this question");
   fireEvent.click(slot.getByRole("button", { name: "Reviewer notes" }));
   expect((slot.getByRole("textbox", { name: "Private reviewer notes" }) as HTMLTextAreaElement).value).toBe("Keep my notes");
-  fireEvent.click(slot.getByRole("button", { name: "Draft comments" }));
+  fireEvent.click(slot.getByRole("button", { name: "Draft review" }));
   expect((slot.getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Keep this unfinished comment");
   slot.lifecycle.unmount();
 });
@@ -154,7 +154,7 @@ test("a new line-comment request reveals an unfinished comment without replacing
   } });
   fireEvent.click(await slot.findByRole("button", { name: "Add comment" }));
   fireEvent.change(slot.getByRole("textbox", { name: "Draft comment" }), { target: { value: "Keep this unfinished comment" } });
-  fireEvent.click(slot.getByRole("button", { name: "Draft comments" }));
+  fireEvent.click(slot.getByRole("button", { name: "Draft review" }));
   fireEvent.click(slot.getByRole("button", { name: "Comment on selected line" }));
   const editor = await slot.findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
   expect(editor.value).toBe("Keep this unfinished comment");

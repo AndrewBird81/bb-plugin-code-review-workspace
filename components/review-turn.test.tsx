@@ -106,7 +106,8 @@ test("Use as draft opens the draft with the assistant's verdict and summary", as
   await slot.findByRole("region", { name: "Submitted review" });
   fireEvent.click(await slot.findByRole("button", { name: "Use as draft" }));
   await waitFor(() => expect(rpc.useSuggestedVerdict).toHaveBeenCalledWith({ targetKey: "pr-42", mode: "suggested", revision: "r1" }));
-  await waitFor(() => expect((slot.getByRole("textbox", { name: "Review summary" }) as HTMLTextAreaElement).value).toBe("Looks good now."));
+  const summary = await slot.findByRole("region", { name: "Review summary" });
+  await within(summary).findByText("Looks good now.");
   const verdicts = within(slot.getByRole("group", { name: "Review verdict" }));
   expect(verdicts.getByRole("button", { name: "Approve" }).getAttribute("aria-pressed")).toBe("true");
   slot.lifecycle.unmount();

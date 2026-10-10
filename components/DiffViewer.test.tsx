@@ -75,7 +75,7 @@ test("a stale file shows a 'changed' pill", () => {
 const comment = { file: "src/a.ts", line: 2, side: "RIGHT" as const, author: "agent" as const, body: "Is the empty case tested?" };
 
 function renderWithDraft(draft: Partial<InlineDraft>, props: Partial<Parameters<typeof DiffViewer>[0]> = {}, composer?: InlineComposer) {
-  const value: InlineDraft = { comments: [], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), dismiss: vi.fn(), chat: null, ...draft };
+  const value: InlineDraft = { comments: [], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), dismiss: vi.fn(), undo: vi.fn(), chat: null, ...draft };
   render(
     <InlineDraftContext.Provider value={value}>
       <InlineComposerContext.Provider value={composer ?? null}>

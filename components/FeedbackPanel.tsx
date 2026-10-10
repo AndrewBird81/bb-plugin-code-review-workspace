@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState, type FocusEvent, type R
 import { Markdown, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
-import type { Verdict } from "../src/draft";
+import { isSummary, type Verdict } from "../src/draft";
 import type { FeedbackThread } from "../src/github/types";
 import type { AssessmentVerdict, FeedbackItem, FeedbackView } from "../lib/feedback";
 import { withLineBreaks } from "../src/line-breaks";
@@ -319,6 +319,8 @@ export const FeedbackPanel = memo(function FeedbackPanel({ targetKey, review, re
   }, [load]);
   useRealtime(`feedback:${targetKey}`, () => { void load(); });
   useRealtime(`review:${targetKey}`, () => { void load(); });
+  // Whether the suggestion is already the draft's summary.
+  useRealtime(`draft:${targetKey}`, () => { void load(); });
 
   const show = (next: unknown, rank = false) => {
     request.current++;
@@ -348,8 +350,9 @@ export const FeedbackPanel = memo(function FeedbackPanel({ targetKey, review, re
   // A summary you wrote, saved or still unsaved in this tab, is replaced only once you say so.
   const suggest = (mode: "suggested" | "remaining") => act(mode, async () => {
     const { draft } = await rpc.call("getDraft", { targetKey });
-    const unsaved = readDraftRecovery(targetKey).summary;
-    if ((unsaved ? unsaved.body : draft?.body ?? "").trim()) setConfirming(mode);
+    const box = readDraftRecovery(targetKey).composer;
+    const unsaved = box && !box.asking && isSummary({ file: box.file, line: Number(box.line), side: box.side }) ? box.body : "";
+    if (unsaved.trim() || (draft?.body?.trim() && draft.bodyAuthor !== "agent")) setConfirming(mode);
     else await applySuggestion(mode);
   });
   const replace = () => {
@@ -447,8 +450,10 @@ export const FeedbackPanel = memo(function FeedbackPanel({ targetKey, review, re
           </p>
           {(run.suggestedBody || run.summary) && <Markdown content={withLineBreaks(run.suggestedBody || run.summary)} className="text-sm leading-relaxed" />}
           {(run.suggestedVerdict || left) && (
-            <div className="flex flex-wrap gap-2">
-              {run.suggestedVerdict && <Button size="sm" disabled={!!busy} onClick={() => void suggest("suggested")}>Use as draft</Button>}
+            <div className="flex flex-wrap items-center gap-2">
+              {feedback.suggestionInDraft
+                ? <><span className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />In your draft</span><Button size="sm" variant="outline" onClick={onDraftUpdated}>Open draft</Button></>
+                : run.suggestedVerdict && <Button size="sm" disabled={!!busy} onClick={() => void suggest("suggested")}>Use as draft</Button>}
               {left && <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void suggest("remaining")}>Request what’s left</Button>}
             </div>
           )}
