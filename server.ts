@@ -125,7 +125,7 @@ export default async function plugin(bb: BbPluginApi) {
     if (review.kind !== "pr" || !review.repo || !review.number || !baselineOf(review).at) return;
     const login = (await runGh(["api", "user", "--jq", ".login"])).stdout.trim();
     if (!login) return;
-    store.saveFeedbackThreads(review.targetKey, await fetchMyThreads(runGh, review.repo, review.number, login), store.feedbackFetched(review.targetKey)?.prUpdatedAt ?? null);
+    store.saveFeedbackThreads(review.targetKey, await fetchMyThreads(runGh, review.repo, review.number, login, review.author ?? null), store.feedbackFetched(review.targetKey)?.prUpdatedAt ?? null);
     store.setLifecycle(review.targetKey, { signals: { ...store.getReview(review.targetKey)!.signals, ...threadSignals(store.listFeedbackThreads(review.targetKey)) } });
     bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
   }

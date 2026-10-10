@@ -446,3 +446,15 @@ test("a direct request isn't demoted by a later team request", async () => {
   expect(s.store.getReview("pr-1")?.signals).toMatchObject({ requestedAt: T0 - 2 * HOUR, requestedBy: "alice", requestedVia: "user" });
   expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ reason: "requested", notify: true });
 });
+
+test("a question from someone other than the author names them in the alert", async () => {
+  const s = setup({ reviewed: true, threads: [thread("t1", "open")] });
+  await s.sync.all();
+  s.pr({ updatedAt: 2 });
+  s.threads([{ ...thread("t1", "question", T0 + 0.1 * HOUR), replies: [{ author: "bob", bot: false, mine: false, body: "@me thoughts?", createdAt: T0 + 0.1 * HOUR }] }]);
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.github.threads).toHaveBeenLastCalledWith("acme/web", 1, "me", "alice");
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  expect(s.published[0].body).toContain("@bob asked you something");
+});

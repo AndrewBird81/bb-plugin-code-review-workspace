@@ -52,8 +52,10 @@ export interface TurnSignals {
   headSeenAt?: number | null;
   ci?: "pass" | "fail" | "pending" | "none";
   threads?: ThreadTally | null;
-  /** The latest author reply on one of your threads that asks you something. */
+  /** The latest reply on one of your threads that asks you something: the author's, or a mention of you. */
   questionAt?: number | null;
+  /** Who asked it. */
+  questionBy?: string | null;
   /** The latest author reply on one of your threads. */
   replyAt?: number | null;
   /** When the last of your threads became resolved or answered; null while any is waiting on the author. */

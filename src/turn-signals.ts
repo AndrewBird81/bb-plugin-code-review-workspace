@@ -66,7 +66,7 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
 const RECEIPT_GRACE = 10 * 60_000;
 
 /** Your threads' standing, as signals. */
-export function threadSignals(threads: ReadonlyArray<FeedbackThread & { resolvedSeenAt?: number | null }>): Pick<TurnSignals, "threads" | "questionAt" | "replyAt" | "handledAt"> {
+export function threadSignals(threads: ReadonlyArray<FeedbackThread & { resolvedSeenAt?: number | null }>): Pick<TurnSignals, "threads" | "questionAt" | "questionBy" | "replyAt" | "handledAt"> {
   const count = (status: FeedbackThread["status"]) => threads.filter((t) => t.status === status).length;
   const tally = {
     total: threads.length, resolved: count("resolved"), answered: count("answered"), questions: count("question"),
@@ -74,9 +74,12 @@ export function threadSignals(threads: ReadonlyArray<FeedbackThread & { resolved
   };
   const latest = (times: Array<number | null | undefined>) => times.reduce<number | null>((max, t) => t != null && t > (max ?? 0) ? t : max, null);
   const handled = tally.total > 0 && tally.open === 0 && tally.questions === 0;
+  const questionAt = latest(threads.filter((t) => t.status === "question").map((t) => t.replyAt));
+  const asked = threads.find((t) => t.status === "question" && t.replyAt === questionAt);
   return {
     threads: tally.total ? tally : null,
-    questionAt: latest(threads.filter((t) => t.status === "question").map((t) => t.replyAt)),
+    questionAt,
+    questionBy: asked?.replies.filter((r) => r.createdAt === questionAt && !r.mine).at(-1)?.author ?? null,
     replyAt: latest(threads.filter((t) => t.status === "question" || t.status === "answered").map((t) => t.replyAt)),
     handledAt: handled ? latest(threads.map((t) => t.status === "resolved" ? t.resolvedSeenAt ?? null : t.replyAt)) : null,
   };
@@ -89,7 +92,7 @@ export function alertBody(review: ReviewMeta, turn: Turn): string {
   const why: Partial<Record<Turn["reason"], string>> = {
     "re-requested": `${s.requestedBy ? `@${s.requestedBy}` : author} re-requested your review`,
     requested: `${s.requestedBy ? `@${s.requestedBy}` : author} requested your review`,
-    question: `${author} asked you something on your feedback`,
+    question: `${s.questionBy ? `@${s.questionBy}` : author} asked you something on your feedback`,
     mentioned: `${s.mentionBy ? `@${s.mentionBy}` : author} mentioned you`,
     handled: "Every thread of your feedback is resolved or answered",
     "looks-ready": "The assistant found all your feedback addressed",

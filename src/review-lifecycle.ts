@@ -19,7 +19,7 @@ export interface GithubReads {
   viewer: Viewer;
   gate: NotificationGate;
   facts(refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Promise<Map<string, PrFacts | null>>;
-  threads(repo: string, number: number, viewer: string): Promise<FeedbackThread[]>;
+  threads(repo: string, number: number, viewer: string, author: string | null): Promise<FeedbackThread[]>;
   discover(options: { reviewed: boolean; teams: boolean }): Promise<DiscoveredPr[]>;
 }
 
@@ -27,7 +27,7 @@ export function githubReads(run: typeof runGh): GithubReads {
   return {
     viewer: createViewer(run), gate: createNotificationGate(run),
     facts: (refs, viewer, teams) => fetchPrFacts(run, refs, viewer, teams),
-    threads: (repo, number, viewer) => fetchMyThreads(run, repo, number, viewer),
+    threads: (repo, number, viewer, author) => fetchMyThreads(run, repo, number, viewer, author),
     discover: (options) => discoverPrs(run, options),
   };
 }
@@ -165,7 +165,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       const active = turnOf(updated).group === "needs" || turnOf(updated).group === "waiting";
       if (!fetched || fetched.prUpdatedAt !== facts.updatedAt || active && clock() - fetched.fetchedAt >= THREADS_EVERY) {
         try {
-          const threads = await github.threads(facts.repo, facts.number, login);
+          const threads = await github.threads(facts.repo, facts.number, login, facts.author);
           // The review may have been deleted while GitHub answered.
           if (!store.getReview(key)) return;
           store.saveFeedbackThreads(key, threads, facts.updatedAt);
