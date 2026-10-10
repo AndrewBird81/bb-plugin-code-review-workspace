@@ -503,3 +503,13 @@ test("a tracked team request leaves Needs review when team requests are turned o
   s.store.savePreferences({ ...defaultPreferences, trackTeamRequests: false }, 1);
   expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "archive", reason: "unrequested" });
 });
+
+test("discovery doesn't add a second row for a PR whose repository was renamed", async () => {
+  // GitHub follows the rename, so reading the old name reports the new URL.
+  const s = setup({ pr: { url: "https://github.com/acme/web-app/pull/1" } });
+  vi.mocked(s.github.discover).mockResolvedValue([
+    { repo: "acme/web-app", number: 1, title: "Expire cache entries", url: "https://github.com/Acme/web-app/pull/1", author: "alice", updatedAt: 1, isDraft: false, requested: true, reviewed: false },
+  ]);
+  await s.sync.all(true);
+  expect(s.store.listReviews().map((r) => r.targetKey)).toEqual(["pr-1"]);
+});

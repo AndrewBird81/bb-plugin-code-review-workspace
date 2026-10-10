@@ -296,9 +296,11 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     if (!projectId || disposed) return;
     const first = (await bb.storage.kv.get<{ login: string }>(DISCOVERED))?.login !== login;
     const added: string[] = [];
+    // A renamed or transferred repository's PRs are already here under their old name, with their new URL.
+    const urls = new Set(store.listReviews().map((r) => r.url?.toLowerCase()).filter(Boolean));
     for (const pr of found) {
       const key = keyFor({ kind: "pr", number: pr.number, repo: pr.repo });
-      if (store.getReview(key) || store.isDiscoveryIgnored(key)) continue;
+      if (store.getReview(key) || store.isDiscoveryIgnored(key) || urls.has(pr.url.toLowerCase())) continue;
       store.saveReview({ targetKey: key, kind: "pr", number: pr.number, repo: pr.repo, title: pr.title, author: pr.author ?? undefined, url: pr.url, status: "tracked", createdAt: clock(), projectId });
       if (!first && pr.requested && !pr.reviewed) store.setLifecycle(key, { newRequest: true });
       added.push(key);
