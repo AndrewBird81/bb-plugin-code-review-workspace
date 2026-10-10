@@ -1,5 +1,5 @@
 import type { Store } from "./store";
-import type { Verdict } from "./draft";
+import { verdictPicked, type Verdict } from "./draft";
 import { parseTarget, targetKey } from "./targets";
 import { describeSummary, writeSummary } from "./draft-summary";
 
@@ -49,7 +49,7 @@ export function runSummaryCommand(store: Store, argv: string[], changed: (target
     const draft = store.getDraft(key);
     return { exitCode: 0, stdout: JSON.stringify({
       review: key, body: draft.body, author: draft.body.trim() ? draft.bodyAuthor ?? "reviewer" : null,
-      verdict: draft.verdict, verdictChosen: !!draft.verdictChosen, suggestedVerdict: draft.suggestedVerdict ?? null,
+      verdict: draft.verdict, verdictChosen: verdictPicked(draft), suggestedVerdict: draft.suggestedVerdict ?? null,
     }, null, 2) };
   }
   const result = writeSummary(store, key, { body: values.body, ...(suggest ? { verdict: suggest as Verdict } : {}) });
