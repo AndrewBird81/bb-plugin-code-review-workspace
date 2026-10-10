@@ -106,17 +106,13 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
   }
   bb.onDispose(() => { disposed = true; });
 
-  const turnOf = (review: ReviewMeta, now = clock()) => computeTurn(review, turnOptions(store.getPreferences().preferences), now);
+  const turnOf = (review: ReviewMeta, now = clock(), options = turnOptions(store.getPreferences().preferences)) => computeTurn(review, options, now);
   // Stale alerts drop when the review is no longer your turn for the same reason.
   notifications.useTurns((key) => {
     const review = store.getReview(key);
     const turn = review && turnOf(review);
     return turn?.group === "needs" ? turn.signal : null;
   });
-  const publish = (key: string) => {
-    bb.realtime.publish(`review:${key}`, { ts: clock() });
-    bb.realtime.publish("reviews", { ts: clock() });
-  };
 
   // Tidies a legacy review-agent worker. Assistant threads in bb stay
   // unarchived, because an archived thread cannot take messages.
@@ -170,6 +166,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       health = { lastReadAt: clock(), error: null };
       if (missing) failed("partial", { count: missing });
       else if (teamsFailed) failed("teams");
+      // The list hears once per pass, however many reviews changed.
+      let changed = false;
       for (const review of reviews) {
         if (disposed) return;
         checked.set(review.targetKey, clock());
@@ -177,17 +175,19 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
         // Missing: GitHub couldn't be read for it; keep what's saved. Null or "forbidden": the PR is gone or out of reach.
         const done = fact === null || fact === "forbidden" ? unreachable(review.targetKey, fact ? "forbidden" : "not-found")
           : fact ? apply(review.targetKey, fact, login, startedAt) : null;
-        await done?.catch((error) => bb.log.warn(`Could not refresh ${review.targetKey}: ${String(error)}`));
+        if (await done?.catch((error) => { bb.log.warn(`Could not refresh ${review.targetKey}: ${String(error)}`); })) changed = true;
         await maintainThread(review.targetKey);
       }
+      if (changed && !disposed) bb.realtime.publish("reviews", { ts: clock() });
     })().finally(() => { for (const key of fresh) if (inflight.get(key) === task) inflight.delete(key); });
     for (const key of fresh) inflight.set(key, task);
     await Promise.allSettled([task, ...waiting]);
   }
 
-  async function apply(key: string, facts: PrFacts, login: string, startedAt: number) {
+  /** Returns whether the review changed. */
+  async function apply(key: string, facts: PrFacts, login: string, startedAt: number): Promise<boolean> {
     const before = store.getReview(key);
-    if (!before || before.prState === "MERGED" && facts.state !== "MERGED") return;
+    if (!before || before.prState === "MERGED" && facts.state !== "MERGED") return false;
     // What happened before bb first read the PR is history: it shows, but doesn't alert or start work.
     const firstRead = before.watchingSince == null;
     if (firstRead) store.setLifecycle(key, { watchingSince: startedAt, watchedHead: facts.headSha });
@@ -205,7 +205,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
         try {
           const threads = await github.threads(facts.repo, facts.number, login, facts.author);
           // The review may have been deleted while GitHub answered.
-          if (!store.getReview(key)) return;
+          if (!store.getReview(key)) return false;
           store.saveFeedbackThreads(key, threads, facts.updatedAt);
           bb.realtime.publish(`feedback:${key}`, { ts: clock() });
         } catch (error) { bb.log.warn(`Could not read your threads on ${key}: ${String(error)}`); }
@@ -213,16 +213,23 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       store.setLifecycle(key, { signals: { ...store.getReview(key)!.signals, ...threadSignals(store.listFeedbackThreads(key)) } });
     }
     await evaluate(key, firstRead);
-    if (JSON.stringify(before) !== JSON.stringify(store.getReview(key))) publish(key);
+    return changed(key, before);
   }
 
   /** Record that GitHub can't find the PR, or refuses access, since the first read that saw it. */
-  async function unreachable(key: string, reason: "not-found" | "forbidden") {
+  async function unreachable(key: string, reason: "not-found" | "forbidden"): Promise<boolean> {
     const before = store.getReview(key);
-    if (!before) return;
+    if (!before) return false;
     store.setLifecycle(key, { unreachable: { since: before.unreachable?.since ?? clock(), reason } });
     await evaluate(key);
-    if (JSON.stringify(before) !== JSON.stringify(store.getReview(key))) publish(key);
+    return changed(key, before);
+  }
+
+  /** Tell the review's page when it changed; returns whether it did. */
+  function changed(key: string, before: ReviewMeta): boolean {
+    if (JSON.stringify(before) === JSON.stringify(store.getReview(key))) return false;
+    bb.realtime.publish(`review:${key}`, { ts: clock() });
+    return true;
   }
 
   /** Whether an automatic re-review finished since `since`, or can't run. */

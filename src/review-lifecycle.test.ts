@@ -587,3 +587,13 @@ test("sync health: PRs left out of a read, and teams it couldn't read", async ()
   await s.sync.all(true);
   expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.1 * HOUR, error: { kind: "teams", at: T0 + 0.1 * HOUR } });
 });
+
+test("a pass that changes several reviews tells the list once", async () => {
+  const s = setup();
+  s.store.saveReview({ targetKey: "pr-2", kind: "pr", repo: "acme/web", number: 2, createdAt: 2, status: "ready" });
+  await s.sync.all();
+  const lists = () => s.harness.inspection.realtimeSignals.filter((signal) => signal.channel === "reviews").length;
+  const reviewSignals = () => s.harness.inspection.realtimeSignals.filter((signal) => signal.channel.startsWith("review:")).map((signal) => signal.channel).sort();
+  expect(lists()).toBe(1);
+  expect(reviewSignals()).toEqual(["review:pr-1", "review:pr-2"]);
+});

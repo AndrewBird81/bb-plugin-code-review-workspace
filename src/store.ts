@@ -298,7 +298,8 @@ export function createStore(bb: BbPluginApi): Store {
     head: r.head ?? undefined, gitRef: r.git_ref ?? undefined, url: r.url ?? undefined,
     status: r.status, createdAt: r.created_at, projectId: r.project_id ?? undefined,
     headSha: r.head_sha ?? undefined, cwd: r.cwd ?? undefined,
-    ...JSON.parse((db.prepare(`SELECT state FROM review_lifecycle WHERE target_key=?`).get(r.target_key) as any)?.state ?? "{}"),
+    // listReviews joins the lifecycle in as `lifecycle`; a single review reads it here.
+    ...JSON.parse(("lifecycle" in r ? r.lifecycle : (db.prepare(`SELECT state FROM review_lifecycle WHERE target_key=?`).get(r.target_key) as any)?.state) ?? "{}"),
   });
 
   return {
@@ -347,7 +348,7 @@ export function createStore(bb: BbPluginApi): Store {
       return r ? rowToMeta(r) : null;
     },
     listReviews() {
-      return db.prepare(`SELECT * FROM reviews ORDER BY created_at DESC`).all().map(rowToMeta);
+      return db.prepare(`SELECT r.*, l.state AS lifecycle FROM reviews r LEFT JOIN review_lifecycle l ON l.target_key=r.target_key ORDER BY r.created_at DESC`).all().map(rowToMeta);
     },
     setStatus(k, status) {
       db.prepare(`UPDATE reviews SET status=? WHERE target_key=?`).run(status, k);

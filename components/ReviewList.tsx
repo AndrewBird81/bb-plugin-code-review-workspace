@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useId, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRpc, useBbNavigate, useRealtime } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import { reviewState, type ReviewItem } from "../lib/review-state";
@@ -157,7 +157,13 @@ export const ReviewList = memo(function ReviewList() {
   const relist = useCallback(() => {
     void rpc.call("listReviews", null).then((result) => { setReviews(result.reviews); setHealth(result.sync); }).catch(() => {});
   }, [rpc]);
-  useRealtime("reviews", relist);
+  // A sync pass can change many reviews at once: re-list once it settles.
+  const relistTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(relistTimer.current), []);
+  useRealtime("reviews", () => {
+    clearTimeout(relistTimer.current);
+    relistTimer.current = setTimeout(relist, 250);
+  });
   useRealtime("gh-account", () => { void refresh(); });
   useEffect(() => {
     // Coming back to the window reads only what's due; Refresh reads everything.

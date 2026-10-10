@@ -115,3 +115,22 @@ test("focusing the window runs a normal pass; only Refresh forces a full read", 
   await waitFor(() => expect(refreshes()).toEqual([{ force: false }, { force: true }]));
   slot.lifecycle.unmount();
 });
+
+test("a burst of review updates re-lists once", async () => {
+  const { expect } = await import("vitest");
+  const { waitFor } = await import("@testing-library/react");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [{ targetKey: "a", title: "A change", status: "ready" }] }),
+  } });
+  const lists = () => slot.inspection.rpcCalls.filter((call) => call.method === "listReviews").length;
+  await slot.findByText("A change");
+  expect(lists()).toBe(1);
+  for (let i = 0; i < 3; i++) await slot.emitRealtime("reviews", { ts: i });
+  await waitFor(() => expect(lists()).toBe(2));
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  expect(lists()).toBe(2);
+  slot.lifecycle.unmount();
+});

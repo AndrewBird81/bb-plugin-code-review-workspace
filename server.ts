@@ -46,12 +46,12 @@ import { getGhAccounts, switchGhAccount, checkRepoAccess } from "./src/gh-accoun
 import { completionNotifications } from "./src/completion-notifications";
 import { createPluginUpdates } from "./src/plugin-updates";
 import { onPrepared } from "./src/generate";
-import { feedbackProgress } from "./lib/turn";
+import { feedbackProgress, type TurnOptions } from "./lib/turn";
 import { baselineOf, feedbackView, headOf, pruneDiffs, remainingBody, sinceReview } from "./src/feedback-view";
 import { assess, changesSinceReview, describeFeedback, readFileAt, startVerification } from "./src/verification";
 import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
-import { threadSignals } from "./src/turn-signals";
+import { threadSignals, turnOptions } from "./src/turn-signals";
 
 export { rpcContract } from "./src/rpc-contract";
 
@@ -115,7 +115,12 @@ export default async function plugin(bb: BbPluginApi) {
 
   // Reviews leave the server with whose turn they are and how far your feedback got.
   // JSON round-trips drop the literal `undefined` fields rowToMeta leaves, which strict rpc output rejects.
-  const decorate = (review: ReviewMeta | null) => review && JSON.parse(JSON.stringify({ ...review, turn: sync.turnOf(review), progress: feedbackProgress(review) }));
+  const decorate = (review: ReviewMeta | null, options?: TurnOptions) => review && JSON.parse(JSON.stringify({ ...review, turn: sync.turnOf(review, undefined, options), progress: feedbackProgress(review) }));
+  /** Every review, decorated with one read of the settings, without the summaries only the assistant reads. */
+  const listed = () => {
+    const options = turnOptions(store.getPreferences().preferences);
+    return store.listReviews().map(({ reviewBodies: _bodies, ...review }) => decorate(review, options));
+  };
   const changed = (targetKey: string) => {
     bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
     bb.realtime.publish("reviews", { ts: Date.now() });
@@ -299,11 +304,11 @@ export default async function plugin(bb: BbPluginApi) {
       // ReviewMeta rows carry optional fields as literal `undefined` own
       // properties (store.ts's rowToMeta), which the rpc layer's strict JSON
       // output check rejects; round-trip through JSON to drop them.
-      return { reviews: store.listReviews().map(decorate), sync: sync.health() };
+      return { reviews: listed(), sync: sync.health() };
     },
     async refreshReviews(input) {
       await sync.all(input?.force ?? true);
-      return { reviews: store.listReviews().map(decorate), sync: sync.health() };
+      return { reviews: listed(), sync: sync.health() };
     },
     getReview({ targetKey }) {
       return { review: decorate(store.getReview(targetKey)) };
