@@ -2,7 +2,7 @@ import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode 
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
 import type { AnnotationSide, DiffLineAnnotation, FileDiffMetadata, FileDiffOptions, SelectedLineRange } from "@pierre/diffs";
-import { splitPatchByFile } from "../src/patch";
+import { patchRows, splitPatchByFile } from "../src/patch";
 import type { FileInterdiff } from "../src/interdiff";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import { cn } from "../lib/utils";
@@ -34,9 +34,9 @@ function useTheme() {
 function diffStats(text: string): { add: number; del: number } {
   let add = 0;
   let del = 0;
-  for (const line of text.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) add++;
-    else if (line.startsWith("-") && !line.startsWith("---")) del++;
+  for (const { kind } of patchRows(text)) {
+    if (kind === "+") add++;
+    else if (kind === "-") del++;
   }
   return { add, del };
 }

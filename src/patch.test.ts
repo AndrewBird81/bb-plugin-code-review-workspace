@@ -63,3 +63,9 @@ index 111..222 100644
   expect(changedFiles(real)).toEqual(["src/a.ts", "src/b.ts"]);
   expect(splitPatchByFile(real)).toHaveLength(2);
 });
+
+test("a hunk line that looks like a file header stays in its file", () => {
+  const patch = "diff --git a/notes.md b/notes.md\n--- a/notes.md\n+++ b/notes.md\n@@ -1,2 +1,1 @@\n--- a/other.md\n keep\n";
+  expect(ensureGitHeaders(patch)).toBe(patch);
+  expect(changedFiles(patch)).toEqual(["notes.md"]);
+});

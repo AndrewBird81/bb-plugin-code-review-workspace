@@ -1,5 +1,5 @@
 import type { AgentMessageContext } from "./store";
-import { splitPatchByFile } from "./patch";
+import { patchRows, splitPatchByFile } from "./patch";
 
 const MAX_QUOTE = 40_000;
 
@@ -29,30 +29,10 @@ export function extractSelectedLines(
   const hi = Math.max(start, end);
   const wantOld = side === "deletions";
   const out: string[] = [];
-  let oldLine = 0;
-  let newLine = 0;
-  for (const line of f.text.split("\n")) {
-    const h = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (h) {
-      oldLine = Number(h[1]);
-      newLine = Number(h[2]);
-      continue;
-    }
-    if (/^(diff --git|index |--- |\+\+\+ )/.test(line)) continue;
-    const c = line[0];
-    if (c === "+") {
-      if (!wantOld && newLine >= lo && newLine <= hi) out.push(line);
-      newLine++;
-    } else if (c === "-") {
-      if (wantOld && oldLine >= lo && oldLine <= hi) out.push(line);
-      oldLine++;
-    } else if (c === " ") {
-      const n = wantOld ? oldLine : newLine;
-      if (n >= lo && n <= hi) out.push(line);
-      newLine++;
-      oldLine++;
-    }
-    // else: blank / "\ No newline" / artifact — skip without counting.
+  for (const row of patchRows(f.text)) {
+    if (!("oldLine" in row) || row.kind === (wantOld ? "+" : "-")) continue;
+    const n = wantOld ? row.oldLine : row.newLine;
+    if (n >= lo && n <= hi) out.push(row.text);
   }
   return out.join("\n");
 }

@@ -1,4 +1,4 @@
-import { splitPatchByFile } from "./patch";
+import { patchRows, splitPatchByFile } from "./patch";
 import type { DraftComment } from "./draft";
 
 export interface FilePositions {
@@ -18,31 +18,14 @@ export function diffPositions(patch: string): Map<string, FilePositions> {
     if (!f.path) continue;
     const right = new Map<number, string>();
     const left = new Map<number, string>();
-    let oldLine = 0;
-    let newLine = 0;
-    for (const line of f.text.split("\n")) {
-      const h = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-      if (h) {
-        oldLine = Number(h[1]);
-        newLine = Number(h[2]);
-        continue;
+    for (const row of patchRows(f.text)) {
+      const text = row.text.slice(1);
+      if (row.kind === "+") right.set(row.newLine, text);
+      else if (row.kind === "-") left.set(row.oldLine, text);
+      else if (row.kind === " ") {
+        right.set(row.newLine, text);
+        left.set(row.oldLine, text);
       }
-      if (/^(diff --git|index |--- |\+\+\+ )/.test(line)) continue;
-      const c = line[0];
-      if (c === "+") {
-        right.set(newLine, line.slice(1));
-        newLine++;
-      } else if (c === "-") {
-        left.set(oldLine, line.slice(1));
-        oldLine++;
-      } else if (c === " ") {
-        right.set(newLine, line.slice(1));
-        left.set(oldLine, line.slice(1));
-        newLine++;
-        oldLine++;
-      }
-      // else: blank line / "\ No newline at end of file" / artifact — not a
-      // diff row, don't count it.
     }
     map.set(f.path, { right, left });
   }

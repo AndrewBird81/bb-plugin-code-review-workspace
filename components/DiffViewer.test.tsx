@@ -72,6 +72,13 @@ test("a stale file shows a 'changed' pill", () => {
   expect(screen.getByText("changed")).toBeTruthy();
 });
 
+test("the file header counts hunk lines that look like file headers", () => {
+  const sql = "diff --git a/m.sql b/m.sql\n--- a/m.sql\n+++ b/m.sql\n@@ -1,2 +1,2 @@\n--- old note\n----\n+++i;\n+ok\n";
+  render(<DiffViewer patch={sql} files={["m.sql"]} views={new Map()} onToggleViewed={() => {}} />);
+  expect(screen.getByText("+2")).toBeTruthy();
+  expect(screen.getByText("−2")).toBeTruthy();
+});
+
 const comment = { file: "src/a.ts", line: 2, side: "RIGHT" as const, author: "agent" as const, body: "Is the empty case tested?" };
 
 function renderWithDraft(draft: Partial<InlineDraft>, props: Partial<Parameters<typeof DiffViewer>[0]> = {}, composer?: InlineComposer) {

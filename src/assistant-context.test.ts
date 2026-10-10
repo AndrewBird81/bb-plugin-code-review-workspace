@@ -33,3 +33,10 @@ test("highlighted code is quoted as written, and a file alone is named for the a
   expect(contextQuote({ file: "x.ts", startLine: 40 }, linePatch)).toBe("About `x.ts` line 40.");
   expect(contextQuote({}, linePatch)).toBe("");
 });
+
+test("extractSelectedLines counts hunk lines that look like file headers", () => {
+  const sql = ["diff --git a/m.sql b/m.sql", "--- a/m.sql", "+++ b/m.sql", "@@ -1,2 +1,2 @@", "--- old note", "+++i;", " select 2;", ""].join("\n");
+  expect(extractSelectedLines(sql, "m.sql", 1, 1, "deletions")).toBe("--- old note");
+  expect(extractSelectedLines(sql, "m.sql", 2, 2, "deletions")).toBe(" select 2;");
+  expect(extractSelectedLines(sql, "m.sql", 1, 2, "additions")).toBe("+++i;\n select 2;");
+});

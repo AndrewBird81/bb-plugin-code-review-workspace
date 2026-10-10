@@ -36,3 +36,21 @@ test("a comment on a file not in the diff is rejected", () => {
 test("a LEFT comment on a deleted line is valid", () => {
   expect(invalidComments(patch, [{ file: "x.ts", line: 2, side: "LEFT", body: "x" }])).toHaveLength(0);
 });
+
+test("hunk lines that look like file headers keep their numbers", () => {
+  const sql = [
+    "diff --git a/m.sql b/m.sql",
+    "--- a/m.sql",
+    "+++ b/m.sql",
+    "@@ -1,3 +1,3 @@",
+    " select 1;",
+    "--- drop this note",
+    "+++i;",
+    " select 2;",
+    "",
+  ].join("\n");
+  const p = diffPositions(sql).get("m.sql")!;
+  expect([...p.left]).toEqual([[1, "select 1;"], [2, "-- drop this note"], [3, "select 2;"]]);
+  expect([...p.right]).toEqual([[1, "select 1;"], [2, "++i;"], [3, "select 2;"]]);
+  expect(invalidComments(sql, [{ file: "m.sql", line: 3, side: "LEFT", body: "x" }])).toEqual([]);
+});
