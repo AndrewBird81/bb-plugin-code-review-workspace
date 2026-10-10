@@ -78,7 +78,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [guide, setGuide] = useState<any>(null);
   const [patch, setPatch] = useState("");
   const [checks, setChecks] = useState<{ bucket: string; checks: any[] } | null>(null);
-  const [activeId, setActiveId] = useState("");
+  // From the saved state, so persisting before the guide loads doesn't overwrite it.
+  const [activeId, setActiveId] = useState(persisted.activeId ?? "");
   // The reviewer's choice persists; without one, the review's turn picks the first view once.
   const [chosenView, setView] = useState<View | null>(persisted.view ?? null);
   const [defaultView, setDefaultView] = useState<View | null>(null);
