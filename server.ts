@@ -11,6 +11,7 @@ import { changedFiles, splitPatchByFile } from "./src/patch";
 import { describeReviewFiles, patchPage } from "./src/review-files";
 import { readPrContext } from "./src/pr-context";
 import { readFileContents, readGeneratedFiles } from "./src/file-contents";
+import { codeOwners, describeOwnership } from "./src/codeowners";
 import { readCheckFailures } from "./src/check-annotations";
 import { validateGuide, checkCoverage, checkHotspots, checkRequirements, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { hunkCounts } from "./src/hunks";
@@ -55,7 +56,7 @@ import { createPluginUpdates } from "./src/plugin-updates";
 import { onPrepared } from "./src/generate";
 import { feedbackProgress, type TurnOptions } from "./lib/turn";
 import { findStacks } from "./lib/stacks";
-import { baselineOf, diffAt, feedbackView, headOf, pruneDiffs, pruneOldDiffs, remainingBody, sinceReview } from "./src/feedback-view";
+import { baselineOf, diffAt, feedbackView, headOf, prCommits, pruneDiffs, pruneOldDiffs, remainingBody, sinceReview } from "./src/feedback-view";
 import { assess, changesSinceReview, describeFeedback, readFileAt, startVerification } from "./src/verification";
 import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
@@ -203,6 +204,9 @@ export default async function plugin(bb: BbPluginApi) {
     // The page's other reads ran without it. An empty diff changed nothing, and reloading would read it again.
     if (patch) bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
   }
+  /** The review's changed files with CODEOWNERS owners, marking yours. */
+  const reviewOwners = (review: ReviewMeta) => codeOwners({ runGh, runGit }, review, changedFiles(store.readPatch(review.targetKey, 0, store.readPatch(review.targetKey, 0, 0).total).text),
+    async () => ({ login: await sync.login(), teams: await sync.teams() }));
   const view = (targetKey: string) => {
     const review = store.getReview(targetKey);
     return review ? feedbackView(store, review) : null;
@@ -314,15 +318,21 @@ export default async function plugin(bb: BbPluginApi) {
         bb.realtime.publish(`draft:${targetKey}`, {});
         return { ok: true, draft };
       },
-      async getSinceReview({ targetKey }: { targetKey: string }) {
+      async getSinceReview({ targetKey, from }: { targetKey: string; from?: string }) {
         const review = store.getReview(targetKey);
         if (!review) return { baseline: null, files: [] };
         try {
-          const since = await sinceReview(store, runGh, review);
+          const since = await sinceReview(store, runGh, review, from);
           return since ? { baseline: since.baseline, files: since.files } : { baseline: null, files: [] };
         } catch (error) {
-          return { baseline: null, files: [], error: error instanceof Error ? error.message : "Couldn't compare with your last review." };
+          return { baseline: null, files: [], error: error instanceof Error ? error.message : from ? `Couldn't compare with ${from.slice(0, 7)}.` : "Couldn't compare with your last review." };
         }
+      },
+      async getPrCommits({ targetKey }: { targetKey: string }) {
+        const review = store.getReview(targetKey);
+        if (review?.kind !== "pr") return { commits: [] };
+        try { return { commits: await prCommits(runGh, review) }; }
+        catch (error) { return { commits: [], error: error instanceof Error ? error.message : "Couldn't read the PR's commits." }; }
       },
     };
   }
@@ -448,6 +458,12 @@ export default async function plugin(bb: BbPluginApi) {
       const review = store.getReview(targetKey);
       if (!review) return { files: [] };
       return { files: await readGeneratedFiles({ runGh, runGit }, review, changedFiles(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text)) };
+    },
+    async getCodeOwners({ targetKey }) {
+      const review = store.getReview(targetKey);
+      if (!review) return { files: [] };
+      try { return { files: await reviewOwners(review) }; }
+      catch (error) { return { files: [], error: error instanceof Error ? error.message : "Couldn’t read CODEOWNERS." }; }
     },
     async getFileContents({ targetKey, file }) {
       const review = store.getReview(targetKey);
@@ -847,7 +863,11 @@ export default async function plugin(bb: BbPluginApi) {
       const review = targetKey ? store.getReview(targetKey) : null;
       if (!review) return failed("There's no review to read the context of.");
       const files = changedFiles(store.readPatch(review.targetKey, 0, store.readPatch(review.targetKey, 0, 0).total).text);
-      try { return await readPrContext({ runGh, runGit }, review, files, store.getReviewContext(review.targetKey)); }
+      try {
+        const [context, owned] = await Promise.all([readPrContext({ runGh, runGit }, review, files, store.getReviewContext(review.targetKey)), reviewOwners(review).catch(() => [])]);
+        const ownership = describeOwnership(owned);
+        return ownership ? `${context}\n\n${ownership}` : context;
+      }
       catch (error) { return failed(error instanceof Error ? error.message : "Couldn't read the PR's context."); }
     },
   });

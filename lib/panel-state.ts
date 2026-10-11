@@ -21,8 +21,12 @@ interface PanelState {
   wrapLines?: boolean;
   /** Draft review and the diff hide nit comments, in every review. */
   hideNits?: boolean;
+  /** The sidebar lists the chapters, or every file as a folder tree, in every review. */
+  navView?: NavView;
   perReview: Record<string, ReviewUiState>;
 }
+
+export type NavView = "chapters" | "files";
 
 const KEY = "gr:panelstate";
 
@@ -94,5 +98,15 @@ export function getHideNits(): boolean {
 export function setHideNits(hide: boolean) {
   const s = read();
   s.hideNits = hide;
+  write(s);
+}
+
+export function getNavView(): NavView {
+  return read().navView ?? "chapters";
+}
+
+export function setNavView(view: NavView) {
+  const s = read();
+  s.navView = view;
   write(s);
 }

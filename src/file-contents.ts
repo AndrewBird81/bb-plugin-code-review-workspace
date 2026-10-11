@@ -8,7 +8,7 @@ import { declaredGenerated } from "./classify";
 
 export type FileContentsResult = { ok: true; old: string | null; new: string | null } | { ok: false; error: string };
 /** `missing`: GitHub has no such file at that commit. */
-type Read = { text: string } | { error: string; missing?: boolean };
+export type Read = { text: string } | { error: string; missing?: boolean };
 
 /** Larger files stay as the diff: pierre would draw them as plain text, and they'd fill the panel's memory. */
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -58,13 +58,13 @@ async function mergeBase(gh: typeof runGh, review: ReviewMeta, head: string): Pr
   return { text: sha };
 }
 
-async function gitFile(git: typeof runGit, cwd: string, rev: string, path: string): Promise<Read> {
+export async function gitFile(git: typeof runGit, cwd: string, rev: string, path: string): Promise<Read> {
   const out = await git(["show", "--no-textconv", `${rev}:${path}`], { cwd, maxBuffer: MAX_FILE_BYTES });
   if (out.code !== 0) return /too much to read/.test(out.stderr) ? tooLarge(path) : { error: `Couldn’t read ${path} at ${rev}: ${out.stderr.trim() || "not found"}` };
   return { text: out.stdout };
 }
 
-async function workingTreeFile(cwd: string, path: string): Promise<Read> {
+export async function workingTreeFile(cwd: string, path: string): Promise<Read> {
   try {
     if ((await stat(join(cwd, path))).size > MAX_FILE_BYTES) return tooLarge(path);
     return { text: await readFile(join(cwd, path), "utf8") };
@@ -74,7 +74,7 @@ async function workingTreeFile(cwd: string, path: string): Promise<Read> {
 }
 
 /** Where a local review's diff starts and ends: `a...b` from their merge base, `a..b` from a, and a single ref against the working tree (null). */
-async function localRevs(git: typeof runGit, review: ReviewMeta): Promise<{ from: string; to: string | null } | { error: string }> {
+export async function localRevs(git: typeof runGit, review: ReviewMeta): Promise<{ from: string; to: string | null } | { error: string }> {
   const [, from, dots, to] = review.gitRef!.match(/^(.*?)(\.\.\.?)(.*)$/) ?? [];
   if (!dots) return { from: review.gitRef!, to: null };
   if (dots === "..") return { from: from || "HEAD", to: to || "HEAD" };

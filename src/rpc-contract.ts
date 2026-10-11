@@ -110,6 +110,11 @@ export const rpcContract = defineRpcContract({
   },
   /** The changed files the repo's .gitattributes marks linguist-generated or linguist-vendored. */
   getGeneratedFiles: { input: targetKey, output: z.object({ files: z.array(z.string()) }) },
+  /** The changed files CODEOWNERS at the diff's new side gives owners, and whether you or a team you're on is one; error: it couldn't be read. */
+  getCodeOwners: {
+    input: targetKey,
+    output: z.object({ files: z.array(z.object({ file: z.string(), owners: z.array(z.string()), mine: z.boolean() })), error: z.string().optional() }),
+  },
   /** A changed file's whole old and new contents (null on a side it doesn't exist), or why only its diff can show. */
   getFileContents: {
     input: z.object({ targetKey: z.string(), file: z.string() }).strict(),
@@ -290,11 +295,17 @@ export const rpcContract = defineRpcContract({
    * baseline null: you haven't reviewed it, or it's the same commit.
    */
   getSinceReview: {
-    input: targetKey,
+    // from: compare with the diff at this commit instead, one of getPrCommits'.
+    input: z.object({ targetKey: z.string(), from: z.string().regex(/^[0-9a-f]{7,40}$/).optional() }).strict(),
     output: z.object({
       baseline: z.object({ sha: z.string(), at: z.number().nullable(), verdict: z.string().nullable() }).nullable(),
       files: z.array(z.any()),
       error: z.string().optional(),
     }),
+  },
+  /** A PR's commits up to the diff shown, newest first, for picking where a comparison starts; none for a local review. */
+  getPrCommits: {
+    input: targetKey,
+    output: z.object({ commits: z.array(z.object({ sha: z.string(), headline: z.string(), committedAt: z.number().nullable() })), error: z.string().optional() }),
   },
 });

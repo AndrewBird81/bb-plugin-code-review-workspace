@@ -85,33 +85,59 @@ export function pruneOldDiffs(store: Store, now: number): string[] {
 }
 
 type SinceReview = { baseline: { sha: string; at: number | null; verdict: Verdict | null }; files: FileInterdiff[] };
-/** The latest comparisons, by review, for the few reviews compared last. */
+/** The latest comparisons, by review and starting commit, for the few compared last. */
 const compared = new WeakMap<Store, Map<string, { key: string; since: SinceReview }>>();
 const COMPARED_REVIEWS = 8;
 
 /**
- * The displayed diff compared with the diff at your last review; null when there's nothing to compare.
- * An added file's patch is left out: the page has its whole diff already.
+ * The displayed diff compared with the diff at your last review, or at `from`, a commit you picked;
+ * null when there's nothing to compare. An added file's patch is left out: the page has its whole diff already.
  */
-export async function sinceReview(store: Store, run: Run, review: ReviewMeta): Promise<SinceReview | null> {
-  const baseline = baselineOf(review);
+export async function sinceReview(store: Store, run: Run, review: ReviewMeta, from?: string): Promise<SinceReview | null> {
+  const baseline = from ? { sha: from, at: null, verdict: null } : baselineOf(review);
   if (!baseline.sha || !review.headSha || baseline.sha === review.headSha) return null;
   const cache = compared.get(store) ?? new Map<string, { key: string; since: SinceReview }>();
   compared.set(store, cache);
   const key = JSON.stringify([baseline, store.patchHash(review.targetKey)]);
-  const hit = cache.get(review.targetKey);
-  cache.delete(review.targetKey);
+  const slot = `${review.targetKey}\0${from ?? ""}`;
+  const hit = cache.get(slot);
+  cache.delete(slot);
   if (hit?.key === key) {
-    cache.set(review.targetKey, hit);
+    cache.set(slot, hit);
     return hit.since;
   }
   const reviewed = await diffAt(store, run, review, baseline.sha);
   const current = store.readPatch(review.targetKey, 0, store.readPatch(review.targetKey, 0, 0).total).text;
   const files = interdiff(reviewed, current).map((f) => (f.status === "added" ? { ...f, patch: "" } : f));
   const since = { baseline: { ...baseline, sha: baseline.sha }, files };
-  cache.set(review.targetKey, { key, since });
+  cache.set(slot, { key, since });
   if (cache.size > COMPARED_REVIEWS) cache.delete(cache.keys().next().value!);
   return since;
+}
+
+export interface PrCommit { sha: string; headline: string; committedAt: number | null }
+/** The commits listed last, by PR and head: a push changes the key. */
+const listed = new Map<string, PrCommit[]>();
+
+/** The PR's commits up to the diff shown, newest first: where a comparison can start. */
+export async function prCommits(run: Run, review: ReviewMeta): Promise<PrCommit[]> {
+  if (!review.repo || !review.number) throw new Error("This review has no GitHub PR.");
+  const key = `${review.repo}#${review.number}@${headOf(review)}`;
+  let commits = listed.get(key);
+  if (!commits) {
+    const out = await run(["api", "--paginate", `repos/${review.repo}/pulls/${review.number}/commits?per_page=100`, "--jq",
+      '.[] | {sha, at: .commit.committer.date, headline: (.commit.message | split("\\n")[0])} | @json']);
+    if (out.code !== 0) throw new Error(`Couldn't read the PR's commits: ${ghErrorMessage(out)}`);
+    commits = out.stdout.split("\n").filter(Boolean).map((line) => {
+      const row = JSON.parse(line) as { sha: string; at: string | null; headline: string | null };
+      return { sha: row.sha, headline: row.headline ?? "", committedAt: (row.at && Date.parse(row.at)) || null };
+    });
+    listed.set(key, commits);
+    if (listed.size > COMPARED_REVIEWS) listed.delete(listed.keys().next().value!);
+  }
+  // Commits pushed after the diff shown aren't in it.
+  const shown = commits.findIndex((commit) => commit.sha === review.headSha);
+  return (shown >= 0 ? commits.slice(0, shown + 1) : commits).slice().reverse();
 }
 
 /** Summary asks are the assistant's items "summary:<n>". */

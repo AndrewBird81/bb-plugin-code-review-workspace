@@ -431,5 +431,5 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     store.clearFeedbackFetches();
   }
 
-  return { one, all, evaluate, turnOf, resetViewer, health: (): SyncHealth => health, login: () => github.viewer.login(), cachedLogin: () => github.viewer.cachedLogin?.() ?? null };
+  return { one, all, evaluate, turnOf, resetViewer, health: (): SyncHealth => health, login: () => github.viewer.login(), teams: () => github.viewer.teams(), cachedLogin: () => github.viewer.cachedLogin?.() ?? null };
 }
