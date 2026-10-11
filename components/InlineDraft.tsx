@@ -1,11 +1,11 @@
 import { createContext, memo, useContext, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
-import { linesOf, sameLocation, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment } from "../src/draft";
+import { linesOf, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { Textarea } from "./ui/textarea";
-import { Badge, SpeakerMark, TONE_TEXT } from "./ui/badge";
+import { Badge, SpeakerMark, TONE_TEXT, type Tone } from "./ui/badge";
 import { withLineBreaks } from "../src/line-breaks";
 
 /** The draft as the diff shows it, under each comment's line. DraftTray owns the draft and provides this. */
@@ -20,6 +20,8 @@ export interface InlineDraft {
   busy: boolean;
   /** A comment is being written, so no other can be opened for editing. */
   writing: boolean;
+  /** Nit comments are hidden, except where the comment box is open. */
+  hideNits?: boolean;
   /** Where the diff shows the comment box, under its last line, while it's open there. `asking` when it writes to the agent. */
   composer: (CommentLocation & { startLine?: number; editing: boolean; asking: boolean }) | null;
   /** The line whose comment the box is open on, in the diff or the panel. */
@@ -41,6 +43,9 @@ export interface InlineDraft {
 export interface InlineComposer {
   body: string;
   change(body: string): void;
+  /** A line comment's severity, and its control; the summary has none. */
+  severity?: Severity;
+  changeSeverity?: (severity: Severity | undefined) => void;
   save(): void;
   /** Send the text to the review assistant instead of saving it. */
   askAgent(): void;
@@ -82,6 +87,7 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
   const composer = draft.composer && sameLocation(draft.composer, at) ? draft.composer : null;
   const box = composer && (composer.editing ? "edit" : composer.asking ? "ask" : "new");
   if (!comment && !discussion && !box) return null;
+  if (draft.hideNits && comment?.severity === "nit" && !box) return null;
   // A colored edge says whose words these are: the agent's, yours, or a question in progress.
   const edge = box === "ask" || (!comment && discussion) ? "border-l-(--ansi-13)/60" : comment?.author === "agent" ? "border-l-(--ansi-13)/60" : "border-l-primary/60";
   return (
@@ -102,6 +108,7 @@ function CommentView({ comment, draft }: { comment: DraftComment; draft: InlineD
         <Icon name="MessageSquare" className="size-3.5 shrink-0 text-primary" aria-hidden />
         <span className="font-medium text-foreground">Draft</span>
         {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
+        {comment.severity && <SeverityBadge severity={comment.severity} />}
         {comment.author === "agent" && <Badge tone="agent" icon={<Icon name="Sparkles" aria-hidden />}>Added by agent</Badge>}
         {stale && (
           <Badge tone="warning" title="Drafted against an older diff. Edit and save it, or remove it, before submitting.">Older diff</Badge>
@@ -116,6 +123,24 @@ function CommentView({ comment, draft }: { comment: DraftComment; draft: InlineD
       </div>
       <div className="px-3 py-2.5"><CommentBody body={comment.body} /></div>
     </article>
+  );
+}
+
+const SEVERITY_TONE: Record<Severity, Tone> = { blocking: "danger", "should-fix": "warning", question: "primary", nit: "neutral" };
+
+/** How much a comment matters, on its card. */
+export function SeverityBadge({ severity, size }: { severity: Severity; size?: "sm" | "md" }) {
+  return <Badge tone={SEVERITY_TONE[severity]} size={size}>{SEVERITY_LABEL[severity]}</Badge>;
+}
+
+/** The comment box's choice of severity. */
+export function SeveritySelect({ value, onChange, disabled, className }: { value?: Severity; onChange: (severity: Severity | undefined) => void; disabled: boolean; className?: string }) {
+  return (
+    <select aria-label="Severity" disabled={disabled} value={value ?? "none"} onChange={(event) => onChange(event.target.value === "none" ? undefined : event.target.value as Severity)}
+      className={cn("h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground", className)}>
+      <option value="none">No severity</option>
+      {SEVERITIES.map((severity) => <option key={severity} value={severity}>{SEVERITY_LABEL[severity]}</option>)}
+    </select>
   );
 }
 
@@ -243,7 +268,10 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
       {mode !== "ask" && <ComposerNotes error={composer.error} rebuilding={composer.rebuilding} keepOnCurrentDiff={composer.keepOnCurrentDiff} />}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {mode === "ask" && <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Goes to the agent, not GitHub.</span>}
-        {mode !== "ask" && composer.suggest && <Button variant="outline" size="sm" className="mr-auto" disabled={busy} onClick={composer.suggest}><Icon name="Edit" className="size-3.5" aria-hidden />Suggest change</Button>}
+        {mode !== "ask" && (composer.changeSeverity || composer.suggest) && <span className="mr-auto flex flex-wrap gap-2">
+          {composer.changeSeverity && <SeveritySelect value={composer.severity} onChange={composer.changeSeverity} disabled={busy} />}
+          {composer.suggest && <Button variant="outline" size="sm" disabled={busy} onClick={composer.suggest}><Icon name="Edit" className="size-3.5" aria-hidden />Suggest change</Button>}
+        </span>}
         <Button variant="ghost" size="sm" disabled={busy} onClick={composer.cancel}>Cancel</Button>
         {mode === "new" && <Button variant="outline" size="sm" disabled={busy || empty} onClick={composer.askAgent}><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Ask agent</Button>}
         <Button size="sm" disabled={held} onClick={primary}>

@@ -1,10 +1,13 @@
+import type { Severity } from "../src/draft";
+
 export type DraftRecovery = {
   /**
    * Unsaved text in the comment box: a line comment's, or with `summary` the review summary's.
    * `inline` when it was being written in the diff rather than the panel;
-   * `asking` when it was a message to the agent; `startLine`, and `startSide` when it differs, when it was about several lines.
+   * `asking` when it was a message to the agent; `startLine`, and `startSide` when it differs, when it was about several lines;
+   * `severity`, the comment's, when it has one.
    */
-  composer?: { file: string; line: string; side: "LEFT" | "RIGHT"; body: string; revision?: string; inline?: boolean; asking?: boolean; startLine?: number; startSide?: "LEFT" | "RIGHT"; summary?: boolean };
+  composer?: { file: string; line: string; side: "LEFT" | "RIGHT"; body: string; revision?: string; inline?: boolean; asking?: boolean; startLine?: number; startSide?: "LEFT" | "RIGHT"; summary?: boolean; severity?: Severity };
   /** Unsaved summary text from before the summary had a box of its own, kept while the box holds something else. */
   summary?: { body: string; revision?: string };
 };
