@@ -15,7 +15,7 @@ import { readCheckFailures } from "./src/check-annotations";
 import { validateGuide, checkCoverage, checkHotspots, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
-import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startConversation } from "./src/agent";
+import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startAutomaticReview, startConversation } from "./src/agent";
 import { startFixThread } from "./src/fix-handoff";
 import { listMachines } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
@@ -229,6 +229,27 @@ export default async function plugin(bb: BbPluginApi) {
         changed(targetKey);
         return result;
       },
+      async runSkipped({ targetKey }: { targetKey: string }) {
+        const review = store.getReview(targetKey);
+        const skipped = review?.skippedRun;
+        if (!review || !skipped || review.status === "generating") return { ok: true };
+        let result: { ok: boolean; error?: string };
+        // A guide that's missing or behind the PR is built first. Starting it approves its head, so the review or check follows.
+        if (skipped.run === "guide" || review.status === "tracked" || skipped.run === "check" && review.headSha !== headOf(review)) {
+          result = await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey);
+        } else {
+          store.setLifecycle(targetKey, { approvedHead: skipped.run === "check" ? headOf(review) : review.headSha ?? null, skippedRun: null });
+          try {
+            if (skipped.run === "review") await startAutomaticReview(bb, store, targetKey);
+            result = skipped.run === "review" || await startVerification(bb, store, targetKey, "the reviewer asked for a check") ? { ok: true } : { ok: false, error: "The assistant couldn't start. Open Ask agent to choose its agent." };
+          } catch (error) {
+            result = { ok: false, error: error instanceof Error ? error.message : "The assistant couldn't start." };
+          }
+          if (!result.ok) store.setLifecycle(targetKey, { skippedRun: skipped });
+        }
+        changed(targetKey);
+        return result;
+      },
       getFeedback({ targetKey }: { targetKey: string }) {
         return { feedback: view(targetKey) };
       },
@@ -245,7 +266,10 @@ export default async function plugin(bb: BbPluginApi) {
         if (!store.getPreferences().preferences.verificationPrompt.trim()) return { ok: false, error: "The re-review check is off. Turn it on in Review settings." };
         if (await isAssistantAnswering(bb, store, targetKey)) return { ok: false, error: "The assistant is still answering. Try again when it finishes." };
         await refreshThreads(review).catch(() => {});
-        return await startVerification(bb, store, targetKey, "the reviewer asked for a check") ? { ok: true } : { ok: false, error: "The assistant couldn't start. Open Ask agent to choose its agent." };
+        if (!await startVerification(bb, store, targetKey, "the reviewer asked for a check")) return { ok: false, error: "The assistant couldn't start. Open Ask agent to choose its agent." };
+        // The check you ran replaces one that didn't run on its own.
+        if (review.skippedRun?.run === "check") store.setLifecycle(targetKey, { skippedRun: null });
+        return { ok: true };
       },
       async replyToFeedback({ targetKey, threadId, body }: { targetKey: string; threadId: string; body: string }) {
         const review = store.getReview(targetKey);

@@ -12,10 +12,12 @@ import { InlineCode } from "./ui/inline-code";
 import { kindLook, statusLook } from "./ReviewStatus";
 import { StackLinks, UnreviewedParent } from "./ReviewHeader";
 import type { StackPlace } from "../lib/stacks";
+import type { ReviewMeta } from "../src/store";
+import { notRunReason } from "../lib/trust";
 
 /** A PR found on GitHub with no guide yet: why it's here, and Start review. */
 export const TrackedReview = memo(function TrackedReview({ review, onBack }: {
-  review: TurnInput & { targetKey: string; title?: string; repo?: string; number?: number; author?: string; url?: string; turn?: Turn; stack?: StackPlace | null };
+  review: TurnInput & { targetKey: string; title?: string; repo?: string; number?: number; author?: string; url?: string; turn?: Turn; stack?: StackPlace | null; skippedRun?: ReviewMeta["skippedRun"] };
   onBack: () => void;
 }) {
   const rpc = useRpc<typeof rpcContract>();
@@ -57,6 +59,7 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: {
           {review.stack && <p className="flex flex-wrap items-center justify-center text-xs text-muted-foreground"><StackLinks stack={review.stack} /></p>}
           <UnreviewedParent stack={review.stack} className="justify-center" />
         </div>
+        {review.skippedRun && <p className="flex items-center gap-1.5 text-sm text-warning-text"><Icon name="Lock" className="size-3.5 shrink-0" aria-hidden />{notRunReason(review)}.</p>}
         <p className="text-sm text-muted-foreground">No guide yet. Starting the review builds one.</p>
         <div className="flex flex-wrap justify-center gap-2">
           <Button disabled={starting} onClick={() => void start()}>

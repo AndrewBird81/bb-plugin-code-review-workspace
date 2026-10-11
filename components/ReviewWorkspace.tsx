@@ -21,6 +21,7 @@ import { RereviewBanner } from "./RereviewBanner";
 import { ThreadsPanel } from "./ThreadsPanel";
 import { FeedbackPanel } from "./FeedbackPanel";
 import { TrackedReview } from "./TrackedReview";
+import { NotRunBanner } from "./NotRunBanner";
 import type { DockInjection } from "./AgentDock";
 import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { kindLook } from "./ReviewStatus";
@@ -764,6 +765,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <AccountBar />
         </p>
       )}
+      {review?.skippedRun && !review.archivedAt && <NotRunBanner review={review} />}
       {review?.status === "error" && (
         <p className="flex items-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-1.5 text-xs text-destructive-text">
           <Icon name="AlertTriangle" className="size-3.5 shrink-0" aria-hidden />

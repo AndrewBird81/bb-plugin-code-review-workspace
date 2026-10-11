@@ -254,6 +254,8 @@ export const rpcContract = defineRpcContract({
   markSeen: { input: targetKey, output: z.object({ ok: z.boolean() }) },
   /** Generate the guide for a review found on GitHub (status "tracked"). */
   startTrackedReview: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /** Start what didn't run on its own because of the PR's author (skippedRun), approving agents on its head. */
+  runSkipped: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
 
   // Your feedback and the assistant's check of it (lib/feedback.ts FeedbackView).
   getFeedback: { input: targetKey, output: z.object({ feedback: z.any() }) },

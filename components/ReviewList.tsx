@@ -19,6 +19,7 @@ import { IconTile } from "./ui/icon-tile";
 import { InlineCode } from "./ui/inline-code";
 import { age, timeAgo } from "./time-ago";
 import type { SyncHealth } from "../src/review-lifecycle";
+import { notRunReason } from "../lib/trust";
 
 /** Why it's your turn, with who asked when GitHub says. Null when the status badge says it all. */
 function turnWhy(review: ReviewItem, turn: Turn): string | null {
@@ -61,11 +62,13 @@ function TurnMeta({ review, turn }: { review: ReviewItem; turn: Turn }) {
   const quiet = turn.group === "waiting" ? authorQuiet(review) : null;
   // The badge says it once the PR is archived for it.
   const unreachable = turn.reason !== "unreachable" ? review.unreachable : null;
-  if (!why && !progress && commits <= 0 && !ci && !waited && !turn.blocking && !unreachable && !outdated && !quiet) return null;
+  const notRun = review.skippedRun && !review.archivedAt;
+  if (!why && !progress && commits <= 0 && !ci && !waited && !turn.blocking && !unreachable && !outdated && !quiet && !notRun) return null;
   return (
     <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
       {turn.blocking && <Badge tone="warning" size="sm">Blocks merge</Badge>}
       {unreachable && <span className="inline-flex items-center gap-1" title={unreachable.reason === "forbidden" ? "GitHub refused access, for example for SSO" : "Deleted, or you lost access"}><Icon name="AlertCircle" className={cn("size-3", TONE_TEXT.warning)} aria-hidden />Can’t read on GitHub</span>}
+      {notRun && <span className="inline-flex items-center gap-1"><Icon name="Lock" className={cn("size-3", TONE_TEXT.warning)} aria-hidden />{notRunReason(review)}</span>}
       {why && <span>{why}</span>}
       {progress && <span className="tabular-nums" title={progress.source === "assistant" ? undefined : "Resolved or answered"}>{progress.done}/{progress.total} {progress.source === "assistant" ? "addressed" : "handled"}</span>}
       {outdated > 0 && <span className="tabular-nums" title="The code under these threads changed">{outdated} outdated</span>}
