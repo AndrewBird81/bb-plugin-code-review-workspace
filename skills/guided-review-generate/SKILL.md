@@ -30,6 +30,8 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat everythi
    must read it. `high` means read every line: auth or permissions, data migrations or deletes,
    concurrency, money, a public API or wire format, or removed validation or error handling.
    `low` means docs, tests only, or mechanical changes. Everything else is `medium`.
+   Give each `medium` or `high` section a `focus`: 1–3 short things the reviewer should verify in
+   its code, each starting "Check that…". Leave it out on `low` sections.
    Then list `hotspots`: the 1–3 places most likely to hide a defect, highest risk first, each
    `{ file, line, why }`, where `line` is a new-file line the diff shows (added or context) and
    `why` names the defect that could hide there in one sentence. The reviewer reads these first,

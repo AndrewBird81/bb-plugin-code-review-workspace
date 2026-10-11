@@ -227,7 +227,7 @@ test("generate_review_guide advertises the guide's schema and accepts a guide wi
   await plugin(writer.bb);
   const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("guided-review", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
   const schema = JSON.stringify(tool?.inputSchema);
-  for (const field of ["intent", "overview", "risk", "summary", "unplacedFiles"]) expect(schema).toContain(`"${field}"`);
+  for (const field of ["intent", "overview", "risk", "focus", "summary", "unplacedFiles"]) expect(schema).toContain(`"${field}"`);
   expect(schema).toContain("1–2 sentences");
   const { harness, store, generationId } = await host();
   const out = await harness.behavior.callAgentTool("generate_review_guide", {

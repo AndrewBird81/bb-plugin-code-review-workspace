@@ -11,6 +11,7 @@ export const SectionSchema = z.object({
   title: z.string().min(1).describe("The chapter's concept, briefly."),
   overview: z.string().min(1).describe("2–6 sentences of Markdown on what the chapter changes and what to check."),
   risk: z.enum(["low", "medium", "high"]).optional().describe("How closely to read this chapter; see the skill's rubric."),
+  focus: z.array(z.string().min(1)).min(1).max(3).optional().describe("On medium- and high-risk chapters: 1–3 short things to verify, each starting \"Check that\"."),
   diffs: z.array(DiffRefSchema).min(1).describe("The chapter's files, each in exactly one chapter."),
 });
 export const HotspotSchema = z.object({

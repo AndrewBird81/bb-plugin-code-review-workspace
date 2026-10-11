@@ -7,13 +7,15 @@ import { Icon } from "./ui/icon";
 import { InlineCode } from "./ui/inline-code";
 import { RISK_LABEL, RISK_TONE } from "./ChapterNav";
 
-/** The open chapter's title, risk, and full overview, above its diff. Hiding the overview sticks in this browser. */
-export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk }: {
+/** The open chapter's title, risk, full overview, and what to verify, above its diff. Hiding the overview sticks in this browser. */
+export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk, focus }: {
   index: number;
   total: number;
   title: string;
   overview: string;
   risk?: string;
+  /** The guide's 1–3 "Check that…" items. */
+  focus?: string[];
 }) {
   const [collapsed, setCollapsed] = useState(getIntroCollapsed);
   const titleId = useId();
@@ -42,6 +44,14 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
         )}
       </div>
       {overview && !collapsed && <Markdown content={overview} className="mt-2 max-w-[80ch] text-sm leading-relaxed text-foreground/90" />}
+      {!!focus?.length && !collapsed && (
+        <div className="mt-2.5 max-w-[80ch] text-xs">
+          <p className="flex items-center gap-1.5 font-medium text-foreground"><Icon name="ListTodo" className="size-3.5 text-primary" aria-hidden />What to verify</p>
+          <ul aria-label="What to verify" className="mt-1 list-disc space-y-0.5 pl-5 text-foreground/90 marker:text-subtle-foreground">
+            {focus.map((item) => <li key={item}><InlineCode text={item} /></li>)}
+          </ul>
+        </div>
+      )}
     </section>
   );
 });
