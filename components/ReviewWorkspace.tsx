@@ -27,6 +27,7 @@ import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { AccountBar } from "./AccountBar";
 import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
 import { inDiffOrder, readingOrder, shortcutKey } from "../lib/review-shortcuts";
+import { stepComment } from "../lib/comment-stops";
 import { InlineDraftContext } from "./InlineDraft";
 import { DiffThreadsContext, useDiffThreads } from "./LineThreads";
 import { CheckFailuresContext, useCheckFailures } from "./CheckFailures";
@@ -37,6 +38,8 @@ import { DiffOptions } from "./reading/DiffOptions";
 import { ReaderBar } from "./reading/ReaderBar";
 import { ChapterFooter } from "./reading/ChapterFooter";
 import { CommentsView, type CommentsTab } from "./comments/CommentsView";
+import { FinishView } from "./comments/FinishView";
+import { StepBar } from "./comments/StepBar";
 import { NavigatorHost } from "./shell/NavigatorHost";
 import { PhoneDock } from "./shell/PhoneDock";
 import { returnFocus } from "./shell/side-parts";
@@ -149,6 +152,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [panelView, setPanelView] = useState<PanelView | null>(persisted.panel ?? null);
   const [panelOverlay, setPanelOverlay] = useState(false);
   const [commentsTab, setCommentsTab] = useState<CommentsTab>("drafts");
+  // Comments was to open as the review opened, but couldn't beside the code: the "need you" pill offers it instead.
+  const [pill, setPill] = useState(false);
   const layout = useWorkspaceLayout(rootEl, { navWidth, panelWidth, navOpen, navOverlay, panelOpen: panelView !== null, panelOverlay });
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
@@ -323,7 +328,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       if (tab && layoutRef.current.panelCanDock) {
         setCommentsTab(tab);
         setPanelView("comments");
-      }
+      } else if (tab) setPill(true);
       // Undefined drops the key: the old view is used up.
       patchReviewState(targetKey, { view: undefined, ...(turn.signal ? { turnSignal: turn.signal } : {}) });
     } catch (err) {
@@ -829,6 +834,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         return true;
       }
       case "]": case "[": {
+        // The Comments list's order and filter, once it registered them; until then, the draft's lines.
+        if (stepComment(targetKey, key === "]" ? 1 : -1, currentFile)) return true;
         const lines = inDiffOrder(draftLines.current, sections, patch);
         if (!lines.length) return true;
         // From the line you last went to, or else from the current file.
@@ -992,6 +999,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         </main>
         <SidePanel targetKey={targetKey} placement={layout.panel} sheet={sheet} view={shownPanel} width={panelWidth} maxWidth={Math.min(PANEL_WIDTH.max, paneWidth - READER_MIN - (layout.nav === "docked" ? navWidth : 0))} onWidth={setPanelWidth} onWidthDone={savePanelWidth} onClose={closePanel} onBack={() => openPanel("comments")}>
           <CommentsView shown={shownPanel === "comments" || shownPanel === "finish"} finish={shownPanel === "finish"} tab={commentsTab} onTab={setCommentsTab} revision={revision} onShowThread={showThread} />
+          <FinishView shown={shownPanel === "finish"} revision={revision} />
           <AgentDock targetKey={targetKey} patch={patch} injection={injection} container={rootEl} active={shownPanel === "agent"} popOut={layout.mode === "tablet"} closeLabel={sheet ? "Close" : undefined} onDock={() => openPanel("agent")} onCollapse={closePanel} />
         </SidePanel>
         {/* Over the code, a side dims the rest; a tap there closes it. */}
@@ -1000,6 +1008,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       {sheet && <PhoneDock hidden={!!lineSel} />}
       <DraftLines into={draftLines} />
 
+      <StepBar hidden={!!lineSel} pill={pill} />
       <SelectionBar lines={lineSel} text={sel} phone={sheet} onComment={() => commentOnLines()} onAskLines={askAboutLines} onClear={() => setLineSel(null)} onAskText={askAboutSelection} />
       <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
