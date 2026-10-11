@@ -835,6 +835,7 @@ export function createStore(bb: BbPluginApi): Store {
           }
         }
         for (const c of moves.keys()) db.prepare(`DELETE FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).run(k, c.file, c.line, c.side);
+        this.moveAgentCommentChanges(k, [...moves].map(([c, line]) => ({ at: { file: c.file, line: c.line, side: c.side }, line })));
         for (const [c, line] of moves) {
           c.line = line;
           if (starts.has(c)) c.startLine = starts.get(c);

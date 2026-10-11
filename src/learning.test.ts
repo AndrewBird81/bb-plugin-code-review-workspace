@@ -11,7 +11,7 @@ vi.mock("./gh", async (original) => ({
 
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
+import { createStore, reanchorAll } from "./store";
 import { OUTCOMES_KEPT, suggestionLines } from "./learning";
 
 const patch = [
@@ -118,6 +118,29 @@ test("an agent comment the reviewer edited and then removed counts as removed, i
   // Undo puts back the reviewer's edit, which is still an edit of the agent's comment.
   await save("Overflow?");
   expect(store.agentCommentChanges("pr-1")).toEqual([expect.objectContaining({ kind: "edited", body: "Can this overflow?" })]);
+});
+
+test("the reviewer's edit of an agent's comment moves with it on re-review, and doesn't attach to a comment left on its old line", async () => {
+  const { store, tool, remove, save } = await host();
+  const above = { file: "a.ts", line: 2, side: "RIGHT" } as const;
+  await tool("add_draft_comment", { ...above, code: "const b = 3;", body: "Why 3?" });
+  await save("Why three?", above);
+  await tool("add_draft_comment", { ...at, code: "const c = b * 2;", body: "Can this overflow?" });
+  await save("Overflow?");
+  // A new commit adds a line at the top, so the comments move down a line, the second to line 4.
+  const next = patch.replace("@@ -1,3 +1,4 @@\n", "@@ -1,3 +1,5 @@\n+// header\n");
+  store.savePatch("pr-1", next);
+  store.rebaseDraftComments("pr-1", reanchorAll(store, "pr-1", patch, next));
+  const moved = { ...at, line: 4 };
+  expect(store.getDraft("pr-1").comments.map((c) => [c.line, c.body])).toEqual([[3, "Why three?"], [4, "Overflow?"]]);
+  expect(store.agentCommentChanges("pr-1").map((c) => [c.kind, c.line, c.body])).toEqual([["edited", 3, "Why 3?"], ["edited", 4, "Can this overflow?"]]);
+  // The reviewer's own comment on the old line, removed, isn't the agent's.
+  await remove({ ...above, line: 3 });
+  await save("Mine", above);
+  await remove(above);
+  expect(store.agentCommentChanges("pr-1").filter((c) => c.kind === "removed").map((c) => [c.line, c.body])).toEqual([[3, "Why 3?"]]);
+  await remove(moved);
+  expect(store.agentCommentChanges("pr-1").filter((c) => c.line === 4)).toEqual([expect.objectContaining({ ...moved, kind: "removed", body: "Can this overflow?", removed: "Overflow?" })]);
 });
 
 test("outcomes keep the latest 500, and deleting a review forgets its removals but not its outcomes", async () => {

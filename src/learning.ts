@@ -41,6 +41,8 @@ export interface AgentCommentStore {
   /** Oldest first. */
   agentCommentChanges(targetKey: string): AgentCommentChange[];
   forgetAgentCommentChange(targetKey: string, id: number): void;
+  /** Move the reviewer's edits of agent comments with the comments a re-review moved, from `at` to `line`. */
+  moveAgentCommentChanges(targetKey: string, moves: ReadonlyArray<{ at: CommentLocation; line: number }>): void;
   /** Record a submitted review's outcomes, keeping the latest OUTCOMES_KEPT. Its edits are settled and its removals counted. */
   recordAgentOutcomes(targetKey: string, outcomes: ReadonlyArray<Omit<AgentCommentOutcome, "at">>): void;
   /** Newest first. */
@@ -66,6 +68,14 @@ export function agentCommentStore(db: Database): AgentCommentStore {
     },
     forgetAgentCommentChange(k, id) {
       db.prepare(`DELETE FROM agent_comment_changes WHERE target_key=? AND id=?`).run(k, id);
+    },
+    moveAgentCommentChanges(k, moves) {
+      // Every record is found before any moves, so one moved onto a line isn't moved again from it.
+      const found = moves.map(({ at: { file, line, side }, line: to }) => ({
+        to, rows: db.prepare(`SELECT id FROM agent_comment_changes WHERE target_key=? AND file=? AND line=? AND side=? AND kind='edited'`).all(k, file, line, side) as Array<{ id: number }>,
+      }));
+      const update = db.prepare(`UPDATE agent_comment_changes SET line=? WHERE id=?`);
+      for (const { to, rows } of found) for (const { id } of rows) update.run(to, id);
     },
     recordAgentOutcomes(k, outcomes) {
       const now = Date.now();
