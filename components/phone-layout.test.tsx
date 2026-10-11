@@ -86,6 +86,7 @@ test("a phone held sideways keeps the toolbar to counts and icons, so it fits on
   const main = within(slot.getByRole("main"));
   expect(within(main.getByRole("button", { name: "Mark chapter viewed" })).getByText("Mark chapter viewed").className).toContain("sr-only");
   expect(main.getByText("in this chapter", { exact: false }).className).toContain("sr-only");
+  expect(within(main.getByRole("button", { name: "Wrap lines" })).getByText("Wrap").className).toBe("hidden");
   slot.lifecycle.unmount();
 });
 
@@ -112,6 +113,10 @@ test("on a wide screen the top bar and toolbar keep their labels", async () => {
   expect(main.getByRole("button", { name: "Split view" })).toBeTruthy();
   expect(main.getByText("0/1 in this chapter")).toBeTruthy();
   expect(within(main.getByRole("button", { name: "Mark chapter viewed" })).getByText("Mark chapter viewed").className).not.toContain("sr-only");
+  // The icons' labels show by the toolbar's own width, which the chapters and review panel narrow: Hide whitespace's too.
+  const label = (name: string, text: string) => within(main.getByRole("button", { name })).getByText(text).className;
+  expect(label("Wrap lines", "Wrap")).toContain("/toolbar:inline");
+  expect(label("Hide whitespace", "Hide whitespace")).toBe(label("Wrap lines", "Wrap"));
   // Not short: chapters, the overview, and the saved open panel show, and Focus is off.
   expect(slot.getByRole("button", { name: "Hide chapters" })).toBeTruthy();
   expect(slot.getByRole("button", { name: "Hide chapter overview" })).toBeTruthy();

@@ -191,6 +191,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // With Focus on there, the slim header joins the top bar's row, which moves Ask agent and Settings into ⋯ as on a phone.
   const headerInTopBar = short && focus;
   const toolsInMenu = compact || headerInTopBar;
+  // The toolbar's icons show labels only where its second row fits them all, beside the chapters and review panel.
+  const toolbarLabel = compactToolbar ? "hidden" : "hidden @min-[920px]/toolbar:inline";
   const [hideWhitespace, setHideWhitespaceState] = useState(getHideWhitespace);
   const didRestoreScroll = useRef(false);
   const reducedMotion =
@@ -913,7 +915,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           </>
         )}
         <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
-          <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
+          <div className="@container/toolbar flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
             <Button
               variant="ghost"
               size="sm"
@@ -988,7 +990,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={() => setShowThreads(!showThreads)}
                 >
                   <Icon name="Github" className="size-3.5" aria-hidden />
-                  <span className="hidden @min-[1280px]/review:inline">Threads</span>
+                  <span className={toolbarLabel}>Threads</span>
                 </Button>
               </Hint>}
               {/* A compact workspace always shows the diff unified. */}
@@ -1003,7 +1005,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={() => void toggleLayout()}
                 >
                   <Icon name="Columns2" className="size-3.5" aria-hidden />
-                  <span className="hidden @min-[1280px]/review:inline">Split</span>
+                  <span className={toolbarLabel}>Split</span>
                 </Button>
               </Hint>}
               {view === "diff" && <Hint label="Wrap lines" container={rootEl}>
@@ -1016,7 +1018,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={() => { setChosenWrap(!wrapLines); setWrapLines(!wrapLines); }}
                 >
                   <Icon name="TextWrap" className="size-3.5" aria-hidden />
-                  <span className="hidden @min-[1280px]/review:inline">Wrap</span>
+                  <span className={toolbarLabel}>Wrap</span>
                 </Button>
               </Hint>}
               {view === "diff" && <Hint label="Hide whitespace" container={rootEl}>
@@ -1029,8 +1031,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={() => { setHideWhitespaceState(!hideWhitespace); setHideWhitespace(!hideWhitespace); }}
                 >
                   <Icon name="Space" className="size-3.5" aria-hidden />
-                  {/* A longer label, so only where the toolbar has room for it beside the others. */}
-                  <span className="hidden @min-[1600px]/review:inline">Hide whitespace</span>
+                  <span className={toolbarLabel}>Hide whitespace</span>
                 </Button>
               </Hint>}
               <Hint label="Focus mode" container={rootEl}>
@@ -1043,7 +1044,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={() => setFocus(!focus)}
                 >
                   <Icon name="Minimize2" className="size-3.5" aria-hidden />
-                  <span className="hidden @min-[1280px]/review:inline">Focus</span>
+                  <span className={toolbarLabel}>Focus</span>
                 </Button>
               </Hint>
               <Hint label={isFullscreen ? "Exit full screen" : "Full screen"} container={rootEl}>
@@ -1056,7 +1057,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={toggleFullscreen}
                 >
                   <Icon name={isFullscreen ? "Minimize2" : "Maximize2"} className="size-3.5" aria-hidden />
-                  <span className="hidden @min-[1280px]/review:inline">{isFullscreen ? "Exit" : "Full screen"}</span>
+                  <span className={toolbarLabel}>{isFullscreen ? "Exit" : "Full screen"}</span>
                 </Button>
               </Hint>
             </div>
