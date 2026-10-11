@@ -7,7 +7,8 @@ import { notRunReason } from "../lib/trust";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 
-const RUN_LABEL = { guide: "Start review", review: "Run review", check: "Run check" } as const;
+// The workspace's review has a guide already, so a guide that didn't run is a rebuild; a tracked PR's page has Start review.
+const RUN_LABEL = { guide: "Re-review", review: "Run review", check: "Run check" } as const;
 
 /** What didn't run on its own because of the PR's author, why, and the click that runs it. */
 export function NotRunBanner({ review }: { review: Pick<ReviewMeta, "targetKey" | "author" | "repo" | "authorAssociation"> & { skippedRun: NonNullable<ReviewMeta["skippedRun"]> } }) {

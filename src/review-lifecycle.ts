@@ -339,9 +339,10 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     }
     // An untrusted author's text reaches agents only after your click; the review says what didn't run.
     if (!mayRunUnattended(review, preferences, head)) {
-      // A check that's turned off wouldn't have run, unless the guide behind it needed rebuilding.
-      const skipped = request || review.status === "tracked" || review.headSha !== head || !!preferences.verificationPrompt.trim();
-      store.setLifecycle(key, { preparedSignal: turn.signal, ...(skipped ? { skippedRun: { run: request ? "guide" : "check", head, at: clock() } } : {}) });
+      // A check that's turned off wouldn't have run; the guide behind it still needed rebuilding.
+      const check = !!preferences.verificationPrompt.trim();
+      const skipped = request || review.status === "tracked" || review.headSha !== head || check;
+      store.setLifecycle(key, { preparedSignal: turn.signal, ...(skipped ? { skippedRun: { run: request || !check ? "guide" : "check", head, at: clock() } } : {}) });
       return false;
     }
     const previous = review.autoRunHead ?? null;

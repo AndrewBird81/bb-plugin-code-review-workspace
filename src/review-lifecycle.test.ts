@@ -764,7 +764,7 @@ test("with the re-review check off, an outside author's re-request records no sk
   s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 + 0.3 * HOUR, by: "alice", via: "user" }] });
   s.at(0.4);
   await s.sync.all(true);
-  expect(s.store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "check", head: "sha2" });
+  expect(s.store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "guide", head: "sha2" });
 });
 
 test("with the re-review check off, an outside author's settled pushes record no skipped check", async () => {

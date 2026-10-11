@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 
@@ -53,6 +53,14 @@ test("a check that didn't run offers Run check; nothing shows once everything ra
     expect(slot.queryByRole("status", { name: "Not run automatically" })).toBeNull();
     slot.lifecycle.unmount();
   }
+}, 15_000);
+
+test("a guide rebuild that didn't run offers Re-review, which is what it starts", async () => {
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, workspace({ ...outsider, status: "ready", skippedRun: { run: "guide", head: "sha2", at: 1 } }));
+  const banner = await slot.findByRole("status", { name: "Not run automatically" });
+  expect(within(banner).getByRole("button", { name: "Re-review" })).toBeTruthy();
+  slot.lifecycle.unmount();
 }, 15_000);
 
 test("a tracked PR whose guide didn't start on its own says why above Start review", async () => {
