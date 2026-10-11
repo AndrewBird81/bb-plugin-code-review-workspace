@@ -51,6 +51,7 @@ Reload Guided Review pages left open across the update: until then they can't sa
 
 - Agents start on their own only on PRs from members and collaborators (**Settings → Trust**). Other PRs say what didn't run and why, with one click to run it.
 - Opt-in: **Let the review agent run the repo’s tests and linters** on trusted authors' PRs, in a temporary worktree.
+- A PR's own `.gitattributes` and instruction-file globs can't stall the plugin, and failing CI check names reach agents marked as PR text.
 
 ### Phones and speed
 
