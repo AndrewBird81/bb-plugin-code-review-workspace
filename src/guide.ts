@@ -1,22 +1,32 @@
 import { z } from "zod";
 import { patchRows, splitPatchByFile, type PatchFile } from "./patch";
 import { diffPositions } from "./review-positions";
+import { hunkErrors } from "./hunks";
 
 export const DiffRefSchema = z.object({
   file: z.string().min(1).describe("The file's exact repo-relative path, as the diff shows it."),
   summary: z.string().min(1).describe("What changed in this file and why it matters, in 1–2 sentences."),
+  hunks: z.array(z.number().int().min(1)).min(1).optional().describe("Only for a file split across chapters: the hunks this chapter covers, numbered from 1 in the file's patch order. Leave out to cover the whole file."),
 });
 export const SectionSchema = z.object({
   id: z.string().min(1).describe("A short kebab-case id, unique in the guide."),
   title: z.string().min(1).describe("The chapter's concept, briefly."),
   overview: z.string().min(1).describe("2–6 sentences of Markdown on what the chapter changes and what to check."),
   risk: z.enum(["low", "medium", "high"]).optional().describe("How closely to read this chapter; see the skill's rubric."),
-  diffs: z.array(DiffRefSchema).min(1).describe("The chapter's files, each in exactly one chapter."),
+  focus: z.array(z.string().min(1)).min(1).max(3).optional().describe("On medium- and high-risk chapters: 1–3 short things to verify, each starting \"Check that\"."),
+  diffs: z.array(DiffRefSchema).min(1).describe("The chapter's files, each in exactly one chapter, or each of a split file's hunks in exactly one chapter."),
 });
 export const HotspotSchema = z.object({
   file: z.string().min(1).describe("The file's exact repo-relative path, as the diff shows it."),
   line: z.number().int().min(1).describe("A new-file line the diff shows: added or context."),
   why: z.string().min(1).describe("The defect that could hide there, in one sentence."),
+});
+export const RequirementSchema = z.object({
+  text: z.string().min(1).describe("One thing the PR description or a linked ticket asks for, in a short line."),
+  status: z.enum(["covered", "partial", "missing", "unclear"]).describe("Whether the diff does it."),
+  evidence: z.string().min(1).describe("Why, in one short sentence: what the code does, or what's absent."),
+  file: z.string().min(1).optional().describe("Where the diff does it: the file's exact repo-relative path. Required when covered."),
+  line: z.number().int().min(1).optional().describe("A new-file line the diff shows in that file. Required when covered."),
 });
 export const GuideSchema = z.object({
   title: z.string().min(1).describe("The change, in one line."),
@@ -24,19 +34,33 @@ export const GuideSchema = z.object({
   sections: z.array(SectionSchema).describe("Chapters, in reading order."),
   unplacedFiles: z.array(z.string()).default([]).describe("Files with nothing to review (binary, mode-only, pure rename). Usually empty."),
   hotspots: z.array(HotspotSchema).min(1).max(3).optional().describe("The 1–3 places most likely to hide a defect, highest risk first."),
+  requirements: z.array(RequirementSchema).min(1).optional().describe("What the PR description and its linked tickets ask for, each checked against the diff. Leave out when the PR doesn't say what it should do."),
   /** What changed since the reviewer's last review, on a re-review. */
   sinceReview: z.string().optional().describe("On a re-review only: what changed since the reviewer's last review, in 2–4 sentences."),
   review: z.object({ gitRef: z.string().min(1), base: z.string().optional() }).optional(),
   source: z.unknown().optional(),
   generator: z.unknown().optional(),
 });
+function lineErrors(positions: ReturnType<typeof diffPositions>, at: string, file: string, line: number): string[] {
+  const lines = positions.get(file)?.right;
+  if (!lines) return [`${at}: ${file} isn't in the diff`];
+  return lines.has(line) ? [] : [`${at}: line ${line} of ${file} isn't a new-file line the diff shows`];
+}
+
 /** Hotspots the reviewer can open: each on a new-file line the diff shows. */
 export function checkHotspots(guide: Guide, patch: string): { ok: true } | { ok: false; errors: string[] } {
   const positions = diffPositions(patch);
-  const errors = (guide.hotspots ?? []).flatMap(({ file, line }, i) => {
-    const lines = positions.get(file)?.right;
-    if (!lines) return [`hotspots.${i}: ${file} isn't in the diff`];
-    return lines.has(line) ? [] : [`hotspots.${i}: line ${line} of ${file} isn't a new-file line the diff shows`];
+  const errors = (guide.hotspots ?? []).flatMap(({ file, line }, i) => lineErrors(positions, `hotspots.${i}`, file, line));
+  return errors.length ? { ok: false, errors } : { ok: true };
+}
+
+/** Requirements the reviewer can check: a covered one opens the new-file line that does it. */
+export function checkRequirements(guide: Guide, patch: string): { ok: true } | { ok: false; errors: string[] } {
+  const positions = diffPositions(patch);
+  const errors = (guide.requirements ?? []).flatMap(({ status, file, line }, i) => {
+    if (file !== undefined && line !== undefined) return lineErrors(positions, `requirements.${i}`, file, line);
+    if (file !== undefined || line !== undefined) return [`requirements.${i}: give both file and line, or neither`];
+    return status === "covered" ? [`requirements.${i}: a covered requirement needs the file and line that do it`] : [];
   });
   return errors.length ? { ok: false, errors } : { ok: true };
 }
@@ -59,18 +83,27 @@ export function validateGuide(raw: unknown):
   return { ok: false, errors: parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`) };
 }
 
-export function checkCoverage(guide: Guide, files: string[]):
+/** Every changed file in exactly one chapter, or each of a split file's hunks in exactly one; `hunks` is each file's hunk count. */
+export function checkCoverage(guide: Guide, files: string[], hunks: ReadonlyMap<string, number> = new Map()):
   | { ok: true }
   | { ok: false; errors: string[] } {
-  const placed = new Map<string, number>();
-  for (const s of guide.sections) for (const d of s.diffs) placed.set(d.file, (placed.get(d.file) ?? 0) + 1);
-  for (const f of guide.unplacedFiles) placed.set(f, (placed.get(f) ?? 0) + 1);
-
+  const placed = new Map<string, Array<number[] | undefined>>();
+  const place = (file: string, entry?: number[]) => placed.set(file, [...(placed.get(file) ?? []), entry]);
   const errors: string[] = [];
+  for (const s of guide.sections) {
+    const listed = new Set<string>();
+    for (const d of s.diffs) {
+      if (listed.has(d.file)) errors.push(`duplicate: ${d.file} is listed twice in ${s.id}; list it once, with all its hunks there`);
+      listed.add(d.file);
+      place(d.file, d.hunks);
+    }
+  }
+  for (const f of guide.unplacedFiles) place(f);
+
   const fileSet = new Set(files);
-  for (const [file, count] of placed) {
+  for (const [file, entries] of placed) {
     if (!fileSet.has(file)) errors.push(`extra: ${file} is in the guide but not in the diff`);
-    else if (count > 1) errors.push(`duplicate: ${file} appears ${count} times`);
+    else errors.push(...hunkErrors(file, entries, hunks.get(file) ?? 0));
   }
   for (const f of files) if (!placed.has(f)) errors.push(`missing: ${f} is in the diff but not in the guide`);
   return errors.length ? { ok: false, errors } : { ok: true };

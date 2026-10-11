@@ -4,6 +4,7 @@ import { areSelectionsEqual, parsePatchFiles, processFile } from "@pierre/diffs"
 import { FileDiff } from "@pierre/diffs/react";
 import type { AnnotationSide, DiffLineAnnotation, FileDiffMetadata, FileDiffOptions, SelectedLineRange } from "@pierre/diffs";
 import { patchRows, splitPatchByFile } from "../src/patch";
+import { droppedNear, filePart, hunksIn } from "../src/hunks";
 import type { FileInterdiff } from "../src/interdiff";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import { cn } from "../lib/utils";
@@ -240,6 +241,7 @@ export const DiffViewer = memo(function DiffViewer({
   patch,
   files,
   summaries,
+  splitFiles,
   views,
   onToggleViewed,
   registerFileEl,
@@ -264,6 +266,8 @@ export const DiffViewer = memo(function DiffViewer({
   files: string[];
   /** The guide's summary of each file, shown under its path. */
   summaries?: Map<string, string>;
+  /** Files split across chapters: the hunks this chapter shows, numbered from 1, and the chapters with the rest. */
+  splitFiles?: Map<string, { hunks: number[]; alsoIn: string[] }>;
   views: Map<string, FileViewFlags>;
   onToggleViewed: (file: string, viewed: boolean) => void;
   registerFileEl?: (file: string, el: HTMLElement | null) => void;
@@ -301,11 +305,16 @@ export const DiffViewer = memo(function DiffViewer({
     const shown = filtering ? chapter.filter((f) => since!.get(f.path)?.status !== "unchanged") : chapter;
     const perFile = shown.flatMap((f) => {
       const change = since?.get(f.path);
+      const split = splitFiles?.get(f.path);
+      const own = split ? filePart(f.text, split.hunks) : f.text;
+      // Threads outdated on a split file show with its first hunk; changes gone since your review, with the hunks nearest them.
+      const first = !split || split.hunks.includes(1);
+      const dropped = split && change?.dropped ? droppedNear(change.dropped, f.text, split.hunks) : change?.dropped ?? "";
       // Filtered, a changed file shows only the hunks that changed since your review.
-      const text = filtering && change?.status === "changed" ? change.patch : f.text;
+      const text = filtering && change?.status === "changed" ? (split ? hunksIn(change.patch, own) : change.patch) : own;
       const fileDiff = text ? parseFileDiff(text) : null;
       // A file whose only change since your review is removed hunks shows just those.
-      if (!fileDiff && !(filtering && change?.dropped)) return [];
+      if (!fileDiff && !(filtering && dropped)) return [];
       const stats = diffStats(text);
       return [{
         path: f.path,
@@ -317,10 +326,15 @@ export const DiffViewer = memo(function DiffViewer({
         source: text === f.text && fileDiff?.hunks.length ? f : null,
         change,
         css: change?.status === "changed" ? sinceReviewCSS(change.newLines, change.newDeletions) : "",
+        split,
+        first,
+        dropped,
+        // A split file's comments and threads show in the chapter with their line.
+        inPart: split ? diffLines(own) : undefined,
       }];
     });
     return { perFile, unchanged: chapter.length - shown.length };
-  }, [patch, fileKey, since, filtering, generated]);
+  }, [patch, fileKey, since, filtering, generated, splitFiles]);
   // Files loaded in full, each with the diff it was read for, and those showing every line. A new diff starts over.
   const [contents, setContents] = useState<Record<string, { text: string; result: "loading" | FileContentsResult }>>({});
   const [wholeFile, setWholeFile] = useState<Record<string, boolean>>({});
@@ -409,14 +423,16 @@ export const DiffViewer = memo(function DiffViewer({
   // The lines in each file with a GitHub thread, draft comment, discussion, or the comment box.
   // A file keeps its list until those lines change; their content comes from context.
   const previous = useRef(new Map<string, { key: string; list: DiffLineAnnotation<Annotation>[] }>());
+  const inPart = useMemo(() => new Map(perFile.flatMap((f) => f.inPart ? [[f.path, f.inPart] as const] : [])), [perFile]);
   const annotations = useMemo(() => {
     const next = new Map<string, { key: string; list: DiffLineAnnotation<Annotation>[] }>();
     for (const path of files) {
       const composer = draft?.composer?.file === path ? draft.composer : null;
+      const shows = inPart.get(path) ?? (() => true);
       const lines: CommentLocation[] = [];
       for (const { file, line, side } of [...(draft?.comments ?? []), ...(draft?.discussions ?? []), ...(fromGitHub.get(path)?.placed ?? [])]) {
         const at = { file, line, side };
-        if (file === path && !(composer && sameLocation(at, composer)) && !lines.some((seen) => sameLocation(seen, at))) lines.push(at);
+        if (file === path && shows(at) && !(composer && sameLocation(at, composer)) && !lines.some((seen) => sameLocation(seen, at))) lines.push(at);
       }
       // The box's line comes first: pierre keys annotations by position, so lines coming and going don't remount it.
       if (composer) lines.unshift({ file: path, line: composer.line, side: composer.side });
@@ -426,7 +442,7 @@ export const DiffViewer = memo(function DiffViewer({
     }
     previous.current = next;
     return next;
-  }, [files, draft?.comments, draft?.discussions, draft?.composer, fromGitHub]);
+  }, [files, draft?.comments, draft?.discussions, draft?.composer, fromGitHub, inPart]);
 
   // Opens the file, then scrolls to the line once the chapter's diffs stop moving:
   // pierre draws each file once its highlighting loads, then sizes the rows beside comments.
@@ -486,12 +502,12 @@ export const DiffViewer = memo(function DiffViewer({
 
   return (
     <div ref={root} className="space-y-4">
-      {perFile.map(({ path, oldPath, stats, fileDiff, source, change, css }) => {
+      {perFile.map(({ path, oldPath, stats, fileDiff, source, change, css, split, first, dropped, inPart }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
         const folded = isCollapsed(path);
-        const commentCount = draft?.comments.filter((c) => c.file === path).length ?? 0;
+        const commentCount = draft?.comments.filter((c) => c.file === path && (inPart?.(c) ?? true)).length ?? 0;
         const commentLabel = `${commentCount} draft comment${commentCount === 1 ? "" : "s"}`;
         const loaded = contentsFor(path, source);
         const loading = loaded === "loading";
@@ -520,6 +536,7 @@ export const DiffViewer = memo(function DiffViewer({
                 <FilePath path={path} className="text-xs" nameClassName="font-medium" />
                 {oldPath && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">Renamed from <span className="font-mono">{oldPath}</span></p>}
                 {summaries?.get(path) && <p className="mt-0.5 text-xs leading-snug text-muted-foreground"><InlineCode text={summaries.get(path)!} /></p>}
+                {split && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">Also in <InlineCode text={split.alsoIn.join(", ")} /></p>}
               </div>
               <FileTag file={path} generated={generated.has(path)} />
               {folded && !viewed && noisy.has(path) && (
@@ -562,7 +579,7 @@ export const DiffViewer = memo(function DiffViewer({
                 Viewed
               </label>
             </div>
-            {!folded && <OutdatedThreads threads={fromGitHub.get(path)?.outdated ?? []} />}
+            {!folded && first && <OutdatedThreads threads={fromGitHub.get(path)?.outdated ?? []} />}
             {!folded && typeof loaded === "object" && !loaded.ok && (
               <p role="status" className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
                 <Icon name="Info" className="size-3.5 shrink-0" aria-hidden />{loaded.error}
@@ -586,8 +603,8 @@ export const DiffViewer = memo(function DiffViewer({
                 unsafeCSS={css}
               />
             )}
-            {!folded && filtering && change?.dropped && (
-              <DiffDetails text={change.dropped} defaultOpen={!fileDiff} theme={theme} themeMode={themeMode} wrap={wrapLines} className={cn(fileDiff && "border-t border-border")}
+            {!folded && filtering && dropped && (
+              <DiffDetails text={dropped} defaultOpen={!fileDiff} theme={theme} themeMode={themeMode} wrap={wrapLines} className={cn(fileDiff && "border-t border-border")}
                 summary={<summary className="cursor-pointer px-3 py-1.5 text-xs text-muted-foreground">Changes gone since your review</summary>} />
             )}
           </div>

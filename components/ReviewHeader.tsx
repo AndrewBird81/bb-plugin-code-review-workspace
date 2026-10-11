@@ -1,14 +1,16 @@
 import { memo, useState, type ReactNode } from "react";
 import { Markdown, UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
+import type { z } from "zod";
 import type { rpcContract } from "../src/rpc-contract";
+import type { RequirementSchema } from "../src/guide";
 import type { StackMember, StackPlace } from "../lib/stacks";
 import { LINES_PER_HOUR, readingTime } from "../lib/review-size";
 import { reviewState } from "../lib/review-state";
 import { canSnooze, canSnoozeUntil, computeTurn, progressText, type feedbackProgress, type ReviewRound, type Turn } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
-import { Badge } from "./ui/badge";
+import { Badge, TONE_TEXT, type Tone } from "./ui/badge";
 import { Avatar } from "./ui/avatar";
 import { StatusBadge, kindLook } from "./ReviewStatus";
 import { IconTile } from "./ui/icon-tile";
@@ -109,11 +111,53 @@ export function UnreviewedParent({ stack, className }: { stack: StackPlace | nul
   return <p className={cn("flex items-center gap-1.5 text-xs text-warning-text", className)}><Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden />You haven’t reviewed #{stack.parent.number}, which this builds on.</p>;
 }
 
+type Requirement = z.infer<typeof RequirementSchema>;
+const REQUIREMENT_LOOK: Record<Requirement["status"], { tone: Tone; label: string }> = {
+  covered: { tone: "success", label: "Covered" },
+  partial: { tone: "warning", label: "Partial" },
+  missing: { tone: "danger", label: "Missing" },
+  unclear: { tone: "neutral", label: "Unclear" },
+};
+
+/** "Requirements: 3/4 covered", expanding to what the PR asks for and whether the diff does it. */
+function Requirements({ requirements, onOpen }: { requirements: Requirement[]; onOpen?: (file: string, line: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const covered = requirements.filter((r) => r.status === "covered").length;
+  const done = covered === requirements.length;
+  return (
+    <div className="max-w-[80ch] text-xs">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1.5 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+        <Icon name={done ? "CircleCheck" : "AlertCircle"} className={cn("size-3.5", TONE_TEXT[done ? "success" : "warning"])} aria-hidden />
+        <span>Requirements: <span className="tabular-nums">{covered}/{requirements.length}</span> covered</span>
+        <Icon name="ChevronDown" className={cn("size-3 transition-transform duration-150", !open && "-rotate-90")} aria-hidden />
+      </button>
+      {open && (
+        <ul aria-label="Requirements" className="mt-1.5 space-y-1 pl-5">
+          {requirements.map(({ text, status, evidence, file, line }, index) => (
+            <li key={index} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <Badge tone={REQUIREMENT_LOOK[status].tone} size="sm" className="shrink-0">{REQUIREMENT_LOOK[status].label}</Badge>
+              <span className="text-foreground/90"><InlineCode text={text} /></span>
+              <span className="min-w-0 text-muted-foreground"><InlineCode text={evidence} /></span>
+              {file && line && onOpen && (
+                <button type="button" aria-label={`${file}:${line}`} title={`${file}:${line}`} className="shrink-0 font-mono text-primary hover:underline" onClick={() => onOpen(file, line)}>
+                  {file.split("/").pop()}:{line}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export const ReviewHeader = memo(function ReviewHeader({
   review,
   checks,
   intent,
   sinceReview,
+  requirements,
+  onOpenLine,
   trailing,
   onShowFeedback,
   onSnooze,
@@ -125,6 +169,10 @@ export const ReviewHeader = memo(function ReviewHeader({
   intent?: string;
   /** The guide's summary of what changed since your last review. */
   sinceReview?: string;
+  /** The guide's check of what the PR asks for. */
+  requirements?: Requirement[];
+  /** Opens a requirement's line in the diff. */
+  onOpenLine?: (file: string, line: number) => void;
   /** Actions at the end of the title row, such as Re-review. */
   trailing?: ReactNode;
   /** The progress pill opens the Feedback view. */
@@ -220,6 +268,7 @@ export const ReviewHeader = memo(function ReviewHeader({
             <Markdown content={sinceReview} className="min-w-0 text-sm leading-relaxed" />
           </div>
         )}
+        {!!requirements?.length && <Requirements requirements={requirements} onOpen={onOpenLine} />}
       </div>
     </header>
   );

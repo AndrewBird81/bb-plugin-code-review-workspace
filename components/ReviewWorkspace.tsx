@@ -39,6 +39,7 @@ import { CheckFailuresContext, useCheckFailures } from "./CheckFailures";
 import { ShortcutsHelp } from "./ShortcutsHelp";
 import { StartHere } from "./StartHere";
 import { splitPatchByFile } from "../src/patch";
+import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunks";
 import { changedLines, readingLines } from "../lib/review-size";
 
 const SIDEBAR_MIN = 200;
@@ -240,7 +241,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       if (diffError) setLoadError(diffError);
       if (viewsRes && viewsId === viewsRequest.current) setViews(viewMap(viewsRes.views));
       if (generatedRes) setGenerated((current) => current.size === generatedRes.files.length && generatedRes.files.every((file) => current.has(file)) ? current : new Set(generatedRes.files));
-      const chapters = guide?.sections ? withOtherFiles(guide.sections, patch) : [];
+      const chapters = guide?.sections ? withOtherFiles(fitHunks(guide.sections, patch), patch) : [];
       if (chapters.length) {
         const saved = getReviewState(targetKey).activeId;
         setActiveId((prev) => chapters.some((section) => section.id === prev)
@@ -283,16 +284,20 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     return () => { cancelled = true; };
   }, [rpc, targetKey, sinceKey]);
   useEffect(() => { if (!since) setSinceOnly(false); }, [since]);
-  const sections = useMemo(() => guide?.sections ? withOtherFiles(guide.sections, patch) : [], [guide, patch]);
+  const sections = useMemo(() => guide?.sections ? withOtherFiles(fitHunks(guide.sections, patch), patch) : [], [guide, patch]);
   const lines = useMemo(() => changedLines(patch), [patch]);
   const readLines = useMemo(() => readingLines([...lines.keys()], lines, generated), [lines, generated]);
   const changedSince = useMemo(() => {
     if (!since || !sections.length) return undefined;
+    const texts = new Map(splitPatchByFile(patch).map((f) => [f.path, f.text]));
     return Object.fromEntries(sections.map((section: any) => [section.id, section.diffs.filter((diff: any) => {
-      const status = since.get(diff.file)?.status;
-      return status === "changed" || status === "added";
+      const change = since.get(diff.file);
+      if (!diff.hunks || change?.status !== "changed") return change?.status === "changed" || change?.status === "added";
+      // A split file counts where its hunks changed, or changes gone from it were.
+      const text = texts.get(diff.file) ?? "";
+      return !!hunksIn(change.patch, filePart(text, diff.hunks)) || !!droppedNear(change.dropped, text, diff.hunks);
     }).length]));
-  }, [since, sections]);
+  }, [since, sections, patch]);
 
   const snooze = useCallback(async (snoozed: boolean, until?: number) => {
     setSnoozing(true);
@@ -353,6 +358,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const activeSection = activeIndex >= 0 ? sections[activeIndex] : undefined;
   const activeFiles: string[] = useMemo(() => activeSection ? activeSection.diffs.map((d: any) => d.file) : [], [activeSection]);
   const summaries = useMemo(() => new Map<string, string>(activeSection?.diffs.flatMap((d: any) => d.summary ? [[d.file, d.summary]] : []) ?? []), [activeSection]);
+  // Files this chapter shares with others: the hunks it shows, and where the rest are.
+  const splitFiles = useMemo(() => new Map<string, { hunks: number[]; alsoIn: string[] }>(activeSection?.diffs.flatMap((d: any) => {
+    const alsoIn = sections.filter((s: any) => s !== activeSection && s.diffs.some((other: any) => other.file === d.file)).map((s: any) => s.title);
+    return d.hunks && alsoIn.length ? [[d.file, { hunks: d.hunks, alsoIn }]] : [];
+  }) ?? []), [sections, activeSection]);
 
   useEffect(() => {
     setCurrentFile((current) => current && activeFiles.includes(current) ? current : activeFiles[0]);
@@ -360,7 +370,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // A file a key or click went to stays current until you scroll yourself: it may not reach the top.
   const pinned = useRef(false);
   const unpin = useCallback(() => { pinned.current = false; }, []);
-  const reviewFiles: string[] = useMemo(() => sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)), [sections]);
+  const reviewFiles: string[] = useMemo(() => [...new Set<string>(sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)))], [sections]);
 
   // Restore the saved scroll position once the diff has content to scroll.
   useEffect(() => {
@@ -462,7 +472,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   // A comment chosen in the draft panel: show its line in the diff.
   const showComment = useCallback((at: CommentLocation) => {
-    const chapter = sections.find((section: any) => section.diffs.some((diff: any) => diff.file === at.file));
+    const chapter = chapterAt(sections, patch, at);
     if (!chapter) return;
     setView("diff");
     unhide(at.file);
@@ -473,7 +483,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     pinned.current = true;
     setCurrentFile(at.file);
     setReveal({ at, nonce: Date.now() });
-  }, [sections, activeId, unhide]);
+  }, [sections, patch, activeId, unhide]);
   // A thread on a file outside every chapter can't be shown here; its GitHub link can.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
@@ -751,7 +761,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       ) : (
         <div className="border-b border-border">
           <div className="px-4 pb-3.5 pt-3">
-            <ReviewHeader review={review} checks={checks} intent={guide.intent} sinceReview={guide.sinceReview} onShowFeedback={showFeedback} onSnooze={snoozeFromHeader} snoozing={snoozing} readLines={readLines} trailing={headerTrailing} />
+            <ReviewHeader review={review} checks={checks} intent={guide.intent} sinceReview={guide.sinceReview} requirements={guide.requirements} onOpenLine={openHotspot} onShowFeedback={showFeedback} onSnooze={snoozeFromHeader} snoozing={snoozing} readLines={readLines} trailing={headerTrailing} />
             {guide.hotspots?.length > 0 && <StartHere hotspots={guide.hotspots} onOpen={openHotspot} />}
           </div>
           {generatingReplacement && <p role="status" className="flex items-center gap-2 border-t border-warning/20 bg-warning/10 px-4 py-2 text-xs text-warning-text"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Regenerating the guide. Your previous diff and unsaved edits remain visible.</p>}
@@ -949,7 +959,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
             {view === "diff" ? (
               <>
-              {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
+              {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} />}
               <CheckFailuresContext.Provider value={checkFailures}>
               <DiffThreadsContext.Provider value={showThreads ? diffThreads : null}>
               <DiffViewer
@@ -959,6 +969,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 patch={patch}
                 files={activeFiles}
                 summaries={summaries}
+                splitFiles={splitFiles}
                 views={views}
                 onToggleViewed={toggleViewed}
                 registerFileEl={registerFileEl}

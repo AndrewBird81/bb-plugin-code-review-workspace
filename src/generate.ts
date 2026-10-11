@@ -8,6 +8,7 @@ import { startVerification } from "./verification";
 import { baselineOf } from "./feedback-view";
 import type { Guide } from "./guide";
 import { mayRunUnattended } from "../lib/trust";
+import { fitHunks } from "./hunks";
 
 const preparedListeners = new WeakMap<BbPluginApi, (targetKey: string) => void>();
 /** Told when a guide's automatic follow-up (the review or the feedback check) has started or can't. */
@@ -33,7 +34,7 @@ export function guideWriterUnavailable(bb: BbPluginApi, store: Store): Promise<s
 }
 
 export function buildGenerationPrompt(targetKey: string, generationId?: string, preferences: ReviewPreferences = defaultPreferences, earlier?: { guide: Guide | null; reviewed: boolean }): string {
-  const chapters = earlier?.guide?.sections.map((s) => `- ${s.id}: ${s.title} (${s.diffs.map((d) => d.file).join(", ")})`) ?? [];
+  const chapters = earlier?.guide?.sections.map((s) => `- ${s.id}: ${s.title} (${s.diffs.map((d) => d.hunks ? `${d.file} hunks ${d.hunks.join(", ")}` : d.file).join(", ")})`) ?? [];
   return [
     "Author a Guided Review for this change.",
     "Follow the guided-review-generate skill exactly.",
@@ -41,6 +42,7 @@ export function buildGenerationPrompt(targetKey: string, generationId?: string, 
     ...(generationId ? [`Pass generationId "${generationId}" to generate_review_guide. It identifies this exact generation run.`] : []),
     "Start with read_pr_context, then list_review_files, read the diff with read_review_patch, and submit with generate_review_guide.",
     "Take the guide's intent from what the PR says it does, and say in a chapter's overview where the code does something the description doesn't mention.",
+    "Where the PR or its linked tickets say what it should do, check each ask against the diff in the guide's requirements.",
     ...(chapters.length ? ["A guide exists for an earlier revision of this change. Keep its chapter ids, titles, and order where the files still fit, so the reviewer's map of the change stays stable:", ...chapters] : []),
     ...(earlier?.reviewed ? ["The reviewer reviewed an earlier revision. Call read_changes_since_review, then summarize what changed since their review in the guide's sinceReview field, in 2–4 sentences."] : []),
     guidePreferencesPrompt(preferences),
@@ -67,7 +69,10 @@ export async function generateGuide(
     const review = store.getReview(targetKey);
     // A guide you start approves agents on its head, whoever wrote the PR (lib/trust.ts).
     if (!options.unattended && review?.headSha) store.setLifecycle(targetKey, { approvedHead: review.headSha, skippedRun: null });
-    const earlier = { guide: store.getGuide(targetKey), reviewed: !!(review && baselineOf(review).at) };
+    // The diff is already the new one: hunks of the earlier guide that no longer fit it show as whole files.
+    const kept = store.getGuide(targetKey);
+    const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
+    const earlier = { guide: kept && { ...kept, sections: fitHunks(kept.sections, patch) }, reviewed: !!(review && baselineOf(review).at) };
     generationId = store.beginGeneration(targetKey);
     threads = bb.sdk.threads;
     const preferences = store.getPreferences().preferences;
