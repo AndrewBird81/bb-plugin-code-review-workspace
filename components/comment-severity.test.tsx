@@ -96,12 +96,17 @@ test("the comment box sets a comment's severity, in the panel and the diff, and 
   slot.lifecycle.unmount();
 });
 
-test("Hide nits hides nit cards in the diff and the panel, and stays hidden in this browser", async () => {
+test("Hide nits hides nit cards in the diff and the panel, and from the file's count, and stays hidden in this browser", async () => {
   const rpc = stored([blocking, nit]);
   let { slot, diff, panel } = await renderReview("hide", rpc);
   await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" });
+  const header = () => within(slot.container.querySelector<HTMLElement>('[data-file="src/a.ts"]')!);
+  expect(header().getByText("2 draft comments")).toBeTruthy();
   fireEvent.click(panel().getByRole("button", { name: "Hide nits" }));
   expect(panel().getByRole("button", { name: "Hide nits" }).getAttribute("aria-pressed")).toBe("true");
+  // The file's header leaves the hidden nit out, and Draft review says how many it hides.
+  expect(header().getByText("1 draft comment")).toBeTruthy();
+  expect(panel().getByText("1 blocking · 1 nit · 1 hidden")).toBeTruthy();
   expect(diff().queryByRole("article", { name: "Draft comment on src/a.ts:2" })).toBeNull();
   expect(diff().getByRole("article", { name: "Draft comment on src/a.ts:1" })).toBeTruthy();
   expect(panel().queryByRole("button", { name: /^src\/a\.ts:2/ })).toBeNull();

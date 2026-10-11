@@ -604,7 +604,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
               <Button variant="ghost" size="sm" className="-mr-2 text-primary hover:text-primary" aria-expanded={showComposer && !inline && !onSummary} onClick={() => openComposer(null, false)}><Icon name="Plus" className="size-4" aria-hidden /> Add comment</Button>
             </div>
             {counts && <div className="-mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <span className="tabular-nums">{counts}</span>
+              <span className="tabular-nums">{counts}{hideNits && nitCount > 0 && ` · ${nitCount} hidden`}</span>
               {nitCount > 0 && <span className="-mr-2 ml-auto flex gap-0.5">
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground aria-pressed:bg-primary/10 aria-pressed:text-primary" aria-pressed={hideNits} onClick={toggleNits}><Icon name={hideNits ? "EyeOff" : "Eye"} className="size-3.5" aria-hidden />Hide nits</Button>
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive-text" disabled={busy} onClick={() => void removeNits()}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove nits</Button>

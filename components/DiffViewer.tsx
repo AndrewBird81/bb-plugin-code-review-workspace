@@ -577,7 +577,7 @@ export const DiffViewer = memo(function DiffViewer({
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
         const folded = isCollapsed(path);
-        const commentCount = draft?.comments.filter((c) => c.file === path && (inPart?.(c) ?? true)).length ?? 0;
+        const commentCount = draft?.comments.filter((c) => c.file === path && (inPart?.(c) ?? true) && !(draft.hideNits && c.severity === "nit")).length ?? 0;
         const commentLabel = `${commentCount} draft comment${commentCount === 1 ? "" : "s"}`;
         const loaded = contentsFor(path, source);
         const loading = loaded === "loading";
