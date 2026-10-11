@@ -68,7 +68,7 @@ export { rpcContract } from "./src/rpc-contract";
 
 
 // Raise when the review assistant's tools change.
-const ASSISTANT_TOOLS = 6;
+const ASSISTANT_TOOLS = 7;
 
 export default async function plugin(bb: BbPluginApi) {
   const store = createStore(bb);
