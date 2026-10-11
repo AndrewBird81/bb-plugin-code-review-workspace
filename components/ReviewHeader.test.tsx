@@ -30,14 +30,14 @@ function renderWorkspace(review: Record<string, unknown>, rpc: Record<string, (i
   } }));
 }
 
-test("a PR review's title opens the pull request on GitHub, including in focus mode", async () => {
+test("a PR review's title opens the pull request on GitHub, including with the header collapsed", async () => {
   const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url });
   const link = await slot.findByRole("link", { name: "Fix token refresh race" });
   expect(link.getAttribute("href")).toBe(url);
   fireEvent.click(link);
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "openUrl", url });
 
-  fireEvent.click(slot.getByRole("button", { name: "Focus mode" }));
+  fireEvent.click(slot.getByRole("button", { name: "Collapse header" }));
   expect(slot.queryByRole("heading", { name: "Fix token refresh race" })).toBeNull();
   expect(slot.getByRole("link", { name: "Fix token refresh race" }).getAttribute("href")).toBe(url);
   slot.lifecycle.unmount();

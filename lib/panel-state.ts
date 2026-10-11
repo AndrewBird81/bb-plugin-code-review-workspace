@@ -1,6 +1,6 @@
 // Per-review UI state persisted to localStorage so the Guided Review panel
 // survives tab switches / remounts: which review you were on, the chapter, the
-// scroll position, the sidebar width, and focus mode. The floating agent dock
+// scroll position, the sidebar width, and whether the header is collapsed. The floating agent dock
 // persists its own geometry separately (see AgentDock).
 
 export interface ReviewUiState {
@@ -8,7 +8,8 @@ export interface ReviewUiState {
   view?: "diff" | "feedback" | "threads";
   scrollTop?: number;
   sidebarWidth?: number;
-  focus?: boolean;
+  /** Not `focus`: before 0.5.0 every review opened saved Focus off, which kept phones on the full header. */
+  headerCollapsed?: boolean;
   toolsOpen?: boolean;
   activeTool?: "draft" | "notes" | "agent";
 }

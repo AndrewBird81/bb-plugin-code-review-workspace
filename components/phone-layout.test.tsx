@@ -84,14 +84,14 @@ test("on a phone the chapters give way to the open review panel and scroll, rath
   fakeSize(390, 844);
   const slot = await renderWorkspace();
   const main = slot.getByRole("main");
-  fireEvent.click(within(main).getByRole("button", { name: "Show chapters" }));
+  fireEvent.click(slot.getByRole("button", { name: "Show chapters" }));
   const chapters = main.parentElement!.querySelector(":scope > aside")!;
   // Below their 40vh cap when the panel takes the rest, scrolling inside; beside the diff on a wider screen, their width holds.
   expect(chapters.className.split(" ")).not.toContain("shrink-0");
   expect(chapters.className).toContain("overflow-y-auto");
   expect(chapters.className).toContain("@min-[768px]/review:shrink-0");
   expect(main.parentElement!.className.split(" ")).toContain("overflow-hidden");
-  // The toolbar's first row, with Chapters to close them, keeps its room.
+  // The toolbar's first row keeps its room.
   expect(main.className.split(" ")).toContain("min-h-12");
   slot.lifecycle.unmount();
 });
@@ -111,6 +111,8 @@ test("a phone held sideways folds the review's title and Re-review into the top 
   const slot = await renderWorkspace();
   const bar = within(slot.getByRole("button", { name: "All reviews" }).parentElement!);
   expect(bar.getByText("Parse rows")).toBeTruthy();
+  // The title needs the room: All reviews keeps to its arrow.
+  expect(slot.getByRole("button", { name: "All reviews" }).textContent).toBe("");
   expect(await bar.findByRole("button", { name: "Re-review" })).toBeTruthy();
   expect(bar.queryByRole("button", { name: "Ask agent" })).toBeNull();
   expect(slot.getAllByText("Parse rows")).toHaveLength(1);
@@ -133,28 +135,28 @@ test("on a wide screen the top bar and toolbar keep their labels", async () => {
   const label = (name: string, text: string) => within(main.getByRole("button", { name })).getByText(text).className;
   expect(label("Wrap lines", "Wrap")).toContain("/toolbar:inline");
   expect(label("Hide whitespace", "Hide whitespace")).toBe(label("Wrap lines", "Wrap"));
-  // Not short: chapters, the overview, and the saved open panel show, and Focus is off.
-  expect(slot.getByRole("button", { name: "Hide chapters" })).toBeTruthy();
+  // Not short: chapters, the overview, the full header, and the saved open panel show.
+  expect(bar.getByRole("button", { name: "Hide chapters" })).toBeTruthy();
   expect(slot.getByRole("button", { name: "Hide chapter overview" })).toBeTruthy();
-  expect(main.getByRole("button", { name: "Focus mode" }).getAttribute("aria-pressed")).toBe("false");
+  expect(slot.getByRole("heading", { name: "Parse rows" })).toBeTruthy();
   expect(within(slot.getByRole("group", { name: "Review tools" })).getByRole("button", { name: "Draft review" }).getAttribute("aria-expanded")).toBe("true");
-  // Focus slims the header there, but keeps it out of the top bar.
-  fireEvent.click(main.getByRole("button", { name: "Focus mode" }));
+  // Collapsed there, the header keeps its title out of the top bar.
+  fireEvent.click(slot.getByRole("button", { name: "Collapse header" }));
   expect(bar.queryByText("Parse rows")).toBeNull();
   expect(slot.getByText("Parse rows")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
-test("a phone held sideways opens on code: Focus on, and the chapters, overview and review panel hidden until shown", async () => {
+test("a phone held sideways opens on code: the header collapsed, and the chapters, overview and review panel hidden until shown", async () => {
   fakeSize(844, 390);
   const slot = await renderWorkspace();
   const main = within(slot.getByRole("main"));
-  expect(main.getByRole("button", { name: "Focus mode" }).getAttribute("aria-pressed")).toBe("true");
-  expect(main.getByRole("button", { name: "Show chapters" }).getAttribute("aria-pressed")).toBe("false");
+  expect(slot.getByRole("button", { name: "Expand header" })).toBeTruthy();
+  expect(slot.getByRole("button", { name: "Show chapters" }).getAttribute("aria-pressed")).toBe("false");
   expect(slot.queryByText("Reads rows.")).toBeNull();
   expect(within(slot.getByRole("group", { name: "Review tools" })).getByRole("button", { name: "Draft review" }).getAttribute("aria-expanded")).toBe("false");
-  fireEvent.click(main.getByRole("button", { name: "Show chapters" }));
-  expect(main.getByRole("button", { name: "Hide chapters" })).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: "Show chapters" }));
+  expect(slot.getByRole("button", { name: "Hide chapters" })).toBeTruthy();
   fireEvent.click(main.getByRole("button", { name: "Show chapter overview" }));
   expect(await within(main.getByRole("region", { name: "Parsing" })).findByText("Reads rows.")).toBeTruthy();
   slot.lifecycle.unmount();
@@ -162,4 +164,107 @@ test("a phone held sideways opens on code: Focus on, and the chapters, overview 
   const again = await renderWorkspace();
   expect(again.getByRole("button", { name: "Hide chapter overview" })).toBeTruthy();
   again.lifecycle.unmount();
+});
+
+test("the chapters toggle sits beside All reviews, not in the diff's toolbar", async () => {
+  fakeSize(390, 844);
+  const slot = await renderWorkspace();
+  const toggle = slot.getByRole("button", { name: "Show chapters" });
+  expect(slot.getByRole("button", { name: "All reviews" }).nextElementSibling).toBe(toggle);
+  const main = within(slot.getByRole("main"));
+  expect(main.queryByRole("button", { name: /chapters$/ })).toBeNull();
+  fireEvent.click(toggle);
+  expect(slot.getByRole("main").parentElement!.querySelector(":scope > aside")).toBeTruthy();
+  expect(toggle.getAttribute("aria-label")).toBe("Hide chapters");
+  slot.lifecycle.unmount();
+});
+
+test("the header collapses from its top-right corner and expands from the same spot, saved for the review", async () => {
+  fakeSize(1400, 900);
+  const slot = await renderWorkspace();
+  const header = slot.getByRole("heading", { name: "Parse rows" }).closest("header")!;
+  expect(header.lastElementChild).toBe(slot.getByRole("button", { name: "Collapse header" }));
+  expect(slot.getByText("Parses rows.")).toBeTruthy();
+  expect(within(slot.getByRole("main")).queryByRole("button", { name: "Focus mode" })).toBeNull();
+  fireEvent.click(slot.getByRole("button", { name: "Collapse header" }));
+  expect(slot.queryByText("Parses rows.")).toBeNull();
+  const expand = slot.getByRole("button", { name: "Expand header" });
+  expect(expand.parentElement!.lastElementChild).toBe(expand);
+  slot.lifecycle.unmount();
+  const again = await renderWorkspace();
+  fireEvent.click(again.getByRole("button", { name: "Expand header" }));
+  expect(again.getByText("Parses rows.")).toBeTruthy();
+  again.lifecycle.unmount();
+});
+
+test("a phone opens on the collapsed header, even for a review an earlier version saved with Focus off", async () => {
+  fakeSize(390, 844);
+  localStorage.setItem("gr:panelstate", JSON.stringify({ perReview: { "pr-42": { focus: false } } }));
+  const slot = await renderWorkspace();
+  expect(slot.getByRole("button", { name: "Expand header" })).toBeTruthy();
+  expect(slot.queryByText("Parses rows.")).toBeNull();
+  // Expanded, the title row's actions wrap within the screen rather than run off it.
+  fireEvent.click(slot.getByRole("button", { name: "Expand header" }));
+  const actions = slot.getByRole("button", { name: "Re-review" }).closest("div")!;
+  expect(actions.className.split(" ")).toContain("min-w-0");
+  expect(actions.className.split(" ")).not.toContain("shrink-0");
+  slot.lifecycle.unmount();
+});
+
+test("where the browser can't go full screen, as on an iPhone, Full screen covers the window from the top layer, overlays and all", async () => {
+  fakeSize(390, 844);
+  const show = vi.fn(), hide = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "showPopover", { configurable: true, value: show });
+  Object.defineProperty(HTMLElement.prototype, "hidePopover", { configurable: true, value: hide });
+  restores.push(() => { delete (HTMLElement.prototype as { showPopover?: unknown }).showPopover; delete (HTMLElement.prototype as { hidePopover?: unknown }).hidePopover; });
+  const slot = await renderWorkspace();
+  expect(document.fullscreenEnabled).toBeFalsy();
+  const root = slot.getByRole("button", { name: "All reviews" }).closest("[class*='@container/review']")!;
+  fireEvent.click(slot.getByRole("button", { name: "Full screen" }));
+  expect(show.mock.contexts).toEqual([root]);
+  expect(root.getAttribute("popover")).toBe("manual");
+  expect(root.className.split(" ")).toEqual(expect.arrayContaining(["fixed", "inset-0", "pt-[env(safe-area-inset-top)]"]));
+  fireEvent.click(slot.getByRole("button", { name: "Review actions" }));
+  expect(root.contains(await slot.findByRole("button", { name: "Settings" }))).toBe(true);
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  fireEvent.click(slot.getByRole("button", { name: "Exit full screen" }));
+  expect(hide.mock.contexts).toEqual([root]);
+  expect(root.hasAttribute("popover")).toBe(false);
+  expect(root.className.split(" ")).not.toContain("fixed");
+  slot.lifecycle.unmount();
+});
+
+test("where the browser can neither go full screen nor cover the window, there's no Full screen button", async () => {
+  fakeSize(390, 844);
+  const slot = await renderWorkspace();
+  expect(slot.queryByRole("button", { name: "Full screen" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("where the browser can go full screen, Full screen asks it to, for the workspace", async () => {
+  fakeSize(1400, 900);
+  const request = vi.fn(() => Promise.resolve());
+  Object.defineProperty(document, "fullscreenEnabled", { configurable: true, value: true });
+  Object.defineProperty(HTMLElement.prototype, "requestFullscreen", { configurable: true, value: request });
+  restores.push(() => { delete (document as { fullscreenEnabled?: boolean }).fullscreenEnabled; delete (HTMLElement.prototype as { requestFullscreen?: unknown }).requestFullscreen; });
+  const slot = await renderWorkspace();
+  const root = slot.getByRole("button", { name: "All reviews" }).closest("[class*='@container/review']")!;
+  fireEvent.click(slot.getByRole("button", { name: "Full screen" }));
+  expect(request.mock.contexts).toEqual([root]);
+  expect(root.className.split(" ")).not.toContain("fixed");
+  slot.lifecycle.unmount();
+});
+
+test("collapsing or expanding the header from the keyboard keeps the focus on its chevron; a click doesn't move it", async () => {
+  fakeSize(1400, 900);
+  const slot = await renderWorkspace();
+  fireEvent.click(slot.getByRole("button", { name: "Collapse header" }), { detail: 0 });
+  await waitFor(() => expect(document.activeElement).toBe(slot.getByRole("button", { name: "Expand header" })));
+  fireEvent.click(slot.getByRole("button", { name: "Expand header" }), { detail: 0 });
+  await waitFor(() => expect(document.activeElement).toBe(slot.getByRole("button", { name: "Collapse header" })));
+  (document.activeElement as HTMLElement).blur();
+  fireEvent.click(slot.getByRole("button", { name: "Collapse header" }), { detail: 1 });
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(document.activeElement).toBe(document.body);
+  slot.lifecycle.unmount();
 });

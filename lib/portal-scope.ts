@@ -19,10 +19,18 @@ declare const __BB_PLUGIN_ID__: string | undefined;
 
 const subscribeFullscreen = (notify: () => void) => {
   document.addEventListener("fullscreenchange", notify);
-  return () => document.removeEventListener("fullscreenchange", notify);
+  // A popover's toggle doesn't bubble.
+  document.addEventListener("toggle", notify, true);
+  return () => {
+    document.removeEventListener("fullscreenchange", notify);
+    document.removeEventListener("toggle", notify, true);
+  };
 };
-const getFullscreenContainer = () => document.fullscreenElement as HTMLElement | null;
-/** Browser fullscreen paints only the selected subtree, including its portals. */
+const getFullscreenContainer = () => (document.fullscreenElement ?? document.querySelector("[data-fullscreen-cover]")) as HTMLElement | null;
+/**
+ * Browser fullscreen paints only the selected subtree, including its portals; so does an element
+ * covering the window from the top layer where the browser can't go full screen, as on an iPhone.
+ */
 export function useFullscreenPortalContainer() {
   return useSyncExternalStore(subscribeFullscreen, getFullscreenContainer, () => null) ?? undefined;
 }

@@ -57,7 +57,7 @@ async function renderWorkspace({ rpc = {} }: { rpc?: Record<string, unknown> } =
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  // Focus mode shows the title without the full header's heading.
+  // A collapsed header shows the title without the full header's heading.
   await slot.findAllByText("Parse rows");
   return { slot, rpc: handlers };
 }
@@ -144,20 +144,16 @@ test("dragging a wide pane's edge doesn't redraw the workspace on every frame", 
   restore();
 });
 
-test("a narrow workspace on a wide screen goes compact and starts in Focus, until you turn it off", async () => {
+test("a narrow workspace on a wide screen goes compact and starts with the header collapsed, until you expand it", async () => {
   const restore = fakeWidth(600);
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
-  const main = within(slot.getByRole("main"));
-  await waitFor(() => expect(main.getByRole("button", { name: "Show chapters" }).textContent).toContain("Chapters"));
-  const focus = main.getByRole("button", { name: "Focus mode" });
-  expect(focus.getAttribute("aria-pressed")).toBe("true");
-  fireEvent.click(focus);
-  expect(focus.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(await slot.findByRole("button", { name: "Expand header" }));
+  expect(slot.getByRole("button", { name: "Collapse header" })).toBeTruthy();
   slot.lifecycle.unmount();
   const again = await renderWorkspace();
   await again.slot.findByText("aa");
-  expect(within(again.slot.getByRole("main")).getByRole("button", { name: "Focus mode" }).getAttribute("aria-pressed")).toBe("false");
+  expect(again.slot.getByRole("button", { name: "Collapse header" })).toBeTruthy();
   again.slot.lifecycle.unmount();
   restore();
 });

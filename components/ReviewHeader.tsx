@@ -163,6 +163,7 @@ export const ReviewHeader = memo(function ReviewHeader({
   onSnooze,
   snoozing = false,
   readLines,
+  collapse,
 }: {
   review: any;
   checks?: ChecksSummary;
@@ -182,6 +183,8 @@ export const ReviewHeader = memo(function ReviewHeader({
   snoozing?: boolean;
   /** The changed lines worth reading (lib/review-size.ts readingLines). */
   readLines?: number;
+  /** The button at the header's top-right that collapses it. */
+  collapse?: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -202,7 +205,8 @@ export const ReviewHeader = memo(function ReviewHeader({
           <h2 className="flex min-w-0 flex-1 basis-80 text-base font-semibold leading-snug text-foreground @min-[640px]/review:text-lg">
             <ReviewTitleLink url={review.url}><InlineCode text={review.title ?? review.gitRef ?? review.targetKey} /></ReviewTitleLink>
           </h2>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {/* Wraps on its own row when the title's is full, so Snooze and Re-review stay on screen on a phone. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <CiBadge checks={checks} />
             {state.label !== "Ready" && <StatusBadge review={review} />}
             {turn.blocking && <Badge tone="warning" icon={<Icon name="Lock" aria-hidden />} title="Everyone else approved; only your changes requested is left.">Blocks merge</Badge>}
@@ -270,6 +274,7 @@ export const ReviewHeader = memo(function ReviewHeader({
         )}
         {!!requirements?.length && <Requirements requirements={requirements} onOpen={onOpenLine} />}
       </div>
+      {collapse}
     </header>
   );
 });
