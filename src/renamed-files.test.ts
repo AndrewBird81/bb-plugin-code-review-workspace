@@ -53,3 +53,28 @@ test("a discussion without a comment, and a Viewed mark, saved under a renamed f
   store.unsetFileViewed("pr-1", "src/new.ts");
   expect(store.getFileViews("pr-1")).toEqual([]);
 });
+
+test("renames move saved rows once per diff, not on every read", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
+  store.savePatch("pr-1", patch);
+  store.upsertDraftComment("pr-1", { file: "src/new.ts", line: 2, side: "RIGHT", body: "Why 3?" });
+  const db = bb.storage.database();
+  const prepare = vi.spyOn(db, "prepare");
+  const updates = () => prepare.mock.calls.filter(([sql]) => sql.startsWith("UPDATE OR IGNORE")).length;
+  store.getDraft("pr-1");
+  const first = updates();
+  expect(first).toBeGreaterThan(0);
+  store.getDraft("pr-1");
+  store.listDiscussions("pr-1");
+  store.getFileViews("pr-1");
+  expect(updates()).toBe(first);
+});
+
+test("moving a renamed file's discussions finds them by an index", () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  createStore(bb);
+  const plan = bb.storage.database().prepare(`EXPLAIN QUERY PLAN UPDATE OR IGNORE discussion_entries SET file=? WHERE target_key=? AND file=?`).all("b", "k", "a") as Array<{ detail: string }>;
+  expect(plan.map((row) => row.detail).join("\n")).toMatch(/USING INDEX/);
+});

@@ -49,7 +49,8 @@ export const rpcContract = defineRpcContract({
   /** patch is null when it's the one knownRevision names, which the page already shows. */
   getReviewBundle: {
     input: z.object({ targetKey: z.string(), knownRevision: z.string().optional() }).strict(),
-    output: z.object({ review: z.any().nullable(), guide: z.any().nullable(), patch: z.string().nullable(), revision: z.string() }),
+    // diffError: why a pruned review's diff couldn't be read again; the rest still loads.
+    output: z.object({ review: z.any().nullable(), guide: z.any().nullable(), patch: z.string().nullable(), revision: z.string(), diffError: z.string().optional() }),
   },
   getPreferences: { input: z.null(), output: z.object({ preferences: preferencesSchema, revision: z.number().int() }) },
   savePreferences: {

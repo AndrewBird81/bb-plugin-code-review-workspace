@@ -24,6 +24,9 @@ export interface StackPlace {
 export type StackInput = Pick<ReviewMeta, "targetKey"> & Partial<Pick<ReviewMeta,
   "kind" | "repo" | "number" | "base" | "head" | "prState" | "archivedAt" | "title" | "url" | "status" | "stackParent" | "submittedVerdict" | "signals" | "ownPr">>;
 
+/** A branch PRs merge into for good, such as gitflow's develop: an open PR from it (a release) stacks nothing on it. */
+export const longLivedBranch = (name: string) => /^(main|master|develop|development|dev|trunk|staging|production|prod|releases?\/.+)$/i.test(name);
+
 /**
  * Each stacked review's place, by targetKey. A review's parent is the open PR GitHub found for its
  * base branch when it has been read, else an open review in the same repository whose head is its base.
@@ -45,7 +48,7 @@ export function findStacks(reviews: StackInput[]): Map<string, StackPlace> {
         if (!members.has(parent)) members.set(parent, { targetKey: null, number: r.stackParent.number, title: r.stackParent.title, url: r.stackParent.url, status: null, reviewed: false });
       }
     } else {
-      const found = r.base ? open.find((o) => o !== r && o.repo.toLowerCase() === r.repo.toLowerCase() && o.head === r.base) : undefined;
+      const found = r.base && !longLivedBranch(r.base) ? open.find((o) => o !== r && o.repo.toLowerCase() === r.repo.toLowerCase() && o.head === r.base) : undefined;
       parent = found && id(found.repo, found.number);
     }
     if (parent && parent !== id(r.repo, r.number)) parentOf.set(id(r.repo, r.number), parent);
