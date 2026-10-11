@@ -69,11 +69,39 @@ function startsFolded(path: string, stats: { add: number; del: number }, declare
 
 const NONE = new Set<string>();
 
+/**
+ * A chapter showing more rows than this draws each file's code only once it nears the screen:
+ * highlighting 300 files at once held the page for over 40 seconds.
+ */
+const LAZY_ROWS = 3000;
+/** How far beyond the visible diff a file starts drawing. */
+const LAZY_MARGIN = "2000px 0px";
+
+/** The rows a file's hunks draw in a layout. */
+function rowsOf(fileDiff: FileDiffMetadata, style: "split" | "unified"): number {
+  return fileDiff.hunks.reduce((rows, hunk) => rows + (style === "split" ? hunk.splitLineCount : hunk.unifiedLineCount), 0);
+}
+
+/**
+ * The height pierre draws a file's diff at, held while it waits to draw so the files above it don't
+ * move when it does: 20px rows, 16px of padding, and a 48px bar for each run of lines it skips.
+ */
+function drawnHeight(fileDiff: FileDiffMetadata, style: "split" | "unified"): number {
+  return 16 + rowsOf(fileDiff, style) * 20 + fileDiff.hunks.filter((hunk) => hunk.collapsedBefore > 0).length * 48;
+}
+
 /** Below this width the diff shows one column, whatever the reading layout: each side of a split needs about 480px. */
 const UNIFIED_BELOW = 960;
 
 // A line's row is in pierre's shadow root, so the way out of it goes through its host.
 const outer = (el: Element): Element | null => el.parentElement ?? (el.getRootNode() as Partial<ShadowRoot>).host ?? null;
+
+/** The element the diff scrolls in. */
+function scrollParent(el: Element): Element | null {
+  let box = outer(el);
+  while (box && !/auto|scroll/.test(getComputedStyle(box).overflowY)) box = outer(box);
+  return box;
+}
 
 // Scrolls the review only vertically: scrollIntoView would also scroll the diff's code sideways.
 function scrollToCenter(el: HTMLElement, behavior: ScrollBehavior) {
@@ -369,6 +397,24 @@ export const DiffViewer = memo(function DiffViewer({
   }, [hasFiles]);
   const unifiedOnly = compact || narrow;
   useEffect(() => onUnifiedOnly?.(unifiedOnly), [unifiedOnly, onUnifiedOnly]);
+  const diffStyle = unifiedOnly ? "unified" : diffLayout;
+
+  // In a large chapter, the files that have come near the screen, or been revealed: only they draw their code.
+  // Large by the files that open unfolded: a big lockfile alone doesn't make a chapter slow.
+  const lazy = useMemo(() => typeof IntersectionObserver !== "undefined"
+    && perFile.reduce((rows, f) => rows + (f.fileDiff && !f.noisy ? rowsOf(f.fileDiff, "unified") : 0), 0) > LAZY_ROWS, [perFile]);
+  const [near, setNear] = useState<Set<string>>(NONE);
+  const draws = (path: string) => !lazy || near.has(path) || draft?.composer?.file === path;
+  useEffect(() => {
+    const el = root.current;
+    if (!lazy || !el) return;
+    const observer = new IntersectionObserver((entries) => {
+      const seen = entries.flatMap((entry) => entry.isIntersecting ? [(entry.target as HTMLElement).dataset.file!] : []);
+      if (seen.length) setNear((current) => seen.every((file) => current.has(file)) ? current : new Set([...current, ...seen]));
+    }, { root: scrollParent(el), rootMargin: LAZY_MARGIN });
+    el.querySelectorAll("[data-file]").forEach((card) => observer.observe(card));
+    return () => observer.disconnect();
+  }, [lazy, perFile]);
 
   // Explicit collapse overrides; when unset a file follows its "viewed" flag, and noise starts folded.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -441,8 +487,10 @@ export const DiffViewer = memo(function DiffViewer({
   useEffect(() => {
     if (!reveal) return;
     const { at } = reveal;
-    const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    // A large chapter jumps: scrolling smoothly would draw every file on the way.
+    const behavior = lazy || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
     setCollapsed((c) => ({ ...c, [at.file]: false }));
+    setNear((current) => current.has(at.file) ? current : new Set([...current, at.file]));
     const drawn = () => Array.from(root.current?.querySelectorAll("diffs-container") ?? []).every((el) => el.shadowRoot?.querySelector("[data-line]"));
     let tries = 0;
     let lastHeight = -1;
@@ -581,7 +629,10 @@ export const DiffViewer = memo(function DiffViewer({
                 <Icon name="Info" className="size-3.5 shrink-0" aria-hidden />{loaded.error}
               </p>
             )}
-            {!folded && fileDiff && (
+            {!folded && fileDiff && !draws(path) && (
+              <div data-pending-diff style={{ height: drawnHeight(full?.fileDiff ?? fileDiff, diffStyle) }} />
+            )}
+            {!folded && fileDiff && draws(path) && (
               <FileBody
                 path={path}
                 fileDiff={full?.fileDiff ?? fileDiff}
@@ -590,7 +641,7 @@ export const DiffViewer = memo(function DiffViewer({
                 darkTheme={theme?.dark}
                 lightTheme={theme?.light}
                 themeMode={themeMode}
-                diffStyle={unifiedOnly ? "unified" : diffLayout}
+                diffStyle={diffStyle}
                 wrap={wrapLines}
                 annotations={annotations.get(path)?.list ?? []}
                 selected={selectedLines?.file === path ? selectedLines.range : null}
