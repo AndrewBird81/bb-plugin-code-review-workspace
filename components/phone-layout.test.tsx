@@ -80,6 +80,22 @@ test("on a phone the toolbar keeps to counts and icons, without Split, which can
   slot.lifecycle.unmount();
 });
 
+test("on a phone the chapters give way to the open review panel and scroll, rather than draw over it", async () => {
+  fakeSize(390, 844);
+  const slot = await renderWorkspace();
+  const main = slot.getByRole("main");
+  fireEvent.click(within(main).getByRole("button", { name: "Show chapters" }));
+  const chapters = main.parentElement!.querySelector(":scope > aside")!;
+  // Below their 40vh cap when the panel takes the rest, scrolling inside; beside the diff on a wider screen, their width holds.
+  expect(chapters.className.split(" ")).not.toContain("shrink-0");
+  expect(chapters.className).toContain("overflow-y-auto");
+  expect(chapters.className).toContain("@min-[768px]/review:shrink-0");
+  expect(main.parentElement!.className.split(" ")).toContain("overflow-hidden");
+  // The toolbar's first row, with Chapters to close them, keeps its room.
+  expect(main.className.split(" ")).toContain("min-h-12");
+  slot.lifecycle.unmount();
+});
+
 test("a phone held sideways keeps the toolbar to counts and icons, so it fits one row", async () => {
   fakeSize(844, 390);
   const slot = await renderWorkspace();

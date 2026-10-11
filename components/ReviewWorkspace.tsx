@@ -868,11 +868,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       <div className="flex min-h-0 flex-1 flex-col @min-[1024px]/review:flex-row">
       {/* The draft panel owns the draft and shares it with the diff, which shows each comment under its line. */}
       <DraftTray patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} agent={{ patch, injection, container: rootEl }} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col @min-[768px]/review:flex-row">
+      {/* On a phone the chapters and the review panel can both be open: the chapters give way and scroll, so they never draw over the panel. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @min-[768px]/review:flex-row">
         {(compact ? mobileChapters : !sidebarCollapsed) && (
           <>
             <aside
-              className="max-h-[40vh] shrink-0 overflow-y-auto border-b border-border bg-surface-raised p-2 @min-[768px]/review:max-h-none @min-[768px]/review:border-b-0"
+              className="max-h-[40vh] overflow-y-auto border-b border-border bg-surface-raised p-2 @min-[768px]/review:max-h-none @min-[768px]/review:shrink-0 @min-[768px]/review:border-b-0"
               style={{ width: compact ? "100%" : sidebarWidth }}
             >
               <FindInReview patch={patch} sections={sections} onOpenLine={showLocation} onOpenChapter={openFoundChapter} onOpenFile={openFoundFile}>
@@ -914,7 +915,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
             />}
           </>
         )}
-        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+        {/* Keeps the toolbar's first row, with Chapters, in view when the chapters fill the rest. */}
+        <main className="flex min-h-12 min-w-0 flex-1 flex-col overflow-y-auto @min-[768px]/review:min-h-0">
           <div className="@container/toolbar flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
             <Button
               variant="ghost"
