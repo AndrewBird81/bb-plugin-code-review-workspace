@@ -21,6 +21,8 @@ test("list_review_files lists each file with its status, line counts, size, and 
   expect(text).toMatch(/^package-lock\.json · modified · \+1 −1 · \d+ chars · lockfile$/m);
   // Changed lines that look like file headers still count.
   expect(text).toMatch(/^m\.sql · modified · \+1 −1/m);
+  // Files the repo's .gitattributes marks generated say so.
+  expect(describeReviewFiles(patch, ["src/a.ts"])).toMatch(/^src\/a\.ts · modified · \+2 −1 · \d+ chars · generated$/m);
 });
 
 test("patch pages end on file boundaries, unless one file is longer than the page", () => {

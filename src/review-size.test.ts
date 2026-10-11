@@ -14,6 +14,8 @@ test("changed lines count each file's additions and deletions, by its path after
 test("lockfiles and generated files don't count toward reading", () => {
   const lines = new Map([["src/a.ts", 3], ["package-lock.json", 3000], ["dist/app.min.js", 900]]);
   expect(readingLines(["src/a.ts", "package-lock.json", "dist/app.min.js"], lines)).toBe(3);
+  // Nor do files the repo's .gitattributes marks generated.
+  expect(readingLines(["src/a.ts", "package-lock.json"], lines, new Set(["src/a.ts"]))).toBe(0);
 });
 
 test("reading time is a rough estimate at LINES_PER_HOUR", () => {

@@ -10,9 +10,9 @@ export function changedLines(patch: string): Map<string, number> {
   return new Map(splitPatchByFile(patch).map((file) => [file.path, patchRows(file.text).filter((row) => row.kind === "+" || row.kind === "-").length]));
 }
 
-/** The changed lines in these files worth reading: lockfiles and generated files left out. */
-export function readingLines(files: string[], lines: ReadonlyMap<string, number>): number {
-  return files.filter((file) => !classifyFile(file).skippable).reduce((sum, file) => sum + (lines.get(file) ?? 0), 0);
+/** The changed lines in these files worth reading: lockfiles and generated files, including those the repo declares, left out. */
+export function readingLines(files: string[], lines: ReadonlyMap<string, number>, generated?: ReadonlySet<string>): number {
+  return files.filter((file) => !classifyFile(file, generated?.has(file)).skippable).reduce((sum, file) => sum + (lines.get(file) ?? 0), 0);
 }
 
 /** About how long reading that many changed lines takes, at LINES_PER_HOUR. */

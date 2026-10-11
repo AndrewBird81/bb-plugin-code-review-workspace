@@ -283,7 +283,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useEffect(() => { if (!since) setSinceOnly(false); }, [since]);
   const sections = useMemo(() => guide?.sections ? withOtherFiles(guide.sections, patch) : [], [guide, patch]);
   const lines = useMemo(() => changedLines(patch), [patch]);
-  const readLines = useMemo(() => readingLines([...lines.keys()], lines), [lines]);
+  const readLines = useMemo(() => readingLines([...lines.keys()], lines, generated), [lines, generated]);
   const changedSince = useMemo(() => {
     if (!since || !sections.length) return undefined;
     return Object.fromEntries(sections.map((section: any) => [section.id, section.diffs.filter((diff: any) => {
@@ -782,6 +782,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 currentFile={currentFile}
                 changedSince={changedSince}
                 lines={lines}
+                generated={generated}
               />
             </aside>
             {!compact && <div

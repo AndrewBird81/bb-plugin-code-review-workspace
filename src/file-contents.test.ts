@@ -135,3 +135,14 @@ test("getGeneratedFiles lists the review's changed files its repo declares gener
   runGh.mockImplementation(github({ ".gitattributes?ref=head9": "src/a.ts linguist-generated\n" }));
   expect(await harness.behavior.callRpc("getGeneratedFiles", { targetKey: "pr-1" })).toEqual({ files: ["src/a.ts"] });
 });
+
+test("list_review_files calls the files the repo declares generated what they are", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ ...pr, headSha: "head10" });
+  store.savePatch("pr-1", patch);
+  runGh.mockImplementation(github({ ".gitattributes?ref=head10": "src/a.ts linguist-generated\n" }));
+  const out = await harness.behavior.callAgentTool("list_review_files", { targetKey: "pr-1" });
+  expect(String(out.content?.[0]?.text ?? out)).toMatch(/^src\/a\.ts · modified · \+1 −1 · \d+ chars · generated$/m);
+});

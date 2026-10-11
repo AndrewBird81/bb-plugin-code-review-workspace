@@ -84,3 +84,20 @@ test("each chapter shows the changed lines worth reading, without lockfiles", ()
   expect(screen.queryByText(/5,000/)).toBeNull();
   expect(screen.getAllByText(/ lines?$/)).toHaveLength(2);
 });
+
+test("files the repo's .gitattributes marks generated count as skippable, tagged, and not to read", () => {
+  render(
+    <ChapterNav
+      sections={sections}
+      activeId="c1"
+      onSelect={() => {}}
+      views={new Map<string, FileViewFlags>()}
+      onSelectFile={() => {}}
+      lines={new Map([["src/auth.ts", 1200], ["src/auth.test.ts", 40]])}
+      generated={new Set(["src/auth.ts"])}
+    />,
+  );
+  expect(screen.getAllByText(/1 skippable/)).toHaveLength(2);
+  expect(screen.getByText("generated · skip")).toBeTruthy();
+  expect(screen.getByText("40 lines")).toBeTruthy();
+});

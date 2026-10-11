@@ -55,6 +55,7 @@ export const ChapterNav = memo(function ChapterNav({
   currentFile,
   changedSince,
   lines,
+  generated,
 }: {
   sections: Section[];
   activeId: string;
@@ -67,6 +68,8 @@ export const ChapterNav = memo(function ChapterNav({
   changedSince?: Record<string, number>;
   /** Each file's changed lines (lib/review-size.ts). */
   lines?: ReadonlyMap<string, number>;
+  /** Files the repo's .gitattributes marks generated or vendored. */
+  generated?: ReadonlySet<string>;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const isExpanded = (id: string) => expanded[id] ?? id === activeId;
@@ -86,11 +89,11 @@ export const ChapterNav = memo(function ChapterNav({
         {sections.map((s, index) => {
           const active = s.id === activeId;
           const open = isExpanded(s.id);
-          const skippable = s.diffs.filter((d) => classifyFile(d.file).skippable).length;
+          const skippable = s.diffs.filter((d) => classifyFile(d.file, generated?.has(d.file)).skippable).length;
           const allSkippable = s.diffs.length > 0 && skippable === s.diffs.length;
           const viewed = s.diffs.filter((d) => views.get(d.file)?.viewed).length;
           const changed = changedSince?.[s.id] ?? 0;
-          const toRead = lines ? readingLines(s.diffs.map((d) => d.file), lines) : 0;
+          const toRead = lines ? readingLines(s.diffs.map((d) => d.file), lines, generated) : 0;
           return (
             <li key={s.id} className="relative">
               {index < sections.length - 1 && <span aria-hidden className="absolute bottom-[-6px] left-[18px] top-7 w-px bg-border" />}
@@ -166,7 +169,7 @@ export const ChapterNav = memo(function ChapterNav({
                               {d.file.split("/").pop()}
                             </span>
                             {viewed && <span className="sr-only">viewed</span>}
-                            <FileTag file={d.file} />
+                            <FileTag file={d.file} generated={generated?.has(d.file)} />
                           </button>
                         </li>
                       );
