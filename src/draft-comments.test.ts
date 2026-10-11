@@ -102,3 +102,43 @@ test("the panel removes a comment by its location, so an agent's delete can't sh
   expect((await remove(2, "LEFT")).draft.comments.map((c: any) => c.body)).toEqual(["First"]);
   expect((await remove(2, "LEFT")).draft.comments.map((c: any) => c.body)).toEqual(["First"]);
 });
+
+test("an agent's comment takes its severity from its label or the severity given, and an edit changes or keeps it", async () => {
+  const { harness, store, call, add, error } = await host();
+  expect(error(await add({ file: "a.ts", line: 3, code: "const c = b * 2;", body: "**Blocking:** This overflows." }))).toBeNull();
+  expect(error(await add({ file: "a.ts", line: 2, side: "LEFT", code: "const b = 2;", severity: "nit", body: "Why change b?" }))).toBeNull();
+  const at = { file: "a.ts", line: 3, side: "RIGHT" as const };
+  expect(store.getDraft("pr-1").comments).toEqual([
+    { ...at, author: "agent", severity: "blocking", body: "This overflows." },
+    { file: "a.ts", line: 2, side: "LEFT", author: "agent", severity: "nit", body: "Why change b?" },
+  ]);
+  expect(await call("list_draft_comments", {})).toContain("a.ts:3 RIGHT · added by an agent · blocking\n  This overflows.");
+  await expect(add({ file: "a.ts", line: 3, code: "x", severity: "major", body: "x" })).rejects.toThrow();
+
+  // A discussion keeps the agent's change, which Undo reverts, severity and all.
+  store.addDiscussionMessage("pr-1", at, "reviewer", "It's minor.");
+  expect(error(await call("edit_draft_comment", { ...at, body: "This could overflow." }))).toBeNull();
+  expect(store.getDraft("pr-1").comments[0]).toMatchObject({ severity: "blocking", body: "This could overflow." });
+  expect(error(await call("edit_draft_comment", { ...at, body: "Should fix: This could overflow." }))).toBeNull();
+  expect(store.getDraft("pr-1").comments[0]).toMatchObject({ severity: "should-fix", body: "This could overflow." });
+  expect(error(await call("edit_draft_comment", { ...at, severity: "none", body: "This could overflow." }))).toBeNull();
+  expect(store.getDraft("pr-1").comments[0]).not.toHaveProperty("severity");
+  await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", ...at });
+  expect(store.getDraft("pr-1").comments[0]).toEqual({ ...at, author: "agent", severity: "should-fix", body: "This could overflow." });
+  expect(error(await call("delete_draft_comment", at))).toBeNull();
+  await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", ...at });
+  expect(store.getDraft("pr-1").comments[1]).toEqual({ ...at, author: "agent", severity: "should-fix", body: "This could overflow." });
+});
+
+test("the reviewer's comment takes its severity from the panel's control or a label, and Undo after Remove keeps it", async () => {
+  const { harness, store } = await host();
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" }) as any;
+  const save = (comment: Record<string, unknown>) => harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, comment: { file: "a.ts", line: 3, side: "RIGHT", ...comment } }) as Promise<any>;
+  expect((await save({ severity: "question", body: "Why?" })).draft.comments).toEqual([{ file: "a.ts", line: 3, side: "RIGHT", severity: "question", body: "Why?" }]);
+  expect((await save({ severity: "question", body: "nit: Rename it." })).draft.comments[0]).toMatchObject({ severity: "nit", body: "Rename it." });
+  expect((await save({ body: "Rename it." })).draft.comments[0]).not.toHaveProperty("severity");
+  await expect(save({ severity: "major", body: "x" })).rejects.toThrow();
+  await harness.behavior.callRpc("removeDraftComment", { targetKey: "pr-1", file: "a.ts", line: 3, side: "RIGHT" });
+  await save({ author: "agent", severity: "nit", body: "Rename it." });
+  expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 3, side: "RIGHT", author: "agent", severity: "nit", body: "Rename it." }]);
+});

@@ -350,3 +350,21 @@ test("the patch's hash is kept when it's saved, and its positions are parsed onc
   expect(s.patchHash("pr-1")).toBe(sha(two));
   expect(s.patchHash("pr-2")).toBe(sha(""));
 });
+
+test("a comment's severity round-trips, a draft saved before severities loads with none, and an edit changes or keeps it", () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const s = createStore(bb);
+  s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
+  bb.storage.database().prepare(`INSERT INTO drafts (target_key,verdict,body,comments) VALUES ('pr-1','COMMENT','',?)`)
+    .run(JSON.stringify([{ file: "a.ts", line: 1, side: "RIGHT", body: "Old" }]));
+  expect(s.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 1, side: "RIGHT", body: "Old" }]);
+  s.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", severity: "nit", body: "Spacing" });
+  expect(s.getDraft("pr-1").comments[1]).toEqual({ file: "a.ts", line: 2, side: "RIGHT", severity: "nit", body: "Spacing" });
+  const at = { file: "a.ts", line: 2, side: "RIGHT" as const };
+  s.editDraftComment("pr-1", at, "Spacing here");
+  expect(s.getDraft("pr-1").comments[1].severity).toBe("nit");
+  s.editDraftComment("pr-1", at, "Spacing here", "blocking");
+  expect(s.getDraft("pr-1").comments[1].severity).toBe("blocking");
+  s.editDraftComment("pr-1", at, "Spacing here", null);
+  expect(s.getDraft("pr-1").comments[1]).toEqual({ ...at, body: "Spacing here" });
+});

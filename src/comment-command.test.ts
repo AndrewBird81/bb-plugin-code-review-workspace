@@ -33,7 +33,7 @@ test("bb review comment adds, lists, edits, and deletes local draft comments, an
     "a.ts:2 LEFT · added by an agent\n  Was this used?",
     "a.ts:1 RIGHT · added by the reviewer\n  Reviewer's own",
   ].join("\n"));
-  expect(JSON.parse((await cli("list", url, "--json")).stdout).comments[2]).toEqual({ file: "a.ts", line: 1, side: "RIGHT", author: "reviewer", body: "Reviewer's own", stale: false });
+  expect(JSON.parse((await cli("list", url, "--json")).stdout).comments[2]).toEqual({ file: "a.ts", line: 1, side: "RIGHT", author: "reviewer", severity: "none", body: "Reviewer's own", stale: false });
 
   expect(await cli("edit", url, "a.ts:2", "--body", "Reworded")).toMatchObject({ exitCode: 0, stdout: "Updated the draft comment on a.ts:2." });
   expect(await cli("delete", url, "a.ts:2", "--side", "LEFT")).toMatchObject({ exitCode: 0, stdout: "Deleted the draft comment on a.ts:2 (LEFT side)." });
@@ -66,4 +66,19 @@ test("bb review comment explains refusals and usage mistakes", async () => {
   expect(store.getDraft(key).comments).toEqual([]);
   expect(await cli("--help")).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("Nothing is posted to GitHub") });
   expect(await cli("add", "--help")).toMatchObject({ exitCode: 0 });
+});
+
+test("bb review comment sets a comment's severity with --severity or a label, and lists it", async () => {
+  const { store, cli } = await host();
+  expect(await cli("add", url, "a.ts:2", "--code", "next();", "--severity", "Should-fix", "--body", "Rename it back.")).toMatchObject({ exitCode: 0 });
+  expect(await cli("add", url, "a.ts:2", "--side", "LEFT", "--code", "old();", "--body", "**Question:** Was this used?")).toMatchObject({ exitCode: 0 });
+  expect(store.getDraft(key).comments.map((c) => [c.severity, c.body])).toEqual([["should-fix", "Rename it back."], ["question", "Was this used?"]]);
+  expect((await cli("list", url)).stdout).toContain("a.ts:2 RIGHT · added by an agent · should-fix\n  Rename it back.");
+  expect(JSON.parse((await cli("list", url, "--json")).stdout).comments[1].severity).toBe("question");
+  expect(await cli("edit", url, "a.ts:2", "--body", "Rename it back, please.")).toMatchObject({ exitCode: 0 });
+  expect(store.getDraft(key).comments[0]).toMatchObject({ severity: "should-fix", body: "Rename it back, please." });
+  expect(await cli("edit", url, "a.ts:2", "--severity", "none", "--body", "Rename it back, please.")).toMatchObject({ exitCode: 0 });
+  expect(store.getDraft(key).comments[0]).not.toHaveProperty("severity");
+  expect(await cli("add", url, "a.ts:1", "--code", "keep();", "--severity", "major", "--body", "x")).toMatchObject({ exitCode: 2, stderr: expect.stringMatching(/^--severity is blocking, should-fix, question, nit, or none\./) });
+  expect(await cli("delete", url, "a.ts:2", "--severity", "nit")).toMatchObject({ exitCode: 2, stderr: expect.stringMatching(/^delete doesn't take --severity/) });
 });

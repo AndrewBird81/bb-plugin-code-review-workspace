@@ -147,3 +147,12 @@ test("on your own PR, only a Comment review is submitted", async () => {
   // Past that check, it goes on to sign in as casey.
   expect(await submit("pr-test", undefined, "casey")).not.toMatchObject({ error: expect.stringContaining("own PR") });
 });
+
+test("a comment's severity goes to GitHub as its label, and a severity changed since the page showed it refuses", async () => {
+  const { store, run, submit } = setup();
+  const at = { file: "a.ts", line: 1, side: "RIGHT" as const };
+  store.upsertDraftComment("pr-test", { ...at, severity: "blocking", body: "Please explain this" });
+  expect(await submit("pr-test", undefined, undefined, [{ ...at, body: "Please explain this" }])).toMatchObject({ ok: false, error: expect.stringContaining("changed since this page showed them") });
+  expect(await submit("pr-test", undefined, undefined, [{ ...at, severity: "blocking", body: "Please explain this" }])).toEqual({ ok: true });
+  expect(JSON.parse(run.mock.lastCall![1]!.stdin!).comments).toEqual([{ ...{ path: "a.ts", line: 1, side: "RIGHT" }, body: "**Blocking:** Please explain this" }]);
+});
