@@ -33,7 +33,10 @@ import { defaultPreferences, type ReviewPreferences } from "../lib/review-prefer
 import { useDraftStatus } from "../lib/draft-status";
 import { inDiffOrder, shortcutKey } from "../lib/review-shortcuts";
 import { InlineDraftContext } from "./InlineDraft";
+import { DiffThreadsContext, useDiffThreads } from "./LineThreads";
+import { CheckFailuresContext, useCheckFailures } from "./CheckFailures";
 import { ShortcutsHelp } from "./ShortcutsHelp";
+import { StartHere } from "./StartHere";
 import { splitPatchByFile } from "../src/patch";
 import { changedLines, readingLines } from "../lib/review-size";
 
@@ -119,6 +122,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [revision, setRevision] = useState("");
   const [repoAccess, setRepoAccess] = useState<{ accessible: boolean; repo: string | null; account: string | null } | null>(null);
   const [views, setViews] = useState<Map<string, FileViewFlags>>(new Map());
+  const [generated, setGenerated] = useState<Set<string>>(new Set());
   const [injection, setInjection] = useState<DockInjection | undefined>();
   const [currentFile, setCurrentFile] = useState<string | undefined>();
   const [sel, setSel] = useState<{ x: number; y: number; file: string; code: string } | null>(null);
@@ -143,14 +147,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
   // Compact by the workspace's own width: a narrow BB pane on a wide screen is as tight as a phone.
-  const [rootWidth, setRootWidth] = useState<number | null>(null);
+  // Only whether it's compact: the width changes every frame of a pane drag.
+  const [narrowRoot, setNarrowRoot] = useState<boolean | null>(null);
   useEffect(() => {
     if (!rootEl || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => setRootWidth(entry.contentRect.width));
+    const observer = new ResizeObserver(([entry]) => setNarrowRoot(entry.contentRect.width < 768));
     observer.observe(rootEl);
     return () => observer.disconnect();
   }, [rootEl]);
-  const compact = rootWidth === null ? compactViewport : rootWidth < 768;
+  const compact = narrowRoot ?? compactViewport;
   // Without a choice of your own, Focus gives a compact workspace's diff the room.
   const focus = chosenFocus ?? compact;
   // Likewise long lines wrap there, rather than scroll sideways.
@@ -169,8 +174,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useEffect(loadPreferences, [loadPreferences]);
   useRealtime("preferences", loadPreferences);
   // The reading layout is a setting, saved for every review like the one in Settings.
+  // Below about 960px the diff shows unified whatever the layout, so the toggle can't apply there.
+  const [unifiedOnly, setUnifiedOnly] = useState(false);
   const toggleLayout = useCallback(async () => {
-    if (!preferences) return;
+    if (!preferences || unifiedOnly) return;
     const next = { ...preferences.preferences, diffLayout: preferences.preferences.diffLayout === "split" ? "unified" as const : "split" as const };
     setPreferences({ ...preferences, preferences: next });
     try {
@@ -179,7 +186,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       toast.error("Couldn’t save the layout.");
       loadPreferences();
     }
-  }, [rpc, preferences, loadPreferences]);
+  }, [rpc, preferences, unifiedOnly, loadPreferences]);
   useEffect(() => patchReviewState(targetKey, { activeId, view: chosenView ?? undefined, sidebarWidth, focus: chosenFocus }), [targetKey, activeId, chosenView, sidebarWidth, chosenFocus]);
   const isPr = review?.kind === "pr";
   const view: View = chosenView && chosenView !== "diff" && review && !isPr ? "diff" : chosenView ?? defaultView ?? "diff";
@@ -202,9 +209,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     try {
       // Views come with the diff, so viewed files are folded before it first draws.
       const known = shownPatch.current?.targetKey === targetKey ? shownPatch.current : null;
-      const [{ review, guide, patch: sent, revision }, viewsRes] = await Promise.all([
+      const [{ review, guide, patch: sent, revision }, viewsRes, generatedRes] = await Promise.all([
         rpc.call("getReviewBundle", { targetKey, ...(known ? { knownRevision: known.revision } : {}) }),
         rpc.call("getFileViews", { targetKey }).catch(() => null),
+        // Like views, so files the repo marks generated are folded before the diff draws.
+        rpc.call("getGeneratedFiles", { targetKey }).catch(() => null),
       ]);
       if (id !== request.current) return;
       // A deleted review shows "Review not found" rather than a pending regeneration.
@@ -228,6 +237,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       }
       setPatch(patch);
       if (viewsRes && viewsId === viewsRequest.current) setViews(viewMap(viewsRes.views));
+      if (generatedRes) setGenerated((current) => current.size === generatedRes.files.length && generatedRes.files.every((file) => current.has(file)) ? current : new Set(generatedRes.files));
       const chapters = guide?.sections ? withOtherFiles(guide.sections, patch) : [];
       if (chapters.length) {
         const saved = getReviewState(targetKey).activeId;
@@ -470,6 +480,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setSinceOnly(false);
     showComment({ file, line: line ?? 0, side });
   }, [outsideGuide, showComment]);
+  const openHotspot = useCallback((file: string, line: number) => showLocation(file, line, "RIGHT"), [showLocation]);
   const followUp = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
     if (outsideGuide(file, url)) return;
     showLocation(file, line, side);
@@ -556,6 +567,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setSel(null);
     window.getSelection()?.removeAllRanges();
   }
+
+  // Everyone's GitHub threads, under their lines in the diff unless hidden.
+  const diffThreads = useDiffThreads(targetKey, isPr && view === "diff");
+  const [showThreads, setShowThreads] = useState(true);
+  const checkFailures = useCheckFailures(targetKey, isPr ? review?.headSha ?? null : null);
+  const readContents = useCallback((file: string) => rpc.call("getFileContents", { targetKey, file }), [rpc, targetKey]);
 
   // GitHub-style line selection in the diff (via pierre) → comment / ask agent.
   const onLineSelected = useCallback((file: string, range: SelectedLineRange | null) => {
@@ -716,6 +733,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         <div className="border-b border-border">
           <div className="px-4 pb-3.5 pt-3">
             <ReviewHeader review={review} checks={checks} intent={guide.intent} sinceReview={guide.sinceReview} onShowFeedback={showFeedback} onSnooze={snoozeFromHeader} snoozing={snoozing} readLines={readLines} trailing={headerTrailing} />
+            {guide.hotspots?.length > 0 && <StartHere hotspots={guide.hotspots} onOpen={openHotspot} />}
           </div>
           {generatingReplacement && <p role="status" className="flex items-center gap-2 border-t border-warning/20 bg-warning/10 px-4 py-2 text-xs text-warning-text"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Regenerating the guide. Your previous diff and unsaved edits remain visible.</p>}
         </div>
@@ -838,13 +856,27 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   <span className="h-4 w-px bg-border" />
                 </>
               )}
-              {view === "diff" && <Hint label="Split view" container={rootEl}>
+              {view === "diff" && isPr && diffThreads.threads.length > 0 && <Hint label="GitHub threads" container={rootEl}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="GitHub threads"
+                  aria-pressed={showThreads}
+                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
+                  onClick={() => setShowThreads(!showThreads)}
+                >
+                  <Icon name="Github" className="size-3.5" aria-hidden />
+                  <span className="hidden @min-[1280px]/review:inline">Threads</span>
+                </Button>
+              </Hint>}
+              {view === "diff" && <Hint label={unifiedOnly ? "Split view needs a wider pane" : "Split view"} container={rootEl}>
                 <Button
                   variant="ghost"
                   size="sm"
                   aria-label="Split view"
-                  aria-pressed={diffLayout === "split"}
-                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
+                  aria-pressed={diffLayout === "split" && !unifiedOnly}
+                  aria-disabled={unifiedOnly}
+                  className="h-9 px-2 text-xs aria-pressed:text-primary aria-disabled:cursor-default aria-disabled:opacity-50 md:h-7"
                   onClick={() => void toggleLayout()}
                 >
                   <Icon name="Columns2" className="size-3.5" aria-hidden />
@@ -897,6 +929,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
             {view === "diff" ? (
               <>
               {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
+              <CheckFailuresContext.Provider value={checkFailures}>
+              <DiffThreadsContext.Provider value={showThreads ? diffThreads : null}>
               <DiffViewer
                 diffLayout={diffLayout}
                 wrapLines={wrapLines}
@@ -913,7 +947,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 since={since}
                 sinceOnly={sinceOnly}
                 showRemoved={activeId === sections.at(-1)?.id}
+                onUnifiedOnly={setUnifiedOnly}
+                readContents={readContents}
+                generated={generated}
               />
+              </DiffThreadsContext.Provider>
+              </CheckFailuresContext.Provider>
               {nextSection && (
                 <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
                   {viewedCount < activeFiles.length && (
@@ -939,7 +978,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 onDraftUpdated={showDraftSummary}
               />
             ) : (
-              <ThreadsPanel targetKey={targetKey} />
+              <ThreadsPanel targetKey={targetKey} onShowInDiff={showLocation} />
             )}
           </div>
         </main>

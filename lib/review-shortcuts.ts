@@ -13,13 +13,14 @@ export const SHORTCUTS = [
 ] as const;
 
 const KEYS = new Set<string>(SHORTCUTS.flatMap((shortcut) => shortcut.keys));
+const TEXT_INPUT = "input" + ["checkbox", "radio", "button", "submit", "reset", "range", "color", "file", "image"].map((type) => `:not([type=${type}])`).join("");
 
 /** The shortcut a key press asks for: none while typing, or with Ctrl, Meta, or Alt held. */
 export function shortcutKey(event: KeyboardEvent): string | null {
   if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || !KEYS.has(event.key)) return null;
-  // The element typed in, even inside a shadow root.
+  // The element typed in, even inside a shadow root. A checkbox or button keeps focus after a click, but takes no typing.
   const target = event.composedPath()[0];
-  if (target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select, [role=textbox], [role=dialog], [role=alertdialog]"))) return null;
+  if (target instanceof HTMLElement && (target.isContentEditable || target.closest(`${TEXT_INPUT}, textarea, select, [role=textbox], [role=dialog], [role=alertdialog]`))) return null;
   return event.key;
 }
 

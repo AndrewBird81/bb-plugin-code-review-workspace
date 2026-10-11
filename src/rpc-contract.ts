@@ -85,6 +85,18 @@ export const rpcContract = defineRpcContract({
   getPr: { input: targetKey, output: z.object({ pr: z.any().nullable() }) },
   getThreads: { input: targetKey, output: z.object({ comments: z.array(z.any()) }) },
   getChecks: { input: targetKey, output: z.object({ bucket: z.string(), checks: z.array(z.any()) }) },
+  /** A changed file's whole old and new contents (null on a side it doesn't exist), or why only its diff can show. */
+  /** Failure annotations of the reviewed head's failed check runs, to show on their lines. */
+  getCheckFailures: {
+    input: targetKey,
+    output: z.object({ failures: z.array(z.object({ file: z.string(), line: z.number().int(), check: z.string(), title: z.string().nullable(), message: z.string(), url: z.string() })) }),
+  },
+  /** The changed files the repo's .gitattributes marks linguist-generated or linguist-vendored. */
+  getGeneratedFiles: { input: targetKey, output: z.object({ files: z.array(z.string()) }) },
+  getFileContents: {
+    input: z.object({ targetKey: z.string(), file: z.string() }).strict(),
+    output: z.union([z.object({ ok: z.literal(true), old: z.string().nullable(), new: z.string().nullable() }), z.object({ ok: z.literal(false), error: z.string() })]),
+  },
 
   // Phase 2: review threads, reply/resolve, staleness, re-review
   /** error: GitHub couldn't be read, or not every page; threads holds what was. */

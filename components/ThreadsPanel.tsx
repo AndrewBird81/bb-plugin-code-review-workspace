@@ -8,8 +8,13 @@ import { withLineBreaks } from "../src/line-breaks";
 import { Badge } from "./ui/badge";
 import { Avatar } from "./ui/avatar";
 import { Icon } from "./ui/icon";
+import { cn } from "../lib/utils";
 
-export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKey: string }) {
+export const ThreadsPanel = memo(function ThreadsPanel({ targetKey, onShowInDiff }: {
+  targetKey: string;
+  /** Open the diff at a thread's line, or its file when it has none. */
+  onShowInDiff?: (file: string, line: number | null, side: "LEFT" | "RIGHT") => void;
+}) {
   const rpc = useRpc<typeof rpcContract>();
   const [threads, setThreads] = useState<any[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -121,10 +126,15 @@ export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKe
             </span>
             {t.isResolved && <Badge tone="success">resolved</Badge>}
             {t.isOutdated && <Badge tone="warning">outdated</Badge>}
+            {onShowInDiff && t.path && (
+              <Button variant="ghost" size="sm" className="ml-auto h-6 px-2 text-[10px]" onClick={() => onShowInDiff(t.path, t.isOutdated ? null : t.line, t.side ?? "RIGHT")}>
+                Show in diff
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
-              className="ml-auto h-6 px-2 text-[10px]"
+              className={cn("h-6 px-2 text-[10px]", !(onShowInDiff && t.path) && "ml-auto")}
               disabled={busyId === t.id}
               onClick={() => toggleResolve(t)}
             >

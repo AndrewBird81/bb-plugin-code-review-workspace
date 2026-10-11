@@ -109,6 +109,7 @@ test("getReviewThreads returns parsed threads", async () => {
       isOutdated: false,
       path: "src/foo.ts",
       line: 42,
+      side: "RIGHT",
       comments: [{ id: "PRRC_1", databaseId: 111, author: "alice", body: "please fix" }],
     },
   ]);

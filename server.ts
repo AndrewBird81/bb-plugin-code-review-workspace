@@ -10,7 +10,9 @@ import { createStore } from "./src/store";
 import { changedFiles, splitPatchByFile } from "./src/patch";
 import { describeReviewFiles, patchPage } from "./src/review-files";
 import { readPrContext } from "./src/pr-context";
-import { validateGuide, checkCoverage, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
+import { readFileContents, readGeneratedFiles } from "./src/file-contents";
+import { readCheckFailures } from "./src/check-annotations";
+import { validateGuide, checkCoverage, checkHotspots, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startConversation } from "./src/agent";
@@ -396,6 +398,22 @@ export default async function plugin(bb: BbPluginApi) {
       const r = await runGh(ghPrChecksJsonArgs(m.number, m.repo));
       const parsed = parseChecks([0, 1, 8].includes(r.code) ? r.stdout : "");
       return { bucket: parsed.bucket, checks: parsed.checks };
+    },
+    async getCheckFailures({ targetKey }) {
+      const review = store.getReview(targetKey);
+      return { failures: review ? await readCheckFailures(runGh, review) : [] };
+    },
+    async getGeneratedFiles({ targetKey }) {
+      const review = store.getReview(targetKey);
+      if (!review) return { files: [] };
+      return { files: await readGeneratedFiles({ runGh, runGit }, review, changedFiles(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text)) };
+    },
+    async getFileContents({ targetKey, file }) {
+      const review = store.getReview(targetKey);
+      if (!review) return { ok: false as const, error: "This review no longer exists." };
+      const patchFile = splitPatchByFile(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text).find((f) => f.path === file);
+      if (!patchFile) return { ok: false as const, error: `${file} isn’t in this review’s diff.` };
+      return readFileContents({ runGh, runGit }, review, patchFile);
     },
 
     // Phase 2: review threads, reply/resolve, staleness, re-review
@@ -901,14 +919,17 @@ export default async function plugin(bb: BbPluginApi) {
       const v = validateGuide(guide);
       if (!v.ok) return { content: [{ type: "text", text: "Invalid guide:\n" + v.errors.join("\n") }], isError: true };
       const total = store.readPatch(targetKey, 0, 0).total;
-      const files = changedFiles(store.readPatch(targetKey, 0, total).text);
+      const patch = store.readPatch(targetKey, 0, total).text;
+      const files = changedFiles(patch);
       const cov = checkCoverage(v.guide, files);
       if (!cov.ok) return { content: [{ type: "text", text: "Coverage errors:\n" + cov.errors.join("\n") }], isError: true };
+      const spots = checkHotspots(v.guide, patch);
+      if (!spots.ok) return { content: [{ type: "text", text: "Hotspot errors:\n" + spots.errors.join("\n") }], isError: true };
       // Stamp the store's authoritative gitRef/base over whatever the agent
       // submitted — the guide must never carry a wrong or stale review ref.
       const meta = store.getReview(targetKey);
       if (meta?.gitRef) v.guide.review = { gitRef: meta.gitRef, ...(meta.base ? { base: meta.base } : {}) };
-      store.saveGuide(targetKey, placeUnplacedFiles(v.guide));
+      store.saveGuide(targetKey, placeUnplacedFiles(v.guide, patch));
       return "Guide accepted.";
     },
   });
