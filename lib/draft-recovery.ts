@@ -17,7 +17,11 @@ export function readDraftRecovery(targetKey: string): DraftRecovery {
     const value = JSON.parse(sessionStorage.getItem(key(targetKey)) ?? "{}");
     const result: DraftRecovery = {};
     const revisionValid = (item: any) => item.revision === undefined || typeof item.revision === "string";
-    if (value.composer && revisionValid(value.composer) && ["file", "line", "body"].every(k => typeof value.composer[k] === "string") && ["LEFT", "RIGHT"].includes(value.composer.side) && flag(value.composer.inline) && flag(value.composer.asking) && flag(value.composer.summary) && (value.composer.startLine === undefined || Number.isInteger(value.composer.startLine)) && [undefined, "LEFT", "RIGHT"].includes(value.composer.startSide)) result.composer = value.composer;
+    if (value.composer && revisionValid(value.composer) && ["file", "line", "body"].every(k => typeof value.composer[k] === "string") && ["LEFT", "RIGHT"].includes(value.composer.side) && flag(value.composer.inline) && flag(value.composer.asking) && flag(value.composer.summary) && (value.composer.startLine === undefined || Number.isInteger(value.composer.startLine)) && [undefined, "LEFT", "RIGHT"].includes(value.composer.startSide)) {
+      // A box from before range comments kept a selection's other end, which may come after its line.
+      const { startLine, ...composer } = value.composer;
+      result.composer = !value.composer.startSide && startLine > Number(value.composer.line) ? composer : value.composer;
+    }
     if (value.summary && revisionValid(value.summary) && typeof value.summary.body === "string" && value.summary.body.trim()) {
       const summary = { body: value.summary.body, ...(value.summary.revision ? { revision: value.summary.revision } : {}) };
       // The summary's own box takes it, unless the box holds something else.

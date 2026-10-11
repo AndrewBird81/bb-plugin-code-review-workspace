@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import { readDraftRecovery } from "../lib/draft-recovery";
 
 // Render the diff's annotations, not @pierre/diffs' internals, and a drag from line 4 up to line 2 as pierre reports it.
 vi.mock("@pierre/diffs/react", () => ({
@@ -129,3 +130,12 @@ test("in the review, Add comment on lines dragged upward comments on them first 
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ file: "src/a.ts", line: 4, side: "RIGHT", startLine: 2 }) })));
   slot.lifecycle.unmount();
 }, 15_000);
+
+test("an unsaved box from before range comments, with a start after its line, comes back on its line alone", () => {
+  const box = { file: "src/a.ts", line: "2", side: "RIGHT", body: "Unsaved words" };
+  sessionStorage.setItem("guided-review:draft-recovery:k", JSON.stringify({ composer: { ...box, startLine: 4 } }));
+  expect(readDraftRecovery("k").composer).toEqual(box);
+  // Across sides, a first line's number can be higher than the last's.
+  sessionStorage.setItem("guided-review:draft-recovery:k", JSON.stringify({ composer: { ...box, startLine: 4, startSide: "LEFT" } }));
+  expect(readDraftRecovery("k").composer).toEqual({ ...box, startLine: 4, startSide: "LEFT" });
+});
