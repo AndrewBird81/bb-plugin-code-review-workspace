@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { Turn } from "../lib/turn";
 
-afterEach(() => { cleanup(); document.body.innerHTML = ""; localStorage.clear(); });
+afterEach(() => { cleanup(); document.body.innerHTML = ""; localStorage.clear(); vi.useRealTimers(); });
 
 /** BB's thread list as it draws its groups: wrappers in a container, each holding a group under its label. */
 function threadList() {
@@ -99,13 +99,16 @@ test("with nothing waiting on you there's no group, and it appears when a review
   const overlay = app.appOverlays.find((registration) => registration.id === "needs-review")!;
   const slot = renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: list }) } });
   await waitFor(() => expect(slot.inspection.rpcCalls.some((call) => call.method === "listReviews")).toBe(true));
-  // Kept out of the list's spacing while empty.
-  expect((groups.firstElementChild as HTMLElement).hidden).toBe(true);
+  // Out of BB's list altogether while empty.
+  expect(groups.children).toHaveLength(2);
   expect(within(document.body).queryByRole("region", { name: "Needs review" })).toBeNull();
   list = reviews;
   await slot.emitRealtime("reviews", {});
-  expect(await within(document.body).findByRole("region", { name: "Needs review" }, { timeout: 2000 })).toBeTruthy();
-  expect((groups.firstElementChild as HTMLElement).hidden).toBe(false);
+  const section = await within(document.body).findByRole("region", { name: "Needs review" }, { timeout: 2000 });
+  expect(groups.firstElementChild!.contains(section)).toBe(true);
+  list = [reviews[1]];
+  await slot.emitRealtime("reviews", {});
+  await waitFor(() => expect(groups.children).toHaveLength(2), { timeout: 2000 });
   slot.lifecycle.unmount();
 });
 
@@ -113,5 +116,16 @@ test("without BB's thread list it shows nowhere", async () => {
   const slot = await renderSidebar();
   await waitFor(() => expect(slot.inspection.rpcCalls.some((call) => call.method === "listReviews")).toBe(true));
   expect(within(document.body).queryByRole("region", { name: "Needs review" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("how long each has waited keeps up while the page stays open", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  threadList();
+  const slot = await renderSidebar([reviews[2]]);
+  const row = await within(document.body).findByRole("link", { name: /Direct request/ });
+  expect(row.textContent).toBe("Direct request2h");
+  await vi.advanceTimersByTimeAsync(3_600_000);
+  expect(row.textContent).toBe("Direct request3h");
   slot.lifecycle.unmount();
 });

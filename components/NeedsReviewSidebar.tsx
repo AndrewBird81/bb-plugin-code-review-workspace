@@ -20,27 +20,29 @@ function groupsContainer(): Element | null {
   return label?.closest("[data-sidebar-sticky-group]")?.parentElement?.parentElement ?? null;
 }
 
-/** A node kept first among the thread list's groups, for as long as the caller is mounted. */
-function useGroupsSlot(): HTMLElement {
+/** A node kept first among the thread list's groups while `active`, and out of the page otherwise. */
+function useGroupsSlot(active: boolean): HTMLElement {
   const scope = usePortalScopeProps();
   const [node] = useState(() => {
     const div = document.createElement("div");
-    div.hidden = true;
     // The plugin's stylesheet reaches it as it does a portaled popover.
     for (const [name, value] of Object.entries(scope)) div.setAttribute(name, value);
     return div;
   });
   useEffect(() => {
+    if (!active) return;
+    const placed = () => node.isConnected && node.parentElement?.firstElementChild === node;
+    let frame = 0;
     const place = () => {
-      if (node.isConnected && node.parentElement?.firstElementChild === node) return;
-      const container = groupsContainer();
-      if (container) container.prepend(node);
+      frame = 0;
+      if (!placed()) groupsContainer()?.prepend(node);
     };
     place();
-    const observer = new MutationObserver(place);
+    // Once a frame at most: the page changes constantly while an agent streams.
+    const observer = new MutationObserver(() => { if (!frame && !placed()) frame = requestAnimationFrame(place); });
     observer.observe(document.body, { childList: true, subtree: true });
-    return () => { observer.disconnect(); node.remove(); };
-  }, [node]);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); node.remove(); };
+  }, [node, active]);
   return node;
 }
 
@@ -75,10 +77,14 @@ function closePhoneSidebar() {
 }
 
 export function NeedsReviewSidebar() {
-  const slot = useGroupsSlot();
   const reviews = useNeedsReview();
-  // Hidden, not just empty, so the list's spacing skips it.
-  useEffect(() => { slot.hidden = !reviews.length; }, [slot, reviews.length]);
+  const slot = useGroupsSlot(reviews.length > 0);
+  // Keeps "2h" true while the page stays open.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const minute = setInterval(() => tick((n) => n + 1), 60_000);
+    return () => clearInterval(minute);
+  }, []);
   const navigate = useBbNavigate();
   const pluginId = experimental_usePluginId();
   const [collapsed, setCollapsed] = useState(() => {
