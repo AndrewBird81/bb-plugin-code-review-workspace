@@ -9,7 +9,7 @@ import { Avatar } from "./ui/avatar";
 import { Icon } from "./ui/icon";
 import { IconTile } from "./ui/icon-tile";
 import { InlineCode } from "./ui/inline-code";
-import { kindLook } from "./ReviewStatus";
+import { kindLook, statusLook } from "./ReviewStatus";
 import { StackLinks, UnreviewedParent } from "./ReviewHeader";
 import type { StackPlace } from "../lib/stacks";
 
@@ -51,7 +51,7 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: {
             {review.author && <span className="inline-flex items-center gap-1.5"><Avatar login={review.author} size={18} /><span className="text-foreground/90">@{review.author}</span></span>}
           </p>
           <p className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
-            <Badge tone={turn.group === "needs" ? "primary" : "neutral"}>{turn.label}</Badge>
+            <Badge tone={turn.group === "needs" ? "primary" : "neutral"}>{statusLook(review).label}</Badge>
             {requestedBy && <span>Requested by @{requestedBy}</span>}
           </p>
           {review.stack && <p className="flex flex-wrap items-center justify-center text-xs text-muted-foreground"><StackLinks stack={review.stack} /></p>}
