@@ -226,6 +226,14 @@ test("where the browser can't go full screen, as on an iPhone, Full screen cover
   expect(hide.mock.contexts).toEqual([root]);
   expect(root.hasAttribute("popover")).toBe(false);
   expect(root.className.split(" ")).not.toContain("fixed");
+  // ⇧F covers it again. Esc closes the sheet still open over the code, and then leaves.
+  fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
+  expect(root.getAttribute("popover")).toBe("manual");
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(slot.queryByRole("dialog", { name: "Chapters" })).toBeNull();
+  expect(root.getAttribute("popover")).toBe("manual");
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(root.hasAttribute("popover")).toBe(false);
   slot.lifecycle.unmount();
 });
 

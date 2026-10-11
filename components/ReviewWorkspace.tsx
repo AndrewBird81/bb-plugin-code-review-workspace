@@ -10,7 +10,7 @@ import { baselineOf, computeTurn, type TurnReason } from "../lib/turn";
 import { notRunReason } from "../lib/trust";
 import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
-import { getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setGithubThreadsInCode, setHideWhitespace, setLastReview, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView } from "../lib/panel-state";
+import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setCommentsFolded, setGithubThreadsInCode, setHideWhitespace, setLastReview, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView } from "../lib/panel-state";
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
 import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, useWorkspaceLayout } from "../lib/workspace-layout";
 import { useKeyboardInset } from "../lib/use-keyboard-inset";
@@ -219,6 +219,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const changeWrap = useCallback((wrap: boolean) => { setChosenWrap(wrap); setWrapLines(wrap); }, []);
   const [hideWhitespace, setHideWhitespaceState] = useState(getHideWhitespace);
   const changeHideWhitespace = useCallback((hide: boolean) => { setHideWhitespaceState(hide); setHideWhitespace(hide); }, []);
+  // Without a choice of your own, comments in the code fold to markers where the screen is small.
+  const [chosenFold, setChosenFold] = useState(getCommentsFolded);
+  const commentsFolded = chosenFold ?? layout.mode !== "tablet";
+  const changeCommentsFolded = useCallback((folded: boolean) => { setChosenFold(folded); setCommentsFolded(folded); }, []);
   const reducedMotion =
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
@@ -510,19 +514,27 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     [rpc, targetKey, loadViews],
   );
 
+  // A chapter's files not viewed yet, marked at once, which Undo unmarks again.
   const markChapterViewed = useCallback((id: string) => {
     const files: string[] = sections.find((section: any) => section.id === id)?.diffs.map((d: any) => d.file) ?? [];
     const todo = files.filter((f) => !views.get(f)?.viewed);
     if (!todo.length) return;
-    setViews((prev) => {
+    const mark = (viewed: boolean) => setViews((prev) => {
       const next = new Map(prev);
-      for (const f of todo) next.set(f, { viewed: true, stale: false });
+      for (const f of todo) next.set(f, { viewed, stale: false });
       return next;
     });
-    rpc
-      .call("setFilesViewed", { targetKey, files: todo })
-      .then(() => loadViews())
-      .catch(() => loadViews());
+    mark(true);
+    const marked = rpc.call("setFilesViewed", { targetKey, files: todo });
+    marked.then(() => loadViews()).catch(() => loadViews());
+    const undo = () => {
+      mark(false);
+      // After the marking, so the server ends where the screen does.
+      void marked.catch(() => {})
+        .then(() => Promise.all(todo.map((file) => rpc.call("setFileViewed", { targetKey, file, viewed: false }))))
+        .then(() => loadViews()).catch(() => loadViews());
+    };
+    toast.success(`Marked ${todo.length} file${todo.length === 1 ? "" : "s"} viewed`, { action: { label: "Undo", onClick: undo } });
   }, [sections, views, rpc, targetKey, loadViews]);
   const foldAllFiles = useCallback((folded: boolean) => setFoldAll({ folded, nonce: Date.now() }), []);
 
@@ -597,6 +609,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // A thread on a file the PR no longer changes has no diff here to show; its GitHub link can show it.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
+  // Leaving the review leaves its full screen: before going, and if it's left some other way, as it goes.
+  const leave = useCallback(async (subPath = "") => {
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+    navigateRef.current.toPluginPanel("review", subPath ? { subPath } : undefined);
+  }, []);
+  useLayoutEffect(() => {
+    if (!rootEl) return;
+    return () => { if (rootEl.contains(document.fullscreenElement)) void document.exitFullscreen().catch(() => {}); };
+  }, [rootEl]);
   const outsideGuide = useCallback((file: string, url: string | null) => {
     if (sections.some((section: any) => section.diffs.some((diff: any) => diff.file === file))) return false;
     toast.info(`${file} isn’t changed in this PR anymore.`, url ? { action: { label: "Open on GitHub", onClick: () => navigateRef.current.openUrl(url) } } : undefined);
@@ -810,8 +831,27 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         } else findInReview();
         return true;
       }
+      case "V": {
+        if (activeSection) markChapterViewed(activeSection.id);
+        return inChapter;
+      }
+      case "t": toggleNav(); return true;
+      case "c": togglePanel("comments"); return true;
       case "a": askAgent(); return true;
       case "s": showDraftSummary(); return true;
+      case "i": changeCommentsFolded(!commentsFolded); return true;
+      case "F": {
+        if (canFullscreen) toggleFullscreen();
+        return canFullscreen;
+      }
+      case "Escape": {
+        // What's over the code, then the iPhone's cover; the browser's full screen leaves on Esc by itself.
+        const { nav, panel } = layoutRef.current;
+        if (nav === "overlay" || panel === "overlay") closeOverlays();
+        else if (covering) setCovering(false);
+        else return false;
+        return true;
+      }
       case "?": setShortcutsOpen(true); return true;
     }
     return false;
@@ -821,6 +861,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       const key = shortcutKey(event);
       const root = rootRef.current;
       if (!root || (event.target !== document.body && !root.contains(event.target as Node))) return;
+      // An Esc a menu or tooltip already took is theirs.
+      if (key === "Escape" && event.defaultPrevented) return;
       // Other keys may scroll the diff, which then says which file you're on.
       if (!key) pinned.current = false;
       else if (shortcut.current(key)) event.preventDefault();
@@ -835,11 +877,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     panel: { view: shownPanel, open: openPanel, toggle: togglePanel, close: closePanel },
     files: { views, toggleViewed, markChapterViewed, foldAll: foldAllFiles },
     compare: { baseline: baselineSha, head: review?.headSha ?? null, from: compareFrom, pick: pickCompare, since, narrowed: sinceOnly, setNarrowed: setSinceOnly, error: sinceError, what: sinceWhat },
-    display: { layout: diffLayout, toggleLayout, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads },
+    display: { layout: diffLayout, toggleLayout, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads, commentsFolded, setCommentsFolded: changeCommentsFolded },
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
-    fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen },
+    fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, foldAllFiles, baselineSha, compareFrom, pickCompare, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, snooze, newCommits, rebuild, load, preferences, showShortcuts]);
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, foldAllFiles, baselineSha, compareFrom, pickCompare, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts]);
 
   if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");

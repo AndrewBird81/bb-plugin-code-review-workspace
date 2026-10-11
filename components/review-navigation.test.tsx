@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
+import { act } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { toast } from "sonner";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
-import { getReviewState, patchReviewState, setHideNits } from "../lib/panel-state";
+import { getCommentsFolded, getReviewState, patchReviewState, setHideNits } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Each diff's new lines, the lines pierre would highlight, and a pick of line 1 as pierre reports it.
@@ -542,5 +544,58 @@ test("a local review's Comments has no Feedback or Threads, and the agent goes b
   expect(slot.queryByRole("button", { name: "Feedback" })).toBeNull();
   expect(slot.queryByRole("button", { name: /assistant/i })).toBeNull();
   expect(slot.getAllByRole("button", { name: "Ask agent" }).length).toBeGreaterThan(0);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("t shows and hides the chapters, c Comments, and i folds comments in code, a choice kept for every review", async () => {
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  press("t");
+  expect(slot.queryByRole("navigation", { name: "Chapters" })).toBeNull();
+  press("t");
+  expect(slot.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
+  press("c");
+  expect(slot.getByRole("complementary", { name: "Comments and agent" })).toBeTruthy();
+  expect(slot.getByRole("region", { name: "Review draft" })).toBeTruthy();
+  press("c");
+  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  // Unfolded where there's room, until you say otherwise.
+  expect(getCommentsFolded()).toBeUndefined();
+  press("i");
+  expect(getCommentsFolded()).toBe(true);
+  press("i");
+  expect(getCommentsFolded()).toBe(false);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("⇧V marks the chapter's files viewed, and the toast's Undo unmarks the ones it marked", async () => {
+  const viewed = new Set<string>(["src/c.ts"]);
+  const { slot, rpc } = await renderWorkspace({ rpc: {
+    getFileViews: vi.fn(() => ({ views: [...viewed].map((file) => ({ file, viewed: true, stale: false })) })),
+    setFileViewed: vi.fn(({ file, viewed: on }: { file: string; viewed: boolean }) => { if (on) viewed.add(file); else viewed.delete(file); return { ok: true }; }),
+    setFilesViewed: vi.fn(({ files }: { files: string[] }) => { files.forEach((file) => viewed.add(file)); return { ok: true }; }),
+  } });
+  await slot.findByText("aa");
+  fireEvent.click(chapters(slot).getByText("Caching"));
+  await waitFor(() => expect(currentChapter(slot)?.textContent).toContain("Caching"));
+  press("V", { shiftKey: true });
+  expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts"] });
+  const box = slot.getByRole("checkbox", { name: "Viewed src/b.ts" }) as HTMLInputElement;
+  await waitFor(() => expect(box.checked).toBe(true));
+  const [message, options] = vi.mocked(toast.success).mock.calls.at(-1)!;
+  expect(message).toBe("Marked 1 file viewed");
+  const undo = (options as { action: { label: string; onClick: () => void } }).action;
+  expect(undo.label).toBe("Undo");
+  act(() => undo.onClick());
+  expect(box.checked).toBe(false);
+  await waitFor(() => expect(rpc.setFileViewed).toHaveBeenCalledWith({ targetKey: "pr-42", file: "src/b.ts", viewed: false }));
+  // src/c.ts was viewed before: Undo leaves it so.
+  expect(rpc.setFileViewed).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(viewed).toEqual(new Set(["src/c.ts"])));
+  // On the Overview there's no chapter to mark.
+  press("p");
+  press("p");
+  press("V", { shiftKey: true });
+  expect(rpc.setFilesViewed).toHaveBeenCalledTimes(1);
   slot.lifecycle.unmount();
 }, 15_000);

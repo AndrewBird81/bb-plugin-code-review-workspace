@@ -21,7 +21,7 @@ export function TopBand({ find = false, hidden = false }: { find?: boolean; hidd
   const button = cn("size-8 shrink-0 px-0 text-muted-foreground aria-pressed:text-foreground", layout.mode === "short" ? TOUCH_COMPACT : TOUCH_CONTROL);
   return (
     <div hidden={hidden} className={cn("flex shrink-0 items-center gap-0.5", hidden && "hidden")}>
-      <Hint label="Chapters" container={container}>
+      <Hint label="Chapters (t)" container={container}>
         <Button variant="ghost" size="sm" aria-label={nav.open ? "Hide chapters" : "Show chapters"} aria-pressed={nav.open} aria-controls={navigatorId(targetKey)} className={button} onClick={nav.toggle}>
           <Icon name="ListView" aria-hidden />
         </Button>

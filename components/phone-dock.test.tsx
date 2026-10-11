@@ -207,3 +207,14 @@ test("Esc in a menu the sheet opened closes the menu, and leaves the sheet open"
   expect(slot.getByRole("dialog", { name: "Chapters" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+test("Esc closes the sheet wherever the focus is in the review, the dock included", async () => {
+  const { slot, dock } = await renderPhone();
+  const tab = dock.getByRole("button", { name: /^Comments/ });
+  fireEvent.click(tab);
+  expect(slot.getByRole("dialog", { name: "Comments" })).toBeTruthy();
+  tab.focus();
+  fireEvent.keyDown(tab, { key: "Escape" });
+  expect(slot.queryByRole("dialog")).toBeNull();
+  slot.lifecycle.unmount();
+});

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { ShortcutsHelp } from "./ShortcutsHelp";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 
@@ -19,4 +19,18 @@ test("on a phone the shortcuts sheet is as tall as its list", async () => {
   const sheet = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
   expect(sheet.parentElement).toBe(document.body);
   expect(sheet.className.split(" ")).toContain("h-auto");
+});
+
+test("the shortcuts are grouped by what they're for, with Shift and Esc written as such", () => {
+  render(<ShortcutsHelp open onOpenChange={() => {}} />);
+  const dialog = within(screen.getByRole("dialog", { name: "Keyboard shortcuts" }));
+  expect(dialog.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Move", "Mark", "Panels", "View"]);
+  const row = (group: string, label: string) => within(dialog.getByRole("region", { name: group })).getByText(label).closest("div")!.querySelector("dt")!.textContent;
+  expect(row("Mark", "Mark the chapter viewed")).toBe("⇧V");
+  expect(row("Panels", "Show or hide the chapters")).toBe("t");
+  expect(row("Panels", "Show or hide Comments")).toBe("c");
+  expect(row("Panels", "Finish review")).toBe("s");
+  expect(row("Panels", "Close what's over the code, or leave full screen")).toBe("Esc");
+  expect(row("View", "Fold or unfold comments in code")).toBe("i");
+  expect(row("View", "Full screen on or off")).toBe("⇧F");
 });

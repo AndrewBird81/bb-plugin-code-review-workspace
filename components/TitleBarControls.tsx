@@ -59,7 +59,7 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
   return (
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
       <div role="group" aria-label="Review commands" className="flex shrink-0 items-center gap-1">
-        <Hint label="Comments" container={container}>
+        <Hint label="Comments (c)" container={container}>
           <Button variant="ghost" size="sm" aria-label={needsYou ? `Comments, ${needsYou} need you` : "Comments"} aria-pressed={panel.view === "comments"} aria-controls={controls} className={tier === "labeled" ? labeled : cn(icon, needsYou > 0 && "w-auto gap-1 px-2")} onClick={() => panel.toggle("comments")}>
             <Icon name="MessageSquare" aria-hidden />
             {tier === "labeled" && "Comments"}
@@ -81,7 +81,7 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
           </Button>
         </Hint>}
         <ReviewMenu api={api} className={icon} />
-        {api.fullscreen.available && <Hint label={api.fullscreen.on ? "Exit full screen" : "Full screen"} container={container}>
+        {api.fullscreen.available && <Hint label={`${api.fullscreen.on ? "Exit full screen" : "Full screen"} (⇧F)`} container={container}>
           <Button
             ref={fullscreenRef}
             variant="ghost"
@@ -110,18 +110,11 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
  */
 export function ReviewMenu({ api, className }: { api: WorkspaceApi; className?: string }) {
   const navigate = useBbNavigate();
-  const settings = async () => {
-    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
-    navigate.toPluginPanel("review", { subPath: `settings/${api.targetKey}` });
-  };
   const items: { label: string; icon: IconName; onSelect: () => void }[] = [
     { label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() },
     ...(api.review.url ? [{ label: "Open on GitHub", icon: "Github" as const, onSelect: () => navigate.openUrl(api.review.url!) }] : []),
     { label: "Keyboard shortcuts", icon: "CircleQuestion", onSelect: api.showShortcuts },
-    { label: "Review settings…", icon: "Settings", onSelect: () => void settings() },
+    { label: "Review settings…", icon: "Settings", onSelect: () => void api.leave(`settings/${api.targetKey}`) },
   ];
-  return <ReviewActions review={api.review} className={className} pinnable={api.pinnable} items={items} onChanged={() => void api.reload()} onDeleted={() => {
-    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-    navigate.toPluginPanel("review");
-  }} />;
+  return <ReviewActions review={api.review} className={className} pinnable={api.pinnable} items={items} onChanged={() => void api.reload()} onDeleted={() => void api.leave()} />;
 }

@@ -201,3 +201,29 @@ test("Full screen goes from the title bar to the band's end and back; from the k
   expect(document.activeElement).toBe(document.body);
   page.lifecycle.unmount();
 });
+
+test("⇧F goes full screen and back, and leaving the review leaves full screen: All reviews, Review settings, or any other way", async () => {
+  fakeSize(1400, 900);
+  fakeFullscreen();
+  let { page, band } = await renderReview();
+  fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
+  const root = page.getByRole("main").closest("[class*='@container/review']");
+  expect(document.fullscreenElement).toBe(root);
+  fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
+  expect(document.fullscreenElement).toBeNull();
+  fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
+  fireEvent.click(within(page.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "All reviews" }));
+  await waitFor(() => expect(page.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review" }));
+  expect(document.fullscreenElement).toBeNull();
+  page.lifecycle.unmount();
+  ({ page, band } = await renderReview({ titleBar: false }));
+  fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
+  fireEvent.click(await band().findByRole("button", { name: "Review actions" }));
+  fireEvent.click(await page.findByRole("button", { name: "Review settings…" }));
+  await waitFor(() => expect(page.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review", options: { subPath: "settings/pr-42" } }));
+  expect(document.fullscreenElement).toBeNull();
+  fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
+  expect(document.fullscreenElement).not.toBeNull();
+  page.lifecycle.unmount();
+  expect(document.fullscreenElement).toBeNull();
+});

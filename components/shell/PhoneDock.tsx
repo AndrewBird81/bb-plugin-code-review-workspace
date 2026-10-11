@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { useDraftStatus } from "../../lib/draft-status";
 import { TEXT_FIELD } from "../../lib/review-shortcuts";
 import { cn } from "../../lib/utils";
@@ -24,8 +23,7 @@ function typingIn(el: Element | null): boolean {
  * again closes the sheet. It makes way while you type, for the keyboard, and for the lines you select (`hidden`).
  */
 export function PhoneDock({ hidden }: { hidden: boolean }) {
-  const { targetKey, sections, activeId, files, nav, panel, askAgent, fullscreen } = useWorkspace();
-  const navigate = useBbNavigate();
+  const { targetKey, sections, activeId, files, nav, panel, askAgent, fullscreen, leave } = useWorkspace();
   const status = useDraftStatus(targetKey);
   const needsYou = useNeedsYou(targetKey);
   const [typing, setTyping] = useState(() => typingIn(document.activeElement));
@@ -55,7 +53,7 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
       className={cn("flex shrink-0 items-center gap-1 border-t border-border px-1.5 pt-1 pb-[calc(4px+env(safe-area-inset-bottom))]", away && "hidden")}
       style={OPAQUE}
     >
-      <Button variant="ghost" aria-label="All reviews" className={tab} onClick={() => navigate.toPluginPanel("review")}>
+      <Button variant="ghost" aria-label="All reviews" className={tab} onClick={() => void leave()}>
         <Icon name="ChevronLeft" aria-hidden />
       </Button>
       <Button

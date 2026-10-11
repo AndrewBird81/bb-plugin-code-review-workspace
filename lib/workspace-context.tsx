@@ -80,6 +80,9 @@ export interface WorkspaceApi {
     /** GitHub's threads show under their lines. */
     githubThreads: boolean;
     setGithubThreads(show: boolean): void;
+    /** Comments in the code show as one-line markers. */
+    commentsFolded: boolean;
+    setCommentsFolded(folded: boolean): void;
   };
   /** Show a comment's line in the diff, switching chapters as needed. */
   reveal(at: CommentLocation): void;
@@ -93,6 +96,8 @@ export interface WorkspaceApi {
   openFinish(replaced?: boolean): void;
   /** `toggle` must run inside the click: a browser goes full screen only from one. */
   fullscreen: { available: boolean; on: boolean; toggle(): void };
+  /** Go to All reviews, or to another of the panel's pages (`subPath`), leaving full screen first. */
+  leave(subPath?: string): Promise<void>;
   snooze(snoozed: boolean, until?: number): Promise<void>;
   /** The PR has commits the guide wasn't written for. */
   newCommits: boolean;

@@ -1,19 +1,28 @@
 import type { CommentLocation } from "../src/draft";
 import { chapterAt } from "../src/hunks";
 
-/** The workspace's single-key shortcuts, as the help sheet lists them. */
+/** The workspace's single-key shortcuts, as the help sheet lists them, by what they're for. */
 export const SHORTCUTS = [
-  { keys: ["j", "k"], label: "Next or previous file" },
-  { keys: ["n", "p"], label: "Next or previous chapter" },
-  { keys: ["v"], label: "Mark the file viewed, or not, and go to the next" },
-  { keys: ["u"], label: "Next unviewed file, in any chapter" },
-  { keys: ["]", "["], label: "Next or previous comment or discussion" },
-  { keys: ["/"], label: "Find in review" },
-  { keys: ["f"], label: "All files, with the cursor in their filter" },
-  { keys: ["a"], label: "Ask agent" },
-  { keys: ["s"], label: "Submit review" },
-  { keys: ["?"], label: "Show these shortcuts" },
+  { group: "Move", keys: ["j", "k"], label: "Next or previous file" },
+  { group: "Move", keys: ["n", "p"], label: "Next or previous chapter" },
+  { group: "Move", keys: ["u"], label: "Next unviewed file, in any chapter" },
+  { group: "Move", keys: ["]", "["], label: "Next or previous comment or discussion" },
+  { group: "Move", keys: ["/"], label: "Find in review" },
+  { group: "Move", keys: ["f"], label: "All files, with the cursor in their filter" },
+  { group: "Mark", keys: ["v"], label: "Mark the file viewed, or not, and go to the next" },
+  { group: "Mark", keys: ["V"], label: "Mark the chapter viewed" },
+  { group: "Panels", keys: ["t"], label: "Show or hide the chapters" },
+  { group: "Panels", keys: ["c"], label: "Show or hide Comments" },
+  { group: "Panels", keys: ["a"], label: "Ask agent" },
+  { group: "Panels", keys: ["s"], label: "Finish review" },
+  { group: "Panels", keys: ["Escape"], label: "Close what's over the code, or leave full screen" },
+  { group: "View", keys: ["i"], label: "Fold or unfold comments in code" },
+  { group: "View", keys: ["F"], label: "Full screen on or off" },
+  { group: "View", keys: ["?"], label: "Show these shortcuts" },
 ] as const;
+
+/** How the help sheet writes the keys that aren't what they type. */
+export const KEY_LABEL: Partial<Record<string, string>> = { V: "⇧V", F: "⇧F", Escape: "Esc" };
 
 const KEYS = new Set<string>(SHORTCUTS.flatMap((shortcut) => shortcut.keys));
 const TEXT_INPUT = "input" + ["checkbox", "radio", "button", "submit", "reset", "range", "color", "file", "image"].map((type) => `:not([type=${type}])`).join("");

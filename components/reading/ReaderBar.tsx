@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
@@ -25,8 +24,7 @@ const TITLE_BAR_WAIT_MS = 500;
  * threads to show.
  */
 export function ReaderBar({ threads }: { threads: boolean }) {
-  const { targetKey, review, guide, sections, activeId, go, layout, compare, display, files, fullscreen } = useWorkspace();
-  const navigate = useBbNavigate();
+  const { targetKey, review, guide, sections, activeId, go, layout, compare, display, files, fullscreen, leave } = useWorkspace();
   const container = useFullscreenPortalContainer();
   const titleBar = useTitleBarMounted(targetKey);
   const [waited, setWaited] = useState(false);
@@ -50,7 +48,7 @@ export function ReaderBar({ threads }: { threads: boolean }) {
       <div className="flex min-w-0 flex-1 items-center gap-1">
         {layout.nav !== "docked" && <TopBand find hidden={layout.nav === "overlay"} />}
         <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1 text-sm">
-          <Button variant="ghost" size="sm" aria-label="All reviews" className={cn("h-8 shrink-0 gap-1 px-1.5 text-muted-foreground", touch)} onClick={() => navigate.toPluginPanel("review")}>
+          <Button variant="ghost" size="sm" aria-label="All reviews" className={cn("h-8 shrink-0 gap-1 px-1.5 text-muted-foreground", touch)} onClick={() => void leave()}>
             <Icon name="ChevronLeft" aria-hidden />{crumbs && "All reviews"}
           </Button>
           {crumbs && <span aria-hidden className="text-subtle-foreground">/</span>}
