@@ -31,11 +31,11 @@ async function renderSidebar(list: unknown[] = reviews) {
   return renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: list }) } });
 }
 
-test("Needs review goes first in BB's thread list, with only the reviews waiting on you, in the tab's order", async () => {
+test("Needs review goes last in BB's thread list, below Threads, with only the reviews waiting on you, in the tab's order", async () => {
   const groups = threadList();
   const slot = await renderSidebar();
   const section = await within(document.body).findByRole("region", { name: "Needs review" });
-  expect(groups.firstElementChild!.contains(section)).toBe(true);
+  expect(groups.lastElementChild!.contains(section)).toBe(true);
   expect(groups.children).toHaveLength(3);
   const rows = within(section).getAllByRole("link");
   expect(rows.map((row) => row.textContent)).toEqual(["Blocks merge1h", "Direct request2h", "Team request1d"]);
@@ -85,10 +85,21 @@ test("it goes back in when the thread list redraws its groups", async () => {
   await within(document.body).findByRole("region", { name: "Needs review" });
   // The list replaces its container, as when it reloads.
   const fresh = groups.cloneNode(true) as HTMLElement;
-  fresh.firstElementChild!.remove();
+  fresh.lastElementChild!.remove();
   groups.replaceWith(fresh);
   await waitFor(() => expect(within(fresh).getByRole("region", { name: "Needs review" })).toBeTruthy());
-  expect(fresh.firstElementChild!.querySelector('[aria-label="Needs review"]')).toBeTruthy();
+  expect(fresh.lastElementChild!.querySelector('[aria-label="Needs review"]')).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("it stays last when the thread list adds a group after it", async () => {
+  const groups = threadList();
+  const slot = await renderSidebar();
+  const section = await within(document.body).findByRole("region", { name: "Needs review" });
+  // As React appends a new last group, such as a new section.
+  groups.insertAdjacentHTML("beforeend", `<div data-testid="later"><div data-sidebar-sticky-group><div data-sidebar="group-label">Later</div></div></div>`);
+  await waitFor(() => expect(groups.lastElementChild!.contains(section)).toBe(true));
+  expect(groups.lastElementChild!.previousElementSibling!.getAttribute("data-testid")).toBe("later");
   slot.lifecycle.unmount();
 });
 
@@ -105,7 +116,7 @@ test("with nothing waiting on you there's no group, and it appears when a review
   list = reviews;
   await slot.emitRealtime("reviews", {});
   const section = await within(document.body).findByRole("region", { name: "Needs review" }, { timeout: 2000 });
-  expect(groups.firstElementChild!.contains(section)).toBe(true);
+  expect(groups.lastElementChild!.contains(section)).toBe(true);
   list = [reviews[1]];
   await slot.emitRealtime("reviews", {});
   await waitFor(() => expect(groups.children).toHaveLength(2), { timeout: 2000 });

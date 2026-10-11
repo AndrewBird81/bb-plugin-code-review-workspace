@@ -121,7 +121,7 @@ The review list has four tabs:
 
 Rows show each PR's size (`+120 −30 · 8 files`). **Find a review** filters the list by repository, @author, title, or #number, and the list keeps its tab and filter when you come back from a review. The list says when GitHub was last read, and why it can't be read now: `gh` not signed in, a rate limit (reading then pauses for 15 minutes), or PRs or teams it can't see. Stacked PRs sit together, bottom first, labeled `Stack · 2 of 3`; a review's header links **Stacked on #N** and **#N builds on this**, and says when you haven't reviewed the PR below.
 
-BB's thread list shows **Needs review** too, above Pinned and Threads: the same reviews in the same order, with how long each has waited. It collapses like the other groups, and choosing a review opens it. BB has no plugin slot for a group there, so Guided Review adds it to BB's list itself; if a BB update changes that list, the group may not show until Guided Review catches up.
+BB's thread list shows **Needs review** too, below Pinned and Threads: the same reviews in the same order, with how long each has waited. It collapses like the other groups, and choosing a review opens it. BB has no plugin slot for a group there, so Guided Review adds it to BB's list itself; if a BB update changes that list, the group may not show until Guided Review catches up.
 
 A push alone never makes a review your turn: authors often push one fix at a time. A review comes back to **Needs review** when:
 

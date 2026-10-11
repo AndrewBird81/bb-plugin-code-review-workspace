@@ -9,7 +9,7 @@ import { Icon } from "./ui/icon";
 import { kindLook } from "./ReviewStatus";
 import { age } from "./time-ago";
 
-// BB's thread list has no slot for another group, so Needs review goes in by hand: first, above Pinned and Threads.
+// BB's thread list has no slot for another group, so Needs review goes in by hand: last, below Pinned and Threads.
 // It finds the list by BB's own data attributes and goes back in whenever the list redraws; without the list it shows nowhere.
 
 const COLLAPSED_KEY = "gr:needs-review-collapsed";
@@ -20,7 +20,7 @@ function groupsContainer(): Element | null {
   return label?.closest("[data-sidebar-sticky-group]")?.parentElement?.parentElement ?? null;
 }
 
-/** A node kept first among the thread list's groups while `active`, and out of the page otherwise. */
+/** A node kept last among the thread list's groups while `active`, and out of the page otherwise. */
 function useGroupsSlot(active: boolean): HTMLElement {
   const scope = usePortalScopeProps();
   const [node] = useState(() => {
@@ -31,11 +31,11 @@ function useGroupsSlot(active: boolean): HTMLElement {
   });
   useEffect(() => {
     if (!active) return;
-    const placed = () => node.isConnected && node.parentElement?.firstElementChild === node;
+    const placed = () => node.isConnected && node.parentElement?.lastElementChild === node;
     let frame = 0;
     const place = () => {
       frame = 0;
-      if (!placed()) groupsContainer()?.prepend(node);
+      if (!placed()) groupsContainer()?.append(node);
     };
     place();
     // Once a frame at most: the page changes constantly while an agent streams.

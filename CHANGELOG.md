@@ -2,7 +2,7 @@
 
 ## 0.5.1 — 2026-10-11
 
-- **Needs review** in BB's thread list: the reviews waiting on you, above Pinned and Threads, collapsible like them. Choosing one opens it, and closes the sidebar on a phone.
+- **Needs review** in BB's thread list: the reviews waiting on you, below Pinned and Threads, collapsible like them. Choosing one opens it, and closes the sidebar on a phone.
 - The review list scrolls in BB, on a phone and in a short window, instead of stopping at the window's edge. So does a tracked PR's page.
 - On a phone, the chapter list no longer draws over Draft review when both are open: it scrolls in the room above, and the toolbar row with Chapters stays.
 
