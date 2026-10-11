@@ -104,3 +104,11 @@ test("read_pr_context tells checks it couldn't read from a PR with none", async 
   expect(await readPrContext({ runGh: withChecks({ stdout: "", stderr: "HTTP 401: Bad credentials", code: 1 }), runGit: git }, review, [], null)).toContain("CI: couldn't read the checks.");
   expect(await readPrContext({ runGh: withChecks({ stdout: "", stderr: "no checks reported on the 'auth-retry' branch", code: 1 }), runGit: git }, review, [], null)).toContain("CI: no failing checks (none reported).");
 });
+
+test("an applyTo glob can't stall the server or break read_pr_context", () => {
+  const start = performance.now();
+  expect(scopedInstructions(`---\napplyTo: "${"*a".repeat(16)}*b"\n---\nRule.`, ["a".repeat(60)])).toBeNull();
+  expect(performance.now() - start).toBeLessThan(100);
+  expect(scopedInstructions("---\napplyTo: '{a**,b}, [z-a], *.go'\n---\nRule.", ["main.go"])).toBe("Rule.");
+  expect(scopedInstructions("---\napplyTo: 'src/{*.ts,lib/**}'\n---\nRule.", ["src/lib/deep/a.go"])).toBe("Rule.");
+});
