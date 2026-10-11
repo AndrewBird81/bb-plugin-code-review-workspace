@@ -72,6 +72,13 @@ function describeInstructions(files: Array<[path: string, text: string | null | 
 
 type Run = typeof runGh;
 
+/** The PR's checks; null when gh couldn't read them, which isn't the same as none. */
+function readChecks(out: { stdout: string; stderr: string }) {
+  if (/no checks reported/i.test(out.stderr + out.stdout)) return [];
+  try { if (Array.isArray(JSON.parse(out.stdout))) return parseChecks(out.stdout).checks; } catch { /* unreadable */ }
+  return null;
+}
+
 export async function readPrContext(deps: { runGh: Run; runGit: typeof runGit }, review: ReviewMeta, files: readonly string[], context: string | null): Promise<string> {
   const sections = review.kind === "pr" && review.repo && review.number
     ? await pullRequestContext(deps.runGh, review, files)
@@ -115,7 +122,7 @@ async function pullRequestContext(run: Run, review: ReviewMeta, files: readonly 
   const commits: string[] = (pr.commits?.nodes ?? []).map((c: any) => c?.commit?.messageHeadline).filter(Boolean);
   if (commits.length) sections.push(`Commits (${pr.commits.totalCount ?? commits.length}${pr.commits.totalCount > commits.length ? `, the last ${commits.length}` : ""}):\n${untrusted("commit messages", commits.map((c) => `- ${oneLine(c, 200)}`).join("\n"))}`);
 
-  const checks = await run(ghPrChecksJsonArgs(review.number!, review.repo)).then((r) => parseChecks(r.stdout).checks, () => null);
+  const checks = await run(ghPrChecksJsonArgs(review.number!, review.repo)).then(readChecks, () => null);
   const failing = checks?.filter((c) => c.bucket === "fail") ?? [];
   sections.push(checks === null ? "CI: couldn't read the checks." : failing.length ? `Failing CI checks:\n${failing.map((c) => `- ${c.name}${c.link ? `: ${c.link}` : ""}`).join("\n")}` : `CI: no failing checks${checks.length ? "" : " (none reported)"}.`);
 

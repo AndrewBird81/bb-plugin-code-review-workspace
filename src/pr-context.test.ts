@@ -97,3 +97,10 @@ test("applyTo globs pick the instructions for the changed files", () => {
   expect(scopedInstructions(text, ["docs/deep/x.md", "a.tsx"])).toBeNull();
   expect(scopedInstructions("No front matter.", ["a.ts"])).toBeNull();
 });
+
+test("read_pr_context tells checks it couldn't read from a PR with none", async () => {
+  const withChecks = (out: { stdout: string; stderr: string; code: number }) => vi.fn(async (args: string[]) => args[0] === "pr" && args[1] === "checks"
+    ? out : { stdout: JSON.stringify(graphql()), stderr: "", code: 0 });
+  expect(await readPrContext({ runGh: withChecks({ stdout: "", stderr: "HTTP 401: Bad credentials", code: 1 }), runGit: git }, review, [], null)).toContain("CI: couldn't read the checks.");
+  expect(await readPrContext({ runGh: withChecks({ stdout: "", stderr: "no checks reported on the 'auth-retry' branch", code: 1 }), runGit: git }, review, [], null)).toContain("CI: no failing checks (none reported).");
+});
