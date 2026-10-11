@@ -106,13 +106,17 @@ function scrollParent(el: Element): Element | null {
 }
 
 // Scrolls the review only vertically: scrollIntoView would also scroll the diff's code sideways.
-function scrollToCenter(el: HTMLElement, behavior: ScrollBehavior) {
+// Centers `from` down to `el` in the part of the review the file's sticky header doesn't cover,
+// or puts `from` just under the header when they don't fit.
+function scrollToCenter(el: HTMLElement, behavior: ScrollBehavior, header = 0, from: HTMLElement = el) {
   let box = outer(el);
   while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = outer(box);
   if (!box) return;
-  const target = el.getBoundingClientRect();
+  const top = from.getBoundingClientRect().top;
+  const height = el.getBoundingClientRect().bottom - top;
   const view = box.getBoundingClientRect();
-  box.scrollBy({ top: target.top - view.top - (view.height - target.height) / 2, behavior });
+  const room = view.height - header;
+  box.scrollBy({ top: top - view.top - header - Math.max(0, (room - height) / 2), behavior });
 }
 
 /** Outlines where a reveal landed for a moment, so it's clear which line or comment it is. */
@@ -526,15 +530,16 @@ export const DiffViewer = memo(function DiffViewer({
     let lastHeight = -1;
     let frame = requestAnimationFrame(function attempt() {
       const fileEl = Array.from(root.current?.querySelectorAll<HTMLElement>("[data-file]") ?? []).find((el) => el.dataset.file === at.file);
+      const row = fileEl ? lineRow(fileEl, at) : undefined;
       const landOn = (el: HTMLElement, center: boolean) => {
-        if (center) scrollToCenter(el, behavior);
+        // A comment lands with its line, which is above it, and the threads between them.
+        if (center) scrollToCenter(el, behavior, fileEl!.querySelector("[data-file-header]")?.getBoundingClientRect().height, row?.getClientRects().length ? row : el);
         else el.scrollIntoView({ behavior, block: "start" });
         flash(el);
       };
       // No line: just the file.
       if (at.line < 1 && fileEl) return landOn(fileEl, false);
-      const target = Array.from(fileEl?.querySelectorAll<HTMLElement>("[data-draft-at]") ?? []).find((el) => el.dataset.draftAt === locationKey(at))
-        ?? (fileEl ? lineRow(fileEl, at) : undefined);
+      const target = Array.from(fileEl?.querySelectorAll<HTMLElement>("[data-draft-at]") ?? []).find((el) => el.dataset.draftAt === locationKey(at)) ?? row;
       const shown = !!target?.getClientRects().length;
       const height = root.current?.offsetHeight ?? 0;
       const settled = height === lastHeight;
@@ -594,7 +599,7 @@ export const DiffViewer = memo(function DiffViewer({
               viewed && folded && "opacity-75 focus-within:opacity-100 hover:opacity-100",
             )}
           >
-            <div className={cn("sticky top-0 z-10 flex min-h-10 flex-wrap items-center gap-2 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] px-2 py-1.5", !folded && "border-b border-border")}>
+            <div data-file-header className={cn("sticky top-0 z-10 flex min-h-10 flex-wrap items-center gap-2 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] px-2 py-1.5", !folded && "border-b border-border")}>
               <button
                 type="button"
                 aria-label={`${folded ? "Expand" : "Collapse"} ${path}`}
