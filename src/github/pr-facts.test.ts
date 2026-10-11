@@ -176,6 +176,12 @@ test("size reads the PR's additions, deletions, and changed files", () => {
   expect(prFactsQuery([ref(1)]).query).toContain("additions deletions changedFiles");
 });
 
+test("authorAssociation reads how the author is related to the repository", () => {
+  expect(one(pr({ authorAssociation: "FIRST_TIME_CONTRIBUTOR" })).authorAssociation).toBe("FIRST_TIME_CONTRIBUTOR");
+  expect(one(pr()).authorAssociation).toBeNull();
+  expect(prFactsQuery([ref(1)]).query).toContain("author{login} authorAssociation");
+});
+
 test("ci maps the head commit's rollup state", () => {
   const ci = (state: string | null) => one(pr({ head: { nodes: [{ commit: { statusCheckRollup: state ? { state } : null } }] } })).ci;
   expect([ci("SUCCESS"), ci("FAILURE"), ci("ERROR"), ci("PENDING"), ci("EXPECTED"), ci(null)]).toEqual(["pass", "fail", "fail", "pending", "expected", "none"]);

@@ -679,3 +679,9 @@ test("the sync keeps the PR's size", async () => {
   await s.sync.all();
   expect(s.store.getReview("pr-1")?.prSize).toEqual({ additions: 120, deletions: 30, files: 8 });
 });
+
+test("the sync keeps the author's association with the repository", async () => {
+  const s = setup({ pr: { authorAssociation: "CONTRIBUTOR" } });
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.authorAssociation).toBe("CONTRIBUTOR");
+});

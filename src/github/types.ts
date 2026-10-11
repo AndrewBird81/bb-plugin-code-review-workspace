@@ -39,6 +39,8 @@ export interface PrFacts {
   title: string;
   url: string;
   author: string | null;
+  /** How the author is related to the repository, as GitHub says: OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, NONE, … */
+  authorAssociation?: string | null;
   baseRefName: string;
   headRefName: string;
   headSha: string;

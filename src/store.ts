@@ -70,6 +70,8 @@ export interface ReviewLifecycle {
   prepareTriedAt?: number | null;
   /** The PR's author is the GitHub account reading it. */
   ownPr?: boolean | null;
+  /** How the PR's author is related to its repository, as GitHub last said (OWNER, MEMBER, …). Unset until read. */
+  authorAssociation?: string | null;
   /** Lines added and deleted, and files changed, as GitHub last said. */
   prSize?: { additions: number; deletions: number; files: number } | null;
   /** GitHub can't find the PR, or refuses access, since this time. */
