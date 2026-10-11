@@ -104,6 +104,11 @@ test("review threads args page with a cursor", () => {
   expect(ghReviewThreadsArgs("acme", "web", 12)[3]).toContain("path line diffSide");
 });
 
+test("review threads args ask where each thread was, who resolved it, and who wrote each comment when", () => {
+  const query = ghReviewThreadsArgs("acme", "web", 12)[3];
+  for (const field of ["originalLine", "startLine", "subjectType", "resolvedBy{login}", "author{__typename login}", "createdAt"]) expect(query).toContain(field);
+});
+
 test("review threads args build a graphql query with owner/repo as -f strings and number as -F int", () => {
   const args = ghReviewThreadsArgs("acme", "web", 12);
   expect(args[0]).toBe("api");
