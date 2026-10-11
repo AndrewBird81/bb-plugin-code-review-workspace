@@ -555,6 +555,19 @@ test("a gh account switched outside the plugin is noticed on the next pass", asy
   expect(s.harness.inspection.realtimeSignals.some((signal) => signal.channel === "gh-account")).toBe(true);
 });
 
+test("a review snoozed until a time comes back to Needs review then, and the list hears", async () => {
+  const s = setup({ pr: { requestPending: { via: "user" }, requests: [{ at: T0 - HOUR, by: "alice", via: "user" }] } });
+  s.store.setLifecycle("pr-1", { snoozedAt: T0, snoozedUntil: T0 + 0.5 * HOUR });
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.turnGroup).toBe("waiting");
+  const lists = () => s.harness.inspection.realtimeSignals.filter((signal) => signal.channel === "reviews").length;
+  const before = lists();
+  s.at(0.6);
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.turnGroup).toBe("needs");
+  expect(lists()).toBe(before + 1);
+});
+
 test("sync health: an expired gh login, then a good read", async () => {
   const s = setup();
   let login: string | null = null;

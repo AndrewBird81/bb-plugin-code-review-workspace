@@ -24,6 +24,8 @@ export interface ReviewLifecycle {
   signals?: TurnSignals | null;
   /** "Not yet": hidden from Needs review until a newer signal. */
   snoozedAt?: number | null;
+  /** Snooze until: hidden from Needs review until this time, or a newer signal. */
+  snoozedUntil?: number | null;
   /** The assistant's latest check of your feedback. */
   assessment?: AssessmentSummary | null;
   /** The signal that last alerted Needs You, so one event alerts once. */

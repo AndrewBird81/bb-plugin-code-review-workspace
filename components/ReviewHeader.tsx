@@ -1,7 +1,7 @@
 import { memo, useState, type ReactNode } from "react";
 import { Markdown, UrlLink } from "@get-bb/plugin-sdk/app";
 import { reviewState } from "../lib/review-state";
-import { canSnooze, computeTurn, type ReviewRound, type Turn } from "../lib/turn";
+import { canSnooze, canSnoozeUntil, computeTurn, type ReviewRound, type Turn } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
 import { Badge } from "./ui/badge";
@@ -11,6 +11,8 @@ import { IconTile } from "./ui/icon-tile";
 import { InlineCode } from "./ui/inline-code";
 import { Button } from "./ui/button";
 import { timeAgo } from "./time-ago";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { SnoozeChoices } from "./SnoozeChoices";
 
 type ChecksSummary = { bucket: string; checks: any[] } | null | undefined;
 
@@ -82,11 +84,12 @@ export const ReviewHeader = memo(function ReviewHeader({
   trailing?: ReactNode;
   /** The progress pill opens the Feedback view. */
   onShowFeedback?: () => void;
-  /** "Not yet" (true) or "Back to Needs review" (false). */
-  onSnooze?: (snoozed: boolean) => void;
+  /** "Not yet" (true), "Snooze until" (true, until), or "Back to Needs review" (false). */
+  onSnooze?: (snoozed: boolean, until?: number) => void;
   snoozing?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
   if (!review) return null;
   const showIntentToggle = !!intent && intent.length > INTENT_TOGGLE_THRESHOLD;
   const kind = kindLook(review);
@@ -120,6 +123,16 @@ export const ReviewHeader = memo(function ReviewHeader({
               <Button variant="ghost" size="sm" className="h-7 px-2 text-muted-foreground" disabled={snoozing} onClick={() => onSnooze(true)}>
                 <Icon name="Clock" className="size-3.5" aria-hidden />Not yet
               </Button>
+            )}
+            {onSnooze && turn.reason !== "snoozed" && canSnoozeUntil(review, turn) && (
+              <Popover open={snoozeOpen} onOpenChange={setSnoozeOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-muted-foreground" disabled={snoozing}><Icon name="Calendar" className="size-3.5" aria-hidden />Snooze</Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" mobileTitle="Snooze until" className="w-64 max-w-[calc(100vw-24px)] p-1">
+                  <SnoozeChoices disabled={snoozing} onPick={(until) => { setSnoozeOpen(false); onSnooze(true, until); }} />
+                </PopoverContent>
+              </Popover>
             )}
             {trailing}
           </div>

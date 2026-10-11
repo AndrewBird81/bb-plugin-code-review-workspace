@@ -72,6 +72,20 @@ test("Not yet moves a review to Waiting on author and clears its alert", async (
   expect((await call("getReview", { targetKey: "pr-1" })).review.turn.group).toBe("needs");
 });
 
+test("Snooze until keeps a review in Waiting on author until its time, and Not yet clears the time", async () => {
+  const { call, store } = await setup();
+  const until = Date.now() + 3_600_000;
+  expect(await call("snoozeReview", { targetKey: "pr-1", snoozed: true, until })).toEqual({ ok: true });
+  expect(store.getReview("pr-1")).toMatchObject({ snoozedUntil: until });
+  expect((await call("getReview", { targetKey: "pr-1" })).review.turn).toMatchObject({ group: "waiting", reason: "snoozed", label: "Snoozed" });
+  // Its time comes.
+  store.setLifecycle("pr-1", { snoozedUntil: Date.now() - 1 });
+  expect((await call("getReview", { targetKey: "pr-1" })).review.turn).toMatchObject({ group: "needs", reason: "re-requested" });
+  await call("snoozeReview", { targetKey: "pr-1", snoozed: true });
+  expect(store.getReview("pr-1")?.snoozedUntil).toBeNull();
+  expect(await call("snoozeReview", { targetKey: "pr-1", snoozed: true, until: Date.now() - 1 })).toEqual({ ok: false, error: "Pick a time in the future." });
+});
+
 test("the assistant lists your feedback, reads what changed, and records its check", async () => {
   const { tool, call, store } = await setup();
   const listed = await tool("list_feedback", {});

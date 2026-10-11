@@ -140,6 +140,36 @@ test("a review you gave can wait with Not yet, come back to Needs review, and a 
   slot.lifecycle.unmount();
 });
 
+test("a new request can be snoozed until a time from its menu, and the row says when it wakes", async () => {
+  const { snoozeTimes, snoozeLabel } = await import("../lib/turn");
+  const until = now + 3 * DAY;
+  const { slot, tab, calls } = await list([
+    { targetKey: "fresh", kind: "pr", title: "Change Fresh", status: "tracked", turn: turn("needs", "requested", "Review requested") },
+    { targetKey: "later", kind: "pr", title: "Change Later", status: "tracked", snoozedUntil: until, turn: turn("waiting", "snoozed", "Snoozed") },
+  ], { snoozeReview: () => ({ ok: true }) });
+  const row = (await slot.findByText("Change Fresh")).closest(".group\\/row") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Review actions" }));
+  expect(slot.queryByRole("button", { name: "Not yet" })).toBeNull();
+  const tomorrow = snoozeTimes().tomorrow;
+  fireEvent.click(await slot.findByRole("button", { name: /^Tomorrow morning/ }));
+  await waitFor(() => expect(calls("snoozeReview")).toEqual([{ targetKey: "fresh", snoozed: true, until: tomorrow }]));
+  await tab(/^Waiting on author/);
+  expect(await slot.findByText(snoozeLabel(until))).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("a date picked in the snooze menu wakes the review that morning", async () => {
+  const { slot, calls } = await list([
+    { targetKey: "fresh", kind: "pr", title: "Change Fresh", status: "tracked", turn: turn("needs", "requested", "Review requested") },
+  ], { snoozeReview: () => ({ ok: true }) });
+  const row = (await slot.findByText("Change Fresh")).closest(".group\\/row") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Review actions" }));
+  fireEvent.change(await slot.findByLabelText("Snooze until a date"), { target: { value: "2099-03-02" } });
+  fireEvent.click(slot.getByRole("button", { name: "Snooze" }));
+  await waitFor(() => expect(calls("snoozeReview")).toEqual([{ targetKey: "fresh", snoozed: true, until: new Date(2099, 2, 2, 9).getTime() }]));
+  slot.lifecycle.unmount();
+});
+
 test("status badges take their tone from why it's your turn", async () => {
   await loadPluginApp(() => import("../app"));
   const { statusLook } = await import("./ReviewStatus");

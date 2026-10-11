@@ -268,10 +268,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     }).length]));
   }, [since, sections]);
 
-  const snooze = useCallback(async (snoozed: boolean) => {
+  const snooze = useCallback(async (snoozed: boolean, until?: number) => {
     setSnoozing(true);
     try {
-      const result = await rpc.call("snoozeReview", { targetKey, snoozed });
+      const result = await rpc.call("snoozeReview", { targetKey, snoozed, ...(until ? { until } : {}) });
       if (!result.ok) toast.error(result.error ?? "Couldn’t update the review.");
       else void load();
     } catch (err) {
@@ -464,7 +464,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const showDraftSummary = useCallback((replaced = false) => setShowDraft({ at: Date.now(), replaced }), []);
   const askAgent = useCallback(() => setInjection({ context: { file: currentFile, chapterId: activeId }, nonce: Date.now() }), [currentFile, activeId]);
   const showFeedback = useMemo(() => isPr ? () => setView("feedback") : undefined, [isPr]);
-  const snoozeFromHeader = useMemo(() => isPr ? (snoozed: boolean) => void snooze(snoozed) : undefined, [isPr, snooze]);
+  const snoozeFromHeader = useMemo(() => isPr ? (snoozed: boolean, until?: number) => void snooze(snoozed, until) : undefined, [isPr, snooze]);
   const archived = !!review?.archivedAt;
   const headerTrailing = useMemo(() => !archived && <RereviewBanner targetKey={targetKey} />, [archived, targetKey]);
   // The diff remounts after Threads; it shouldn't jump back to an old comment.

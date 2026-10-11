@@ -103,6 +103,8 @@ export interface TurnInput {
   headSha?: string;
   signals?: TurnSignals | null;
   snoozedAt?: number | null;
+  /** Snooze until: set aside at snoozedAt until this time, or a newer signal. Without it, snoozedAt is "Not yet". */
+  snoozedUntil?: number | null;
   assessment?: AssessmentSummary | null;
   /** GitHub can't find the PR, or refuses access, since `since`. */
   unreachable?: { since: number; reason: "not-found" | "forbidden" } | null;
@@ -179,7 +181,11 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   // A local receipt counts until GitHub reports the review.
   const lastReviewAt = Math.max(s.lastReviewAt ?? 0, review.submittedAt ?? 0) || null;
   const reviewed = lastReviewAt !== null || !!review.submittedVerdict;
-  const snoozedAt = review.snoozedAt ?? null;
+  // A snooze until a time ends then, and the review is back as it was.
+  const woke = review.snoozedUntil != null && now >= review.snoozedUntil;
+  const snoozedAt = woke ? null : review.snoozedAt ?? null;
+  const until = woke ? null : review.snoozedUntil ?? null;
+  const snoozedLabel = until ? "Snoozed" : "Not yet";
   // Only a request to you asks you again; a team you're on being asked doesn't.
   const reRequested = reviewed && s.requestedVia !== "team" && after(s.requestedAt, lastReviewAt);
 
@@ -198,6 +204,7 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     const tracked = review.status === "tracked";
     // Your own PR is yours to review until you have; then nothing brings it back.
     if (review.ownPr) {
+      if (!reviewed && until) return make("waiting", "snoozed", snoozedLabel, "Open review", { at: snoozedAt });
       if (!reviewed) return make("needs", "own", "Your PR", tracked ? "Start review" : "Open review", { at: review.createdAt ?? null });
       return make("reviewed", "own", updated ? "Your PR · updated" : "Your PR", "View review");
     }
@@ -207,6 +214,8 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
       if (tracked && review.signals && (!s.requestPending || s.requestedVia === "team" && options.teamRequests === false)) {
         return make("archive", "unrequested", "No longer requested", "View review");
       }
+      // Only a newer request wakes a snoozed one.
+      if (until && !after(s.requestedAt, snoozedAt)) return make("waiting", "snoozed", snoozedLabel, tracked ? "Start review" : "Open review", { at: snoozedAt });
       if (s.requestPending || s.requestedAt) {
         const team = s.requestedVia === "team";
         return make("needs", team ? "team-requested" : "requested", team ? "Team review requested" : "Review requested", tracked ? "Start review" : "Open review", {
@@ -227,7 +236,7 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     // GitHub dismissed your review, for example a stale approval.
     if (!verdict) {
       if (after(lastReviewAt, snoozedAt)) return needs("dismissed", "Review dismissed", `dismissed:${lastReviewAt}`, lastReviewAt!, false, s.dismissedAt ?? lastReviewAt!);
-      return make("waiting", "snoozed", "Not yet", "View review", { at: snoozedAt });
+      return make("waiting", "snoozed", snoozedLabel, "View review", { at: snoozedAt });
     }
     // Someone asking you something is your turn whatever your verdict: a question on your thread, or any reply if you chose that, or a mention.
     const threads = s.threads;
@@ -259,7 +268,7 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     }
     // A comment review with nothing open isn't waiting on anyone.
     if (verdict === "COMMENT" && threads!.open + threads!.questions === 0) return make("reviewed", "commented", "Commented", "View review");
-    if (snoozedAt && snoozedAt >= (lastReviewAt ?? 0)) return make("waiting", "snoozed", "Not yet", "View review", { at: snoozedAt, blocking });
+    if (snoozedAt && snoozedAt >= (lastReviewAt ?? 0)) return make("waiting", "snoozed", snoozedLabel, "View review", { at: snoozedAt, blocking });
     return make("waiting", "waiting", VERDICT_LABEL[verdict], "View review", { at: lastReviewAt, blocking });
   }
 }
@@ -293,4 +302,29 @@ export function baselineOf(review: TurnInput): { sha: string | null; at: number 
 /** Whether "Not yet" applies: it's your turn on a review you've already given, and the guide didn't fail. */
 export function canSnooze(review: TurnInput, turn: Turn): boolean {
   return turn.group === "needs" && !turn.failed && baselineOf(review).at !== null;
+}
+
+/** Whether "Snooze until" applies: it's your turn on a PR, new request or not, and the guide didn't fail. */
+export function canSnoozeUntil(review: TurnInput, turn: Turn): boolean {
+  return turn.group === "needs" && !turn.failed && review.kind !== "ref";
+}
+
+/** When each snooze choice wakes, in local time: three hours from now (until 9 PM), and 9 AM tomorrow or next Monday. */
+export function snoozeTimes(now = Date.now()): { laterToday: number | null; tomorrow: number; nextMonday: number } {
+  const date = new Date(now);
+  const morning = (days: number) => { const d = new Date(now); d.setDate(d.getDate() + days); d.setHours(9, 0, 0, 0); return d.getTime(); };
+  return { laterToday: date.getHours() < 21 ? now + 3 * 3_600_000 : null, tomorrow: morning(1), nextMonday: morning((8 - date.getDay()) % 7 || 7) };
+}
+
+/** A snoozed review's badge: "Snoozed until 3:00 PM", "until tomorrow 9:00 AM", "until Mon 9:00 AM", or "until Oct 20". */
+export function snoozeLabel(until: number, now = Date.now()): string {
+  const day = (t: number) => new Date(t).setHours(0, 0, 0, 0);
+  // Rounded, for days 23 or 25 hours long.
+  const days = Math.round((day(until) - day(now)) / 86_400_000);
+  const date = new Date(until);
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (days <= 0) return `Snoozed until ${time}`;
+  if (days === 1) return `Snoozed until tomorrow ${time}`;
+  if (days < 7) return `Snoozed until ${date.toLocaleDateString([], { weekday: "short" })} ${time}`;
+  return `Snoozed until ${date.toLocaleDateString([], { month: "short", day: "numeric" })}`;
 }

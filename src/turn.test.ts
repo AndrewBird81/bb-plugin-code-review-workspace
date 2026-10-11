@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { baselineOf, canSnooze, computeTurn, feedbackProgress, QUIET_MS, type TurnInput, type TurnOptions } from "../lib/turn";
+import { baselineOf, canSnooze, canSnoozeUntil, computeTurn, feedbackProgress, QUIET_MS, snoozeLabel, snoozeTimes, type TurnInput, type TurnOptions } from "../lib/turn";
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
 const hour = 3_600_000;
@@ -100,6 +100,53 @@ test("Not yet hides a review until a newer signal", () => {
   expect(turn({ ...snoozed, latestHeadSha: "sha3", signals: { ...snoozed.signals, headSeenAt: t(0.1) } }).group).toBe("waiting");
   // A new re-request does.
   expect(turn({ ...snoozed, signals: { ...snoozed.signals, requestedAt: t(0.2) } })).toMatchObject({ group: "needs", reason: "re-requested" });
+});
+
+test("Snooze until holds even a new request in Waiting on author, until that time or a newer request", () => {
+  const request: TurnInput = { targetKey: "pr-1", kind: "pr", status: "tracked", prState: "OPEN", signals: { requestPending: true, requestedVia: "user", requestedAt: t(2) } };
+  const snoozed = { ...request, snoozedAt: t(1), snoozedUntil: NOW + hour };
+  expect(turn(snoozed)).toMatchObject({ group: "waiting", reason: "snoozed", label: "Snoozed", at: t(1) });
+  expect(computeTurn(snoozed, undefined, NOW + hour)).toMatchObject({ group: "needs", reason: "requested" });
+  expect(turn({ ...snoozed, signals: { ...snoozed.signals, requestedAt: t(0.5) } })).toMatchObject({ group: "needs", reason: "requested" });
+  // Your own PR too.
+  expect(turn({ ...snoozed, ownPr: true })).toMatchObject({ group: "waiting", reason: "snoozed" });
+});
+
+test("Snooze until holds a review you gave until that time, then it's back as it was; a newer signal wakes it sooner", () => {
+  const snoozed = changesRequested({ latestHeadSha: "sha2", snoozedAt: t(0.5), snoozedUntil: NOW + hour }, { requestedAt: t(1) });
+  expect(turn(snoozed)).toMatchObject({ group: "waiting", reason: "snoozed", label: "Snoozed" });
+  expect(computeTurn(snoozed, undefined, NOW + 2 * hour)).toMatchObject({ group: "needs", reason: "re-requested", signal: `re-requested:${t(1)}` });
+  expect(turn({ ...snoozed, signals: { ...snoozed.signals, questionAt: t(0.2) } })).toMatchObject({ group: "needs", reason: "question" });
+});
+
+test("any review whose turn it is can be snoozed until a time, except a local one or a failed guide", () => {
+  const request: TurnInput = { targetKey: "pr-1", kind: "pr", status: "tracked", signals: { requestPending: true, requestedAt: t(2) } };
+  expect(canSnoozeUntil(request, turn(request))).toBe(true);
+  const local: TurnInput = { targetKey: "ref", kind: "ref", status: "ready" };
+  expect(canSnoozeUntil(local, turn(local))).toBe(false);
+  const failed = { ...request, status: "error" as const };
+  expect(canSnoozeUntil(failed, turn(failed))).toBe(false);
+  const waiting = changesRequested();
+  expect(canSnoozeUntil(waiting, turn(waiting))).toBe(false);
+});
+
+test("snooze times are later today, tomorrow morning, and next Monday morning, in local time", () => {
+  const saturday = new Date(2026, 9, 10, 12, 0);
+  expect(snoozeTimes(saturday.getTime())).toEqual({
+    laterToday: new Date(2026, 9, 10, 15, 0).getTime(), tomorrow: new Date(2026, 9, 11, 9, 0).getTime(), nextMonday: new Date(2026, 9, 12, 9, 0).getTime(),
+  });
+  // Late in the day there's no later today; on a Monday, next Monday is a week away.
+  expect(snoozeTimes(new Date(2026, 9, 10, 22, 0).getTime()).laterToday).toBeNull();
+  expect(snoozeTimes(new Date(2026, 9, 12, 8, 0).getTime()).nextMonday).toBe(new Date(2026, 9, 19, 9, 0).getTime());
+});
+
+test("a snooze's label says when it wakes", () => {
+  const now = new Date(2026, 9, 10, 12, 0).getTime();
+  const time = (d: Date) => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  expect(snoozeLabel(new Date(2026, 9, 10, 15, 0).getTime(), now)).toBe(`Snoozed until ${time(new Date(2026, 9, 10, 15, 0))}`);
+  expect(snoozeLabel(new Date(2026, 9, 11, 9, 0).getTime(), now)).toBe(`Snoozed until tomorrow ${time(new Date(2026, 9, 11, 9, 0))}`);
+  expect(snoozeLabel(new Date(2026, 9, 12, 9, 0).getTime(), now)).toBe(`Snoozed until ${new Date(2026, 9, 12).toLocaleDateString([], { weekday: "short" })} ${time(new Date(2026, 9, 12, 9, 0))}`);
+  expect(snoozeLabel(new Date(2026, 9, 30, 9, 0).getTime(), now)).toBe(`Snoozed until ${new Date(2026, 9, 30).toLocaleDateString([], { month: "short", day: "numeric" })}`);
 });
 
 test("a question on your thread wakes the review; other replies only if you choose", () => {

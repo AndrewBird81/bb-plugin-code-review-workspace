@@ -1,4 +1,5 @@
 import { reviewState, type ReviewItem } from "../lib/review-state";
+import { snoozeLabel } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { Badge, type Tone } from "./ui/badge";
 import { Icon, type IconName } from "./ui/icon";
@@ -25,7 +26,8 @@ export function statusLook(review: ReviewItem): { label: string; tone: Tone; ico
     case "looks-ready": return { label, tone: "agent", icon: "Sparkles" };
     case "dismissed": return { label, tone: "warning", icon: "AlertCircle" };
     case "waiting": return label === "Changes requested" ? { label, tone: "warning", icon: "FileDiff" } : { label, tone: "neutral", icon: "MessageSquare" };
-    case "snoozed": return { label, tone: "neutral", icon: "Clock" };
+    // The wake time reads in your time zone, not the server's.
+    case "snoozed": return { label: label === "Snoozed" && review.snoozedUntil ? snoozeLabel(review.snoozedUntil) : label, tone: "neutral", icon: "Clock" };
     case "draft": return { label, tone: "neutral", icon: "GitPullRequestDraft" };
     case "approved": return { label, tone: "success", icon: "Check" };
     case "commented": return { label, tone: "neutral", icon: "MessageSquare" };

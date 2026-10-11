@@ -173,9 +173,10 @@ export default async function plugin(bb: BbPluginApi) {
 
   function turnHandlers() {
     return {
-      async snoozeReview({ targetKey, snoozed }: { targetKey: string; snoozed: boolean }) {
+      async snoozeReview({ targetKey, snoozed, until }: { targetKey: string; snoozed: boolean; until?: number | null }) {
         if (!store.getReview(targetKey)) return { ok: false, error: "This review no longer exists." };
-        store.setLifecycle(targetKey, { snoozedAt: snoozed ? Date.now() : null });
+        if (snoozed && until != null && until <= Date.now()) return { ok: false, error: "Pick a time in the future." };
+        store.setLifecycle(targetKey, { snoozedAt: snoozed ? Date.now() : null, snoozedUntil: snoozed ? until ?? null : null });
         if (snoozed) await notifications.dismiss(targetKey);
         await sync.evaluate(targetKey);
         changed(targetKey);
