@@ -60,7 +60,9 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const [busy, setBusy] = useState(false);
   // The status line: the draft is saved, being saved, or why the last save or submit failed.
   const [status, setStatus] = useState<{ saving?: true; error?: string }>({});
-  const [file, setFile] = useState(activeFiles[0] ?? "");
+  // A chapter with no files starts the form on the review's first file.
+  const firstFile = activeFiles[0] ?? files[0] ?? "";
+  const [file, setFile] = useState(firstFile);
   const [line, setLine] = useState("1");
   const [side, setSide] = useState<"LEFT" | "RIGHT">("RIGHT");
   const [body, setBody] = useState("");
@@ -200,7 +202,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     refresh();
   }, [showDraft, refresh]);
 
-  useEffect(() => { if (!showComposer && !body.trim()) setFile(activeFiles[0] ?? ""); }, [activeFiles, showComposer, body]);
+  useEffect(() => { if (!showComposer && !body.trim()) setFile(firstFile); }, [firstFile, showComposer, body]);
   /**
    * Open the comment box, in the diff or this panel, on a line's comment if it has one, or on the
    * summary (SUMMARY_AT); with `ask`, a box for a message to the agent. An unfinished comment or message is shown instead.
@@ -216,7 +218,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
       setEditing(existing ?? null);
       if (at) { setFile(at.file); setLine(String(at.line)); setSide(at.side); }
       // A new comment from the panel doesn't start where the summary's box was.
-      else if (summaryBox) { setFile(activeFiles[0] ?? ""); setLine("1"); setSide("RIGHT"); }
+      else if (summaryBox) { setFile(firstFile); setLine("1"); setSide("RIGHT"); }
       setStartLine(at?.startLine !== at?.line ? at?.startLine : undefined);
       setAsking(ask);
       setSummaryBox(summary);
@@ -252,7 +254,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     }
     setBody(""); setShowComposer(false);
     // The next comment doesn't start where the summary's box was.
-    if (summaryBox) { setFile(activeFiles[0] ?? ""); setLine("1"); setSide("RIGHT"); }
+    if (summaryBox) { setFile(firstFile); setLine("1"); setSide("RIGHT"); }
     setSummaryBox(false);
   }
   /** Focus a comment's card where its box was: in the diff, or in this panel's list. */

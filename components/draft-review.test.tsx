@@ -296,3 +296,13 @@ test("on your own PR, the panel offers Comment only, and picks it", async () => 
   await waitFor(() => expect(submitReview).toHaveBeenCalledWith(expect.objectContaining({ verdict: "COMMENT" })));
   slot.lifecycle.unmount();
 });
+
+test("on a chapter with no files, the Add comment form starts on the review's first file", async () => {
+  const saveDraftComment = vi.fn(async ({ comment }: any) => ({ draft: draftOf({ comments: [comment] }), stale: [], discussions: [] }));
+  const slot = await renderTray("nofiles", { getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), saveDraftComment }, { activeFiles: [], files: ["src/a.ts", "src/b.ts"] });
+  writeComment(slot, "On the first file.");
+  expect((slot.getByRole("combobox", { name: "Comment file" }) as HTMLSelectElement).value).toBe("src/a.ts");
+  fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ file: "src/a.ts" }) })));
+  slot.lifecycle.unmount();
+});
