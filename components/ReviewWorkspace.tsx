@@ -627,9 +627,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const allFiles: string[] = sections.flatMap((section: any) => section.diffs.map((diff: any) => diff.file));
     const diffOnly = view === "diff";
     switch (key) {
-      case "j": case "k":
-        if (diffOnly) goToFile(shown[key === "j" ? at + 1 : Math.max(at - 1, 0)]);
-        return diffOnly;
+      case "j": case "k": {
+        if (!diffOnly) return false;
+        // On a chapter's intro the first file is current but not reached yet: j goes to it first.
+        const box = scrollBox.current;
+        const header = currentFile ? fileEls.current.get(currentFile) : undefined;
+        const ahead = key === "j" && !pinned.current && !!box && !!header && box.scrollHeight > box.clientHeight
+          && header.getBoundingClientRect().top > box.getBoundingClientRect().top + 1;
+        goToFile(shown[ahead ? Math.max(at, 0) : key === "j" ? at + 1 : Math.max(at - 1, 0)]);
+        return true;
+      }
       case "n": case "p": {
         const next = sections[activeIndex + (key === "n" ? 1 : -1)];
         if (diffOnly && next) selectChapter(next.id);

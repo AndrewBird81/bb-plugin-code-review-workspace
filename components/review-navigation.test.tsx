@@ -268,6 +268,31 @@ test("j and k move between files, n and p between chapters, and v marks the file
 
 const currentFile = (slot: Slot) => chapters(slot).getAllByRole("button").find((button) => button.getAttribute("aria-current") === "true")?.textContent;
 
+test("on a chapter's intro, j goes to the chapter's first file before the next one", async () => {
+  const layout = fakeLayout();
+  // A chapter long enough to scroll.
+  const sizes = { scrollHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight"), clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight") };
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 5000 });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 800 });
+  try {
+    const { slot } = await renderWorkspace();
+    await slot.findByText("aa");
+    press("n");
+    await slot.findByText("bb");
+    press("j");
+    expect(layout.top()).toBe("src/b.ts");
+    press("j");
+    expect(layout.top()).toBe("src/c.ts");
+    slot.lifecycle.unmount();
+  } finally {
+    for (const [name, descriptor] of Object.entries(sizes)) {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+      else delete (HTMLElement.prototype as any)[name];
+    }
+    layout.restore();
+  }
+}, 15_000);
+
 test("j, k, and v act on the file they went to, even in a chapter that can't scroll, and the sidebar marks it", async () => {
   const layout = fakeLayout({ stuck: true });
   const { slot, rpc } = await renderWorkspace();
