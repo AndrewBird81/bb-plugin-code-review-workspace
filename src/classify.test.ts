@@ -6,8 +6,6 @@ test("tests get a neutral tag and stay in review", () => {
     "src/foo.test.ts",
     "src/foo.spec.tsx",
     "components/__tests__/Bar.tsx",
-    "src/__snapshots__/x.snap",
-    "x.test.js.snap",
     "pkg/server_test.go",
     "app/test_models.py",
     "app/models_test.py",
@@ -34,7 +32,7 @@ test("lockfiles are skippable", () => {
 });
 
 test("generated/build output is skippable", () => {
-  for (const p of ["dist/app.js", "build/index.html", "app.min.js", "src/api.generated.ts", "dist/index.d.ts", "src/generated/api.d.ts"]) {
+  for (const p of ["dist/app.js", "build/index.html", "app.min.js", "src/api.generated.ts", "dist/index.d.ts", "src/generated/api.d.ts", "src/__snapshots__/x.snap", "x.test.js.snap", "src/__snapshots__/x.test.ts.snap"]) {
     const c = classifyFile(p);
     expect(c.category, p).toBe("generated");
     expect(c.skippable, p).toBe(true);

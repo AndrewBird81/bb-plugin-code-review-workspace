@@ -51,15 +51,16 @@ export function classifyFile(path: string): FileClass {
 
   if (LOCKFILES.has(name)) return is("lockfile", true);
 
+  // Test snapshots are written by the test runner, not by hand.
+  if (/(^|\/)__snapshots__\//.test(p) || name.endsWith(".snap")) return is("generated", true);
+
   if (
     /(^|\/)__tests__\//.test(p) ||
-    /(^|\/)__snapshots__\//.test(p) ||
     /(^|\/)(tests|spec)\//.test(p) ||
     /(^|\/)src\/test\//.test(p) ||
     /\.(test|spec)\.[a-z0-9]+$/.test(name) ||
     /_test\.(go|py)$/.test(name) ||
-    /^test_.+\.py$/.test(name) ||
-    name.endsWith(".snap")
+    /^test_.+\.py$/.test(name)
   ) {
     return is("test", false);
   }
