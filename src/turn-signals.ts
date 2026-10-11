@@ -98,7 +98,7 @@ export function alertBody(review: ReviewMeta, turn: Turn): string {
     requested: `${s.requestedBy ? `@${s.requestedBy}` : author} requested your review`,
     question: `${s.questionBy ? `@${s.questionBy}` : author} asked you something on your feedback`,
     mentioned: `${s.mentionBy ? `@${s.mentionBy}` : author} mentioned you`,
-    handled: "Every thread of your feedback is resolved or answered",
+    handled: `Every thread of your feedback is resolved or answered${s.threads?.nonBlocking ? ", apart from nits" : ""}`,
     "looks-ready": "The assistant found all your feedback addressed",
   };
   if (turn.reason === "question" && turn.label === "Author replied") why.question = `${author} replied to your feedback`;

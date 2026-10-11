@@ -216,6 +216,21 @@ test("feedback handled: every thread resolved or answered alerts once the author
   expect(s.published[0].body).toContain("Every thread of your feedback is resolved or answered");
 });
 
+test("feedback handled while a nit is still open says the nits are left out", async () => {
+  const nit = { ...thread("t3", "open"), body: "**Nit:** Rename it" };
+  const s = setup({ reviewed: true, threads: [thread("t1", "open"), nit] });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], updatedAt: 2 });
+  s.threads([thread("t1", "resolved"), nit]);
+  vi.mocked(s.actions.prepare).mockResolvedValue(false);
+  s.at(0.15);
+  await s.sync.all(true);
+  s.at(0.5);
+  await s.sync.all();
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  expect(s.published[0].body).toMatch(/^Every thread of your feedback is resolved or answered, apart from nits · /);
+});
+
 test("an active review's threads are read again every 10 minutes only while one of yours is unresolved", async () => {
   for (const [status, reads] of [["resolved", 1], ["open", 2]] as const) {
     const s = setup({ reviewed: true, threads: [thread("t1", status)] });
