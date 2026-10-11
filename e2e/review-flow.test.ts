@@ -137,7 +137,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.screenshot({ animations: "disabled", path: `${dir}/sidebar-collapsed-mobile.png` });
     await page.getByRole("button", { name: "Draft review", exact: true }).click();
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.getByRole("button", { name: "src/input.ts:1 · Changed", exact: true }).click();
+    await page.getByRole("button", { name: "src/input.ts:1", exact: true }).click();
     await page.getByRole("button", { name: "Full screen", exact: true }).click();
     await page.waitForFunction(() => !!document.fullscreenElement);
     expect(await verdicts.evaluate((element) => document.fullscreenElement?.contains(element))).toBe(true);
