@@ -474,11 +474,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const changed = sections.find((section: any) => changedSince[section.id] > 0);
     if (changed) setActiveId(changed.id);
   }, [changedSince, sections]);
+  // A chapter you choose opens on its intro, with its first file next, even a file you were on in the last chapter.
   const selectChapter = useCallback((id: string) => {
     pickChangedChapter.current = false;
+    if (id !== activeId) {
+      pinned.current = false;
+      setCurrentFile(sections.find((section: any) => section.id === id)?.diffs[0]?.file);
+    }
     setActiveId(id);
     setMobileChapters(false);
-  }, []);
+  }, [activeId, sections]);
 
   const registerFileEl = useCallback((file: string, el: HTMLElement | null) => {
     if (el) fileEls.current.set(file, el);
