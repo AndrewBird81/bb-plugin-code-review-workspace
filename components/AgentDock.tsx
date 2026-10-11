@@ -24,6 +24,10 @@ export interface AgentDockProps {
   /** Fullscreen root, so a popped-out widget remains in the visible subtree. */
   container?: HTMLElement | null;
   active?: boolean;
+  /** It can pop out as a widget over the review; not on a phone, nor one held sideways. */
+  popOut?: boolean;
+  /** Its ✕'s name: "Close" in a phone's sheet. */
+  closeLabel?: string;
   onDock?: () => void;
   onCollapse?: () => void;
 }
@@ -44,12 +48,14 @@ function loadPersisted(targetKey: string): Persisted | null {
 // This controller stays mounted when changing tabs or presentation. A review's
 // conversation is a hidden bb thread shown with ThreadChat; until it exists, a
 // first-message composer chooses its agent.
-export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, container, active = true, onDock, onCollapse }: AgentDockProps) {
+export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, container, active = true, popOut = true, closeLabel = "Close panel", onDock, onCollapse }: AgentDockProps) {
   const rpc = useRpc<typeof rpcContract>();
   const composers = useComposers();
   const scopeProps = usePortalScopeProps();
   const persisted = useMemo(() => loadPersisted(targetKey), [targetKey]);
-  const [mode, setMode] = useState<"panel" | "widget">(persisted?.mode === "widget" ? "widget" : "panel");
+  const [chosenMode, setMode] = useState<"panel" | "widget">(persisted?.mode === "widget" ? "widget" : "panel");
+  // Where it can't pop out, a widget chosen elsewhere shows in the panel, and is kept for there.
+  const mode = popOut ? chosenMode : "panel";
   const [rect, setRect] = useState<Rect>(() => persisted?.rect && [persisted.rect.x, persisted.rect.y, persisted.rect.w, persisted.rect.h].every(Number.isFinite) ? clampRect(persisted.rect, bounds()) : defaultRect(bounds()));
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [agent, setAgent] = useState<AgentChoice>(UNSET_AGENT);
@@ -74,8 +80,8 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
     return () => { mounted.current = false; gestureCleanup.current?.(); };
   }, []);
   useEffect(() => {
-    try { localStorage.setItem(`gr:agentdock:${targetKey}`, JSON.stringify({ mode, rect })); } catch { /* optional persistence */ }
-  }, [targetKey, mode, rect]);
+    try { localStorage.setItem(`gr:agentdock:${targetKey}`, JSON.stringify({ mode: chosenMode, rect })); } catch { /* optional persistence */ }
+  }, [targetKey, chosenMode, rect]);
   useEffect(() => {
     const resize = () => setRect((previous) => clampRect(previous, bounds()));
     window.addEventListener("resize", resize);
@@ -193,14 +199,14 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
     : firstMessage;
 
   const panel = <>
-    <div className={cn("flex h-11 shrink-0 items-center gap-2 border-b border-border px-3", mode === "widget" && "cursor-move bg-surface-raised")} onPointerDown={mode === "widget" ? (event) => startGesture(event, "move") : undefined}>
+    <div className={cn("flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5", mode === "widget" && "cursor-move bg-surface-raised")} onPointerDown={mode === "widget" ? (event) => startGesture(event, "move") : undefined}>
       <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />
       <span className="text-sm font-medium">Review agent</span>
-      {(threadId || conversation?.legacy.length) ? <Button variant="ghost" size="icon" className="ml-auto size-7" aria-label="New conversation" onPointerDown={(event) => event.stopPropagation()} onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
-      <Button variant="ghost" size="sm" className={cn(!(threadId || conversation?.legacy.length) && "ml-auto")} aria-label={mode === "widget" ? "Dock in review panel" : "Open agent as widget"} onPointerDown={(event) => event.stopPropagation()} onClick={mode === "widget" ? dock : () => setMode("widget")}>
+      {(threadId || conversation?.legacy.length) ? <Button variant="ghost" size="icon" className="ml-auto size-7 pointer-coarse:size-11" aria-label="New conversation" onPointerDown={(event) => event.stopPropagation()} onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
+      {popOut && <Button variant="ghost" size="sm" className={cn("pointer-coarse:h-11", !(threadId || conversation?.legacy.length) && "ml-auto")} aria-label={mode === "widget" ? "Dock in review panel" : "Open agent as widget"} onPointerDown={(event) => event.stopPropagation()} onClick={mode === "widget" ? dock : () => setMode("widget")}>
         <Icon name={mode === "widget" ? "Minimize2" : "Maximize2"} className="size-3.5" aria-hidden />{mode === "widget" ? "Dock" : "Pop out"}
-      </Button>
-      {mode === "panel" && onCollapse && <Button variant="ghost" size="icon" className="size-8 text-muted-foreground pointer-coarse:size-11" aria-label="Close panel" onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}
+      </Button>}
+      {mode === "panel" && onCollapse && <Button variant="ghost" size="icon" className={cn("size-8 text-muted-foreground pointer-coarse:size-11", !popOut && !(threadId || conversation?.legacy.length) && "ml-auto")} aria-label={closeLabel} onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}
     </div>
     {confirmingReset && <div role="alertdialog" aria-label="Start a new conversation" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-warning/20 bg-warning/10 px-3 py-2 text-xs">
       <span className="min-w-0 flex-1">Archive this conversation and start a new one?</span>
@@ -219,7 +225,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
   </div>, container ?? document.body);
   return <>
     <section aria-label="Review agent" hidden={!active} className={cn("flex min-h-0 flex-1 flex-col", !active && "hidden")}>
-      {mode === "panel" ? panel : <><div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3"><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /><h2 className="flex-1 text-sm font-medium">Review agent</h2>{onCollapse && <Button variant="ghost" size="icon" className="size-8 text-muted-foreground pointer-coarse:size-11" aria-label="Close panel" onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}</div><div className="space-y-3 p-3 text-sm"><p className="text-muted-foreground">The agent is open as a widget.</p><Button variant="outline" size="sm" onClick={dock}>Dock in review panel</Button></div></>}
+      {mode === "panel" ? panel : <><div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5"><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /><h2 className="flex-1 text-sm font-medium">Review agent</h2>{onCollapse && <Button variant="ghost" size="icon" className="size-8 text-muted-foreground pointer-coarse:size-11" aria-label={closeLabel} onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}</div><div className="space-y-3 p-3 text-sm"><p className="text-muted-foreground">The agent is open as a widget.</p><Button variant="outline" size="sm" onClick={dock}>Dock in review panel</Button></div></>}
     </section>
     {widget}
   </>;

@@ -30,10 +30,11 @@ export function returnFocus(el: HTMLElement | null | undefined, from: HTMLElemen
 }
 
 /**
- * A side's focus: closing it gives the focus back to what opened it. Over the code (`overlay`) it's a modal dialog too:
- * opening it moves the focus in, Tab stays inside it, and Esc closes it. Spread the returned props on the side.
+ * A side's focus: closing it gives the focus back to what opened it. Over the code (`overlay`) it's a dialog too:
+ * opening it moves the focus in, and Esc closes it; a `modal` one also keeps Tab inside it. Spread the returned props
+ * on the side.
  */
-export function useSide(ref: RefObject<HTMLElement | null>, { shown, overlay, onClose }: { shown: boolean; overlay: boolean; onClose: () => void }) {
+export function useSide(ref: RefObject<HTMLElement | null>, { shown, overlay, modal = true, onClose }: { shown: boolean; overlay: boolean; modal?: boolean; onClose: () => void }) {
   const opener = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
@@ -47,19 +48,20 @@ export function useSide(ref: RefObject<HTMLElement | null>, { shown, overlay, on
     const el = ref.current;
     if (overlay && el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
   }, [ref, overlay]);
-  // React's events, not the DOM's: a box inside that handles Esc itself, such as Find in review's, goes first.
+  // React's events, not the DOM's: a box inside that handles Esc itself, such as Find in review's, goes first. Keys
+  // from a menu it opened, which React passes up from the menu's portal, are the menu's.
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     const el = ref.current;
-    if (!el || event.defaultPrevented) return;
+    if (!el || event.defaultPrevented || !el.contains(event.target as Node)) return;
     if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
-    if (event.key !== "Tab") return;
+    if (event.key !== "Tab" || !modal) return;
     const items = focusables(el);
     const index = items.indexOf(document.activeElement as HTMLElement);
     const next = event.shiftKey ? (index <= 0 ? items.at(-1) : items[index - 1]) : (index < 0 || index === items.length - 1 ? items[0] : items[index + 1]);
     event.preventDefault();
     (next ?? el).focus({ preventScroll: true });
   };
-  return overlay ? { role: "dialog", "aria-modal": true, tabIndex: -1, onKeyDown } as const : {};
+  return overlay ? { role: "dialog", ...(modal ? { "aria-modal": true } : {}), tabIndex: -1, onKeyDown } as const : {};
 }
 
 /**

@@ -55,51 +55,78 @@ async function renderWorkspace() {
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>;
 const band = (slot: Slot) => slot.getByRole("navigation", { name: "Breadcrumb" }).closest<HTMLElement>("[class*='@container/band']")!;
 
-test("on a phone, until its dock, the band holds the review's commands, with Review settings in Review actions", async () => {
+test("on a phone there's no band: the dock holds the review's commands, and the chapters sheet Review settings", async () => {
   fakeSize(390, 844);
   const slot = await renderWorkspace();
-  const commands = within(await within(band(slot)).findByRole("group", { name: "Review commands" }));
-  expect(commands.getByRole("button", { name: "Comments" })).toBeTruthy();
-  expect(commands.getByRole("button", { name: "Ask agent" })).toBeTruthy();
-  fireEvent.click(commands.getByRole("button", { name: "Review actions" }));
+  expect(slot.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
+  const dock = within(slot.getByRole("group", { name: "Review commands" }));
+  for (const name of ["All reviews", "Chapters: Chapter 1 of 1, Parsing, 0 of 1 files viewed", "Comments", "Ask agent"]) expect(dock.getByRole("button", { name })).toBeTruthy();
+  fireEvent.click(dock.getByRole("button", { name: /^Chapters:/ }));
+  const sheet = within(slot.getByRole("dialog", { name: "Chapters" }));
+  fireEvent.click(sheet.getByRole("button", { name: "Review actions" }));
   fireEvent.click(await slot.findByRole("button", { name: "Review settings…" }));
   await waitFor(() => expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review", options: { subPath: "settings/pr-42" } }));
   slot.lifecycle.unmount();
 });
 
-test("on a phone the band keeps to icons, without Split, which can't apply there", async () => {
+test("on a phone the diff's options are behind the chapters sheet's Diff options, without Split, which can't apply there", async () => {
   fakeSize(390, 844);
   const slot = await renderWorkspace();
   const main = within(slot.getByRole("main"));
-  expect(main.queryByRole("button", { name: "Split view" })).toBeNull();
-  expect(main.getByRole("button", { name: "Wrap lines" }).textContent).toBe("");
-  // The chapter's end marks it viewed, which keeps the band's controls to one row.
+  // The chapter's end marks it viewed.
   expect(main.queryByRole("button", { name: "Mark chapter viewed" })).toBeNull();
   expect(main.getByRole("button", { name: "Mark chapter viewed and finish" })).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Diff options" }));
+  const wrap = await slot.findByRole("switch", { name: "Wrap long lines" });
+  expect(wrap.getAttribute("aria-checked")).toBe("true");
+  expect(slot.getByRole("switch", { name: "Hide whitespace changes" }).getAttribute("aria-checked")).toBe("false");
+  expect(slot.queryByRole("button", { name: "Split view" })).toBeNull();
+  fireEvent.click(wrap);
+  expect(wrap.getAttribute("aria-checked")).toBe("false");
   slot.lifecycle.unmount();
 });
 
-test("on a phone the chapters and the panel open over the code, never by themselves, and a pick closes the chapters", async () => {
+test("on a phone the chapters, Comments and the agent share one sheet above the dock, which never opens by itself", async () => {
   fakeSize(390, 844);
   const slot = await renderWorkspace();
   // The panel left open on a bigger screen doesn't open over the code.
-  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
   expect(slot.queryByRole("dialog")).toBeNull();
-  fireEvent.click(slot.getByRole("button", { name: "Show chapters" }));
-  const chapters = slot.getByRole("dialog", { name: "Chapters" });
-  expect(chapters.getAttribute("aria-modal")).toBe("true");
-  fireEvent.click(within(chapters).getByRole("button", { name: "Overview" }));
+  const dock = within(slot.getByRole("group", { name: "Review commands" }));
+  const chaptersTab = dock.getByRole("button", { name: /^Chapters:/ });
+  fireEvent.click(chaptersTab);
+  // Not modal: the dock under it stays in reach, its tabs switching the sheet; the code behind it doesn't.
+  const sheet = slot.getByRole("dialog", { name: "Chapters" });
+  expect(sheet.hasAttribute("aria-modal")).toBe(false);
+  expect(chaptersTab.getAttribute("aria-pressed")).toBe("true");
+  expect(slot.getByRole("main", { hidden: true }).hasAttribute("inert")).toBe(true);
+  fireEvent.click(dock.getByRole("button", { name: "Comments" }));
   expect(slot.queryByRole("dialog", { name: "Chapters" })).toBeNull();
-  fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
   expect(slot.getByRole("dialog", { name: "Comments" })).toBeTruthy();
+  expect(chaptersTab.getAttribute("aria-pressed")).toBe("false");
+  // Its tab again closes it.
+  fireEvent.click(dock.getByRole("button", { name: "Comments" }));
+  expect(slot.queryByRole("dialog")).toBeNull();
+  expect(slot.getByRole("main").hasAttribute("inert")).toBe(false);
+  // A pick closes it.
+  fireEvent.click(chaptersTab);
+  fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Overview" }));
+  expect(slot.queryByRole("dialog")).toBeNull();
+  expect(dock.getByRole("button", { name: "Chapters: Overview" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
-test("a phone held sideways keeps its band to 40px", async () => {
+test("a phone held sideways keeps its band to 40px: All reviews and the chapter, and the diff's options behind one button", async () => {
   fakeSize(844, 390);
   const slot = await renderWorkspace();
   expect(band(slot).className.split(" ")).toContain("h-10");
-  expect(within(slot.getByRole("main")).getByRole("button", { name: "Wrap lines" }).textContent).toBe("");
+  const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
+  expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("");
+  expect(crumbs.getByLabelText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
+  const main = within(slot.getByRole("main"));
+  expect(main.queryByRole("button", { name: "Wrap lines" })).toBeNull();
+  fireEvent.click(main.getByRole("button", { name: "Diff options" }));
+  expect(await slot.findByRole("switch", { name: "Wrap long lines" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -183,12 +210,16 @@ test("where the browser can't go full screen, as on an iPhone, Full screen cover
   restores.push(() => { delete (HTMLElement.prototype as { showPopover?: unknown }).showPopover; delete (HTMLElement.prototype as { hidePopover?: unknown }).hidePopover; });
   const slot = await renderWorkspace();
   expect(document.fullscreenEnabled).toBeFalsy();
-  const root = band(slot).closest("[class*='@container/review']")!;
+  const root = slot.getByRole("main").closest("[class*='@container/review']")!;
   fireEvent.click(await slot.findByRole("button", { name: "Full screen" }));
   expect(show.mock.contexts).toEqual([root]);
   expect(root.getAttribute("popover")).toBe("manual");
+  // Clear of the notch; the dock, inside it, keeps clear of the home indicator.
   expect(root.className.split(" ")).toEqual(expect.arrayContaining(["fixed", "inset-0", "pt-[env(safe-area-inset-top)]"]));
-  fireEvent.click(slot.getByRole("button", { name: "Review actions" }));
+  expect(root.className).not.toContain("safe-area-inset-bottom");
+  expect(slot.getByRole("group", { name: "Review commands" }).className).toContain("env(safe-area-inset-bottom)");
+  fireEvent.click(slot.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Review actions" }));
   expect(root.contains(await slot.findByRole("button", { name: "Review settings…" }))).toBe(true);
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   fireEvent.click(slot.getByRole("button", { name: "Exit full screen" }));
@@ -201,7 +232,7 @@ test("where the browser can't go full screen, as on an iPhone, Full screen cover
 test("where the browser can neither go full screen nor cover the window, there's no Full screen button", async () => {
   fakeSize(390, 844);
   const slot = await renderWorkspace();
-  await within(band(slot)).findByRole("group", { name: "Review commands" });
+  expect(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: "Ask agent" })).toBeTruthy();
   expect(slot.queryByRole("button", { name: "Full screen" })).toBeNull();
   slot.lifecycle.unmount();
 });

@@ -40,11 +40,10 @@ export function TitleBarControls({ subPath, placement = "title" }: { subPath: st
 TitleBarControls.displayName = "TitleBarControls";
 
 function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: TitleBarPlacement }) {
-  const navigate = useBbNavigate();
   const status = useDraftStatus(api.targetKey);
   const needsYou = useNeedsYou(api.targetKey);
   const container = useFullscreenPortalContainer();
-  const { layout, panel, review } = api;
+  const { layout, panel } = api;
   // A wide pane's title bar has room for every label; a phone held sideways, and the band, keep to icons and counts.
   const tier = placement === "band" || layout.mode === "short" ? "icons" : layout.widePane ? "labeled" : "compact";
   const comments = status?.comments ?? 0;
@@ -57,16 +56,6 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
     if (Date.now() < focusToggle.until) el.focus();
     focusToggle = null;
   }, [placement]);
-  const settings = async () => {
-    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
-    navigate.toPluginPanel("review", { subPath: `settings/${api.targetKey}` });
-  };
-  const items: { label: string; icon: IconName; onSelect: () => void }[] = [
-    { label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() },
-    ...(review.url ? [{ label: "Open on GitHub", icon: "Github" as const, onSelect: () => navigate.openUrl(review.url!) }] : []),
-    { label: "Keyboard shortcuts", icon: "CircleQuestion", onSelect: api.showShortcuts },
-    { label: "Review settings…", icon: "Settings", onSelect: () => void settings() },
-  ];
   return (
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
       <div role="group" aria-label="Review commands" className="flex shrink-0 items-center gap-1">
@@ -91,10 +80,7 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
             {comments > 0 && <span className="font-normal text-subtle-foreground tabular-nums">· {comments}</span>}
           </Button>
         </Hint>}
-        <ReviewActions review={review} className={icon} pinnable={api.pinnable} items={items} onChanged={() => void api.reload()} onDeleted={() => {
-          if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-          navigate.toPluginPanel("review");
-        }} />
+        <ReviewMenu api={api} className={icon} />
         {api.fullscreen.available && <Hint label={api.fullscreen.on ? "Exit full screen" : "Full screen"} container={container}>
           <Button
             ref={fullscreenRef}
@@ -116,4 +102,26 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
       </div>
     </CompactViewportOverrideProvider>
   );
+}
+
+/**
+ * Review actions (⋯): the workspace's own first (Update or Rebuild guide, Open on GitHub, Keyboard shortcuts, Review
+ * settings…), then the review's.
+ */
+export function ReviewMenu({ api, className }: { api: WorkspaceApi; className?: string }) {
+  const navigate = useBbNavigate();
+  const settings = async () => {
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+    navigate.toPluginPanel("review", { subPath: `settings/${api.targetKey}` });
+  };
+  const items: { label: string; icon: IconName; onSelect: () => void }[] = [
+    { label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() },
+    ...(api.review.url ? [{ label: "Open on GitHub", icon: "Github" as const, onSelect: () => navigate.openUrl(api.review.url!) }] : []),
+    { label: "Keyboard shortcuts", icon: "CircleQuestion", onSelect: api.showShortcuts },
+    { label: "Review settings…", icon: "Settings", onSelect: () => void settings() },
+  ];
+  return <ReviewActions review={api.review} className={className} pinnable={api.pinnable} items={items} onChanged={() => void api.reload()} onDeleted={() => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    navigate.toPluginPanel("review");
+  }} />;
 }

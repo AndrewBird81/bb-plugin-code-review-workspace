@@ -13,6 +13,7 @@ import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setGithubThreadsInCode, setHideWhitespace, setLastReview, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView } from "../lib/panel-state";
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
 import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, useWorkspaceLayout } from "../lib/workspace-layout";
+import { useKeyboardInset } from "../lib/use-keyboard-inset";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { Button } from "./ui/button";
 import type { FileOwners } from "../src/codeowners";
@@ -32,15 +33,18 @@ import { CheckFailuresContext, useCheckFailures } from "./CheckFailures";
 import { ShortcutsHelp } from "./ShortcutsHelp";
 import { Navigator } from "./Navigator";
 import { ReviewOverview } from "./ReviewOverview";
+import { DiffOptions } from "./reading/DiffOptions";
 import { ReaderBar } from "./reading/ReaderBar";
 import { ChapterFooter } from "./reading/ChapterFooter";
 import { CommentsView, type CommentsTab } from "./comments/CommentsView";
 import { NavigatorHost } from "./shell/NavigatorHost";
+import { PhoneDock } from "./shell/PhoneDock";
 import { returnFocus } from "./shell/side-parts";
 import { ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
 import { SelectionBar } from "./shell/SelectionBar";
 import { SidePanel } from "./shell/SidePanel";
 import { TopBand, navigatorId } from "./shell/TopBand";
+import { ReviewMenu } from "./TitleBarControls";
 import { TOUCH_CONTROL } from "./touch";
 import { splitPatchByFile } from "../src/patch";
 import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunks";
@@ -170,12 +174,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [layout.nav, targetKey]);
 
   const changeNavOpen = useCallback((open: boolean) => { setNavOpenState(open); saveNavOpen(open); }, []);
-  /** Show the navigator: docked where it fits, else over the code. */
+  /** Show the navigator: docked where it fits, else over the code, in place of the panel if that's over it too. */
   const showNav = useCallback(() => {
-    const { nav, navCanDock } = layoutRef.current;
+    const { nav, navCanDock, panel } = layoutRef.current;
     if (nav === "docked" || nav === "overlay") return;
-    if (navCanDock) changeNavOpen(true);
-    else setNavOverlay(true);
+    if (navCanDock) return changeNavOpen(true);
+    setNavOverlay(true);
+    if (panel === "overlay") { setPanelView(null); setPanelOverlay(false); }
   }, [changeNavOpen]);
   const toggleNav = useCallback(() => {
     const { nav } = layoutRef.current;
@@ -448,6 +453,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     else void rootRef.current?.requestFullscreen().catch(() => {});
   }, []);
   const canFullscreen = document.fullscreenEnabled || "showPopover" in HTMLElement.prototype;
+  useKeyboardInset(rootEl);
   useLayoutEffect(() => {
     if (!covering || !rootEl) return;
     rootEl.setAttribute("popover", "manual");
@@ -856,6 +862,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: "New commits since this guide was written.", action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),
   ];
   const paneWidth = rootEl?.clientWidth ?? 0;
+  // A phone's sides are its one sheet, over the code, which shows nothing else to reach meanwhile.
+  const sheet = layout.mode === "phone";
+  const sheetOpen = sheet && (layout.nav === "overlay" || layout.panel === "overlay");
 
   return (
     <WorkspaceProvider api={api}>
@@ -863,19 +872,21 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
     {/* Kit popovers open as bottom drawers where the workspace is phone-sized or short. */}
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
+    {/* It ends above a keyboard over it (--gr-kb). Covering the window, it keeps clear of the notch and the home
+        indicator; a phone's dock does that at the bottom. */}
     <div
       ref={(el) => {
         rootRef.current = el;
         setRootEl(el);
       }}
-      className={cn("@container/review relative flex h-full min-h-0 min-w-0 flex-col bg-background", covering && "fixed inset-0 m-0 h-auto w-auto overflow-hidden border-0 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] text-foreground")}
+      className={cn("@container/review relative flex h-full min-h-0 min-w-0 flex-col bg-background pb-[var(--gr-kb,0px)]", covering && "fixed inset-0 m-0 h-auto w-auto overflow-hidden border-0 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground", covering && !sheet && "pb-[max(env(safe-area-inset-bottom),var(--gr-kb,0px))]")}
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
       <div className="relative flex min-h-0 flex-1">
-        <NavigatorHost targetKey={targetKey} placement={layout.nav} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelWidth : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
+        <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelWidth : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
           <Navigator leading={<TopBand />} patch={patch} currentFile={currentFile} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={owners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} />
         </NavigatorHost>
-        <main aria-label="Review" className="flex min-w-0 flex-1 flex-col">
+        <main aria-label="Review" inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
           <ReaderBar threads={isPr && diffThreads.threads.length > 0} />
           <ReviewNotices notices={notices} />
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
@@ -917,16 +928,17 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
             ) : <ReviewOverview checks={checks} readLines={readLines} changedSince={changedSince} generated={generated} snoozing={snoozing} resume={lastChapter} onShowFeedback={showFeedback} onOpenLine={openHotspot} />}
           </div>
         </main>
-        <SidePanel targetKey={targetKey} placement={layout.panel} view={shownPanel} width={panelWidth} maxWidth={Math.min(PANEL_WIDTH.max, paneWidth - READER_MIN - (layout.nav === "docked" ? navWidth : 0))} onWidth={setPanelWidth} onWidthDone={savePanelWidth} onClose={closePanel} onBack={() => openPanel("comments")}>
+        <SidePanel targetKey={targetKey} placement={layout.panel} sheet={sheet} view={shownPanel} width={panelWidth} maxWidth={Math.min(PANEL_WIDTH.max, paneWidth - READER_MIN - (layout.nav === "docked" ? navWidth : 0))} onWidth={setPanelWidth} onWidthDone={savePanelWidth} onClose={closePanel} onBack={() => openPanel("comments")}>
           <CommentsView shown={shownPanel === "comments" || shownPanel === "finish"} finish={shownPanel === "finish"} tab={commentsTab} onTab={setCommentsTab} revision={revision} onShowThread={showThread} />
-          <AgentDock targetKey={targetKey} patch={patch} injection={injection} container={rootEl} active={shownPanel === "agent"} onDock={() => openPanel("agent")} onCollapse={closePanel} />
+          <AgentDock targetKey={targetKey} patch={patch} injection={injection} container={rootEl} active={shownPanel === "agent"} popOut={layout.mode === "tablet"} closeLabel={sheet ? "Close" : undefined} onDock={() => openPanel("agent")} onCollapse={closePanel} />
         </SidePanel>
         {/* Over the code, a side dims the rest; a tap there closes it. */}
         {(layout.nav === "overlay" || layout.panel === "overlay") && <div aria-hidden className="absolute inset-0 z-30 bg-black/40 animate-in fade-in duration-200 motion-reduce:animate-none" onClick={() => { setNavOverlay(false); if (layout.panel === "overlay") closePanel(); }} />}
       </div>
+      {sheet && <PhoneDock hidden={!!lineSel} />}
       <DraftLines into={draftLines} />
 
-      <SelectionBar lines={lineSel} text={sel} onComment={() => commentOnLines()} onAskLines={askAboutLines} onClear={() => setLineSel(null)} onAskText={askAboutSelection} />
+      <SelectionBar lines={lineSel} text={sel} phone={sheet} onComment={() => commentOnLines()} onAskLines={askAboutLines} onClear={() => setLineSel(null)} onAskText={askAboutSelection} />
       <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
     </CompactViewportOverrideProvider>

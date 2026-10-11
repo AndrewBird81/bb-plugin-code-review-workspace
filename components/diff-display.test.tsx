@@ -147,7 +147,8 @@ test("dragging a wide pane's edge doesn't redraw the workspace on every frame", 
 });
 
 test("a narrow workspace on a wide screen lays out by its own width: the chapters open over the code", async () => {
-  const restore = fakeWidth(600);
+  // Too narrow for the chapters to dock beside the code, but not a phone's width.
+  const restore = fakeWidth(700);
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
   expect(slot.queryByRole("navigation", { name: "Chapters" })).toBeNull();

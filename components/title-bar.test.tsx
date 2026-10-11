@@ -114,11 +114,10 @@ test("the title bar's commands fit the pane: labeled from 1000px, shorter below,
   ({ bar, page } = await renderReview());
   expect(await text(bar)).toEqual(["", "", "Submit· 2"]);
   page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
-  // A phone's are its own, in the workspace.
+  // A phone's are its own, in the workspace's dock.
   fakeSize(390, 844);
-  let band;
-  ({ bar, page, band } = await renderReview());
-  await band().findByRole("group", { name: "Review commands" });
+  ({ bar, page } = await renderReview());
+  await page.findByRole("group", { name: "Review commands" });
   expect(bar!.container.innerHTML).toBe("");
 });
 

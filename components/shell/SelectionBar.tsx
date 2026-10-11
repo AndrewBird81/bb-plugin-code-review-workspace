@@ -1,10 +1,15 @@
 import type { SelectedLineRange } from "@pierre/diffs";
+import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Icon } from "../ui/icon";
 
-/** What's selected in the diff, with what you can do with it: lines picked GitHub-style, or code text. */
-export function SelectionBar({ lines, text, onComment, onAskLines, onClear, onAskText }: {
+/**
+ * What's selected in the diff, with what you can do with it: lines picked GitHub-style, or code text. On a `phone`
+ * the lines' bar takes the dock's place, at the bottom.
+ */
+export function SelectionBar({ lines, text, phone, onComment, onAskLines, onClear, onAskText }: {
   lines: { file: string; range: SelectedLineRange } | null;
+  phone: boolean;
   /** Selected code, where it sits on screen. */
   text: { x: number; y: number } | null;
   onComment: () => void;
@@ -14,7 +19,7 @@ export function SelectionBar({ lines, text, onComment, onAskLines, onClear, onAs
 }) {
   return <>
     {lines && (
-      <div className="fixed bottom-24 left-1/2 z-[62] flex w-max max-w-[calc(100vw-24px)] -translate-x-1/2 flex-wrap items-center gap-1.5 rounded-xl border border-border bg-popover px-2 py-1.5 text-xs shadow-2xl ring-1 ring-primary/10">
+      <div className={cn("fixed left-1/2 z-[62] flex w-max max-w-[calc(100vw-24px)] -translate-x-1/2 flex-wrap items-center gap-1.5 rounded-xl border border-border bg-popover px-2 py-1.5 text-xs shadow-2xl ring-1 ring-primary/10", phone ? "bottom-[calc(4px+env(safe-area-inset-bottom))]" : "bottom-24")}>
         <span className="flex items-center gap-1.5 px-1 font-mono text-[11px] text-muted-foreground">
           <Icon name="File" className="size-3.5" aria-hidden />
           {lines.file.split("/").pop()}
