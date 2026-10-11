@@ -2,6 +2,7 @@
 // sidebar can tag files that are low-value to review (generated output,
 // lockfiles) and let the reviewer skip them. Tests get a tag but stay in review. Kept pure and shared between the
 // sidebar and the per-file diff badge.
+import { compileGlob, globMatches, type Glob } from "./glob";
 
 export type FileCategory = "test" | "generated" | "lockfile" | "docs" | "config" | "code";
 
@@ -95,29 +96,13 @@ export function classifyFile(path: string, declared = false): FileClass {
   return is("code", false);
 }
 
-const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
 /** A .gitattributes pattern, by gitignore's rules: without a slash it matches a name at any depth. */
-function attributePattern(pattern: string): RegExp {
-  const anchored = pattern.includes("/");
-  const glob = pattern.replace(/^\//, "");
-  let source = "";
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === "*" && glob[i + 1] === "*") {
-      // "**/" is any number of directories, even none; a trailing "**" is everything inside.
-      if (glob[i + 2] === "/") { source += "(?:.*/)?"; i += 2; } else { source += ".*"; i++; }
-    } else if (c === "*") source += "[^/]*";
-    else if (c === "?") source += "[^/]";
-    else if (c === "[" && glob.indexOf("]", i + 2) > 0) {
-      const end = glob.indexOf("]", i + 2);
-      source += `[${glob.slice(i + 1, end).replace(/^!/, "^").replace(/\\/g, "\\\\")}]`;
-      i = end;
-    } else if (c === "\\" && i + 1 < glob.length) source += escapeRegExp(glob[++i]);
-    else source += escapeRegExp(c);
-  }
-  return new RegExp(anchored ? `^${source}$` : `(?:^|/)${source}$`);
+function attributePattern(pattern: string): Glob | null {
+  return compileGlob(pattern.includes("/") ? pattern.replace(/^\//, "") : `**/${pattern}`);
 }
+
+// The file comes from the PR and every rule is tried on every path, so the rules' length is capped.
+const MAX_ATTRIBUTE_PATTERNS_LENGTH = 1000;
 
 /**
  * The paths a repo's root .gitattributes marks linguist-generated or linguist-vendored, as GitHub
@@ -125,6 +110,7 @@ function attributePattern(pattern: string): RegExp {
  * ("build/") matches no file, as in git.
  */
 export function declaredGenerated(gitattributes: string, paths: string[]): string[] {
+  let budget = MAX_ATTRIBUTE_PATTERNS_LENGTH;
   const rules = gitattributes.split(/\r?\n/).flatMap((line) => {
     const [pattern, ...attributes] = line.trim().split(/\s+/);
     if (!pattern || pattern.startsWith("#") || pattern.startsWith("[attr]") || pattern.endsWith("/")) return [];
@@ -133,11 +119,12 @@ export function declaredGenerated(gitattributes: string, paths: string[]): strin
       const [, unset, name, value] = attribute.match(/^([-!]?)(linguist-(?:generated|vendored))(?:=(.*))?$/) ?? [];
       if (name) set.set(name, !unset && value !== "false");
     }
-    return set.size ? [{ match: attributePattern(pattern), set }] : [];
+    const match = set.size && (budget -= pattern.length) >= 0 ? attributePattern(pattern) : null;
+    return match ? [{ match, set }] : [];
   });
   return paths.filter((path) => {
     const state = new Map<string, boolean>();
-    for (const rule of rules) if (rule.match.test(path)) for (const [name, on] of rule.set) state.set(name, on);
+    for (const rule of rules) if (globMatches(rule.match, path)) for (const [name, on] of rule.set) state.set(name, on);
     return state.get("linguist-generated") === true || state.get("linguist-vendored") === true;
   });
 }

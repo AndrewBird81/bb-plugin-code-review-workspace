@@ -86,3 +86,10 @@ test("files the repo's .gitattributes marks linguist-generated or linguist-vendo
   ])).toEqual(["svc/user.pb.go", "api/schema.ts", "vendor/lib/x.js", "docs/a/b/page.html", "docs/page.html"]);
   expect(declaredGenerated("", ["a.ts"])).toEqual([]);
 });
+
+test("a .gitattributes pattern can't stall the server or break the list", () => {
+  const start = performance.now();
+  expect(declaredGenerated(`${"*a".repeat(16)}*b linguist-generated`, ["a".repeat(60)])).toEqual([]);
+  expect(performance.now() - start).toBeLessThan(100);
+  expect(declaredGenerated("[z-a].ts linguist-generated\n*.pb.go linguist-generated", ["x.ts", "a.pb.go"])).toEqual(["a.pb.go"]);
+});

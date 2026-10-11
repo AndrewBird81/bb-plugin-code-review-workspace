@@ -4,6 +4,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ghPrChecksJsonArgs, type runGh, type runGit } from "./gh";
+import { compileGlob, globMatches, type Glob } from "./glob";
 import type { ReviewMeta } from "./store";
 import { parseChecks } from "./threads";
 import { parseAllThreads } from "./github/threads";
@@ -33,33 +34,34 @@ const INSTRUCTIONS_LIMIT = 8000;
 const clip = (text: string, limit: number) => text.length > limit ? `${text.slice(0, limit)}…` : text;
 const oneLine = (text: string, limit: number) => clip(text.replace(/\s+/g, " ").trim(), limit);
 
-/** A glob from an applyTo list as a regular expression: *, **, ?, and {a,b}. */
-function globPattern(glob: string): RegExp {
-  let source = "";
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === "*" && glob[i + 1] === "*") {
-      i++;
-      if (glob[i + 1] === "/") { i++; source += "(?:.*/)?"; } else source += ".*";
-    } else if (c === "*") source += "[^/]*";
-    else if (c === "?") source += "[^/]";
-    else if (c === "{" && glob.indexOf("}", i) > i) {
-      const end = glob.indexOf("}", i);
-      source += `(?:${glob.slice(i + 1, end).split(",").map((part) => part.replace(/[.+^$()|[\]\\]/g, "\\$&")).join("|")})`;
-      i = end;
-    } else source += c.replace(/[.+^$()|[\]\\{}]/g, "\\$&");
+// An applyTo list comes from the PR and every glob is tried on every changed file, so its size is capped.
+const MAX_APPLY_TO_LENGTH = 1000;
+const MAX_APPLY_TO_GLOBS = 32;
+
+/** A glob from an applyTo list with its {a,b} alternatives spelled out; none when there are too many. */
+function expandBraces(glob: string): string[] {
+  let globs = [""];
+  let i = 0;
+  for (let open = glob.indexOf("{"); open >= 0 && glob.indexOf("}", open) > open; open = glob.indexOf("{", i)) {
+    const close = glob.indexOf("}", open);
+    const parts = glob.slice(open + 1, close).split(",");
+    if (globs.length * parts.length > MAX_APPLY_TO_GLOBS) return [];
+    globs = globs.flatMap((head) => parts.map((part) => head + glob.slice(i, open) + part));
+    i = close + 1;
   }
-  return new RegExp(`^${source}$`);
+  return globs.map((head) => head + glob.slice(i));
 }
 
 /** An .instructions.md file's text without its front matter, when its applyTo globs match a changed file. */
 export function scopedInstructions(text: string, files: readonly string[]): string | null {
   const front = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
   const applyTo = front?.[1].match(/^applyTo:\s*["']?(.*?)["']?\s*$/m)?.[1];
-  if (!front || !applyTo) return null;
+  if (!front || !applyTo || applyTo.length > MAX_APPLY_TO_LENGTH) return null;
   // Commas inside {a,b} don't separate globs.
-  const patterns = applyTo.split(/,(?![^{]*\})/).map((glob) => globPattern(glob.trim()));
-  return files.some((file) => patterns.some((pattern) => pattern.test(file))) ? text.slice(front[0].length).trim() : null;
+  let budget = MAX_APPLY_TO_LENGTH;
+  const patterns = applyTo.split(/,(?![^{]*\})/).flatMap((glob) => expandBraces(glob.trim()))
+    .filter((glob) => (budget -= glob.length) >= 0).map(compileGlob).filter((glob): glob is Glob => !!glob);
+  return files.some((file) => patterns.some((pattern) => globMatches(pattern, file))) ? text.slice(front[0].length).trim() : null;
 }
 
 /** The repo's review instructions, each under its path, capped together. */
@@ -124,7 +126,7 @@ async function pullRequestContext(run: Run, review: ReviewMeta, files: readonly 
 
   const checks = await run(ghPrChecksJsonArgs(review.number!, review.repo)).then(readChecks, () => null);
   const failing = checks?.filter((c) => c.bucket === "fail") ?? [];
-  sections.push(checks === null ? "CI: couldn't read the checks." : failing.length ? `Failing CI checks:\n${failing.map((c) => `- ${c.name}${c.link ? `: ${c.link}` : ""}`).join("\n")}` : `CI: no failing checks${checks.length ? "" : " (none reported)"}.`);
+  sections.push(checks === null ? "CI: couldn't read the checks." : failing.length ? `Failing CI checks:\n${untrusted("CI checks", failing.map((c) => `- ${c.name}${c.link ? `: ${c.link}` : ""}`).join("\n"))}` : `CI: no failing checks${checks.length ? "" : " (none reported)"}.`);
 
   const others = parseAllThreads(json).filter((t) => !viewer || t.author.toLowerCase() !== viewer.toLowerCase());
   const open = others.filter((t) => !t.isResolved);
