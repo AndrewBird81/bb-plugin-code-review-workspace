@@ -37,11 +37,12 @@ export function prFactsQuery(refs: PrRef[]): { query: string; variables: Record<
  * one it refuses (FORBIDDEN: permissions, SSO) to "forbidden"; one whose alias failed for another reason is left out of the map.
  */
 export function parsePrFacts(json: unknown, refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Map<string, PrRead> {
-  const root = json as { data?: Record<string, any> | null; errors?: Array<{ type?: string; message?: string; path?: unknown[] }> } | null;
+  const root = json as { data?: Record<string, any> | null; errors?: Array<{ type?: string; message?: string; path?: unknown[] }>; message?: string } | null;
   if (!root || typeof root !== "object" || !root.data || typeof root.data !== "object") {
     // Say why, such as RATE_LIMITED, so the sync can back off.
     const why = (root?.errors ?? []).map((e) => [e.type, e.message].filter(Boolean).join(": ")).filter(Boolean).join("; ");
-    throw new Error(why || "GitHub returned no PR data");
+    // A refused token answers with only a message, such as "Bad credentials".
+    throw new Error(why || root?.message || "GitHub returned no PR data");
   }
   const failed = new Map((root.errors ?? []).filter((e) => e.type !== "NOT_FOUND").map((e) => [String(e.path?.[0] ?? ""), e.type]));
   const result = new Map<string, PrRead>();
@@ -72,7 +73,9 @@ export async function fetchPrFacts(run: RunGh, refs: PrRef[], viewer: string, te
       const out = await run(args);
       let json: unknown;
       try { json = JSON.parse(out.stdout); } catch { throw new Error(`Could not read PR facts: ${out.stderr.trim() || `gh exited ${out.code}`}`); }
-      for (const [key, facts] of parsePrFacts(json, batch, viewer, teams)) result.set(key, facts);
+      let facts: Map<string, PrRead>;
+      try { facts = parsePrFacts(json, batch, viewer, teams); } catch (error) { throw new Error([(error as Error).message, out.stderr.trim()].filter(Boolean).join(": ")); }
+      for (const [key, read] of facts) result.set(key, read);
       read++;
     } catch (error) {
       failure = error instanceof Error ? error : new Error(String(error));

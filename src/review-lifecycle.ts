@@ -70,6 +70,8 @@ const THREADS_EVERY = 10 * MINUTE;
 const RETRY_PREPARE = 10 * MINUTE;
 /** How long reading waits after GitHub's rate limit. */
 const RATE_LIMIT_WAIT = 15 * MINUTE;
+/** What gh or GitHub says when gh isn't signed in or its token was refused. */
+const AUTH_FAILED = /gh auth login|HTTP 401|Bad credentials/i;
 /** Turns that prepare their re-review ahead of time. */
 const PREPARE = new Set<TurnReason>(["re-requested", "handled", "looks-ready", "dismissed"]);
 
@@ -93,6 +95,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
   };
   /** Record a failed read; a rate limit stops reading for a while. */
   const readFailed = (error: unknown) => {
+    // The login stays cached for an hour, so a revoked token shows first in the reads.
+    if (AUTH_FAILED.test(String(error))) return failed("auth");
     if (!/rate.?limit/i.test(String(error))) return failed("other");
     waitUntil = clock() + RATE_LIMIT_WAIT;
     failed("rate-limit", { retryAt: waitUntil });
@@ -101,7 +105,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
   /** Who you are on GitHub; null, recording why, when gh can't say. */
   async function viewerLogin(): Promise<string | null> {
     const login = await github.viewer.login();
-    if (!login) failed(/gh auth login|HTTP 401|Bad credentials/i.test(github.viewer.errors?.().login ?? "") ? "auth" : "other");
+    if (!login) failed(AUTH_FAILED.test(github.viewer.errors?.().login ?? "") ? "auth" : "other");
     return login;
   }
   bb.onDispose(() => { disposed = true; });

@@ -560,6 +560,17 @@ test("sync health: an expired gh login, then a good read", async () => {
   expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.1 * HOUR, error: null });
 });
 
+test("sync health: a token GitHub refuses reads as signed out, while the login is still cached", async () => {
+  const s = setup();
+  vi.mocked(s.github.facts).mockRejectedValueOnce(new Error("Bad credentials: gh: Bad credentials (HTTP 401)"));
+  await s.sync.all();
+  expect(s.sync.health().error).toMatchObject({ kind: "auth" });
+  vi.mocked(s.github.discover).mockRejectedValueOnce(new Error("Could not search pull requests: To get started with GitHub CLI, please run:  gh auth login"));
+  s.at(0.1);
+  await s.sync.all(true);
+  expect(s.sync.health().error).toMatchObject({ kind: "auth" });
+});
+
 test("sync health: a rate limit backs off until it can read again", async () => {
   const s = setup();
   vi.mocked(s.github.facts).mockRejectedValueOnce(new Error("RATE_LIMITED: API rate limit exceeded for user ID 1."));

@@ -193,6 +193,12 @@ test("parsePrFacts rejects a response without data", () => {
   expect(() => parsePrFacts(null, [ref(1)], "me", noTeams)).toThrow();
 });
 
+test("a refused token keeps GitHub's message and gh's", async () => {
+  expect(() => parsePrFacts({ message: "Bad credentials", documentation_url: "https://docs.github.com/graphql" }, [ref(1)], "me", noTeams)).toThrow("Bad credentials");
+  const run = vi.fn(async () => ({ code: 1, stderr: "gh: Bad credentials (HTTP 401)", stdout: JSON.stringify({ message: "Bad credentials" }) }));
+  await expect(fetchPrFacts(run, [ref(1)], "me", noTeams)).rejects.toThrow("Bad credentials: gh: Bad credentials (HTTP 401)");
+});
+
 test("fetchPrFacts sends one query per batch of ten", async () => {
   const refs = Array.from({ length: 23 }, (_, i) => ref(i + 1));
   const run = vi.fn(async (args: string[]) => {
