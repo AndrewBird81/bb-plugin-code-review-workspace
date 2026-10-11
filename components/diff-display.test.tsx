@@ -162,3 +162,18 @@ test("Wrap lines wraps the diff's code and sticks in this browser, and starts on
   compact.slot.lifecycle.unmount();
   restore();
 });
+
+test("scrolling measures the chapter's files once a frame, not on every scroll event", async () => {
+  patchReviewState("pr-42", { activeId: "c2" });
+  const { slot } = await renderWorkspace();
+  await slot.findByText("cc");
+  const files = Array.from(slot.container.querySelectorAll<HTMLElement>("[data-file]"));
+  const measure = vi.fn(() => new DOMRect());
+  for (const el of files) el.getBoundingClientRect = measure;
+  const scroller = slot.getByRole("main").querySelector<HTMLElement>(".overflow-y-auto")!;
+  for (let i = 0; i < 5; i++) fireEvent.scroll(scroller);
+  expect(measure).not.toHaveBeenCalled();
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(measure).toHaveBeenCalledTimes(files.length);
+  slot.lifecycle.unmount();
+});

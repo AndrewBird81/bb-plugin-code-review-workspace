@@ -479,7 +479,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   // Persist scroll (debounced) and track the file nearest the viewport top.
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current); }, []);
+  const scrollFrame = useRef(0);
+  useEffect(() => () => { if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current); cancelAnimationFrame(scrollFrame.current); }, []);
   // The file whose header is at the top of the diff, if you've scrolled to one.
   const fileAtTop = useCallback(() => {
     const box = scrollBox.current;
@@ -499,8 +500,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const onScroll = useCallback(() => {
     const box = scrollBox.current;
     if (!box) return;
-    const best = fileAtTop();
-    if (best) setCurrentFile(best);
+    // Measuring every file is costly, so at most once a frame.
+    if (!scrollFrame.current) scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = 0;
+      const best = fileAtTop();
+      if (best) setCurrentFile(best);
+    });
     // The popover sits where the text was.
     setSel(null);
     if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current);
