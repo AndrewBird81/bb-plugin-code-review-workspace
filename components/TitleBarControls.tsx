@@ -12,7 +12,7 @@ import { Hint } from "./ui/hint";
 import { Icon, type IconName } from "./ui/icon";
 import { ReviewActions } from "./ReviewActions";
 import { sidePanelId } from "./shell/SidePanel";
-import { TOUCH_CONTROL, TOUCH_TITLE_BAR } from "./touch";
+import { TOUCH_COMPACT, TOUCH_CONTROL } from "./touch";
 
 /** Where the controls are: BB's title bar, or the end of the workspace's band, which has them in full screen. */
 export type TitleBarPlacement = "title" | "band";
@@ -48,7 +48,7 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
   // A wide pane's title bar has room for every label; a phone held sideways, and the band, keep to icons and counts.
   const tier = placement === "band" || layout.mode === "short" ? "icons" : layout.widePane ? "labeled" : "compact";
   const comments = status?.comments ?? 0;
-  const touch = placement === "title" ? TOUCH_TITLE_BAR : TOUCH_CONTROL;
+  const touch = placement === "title" || layout.mode === "short" ? TOUCH_COMPACT : TOUCH_CONTROL;
   const labeled = cn("h-8 gap-1.5 px-2 text-muted-foreground aria-pressed:text-foreground", touch);
   const icon = cn("size-8 px-0 text-muted-foreground aria-pressed:text-foreground", touch);
   const controls = sidePanelId(api.targetKey);

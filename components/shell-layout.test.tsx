@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { getNavWidth, getPanelWidth, patchReviewState } from "../lib/panel-state";
@@ -13,12 +13,17 @@ const restores: (() => void)[] = [];
 globalThis.PointerEvent ??= class extends MouseEvent {} as typeof PointerEvent;
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); restores.splice(0).forEach((restore) => restore()); });
 
-/** Every ResizeObserver reports this size, as if the workspace sat in a BB pane that size. */
+/** Every ResizeObserver reports this size, as if the workspace sat in a BB pane that size; `resize` changes it. */
 function fakePane(width: number, height = 900) {
   const original = globalThis.ResizeObserver;
+  const observers: (() => void)[] = [];
   globalThis.ResizeObserver = class {
     constructor(private notify: ResizeObserverCallback) {}
-    observe(target: Element) { this.notify([{ target, contentRect: { width, height } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver); }
+    observe(target: Element) {
+      const report = () => this.notify([{ target, contentRect: { width, height } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver);
+      observers.push(report);
+      report();
+    }
     unobserve() {}
     disconnect() {}
   } as unknown as typeof ResizeObserver;
@@ -26,6 +31,7 @@ function fakePane(width: number, height = 900) {
   const clientWidth = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!;
   Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get() { return width; } });
   restores.push(() => { globalThis.ResizeObserver = original; Object.defineProperty(Element.prototype, "clientWidth", clientWidth); });
+  return { resize: (next: number) => { width = next; act(() => observers.forEach((report) => report())); } };
 }
 
 const file = (path: string, line: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-x\n+${line}\n`;
@@ -182,16 +188,16 @@ test("closing a side from the keyboard gives the focus back to what opened it; a
   slot.lifecycle.unmount();
 });
 
-test("the chapters hidden with the focus in them, as when the panel docks over their room, give it to the chapters toggle", async () => {
-  fakePane(1056);
+test("the chapters hidden with the focus in them, as when the pane gets too narrow for them, give it to the chapters toggle", async () => {
+  const pane = fakePane(1056);
   const { slot } = await renderWorkspace();
   const chapter = within(chapters(slot)!).getByText("Caching").closest("button")!;
   chapter.focus();
-  // a, Ask agent: its panel docks, and the chapters give way to it.
-  fireEvent.keyDown(chapter, { key: "a" });
-  await waitFor(() => expect(panel(slot)).toBeTruthy());
+  fireEvent.keyDown(chapter, { key: "Tab" });
+  // BB's thread list opens beside the pane: the chapters no longer fit beside the code.
+  pane.resize(700);
   expect(chapters(slot)).toBeNull();
-  expect(document.activeElement).toBe(within(slot.getByRole("navigation", { name: "Breadcrumb" }).parentElement!).getByRole("button", { name: "Show chapters" }));
+  await waitFor(() => expect(document.activeElement).toBe(within(slot.getByRole("navigation", { name: "Breadcrumb" }).parentElement!).getByRole("button", { name: "Show chapters" })));
   slot.lifecycle.unmount();
 });
 

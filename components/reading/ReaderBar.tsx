@@ -7,7 +7,7 @@ import { useTitleBarMounted } from "../../lib/workspace-store";
 import { ComparePicker } from "../ComparePicker";
 import { TopBand } from "../shell/TopBand";
 import { TitleBarControls } from "../TitleBarControls";
-import { TOUCH_CONTROL } from "../touch";
+import { TOUCH_COMPACT, TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
 import { Icon } from "../ui/icon";
@@ -38,13 +38,15 @@ export function ReaderBar({ threads }: { threads: boolean }) {
   const chapterFiles = chapter?.diffs.map((diff) => diff.file) ?? [];
   const viewed = chapterFiles.filter((file) => files.views.get(file)?.viewed).length;
   const phone = layout.mode === "phone";
-  const icon = cn("size-8 shrink-0 px-0 text-muted-foreground aria-pressed:text-primary", TOUCH_CONTROL);
+  // A phone held sideways keeps its band to 40px, its buttons inside 44px targets.
+  const touch = layout.mode === "short" ? TOUCH_COMPACT : TOUCH_CONTROL;
+  const icon = cn("size-8 shrink-0 px-0 text-muted-foreground aria-pressed:text-primary", touch);
   return (
     <div className={cn("@container/band flex shrink-0 items-center gap-x-1 border-b border-border px-1.5", layout.mode === "short" ? "h-10" : "h-11", phone && "h-auto min-h-11 flex-wrap py-1")}>
       <div className={cn("flex min-w-0 flex-1 items-center gap-1", phone && "basis-full")}>
-        {(layout.nav === "closed" || layout.nav === "suppressed") && <TopBand find />}
+        {layout.nav !== "docked" && <TopBand find hidden={layout.nav === "overlay"} />}
         <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-1 text-sm">
-          <Button variant="ghost" size="sm" aria-label="All reviews" className={cn("h-8 shrink-0 gap-1 px-1.5 text-muted-foreground", TOUCH_CONTROL)} onClick={() => navigate.toPluginPanel("review")}>
+          <Button variant="ghost" size="sm" aria-label="All reviews" className={cn("h-8 shrink-0 gap-1 px-1.5 text-muted-foreground", touch)} onClick={() => navigate.toPluginPanel("review")}>
             <Icon name="ChevronLeft" aria-hidden />{!layout.narrowReader && "All reviews"}
           </Button>
           {!layout.narrowReader && <span aria-hidden className="text-subtle-foreground">/</span>}
@@ -55,8 +57,9 @@ export function ReaderBar({ threads }: { threads: boolean }) {
               <span aria-hidden className="text-subtle-foreground">/</span>
             </span>}
             <span aria-label={`Chapter ${index + 1} of ${sections.length}: ${chapter.title}, ${viewed} of ${chapterFiles.length} files viewed`} className="flex min-w-0 items-center gap-1.5">
-              <span aria-hidden className="flex size-[18px] shrink-0 items-center justify-center rounded-full" style={{ background: `conic-gradient(var(--success) ${chapterFiles.length ? viewed / chapterFiles.length * 360 : 0}deg, var(--border) 0deg)` }}>
-                <span className="flex size-[14px] items-center justify-center rounded-full bg-background text-[9px] font-semibold tabular-nums text-muted-foreground">{index + 1}</span>
+              {/* The chapter's step, as the chapters list marks the open one: its ring fills as its files are viewed. */}
+              <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full" style={{ background: `conic-gradient(var(--success) ${chapterFiles.length ? viewed / chapterFiles.length * 360 : 0}deg, var(--border) 0deg)` }}>
+                <span className="flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-semibold tabular-nums text-primary-foreground">{index + 1}</span>
               </span>
               <span aria-hidden className="min-w-0 truncate font-medium text-foreground"><InlineCode text={chapter.title} /></span>
             </span>

@@ -84,10 +84,12 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
             else if (event.key === "ArrowDown") {
               event.preventDefault();
               event.currentTarget.closest("[data-find]")?.querySelector<HTMLElement>("[data-hit]")?.focus();
-            } else if (event.key === "Escape") {
+            } else if (event.key === "Escape" && query) {
               event.preventDefault();
-              if (query) setQuery("");
-              else event.currentTarget.blur();
+              setQuery("");
+            } else if (event.key === "Escape") {
+              // An empty box lets Esc go on to close the chapters where they're over the code.
+              event.currentTarget.blur();
             }
           }}
           placeholder="Find in review"

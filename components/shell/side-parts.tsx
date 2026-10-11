@@ -20,10 +20,13 @@ if (typeof document !== "undefined") {
 /** Over the code a side is opaque, as the workspace is, whatever the alpha of BB's background. */
 export const OPAQUE = { backgroundColor: "rgb(from var(--background) r g b / 1)" };
 
-/** Give the focus to `el`, if the keyboard had it and it was lost or left behind in what closed. */
+/**
+ * Give the focus to `el`, if the keyboard had it and it was lost or left behind in what closed: on the next frame, once
+ * what changed with the closing, such as `el` showing again, is drawn.
+ */
 export function returnFocus(el: HTMLElement | null | undefined, from: HTMLElement | null) {
   const now = document.activeElement;
-  if (keyboard && el?.isConnected && (!now || now === document.body || !!from?.contains(now))) el.focus({ preventScroll: true });
+  if (keyboard && el?.isConnected && (!now || now === document.body || !!from?.contains(now))) requestAnimationFrame(() => el.focus({ preventScroll: true }));
 }
 
 /**

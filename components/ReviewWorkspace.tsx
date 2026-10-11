@@ -187,9 +187,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     showNav();
     requestAnimationFrame(() => rootRef.current?.querySelector<HTMLInputElement>("[data-find-box]")?.focus());
   }, [showNav]);
+  // One overlay at a time: BB's title bar, outside the dimmed workspace, can open the panel over the chapters.
   const openPanel = useCallback((view: PanelView) => {
     setPanelView(view);
     setPanelOverlay(!layoutRef.current.panelCanDock);
+    setNavOverlay(false);
   }, []);
   const closePanel = useCallback(() => { setPanelView(null); setPanelOverlay(false); }, []);
   const togglePanel = useCallback((view: PanelView) => shownPanelRef.current === view ? closePanel() : openPanel(view), [openPanel, closePanel]);
