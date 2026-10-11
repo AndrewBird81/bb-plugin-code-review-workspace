@@ -33,8 +33,8 @@ export function diffPositions(patch: string): Map<string, FilePositions> {
 }
 
 /** Draft comments GitHub would reject because their position isn't in the diff. */
-export function invalidComments(patch: string, comments: DraftComment[]): DraftComment[] {
-  const pos = diffPositions(patch);
+export function invalidComments(patch: string | Map<string, FilePositions>, comments: DraftComment[]): DraftComment[] {
+  const pos = typeof patch === "string" ? diffPositions(patch) : patch;
   return comments.filter((c) => {
     const p = pos.get(c.file);
     if (!p) return true; // file isn't in the diff at all

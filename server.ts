@@ -467,7 +467,7 @@ export default async function plugin(bb: BbPluginApi) {
     saveDraftComment({ targetKey, comment, revision }) {
       requireReviewRevision(store, targetKey, revision);
       // GitHub refuses a comment on a line the diff doesn't show; say so now, not at submit.
-      if (invalidComments(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, [comment]).length) {
+      if (invalidComments(store.diffPositions(targetKey), [comment]).length) {
         throw new Error(`${comment.file}:${comment.line} isn’t in the current diff. Choose a line the diff shows.`);
       }
       // Your words now, and an ask on the comment is over.

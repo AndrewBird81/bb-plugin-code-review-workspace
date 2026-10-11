@@ -1,6 +1,7 @@
 import { test, expect } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "./store";
+import { createHash } from "node:crypto";
 
 function store() {
   const { bb } = createFakePluginHost({ pluginId: "guided-review" });
@@ -326,4 +327,25 @@ test("a thread known to be open and resolved since dates from now, even after an
   s.clearFeedbackFetches();
   s.saveFeedbackThreads("pr-1", [{ ...thread("t1", true), createdAt: 100 }], 2);
   expect(s.listFeedbackThreads("pr-1")[0].resolvedSeenAt).toBeGreaterThan(1_000_000);
+});
+
+test("the patch's hash is kept when it's saved, and its positions are parsed once per patch", () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const s = createStore(bb);
+  const one = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
+  const two = one.replace("+b", "+c");
+  s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
+  s.savePatch("pr-1", one);
+  const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+  expect(s.patchHash("pr-1")).toBe(sha(one));
+  const positions = s.diffPositions("pr-1");
+  expect(positions.get("a.ts")?.right.get(1)).toBe("b");
+  expect(s.diffPositions("pr-1")).toBe(positions);
+  s.savePatch("pr-1", two);
+  expect(s.patchHash("pr-1")).toBe(sha(two));
+  expect(s.diffPositions("pr-1").get("a.ts")?.right.get(1)).toBe("c");
+  // A patch saved before its hash was kept gets one when it's first needed.
+  bb.storage.database().prepare(`UPDATE patches SET hash=NULL`).run();
+  expect(s.patchHash("pr-1")).toBe(sha(two));
+  expect(s.patchHash("pr-2")).toBe(sha(""));
 });

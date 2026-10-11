@@ -3,8 +3,7 @@ import type { Store } from "./store";
 
 export function reviewRevision(store: Store, targetKey: string): string {
   const meta = store.getReview(targetKey);
-  const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
-  return createHash("sha256").update(meta?.headSha ?? "").update("\0").update(patch).digest("hex");
+  return createHash("sha256").update(meta?.headSha ?? "").update("\0").update(store.patchHash(targetKey)).digest("hex");
 }
 export function requireReviewRevision(store: Store, targetKey: string, revision?: string) {
   if (store.getReview(targetKey)?.status === "generating") throw new Error("The guide is rebuilding for new commits; your text is kept. Save again when it’s ready.");

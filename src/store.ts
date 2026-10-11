@@ -6,7 +6,7 @@ import { defaultPreferences, preferencesSchema, readPreferences, type Preference
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
 import type { AssessmentItem, AssessmentRun, ReplyDraft } from "../lib/feedback";
 import type { FeedbackThread } from "./github/types";
-import { diffPositions } from "./review-positions";
+import { diffPositions, type FilePositions } from "./review-positions";
 import { reanchor } from "./reanchor";
 import { renamedPaths } from "./patch";
 
@@ -137,6 +137,10 @@ export interface Store {
   deleteReview(targetKey: string): void;
   savePatch(targetKey: string, patch: string): void;
   readPatch(targetKey: string, offset?: number, limit?: number): { text: string; total: number };
+  /** SHA-256 of the stored patch, kept since it was saved. */
+  patchHash(targetKey: string): string;
+  /** The stored patch's commentable lines by file, parsed once per patch. Read-only. */
+  diffPositions(targetKey: string): Map<string, FilePositions>;
   saveGuide(targetKey: string, guide: Guide): void;
   getGuide(targetKey: string): Guide | null;
   beginGeneration(targetKey: string): string;
@@ -302,14 +306,39 @@ export function createStore(bb: BbPluginApi): Store {
     // Before an agent's change, the comment or summary it replaced, as JSON.
     `ALTER TABLE discussion_entries ADD COLUMN previous TEXT`,
     `ALTER TABLE generations ADD COLUMN worker_id TEXT`,
+    // SHA-256 of the patch, so a click doesn't read and hash the whole patch for it.
+    `ALTER TABLE patches ADD COLUMN hash TEXT`,
   ]);
   const at = (k: string, { file, line, side }: CommentLocation) => [k, file, line, side] as const;
   const hasDiscussion = (k: string, location: CommentLocation) =>
     !!db.prepare(`SELECT 1 FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=? LIMIT 1`).get(...at(k, location));
   const stopWaitingAt = (k: string, location: CommentLocation) =>
     db.prepare(`DELETE FROM discussion_waits WHERE target_key=? AND file=? AND line=? AND side=?`).run(...at(k, location));
+  // What's parsed from each review's patch, by the patch's hash, for the few reviews used last.
+  const parsed = new Map<string, { hash: string; positions?: Map<string, FilePositions>; renamed?: Map<string, string> }>();
+  const parsedPatch = (k: string) => {
+    const hash = storedPatchHash(k);
+    let entry = parsed.get(k);
+    parsed.delete(k);
+    if (entry?.hash !== hash) entry = { hash };
+    parsed.set(k, entry);
+    if (parsed.size > PARSED_REVIEWS) parsed.delete(parsed.keys().next().value!);
+    return { entry, patch: () => (db.prepare(`SELECT patch FROM patches WHERE target_key=?`).get(k) as any)?.patch ?? "" };
+  };
+  const storedPatchHash = (k: string): string => {
+    const row = db.prepare(`SELECT hash FROM patches WHERE target_key=?`).get(k) as { hash: string | null } | undefined;
+    if (!row) return patchHash("");
+    if (row.hash) return row.hash;
+    // A patch saved before the hash was kept.
+    const hash = patchHash((db.prepare(`SELECT patch FROM patches WHERE target_key=?`).get(k) as any).patch);
+    db.prepare(`UPDATE patches SET hash=? WHERE target_key=?`).run(hash, k);
+    return hash;
+  };
   // Files were once keyed by their old path when renamed; a draft saved then moves to the new path when read.
-  const renamesOf = (k: string) => renamedPaths((db.prepare(`SELECT patch FROM patches WHERE target_key=?`).get(k) as any)?.patch ?? "");
+  const renamesOf = (k: string) => {
+    const { entry, patch } = parsedPatch(k);
+    return entry.renamed ??= renamedPaths(patch());
+  };
   const followRenames = (draft: Draft): Draft => {
     if (!draft.comments.length) return draft;
     const renamed = renamesOf(draft.targetKey);
@@ -405,14 +434,19 @@ export function createStore(bb: BbPluginApi): Store {
     },
     savePatch(k, patch) {
       db.prepare(
-        `INSERT INTO patches (target_key,patch) VALUES (?,?)
-         ON CONFLICT(target_key) DO UPDATE SET patch=excluded.patch`,
-      ).run(k, patch);
+        `INSERT INTO patches (target_key,patch,hash) VALUES (?,?,?)
+         ON CONFLICT(target_key) DO UPDATE SET patch=excluded.patch, hash=excluded.hash`,
+      ).run(k, patch, patchHash(patch));
     },
     readPatch(k, offset = 0, limit = 200_000) {
       const row: any = db.prepare(`SELECT patch FROM patches WHERE target_key=?`).get(k);
       const text = row?.patch ?? "";
       return { text: text.slice(offset, offset + limit), total: text.length };
+    },
+    patchHash: storedPatchHash,
+    diffPositions(k) {
+      const { entry, patch } = parsedPatch(k);
+      return entry.positions ??= diffPositions(patch());
     },
     saveGuide(k, guide) {
       db.prepare(
@@ -503,11 +537,10 @@ export function createStore(bb: BbPluginApi): Store {
       const i = d.comments.findIndex((x) => x.file === c.file && x.line === c.line && x.side === c.side);
       if (i >= 0) d.comments[i] = c; else d.comments.push(c);
       writeDraft(db, d);
-      const patch = this.readPatch(k, 0, this.readPatch(k, 0, 0).total).text;
-      const code = diffPositions(patch).get(c.file)?.[c.side === "LEFT" ? "left" : "right"].get(c.line) ?? null;
+      const code = this.diffPositions(k).get(c.file)?.[c.side === "LEFT" ? "left" : "right"].get(c.line) ?? null;
       db.prepare(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code) VALUES (?,?,?,?,?,?)
         ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code`)
-        .run(k, c.file, c.line, c.side, patchHash(patch), code);
+        .run(k, c.file, c.line, c.side, this.patchHash(k), code);
       return d;
     },
     editDraftComment(k, at, body) {
@@ -537,7 +570,7 @@ export function createStore(bb: BbPluginApi): Store {
       return this.getDraft(k);
     },
     staleDraftComments(k) {
-      const hash = patchHash(this.readPatch(k, 0, this.readPatch(k, 0, 0).total).text);
+      const hash = this.patchHash(k);
       return this.getDraft(k).comments.filter((c) => {
         const row = db.prepare(`SELECT patch_hash FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).get(k, c.file, c.line, c.side) as any;
         return row?.patch_hash !== hash;
@@ -741,8 +774,8 @@ export function createStore(bb: BbPluginApi): Store {
       return (db.prepare(`SELECT code FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).get(k, file, line, side) as any)?.code ?? undefined;
     },
     rebaseDraftComments(k, placements) {
-      const patch = this.readPatch(k, 0, this.readPatch(k, 0, 0).total).text;
-      const positions = diffPositions(patch);
+      const positions = this.diffPositions(k);
+      const hash = this.patchHash(k);
       db.transaction(() => {
         const d = this.getDraft(k);
         const moves = new Map<DraftComment, number>();
@@ -768,13 +801,16 @@ export function createStore(bb: BbPluginApi): Store {
           const code = positions.get(c.file)?.[c.side === "LEFT" ? "left" : "right"].get(line) ?? null;
           db.prepare(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code) VALUES (?,?,?,?,?,?)
             ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code`)
-            .run(k, c.file, line, c.side, patchHash(patch), code);
+            .run(k, c.file, line, c.side, hash, code);
         }
         writeDraft(db, d);
       })();
     },
   };
 }
+
+/** How many reviews' parsed patches stay in memory. */
+const PARSED_REVIEWS = 8;
 
 // Every table keyed by target_key. A new per-review table belongs here too.
 const REVIEW_TABLES = [

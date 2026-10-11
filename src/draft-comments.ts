@@ -56,8 +56,7 @@ export function addComment(store: Store, targetKey: string, input: NewComment): 
   const refused = unchangeable(store.getReview(targetKey));
   if (refused) return { ok: false, error: refused };
   const at = located(input);
-  const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
-  const lines = diffPositions(patch).get(at.file)?.[at.side === "RIGHT" ? "right" : "left"];
+  const lines = store.diffPositions(targetKey).get(at.file)?.[at.side === "RIGHT" ? "right" : "left"];
   if (!lines) return { ok: false, error: `${at.file} isn't in this review's diff. Use the path exactly as the diff shows it. Nothing was added.` };
   const text = lines.get(at.line);
   const code = normalize(input.code);
@@ -120,7 +119,7 @@ function textAt(store: Store, targetKey: string, at: CommentLocation): string | 
 type Positions = () => ReturnType<typeof diffPositions>;
 const positionsOf = (store: Store, targetKey: string): Positions => {
   let positions: ReturnType<typeof diffPositions> | undefined;
-  return () => positions ??= diffPositions(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text);
+  return () => positions ??= store.diffPositions(targetKey);
 };
 
 /**
