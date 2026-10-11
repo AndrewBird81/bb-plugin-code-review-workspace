@@ -110,7 +110,7 @@ export const rpcContract = defineRpcContract({
   },
   /** The changed files the repo's .gitattributes marks linguist-generated or linguist-vendored. */
   getGeneratedFiles: { input: targetKey, output: z.object({ files: z.array(z.string()) }) },
-  /** The changed files CODEOWNERS at the diff's new side gives owners, and whether you or a team you're on is one; error: it couldn't be read. */
+  /** The changed files CODEOWNERS (a PR's base branch, a local review's new side) gives owners, and whether you or a team you're on is one; error: it couldn't be read. */
   getCodeOwners: {
     input: targetKey,
     output: z.object({ files: z.array(z.object({ file: z.string(), owners: z.array(z.string()), mine: z.boolean() })), error: z.string().optional() }),

@@ -314,13 +314,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [rpc, targetKey, sinceKey, compareFrom]);
   const pickCompare = useCallback((sha: string | null) => {
     // Only a comparison narrows the diff: no commit picked, with your review at the head or none, has none.
-    if (sha === compareFrom) { if (since) setSinceOnly(true); return; }
+    // Picked again while it loads, it narrows once it arrives.
+    if (sha === compareFrom) { if (since) setSinceOnly(true); else narrowOnLoad.current = !!sinceKey; return; }
     const from = sha ?? baselineSha;
     narrowOnLoad.current = !!from && from !== review?.headSha;
     setCompareFrom(sha);
-  }, [compareFrom, since, baselineSha, review?.headSha]);
+  }, [compareFrom, since, sinceKey, baselineSha, review?.headSha]);
   const sinceWhat = compareFrom ? compareFrom.slice(0, 7) : "your review";
-  // Who owns each file, by CODEOWNERS at the diff's new side.
+  // Who owns each file, by CODEOWNERS on a PR's base branch, or a local review's new side.
   useEffect(() => {
     if (!revision) return;
     let cancelled = false;

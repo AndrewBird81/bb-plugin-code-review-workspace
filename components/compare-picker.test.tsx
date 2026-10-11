@@ -22,7 +22,7 @@ const commits = [
   { sha: "c1aaaaa", headline: "Add cache", committedAt: Date.now() - 3 * DAY },
 ];
 
-async function renderWorkspace(review: Record<string, unknown>) {
+async function renderWorkspace(review: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
   const app = await loadPluginApp(() => import("../app"));
   // What a new push and rebuild change.
   const pr = { headSha: "c3ccccc", commits, revision: "r1" };
@@ -43,6 +43,7 @@ async function renderWorkspace(review: Record<string, unknown>) {
       const sha = from ?? "c1aaaaa";
       return { baseline: { sha, at: from ? null : 1, verdict: from ? null : "COMMENT" }, files: interdiff(diffs[sha], head) };
     }),
+    ...overrides,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
   await slot.findByRole("heading", { name: "Cache rows" });
@@ -83,6 +84,19 @@ test("the diff compares from a commit you pick, newest first, with your review m
   fireEvent.click(within(await slot.findByRole("list", { name: "Commits" })).getByText("Your last review"));
   await slot.findByRole("button", { name: "Since your review" });
   expect(rpc.getSinceReview).toHaveBeenLastCalledWith({ targetKey: "pr-42" });
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("Your last review, picked while its comparison loads, narrows the diff once it arrives", async () => {
+  let answer!: () => void;
+  const { slot } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" }, {
+    getSinceReview: () => new Promise((resolve) => { answer = () => resolve({ baseline: { sha: "c1aaaaa", at: 1, verdict: "COMMENT" }, files: interdiff(diffs.c1aaaaa, head) }); }),
+  });
+  fireEvent.click(await slot.findByRole("button", { name: "Compare from a commit" }));
+  fireEvent.click(within(await slot.findByRole("list", { name: "Commits" })).getByText("Your last review"));
+  answer();
+  const toggle = await slot.findByRole("button", { name: "Since your review" });
+  await waitFor(() => expect(toggle.getAttribute("aria-pressed")).toBe("true"));
   slot.lifecycle.unmount();
 }, 15_000);
 
