@@ -32,7 +32,6 @@ import {
   ghReplyThreadArgs,
   ghResolveThreadArgs,
   ghUnresolveThreadArgs,
-  ghPrHeadArgs,
   runGh,
   runGit,
   ghErrorMessage,
@@ -158,7 +157,7 @@ export default async function plugin(bb: BbPluginApi) {
   /** Re-read your threads on a PR now. */
   async function refreshThreads(review: ReviewMeta) {
     if (review.kind !== "pr" || !review.repo || !review.number || !baselineOf(review).at) return;
-    const login = (await runGh(["api", "user", "--jq", ".login"])).stdout.trim();
+    const login = await sync.login();
     if (!login) return;
     const threads = await fetchMyThreads(runGh, review.repo, review.number, login, review.author ?? null);
     // The review may have been deleted while GitHub answered.
@@ -284,9 +283,10 @@ export default async function plugin(bb: BbPluginApi) {
       ]);
       return { githubCli: cli.code === 0, account: user.code === 0 ? user.stdout.trim() || null : null, agentAvailable: providers ? providers.some(p => p.available) : null, projectAvailable: projects ? projects.length > 0 : null };
     },
-    async getReviewBundle({ targetKey }) {
+    async getReviewBundle({ targetKey, knownRevision }) {
+      const revision = reviewRevision(store, targetKey);
       return { review: await withOwnPr(decorate(store.getReview(targetKey))), guide: store.getGuide(targetKey),
-        patch: store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, revision: reviewRevision(store, targetKey) };
+        patch: revision === knownRevision ? null : store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, revision };
     },
     getPreferences() { return store.getPreferences(); },
     savePreferences({ preferences, revision }) {
@@ -408,19 +408,11 @@ export default async function plugin(bb: BbPluginApi) {
       return r.code === 0 ? { ok: true } : { ok: false, error: ghErrorMessage(r) };
     },
     async checkForUpdates({ targetKey }) {
+      // The sync records the PR's head when it reads it, at most a minute ago.
       await sync.one(targetKey);
       const m = store.getReview(targetKey);
-      if (!m || m.kind !== "pr" || !m.number || m.archivedAt) return { hasNewCommits: false };
-      const r = await runGh(ghPrHeadArgs(m.number, m.repo));
-      if (r.code !== 0) return { hasNewCommits: false };
-      let head: any;
-      try {
-        head = JSON.parse(r.stdout);
-      } catch {
-        return { hasNewCommits: false };
-      }
-      if (typeof head?.headRefOid !== "string") return { hasNewCommits: false };
-      return { hasNewCommits: !!m.headSha && head.headRefOid !== m.headSha, current: head.headRefOid, ...(m.headSha ? { stored: m.headSha } : {}) };
+      if (!m || m.kind !== "pr" || !m.number || m.archivedAt || !m.latestHeadSha) return { hasNewCommits: false };
+      return { hasNewCommits: !!m.headSha && m.latestHeadSha !== m.headSha, current: m.latestHeadSha, ...(m.headSha ? { stored: m.headSha } : {}) };
     },
     async rereview({ targetKey }) {
       await sync.one(targetKey, true);

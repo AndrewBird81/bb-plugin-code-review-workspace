@@ -149,10 +149,39 @@ test("replyToThread returns ok:true and calls gh with the reply endpoint + body"
   expect(call[1]).toEqual({ stdin: JSON.stringify({ body: "thanks" }), timeoutMs: 0 });
 });
 
-test("checkForUpdates returns hasNewCommits:true when the mocked head differs from the stored headSha", async () => {
-  const { harness } = await seeded();
+test("checkForUpdates compares the head the sync read with the guide's, without asking gh again", async () => {
+  const { harness, store } = await seeded();
+  store.setLifecycle("pr-1", { latestHeadSha: "newsha" });
+  vi.mocked(gh.runGh).mockClear();
   const res: any = await harness.behavior.callRpc("checkForUpdates", { targetKey: "pr-1" });
   expect(res).toEqual({ hasNewCommits: true, current: "newsha", stored: "oldsha" });
+  expect(vi.mocked(gh.runGh).mock.calls.filter(([args]) => args[0] === "pr" && args[1] === "view")).toEqual([]);
+});
+
+test("getReviewBundle leaves out the patch the page already shows", async () => {
+  const { harness, store } = await seeded();
+  const first: any = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" });
+  expect(first.patch).toBe("diff --git a/a.ts b/a.ts\n");
+  const again: any = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1", knownRevision: first.revision });
+  expect(again).toMatchObject({ patch: null, revision: first.revision });
+  store.savePatch("pr-1", "diff --git a/b.ts b/b.ts\n");
+  const changed: any = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1", knownRevision: first.revision });
+  expect(changed.patch).toBe("diff --git a/b.ts b/b.ts\n");
+  expect(changed.revision).not.toBe(first.revision);
+});
+
+test("re-reading your threads asks GitHub who you are once, not on every read", async () => {
+  const { harness, store } = await seeded();
+  store.setLifecycle("pr-1", { submittedAt: 5, submittedHeadSha: "oldsha", submittedVerdict: "COMMENT" });
+  const login = (args: string[]) => args.join(" ") === "api user --jq .login";
+  const original = vi.mocked(gh.runGh).getMockImplementation()!;
+  vi.mocked(gh.runGh).mockImplementation(async (args, options) => login(args) ? { stdout: "me\n", stderr: "", code: 0 } : original(args, options));
+  try {
+    vi.mocked(gh.runGh).mockClear();
+    await harness.behavior.callRpc("refreshFeedback", { targetKey: "pr-1" });
+    await harness.behavior.callRpc("refreshFeedback", { targetKey: "pr-1" });
+    expect(vi.mocked(gh.runGh).mock.calls.filter(([args]) => login(args)).length).toBeLessThanOrEqual(1);
+  } finally { vi.mocked(gh.runGh).mockImplementation(original); }
 });
 
 test("rereview delegates to rerunReview and returns its result", async () => {

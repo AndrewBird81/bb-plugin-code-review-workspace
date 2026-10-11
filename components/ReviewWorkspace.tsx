@@ -101,6 +101,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const viewsRequest = useRef(0);
   // The guide as last shown; a reload with the same guide keeps its object, so the diff doesn't redraw.
   const shownGuide = useRef("");
+  // The diff as last shown, which a reload with the same revision doesn't send again.
+  const shownPatch = useRef<{ targetKey: string; revision: string; patch: string } | null>(null);
   const resizeCleanup = useRef<(() => void) | null>(null);
   const persisted = useMemo(() => getReviewState(targetKey), [targetKey]);
 
@@ -198,9 +200,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setLoadError(null);
     try {
       // Views come with the diff, so viewed files are folded before it first draws.
-      const [{ review, guide, patch, revision }, checksRes, viewsRes] = await Promise.all([
-        rpc.call("getReviewBundle", { targetKey }),
-        rpc.call("getChecks", { targetKey }).catch(() => null),
+      const known = shownPatch.current?.targetKey === targetKey ? shownPatch.current : null;
+      const [{ review, guide, patch: sent, revision }, viewsRes] = await Promise.all([
+        rpc.call("getReviewBundle", { targetKey, ...(known ? { knownRevision: known.revision } : {}) }),
         rpc.call("getFileViews", { targetKey }).catch(() => null),
       ]);
       if (id !== request.current) return;
@@ -213,6 +215,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       }
       hasDisplayedGuide.current = !!guide;
       setGeneratingReplacement(false);
+      const patch = sent ?? known?.patch ?? "";
+      shownPatch.current = { targetKey, revision, patch };
       setRevision(revision);
       setReview(review);
       if (review) setDefaultView((current) => current ?? (opensOnFeedback(review) ? "feedback" : "diff"));
@@ -223,7 +227,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       }
       setPatch(patch);
       if (viewsRes && viewsId === viewsRequest.current) setViews(viewMap(viewsRes.views));
-      setChecks(checksRes);
       const chapters = guide?.sections ? withOtherFiles(guide.sections, patch) : [];
       if (chapters.length) {
         const saved = getReviewState(targetKey).activeId;
@@ -242,6 +245,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     return () => { request.current++; resizeCleanup.current?.(); };
   }, [load]);
   useRealtime(`review:${targetKey}`, () => { void load(); });
+  // The checks are read again when the sync sees the PR's head or CI state change, not on every reload.
+  const checksKey = review?.kind === "pr" ? `${review.latestHeadSha ?? review.headSha ?? ""} ${review.signals?.ci ?? ""}` : null;
+  useEffect(() => {
+    if (checksKey === null) return;
+    let cancelled = false;
+    rpc.call("getChecks", { targetKey }).then((result) => { if (!cancelled) setChecks(result); }, () => {});
+    return () => { cancelled = true; };
+  }, [rpc, targetKey, checksKey]);
 
   // What changed since your last review, when the diff shown isn't the one you reviewed.
   const baselineSha = review ? baselineOf(review).sha : null;

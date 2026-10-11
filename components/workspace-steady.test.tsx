@@ -76,6 +76,26 @@ test("a background reload with the same guide doesn't redraw the diff", async ()
   slot.lifecycle.unmount();
 });
 
+test("a background reload keeps the diff the server leaves out, and reads the checks again only when CI changes", async () => {
+  let signals: Record<string, unknown> = { lastReviewSha: "new", ci: "pending" };
+  const getChecks = vi.fn(() => ({ bucket: "pending", checks: [] }));
+  const { slot, rpc } = await renderWorkspace(() => ({ submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, signals, turn: turn() }), {
+    getReviewBundle: vi.fn(({ knownRevision }: { knownRevision?: string }) => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", signals, turn: turn() }, guide: structuredClone(guide), patch: knownRevision === "r1" ? null : patch, revision: "r1" })),
+    getChecks,
+  });
+  await slot.findByTestId("filediff");
+  await waitFor(() => expect(getChecks).toHaveBeenCalledTimes(1));
+  await slot.emitRealtime("review:pr-42", {});
+  await waitFor(() => expect((rpc.getReviewBundle.mock.calls.at(-1) as unknown[] | undefined)?.[0]).toEqual({ targetKey: "pr-42", knownRevision: "r1" }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(slot.getByTestId("filediff")).toBeTruthy();
+  expect(getChecks).toHaveBeenCalledTimes(1);
+  signals = { ...signals, ci: "fail" };
+  await slot.emitRealtime("review:pr-42", {});
+  await waitFor(() => expect(getChecks).toHaveBeenCalledTimes(2));
+  slot.lifecycle.unmount();
+});
+
 test("Since your review follows the review you just submitted here, before GitHub reports it", async () => {
   let review: Record<string, unknown> = { submittedVerdict: "REQUEST_CHANGES", submittedAt: now - 3 * DAY, submittedHeadSha: "old", signals: { lastReviewAt: now - 3 * DAY, lastReviewSha: "old" }, turn: turn() };
   const { slot, rpc } = await renderWorkspace(() => review);

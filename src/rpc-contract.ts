@@ -41,7 +41,11 @@ const draftOutput = z.object({
 export const rpcContract = defineRpcContract({
   ...releaseRpc,
   getSetupStatus: { input: z.null(), output: z.object({ account: z.string().nullable(), githubCli: z.boolean(), agentAvailable: z.boolean().nullable(), projectAvailable: z.boolean().nullable() }) },
-  getReviewBundle: { input: targetKey, output: z.object({ review: z.any().nullable(), guide: z.any().nullable(), patch: z.string(), revision: z.string() }) },
+  /** patch is null when it's the one knownRevision names, which the page already shows. */
+  getReviewBundle: {
+    input: z.object({ targetKey: z.string(), knownRevision: z.string().optional() }).strict(),
+    output: z.object({ review: z.any().nullable(), guide: z.any().nullable(), patch: z.string().nullable(), revision: z.string() }),
+  },
   getPreferences: { input: z.null(), output: z.object({ preferences: preferencesSchema, revision: z.number().int() }) },
   savePreferences: {
     input: z.object({ preferences: preferencesSchema, revision: z.number().int().min(0) }).strict(),
