@@ -14,6 +14,8 @@ const commentShape = z
     line: z.number().int(),
     side: z.enum(["LEFT", "RIGHT"]),
     chapterId: z.string().optional(),
+    // Undo after Remove puts an agent's comment back as the agent's.
+    author: z.literal("agent").optional(),
     body: z.string().min(1),
   })
   .strict();

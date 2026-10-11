@@ -325,3 +325,20 @@ test("a comment refused for an older diff says so in the status line too, not th
   expect(status(slot).textContent).toBe("Not saved: it was written against an older diff.");
   slot.lifecycle.unmount();
 });
+
+test("Undo after removing keeps an agent's comment the agent's, and isn't offered for a comment on an older diff", async () => {
+  const agents = { file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", body: "From the agent." };
+  const old = { file: "src/a.ts", line: 9, side: "RIGHT", body: "Older diff." };
+  let draft = draftOf({ comments: [agents, old] });
+  const removeDraftComment = vi.fn(async ({ line }: any) => { draft = { ...draft, comments: draft.comments.filter((c: any) => c.line !== line) }; return { draft, stale: [], discussions: [] }; });
+  const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = { ...draft, comments: [...draft.comments, comment] }; return { draft, stale: [], discussions: [] }; });
+  const slot = await renderTray("undo-agent", { getDraft: () => ({ draft, stale: [{ file: "src/a.ts", line: 9, side: "RIGHT" }], discussions: [] }), removeDraftComment, saveDraftComment });
+  fireEvent.click(slot.getByRole("button", { name: "Remove comment on src/a.ts:9" }));
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Comment removed"));
+  fireEvent.click(slot.getByRole("button", { name: "Remove comment on src/a.ts:2" }));
+  await waitFor(() => expect(toast.info).toHaveBeenCalledTimes(2));
+  const [, { action }] = vi.mocked(toast.info).mock.calls[1] as any;
+  action.onClick();
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo-agent", revision: "r1", comment: agents }));
+  slot.lifecycle.unmount();
+});

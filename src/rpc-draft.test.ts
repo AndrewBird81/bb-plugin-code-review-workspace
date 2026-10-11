@@ -104,3 +104,14 @@ test("the review bundle says whether the signed-in account wrote the PR", async 
   expect((await harness.behavior.callRpc("getReviewBundle", { targetKey: "mine" }) as any).review.ownPr).toBe(true);
   expect((await harness.behavior.callRpc("getReviewBundle", { targetKey: "theirs" }) as any).review.ownPr).toBe(false);
 });
+
+test("saveDraftComment keeps an agent's comment the agent's when Undo puts it back", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-6", kind: "pr", number: 6, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
+  store.savePatch("pr-6", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-6" }) as any;
+  await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-6", revision, comment: { file: "a.ts", line: 1, side: "RIGHT", author: "agent", body: "nit" } });
+  expect(store.getDraft("pr-6").comments).toEqual([{ file: "a.ts", line: 1, side: "RIGHT", author: "agent", body: "nit" }]);
+});

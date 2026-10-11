@@ -355,16 +355,19 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   }
   async function removeComment(comment: DraftComment) {
     const { file, line, side } = comment;
+    // Putting back a comment on an older diff would bind it to the current one unchecked.
+    const older = stale.some((at) => sameLocation(at, comment));
     await mutate(async () => {
       apply(await enqueue(() => rpc.call("removeDraftComment", { targetKey, file, line, side })) as { draft: Draft });
-      toast.info("Comment removed", { action: { label: "Undo", onClick: () => { void latest.current.restoreComment(comment); } } });
+      if (older) toast.info("Comment removed");
+      else toast.info("Comment removed", { action: { label: "Undo", onClick: () => { void latest.current.restoreComment(comment); } } });
     });
   }
-  /** Put back a comment you removed, unless its line has another comment by now. */
-  async function restoreComment({ file, line, side, chapterId, body }: DraftComment) {
+  /** Put back a comment you removed, as it was, unless its line has another comment by now. */
+  async function restoreComment({ file, line, side, chapterId, author, body }: DraftComment) {
     if (shownComments.current.some((c) => sameLocation(c, { file, line, side }))) { toast.info(`${file}:${line} has another comment now, so the removed one stays removed.`); return; }
     await mutate(async () => {
-      apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), comment: { file, line, side, ...(chapterId ? { chapterId } : {}), body } })) as { draft: Draft });
+      apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), comment: { file, line, side, ...(chapterId ? { chapterId } : {}), ...(author ? { author } : {}), body } })) as { draft: Draft });
     });
   }
   /** Save the summary as yours; an empty one removes it. */
