@@ -140,14 +140,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
   // Compact by the workspace's own width: a narrow BB pane on a wide screen is as tight as a phone.
-  const [rootWidth, setRootWidth] = useState<number | null>(null);
+  // Only whether it's compact: the width changes every frame of a pane drag.
+  const [narrowRoot, setNarrowRoot] = useState<boolean | null>(null);
   useEffect(() => {
     if (!rootEl || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => setRootWidth(entry.contentRect.width));
+    const observer = new ResizeObserver(([entry]) => setNarrowRoot(entry.contentRect.width < 768));
     observer.observe(rootEl);
     return () => observer.disconnect();
   }, [rootEl]);
-  const compact = rootWidth === null ? compactViewport : rootWidth < 768;
+  const compact = narrowRoot ?? compactViewport;
   // Without a choice of your own, Focus gives a compact workspace's diff the room.
   const focus = chosenFocus ?? compact;
   // Likewise long lines wrap there, rather than scroll sideways.

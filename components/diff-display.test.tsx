@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
@@ -14,6 +14,13 @@ vi.mock("@pierre/diffs/react", () => ({
     return <div data-testid="filediff"><pre>{fileDiff.additionLines.join("\n")}</pre></div>;
   },
 }));
+
+// The workspace's renders, by its Submit review button, which draws with it.
+let workspaceRenders = 0;
+vi.mock("../lib/draft-status", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/draft-status")>();
+  return { ...actual, useDraftStatus: (targetKey: string) => { workspaceRenders++; return actual.useDraftStatus(targetKey); } };
+});
 
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); drawn.length = 0; });
 
@@ -96,17 +103,35 @@ test("Mark chapter viewed marks every file in one call, then refreshes once", as
   slot.lifecycle.unmount();
 });
 
-/** Every ResizeObserver reports this width, as if the workspace sat in a pane that wide. */
+/** Every ResizeObserver reports this width, as if the workspace sat in a pane that wide; resize reports a new one. */
 function fakeWidth(width: number) {
   const original = globalThis.ResizeObserver;
+  const observed: (() => void)[] = [];
   globalThis.ResizeObserver = class {
     constructor(private notify: ResizeObserverCallback) {}
-    observe(target: Element) { this.notify([{ target, contentRect: { width } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver); }
+    observe(target: Element) {
+      const report = () => this.notify([{ target, contentRect: { width } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver);
+      observed.push(report);
+      report();
+    }
     unobserve() {}
     disconnect() {}
   } as unknown as typeof ResizeObserver;
-  return () => { globalThis.ResizeObserver = original; };
+  const restore = () => { globalThis.ResizeObserver = original; };
+  return Object.assign(restore, { resize: (next: number) => { width = next; observed.forEach((report) => report()); } });
 }
+
+test("dragging a wide pane's edge doesn't redraw the workspace on every frame", async () => {
+  const restore = fakeWidth(1400);
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const before = workspaceRenders;
+  for (const width of [1390, 1380, 1370, 1360]) act(() => restore.resize(width));
+  expect(workspaceRenders).toBe(before);
+  slot.lifecycle.unmount();
+  restore();
+});
 
 test("a narrow workspace on a wide screen goes compact and starts in Focus, until you turn it off", async () => {
   const restore = fakeWidth(600);
