@@ -56,7 +56,7 @@ test("read_pr_context gives the PR's story, CI, others' threads, and the repo's 
   expect(text).toContain(`${"x".repeat(1000)}…`);
   expect(text).not.toContain("x".repeat(1001));
   expect(text).toMatch(/Commits \(2\):\n<untrusted source="commit messages">\n- Retry once\n- Add test\n<\/untrusted>/);
-  expect(text).toContain("Failing CI checks:\n- lint: https://ci/lint");
+  expect(text).toContain('Failing CI checks:\n<untrusted source="CI checks">\n- lint: https://ci/lint\n</untrusted>');
   expect(text).not.toContain("- unit");
   expect(text).toContain("open review threads (1; 1 resolved)");
   expect(text).toContain("- @coderabbitai (bot) on src/auth.ts:12: Possible null deref.\n  latest reply, @alice: Guarded now.");

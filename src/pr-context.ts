@@ -126,7 +126,7 @@ async function pullRequestContext(run: Run, review: ReviewMeta, files: readonly 
 
   const checks = await run(ghPrChecksJsonArgs(review.number!, review.repo)).then(readChecks, () => null);
   const failing = checks?.filter((c) => c.bucket === "fail") ?? [];
-  sections.push(checks === null ? "CI: couldn't read the checks." : failing.length ? `Failing CI checks:\n${failing.map((c) => `- ${c.name}${c.link ? `: ${c.link}` : ""}`).join("\n")}` : `CI: no failing checks${checks.length ? "" : " (none reported)"}.`);
+  sections.push(checks === null ? "CI: couldn't read the checks." : failing.length ? `Failing CI checks:\n${untrusted("CI checks", failing.map((c) => `- ${c.name}${c.link ? `: ${c.link}` : ""}`).join("\n"))}` : `CI: no failing checks${checks.length ? "" : " (none reported)"}.`);
 
   const others = parseAllThreads(json).filter((t) => !viewer || t.author.toLowerCase() !== viewer.toLowerCase());
   const open = others.filter((t) => !t.isResolved);
