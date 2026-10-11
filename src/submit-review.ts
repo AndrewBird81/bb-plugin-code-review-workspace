@@ -8,7 +8,7 @@ import { invalidComments } from "./review-positions";
 export function createReviewSubmitter(store: Store, run: typeof runGh) {
   const inFlight = new Set<string>();
   /** `shown` is the list of comments the reviewer's page displays, and `summary` its summary and verdict; the draft must still match them. */
-  return async (targetKey: string, revision?: string, account?: string, shown?: Pick<DraftComment, "file" | "line" | "side" | "body">[], summary?: { body: string; verdict: Verdict }): Promise<{ ok: boolean; error?: string }> => {
+  return async (targetKey: string, revision?: string, account?: string, shown?: Pick<DraftComment, "file" | "line" | "side" | "body">[], summary?: { body: string; verdict: Verdict }): Promise<{ ok: boolean; error?: string; url?: string }> => {
     if (inFlight.has(targetKey)) return { ok: false, error: "This review is already being submitted." };
     inFlight.add(targetKey);
     try {
@@ -23,8 +23,10 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       if (summary && (draft.body !== summary.body || draft.verdict !== summary.verdict)) return { ok: false, error: "Your review summary or verdict changed since this page showed it, possibly from the assistant or another window. Check them, then submit again." };
       if (draft.verdict === "COMMENT" && !draft.body.trim() && !draft.comments.length) return { ok: false, error: "Add a summary or at least one comment before submitting a Comment review." };
       if (draft.verdict === "REQUEST_CHANGES" && !draft.body.trim()) return { ok: false, error: "Add a summary explaining the requested changes before submitting." };
+      if (account && m.author && draft.verdict !== "COMMENT" && account.toLowerCase() === m.author.toLowerCase()) return { ok: false, error: "GitHub allows only a Comment review on your own PR. Choose Comment, then submit again." };
       if (draft.comments.some((c) => !c.body.trim())) return { ok: false, error: "Draft comments cannot be blank." };
-      if (store.staleDraftComments(targetKey).length) return { ok: false, error: "The diff changed after these comments were drafted. Remove affected comments and add them again against the current diff before submitting." };
+      const stale = store.staleDraftComments(targetKey);
+      if (stale.length) return { ok: false, error: `The diff changed after these comments were drafted. Edit and save, or remove: ${stale.map((c) => `${c.file}:${c.line}`).join(", ")}` };
       const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
       const bad = invalidComments(patch, draft.comments);
       if (bad.length) return { ok: false, error: `These comments are outside the current diff: ${bad.map((c) => `${c.file}:${c.line}`).join(", ")}. Remove them and add any replacement comments on lines in the current diff.` };
@@ -51,15 +53,17 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       if (result.code !== 0) return { ok: false, error: ghErrorMessage(result) };
       let reviewer: string | undefined;
       let reviewId: string | null = null;
+      let url: string | undefined;
       try {
         const receipt = JSON.parse(result.stdout);
         if (typeof receipt?.user?.login === "string") reviewer = receipt.user.login;
         // The review's GraphQL id, to recognize it when the sync reads it back.
         if (typeof receipt?.node_id === "string") reviewId = receipt.node_id;
+        if (typeof receipt?.html_url === "string") url = receipt.html_url;
       } catch { /* A successful response still records the submitted verdict. */ }
       store.setLifecycle(targetKey, { submittedVerdict: draft.verdict, submittedAt: Date.now(), submittedHeadSha: m.headSha, submittedReviewId: reviewId, ...(reviewer ? { reviewer } : {}) });
       store.clearSubmittedDraft(draft);
-      return { ok: true };
+      return { ok: true, ...(url ? { url } : {}) };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Could not submit the review. Your draft has been kept." };
     } finally {

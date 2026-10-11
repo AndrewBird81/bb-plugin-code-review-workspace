@@ -51,7 +51,7 @@ test("a comment written at a line in the diff joins the draft, and shows there a
   const shown = await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" });
   expect(within(shown).getByText("Cover the empty case.")).toBeTruthy();
   expect(diff().queryByRole("textbox")).toBeNull();
-  expect(panel().getByRole("button", { name: "src/a.ts:2 · Changed" })).toBeTruthy();
+  expect(panel().getByRole("button", { name: "src/a.ts:2" })).toBeTruthy();
   expect(panel().queryByText(/in the diff\./)).toBeNull();
   slot.lifecycle.unmount();
 });
@@ -133,7 +133,7 @@ test("choosing a comment, or the comment being written, in the panel shows it in
   const mine = { file: "src/a.ts", line: 1, side: "RIGHT", body: "My comment" };
   const onShowComment = vi.fn();
   const { slot, diff, panel } = await renderReview("show", { getDraft: () => ({ draft: { ...empty("show"), comments: [mine] }, stale: [{ file: "src/a.ts", line: 1, side: "RIGHT" }] }) }, onShowComment);
-  fireEvent.click(panel().getByRole("button", { name: "src/a.ts:1 · Changed · Older diff" }));
+  fireEvent.click(panel().getByRole("button", { name: "src/a.ts:1 · Older diff" }));
   expect(onShowComment).toHaveBeenLastCalledWith(mine);
   fireEvent.click(diff().getByRole("button", { name: "Gutter +" }));
   fireEvent.click(panel().getByRole("button", { name: "Show in diff" }));
@@ -165,7 +165,7 @@ test("asking the agent about its comment opens a box under it, and the agent ans
   expect(within(discussion).getByText("It is, in a.test.ts.")).toBeTruthy();
   expect(within(discussion).getByRole("status").textContent).toBe("Waiting for agent…");
   expect(diff().queryByRole("textbox")).toBeNull();
-  expect(panel().getByRole("button", { name: "src/a.ts:2 · Changed · Added by agent · 1 message · Waiting for agent" })).toBeTruthy();
+  expect(panel().getByRole("button", { name: "src/a.ts:2 · Added by agent · 1 message · Waiting for agent" })).toBeTruthy();
 
   discussions = [{ ...discussions[0], waiting: false, entries: [...discussions[0].entries, { author: "agent", kind: "message", body: "Then I'll drop it.", createdAt: 2 }, { author: "agent", kind: "removed", body: "", createdAt: 3 }] }];
   await slot.emitRealtime("draft:ask", {});
@@ -238,5 +238,20 @@ test("a comment the agent removed leaves its discussion at the line, and an unse
   slot.lifecycle.unmount();
   ({ slot, diff } = await renderReview("stub", rpc));
   expect((diff().getByRole("textbox", { name: "Message to agent" }) as HTMLTextAreaElement).value).toBe("Why?");
+  slot.lifecycle.unmount();
+});
+
+test("after saving or cancelling an edit in the diff, focus goes to the comment's card", async () => {
+  const mine = { file: "src/a.ts", line: 2, side: "RIGHT", body: "Mine" };
+  const saveDraftComment = vi.fn(async ({ comment }: any) => ({ draft: { ...empty("refocus"), comments: [comment] }, stale: [] }));
+  const { slot, diff } = await renderReview("refocus", { getDraft: () => ({ draft: { ...empty("refocus"), comments: [mine] }, stale: [] }), saveDraftComment });
+  const card = () => diff().getByRole("article", { name: "Draft comment on src/a.ts:2" });
+  fireEvent.click(within(await diff().findByRole("article")).getByRole("button", { name: "Edit" }));
+  fireEvent.click(diff().getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(document.activeElement).toBe(card()));
+  fireEvent.click(within(card()).getByRole("button", { name: "Edit" }));
+  fireEvent.change(diff().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Mine, edited" } });
+  fireEvent.click(diff().getByRole("button", { name: "Save comment" }));
+  await waitFor(() => expect(document.activeElement).toBe(card()));
   slot.lifecycle.unmount();
 });

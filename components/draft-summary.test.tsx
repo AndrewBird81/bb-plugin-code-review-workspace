@@ -164,7 +164,7 @@ test("a line comment after the summary's box starts on a real line", async () =>
   fireEvent.click(summary(slot).getByRole("button", { name: "Edit review summary" }));
   fireEvent.click(summary(slot).getByRole("button", { name: "Cancel" }));
   fireEvent.click(slot.getByRole("button", { name: "Add comment" }));
-  expect((slot.getByRole("textbox", { name: "Comment file" }) as HTMLInputElement).value).toBe("src/a.ts");
+  expect((slot.getByRole("combobox", { name: "Comment file" }) as HTMLSelectElement).value).toBe("src/a.ts");
   expect((slot.getByRole("spinbutton", { name: "Comment line" }) as HTMLInputElement).value).toBe("1");
   // With the summary's box open but empty, Add comment opens the panel's box instead.
   fireEvent.click(slot.getByRole("button", { name: "Cancel" }));

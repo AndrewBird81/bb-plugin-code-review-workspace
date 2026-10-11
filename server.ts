@@ -40,6 +40,7 @@ import {
 import { createReviewSync } from "./src/review-lifecycle";
 import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
+import { invalidComments } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
 import { stopGuideGenerations, hasGuideGenerations, guideWorkerFailed } from "./src/generate";
 import { parseChecks, parseReviewThreads } from "./src/threads";
@@ -142,6 +143,12 @@ export default async function plugin(bb: BbPluginApi) {
   const listed = () => {
     const options = turnOptions(store.getPreferences().preferences);
     return store.listReviews().map(({ reviewBodies: _bodies, ...review }) => decorate(review, options));
+  };
+  // Whether you wrote the PR, before the sync has read it: GitHub allows only a Comment review on your own PR.
+  const withOwnPr = async (review: ReturnType<typeof decorate>) => {
+    if (!review || review.kind !== "pr" || !review.author || typeof review.ownPr === "boolean") return review;
+    const login = await sync.login();
+    return { ...review, ownPr: !!login && login.toLowerCase() === review.author.toLowerCase() };
   };
   const changed = (targetKey: string) => {
     bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
@@ -276,8 +283,8 @@ export default async function plugin(bb: BbPluginApi) {
       ]);
       return { githubCli: cli.code === 0, account: user.code === 0 ? user.stdout.trim() || null : null, agentAvailable: providers ? providers.some(p => p.available) : null, projectAvailable: projects ? projects.length > 0 : null };
     },
-    getReviewBundle({ targetKey }) {
-      return { review: decorate(store.getReview(targetKey)), guide: store.getGuide(targetKey),
+    async getReviewBundle({ targetKey }) {
+      return { review: await withOwnPr(decorate(store.getReview(targetKey))), guide: store.getGuide(targetKey),
         patch: store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, revision: reviewRevision(store, targetKey) };
     },
     getPreferences() { return store.getPreferences(); },
@@ -458,6 +465,10 @@ export default async function plugin(bb: BbPluginApi) {
     },
     saveDraftComment({ targetKey, comment, revision }) {
       requireReviewRevision(store, targetKey, revision);
+      // GitHub refuses a comment on a line the diff doesn't show; say so now, not at submit.
+      if (invalidComments(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, [comment]).length) {
+        throw new Error(`${comment.file}:${comment.line} isn’t in the current diff. Choose a line the diff shows.`);
+      }
       // Your words now, and an ask on the comment is over.
       setAsk(store, targetKey, comment, null);
       return draftState(targetKey, store.upsertDraftComment(targetKey, comment));
@@ -486,16 +497,15 @@ export default async function plugin(bb: BbPluginApi) {
       bb.realtime.publish(`draft:${targetKey}`, {});
       return draftState(targetKey);
     },
-    setVerdict({ targetKey, verdict, body, revision }) {
-      requireReviewRevision(store, targetKey, revision);
+    // The summary and verdict don't depend on the diff, so they save while it changes; submit checks everything.
+    setVerdict({ targetKey, verdict, body }) {
       // A summary you wrote yourself ends an ask on it.
       if (body !== undefined && body !== store.getDraft(targetKey).body) store.setLifecycle(targetKey, { summaryAsk: null });
       const draft = store.setVerdict(targetKey, verdict, body);
       bb.realtime.publish(`draft:${targetKey}`, {});
       return { draft };
     },
-    saveSummary({ targetKey, body, revision }) {
-      requireReviewRevision(store, targetKey, revision);
+    saveSummary({ targetKey, body }) {
       // Your words now, whoever wrote them before, and an ask on the summary is over.
       store.setLifecycle(targetKey, { summaryAsk: null });
       const draft = store.updateSummary(targetKey, { body, bodyAuthor: undefined, written: undefined });

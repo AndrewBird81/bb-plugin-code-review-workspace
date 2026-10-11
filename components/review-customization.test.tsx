@@ -66,7 +66,7 @@ test("editing a draft comment replaces it without changing its location", async 
   const save = vi.fn(async ({ comment }: any) => ({ draft: { ...draft, comments: [comment] } }));
   const slot = renderSlot({ component: (props: any) => <DraftTray {...props} /> }, { targetKey: "edit", activeChapterId: "other", activeFiles: ["b.ts"] }, { rpc: { getDraft: () => ({ draft }), getReviewerNotes: () => ({ body: "", revision: 0 }), saveDraftComment: save } });
   fireEvent.click(await slot.findByRole("button", { name: "Edit comment on a.ts:1" }));
-  expect((slot.getByRole("textbox", { name: "Comment file" }) as HTMLInputElement).disabled).toBe(true);
+  expect((slot.getByRole("combobox", { name: "Comment file" }) as HTMLSelectElement).disabled).toBe(true);
   fireEvent.change(slot.getByRole("textbox", { name: "Draft comment" }), { target: { value: "Clearer feedback" } });
   fireEvent.click(slot.getByRole("button", { name: "Save comment" }));
   await slot.findByText("Clearer feedback");
@@ -158,7 +158,7 @@ test("a new line-comment request reveals an unfinished comment without replacing
   fireEvent.click(slot.getByRole("button", { name: "Comment on selected line" }));
   const editor = await slot.findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
   expect(editor.value).toBe("Keep this unfinished comment");
-  expect((slot.getByRole("textbox", { name: "Comment file" }) as HTMLInputElement).value).toBe("a.ts");
+  expect((slot.getByRole("combobox", { name: "Comment file" }) as HTMLSelectElement).value).toBe("a.ts");
   await waitFor(() => expect(document.activeElement).toBe(editor));
   slot.lifecycle.unmount();
 });
@@ -315,8 +315,8 @@ test("a draft labels agents' comments, and Remove names the comment's location",
   const slot = renderSlot({ component: (props: any) => <DraftTray {...props} /> }, { targetKey: "labels", activeChapterId: "c1", activeFiles: ["a.ts"] }, { rpc: {
     setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft }), removeDraftComment,
   } });
-  await slot.findByRole("button", { name: "a.ts:2 · Original · Added by agent" });
-  expect(slot.getByRole("button", { name: "a.ts:1 · Changed" })).toBeTruthy();
+  await slot.findByRole("button", { name: "a.ts:2 · Old line · Added by agent" });
+  expect(slot.getByRole("button", { name: "a.ts:1" })).toBeTruthy();
   fireEvent.click(slot.getByRole("button", { name: "Remove comment on a.ts:2" }));
   await waitFor(() => expect(removeDraftComment).toHaveBeenCalledWith({ targetKey: "labels", file: "a.ts", line: 2, side: "LEFT" }));
   await waitFor(() => expect(slot.queryByText("The agent's comment")).toBeNull());

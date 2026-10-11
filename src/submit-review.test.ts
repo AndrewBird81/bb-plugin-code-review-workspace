@@ -69,7 +69,7 @@ test("concurrent submit clicks send one write and retain edits made during the r
 test("re-review cannot silently reuse comments whose line still exists in a changed diff", async () => {
   const { store, run, submit } = setup();
   store.savePatch("pr-test", patch.replace("+new", "+different"));
-  expect(await submit("pr-test")).toMatchObject({ ok: false, error: expect.stringContaining("diff changed") });
+  expect(await submit("pr-test")).toEqual({ ok: false, error: "The diff changed after these comments were drafted. Edit and save, or remove: a.ts:1" });
   expect(run).not.toHaveBeenCalled();
 });
 
@@ -128,4 +128,22 @@ test("submission refuses a summary or verdict the page didn't show", async () =>
   expect(await submit("pr-test", undefined, undefined, comments, { body: "The assistant's newer summary", verdict: "APPROVE" })).toMatchObject({ ok: false });
   expect(run).not.toHaveBeenCalled();
   expect(await submit("pr-test", undefined, undefined, comments, { body: "The assistant's newer summary", verdict: "COMMENT" })).toEqual({ ok: true });
+});
+
+test("a submitted review returns its link on GitHub", async () => {
+  const { run, submit } = setup();
+  run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha1"}' })
+    .mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"id":12,"html_url":"https://github.com/acme/web/pull/7#pullrequestreview-12"}' });
+  expect(await submit("pr-test")).toEqual({ ok: true, url: "https://github.com/acme/web/pull/7#pullrequestreview-12" });
+});
+
+test("on your own PR, only a Comment review is submitted", async () => {
+  const { store, run, submit } = setup();
+  store.saveReview({ ...store.getReview("pr-test")!, author: "Casey" });
+  store.setVerdict("pr-test", "APPROVE", "Ship it");
+  expect(await submit("pr-test", undefined, "casey")).toEqual({ ok: false, error: "GitHub allows only a Comment review on your own PR. Choose Comment, then submit again." });
+  expect(run).not.toHaveBeenCalledWith(expect.arrayContaining(["repos/acme/web/pulls/7/reviews"]), expect.anything());
+  store.setVerdict("pr-test", "COMMENT", "Notes to self");
+  // Past that check, it goes on to sign in as casey.
+  expect(await submit("pr-test", undefined, "casey")).not.toMatchObject({ error: expect.stringContaining("own PR") });
 });

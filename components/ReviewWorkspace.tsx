@@ -267,6 +267,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useEffect(() => {
     setCurrentFile(activeFiles[0]);
   }, [activeFiles]);
+  const reviewFiles: string[] = useMemo(() => [...(guide?.sections ?? []).flatMap((s: any) => s.diffs.map((d: any) => d.file)), ...(guide?.unplacedFiles ?? [])], [guide]);
 
   // Restore the saved scroll position once the diff has content to scroll.
   useEffect(() => {
@@ -521,7 +522,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       )}
       <div className="flex min-h-0 flex-1 flex-col @min-[1024px]/review:flex-row">
       {/* The draft panel owns the draft and shares it with the diff, which shows each comment under its line. */}
-      <DraftTray reviewRevision={revision} account={repoAccess?.account ?? undefined} agent={{ patch, injection, container: rootEl }} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} prefill={draftPrefill} showDraft={showDraft}>
+      <DraftTray reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} agent={{ patch, injection, container: rootEl }} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
         {(compact ? mobileChapters : !sidebarCollapsed) && (
           <>
