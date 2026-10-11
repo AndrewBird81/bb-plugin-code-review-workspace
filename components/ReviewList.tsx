@@ -133,6 +133,21 @@ function syncProblem(health: SyncHealth | undefined): string | null {
   return `${read ? `GitHub last read ${read}` : "GitHub hasn’t been read yet"}: ${detail}`;
 }
 
+/** Whether the review matches every word of the filter, in its title, repository, @author, or #number. */
+function matchesFilter(review: ReviewItem, query: string): boolean {
+  const text = [review.title, review.repo, review.gitRef, review.author && `@${review.author}`, review.number && `#${review.number}`].filter(Boolean).join(" ").toLowerCase();
+  return query.toLowerCase().split(/\s+/).filter(Boolean).every((word) => text.includes(word));
+}
+
+/** The tab and filter, kept for coming back to the list from a review. */
+const VIEW_KEY = "gr:review-list";
+function savedView(): { tab: TurnGroup; query: string } {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(VIEW_KEY) ?? "{}") as { tab?: TurnGroup; query?: string };
+    return { tab: saved.tab ?? "needs", query: saved.query ?? "" };
+  } catch { return { tab: "needs", query: "" }; }
+}
+
 /** Shown in an empty list: an icon in a soft disc, a heading, and a line of help. */
 function EmptyState({ icon, tone, title, children }: { icon: Parameters<typeof Icon>[0]["name"]; tone: "success" | "neutral"; title: string; children: React.ReactNode }) {
   return (
@@ -156,7 +171,11 @@ export const ReviewList = memo(function ReviewList() {
   const [loadError, setLoadError] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
-  const [filter, setFilter] = useState<TurnGroup>("needs");
+  const [filter, setFilter] = useState<TurnGroup>(() => savedView().tab);
+  const [query, setQuery] = useState(() => savedView().query);
+  useEffect(() => {
+    try { sessionStorage.setItem(VIEW_KEY, JSON.stringify({ tab: filter, query })); } catch { /* best-effort */ }
+  }, [filter, query]);
   const [refreshing, setRefreshing] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [health, setHealth] = useState<SyncHealth>();
@@ -208,8 +227,9 @@ export const ReviewList = memo(function ReviewList() {
     () => [...reviews].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
     [reviews],
   );
+  const found = query.trim() ? sorted.filter((review) => matchesFilter(review, query)) : sorted;
 
-  const visible = sorted.filter((review) => reviewState(review).group === filter);
+  const visible = found.filter((review) => reviewState(review).group === filter);
   if (filter === "needs") visible.sort(needsOrder);
   if (filter === "waiting") visible.sort(waitingOrder);
   const teamStart = filter === "needs" ? visible.findIndex((review) => reviewState(review).reason === "team-requested") : -1;
@@ -332,9 +352,14 @@ export const ReviewList = memo(function ReviewList() {
             {tabs.map(({ value, label, icon }) => (
               <Button key={value} variant="ghost" size="sm" aria-pressed={filter === value} onClick={() => setFilter(value)} className="group/tab shrink-0 gap-2 px-2 text-muted-foreground @min-[520px]/review-list:px-2.5">
                 <Icon name={icon} className="hidden size-3.5 group-aria-pressed/tab:text-primary @min-[520px]/review-list:block" aria-hidden />
-                {label}<span className="min-w-5 rounded-full bg-muted px-1.5 text-center text-[11px] leading-[18px] tabular-nums text-muted-foreground group-aria-pressed/tab:bg-primary/20 group-aria-pressed/tab:text-primary">{sorted.filter((r) => reviewState(r).group === value).length}</span>
+                {label}<span className="min-w-5 rounded-full bg-muted px-1.5 text-center text-[11px] leading-[18px] tabular-nums text-muted-foreground group-aria-pressed/tab:bg-primary/20 group-aria-pressed/tab:text-primary">{found.filter((r) => reviewState(r).group === value).length}</span>
               </Button>
             ))}
+          </div>
+          <div className="relative ml-auto w-40 min-w-0 shrink @min-[640px]/review-list:w-56">
+            <Icon name="Search" className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && query) { e.stopPropagation(); setQuery(""); } }}
+              aria-label="Find a review" placeholder="Repo, author, title, #" className="h-8 rounded-md pl-8 text-sm" />
           </div>
           <Button variant="ghost" size="sm" aria-label={refreshing ? "Refreshing…" : "Refresh"} className="shrink-0 px-2 text-muted-foreground" disabled={refreshing} onClick={() => void refresh()}><Icon name="ArrowReloadHorizontal" className={cn("size-3.5", refreshing && "animate-spin motion-reduce:animate-none")} aria-hidden /><span className="hidden @min-[520px]/review-list:inline">{refreshing ? "Refreshing…" : "Refresh"}</span></Button>
         </div>
@@ -342,7 +367,8 @@ export const ReviewList = memo(function ReviewList() {
         {syncError && <p role="alert" className="flex items-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-2.5 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden />Couldn’t refresh GitHub status. Saved reviews are still available; try Refresh again.</p>}
         {loading ? <div role="status" aria-busy="true" className="divide-y divide-border"><span className="sr-only">Loading reviews…</span>{Array.from({ length: 4 }).map((_, i) => <div key={i} className="flex items-center gap-3.5 px-4 py-3.5"><Skeleton className="size-8 shrink-0 rounded-lg" /><div className="flex-1 space-y-2"><Skeleton className="h-3.5" style={{ width: `${62 - i * 7}%` }} /><Skeleton className="h-3 w-48" /></div><Skeleton className="h-5 w-16 rounded-full" /></div>)}</div>
           : loadError ? <div role="alert" className="px-4 py-10 text-center"><h2 className="font-medium">Couldn’t load your reviews</h2><p className="mt-2 text-sm text-muted-foreground">Your saved reviews haven’t been removed. Check the connection and try again.</p><Button variant="outline" className="mt-4" onClick={() => setReload((n) => n + 1)}>Try again</Button></div>
-          : visible.length === 0 ? (filter === "archive" ? <EmptyState icon="Archive" tone="neutral" title="No archived reviews">Merged and closed pull requests move here automatically, along with reviews you archive.</EmptyState>
+          : visible.length === 0 ? (query.trim() && sorted.some((r) => reviewState(r).group === filter) ? <EmptyState icon="Search" tone="neutral" title={`No reviews match “${query.trim()}”`}>Try fewer words, or clear the filter.</EmptyState>
+            : filter === "archive" ? <EmptyState icon="Archive" tone="neutral" title="No archived reviews">Merged and closed pull requests move here automatically, along with reviews you archive.</EmptyState>
             : filter === "waiting" ? <EmptyState icon="TimeSchedule" tone="neutral" title="Nothing waiting on authors">Reviews where you requested changes wait here until the author re-requests your review, answers your feedback, or asks you something.</EmptyState>
             : filter === "reviewed" ? <EmptyState icon="CircleCheck" tone="neutral" title="No submitted reviews yet">Your submitted verdicts appear here, ready to revisit.</EmptyState>
             : sorted.length ? <EmptyState icon="Check" tone="success" title="You’re all caught up">Paste a pull request URL above to start a review.</EmptyState>

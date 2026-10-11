@@ -4,7 +4,8 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import type { Turn } from "../lib/turn";
-afterEach(cleanup);
+// The list keeps its tab and filter for the session.
+afterEach(() => { cleanup(); sessionStorage.clear(); });
 
 const DAY = 86_400_000;
 const now = Date.now();
