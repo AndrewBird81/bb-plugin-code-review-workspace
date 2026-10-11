@@ -58,6 +58,31 @@ export function pruneDiffs(store: Store, review: ReviewMeta) {
   store.pruneSnapshots(review.targetKey, [review.headSha, baselineOf(review).sha, headOf(review)].filter((sha): sha is string => !!sha));
 }
 
+/** How long a review stays out of play (merged, closed, or archived) before its stored diffs are dropped. */
+const PRUNE_AFTER = 30 * 86_400_000;
+
+/**
+ * Drop the stored diffs of PR reviews out of play for a month: the diff, its snapshots, and a kept guide's
+ * backup. The guide, draft, notes, and GitHub state stay, and so does the diff you last reviewed, which
+ * Since your review compares with. Opening such a review reads its diff again (diffAt). Left alone: drafts
+ * with comments, which follow their lines into a new diff, and merged PRs whose guide is for an earlier
+ * head, whose diff GitHub can't rebuild once the base has it. Returns the reviews pruned.
+ */
+export function pruneOldDiffs(store: Store, now: number): string[] {
+  const pruned: string[] = [];
+  for (const review of store.listReviews()) {
+    const since = Math.min(review.archivedAt ?? Infinity, review.userArchivedAt ?? Infinity);
+    if (review.kind !== "pr" || review.status !== "ready" || !review.headSha || now - since < PRUNE_AFTER) continue;
+    if (review.prState === "MERGED" && headOf(review) !== review.headSha) continue;
+    if (!store.hasPatch(review.targetKey) || store.getDraft(review.targetKey).comments.length) continue;
+    const baseline = baselineOf(review).sha;
+    store.dropPatch(review.targetKey);
+    store.pruneSnapshots(review.targetKey, baseline && baseline !== review.headSha ? [baseline] : []);
+    pruned.push(review.targetKey);
+  }
+  return pruned;
+}
+
 type SinceReview = { baseline: { sha: string; at: number | null; verdict: Verdict | null }; files: FileInterdiff[] };
 /** The latest comparisons, by review, for the few reviews compared last. */
 const compared = new WeakMap<Store, Map<string, { key: string; since: SinceReview }>>();

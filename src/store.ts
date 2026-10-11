@@ -137,6 +137,10 @@ export interface Store {
   deleteReview(targetKey: string): void;
   savePatch(targetKey: string, patch: string): void;
   readPatch(targetKey: string, offset?: number, limit?: number): { text: string; total: number };
+  /** Whether the review has a diff stored; pruneOldDiffs drops it. */
+  hasPatch(targetKey: string): boolean;
+  /** Forget the review's diff and any guide kept for a rebuild, to read the diff again when it's opened. */
+  dropPatch(targetKey: string): void;
   /** SHA-256 of the stored patch, kept since it was saved. */
   patchHash(targetKey: string): string;
   /** The stored patch's commentable lines by file, parsed once per patch. Read-only. */
@@ -446,6 +450,15 @@ export function createStore(bb: BbPluginApi): Store {
       const row: any = db.prepare(`SELECT patch FROM patches WHERE target_key=?`).get(k);
       const text = row?.patch ?? "";
       return { text: text.slice(offset, offset + limit), total: text.length };
+    },
+    hasPatch(k) {
+      return !!db.prepare(`SELECT 1 FROM patches WHERE target_key=? AND patch != ''`).get(k);
+    },
+    dropPatch(k) {
+      db.transaction(() => {
+        db.prepare(`DELETE FROM patches WHERE target_key=?`).run(k);
+        db.prepare(`DELETE FROM guide_backups WHERE target_key=?`).run(k);
+      })();
     },
     patchHash: storedPatchHash,
     diffPositions(k) {

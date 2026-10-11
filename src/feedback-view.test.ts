@@ -1,10 +1,11 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore, type ReviewMeta } from "./store";
-import { diffAt, sinceReview } from "./feedback-view";
+import { diffAt, pruneOldDiffs, sinceReview } from "./feedback-view";
 import { changedFiles } from "./patch";
 
 const tooLarge = { code: 1, stdout: '{"message":"Sorry, the diff exceeded the maximum number of files (300). Consider using \'List pull requests files\' API or locally cloning the repository instead.","errors":[{"resource":"PullRequest","field":"diff","code":"too_large"}]}', stderr: "gh: HTTP 406" };
+const DAY = 86_400_000;
 const file = (filename: string) => JSON.stringify({ filename, status: "modified", patch: "@@ -1 +1 @@\n-a\n+b" });
 
 function setup() {
@@ -50,4 +51,45 @@ test("Since your review is compared once per baseline and diff, and leaves out a
   store.savePatch("pr-1", one("a.ts", "d"));
   expect((await sinceReview(store, run, reviewed))?.files.map((f) => f.file)).toEqual(["a.ts"]);
   expect(run).not.toHaveBeenCalled();
+});
+
+test("diffs of reviews out of play for a month are dropped, keeping the guide, the draft, notes, and what Since your review needs", () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const store = createStore(bb);
+  const now = 100 * DAY;
+  const old = now - 31 * DAY;
+  const reviews: Array<Partial<ReviewMeta> & { targetKey: string }> = [
+    { targetKey: "merged", prState: "MERGED", archivedAt: old, submittedAt: 1, submittedHeadSha: "sha0" },
+    { targetKey: "archived", userArchivedAt: old },
+    { targetKey: "recent", prState: "CLOSED", archivedAt: now - 29 * DAY },
+    { targetKey: "open" },
+    { targetKey: "commented", prState: "CLOSED", archivedAt: old },
+    { targetKey: "rebuilding", prState: "CLOSED", archivedAt: old, status: "generating" },
+    { targetKey: "local", kind: "ref", gitRef: "main...x", userArchivedAt: old },
+    // GitHub can't rebuild an earlier head's diff once the PR is merged into its base.
+    { targetKey: "merged-later", prState: "MERGED", archivedAt: old, latestHeadSha: "sha9" },
+  ];
+  for (const r of reviews) {
+    store.saveReview({ kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha1", ...r } as ReviewMeta);
+    const { targetKey, kind: _kind, gitRef: _gitRef, status: _status, ...lifecycle } = r;
+    store.setLifecycle(targetKey, lifecycle);
+    store.savePatch(r.targetKey, "diff --git a/a.ts b/a.ts\n");
+    store.saveSnapshot(r.targetKey, "sha0", "then");
+    store.saveSnapshot(r.targetKey, "sha1", "now");
+    store.saveGuide(r.targetKey, { title: "t", intent: "i", sections: [], unplacedFiles: [] });
+    store.saveReviewerNotes(r.targetKey, "note", 0);
+    store.setVerdict(r.targetKey, "APPROVE", "LGTM");
+  }
+  store.upsertDraftComment("commented", { file: "a.ts", line: 1, side: "RIGHT", body: "x" });
+  expect(pruneOldDiffs(store, now)).toEqual(["merged", "archived"]);
+  expect(store.readPatch("merged").total).toBe(0);
+  expect(store.hasPatch("merged")).toBe(false);
+  // Since your review compares with the diff you reviewed.
+  expect(store.getSnapshot("merged", "sha0")).toBe("then");
+  expect(store.getSnapshot("merged", "sha1")).toBeNull();
+  expect(store.getSnapshot("archived", "sha0")).toBeNull();
+  expect(store.getGuide("merged")?.intent).toBe("i");
+  expect(store.getDraft("merged").body).toBe("LGTM");
+  expect(store.getReviewerNotes("merged").body).toBe("note");
+  for (const kept of ["recent", "open", "commented", "rebuilding", "local", "merged-later"]) expect(store.hasPatch(kept)).toBe(true);
 });

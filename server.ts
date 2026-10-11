@@ -50,7 +50,7 @@ import { completionNotifications } from "./src/completion-notifications";
 import { createPluginUpdates } from "./src/plugin-updates";
 import { onPrepared } from "./src/generate";
 import { feedbackProgress, type TurnOptions } from "./lib/turn";
-import { baselineOf, feedbackView, headOf, pruneDiffs, remainingBody, sinceReview } from "./src/feedback-view";
+import { baselineOf, diffAt, feedbackView, headOf, pruneDiffs, pruneOldDiffs, remainingBody, sinceReview } from "./src/feedback-view";
 import { assess, changesSinceReview, describeFeedback, readFileAt, startVerification } from "./src/verification";
 import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
@@ -126,8 +126,14 @@ export default async function plugin(bb: BbPluginApi) {
   });
   bb.background.service("review-state", {
     async start(signal) {
+      let prunedAt = 0;
       while (!signal.aborted) {
         await updates.run(() => sync.all(), false).catch(() => {});
+        // Once a day, drop the stored diffs of reviews out of play for a month.
+        if (Date.now() - prunedAt >= 86_400_000) {
+          prunedAt = Date.now();
+          try { pruneOldDiffs(store, prunedAt); } catch (error) { bb.log.warn(`Could not drop old diffs: ${String(error)}`); }
+        }
         await delay(60_000, undefined, { signal }).catch(() => {});
       }
     },
@@ -165,6 +171,18 @@ export default async function plugin(bb: BbPluginApi) {
     store.saveFeedbackThreads(review.targetKey, threads, store.feedbackFetched(review.targetKey)?.prUpdatedAt ?? null);
     store.setLifecycle(review.targetKey, { signals: { ...store.getReview(review.targetKey)!.signals, ...threadSignals(store.listFeedbackThreads(review.targetKey)) } });
     bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
+  }
+  /** A review whose diff pruneOldDiffs dropped reads it again when it's opened. */
+  async function rereadPrunedDiff(targetKey: string) {
+    const review = store.getReview(targetKey);
+    if (review?.kind !== "pr" || review.status !== "ready" || !review.headSha || store.hasPatch(targetKey)) return;
+    try {
+      store.savePatch(targetKey, await diffAt(store, runGh, review, review.headSha));
+    } catch (error) {
+      throw new Error(`Couldn't read this review's diff again: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    // The page's other reads ran without it.
+    bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
   }
   const view = (targetKey: string) => {
     const review = store.getReview(targetKey);
@@ -284,6 +302,7 @@ export default async function plugin(bb: BbPluginApi) {
       return { githubCli: cli.code === 0, account: user.code === 0 ? user.stdout.trim() || null : null, agentAvailable: providers ? providers.some(p => p.available) : null, projectAvailable: projects ? projects.length > 0 : null };
     },
     async getReviewBundle({ targetKey, knownRevision }) {
+      await rereadPrunedDiff(targetKey);
       const revision = reviewRevision(store, targetKey);
       return { review: await withOwnPr(decorate(store.getReview(targetKey))), guide: store.getGuide(targetKey),
         patch: revision === knownRevision ? null : store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, revision };
