@@ -5,7 +5,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 export function ShortcutsHelp({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      {/* As tall as its list: in BB it opened full height, with an empty band above the list. */}
+      <DialogContent className="h-auto max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
           <DialogDescription>Work anywhere in the review except while you type.</DialogDescription>
