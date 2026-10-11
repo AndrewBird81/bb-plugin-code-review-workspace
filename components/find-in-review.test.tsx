@@ -154,3 +154,16 @@ test("the shortcut help lists / and f", async () => {
   expect(help.getByText("All files, with the cursor in their filter")).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
+
+test("f with a Find in review query clears it, so All files shows with the cursor in its filter", async () => {
+  const slot = await renderWorkspace();
+  const box = slot.getByRole("searchbox", { name: "Find in review" });
+  fireEvent.change(box, { target: { value: "ttl" } });
+  await slot.findByRole("list", { name: "Results" });
+  fireEvent.keyDown(document.body, { key: "f" });
+  const filter = await slot.findByRole("searchbox", { name: "Filter files" });
+  await waitFor(() => expect(document.activeElement).toBe(filter));
+  expect((box as HTMLInputElement).value).toBe("");
+  expect(slot.queryByRole("list", { name: "Results" })).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);

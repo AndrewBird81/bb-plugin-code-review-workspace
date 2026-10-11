@@ -50,7 +50,9 @@ export function ComparePicker({ targetKey, baseline, head, from, onFrom, availab
 }) {
   const rpc = useRpc<typeof rpcContract>();
   const [open, setOpen] = useState(false);
-  const [commits, setCommits] = useState<PrCommit[] | null>(null);
+  // The commits up to the head they were read at: a new push adds some, and moves each one further back.
+  const [listed, setListed] = useState<{ head: string | null; commits: PrCommit[] } | null>(null);
+  const commits = listed?.head === head ? listed.commits : null;
   const [error, setError] = useState<string | null>(null);
   const label = compareLabel(from, commits);
 
@@ -58,13 +60,16 @@ export function ComparePicker({ targetKey, baseline, head, from, onFrom, availab
     setError(null);
     rpc.call("getPrCommits", { targetKey }).then((result) => {
       if (result.error) setError(result.error);
-      else setCommits(result.commits);
+      else setListed({ head, commits: result.commits });
     }, (reason) => setError(reason instanceof Error ? reason.message : "Couldn’t read the PR’s commits."));
   }
-  // A comparison picked before the toolbar last drew needs the commits for its label.
-  useEffect(() => { if (from && !commits) load(); }, [from]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A comparison picked before the toolbar last drew, or before a new push, needs the commits for its label;
+  // the menu open at a push needs them to list.
+  useEffect(() => { if ((from || open) && !commits) load(); }, [from, head]); // eslint-disable-line react-hooks/exhaustive-deps
   const pick = (sha: string | null) => { setOpen(false); onFrom(sha === baseline ? null : sha); };
   const choices = commits?.filter((commit) => commit.sha !== head) ?? [];
+  // Your last review at the head has nothing to compare with; then, or without one, the way back is no comparison.
+  const lastReview = baseline && baseline !== head ? baseline : null;
   const item = "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-state-hover focus-visible:bg-state-hover focus-visible:outline-none";
 
   return (
@@ -91,12 +96,10 @@ export function ComparePicker({ targetKey, baseline, head, from, onFrom, availab
         <PopoverContent align="start" mobileTitle="Compare from a commit" className="w-80 max-w-[calc(100vw-24px)] p-1">
           <p className="px-2 pb-1 pt-1.5 text-xs text-muted-foreground">Show what changed since</p>
           <div data-commits role="list" aria-label="Commits" className="max-h-80 overflow-y-auto">
-            {baseline && (
-              <button type="button" data-commit role="listitem" aria-current={!from ? "true" : undefined} onKeyDown={moveFocus} className={item} onClick={() => pick(null)}>
-                <Icon name={!from ? "Check" : "GitCommit"} className={cn("mt-px size-3.5 shrink-0", !from ? "text-primary" : "text-subtle-foreground")} aria-hidden />
-                <span className="min-w-0 flex-1">Your last review <span className="font-mono text-subtle-foreground">{short(baseline)}</span></span>
-              </button>
-            )}
+            <button type="button" data-commit role="listitem" aria-current={!from ? "true" : undefined} onKeyDown={moveFocus} className={item} onClick={() => pick(null)}>
+              <Icon name={!from ? "Check" : "GitCommit"} className={cn("mt-px size-3.5 shrink-0", !from ? "text-primary" : "text-subtle-foreground")} aria-hidden />
+              <span className="min-w-0 flex-1">{lastReview ? <>Your last review <span className="font-mono text-subtle-foreground">{short(lastReview)}</span></> : "No comparison"}</span>
+            </button>
             {!commits && !error && <p role="status" className="px-2 py-1.5 text-xs text-muted-foreground">Loading commits…</p>}
             {error && <p role="alert" className="px-2 py-1.5 text-xs text-destructive-text">{error}</p>}
             {commits && !choices.length && <p className="px-2 py-1.5 text-xs text-muted-foreground">The diff shown is the PR’s only commit.</p>}

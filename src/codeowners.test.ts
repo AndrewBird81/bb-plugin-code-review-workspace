@@ -80,20 +80,45 @@ test("you own a file as yourself or through a team you're on", () => {
 const ok = (stdout: string) => ({ stdout, stderr: "", code: 0 });
 const pr: ReviewMeta = { targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "head1", status: "ready", createdAt: 1 };
 const noGit = vi.fn(async () => ok(""));
-const blobs = (a: string | null, b: string | null = null, c: string | null = null) =>
-  ok(JSON.stringify({ data: { repository: { a: a === null ? null : { text: a }, b: b === null ? null : { text: b }, c: c === null ? null : { text: c } } } }));
+/**
+ * The PR's base branch at its tip, with CODEOWNERS in none, some, or all of its three places. As GitHub does,
+ * each place without one is an error beside the data, and gh fails.
+ */
+const blobs = (...texts: (string | null)[]) => {
+  const files = Object.fromEntries(["a", "b", "c"].map((alias, index) => [alias, texts[index] == null ? null : { object: { text: texts[index] } }]));
+  const errors = ["a", "b", "c"].filter((alias) => !files[alias]).map((alias) => ({ type: "NOT_FOUND", path: ["repository", "pullRequest", "baseRef", "target", alias], message: "Could not resolve file for path" }));
+  return { stdout: JSON.stringify({ data: { repository: { pullRequest: { baseRef: { target: { ...files } } } } }, ...(errors.length ? { errors } : {}) }), stderr: "", code: errors.length ? 1 : 0 };
+};
 
-test("a PR's CODEOWNERS is read at its head in one call, the first place found wins, and it's kept per head", async () => {
+test("a PR's CODEOWNERS is read at its base branch in one call, the first place found wins, and it's kept per head", async () => {
   const gh = vi.fn(async (_args: string[]) => blobs(null, "* @root", "* @docs"));
   expect(await readCodeowners({ runGh: gh, runGit: noGit }, pr)).toEqual({ text: "* @root" });
   const args = gh.mock.calls[0][0];
   expect(args.slice(0, 2)).toEqual(["api", "graphql"]);
-  expect(args).toEqual(expect.arrayContaining(["a=head1:.github/CODEOWNERS", "b=head1:CODEOWNERS", "c=head1:docs/CODEOWNERS"]));
+  expect(args).toEqual(expect.arrayContaining(["owner=acme", "repo=web", "number=1"]));
+  // GitHub takes code owners from the base branch, so the PR's author can't choose them.
+  const query = args.find((arg) => arg.startsWith("query="))!;
+  expect(query).toContain("baseRef{target{...on Commit{");
+  expect(query).toContain('file(path:".github/CODEOWNERS")');
+  expect(args.join(" ")).not.toContain("head1");
   expect(await readCodeowners({ runGh: gh, runGit: noGit }, pr)).toEqual({ text: "* @root" });
   expect(gh).toHaveBeenCalledTimes(1);
   // A new head reads again.
   gh.mockImplementation(async () => blobs("* @github"));
   expect(await readCodeowners({ runGh: gh, runGit: noGit }, { ...pr, headSha: "head2" })).toEqual({ text: "* @github" });
+});
+
+test("a PR whose base branch is gone has no CODEOWNERS", async () => {
+  const gh = vi.fn(async () => ok(JSON.stringify({ data: { repository: { pullRequest: { baseRef: null } } } })));
+  expect(await readCodeowners({ runGh: gh, runGit: noGit }, { ...pr, headSha: "head6" })).toEqual({ text: "" });
+});
+
+test("an error other than a missing place fails the read", async () => {
+  const gh = vi.fn(async () => {
+    const body = JSON.parse(blobs("* @root").stdout);
+    return { stdout: JSON.stringify({ ...body, errors: [{ type: "RATE_LIMITED", message: "API rate limit exceeded" }] }), stderr: "", code: 1 };
+  });
+  expect(await readCodeowners({ runGh: gh, runGit: noGit }, { ...pr, headSha: "head7" })).toEqual({ error: expect.stringContaining("Couldn’t read CODEOWNERS") });
 });
 
 test("a failed read isn't kept, so it's tried again", async () => {

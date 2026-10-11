@@ -1,4 +1,5 @@
-import { memo, useDeferredValue, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { searchIndex, searchReview, type SearchHit } from "../lib/review-search";
 import { Icon } from "./ui/icon";
 import { Input } from "./ui/input";
@@ -44,6 +45,14 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
 }) {
   const [query, setQuery] = useState("");
   const box = useRef<HTMLInputElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  // "clearfind" empties the box at once, so what the results hide can take focus.
+  useEffect(() => {
+    const clear = () => flushSync(() => setQuery(""));
+    const el = root.current;
+    el?.addEventListener("clearfind", clear);
+    return () => el?.removeEventListener("clearfind", clear);
+  }, []);
   const searched = useDeferredValue(query.trim());
   const active = searched !== "";
   // Built when a search starts, and again only when the diff or guide changes.
@@ -58,7 +67,7 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
   };
 
   return (
-    <div data-find className="space-y-3">
+    <div ref={root} data-find className="space-y-3">
       <div role="search" className="relative px-1">
         <Icon name="Search" className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-subtle-foreground" aria-hidden />
         <Input
