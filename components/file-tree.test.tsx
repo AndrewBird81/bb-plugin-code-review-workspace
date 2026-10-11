@@ -11,6 +11,8 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre>{fileDiff.additionLines.join("")}</pre> }));
 
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); });
+// jsdom has none, and opening a file's chapter scrolls to it a frame later, which can land after a test ends.
+Element.prototype.scrollIntoView = () => {};
 
 test("changed files make a folder tree: folders first, by name, and a folder holding only a folder shows as one", () => {
   const tree = fileTree(["src/lib/deep/b.ts", "src/lib/deep/a.ts", "README.md", "src/app.ts", "docs/guide/intro.md"]);
