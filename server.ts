@@ -55,7 +55,7 @@ import { createPluginUpdates } from "./src/plugin-updates";
 import { onPrepared } from "./src/generate";
 import { feedbackProgress, type TurnOptions } from "./lib/turn";
 import { findStacks } from "./lib/stacks";
-import { baselineOf, diffAt, feedbackView, headOf, pruneDiffs, pruneOldDiffs, remainingBody, sinceReview } from "./src/feedback-view";
+import { baselineOf, diffAt, feedbackView, headOf, prCommits, pruneDiffs, pruneOldDiffs, remainingBody, sinceReview } from "./src/feedback-view";
 import { assess, changesSinceReview, describeFeedback, readFileAt, startVerification } from "./src/verification";
 import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
@@ -292,15 +292,21 @@ export default async function plugin(bb: BbPluginApi) {
         bb.realtime.publish(`draft:${targetKey}`, {});
         return { ok: true, draft };
       },
-      async getSinceReview({ targetKey }: { targetKey: string }) {
+      async getSinceReview({ targetKey, from }: { targetKey: string; from?: string }) {
         const review = store.getReview(targetKey);
         if (!review) return { baseline: null, files: [] };
         try {
-          const since = await sinceReview(store, runGh, review);
+          const since = await sinceReview(store, runGh, review, from);
           return since ? { baseline: since.baseline, files: since.files } : { baseline: null, files: [] };
         } catch (error) {
-          return { baseline: null, files: [], error: error instanceof Error ? error.message : "Couldn't compare with your last review." };
+          return { baseline: null, files: [], error: error instanceof Error ? error.message : from ? `Couldn't compare with ${from.slice(0, 7)}.` : "Couldn't compare with your last review." };
         }
+      },
+      async getPrCommits({ targetKey }: { targetKey: string }) {
+        const review = store.getReview(targetKey);
+        if (review?.kind !== "pr") return { commits: [] };
+        try { return { commits: await prCommits(runGh, review) }; }
+        catch (error) { return { commits: [], error: error instanceof Error ? error.message : "Couldn't read the PR's commits." }; }
       },
     };
   }
