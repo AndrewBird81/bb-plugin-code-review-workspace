@@ -3,7 +3,7 @@ import { useRpc, useBbNavigate, experimental_PermissionModePicker as PermissionM
 import type { rpcContract } from "../src/rpc-contract";
 import type { PreferencesRecord } from "../src/preferences";
 import type { Machine } from "../src/machines";
-import { defaultPreferences, type AgentExecution } from "../lib/review-preferences";
+import { ASSISTANT_INSTRUCTIONS_LIMIT, defaultPreferences, type AgentExecution } from "../lib/review-preferences";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { useReviewSession } from "../lib/review-session";
@@ -157,7 +157,7 @@ export function ReviewSettings({ onBack }: { onBack?: () => void }) {
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="Sparkles" tone="agent" title="Review assistant" description="Applies to your next message, including conversations already in progress." />
             <AgentSelection label="Review assistant agent" agent={record.preferences.assistantAgent} machines={machines} disabled={busy || updating} note="Used to start new conversations, which stay on the machine they started on. In a conversation, change the model and effort per message." onCustomize={() => void customize("assistantAgent")} onChange={(update) => setAgent("assistantAgent", update)} />
-            <label className="block space-y-2"><span className="text-sm font-medium">Assistant instructions</span><Textarea aria-label="Assistant instructions" maxLength={12000} rows={5} value={record.preferences.assistantInstructions} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, assistantInstructions: event.target.value } }); }} placeholder="Prioritize correctness and security. Show a concrete failure case for suspected bugs. Keep suggestions actionable." /></label>
+            <label className="block space-y-2"><span className="text-sm font-medium">Assistant instructions</span><Textarea aria-label="Assistant instructions" maxLength={ASSISTANT_INSTRUCTIONS_LIMIT} rows={5} value={record.preferences.assistantInstructions} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, assistantInstructions: event.target.value } }); }} placeholder="Prioritize correctness and security. Show a concrete failure case for suspected bugs. Keep suggestions actionable." /></label>
             <label className="block space-y-2"><span className="text-sm font-medium">Automatic review</span><Textarea aria-label="Automatic review" maxLength={12000} rows={4} value={record.preferences.automaticReview} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, automaticReview: event.target.value } }); }} /><span className="block text-xs text-muted-foreground">Sent to the assistant when a guide is ready and the review has no conversation yet. Its draft comments wait in Draft comments for you to edit and submit. Leave blank to turn the automatic review off.</span></label>
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">

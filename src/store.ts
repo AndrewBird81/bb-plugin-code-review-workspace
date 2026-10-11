@@ -2,7 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Guide } from "./guide";
 import { sameLocation, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
-import { AUTOMATIC_REVIEW_BEFORE_SUMMARY, defaultPreferences, preferencesSchema, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
+import { defaultPreferences, preferencesSchema, readPreferences, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
 import type { AssessmentItem, AssessmentRun, ReplyDraft } from "../lib/feedback";
 import type { FeedbackThread } from "./github/types";
@@ -138,6 +138,8 @@ export interface Store {
   backupGuide(targetKey: string): void;
   /** Put the kept guide and diff back. False when there's nothing kept. */
   restoreGuide(targetKey: string): boolean;
+  /** The head commit of the guide kept by backupGuide, if any. */
+  guideBackupHead(targetKey: string): string | null;
   dropGuideBackup(targetKey: string): void;
   isCurrentGeneration(targetKey: string, generationId: string): boolean;
   /** Record the hidden thread writing a generation's guide, to stop it if the plugin reloads first. */
@@ -330,8 +332,7 @@ export function createStore(bb: BbPluginApi): Store {
   return {
     getPreferences() {
       const row = db.prepare(`SELECT value,revision FROM review_preferences WHERE id=1`).get() as { value: string; revision: number } | undefined;
-      const preferences = row ? preferencesSchema.parse({ ...defaultPreferences, ...JSON.parse(row.value) }) : { ...defaultPreferences };
-      if (preferences.automaticReview === AUTOMATIC_REVIEW_BEFORE_SUMMARY) preferences.automaticReview = defaultPreferences.automaticReview;
+      const preferences = row ? readPreferences(JSON.parse(row.value)) : { ...defaultPreferences };
       return { preferences, revision: row?.revision ?? 0 };
     },
     savePreferences(preferences, revision) {
@@ -477,6 +478,10 @@ export function createStore(bb: BbPluginApi): Store {
         this.rebaseDraftComments(k, reanchorAll(this, k, replaced, kept.patch));
       })();
       return true;
+    },
+    guideBackupHead(k) {
+      const row = db.prepare(`SELECT data FROM guide_backups WHERE target_key=?`).get(k) as { data: string } | undefined;
+      return row ? JSON.parse(row.data).headSha ?? null : null;
     },
     dropGuideBackup(k) {
       db.prepare(`DELETE FROM guide_backups WHERE target_key=?`).run(k);

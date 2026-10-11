@@ -1,0 +1,31 @@
+import { expect, test } from "vitest";
+import { describeReviewFiles, patchPage } from "./review-files";
+
+const file = (path: string, body: string) => `diff --git a/${path} b/${path}\nindex 1..2 100644\n--- a/${path}\n+++ b/${path}\n${body}`;
+const patch = [
+  file("src/a.ts", "@@ -1,2 +1,3 @@\n keep\n-old\n+new\n+more\n"),
+  "diff --git a/old.ts b/new.ts\nsimilarity index 100%\nrename from old.ts\nrename to new.ts\n",
+  "diff --git a/b.ts b/b.ts\nnew file mode 100644\nindex 0..1\n--- /dev/null\n+++ b/b.ts\n@@ -0,0 +1 @@\n+x\n",
+  "diff --git a/c.ts b/c.ts\ndeleted file mode 100644\nindex 1..0\n--- a/c.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-y\n",
+  file("package-lock.json", "@@ -1 +1 @@\n-{}\n+{ }\n"),
+].join("");
+
+test("list_review_files lists each file with its status, line counts, size, and kind", () => {
+  const text = describeReviewFiles(patch);
+  expect(text).toContain("5 files");
+  expect(text).toMatch(/^src\/a\.ts · modified · \+2 −1 · \d+ chars · code$/m);
+  expect(text).toMatch(/^old\.ts · renamed to new\.ts · \+0 −0 · \d+ chars · code$/m);
+  expect(text).toMatch(/^b\.ts · added · \+1 −0/m);
+  expect(text).toMatch(/^c\.ts · deleted · \+0 −1/m);
+  expect(text).toMatch(/^package-lock\.json · modified · \+1 −1 · \d+ chars · lockfile$/m);
+});
+
+test("patch pages end on file boundaries, unless one file is longer than the page", () => {
+  const first = file("a.ts", "@@ -1 +1 @@\n-a\n+b\n");
+  const second = file("b.ts", "@@ -1 +1 @@\n-c\n+d\n");
+  const page = patchPage(first + second, 0, first.length + 10);
+  expect(page).toEqual({ text: first, end: first.length });
+  expect(patchPage(first + second, first.length, 100_000)).toEqual({ text: second, end: first.length + second.length });
+  expect(patchPage(first + second, 0, first.length + 3)).toEqual({ text: first, end: first.length });
+  expect(patchPage(first + second, 0, 20)).toEqual({ text: first.slice(0, 20), end: 20 });
+});

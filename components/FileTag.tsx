@@ -13,8 +13,9 @@ const CATEGORY_TONE: Record<Exclude<FileCategory, "code">, Tone> = {
 
 /**
  * A small category pill for a changed file. Ordinary source code renders
- * nothing (no noise); tests / generated / lockfiles render a muted "skip"
- * hint so the reviewer can see what they don't need to read closely.
+ * nothing (no noise); generated files and lockfiles render a muted "skip"
+ * hint so the reviewer can see what they don't need to read closely. Tests
+ * get a plain tag: they deserve review with the code they test.
  */
 export const FileTag = memo(function FileTag({ file, className }: { file: string; className?: string }) {
   const c = classifyFile(file);

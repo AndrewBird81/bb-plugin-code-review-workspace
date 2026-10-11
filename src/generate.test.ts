@@ -138,7 +138,7 @@ test("agents.configure exposes tools/skill only to this plugin's own generation 
   const mine = await h.harness.behavior.resolveAgentConfiguration(
     baseConfigContext("guided-review", "Generate guide: pr-1"),
   );
-  expect(mine.tools.map((t) => t.name)).toEqual(["read_review_patch", "read_changes_since_review", "generate_review_guide"]);
+  expect(mine.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"]);
   expect(mine.skills).toEqual(["guided-review-generate"]);
 
   const foreign = await h.harness.behavior.resolveAgentConfiguration(
@@ -159,8 +159,8 @@ test("agents.configure exposes tools/skill only to this plugin's own generation 
   const agentThread = await h.harness.behavior.resolveAgentConfiguration(
     baseConfigContext("guided-review", "Review agent: pr-1"),
   );
-  expect(agentThread.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
-    "list_feedback", "read_changes_since_review", "read_file", "assess_feedback", "draft_thread_reply"]);
+  expect(agentThread.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
+    "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"]);
   expect(agentThread.skills).toEqual([]);
 
   // An unrelated same-plugin thread still gets nothing.
@@ -212,4 +212,45 @@ test("a failed rebuild keeps the guide you had", async () => {
   expect(store.getReview("pr-1")?.status).toBe("error");
   expect(store.getGuide("pr-1")?.title).toBe("Kept");
   expect(store.readPatch("pr-1").text).toBe(patch);
+});
+
+test("generate_review_guide advertises the guide's schema and accepts a guide without unplacedFiles", async () => {
+  const writer = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate"] });
+  await plugin(writer.bb);
+  const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("guided-review", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
+  const schema = JSON.stringify(tool?.inputSchema);
+  for (const field of ["intent", "overview", "risk", "summary", "unplacedFiles"]) expect(schema).toContain(`"${field}"`);
+  expect(schema).toContain("1–2 sentences");
+  const { harness, store, generationId } = await host();
+  const out = await harness.behavior.callAgentTool("generate_review_guide", {
+    targetKey: "pr-1", generationId,
+    guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] }] },
+  });
+  expect(out.isError).toBeFalsy();
+  expect(store.getGuide("pr-1")?.unplacedFiles).toEqual([]);
+});
+
+test("files the guide leaves unplaced get a final low-risk chapter, so the reviewer sees them", async () => {
+  const { harness, store, generationId } = await host();
+  store.savePatch("pr-1", patch + patch.replaceAll("a.ts", "logo.png"));
+  const out = await harness.behavior.callAgentTool("generate_review_guide", {
+    targetKey: "pr-1", generationId,
+    guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: ["logo.png"] },
+  });
+  expect(out.isError).toBeFalsy();
+  const saved = store.getGuide("pr-1");
+  expect(saved?.unplacedFiles).toEqual([]);
+  expect(saved?.sections.at(-1)).toMatchObject({ id: "other-files", title: "Other files", risk: "low", diffs: [{ file: "logo.png", summary: expect.any(String) }] });
+});
+
+test("the guide writer lists the files first, and patch pages end on file boundaries", async () => {
+  const { buildGenerationPrompt } = await import("./generate");
+  expect(buildGenerationPrompt("pr-1", "g")).toMatch(/Start with read_pr_context, then list_review_files.*\n.*intent from what the PR says it does/);
+  const { harness, store } = await host();
+  const second = patch.replaceAll("a.ts", "b.ts");
+  store.savePatch("pr-1", patch + second);
+  const text = (out: any) => String(out.content?.[0]?.text ?? out);
+  expect(text(await harness.behavior.callAgentTool("list_review_files", { targetKey: "pr-1" }))).toMatch(/^a\.ts · modified · \+1 −1 · \d+ chars · code$/m);
+  const page = text(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", limit: patch.length + 20 }));
+  expect(page).toBe(`${patch}\n\n[${patch.length}/${patch.length + second.length} bytes — call again with offset=${patch.length}]`);
 });

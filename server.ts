@@ -8,7 +8,9 @@ import { z } from "zod";
 import { rpcContract } from "./src/rpc-contract";
 import { createStore } from "./src/store";
 import { changedFiles, splitPatchByFile } from "./src/patch";
-import { validateGuide, checkCoverage } from "./src/guide";
+import { describeReviewFiles, patchPage } from "./src/review-files";
+import { readPrContext } from "./src/pr-context";
+import { validateGuide, checkCoverage, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
@@ -58,7 +60,7 @@ export { rpcContract } from "./src/rpc-contract";
 
 
 // Raise when the review assistant's tools change.
-const ASSISTANT_TOOLS = 5;
+const ASSISTANT_TOOLS = 6;
 
 export default async function plugin(bb: BbPluginApi) {
   const store = createStore(bb);
@@ -581,11 +583,17 @@ export default async function plugin(bb: BbPluginApi) {
         const end = (offset ?? 0) + text.length;
         return text + (end < diff.text.length ? `\n\n[${end}/${diff.text.length} bytes — call again with offset=${end}]` : "");
       }
-      const { text, total } = store.readPatch(targetKey, offset, limit);
-      const end = (offset ?? 0) + text.length;
-      const more = end < total ? `\n\n[${end}/${total} bytes — call again with offset=${end}]` : "";
+      const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
+      const { text, end } = patchPage(patch, offset ?? 0, limit ?? 200_000);
+      const more = end < patch.length ? `\n\n[${end}/${patch.length} bytes — call again with offset=${end}]` : "";
       return text + more;
     },
+  });
+  bb.agents.registerTool({
+    name: "list_review_files",
+    description: "List a Guided Review target's changed files: path, status (added, deleted, modified, renamed), lines added and removed, diff size, and kind (code, test, docs, config, lockfile, generated).",
+    parameters: z.object({ targetKey: z.string() }),
+    execute: ({ targetKey }) => describeReviewFiles(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text),
   });
 
   // The review assistant's draft tools act only on its own review's local draft.
@@ -611,7 +619,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "add_draft_comment",
     description: "Add an inline comment to the reviewer's local draft for this review, on one line of the current diff. Nothing reaches GitHub: the reviewer edits, removes, or submits it. Refuses a line that already has a draft comment.",
-    instructions: "Whenever a comment is warranted, such as a bug, a risk, a missing case, or a question about specific lines, add it with add_draft_comment on the line it concerns. Prefer this to a general remark, because an inline comment keeps the issue's location. Put one issue in each comment. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment; edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit, remove, and submit it. Never post to GitHub yourself, for example with gh pr review, gh pr comment, gh api writes, or git push.",
+    instructions: "During a review pass, or when the reviewer asks, add each verified issue with add_draft_comment on the line it concerns. In ordinary chat, answer in chat. Put one issue in each comment. Start it with **Blocking:**, **Should fix:**, or **Question:**, then say concretely what fails and the fix. When the fix changes the commented line, add a ```suggestion block with its exact replacement, indentation included; a suggestion replaces only that line. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment; edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit, remove, and submit it. Never post to GitHub yourself, for example with gh pr review, gh pr comment, gh api writes, or git push.",
     parameters: z.object({
       ...location,
       code: z.string().describe("The line's text, without the diff's leading +, -, or space. It must match the line."),
@@ -634,7 +642,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "set_review_summary",
     description: "Write the review summary in the reviewer's local draft for this review: the top-level comment GitHub shows with the verdict and the line comments. Optionally suggest a verdict; the reviewer picks it. Nothing reaches GitHub. Refuses a summary the reviewer wrote, unless they asked on the summary for the change.",
-    instructions: "Write the review summary with set_review_summary: the overall assessment, what blocks merging and what doesn't, and points that have no line. Don't repeat your line comments, since GitHub shows them with the review; refer to them by file:line. Keep it short, in GitHub Markdown. Give the verdict you'd suggest; the reviewer picks the verdict, and yours is marked on it. Without verdict, your earlier suggestion stays marked. Messages from the summary's discussion ask for changes to it: make them with set_review_summary, and answer with reply_in_discussion (summary: true).",
+    instructions: "Write the review summary with set_review_summary: the overall assessment, what blocks merging and what doesn't, and points that have no line. Don't repeat your line comments, since GitHub shows them with the review; refer to them by file:line. Keep it short, in GitHub Markdown. Name anything you didn't read. Give the verdict you'd suggest: APPROVE only if nothing blocks and you read every non-generated file, REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT. The reviewer picks the verdict, and yours is marked on it. Without verdict, your earlier suggestion stays marked. Messages from the summary's discussion ask for changes to it: make them with set_review_summary, and answer with reply_in_discussion (summary: true).",
     parameters: z.object({
       body: z.string().trim().min(1).describe("The summary, in GitHub Markdown."),
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional().describe("The verdict you'd suggest; the reviewer picks."),
@@ -667,7 +675,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "list_feedback",
     description: "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries.",
-    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review, then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in the Feedback view. Draft a reply on each thread with draft_thread_reply when one helps, such as \"Fixed in abc123, thanks.\" or what's still missing. The reviewer posts replies and resolves threads; you never do.",
+    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review, then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in the Feedback view. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or \"Fixed in abc123, thanks.\" The reviewer posts replies and resolves threads; you never do.",
     parameters: z.object({}),
     async execute(_input, { threadId }) {
       const review = await assistantReviewOf(threadId);
@@ -689,8 +697,23 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
   bb.agents.registerTool({
+    name: "read_pr_context",
+    description: "What the change says about itself and what others already said on it: the PR's title, author, branches, labels, description, linked issues, commits, failing CI checks, other people's open review threads, the repo's review instructions, and the context the review was started with. For a local review, its commits and the checkout's review instructions. Text from the PR is fenced as untrusted.",
+    instructions: "Start a guide or a review with read_pr_context. If the title, branch, or description names a ticket (like ABC-123) and you have a tool that reads it, read it.",
+    parameters: z.object({}),
+    async execute(_input, { threadId }) {
+      const targetKey = assistantReview(store, threadId) ?? (await generationReview(threadId));
+      const review = targetKey ? store.getReview(targetKey) : null;
+      if (!review) return failed("There's no review to read the context of.");
+      const files = changedFiles(store.readPatch(review.targetKey, 0, store.readPatch(review.targetKey, 0, 0).total).text);
+      try { return await readPrContext({ runGh, runGit }, review, files, store.getReviewContext(review.targetKey)); }
+      catch (error) { return failed(error instanceof Error ? error.message : "Couldn't read the PR's context."); }
+    },
+  });
+  bb.agents.registerTool({
     name: "read_file",
     description: "Read a file of this review with line numbers, up to 400 lines from startLine. ref \"current\" (the default) is the PR's head now, or a local review's changed side; \"base\" is the commit the diff starts from, before the change; \"reviewed\" is the commit the reviewer last reviewed (PRs only).",
+    instructions: "To read code beyond the diff at the PR's head without changing anything: if your working directory is a git checkout of the PR's repository, run `git fetch origin +pull/<number>/head:refs/guided-review/pr-<number>`, then `git show refs/guided-review/pr-<number>:<path>` or `git grep <pattern> refs/guided-review/pr-<number>`. Never check out, commit, push, or change the working tree. Otherwise, use read_file.",
     parameters: z.object({
       path: z.string().min(1).describe("Repo-relative path."),
       ref: z.enum(["current", "base", "reviewed"]).optional(),
@@ -805,7 +828,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "generate_review_guide",
     description: "Submit the authored guide. Validates shape and coverage.",
-    parameters: z.object({ targetKey: z.string(), generationId: z.string(), guide: z.unknown() }),
+    parameters: z.object({ targetKey: z.string(), generationId: z.string(), guide: GuideInputSchema }),
     async execute({ targetKey, generationId, guide }) {
       if (!store.isCurrentGeneration(targetKey, generationId) || store.getReview(targetKey)?.status !== "generating") {
         return { content: [{ type: "text", text: "This generation was superseded or interrupted. Do not overwrite the current review." }], isError: true };
@@ -820,7 +843,7 @@ export default async function plugin(bb: BbPluginApi) {
       // submitted — the guide must never carry a wrong or stale review ref.
       const meta = store.getReview(targetKey);
       if (meta?.gitRef) v.guide.review = { gitRef: meta.gitRef, ...(meta.base ? { base: meta.base } : {}) };
-      store.saveGuide(targetKey, v.guide);
+      store.saveGuide(targetKey, placeUnplacedFiles(v.guide));
       return "Guide accepted.";
     },
   });
@@ -833,7 +856,7 @@ export default async function plugin(bb: BbPluginApi) {
     if (context.origin?.pluginId !== bb.pluginId) return { tools: [], skills: [] };
     const title = context.thread?.title ?? "";
     if (title.startsWith("Generate guide:")) {
-      return { tools: ["read_review_patch", "read_changes_since_review", "generate_review_guide"], skills: ["guided-review-generate"] };
+      return { tools: ["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"], skills: ["guided-review-generate"] };
     }
     // The review assistant can read any file's diff on demand, so the chat
     // works across the whole review, and change its own review's local draft
@@ -843,8 +866,8 @@ export default async function plugin(bb: BbPluginApi) {
       const { targetKey } = context.pluginMetadata;
       const review = typeof targetKey === "string" ? store.getReview(targetKey) : null;
       return {
-        tools: ["read_review_patch", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
-          "list_feedback", "read_changes_since_review", "read_file", "assess_feedback", "draft_thread_reply"], skills: [],
+        tools: ["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
+          "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"], skills: [],
         ...(review ? { instructions: assistantInstructions(review.targetKey, store.getGuide(review.targetKey), store.getPreferences().preferences) } : {}),
       };
     }

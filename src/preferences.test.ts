@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
-import { AUTOMATIC_REVIEW_BEFORE_SUMMARY, defaultPreferences } from "./preferences";
+import { AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_SUMMARY, VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, defaultPreferences } from "./preferences";
 import { buildGenerationPrompt } from "./generate";
 import { generateGuide } from "./generate";
 import { startConversation } from "./agent";
@@ -117,4 +117,41 @@ test("custom selections start from the personal project's remembered defaults", 
   expect(await harness.behavior.callRpc("getAgentDefaults", null)).toEqual({ defaults });
   harness.inspection.sdk.stub("projects.defaultExecutionOptions", async () => { throw new Error("Connection unavailable"); });
   expect(await harness.behavior.callRpc("getAgentDefaults", null)).toEqual({ defaults: null });
+});
+
+test("assistant instructions are capped at 2,000 characters; a longer saved text loads cut to fit", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  expect(() => store.savePreferences({ ...defaultPreferences, assistantInstructions: "x".repeat(2001) }, 0)).toThrow();
+  bb.storage.database().prepare(`INSERT INTO review_preferences (id,value,revision) VALUES (1,?,1)`)
+    .run(JSON.stringify({ ...defaultPreferences, assistantInstructions: "x".repeat(5000) }));
+  expect(store.getPreferences().preferences.assistantInstructions).toBe("x".repeat(2000));
+});
+
+test("a feedback check saved with the default that replied on every thread reads as the current default; a custom one stays", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  expect(VERIFICATION_PROMPT_BEFORE_OPEN_THREADS).toContain("Draft a short reply for each of my threads");
+  store.savePreferences({ ...defaultPreferences, verificationPrompt: VERIFICATION_PROMPT_BEFORE_OPEN_THREADS }, 0);
+  expect(store.getPreferences().preferences.verificationPrompt).toBe(defaultPreferences.verificationPrompt);
+  expect(defaultPreferences.verificationPrompt).toContain("only on open threads where one adds something");
+  const custom = `${VERIFICATION_PROMPT_BEFORE_OPEN_THREADS}\nBe kind.`;
+  store.savePreferences({ ...defaultPreferences, verificationPrompt: custom }, 1);
+  expect(store.getPreferences().preferences.verificationPrompt).toBe(custom);
+});
+
+test("an automatic review saved with the default from before precision-first reviews reads as the current default; a custom one stays", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  // The default as Settings saved it before.
+  expect(AUTOMATIC_REVIEW_BEFORE_PRECISION).toBe("Review this change adversarially. Look up related code or PRs when you need context.\nAdd each finding as an inline draft comment with add_draft_comment. Then write the review summary with set_review_summary: your overall assessment, what blocks merging, and the verdict you'd suggest. Don't repeat the line comments there.\nKeep every comment terse. Skip nitpicks.");
+  store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_PRECISION }, 0);
+  expect(store.getPreferences().preferences.automaticReview).toBe(defaultPreferences.automaticReview);
+  expect(defaultPreferences.automaticReview).toMatch(/^Review this change for defects a careful senior engineer would block on or want fixed\. Precision over recall.*\n1\. Start with read_pr_context.*\n6\. Then set_review_summary.*otherwise COMMENT\.$/s);
+  const custom = `${AUTOMATIC_REVIEW_BEFORE_PRECISION} Focus on security.`;
+  store.savePreferences({ ...defaultPreferences, automaticReview: custom }, 1);
+  expect(store.getPreferences().preferences.automaticReview).toBe(custom);
 });

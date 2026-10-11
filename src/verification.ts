@@ -8,6 +8,7 @@ import { baselineOf, diffAt, feedbackView, headOf, isSummaryItem, summarize } fr
 import { describeInterdiff, interdiff } from "./interdiff";
 import type { AssessmentItem, AssessmentVerdict } from "../lib/feedback";
 import type { Verdict } from "./draft";
+import { untrusted } from "./untrusted";
 
 type Run = typeof runGh;
 const short = (sha: string | null | undefined) => sha ? sha.slice(0, 7) : "unknown";
@@ -22,7 +23,7 @@ export function verificationContext(review: ReviewMeta, reason: string): string 
     `Why now: ${reason}.`,
     `The reviewer's last review: ${baseline.verdict ?? "a review"} on commit ${short(baseline.sha)} (${date(baseline.at)}). The PR's head is now ${short(head)}${s.commitsSince ? `, ${s.commitsSince} commit${s.commitsSince === 1 ? "" : "s"} later` : ""}.`,
     review.headSha && head && review.headSha !== head
-      ? `The guide and read_review_patch still show commit ${short(review.headSha)}. For the code now, use read_changes_since_review and read_file with ref "current".`
+      ? `The guide and read_review_patch still show commit ${short(review.headSha)}. For the code now, use read_changes_since_review and read_file with ref "current". add_draft_comment only accepts lines in the diff at ${short(review.headSha)}; put new problems in your reply and in assess_feedback's suggestedBody, as file:line at ${short(head)}.`
       : "read_review_patch shows the PR as it is now.",
     `Use list_feedback for the reviewer's feedback, read_changes_since_review for what changed since their review, and record every item with assess_feedback (it applies to head ${short(head)}). Only the reviewer posts to GitHub.`,
   ].join("\n");
@@ -50,7 +51,6 @@ export function describeFeedback(store: Store, review: ReviewMeta): string {
   const view = feedbackView(store, review);
   const threads = view.items.filter((item) => item.thread);
   const lines: string[] = [];
-  lines.push(threads.length ? `${threads.length} review thread${threads.length === 1 ? "" : "s"} the reviewer started:` : "The reviewer started no review threads.");
   for (const { thread, assessment } of threads) {
     if (!thread) continue;
     const where = thread.path ? `${thread.path}${thread.line ? `:${thread.line}` : thread.originalLine ? ` (was line ${thread.originalLine}; the code there changed)` : ""}${thread.side === "LEFT" ? " (LEFT side)" : ""}` : "the PR";
@@ -60,12 +60,13 @@ export function describeFeedback(store: Store, review: ReviewMeta): string {
     for (const reply of thread.replies.slice(-5)) lines.push(`  @${reply.author}${reply.mine ? " (reviewer)" : ""}${reply.bot ? " (bot)" : ""}: ${reply.body.replace(/\s+/g, " ").slice(0, 1500)}`);
     if (assessment) lines.push(`  Earlier check: ${assessment.verdict} — ${assessment.evidence}`);
   }
+  const out = [threads.length ? `${threads.length} review thread${threads.length === 1 ? "" : "s"} the reviewer started:\n${untrusted("review threads", lines.join("\n").trim())}` : "The reviewer started no review threads."];
   const bodies = review.reviewBodies ?? [];
   if (bodies.length) {
-    lines.push("", "The reviewer's review summaries, newest last. Record each distinct ask in them as an item with id \"summary:1\", \"summary:2\", … and a short title:");
-    for (const body of bodies) lines.push("", `(${body.state}, ${date(body.at)})`, ...body.body.split("\n").map((l) => `  > ${l}`));
+    const summaries = bodies.flatMap((body) => ["", `(${body.state}, ${date(body.at)})`, ...body.body.split("\n").map((l) => `  > ${l}`)]);
+    out.push("", "The reviewer's review summaries, newest last. Record each distinct ask in them as an item with id \"summary:1\", \"summary:2\", … and a short title:", untrusted("review summaries", summaries.join("\n").trim()));
   }
-  return lines.join("\n");
+  return out.join("\n");
 }
 
 /** read_changes_since_review: the diff of diffs since your review, with the commits made since. */

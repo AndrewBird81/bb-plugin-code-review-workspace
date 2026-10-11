@@ -79,6 +79,9 @@ test("the assistant lists your feedback, reads what changed, and records its che
   expect(listed).toContain("Can this return stale data after a write?");
   expect(listed).toContain("@alice: Invalidated on write now.");
   expect(listed).toContain("Also document the TTL.");
+  // What people wrote on GitHub reaches the assistant fenced as untrusted.
+  expect(listed).toMatch(/<untrusted source="review threads">\n[\s\S]*@alice: Invalidated on write now\.\n<\/untrusted>/);
+  expect(listed).toMatch(/<untrusted source="review summaries">\n[\s\S]*Also document the TTL\.\n<\/untrusted>/);
   const changes = await tool("read_changes_since_review", {});
   expect(changes).toContain("Invalidate on write");
   expect(changes).toContain("+invalidate(key);");
