@@ -44,6 +44,19 @@ test("draft comment then submit builds a batched review", async () => {
   expect(store.listDiscussions("pr-1")).toEqual([]);
 });
 
+test("submitting a review clears what didn't run on its own", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
+  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+  store.setLifecycle("pr-1", { skippedRun: { run: "review", head: "sha123", at: 1 } });
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" }) as any;
+  await harness.behavior.callRpc("setVerdict", { targetKey: "pr-1", revision, verdict: "COMMENT", body: "ok" });
+  expect(await harness.behavior.callRpc("submitReview", { targetKey: "pr-1", revision, account: "casey" })).toMatchObject({ ok: true });
+  expect(store.getReview("pr-1")?.skippedRun).toBeNull();
+});
+
 test("draft reads and writes report comments drafted against an older diff", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
   await plugin(bb);

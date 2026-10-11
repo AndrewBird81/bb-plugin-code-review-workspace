@@ -627,8 +627,8 @@ export default async function plugin(bb: BbPluginApi) {
         // The diff you reviewed is what "since your review" compares against.
         if (review.headSha) store.saveSnapshot(targetKey, review.headSha, store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text);
         pruneDiffs(store, review);
-        // Your review answers whatever turn was holding.
-        store.setLifecycle(targetKey, { heldTurn: null });
+        // Your review answers whatever turn was holding, and what didn't run on its own for it.
+        store.setLifecycle(targetKey, { heldTurn: null, skippedRun: null });
         await notifications.dismiss(targetKey).catch(() => {});
         await sync.evaluate(targetKey);
       }
