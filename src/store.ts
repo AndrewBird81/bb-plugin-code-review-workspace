@@ -325,6 +325,7 @@ export function createStore(bb: BbPluginApi): Store {
       kind TEXT NOT NULL, code TEXT, body TEXT NOT NULL, removed TEXT, at INTEGER NOT NULL, recorded INTEGER NOT NULL DEFAULT 0)`,
     `CREATE TABLE IF NOT EXISTS agent_comment_outcomes (
       id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL, file TEXT NOT NULL, outcome TEXT NOT NULL, body TEXT NOT NULL, edited TEXT, at INTEGER NOT NULL)`,
+    `CREATE INDEX IF NOT EXISTS discussion_entries_location ON discussion_entries (target_key, file, line, side)`,
   ]);
   const at = (k: string, { file, line, side }: CommentLocation) => [k, file, line, side] as const;
   const hasDiscussion = (k: string, location: CommentLocation) =>
@@ -332,7 +333,7 @@ export function createStore(bb: BbPluginApi): Store {
   const stopWaitingAt = (k: string, location: CommentLocation) =>
     db.prepare(`DELETE FROM discussion_waits WHERE target_key=? AND file=? AND line=? AND side=?`).run(...at(k, location));
   // What's parsed from each review's patch, by the patch's hash, for the few reviews used last.
-  const parsed = new Map<string, { hash: string; positions?: Map<string, FilePositions>; renamed?: Map<string, string> }>();
+  const parsed = new Map<string, { hash: string; positions?: Map<string, FilePositions>; renamed?: Map<string, string>; followed?: boolean }>();
   const parsedPatch = (k: string) => {
     const hash = storedPatchHash(k);
     let entry = parsed.get(k);
@@ -356,15 +357,18 @@ export function createStore(bb: BbPluginApi): Store {
     const { entry, patch } = parsedPatch(k);
     return entry.renamed ??= renamedPaths(patch());
   };
+  // New writes use the new path, so the rows move once per diff.
   const followRenames = (k: string) => {
-    const renamed = renamesOf(k);
-    if (renamed.size) db.transaction(() => {
+    const { entry, patch } = parsedPatch(k);
+    const renamed = entry.renamed ??= renamedPaths(patch());
+    if (renamed.size && !entry.followed) db.transaction(() => {
       for (const [from, to] of renamed) {
         for (const table of ["draft_comment_revisions", "discussion_entries", "discussion_waits", "file_views"]) {
           db.prepare(`UPDATE OR IGNORE ${table} SET file=? WHERE target_key=? AND file=?`).run(to, k, from);
         }
       }
     })();
+    entry.followed = true;
     return renamed;
   };
   const followDraftRenames = (draft: Draft): Draft => {
