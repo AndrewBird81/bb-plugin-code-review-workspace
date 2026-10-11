@@ -90,7 +90,9 @@ test("while the guide rebuilds, the summary and verdict save, and a comment's sa
   expect(await harness.behavior.callRpc("saveSummary", { targetKey: "pr-4", revision, body: "Mine." })).toMatchObject({ draft: { body: "Mine." } });
   expect(await harness.behavior.callRpc("setVerdict", { targetKey: "pr-4", revision, verdict: "APPROVE" })).toMatchObject({ draft: { verdict: "APPROVE" } });
   await expect(harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-4", revision, comment: { file: "a.ts", line: 1, side: "RIGHT", body: "nit" } }))
-    .rejects.toThrow("The guide is rebuilding for new commits; your text is kept. Save again when it’s ready.");
+    .rejects.toThrow("The guide is rebuilding for new commits; your text is kept. Try again when it’s ready.");
+  // Submitting says the same, without telling you to save.
+  expect(await harness.behavior.callRpc("submitReview", { targetKey: "pr-4", revision, account: "casey" })).toEqual({ ok: false, error: "The guide is rebuilding for new commits; your text is kept. Try again when it’s ready." });
 });
 
 test("the review bundle says whether the signed-in account wrote the PR", async () => {
@@ -101,4 +103,15 @@ test("the review bundle says whether the signed-in account wrote the PR", async 
   store.saveReview({ targetKey: "theirs", kind: "pr", number: 6, repo: "acme/web", author: "dana", headSha: "sha123", status: "ready", createdAt: 1 });
   expect((await harness.behavior.callRpc("getReviewBundle", { targetKey: "mine" }) as any).review.ownPr).toBe(true);
   expect((await harness.behavior.callRpc("getReviewBundle", { targetKey: "theirs" }) as any).review.ownPr).toBe(false);
+});
+
+test("saveDraftComment keeps an agent's comment the agent's when Undo puts it back", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-6", kind: "pr", number: 6, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
+  store.savePatch("pr-6", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-6" }) as any;
+  await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-6", revision, comment: { file: "a.ts", line: 1, side: "RIGHT", author: "agent", body: "nit" } });
+  expect(store.getDraft("pr-6").comments).toEqual([{ file: "a.ts", line: 1, side: "RIGHT", author: "agent", body: "nit" }]);
 });

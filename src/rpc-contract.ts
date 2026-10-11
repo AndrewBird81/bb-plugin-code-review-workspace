@@ -13,7 +13,12 @@ const commentShape = z
     file: z.string(),
     line: z.number().int(),
     side: z.enum(["LEFT", "RIGHT"]),
+    // A range's first line, and its side when it isn't `side` (src/draft.ts DraftComment).
+    startLine: z.number().int().min(1).optional(),
+    startSide: z.enum(["LEFT", "RIGHT"]).optional(),
     chapterId: z.string().optional(),
+    // Undo after Remove puts an agent's comment back as the agent's.
+    author: z.literal("agent").optional(),
     body: z.string().min(1),
   })
   .strict();
@@ -151,7 +156,7 @@ export const rpcContract = defineRpcContract({
     input: z.object({
       targetKey: z.string(), revision: z.string().optional(), account: z.string().optional(),
       // The comments, summary, and verdict the page shows; submission refuses a draft that no longer matches.
-      comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), body: z.string() })).optional(),
+      comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), body: z.string() })).optional(),
       body: z.string().optional(),
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional(),
     }).strict(),

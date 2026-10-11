@@ -291,8 +291,56 @@ test("on your own PR, the panel offers Comment only, and picks it", async () => 
     expect(button.getAttribute("title")).toBe("This is your PR, so GitHub allows only a Comment review.");
   }
   expect(slot.getByText("This is your PR, so GitHub allows only a Comment review.")).toBeTruthy();
+  // A suggestion GitHub wouldn't take isn't shown.
+  expect(slot.queryByText(/Agent suggests/)).toBeNull();
   // The agent's other suggestion doesn't hold up Submit.
   fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
   await waitFor(() => expect(submitReview).toHaveBeenCalledWith(expect.objectContaining({ verdict: "COMMENT" })));
+  slot.lifecycle.unmount();
+});
+
+test("on a chapter with no files, the Add comment form starts on the review's first file", async () => {
+  const saveDraftComment = vi.fn(async ({ comment }: any) => ({ draft: draftOf({ comments: [comment] }), stale: [], discussions: [] }));
+  const slot = await renderTray("nofiles", { getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), saveDraftComment }, { activeFiles: [], files: ["src/a.ts", "src/b.ts"] });
+  writeComment(slot, "On the first file.");
+  expect((slot.getByRole("combobox", { name: "Comment file" }) as HTMLSelectElement).value).toBe("src/a.ts");
+  fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ file: "src/a.ts" }) })));
+  slot.lifecycle.unmount();
+});
+
+test("a comment refused for an older diff says so in the status line too, not that another window changed it", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { DraftTray } = await import("./DraftTray");
+  const { useState } = await import("react");
+  const saveDraftComment = vi.fn(async () => { throw new Error("This review changed in another window. Open the latest diff before saving or submitting feedback. Your text is still here."); });
+  const component = () => {
+    const [revision, setRevision] = useState("r1");
+    return <><button onClick={() => setRevision("r2")}>New diff</button><DraftTray targetKey="older" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision={revision} account="reviewer" /></>;
+  };
+  const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), saveDraftComment } as any });
+  await slot.findByText("Draft saved");
+  writeComment(slot, "Written on r1.");
+  fireEvent.click(slot.getByRole("button", { name: "New diff" }));
+  fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
+  await slot.findByRole("button", { name: "Keep on current diff" });
+  expect(status(slot).textContent).toBe("Not saved: it was written against an older diff.");
+  slot.lifecycle.unmount();
+});
+
+test("Undo after removing keeps an agent's comment the agent's, and isn't offered for a comment on an older diff", async () => {
+  const agents = { file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", body: "From the agent." };
+  const old = { file: "src/a.ts", line: 9, side: "RIGHT", body: "Older diff." };
+  let draft = draftOf({ comments: [agents, old] });
+  const removeDraftComment = vi.fn(async ({ line }: any) => { draft = { ...draft, comments: draft.comments.filter((c: any) => c.line !== line) }; return { draft, stale: [], discussions: [] }; });
+  const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = { ...draft, comments: [...draft.comments, comment] }; return { draft, stale: [], discussions: [] }; });
+  const slot = await renderTray("undo-agent", { getDraft: () => ({ draft, stale: [{ file: "src/a.ts", line: 9, side: "RIGHT" }], discussions: [] }), removeDraftComment, saveDraftComment });
+  fireEvent.click(slot.getByRole("button", { name: "Remove comment on src/a.ts:9" }));
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Comment removed"));
+  fireEvent.click(slot.getByRole("button", { name: "Remove comment on src/a.ts:2" }));
+  await waitFor(() => expect(toast.info).toHaveBeenCalledTimes(2));
+  const [, { action }] = vi.mocked(toast.info).mock.calls[1] as any;
+  action.onClick();
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo-agent", revision: "r1", comment: agents }));
   slot.lifecycle.unmount();
 });

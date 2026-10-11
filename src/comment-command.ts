@@ -5,20 +5,22 @@ import { addComment, deleteComment, describeComments, editComment, listComments,
 export const COMMENT_USAGE = [
   "usage: bb review comment list   <review> [--json]",
   "       bb review comment add    <review> <file>:<line> --code <text> --body <text> [--side LEFT|RIGHT]",
-  "       bb review comment edit   <review> <file>:<line> --body <text> [--side LEFT|RIGHT]",
+  "       bb review comment edit   <review> <file>:<line> --body <text> [--code <text>] [--side LEFT|RIGHT]",
   "       bb review comment delete <review> <file>:<line> [--side LEFT|RIGHT]",
   "",
   "Changes a review's local draft in this bb. Nothing is posted to GitHub; the reviewer submits the draft from Guided Review.",
   "  <review>       a GitHub PR URL, or a review key (pr-…, ref-…)",
-  "  <file>:<line>  the line's number in the new file, or with --side LEFT, in the old file",
-  "  --code         the line's text, without the diff's +, -, or space; add refuses a line that doesn't match",
+  "  <file>:<line>  the line's number in the new file, or with --side LEFT, in the old file;",
+  "                 <file>:<start>-<end> for lines in one hunk, where edit sets the comment's first line",
+  "  --code         the line's text, without the diff's +, -, or space, or a range's lines, one per line;",
+  "                 add, and edit of a range, refuse lines that don't match",
   "  --body         the comment, in GitHub Markdown; quote it for your shell",
 ].join("\n");
 
 const ACTIONS = {
   list: { location: false, options: ["json"] },
   add: { location: true, options: ["side", "code", "body"] },
-  edit: { location: true, options: ["side", "body"] },
+  edit: { location: true, options: ["side", "code", "body"] },
   delete: { location: true, options: ["side"] },
 } as const;
 
@@ -53,15 +55,17 @@ export function runCommentCommand(store: Store, argv: string[], changed: (target
     return { exitCode: 0, stdout: values.json === undefined ? describeComments(store, key) : JSON.stringify({ review: key, comments: listComments(store, key) }, null, 2) };
   }
 
-  const at = positional[1].match(/^(.+):([1-9]\d*)$/);
-  if (!at) return usage(`${positional[1]} isn't a <file>:<line>.`);
+  const at = positional[1].match(/^(.+):([1-9]\d*)(?:-([1-9]\d*))?$/);
+  if (!at) return usage(`${positional[1]} isn't a <file>:<line> or <file>:<start>-<end>.`);
   const side = values.side?.toUpperCase();
   if (side !== undefined && side !== "LEFT" && side !== "RIGHT") return usage("--side is LEFT or RIGHT.");
-  const location = { file: at[1], line: Number(at[2]), ...(side ? { side: side as "LEFT" | "RIGHT" } : {}) };
+  const ends = [Number(at[2]), Number(at[3] ?? at[2])].sort((a, b) => a - b);
+  const location = { file: at[1], line: ends[1], ...(side ? { side: side as "LEFT" | "RIGHT" } : {}) };
+  const range = at[3] && action !== "delete" ? { startLine: ends[0] } : {};
   if (action === "add" && values.code === undefined) return usage("add needs --code with the line's text.");
   if (action !== "delete" && !values.body?.trim()) return usage(`${action} needs --body with the comment's text.`);
-  const result: DraftResult = action === "add" ? addComment(store, key, { ...location, code: values.code!, body: values.body! })
-    : action === "edit" ? editComment(store, key, { ...location, body: values.body! })
+  const result: DraftResult = action === "add" ? addComment(store, key, { ...location, ...range, code: values.code!, body: values.body! })
+    : action === "edit" ? editComment(store, key, { ...location, ...range, ...(values.code !== undefined ? { code: values.code } : {}), body: values.body! })
     : deleteComment(store, key, location);
   if (!result.ok) return { exitCode: 1, stderr: result.error };
   changed(key);
