@@ -36,7 +36,8 @@ function parseHunk(lines: string[]): Hunk {
     const c = line[0];
     if (c === "+") adds.push({ line: newLine++, text: line.slice(1) });
     else if (c === "-") dels.push({ line: oldLine++, text: line.slice(1) });
-    else if (c === " ") {
+    // A blank context line may come as "" (git's diff.suppressBlankEmpty).
+    else if (c === " " || line === "") {
       newLine++;
       oldLine++;
     }

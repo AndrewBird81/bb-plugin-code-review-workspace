@@ -19,6 +19,13 @@ export function patchRows(patch: string): PatchRow[] {
   for (const text of patch.split("\n")) {
     const c = text[0];
     const counted = oldLeft > 0 || newLeft > 0;
+    // A blank context line written as "" (diff.suppressBlankEmpty, or a lost trailing space) is still counted.
+    if (inHunk && text === "" && oldLeft > 0 && newLeft > 0) {
+      rows.push({ kind: " ", text, oldLine: oldLine++, newLine: newLine++ });
+      oldLeft--;
+      newLeft--;
+      continue;
+    }
     // Past the counts (a malformed hunk), go on reading change lines unless they look like the next file's headers.
     if (inHunk && (c === "+" || c === "-" || c === " ") && (counted || !/^(?:--- |\+\+\+ )/.test(text))) {
       rows.push({ kind: c, text, oldLine, newLine });

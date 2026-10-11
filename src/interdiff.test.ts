@@ -231,3 +231,10 @@ test("describeInterdiff: truncates with a note on asking for one file", () => {
   expect(kept.length).toBeLessThanOrEqual(200);
   expect(note).toContain("Ask for one file");
 });
+
+test("a blank context line written as an empty line still counts", () => {
+  const headers = ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts"];
+  const reviewed = diff(...headers, "@@ -1,3 +1,3 @@", " a", "", "-b", "+c");
+  const current = diff(...headers, "@@ -1,3 +1,3 @@", " a", "", "-b", "+d");
+  expect(interdiff(reviewed, current)[0]).toMatchObject({ status: "changed", newLines: [3], newDeletions: [] });
+});

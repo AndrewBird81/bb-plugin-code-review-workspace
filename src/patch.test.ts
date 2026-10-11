@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { ensureGitHeaders, splitPatchByFile, changedFiles, renamedPaths } from "./patch";
+import { ensureGitHeaders, splitPatchByFile, changedFiles, renamedPaths, patchRows } from "./patch";
 
 const withHeader = `diff --git a/src/a.ts b/src/a.ts
 --- a/src/a.ts
@@ -102,4 +102,12 @@ test("quoted names are decoded, and a path may contain ' b/' or spaces", () => {
     "",
   ].join("\n");
   expect(changedFiles(patch)).toEqual(['scripts/set"up.sh', "café.md", "my b/x.ts"]);
+});
+
+test("an empty line inside a hunk's counts is a blank context line", () => {
+  // git's diff.suppressBlankEmpty, or a diff that lost its trailing spaces, writes a blank context line as "".
+  const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,3 +1,3 @@\n a\n\n-b\n+c\n";
+  expect(patchRows(patch).filter((row) => row.kind !== "header" && row.kind !== "hunk").map((row) => [row.kind, "newLine" in row ? row.newLine : null])).toEqual([
+    [" ", 1], [" ", 2], ["-", 3], ["+", 3], ["other", null],
+  ]);
 });
