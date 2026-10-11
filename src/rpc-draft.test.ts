@@ -90,7 +90,9 @@ test("while the guide rebuilds, the summary and verdict save, and a comment's sa
   expect(await harness.behavior.callRpc("saveSummary", { targetKey: "pr-4", revision, body: "Mine." })).toMatchObject({ draft: { body: "Mine." } });
   expect(await harness.behavior.callRpc("setVerdict", { targetKey: "pr-4", revision, verdict: "APPROVE" })).toMatchObject({ draft: { verdict: "APPROVE" } });
   await expect(harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-4", revision, comment: { file: "a.ts", line: 1, side: "RIGHT", body: "nit" } }))
-    .rejects.toThrow("The guide is rebuilding for new commits; your text is kept. Save again when it’s ready.");
+    .rejects.toThrow("The guide is rebuilding for new commits; your text is kept. Try again when it’s ready.");
+  // Submitting says the same, without telling you to save.
+  expect(await harness.behavior.callRpc("submitReview", { targetKey: "pr-4", revision, account: "casey" })).toEqual({ ok: false, error: "The guide is rebuilding for new commits; your text is kept. Try again when it’s ready." });
 });
 
 test("the review bundle says whether the signed-in account wrote the PR", async () => {
