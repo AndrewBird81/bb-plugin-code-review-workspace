@@ -1,4 +1,4 @@
-import { test, expect } from "vitest";
+import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { BbPluginApi, PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
 import { createStore } from "./store";
@@ -6,6 +6,12 @@ import { assistantInstructions, getConversation, messageAssistant, newConversati
 import { defaultPreferences } from "./preferences";
 import { generateGuide } from "./generate";
 import plugin from "../server";
+import { runGh } from "./gh";
+
+vi.mock("./gh", async (original) => {
+  const actual = await original<typeof import("./gh")>();
+  return { ...actual, runGh: vi.fn(actual.runGh) };
+});
 
 const opus = { providerId: "claude-code", model: "opus", reasoningLevel: "high" } as const;
 const guide = (intent: string) => ({ title: "Change", intent, sections: [{ id: "s1", title: "Retry", overview: "Retries once.", diffs: [] }], unplacedFiles: [] });
@@ -376,4 +382,15 @@ test("with the repo's checks allowed, the automatic review asks the agent to run
   await generateGuide(approved.bb, approved.store, "pr-1", "p1");
   const input = approved.harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any)[1].input;
   expect(input).toHaveLength(1);
+});
+
+test("on your own PR before the sync read it, the automatic review asks for the repo's checks only as the instructions allow", async () => {
+  const { bb, harness, store, titles } = outsider("sha1", { runRepoChecks: true });
+  store.setLifecycle("pr-1", { ownPr: null });
+  vi.mocked(runGh).mockResolvedValueOnce({ stdout: "mallory\n", stderr: "", code: 0 });
+  await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
+  expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: pr-1"]);
+  const context: string = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any)[1].input[1].text;
+  expect(context).toContain("This is the reviewer's own PR");
+  expect(context).not.toContain("Run the repo's checks");
 });
