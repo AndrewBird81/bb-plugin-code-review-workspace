@@ -6,6 +6,7 @@ import { createReviewSubmitter } from "./submit-review";
 import { invalidComments, orderRange, rangeProblem } from "./review-positions";
 import { toGithubReviewPayload, type DraftComment } from "./draft";
 import { runGh } from "./gh";
+import { addComment } from "./draft-comments";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -170,4 +171,14 @@ test("a range whose two ends are one row of the diff isn't one GitHub takes", ()
   expect(rangeProblem(patch, at(4, 4))).toBe("Lines 4 and 4 of a.ts are one line of the diff. Comment on the line alone.");
   // A context line is on both sides.
   expect(rangeProblem(patch, at(4, 3, "RIGHT", "LEFT"))).toBe("Lines 3 and 4 of a.ts are one line of the diff. Comment on the line alone.");
+});
+
+test("an agent's range can start or end on a blank line", () => {
+  const blank = ["diff --git a/b.ts b/b.ts", "--- a/b.ts", "+++ b/b.ts", "@@ -0,0 +1,5 @@", "+a", "+", "+b", "+", "+c", ""].join("\n");
+  const store = storeWith(blank);
+  expect(addComment(store, "pr-1", { file: "b.ts", startLine: 1, line: 2, code: "a\n", body: "Ends blank." })).toMatchObject({ ok: true });
+  expect(addComment(store, "pr-1", { file: "b.ts", startLine: 2, line: 3, code: "\nb", body: "Starts blank." })).toMatchObject({ ok: true });
+  // A trailing newline after the last line's text is still allowed.
+  expect(addComment(store, "pr-1", { file: "b.ts", startLine: 3, line: 5, code: "b\n\nc\n", body: "Last three." })).toMatchObject({ ok: true });
+  expect(store.getDraft("pr-1").comments.map((c) => [c.startLine, c.line])).toEqual([[1, 2], [2, 3], [3, 5]]);
 });

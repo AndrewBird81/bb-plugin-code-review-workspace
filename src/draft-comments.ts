@@ -61,8 +61,10 @@ function placeProblem(store: Store, targetKey: string, at: CommentLocation, rang
   const positions = store.diffPositions(targetKey).get(at.file);
   const lines = positions?.[at.side === "RIGHT" ? "right" : "left"];
   if (!positions || !lines) return `${at.file} isn't in this review's diff. Use the path exactly as the diff shows it.`;
-  const sent = input.split("\n").filter((line) => line.trim());
+  const sent = input.split("\n");
   const text = lines.get(at.line);
+  // A trailing newline isn't a blank last line unless the last line is blank.
+  if (sent.length > 1 && !sent[sent.length - 1].trim() && text?.trim()) sent.pop();
   const code = normalize(range.startLine === undefined ? input : sent[sent.length - 1] ?? "");
   if (text === undefined || normalize(text) !== code) {
     const actual = text === undefined
