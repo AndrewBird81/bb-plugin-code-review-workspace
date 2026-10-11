@@ -1,5 +1,6 @@
 import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { areSelectionsEqual, parsePatchFiles } from "@pierre/diffs";
+import type { z } from "zod";
+import { areSelectionsEqual, parsePatchFiles, processFile } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
 import type { AnnotationSide, DiffLineAnnotation, FileDiffMetadata, FileDiffOptions, SelectedLineRange } from "@pierre/diffs";
 import { patchRows, splitPatchByFile } from "../src/patch";
@@ -16,6 +17,11 @@ import { InlineCode } from "./ui/inline-code";
 import { FileTag } from "./FileTag";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { InlineDraftContext, InlineLocation, locationKey } from "./InlineDraft";
+import { toast } from "sonner";
+import type { rpcContract } from "../src/rpc-contract";
+
+/** A changed file's whole contents, or why only its diff shows. */
+export type FileContentsResult = z.infer<typeof rpcContract.getFileContents.output>;
 
 export interface FileViewFlags {
   viewed: boolean;
@@ -87,6 +93,16 @@ function parseFileDiff(text: string): FileDiffMetadata | null {
   return parsePatchFiles(text).flatMap((p) => p.files)[0] ?? null;
 }
 
+/** Whether GitHub takes a comment at a line: only lines the diff shows. */
+function diffLines(text: string): (at: CommentLocation) => boolean {
+  const right = new Set<number>(), left = new Set<number>();
+  for (const row of patchRows(text)) {
+    if (row.kind === "+" || row.kind === " ") right.add(row.newLine);
+    if (row.kind === "-" || row.kind === " ") left.add(row.oldLine);
+  }
+  return (at) => (at.side === "LEFT" ? left : right).has(at.line);
+}
+
 /** A diff to read, not comment on: a removed file or changes gone since your review. */
 const StaticDiff = memo(function StaticDiff({ text, darkTheme, lightTheme, themeMode, wrap }: { text: string; darkTheme?: string; lightTheme?: string; themeMode?: "light" | "dark"; wrap: boolean }) {
   const fileDiff = useMemo(() => parseFileDiff(text), [text]);
@@ -123,6 +139,8 @@ function lineRow(fileEl: HTMLElement, at: CommentLocation): HTMLElement | undefi
     ?? shadow?.querySelector<HTMLElement>(`:is(${column},[data-unified]) [data-line="${at.line}"]:not([data-line-type="${other}"])`)) ?? undefined;
 }
 
+const lineEnd = (file: string, range: SelectedLineRange): CommentLocation => ({ file, line: range.end, side: (range.endSide ?? range.side) === "deletions" ? "LEFT" : "RIGHT" });
+
 function renderAnnotation({ metadata }: DiffLineAnnotation<Annotation>) {
   return <InlineLocation at={metadata} />;
 }
@@ -130,7 +148,7 @@ function renderAnnotation({ metadata }: DiffLineAnnotation<Annotation>) {
 // One file's diff. Pierre redraws a file whenever its options or annotations
 // are new objects, which also takes focus from an open comment box, so both
 // stay the same until something in them changes.
-const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme, themeMode, diffStyle, wrap, annotations, selected, onLineSelected, onComment, unsafeCSS }: {
+const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme, themeMode, diffStyle, wrap, annotations, selected, onLineSelected, onComment, unsafeCSS, wholeFile = false, commentable }: {
   path: string;
   fileDiff: FileDiffMetadata;
   darkTheme?: string;
@@ -145,6 +163,10 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
   onComment?: (at: CommentLocation) => void;
   /** Extra styles inside pierre's shadow root, such as lines new since your review. */
   unsafeCSS?: string;
+  /** Show every line of a file loaded in full, not just around its changes. */
+  wholeFile?: boolean;
+  /** In a file loaded in full, the lines a comment can go on. */
+  commentable?: (at: CommentLocation) => boolean;
 }) {
   const fromGutter = useRef(false);
   // Pierre paints the selection we give it: the lines being dragged over, then the workspace's.
@@ -154,6 +176,12 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
   const shownRef = useRef(shown);
   shownRef.current = shown;
   const ended = useRef(false);
+  // Lines shown around the diff take no comment: GitHub would refuse it.
+  const inDiff = (range: SelectedLineRange) => {
+    if (!commentable || commentable(lineEnd(path, range))) return true;
+    toast.info("GitHub takes comments only on lines in the diff.");
+    return false;
+  };
   const options = useMemo<FileDiffOptions<Annotation>>(() => ({
     ...(darkTheme && lightTheme ? { theme: { dark: darkTheme, light: lightTheme } } : {}),
     themeType: themeMode,
@@ -163,6 +191,7 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
     tokenizeMaxLength: TOKENIZE_MAX_LENGTH,
     overflow: wrap ? "wrap" : "scroll",
     ...(unsafeCSS ? { unsafeCSS } : {}),
+    expandUnchanged: wholeFile,
     // GitHub-style line picking: drag to select a range to comment on or ask
     // about, or use the gutter "+" to open a comment box at a line.
     enableLineSelection: true,
@@ -173,16 +202,17 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
     onLineSelected: (range) => {
       const picked = ended.current || !areSelectionsEqual(range ?? undefined, shownRef.current ?? undefined);
       ended.current = false;
-      if (picked && !fromGutter.current) onLineSelected?.(path, range);
+      if (picked && !fromGutter.current && (!range || inDiff(range))) onLineSelected?.(path, range);
     },
     onGutterUtilityClick: (range) => {
+      if (!inDiff(range)) return;
       if (!onComment) return onLineSelected?.(path, range);
       // Pierre reports the "+" as a line selection too, which would offer the selection's actions over the box.
       fromGutter.current = true;
       queueMicrotask(() => { fromGutter.current = false; });
-      onComment({ file: path, line: range.end, side: (range.endSide ?? range.side) === "deletions" ? "LEFT" : "RIGHT" });
+      onComment(lineEnd(path, range));
     },
-  }), [darkTheme, lightTheme, themeMode, diffStyle, wrap, path, onLineSelected, onComment, unsafeCSS]);
+  }), [darkTheme, lightTheme, themeMode, diffStyle, wrap, path, onLineSelected, onComment, unsafeCSS, wholeFile, commentable]);
   return (
     <div className="overflow-x-auto">
       <FileDiff fileDiff={fileDiff} options={options} lineAnnotations={annotations} selectedLines={shown} renderAnnotation={renderAnnotation} />
@@ -207,6 +237,7 @@ export const DiffViewer = memo(function DiffViewer({
   sinceOnly = false,
   showRemoved = true,
   onUnifiedOnly,
+  readContents,
 }: {
   diffLayout?: "split" | "unified";
   /** Wrap long lines instead of scrolling them sideways. */
@@ -232,6 +263,8 @@ export const DiffViewer = memo(function DiffViewer({
   showRemoved?: boolean;
   /** Told whether the diff is too narrow for split, so it shows unified whatever the layout. */
   onUnifiedOnly?: (unifiedOnly: boolean) => void;
+  /** A file's whole contents, to show the code around its changes. */
+  readContents?: (file: string) => Promise<FileContentsResult>;
 }) {
   const theme = useTheme();
   const compact = useMediaQuery("(max-width: 767px)");
@@ -258,12 +291,29 @@ export const DiffViewer = memo(function DiffViewer({
         stats,
         noisy: startsFolded(f.path, stats),
         fileDiff,
+        // Only the PR's own diff can be shown in full, not changes since your review.
+        source: text === f.text && fileDiff?.hunks.length ? f : null,
         change,
         css: change?.status === "changed" ? sinceReviewCSS(change.newLines, change.newDeletions) : "",
       }];
     });
     return { perFile, unchanged: chapter.length - shown.length };
   }, [patch, fileKey, since, filtering]);
+  // Files loaded in full, and those showing every line. A new diff starts over.
+  const [contents, setContents] = useState<Record<string, "loading" | FileContentsResult>>({});
+  const [wholeFile, setWholeFile] = useState<Record<string, boolean>>({});
+  useEffect(() => { setContents({}); setWholeFile({}); }, [patch]);
+  async function expand(path: string) {
+    setContents((c) => ({ ...c, [path]: "loading" }));
+    const result = await readContents!(path).catch((): FileContentsResult => ({ ok: false, error: "Couldn’t load the file." }));
+    setContents((c) => ({ ...c, [path]: result }));
+  }
+  const expanded = useMemo(() => new Map(perFile.flatMap(({ path, source }) => {
+    const loaded = contents[path];
+    if (!source || typeof loaded !== "object" || !loaded.ok) return [];
+    const fileDiff = processFile(source.text, { oldFile: { name: source.oldPath ?? path, contents: loaded.old ?? "" }, newFile: { name: path, contents: loaded.new ?? "" } });
+    return fileDiff ? [[path, { fileDiff, commentable: diffLines(source.text) }] as const] : [];
+  })), [perFile, contents]);
   const removed = useMemo(() => (filtering && showRemoved ? [...since!.values()].filter((f) => f.status === "removed") : []), [since, filtering, showRemoved]);
 
   // Side-by-side needs room: squeezed between the chapters and the review panel, each side would clip its code.
@@ -374,13 +424,16 @@ export const DiffViewer = memo(function DiffViewer({
 
   return (
     <div ref={root} className="space-y-4">
-      {perFile.map(({ path, stats, fileDiff, change, css }) => {
+      {perFile.map(({ path, stats, fileDiff, source, change, css }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
         const folded = isCollapsed(path);
         const commentCount = draft?.comments.filter((c) => c.file === path).length ?? 0;
         const commentLabel = `${commentCount} draft comment${commentCount === 1 ? "" : "s"}`;
+        const loaded = contents[path];
+        const loading = loaded === "loading";
+        const full = expanded.get(path);
         return (
           <div
             key={path}
@@ -409,6 +462,15 @@ export const DiffViewer = memo(function DiffViewer({
               {folded && !viewed && noisy.has(path) && (
                 <Button variant="ghost" size="sm" className="h-6 shrink-0 px-2 text-[11px]" onClick={() => toggleCollapsed(path)}>Show diff</Button>
               )}
+              {readContents && source && !folded && (full ? (
+                <Button variant="ghost" size="sm" aria-label={`Whole file ${path}`} aria-pressed={!!wholeFile[path]} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground aria-pressed:text-primary" onClick={() => setWholeFile((w) => ({ ...w, [path]: !w[path] }))}>
+                  <Icon name="FileText" className="size-3" aria-hidden />Whole file
+                </Button>
+              ) : (
+                <Button variant="ghost" size="sm" aria-label={`Expand ${path} around its changes`} disabled={loading} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground" onClick={() => void expand(path)}>
+                  <Icon name={loading ? "Loading" : "ArrowUpDown"} className={cn("size-3", loading && "animate-spin motion-reduce:animate-none")} aria-hidden />Expand
+                </Button>
+              ))}
               {commentCount > 0 && (
                 <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 text-[11px] leading-5 text-primary" title={commentLabel}>
                   <Icon name="MessageSquare" className="size-3" aria-hidden />
@@ -437,10 +499,17 @@ export const DiffViewer = memo(function DiffViewer({
                 Viewed
               </label>
             </div>
+            {!folded && typeof loaded === "object" && !loaded.ok && (
+              <p role="status" className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
+                <Icon name="Info" className="size-3.5 shrink-0" aria-hidden />{loaded.error}
+              </p>
+            )}
             {!folded && fileDiff && (
               <FileBody
                 path={path}
-                fileDiff={fileDiff}
+                fileDiff={full?.fileDiff ?? fileDiff}
+                wholeFile={!!full && !!wholeFile[path]}
+                commentable={full?.commentable}
                 darkTheme={theme?.dark}
                 lightTheme={theme?.light}
                 themeMode={themeMode}

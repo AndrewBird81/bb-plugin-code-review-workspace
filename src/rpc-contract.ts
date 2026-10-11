@@ -76,6 +76,11 @@ export const rpcContract = defineRpcContract({
   getPr: { input: targetKey, output: z.object({ pr: z.any().nullable() }) },
   getThreads: { input: targetKey, output: z.object({ comments: z.array(z.any()) }) },
   getChecks: { input: targetKey, output: z.object({ bucket: z.string(), checks: z.array(z.any()) }) },
+  /** A changed file's whole old and new contents (null on a side it doesn't exist), or why only its diff can show. */
+  getFileContents: {
+    input: z.object({ targetKey: z.string(), file: z.string() }).strict(),
+    output: z.union([z.object({ ok: z.literal(true), old: z.string().nullable(), new: z.string().nullable() }), z.object({ ok: z.literal(false), error: z.string() })]),
+  },
 
   // Phase 2: review threads, reply/resolve, staleness, re-review
   /** error: GitHub couldn't be read, or not every page; threads holds what was. */

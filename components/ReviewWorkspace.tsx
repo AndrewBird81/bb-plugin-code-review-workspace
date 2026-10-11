@@ -546,6 +546,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     window.getSelection()?.removeAllRanges();
   }
 
+  const readContents = useCallback((file: string) => rpc.call("getFileContents", { targetKey, file }), [rpc, targetKey]);
+
   // GitHub-style line selection in the diff (via pierre) → comment / ask agent.
   const onLineSelected = useCallback((file: string, range: SelectedLineRange | null) => {
     setLineSel(range ? { file, range } : null);
@@ -903,6 +905,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 sinceOnly={sinceOnly}
                 showRemoved={activeId === sections.at(-1)?.id}
                 onUnifiedOnly={setUnifiedOnly}
+                readContents={readContents}
               />
               {nextSection && (
                 <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
