@@ -6,7 +6,7 @@ import { createReviewSubmitter } from "./submit-review";
 import { invalidComments, orderRange, rangeProblem } from "./review-positions";
 import { toGithubReviewPayload, type DraftComment } from "./draft";
 import { runGh } from "./gh";
-import { addComment } from "./draft-comments";
+import { addComment, undoChange } from "./draft-comments";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -165,6 +165,30 @@ test("undoing the agent's removal of a range comment puts the range back", async
   await call("delete_draft_comment", { file: "a.ts", line: 4 });
   await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", file: "a.ts", line: 4, side: "RIGHT" });
   expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 2, author: "agent", body: "Merge these." }]);
+});
+
+test("undoing the agent's edit of a comment's lines puts its old lines back with its old text", async () => {
+  const { harness, store, call } = await host();
+  await call("add_draft_comment", { file: "a.ts", startLine: 2, line: 4, code: "two();\nthree();\nfour", body: "Merge these." });
+  store.addDiscussionMessage("pr-1", { file: "a.ts", line: 4, side: "RIGHT" }, "reviewer", "Only the last two?");
+  await call("edit_draft_comment", { file: "a.ts", line: 4, startLine: 3, code: "three();\nfour", body: "Just these." });
+  await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", file: "a.ts", line: 4, side: "RIGHT" });
+  expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 2, author: "agent", body: "Merge these." }]);
+  expect(store.staleDraftComments("pr-1")).toEqual([]);
+});
+
+test("undoing the agent's edit of a comment's lines is refused when its old first line's code changed", async () => {
+  const { store, call } = await host();
+  await call("add_draft_comment", { file: "a.ts", startLine: 2, line: 4, code: "two();\nthree();\nfour", body: "Merge these." });
+  const end = { file: "a.ts", line: 4, side: "RIGHT" as const };
+  store.addDiscussionMessage("pr-1", end, "reviewer", "Only the last two?");
+  await call("edit_draft_comment", { file: "a.ts", line: 4, startLine: 3, code: "three();\nfour", body: "Just these." });
+  // A new commit changes line 2 only, so the comment stays on 3–4.
+  const next = patch.replace("+two();", "+two(1);");
+  store.savePatch("pr-1", next);
+  store.rebaseDraftComments("pr-1", reanchorAll(store, "pr-1", patch, next));
+  expect(undoChange(store, "pr-1", end)).toEqual({ ok: false, error: "The code at a.ts:2 changed since the comment was drafted, so it can't go back there." });
+  expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 3, author: "agent", body: "Just these." }]);
 });
 
 test("a range whose two ends are one row of the diff isn't one GitHub takes", () => {

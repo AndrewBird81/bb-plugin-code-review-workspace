@@ -97,7 +97,7 @@ export function addComment(store: Store, targetKey: string, input: NewComment): 
   return { ok: true, text: `Added a draft comment on ${where({ ...at, ...range })}. It stays in bb until the reviewer submits the review.` };
 }
 
-const before = (comment: DraftComment): PreviousState => ({ body: comment.body, ...(comment.author ? { author: comment.author } : {}), ...(comment.chapterId ? { chapterId: comment.chapterId } : {}), ...rangeOf(comment) });
+const before = (comment: DraftComment, startCode?: string): PreviousState => ({ body: comment.body, ...(comment.author ? { author: comment.author } : {}), ...(comment.chapterId ? { chapterId: comment.chapterId } : {}), ...rangeOf(comment), ...(startCode === undefined ? {} : { startCode }) });
 
 const REVIEWERS = "The reviewer wrote this comment. Suggest the change in chat; they can ask on the comment to have you apply it. Nothing was changed.";
 
@@ -114,6 +114,8 @@ export function editComment(store: Store, targetKey: string, input: LocationInpu
   const reviewers = comment.author !== "agent";
   if (reviewers && !asked(store, targetKey, at, threadId)) return { ok: false, error: REVIEWERS };
   const body = input.body.trim();
+  // New lines replace the code the old first line was drafted on, which undoing them checks.
+  const previous = before(comment, store.draftCommentCode(targetKey, at, "start"));
   let range = rangeOf(comment);
   if (input.startLine !== undefined) {
     range = rangeOf({ ...at, startLine: input.startLine, startSide: input.startSide });
@@ -124,7 +126,7 @@ export function editComment(store: Store, targetKey: string, input: LocationInpu
     if (problem) return { ok: false, error: `${problem} Nothing was changed.` };
     store.upsertDraftComment(targetKey, { ...comment, startLine: undefined, startSide: undefined, ...range, body });
   } else if (!store.editDraftComment(targetKey, at, body)) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
-  store.noteDiscussionChange(targetKey, at, "edited", { body, previous: before(comment) });
+  store.noteDiscussionChange(targetKey, at, "edited", { body, previous });
   const lines = where({ ...at, ...range });
   return { ok: true, text: reviewers ? `Updated the reviewer's draft comment on ${lines}, as they asked.` : `Updated the draft comment on ${lines}.` };
 }
@@ -155,9 +157,18 @@ const positionsOf = (store: Store, targetKey: string): Positions => {
   return () => positions ??= store.diffPositions(targetKey);
 };
 
+/** The comment at a location, when the agent's edit there changed its lines from `previous`'s. */
+function relined(store: Store, targetKey: string, at: CommentLocation, previous: PreviousState): DraftComment | null {
+  const comment = store.getDraft(targetKey).comments.find((c) => sameLocation(c, at));
+  if (!comment || !previous) return null;
+  const [now, then] = [rangeOf(comment), rangeOf({ ...at, ...previous })];
+  return now.startLine !== then.startLine || now.startSide !== then.startSide ? comment : null;
+}
+
 /**
  * Why the agent's latest change in a discussion can't be undone, or null when it can: the draft can still
- * change, nothing changed its comment or the summary since, and a removed comment's line still holds the code it was drafted on.
+ * change, nothing changed its comment or the summary since, and a removed comment's lines, or an edited one's
+ * old lines, still hold the code they were drafted on.
  */
 function undoProblem(store: Store, targetKey: string, at: CommentLocation, positions: Positions): string | null {
   const refused = unchangeable(store.getReview(targetKey));
@@ -166,7 +177,9 @@ function undoProblem(store: Store, targetKey: string, at: CommentLocation, posit
   if (!change) return "There's no change of the agent's to undo there.";
   const text = textAt(store, targetKey, at);
   if (change.kind === "removed" ? text !== null : text !== change.body) return "It changed since the agent's edit, so there's nothing to undo. Edit it instead.";
-  if (change.kind !== "removed" || isSummary(at)) return null;
+  if (isSummary(at)) return null;
+  const lines = change.kind === "edited" && relined(store, targetKey, at, change.previous) !== null;
+  if (change.kind !== "removed" && !lines) return null;
   const code = positions().get(at.file)?.[at.side === "RIGHT" ? "right" : "left"].get(at.line);
   // Putting it back binds it to the current diff, so the line must still hold the code it was drafted on.
   const drafted = store.draftCommentCode(targetKey, at);
@@ -176,7 +189,8 @@ function undoProblem(store: Store, targetKey: string, at: CommentLocation, posit
   const start = change.previous?.startLine;
   if (start === undefined) return null;
   const startCode = positions().get(at.file)?.[(change.previous?.startSide ?? at.side) === "RIGHT" ? "right" : "left"].get(start);
-  if (startCode === undefined || startCode !== store.draftCommentCode(targetKey, at, "start")) return `The code at ${at.file}:${start} changed since the comment was drafted, so it can't go back there.`;
+  const startDrafted = lines ? change.previous?.startCode : store.draftCommentCode(targetKey, at, "start");
+  if (startCode === undefined || startCode !== startDrafted) return `The code at ${at.file}:${start} changed since the comment was drafted, so it can't go back there.`;
   return null;
 }
 
@@ -200,7 +214,9 @@ export function undoChange(store: Store, targetKey: string, at: CommentLocation)
   } else if (kind === "removed") {
     store.upsertDraftComment(targetKey, { ...at, ...rangeOf({ ...at, ...previous }), body: previous.body, ...(previous.author ? { author: previous.author } : {}), ...(previous.chapterId ? { chapterId: previous.chapterId } : {}) });
   } else {
-    store.editDraftComment(targetKey, at, previous.body);
+    const comment = relined(store, targetKey, at, previous);
+    if (comment) store.upsertDraftComment(targetKey, { ...comment, startLine: undefined, startSide: undefined, ...rangeOf({ ...at, ...previous }), body: previous.body });
+    else store.editDraftComment(targetKey, at, previous.body);
   }
   store.noteDiscussionRestored(targetKey, at);
   return { ok: true, text: isSummary(at) ? "Put the summary back." : `Put the comment on ${where(at)} back.` };

@@ -250,8 +250,9 @@ export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor
 /**
  * What a comment or the summary was before an agent changed it; null when there was none. For a summary
  * change that suggested a verdict, `suggested` is that verdict and `suggestedVerdict` the one before (null for none).
+ * For a comment's edit, `startCode` is the code its first line was drafted on.
  */
-export type PreviousState = { body: string; author?: "agent"; chapterId?: string; startLine?: number; startSide?: "LEFT" | "RIGHT"; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
+export type PreviousState = { body: string; author?: "agent"; chapterId?: string; startLine?: number; startSide?: "LEFT" | "RIGHT"; startCode?: string; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
 
 export function createStore(bb: BbPluginApi): Store {
   const db = bb.storage.database();
