@@ -19,6 +19,10 @@ const commentShape = z
   .strict();
 
 const location = { file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]) };
+const syncHealth = z.object({
+  lastReadAt: z.number().nullable(),
+  error: z.object({ kind: z.enum(["auth", "rate-limit", "partial", "teams", "other"]), at: z.number(), count: z.number().optional(), retryAt: z.number().optional() }).nullable(),
+});
 const discussion = z.object({
   ...location,
   entries: z.array(z.object({ author: z.enum(["reviewer", "agent"]), kind: z.enum(["message", "added", "edited", "removed", "restored"]), body: z.string(), createdAt: z.number() })),
@@ -62,9 +66,10 @@ export const rpcContract = defineRpcContract({
     output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }),
   },
 
-  // Task 10: read data plane
-  listReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()) }) },
-  refreshReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()) }) },
+  // Task 10: read data plane. sync: how reading GitHub went (src/review-lifecycle.ts SyncHealth).
+  listReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
+  /** force: false reads only what's due, as the background sync does; true or null reads everything now. */
+  refreshReviews: { input: z.object({ force: z.boolean() }).strict().nullable(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
   getReview: { input: targetKey, output: z.object({ review: z.any().nullable() }) },
   getGuide: { input: targetKey, output: z.object({ guide: z.any().nullable(), status: z.string() }) },
   getPatch: { input: targetKey, output: z.object({ patch: z.string() }) },
@@ -73,7 +78,8 @@ export const rpcContract = defineRpcContract({
   getChecks: { input: targetKey, output: z.object({ bucket: z.string(), checks: z.array(z.any()) }) },
 
   // Phase 2: review threads, reply/resolve, staleness, re-review
-  getReviewThreads: { input: targetKey, output: z.object({ threads: z.array(z.any()) }) },
+  /** error: GitHub couldn't be read, or not every page; threads holds what was. */
+  getReviewThreads: { input: targetKey, output: z.object({ threads: z.array(z.any()), error: z.string().optional() }) },
   replyToThread: {
     input: z.object({ targetKey: z.string(), inReplyTo: z.number().int(), body: z.string().min(1) }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),

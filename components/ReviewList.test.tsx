@@ -45,3 +45,137 @@ test("approved reviews leave the active queue and merged reviews are only in Arc
   expect(slot.getByText("Merged")).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+test("a row labels checks GitHub expects but that never reported", async () => {
+  const { expect } = await import("vitest");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [{ targetKey: "a", title: "Expected change", status: "ready", signals: { ci: "expected" } }] }),
+  } });
+  await slot.findByText("Expected change");
+  expect(slot.getByText("Checks expected")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("your own PR is labelled as yours", async () => {
+  const { expect } = await import("vitest");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [{ targetKey: "a", kind: "pr", title: "My change", status: "ready", ownPr: true }] }),
+  } });
+  await slot.findByText("My change");
+  expect(slot.getByText("Your PR")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("a row says when GitHub can't read its PR", async () => {
+  const { expect } = await import("vitest");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [{ targetKey: "a", kind: "pr", title: "Gone change", status: "ready", unreachable: { since: 1, reason: "forbidden" } }] }),
+  } });
+  await slot.findByText("Gone change");
+  expect(slot.getByText("Can’t read on GitHub")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("the list says when GitHub was last read, and why it can't be now", async () => {
+  const { expect } = await import("vitest");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [], sync: { lastReadAt: Date.now() - 14 * 60_000, error: { kind: "auth", at: Date.now() } } }),
+  } });
+  expect((await slot.findByText(/^GitHub last read/)).textContent).toBe("GitHub last read 14m ago: GitHub CLI isn’t signed in. Run gh auth login on the BB server.");
+  slot.lifecycle.unmount();
+});
+
+test("focusing the window runs a normal pass; only Refresh forces a full read", async () => {
+  const { expect } = await import("vitest");
+  const { fireEvent, waitFor } = await import("@testing-library/react");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [] }),
+    refreshReviews: () => ({ reviews: [] }),
+  } });
+  const refreshes = () => slot.inspection.rpcCalls.filter((call) => call.method === "refreshReviews").map((call) => call.input);
+  await slot.findByText("No reviews yet");
+  fireEvent(window, new Event("focus"));
+  await waitFor(() => expect(refreshes()).toEqual([{ force: false }]));
+  fireEvent.click(slot.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(refreshes()).toEqual([{ force: false }, { force: true }]));
+  slot.lifecycle.unmount();
+});
+
+test("a burst of review updates re-lists once", async () => {
+  const { expect } = await import("vitest");
+  const { waitFor } = await import("@testing-library/react");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [{ targetKey: "a", title: "A change", status: "ready" }] }),
+  } });
+  const lists = () => slot.inspection.rpcCalls.filter((call) => call.method === "listReviews").length;
+  await slot.findByText("A change");
+  expect(lists()).toBe(1);
+  for (let i = 0; i < 3; i++) await slot.emitRealtime("reviews", { ts: i });
+  await waitFor(() => expect(lists()).toBe(2));
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  expect(lists()).toBe(2);
+  slot.lifecycle.unmount();
+});
+
+test("waiting rows show outdated threads and how long the author has been quiet; needs rows how long ago the request came", async () => {
+  const { expect } = await import("vitest");
+  const { fireEvent, within } = await import("@testing-library/react");
+  const DAY = 86_400_000;
+  const now = Date.now();
+  const turn = (group: string, reason: string, label: string, at: number) => ({ group, reason, label, action: "Open review", signal: null, at, notify: false, blocking: false, updated: false, eventAt: null, failed: false });
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [
+      { targetKey: "a", title: "Old request", status: "tracked", signals: { requestedAt: now - 800 * DAY }, turn: turn("needs", "requested", "Review requested", now - 800 * DAY) },
+      { targetKey: "b", title: "Quiet change", status: "ready", turn: turn("waiting", "waiting", "Changes requested", now - 9 * DAY),
+        signals: { lastReviewAt: now - 9 * DAY, headSeenAt: now - 5 * DAY, replyAt: now - 6 * DAY, threads: { total: 4, resolved: 0, answered: 0, questions: 0, open: 4, outdated: 3 } } },
+      { targetKey: "c", title: "Busy change", status: "ready", turn: turn("waiting", "waiting", "Changes requested", now - 9 * DAY), signals: { lastReviewAt: now - 9 * DAY, headSeenAt: now - 3_600_000 } },
+    ] }),
+  } });
+  await slot.findByText("Old request");
+  expect(slot.getByText("your turn · 2y")).toBeTruthy();
+  fireEvent.click(within(slot.getByRole("group", { name: "Filter reviews" })).getByRole("button", { name: /^Waiting on author/ }));
+  await slot.findByText("Quiet change");
+  expect(slot.getByText("3 outdated")).toBeTruthy();
+  expect(slot.getByText("author quiet 5d")).toBeTruthy();
+  // Activity within the day isn't news.
+  expect(slot.getAllByText(/^author quiet/)).toHaveLength(1);
+  slot.lifecycle.unmount();
+});
+
+test("a row shows the PR's size", async () => {
+  const { expect } = await import("vitest");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [
+      { targetKey: "a", kind: "pr", title: "Sized change", status: "ready", prSize: { additions: 1200, deletions: 30, files: 8 } },
+      { targetKey: "b", kind: "pr", title: "One file", status: "ready", prSize: { additions: 2, deletions: 0, files: 1 } },
+    ] }),
+  } });
+  await slot.findByText("Sized change");
+  expect(slot.getByText("+1,200 −30 · 8 files")).toBeTruthy();
+  expect(slot.getByText("+2 −0 · 1 file")).toBeTruthy();
+  slot.lifecycle.unmount();
+});

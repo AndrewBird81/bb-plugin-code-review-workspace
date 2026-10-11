@@ -97,6 +97,12 @@ test("pr head requests headRefOid and reviewDecision, with optional -R", () => {
   ]);
 });
 
+test("review threads args page with a cursor", () => {
+  expect(ghReviewThreadsArgs("acme", "web", 12).join(" ")).not.toContain("after=");
+  expect(ghReviewThreadsArgs("acme", "web", 12, "c1").slice(-2)).toEqual(["-f", "after=c1"]);
+  expect(ghReviewThreadsArgs("acme", "web", 12)[3]).toContain("pageInfo{hasNextPage endCursor}");
+});
+
 test("review threads args build a graphql query with owner/repo as -f strings and number as -F int", () => {
   const args = ghReviewThreadsArgs("acme", "web", 12);
   expect(args[0]).toBe("api");

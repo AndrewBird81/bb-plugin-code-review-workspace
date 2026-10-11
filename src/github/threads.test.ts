@@ -54,6 +54,14 @@ test("the latest reply from someone else after the viewer's last comment sets th
   expect(parseOne(thread("me", [[user("alice"), "Why?", 1], [user("bob"), "Fixed.", 2]]))).toMatchObject({ status: "answered", replyAt: Date.parse(at(2)) });
 });
 
+test("with the PR's author known, only the author answers; someone else counts only when they mention you", () => {
+  const one = (later: Array<[unknown, string, number]>) => parseMyThreads(page([thread("me", later)]), "me", "alice")[0];
+  expect(one([[user("bob"), "+1, agreed", 1]])).toMatchObject({ status: "open", replyAt: null });
+  expect(one([[user("bob"), "Which name?", 1]])).toMatchObject({ status: "open", replyAt: null });
+  expect(one([[user("Alice"), "Done.", 1], [user("bob"), "Nice", 2]])).toMatchObject({ status: "answered", replyAt: Date.parse(at(1)) });
+  expect(one([[user("alice"), "Done.", 1], [user("bob"), "@me does this cover the retry?", 2]])).toMatchObject({ status: "question", replyAt: Date.parse(at(2)) });
+});
+
 test("the viewer replying last leaves the thread open", () => {
   expect(parseOne(thread("me", [[user("alice"), "Why?", 1], [user("me"), "Because of X.", 2]]))).toMatchObject({ status: "open", replyAt: null });
 });

@@ -121,6 +121,17 @@ test("deleted workers are detached without losing the review conversation", asyn
   expect(store.listAgentMessages("pr-1")[0].text).toBe("Keep this answer");
 });
 
+test("a PR you wrote is marked yours, and a mention there doesn't alert", async () => {
+  const s = setup({ pr: { author: "Me", myReviews: [review("COMMENTED", T0 - HOUR, "sha1", "Self-review")] } });
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")).toMatchObject({ ownPr: true });
+  s.pr({ updatedAt: 2, mention: { at: T0 + 0.1 * HOUR, by: "bob" } });
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "reviewed", label: "Your PR" });
+  expect(s.published).toHaveLength(0);
+});
+
 test("a dismissed approval returns to the review queue", async () => {
   const { sync, store } = setup({ pr: { myReviews: [review("DISMISSED", T0 - HOUR)] } });
   store.setLifecycle("pr-1", { submittedVerdict: "APPROVE", submittedAt: 1 });
@@ -369,7 +380,7 @@ test("re-reviews of PRs found on GitHub start guides only in auto-start reposito
 });
 
 test("team requests auto-start in listed repositories", async () => {
-  const s = setup({ preferences: { autoStartRepos: ["acme/web"] } });
+  const s = setup({ preferences: { autoStartRepos: ["acme/web"], trackTeamRequests: true } });
   s.store.setStatus("pr-1", "tracked");
   s.store.setLifecycle("pr-1", { newRequest: true });
   s.pr({ requestPending: { via: "team", team: "acme/web-core" }, requests: [{ at: T0 - HOUR, by: "dan", via: "team", team: "acme/web-core" }] });
@@ -437,4 +448,158 @@ test("a re-review that couldn't start is tried again later, alerting once", asyn
   await s.sync.all(true);
   expect(s.actions.prepare).toHaveBeenCalledTimes(2);
   expect(s.published).toHaveLength(1);
+});
+
+test("a direct request isn't demoted by a later team request", async () => {
+  const s = setup({ pr: { requestPending: { via: "user" }, requests: [{ at: T0 - 2 * HOUR, by: "alice", via: "user" }, { at: T0 - HOUR, by: "bob", via: "team", team: "acme/core" }] } });
+  s.store.setStatus("pr-1", "tracked");
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.signals).toMatchObject({ requestedAt: T0 - 2 * HOUR, requestedBy: "alice", requestedVia: "user" });
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ reason: "requested", notify: true });
+});
+
+test("a question from someone other than the author names them in the alert", async () => {
+  const s = setup({ reviewed: true, threads: [thread("t1", "open")] });
+  await s.sync.all();
+  s.pr({ updatedAt: 2 });
+  s.threads([{ ...thread("t1", "question", T0 + 0.1 * HOUR), replies: [{ author: "bob", bot: false, mine: false, body: "@me thoughts?", createdAt: T0 + 0.1 * HOUR }] }]);
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.github.threads).toHaveBeenLastCalledWith("acme/web", 1, "me", "alice");
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  expect(s.published[0].body).toContain("@bob asked you something");
+});
+
+test("an approval dismissed after a later comment review leaves no verdict, dated by the dismissal", async () => {
+  const s = setup({ pr: { myReviews: [review("APPROVED", T0 - 5 * HOUR), review("COMMENTED", T0 - 4 * HOUR, "sha1", "One more nit")] } });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], myReviews: [{ ...review("DISMISSED", T0 - 5 * HOUR), dismissedAt: T0 + 0.1 * HOUR }, review("COMMENTED", T0 - 4 * HOUR, "sha1", "One more nit")] });
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")).toMatchObject({ submittedVerdict: null, signals: { dismissedAt: T0 + 0.1 * HOUR } });
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs", reason: "dismissed", eventAt: T0 + 0.1 * HOUR });
+});
+
+test("with push checks on, checks that stay pending an hour after the push don't hold up the check", async () => {
+  const s = setup({ reviewed: true, preferences: { pushChecks: "progress" } });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], ci: "expected" });
+  s.at(0.1);
+  await s.sync.all(true);
+  s.at(0.5);
+  await s.sync.all();
+  expect(s.actions.checkPushes).not.toHaveBeenCalled();
+  s.at(1.2);
+  await s.sync.all();
+  expect(s.actions.checkPushes).toHaveBeenCalledWith("pr-1");
+});
+
+test("a tracked team request leaves Needs review when team requests are turned off", async () => {
+  const s = setup({ preferences: { trackTeamRequests: true } });
+  s.store.setStatus("pr-1", "tracked");
+  s.pr({ requestPending: { via: "team", team: "acme/web-core" }, requests: [{ at: T0 - HOUR, by: "dan", via: "team", team: "acme/web-core" }] });
+  await s.sync.all();
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs", reason: "team-requested" });
+  s.store.savePreferences({ ...defaultPreferences, trackTeamRequests: false }, 1);
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "archive", reason: "unrequested" });
+});
+
+test("discovery doesn't add a second row for a PR whose repository was renamed", async () => {
+  // GitHub follows the rename, so reading the old name reports the new URL.
+  const s = setup({ pr: { url: "https://github.com/acme/web-app/pull/1" } });
+  vi.mocked(s.github.discover).mockResolvedValue([
+    { repo: "acme/web-app", number: 1, title: "Expire cache entries", url: "https://github.com/Acme/web-app/pull/1", author: "alice", updatedAt: 1, isDraft: false, requested: true, reviewed: false },
+  ]);
+  await s.sync.all(true);
+  expect(s.store.listReviews().map((r) => r.targetKey)).toEqual(["pr-1"]);
+});
+
+test("a PR GitHub can't read is recorded, cleared when it can again, and archived after a week of not found", async () => {
+  const s = setup({ reviewed: true });
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, null])));
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.unreachable).toEqual({ since: T0, reason: "not-found" });
+  s.at(24);
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, "forbidden" as const])));
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")?.unreachable).toEqual({ since: T0, reason: "forbidden" });
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, facts(ref, { myReviews: [review("CHANGES_REQUESTED", T0 - 5 * HOUR)] })])));
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")?.unreachable).toBeNull();
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, null])));
+  await s.sync.all(true);
+  s.at(24 * 8);
+  await s.sync.all(true);
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "archive", reason: "unreachable" });
+});
+
+test("a gh account switched outside the plugin is noticed on the next pass", async () => {
+  const s = setup({ reviewed: true, threads: [thread("t1", "open")] });
+  const reset = vi.fn();
+  (s.github.gate as any).reset = reset;
+  let switched = false;
+  s.github.viewer.changed = async () => switched;
+  await s.sync.all();
+  expect(reset).not.toHaveBeenCalled();
+  switched = true;
+  await s.sync.all();
+  expect(reset).toHaveBeenCalled();
+  expect(s.harness.inspection.realtimeSignals.some((signal) => signal.channel === "gh-account")).toBe(true);
+});
+
+test("sync health: an expired gh login, then a good read", async () => {
+  const s = setup();
+  let login: string | null = null;
+  s.github.viewer.login = async () => login;
+  s.github.viewer.errors = () => ({ login: login ? null : "HTTP 401: Bad credentials (https://api.github.com/user)", teams: null });
+  await s.sync.all();
+  expect(s.sync.health()).toEqual({ lastReadAt: null, error: { kind: "auth", at: T0 } });
+  login = "me";
+  s.at(0.1);
+  await s.sync.all(true);
+  expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.1 * HOUR, error: null });
+});
+
+test("sync health: a rate limit backs off until it can read again", async () => {
+  const s = setup();
+  vi.mocked(s.github.facts).mockRejectedValueOnce(new Error("RATE_LIMITED: API rate limit exceeded for user ID 1."));
+  await s.sync.all();
+  expect(s.sync.health().error).toMatchObject({ kind: "rate-limit", retryAt: T0 + 15 * 60_000 });
+  s.at(0.1);
+  await s.sync.all(true);
+  expect(s.github.facts).toHaveBeenCalledTimes(1);
+  expect(s.github.discover).toHaveBeenCalledTimes(0);
+  s.at(0.3);
+  await s.sync.all(true);
+  expect(s.github.facts).toHaveBeenCalledTimes(2);
+  expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.3 * HOUR, error: null });
+});
+
+test("sync health: PRs left out of a read, and teams it couldn't read", async () => {
+  const s = setup({ preferences: { trackTeamRequests: true } });
+  s.store.saveReview({ targetKey: "pr-2", kind: "pr", repo: "acme/web", number: 2, createdAt: 2, status: "ready" });
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.filter((ref) => ref.number === 1).map((ref) => [ref.targetKey, facts(ref)])));
+  await s.sync.all();
+  expect(s.sync.health()).toEqual({ lastReadAt: T0, error: { kind: "partial", at: T0, count: 1 } });
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, facts(ref)])));
+  s.github.viewer.errors = () => ({ login: null, teams: "HTTP 403: Resource not accessible (read:org)" });
+  s.at(0.1);
+  await s.sync.all(true);
+  expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.1 * HOUR, error: { kind: "teams", at: T0 + 0.1 * HOUR } });
+});
+
+test("a pass that changes several reviews tells the list once", async () => {
+  const s = setup();
+  s.store.saveReview({ targetKey: "pr-2", kind: "pr", repo: "acme/web", number: 2, createdAt: 2, status: "ready" });
+  await s.sync.all();
+  const lists = () => s.harness.inspection.realtimeSignals.filter((signal) => signal.channel === "reviews").length;
+  const reviewSignals = () => s.harness.inspection.realtimeSignals.filter((signal) => signal.channel.startsWith("review:")).map((signal) => signal.channel).sort();
+  expect(lists()).toBe(1);
+  expect(reviewSignals()).toEqual(["review:pr-1", "review:pr-2"]);
+});
+
+test("the sync keeps the PR's size", async () => {
+  const s = setup({ pr: { size: { additions: 120, deletions: 30, files: 8 } } });
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.prSize).toEqual({ additions: 120, deletions: 30, files: 8 });
 });

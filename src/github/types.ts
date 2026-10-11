@@ -16,6 +16,8 @@ export interface MyReview {
   /** The commit the review was made on. */
   sha: string | null;
   body: string;
+  /** When GitHub dismissed it, if the timeline still shows it. */
+  dismissedAt?: number | null;
 }
 
 /** A request for the viewer's review, directly or through a team the viewer is on. */
@@ -41,8 +43,10 @@ export interface PrFacts {
   headRefName: string;
   headSha: string;
   updatedAt: number;
+  /** Lines added and deleted, and files changed. */
+  size: { additions: number; deletions: number; files: number } | null;
   /** The head commit's combined status checks. */
-  ci: "pass" | "fail" | "pending" | "none";
+  ci: "pass" | "fail" | "pending" | "expected" | "none";
   /** The viewer's real reviews, oldest first. */
   myReviews: MyReview[];
   /** Every other reviewer's latest approve or changes-requested review. */
@@ -51,11 +55,14 @@ export interface PrFacts {
   requests: ReviewRequestEvent[];
   /** A request for the viewer, or a team the viewer is on, is pending now. */
   requestPending: { via: "user" | "team"; team?: string } | null;
-  /** The latest comment on the PR conversation, by someone else and not a bot, that mentions the viewer after the viewer last commented there. */
+  /** The latest comment or review on the PR, by someone else and not a bot, that mentions the viewer after the viewer last commented or reviewed there. */
   mention: { at: number; by: string } | null;
   /** Commit oids on the PR, oldest first (the last 100). */
   commits: string[];
 }
+
+/** A PR's read: its facts, null when GitHub can't find it, or "forbidden" when GitHub refuses access (permissions, SSO). */
+export type PrRead = PrFacts | null | "forbidden";
 
 /** One review thread the viewer started, with where it stands. */
 export interface FeedbackThread {

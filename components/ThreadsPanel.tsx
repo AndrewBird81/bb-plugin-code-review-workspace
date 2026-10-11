@@ -13,20 +13,30 @@ export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKe
   const rpc = useRpc<typeof rpcContract>();
   const [threads, setThreads] = useState<any[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const cancelledRef = useRef(false);
+  // Replies being written outlive the view, which unmounts when you switch to Diff or Feedback.
+  const draftKey = (threadId: string) => `gr:thread-reply:${targetKey}:${threadId}`;
+  const draftOf = (threadId: string) => {
+    if (threadId in drafts) return drafts[threadId];
+    try { return sessionStorage.getItem(draftKey(threadId)) ?? ""; } catch { return ""; }
+  };
+  function setDraft(threadId: string, body: string) {
+    setDrafts((d) => ({ ...d, [threadId]: body }));
+    try { if (body) sessionStorage.setItem(draftKey(threadId), body); else sessionStorage.removeItem(draftKey(threadId)); } catch { /* best effort */ }
+  }
 
   async function load() {
     try {
-      const { threads } = await rpc.call("getReviewThreads", { targetKey });
+      const { threads, error } = await rpc.call("getReviewThreads", { targetKey });
       if (cancelledRef.current) return;
       setThreads(threads);
-      setLoadError(false);
+      setLoadError(error ?? null);
     } catch (err) {
       if (cancelledRef.current) return;
-      setLoadError(true);
+      setLoadError("");
       toast.error(err instanceof Error ? err.message : "Failed to load review threads");
     } finally {
       if (!cancelledRef.current) setLoaded(true);
@@ -43,14 +53,14 @@ export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKe
   }, [rpc, targetKey]);
 
   async function reply(thread: any) {
-    const body = (drafts[thread.id] ?? "").trim();
+    const body = draftOf(thread.id).trim();
     const inReplyTo = thread.comments?.[0]?.databaseId;
     if (!body || inReplyTo == null) return;
     setBusyId(thread.id);
     try {
       const res = await rpc.call("replyToThread", { targetKey, inReplyTo, body });
       if (res.ok) {
-        setDrafts((d) => ({ ...d, [thread.id]: "" }));
+        setDraft(thread.id, "");
         await load();
       } else {
         toast.error(res.error ?? "Reply failed");
@@ -79,11 +89,11 @@ export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKe
     }
   }
 
-  if (loaded && loadError) {
+  if (loaded && loadError !== null && threads.length === 0) {
     return (
       <div className="m-4 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text">
         <Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />
-        <p>Couldn't load review threads.</p>
+        <div><p>Couldn't load review threads.</p>{loadError && <p className="mt-1 break-words text-xs">{loadError}</p>}</div>
       </div>
     );
   }
@@ -101,6 +111,7 @@ export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKe
 
   return (
     <div className="space-y-3">
+      {loadError && <p role="status" className="flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning-text"><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />Couldn't load every thread: {loadError}</p>}
       {threads.map((t) => (
         <div key={t.id} className="rounded-xl border border-border bg-card p-3 shadow-xs">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -135,14 +146,15 @@ export const ThreadsPanel = memo(function ThreadsPanel({ targetKey }: { targetKe
           </ul>
           <div className="mt-3 flex items-end gap-2 border-t border-border pt-3">
             <Textarea
-              value={drafts[t.id] ?? ""}
-              onChange={(e) => setDrafts((d) => ({ ...d, [t.id]: e.target.value }))}
+              value={draftOf(t.id)}
+              onChange={(e) => setDraft(t.id, e.target.value)}
+              aria-label={`Reply on ${t.path ?? "unknown file"}${t.line != null ? `:${t.line}` : ""}`}
               placeholder="Reply…"
               className="flex-1"
             />
             <Button
               size="sm"
-              disabled={busyId === t.id || !(drafts[t.id] ?? "").trim()}
+              disabled={busyId === t.id || !draftOf(t.id).trim()}
               onClick={() => reply(t)}
             >
               Reply

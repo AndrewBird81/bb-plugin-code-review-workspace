@@ -1,20 +1,23 @@
 // Batched reads of the PR facts the turn rules need, one aliased GraphQL query per batch.
-import type { MyReview, PrFacts, PrRef, ReviewRequestEvent, ReviewState, RunGh } from "./types";
+import type { MyReview, PrFacts, PrRead, PrRef, ReviewRequestEvent, ReviewState, RunGh } from "./types";
 
 export const BATCH_SIZE = 10;
 
 const REVIEWER = "__typename ... on User{login} ... on Team{slug organization{login}}";
 const FRAGMENT = `fragment F on PullRequest{
-  number state isDraft updatedAt title url baseRefName headRefName headRefOid author{login}
+  number state isDraft updatedAt title url baseRefName headRefName headRefOid author{login} additions deletions changedFiles
   commits(last:100){nodes{commit{oid}}}
   head:commits(last:1){nodes{commit{statusCheckRollup{state}}}}
   latestOpinionatedReviews(first:50){nodes{state author{__typename login}}}
   reviewRequests(first:50){nodes{requestedReviewer{${REVIEWER}}}}
   reviews(last:30,author:$viewer){nodes{id state submittedAt body commit{oid} comments(first:20){totalCount nodes{replyTo{id}}}}}
-  events:timelineItems(last:30,itemTypes:[REVIEW_REQUESTED_EVENT,REVIEW_REQUEST_REMOVED_EVENT]){nodes{__typename
+  events:timelineItems(last:30,itemTypes:[REVIEW_REQUESTED_EVENT,REVIEW_REQUEST_REMOVED_EVENT,REVIEW_DISMISSED_EVENT]){nodes{__typename
     ... on ReviewRequestedEvent{createdAt actor{login} requestedReviewer{${REVIEWER}}}
-    ... on ReviewRequestRemovedEvent{createdAt actor{login} requestedReviewer{${REVIEWER}}}}}
-  conversation:timelineItems(last:15,itemTypes:[ISSUE_COMMENT]){nodes{... on IssueComment{author{__typename login} body createdAt}}}
+    ... on ReviewRequestRemovedEvent{createdAt actor{login} requestedReviewer{${REVIEWER}}}
+    ... on ReviewDismissedEvent{createdAt review{id}}}}
+  conversation:timelineItems(last:15,itemTypes:[ISSUE_COMMENT,PULL_REQUEST_REVIEW]){nodes{__typename
+    ... on IssueComment{author{__typename login} body createdAt}
+    ... on PullRequestReview{author{__typename login} body submittedAt comments(first:10){nodes{body}}}}}
 }`;
 
 export function prFactsQuery(refs: PrRef[]): { query: string; variables: Record<string, string | number> } {
@@ -30,15 +33,20 @@ export function prFactsQuery(refs: PrRef[]): { query: string; variables: Record<
 }
 
 /**
- * Normalizes one batch's response. A PR GitHub reports NOT_FOUND (or returns null for) maps to null;
- * a PR whose alias failed for another reason (say, SSO or permissions) is left out of the map.
+ * Normalizes one batch's response. A PR GitHub reports NOT_FOUND (or returns null for) maps to null,
+ * one it refuses (FORBIDDEN: permissions, SSO) to "forbidden"; one whose alias failed for another reason is left out of the map.
  */
-export function parsePrFacts(json: unknown, refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Map<string, PrFacts | null> {
-  const root = json as { data?: Record<string, any> | null; errors?: Array<{ type?: string; path?: unknown[] }> } | null;
-  if (!root || typeof root !== "object" || !root.data || typeof root.data !== "object") throw new Error("GitHub returned no PR data");
-  const failed = new Set((root.errors ?? []).filter((e) => e.type !== "NOT_FOUND").map((e) => String(e.path?.[0] ?? "")));
-  const result = new Map<string, PrFacts | null>();
+export function parsePrFacts(json: unknown, refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Map<string, PrRead> {
+  const root = json as { data?: Record<string, any> | null; errors?: Array<{ type?: string; message?: string; path?: unknown[] }> } | null;
+  if (!root || typeof root !== "object" || !root.data || typeof root.data !== "object") {
+    // Say why, such as RATE_LIMITED, so the sync can back off.
+    const why = (root?.errors ?? []).map((e) => [e.type, e.message].filter(Boolean).join(": ")).filter(Boolean).join("; ");
+    throw new Error(why || "GitHub returned no PR data");
+  }
+  const failed = new Map((root.errors ?? []).filter((e) => e.type !== "NOT_FOUND").map((e) => [String(e.path?.[0] ?? ""), e.type]));
+  const result = new Map<string, PrRead>();
   refs.forEach((ref, i) => {
+    if (failed.get(`p${i}`) === "FORBIDDEN") result.set(ref.targetKey, "forbidden");
     if (failed.has(`p${i}`)) return;
     const pr = root.data![`p${i}`]?.pullRequest;
     result.set(ref.targetKey, pr ? normalize(pr, ref, viewer, teams) : null);
@@ -50,8 +58,8 @@ export function parsePrFacts(json: unknown, refs: PrRef[], viewer: string, teams
  * Batches by BATCH_SIZE through `gh api graphql`. A PR GitHub can't find maps to null; a batch that
  * fails leaves its PRs out of the map, and only when every batch fails does this reject.
  */
-export async function fetchPrFacts(run: RunGh, refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Promise<Map<string, PrFacts | null>> {
-  const result = new Map<string, PrFacts | null>();
+export async function fetchPrFacts(run: RunGh, refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Promise<Map<string, PrRead>> {
+  const result = new Map<string, PrRead>();
   let failure: Error | null = null;
   let read = 0;
   for (let i = 0; i < refs.length; i += BATCH_SIZE) {
@@ -104,15 +112,19 @@ function realReview(r: any): boolean {
   return (r.comments?.totalCount ?? 0) > 0 && !comments.every((c: any) => c?.replyTo);
 }
 
-const CI: Record<string, PrFacts["ci"]> = { SUCCESS: "pass", FAILURE: "fail", ERROR: "fail", PENDING: "pending", EXPECTED: "pending" };
+const CI: Record<string, PrFacts["ci"]> = { SUCCESS: "pass", FAILURE: "fail", ERROR: "fail", PENDING: "pending", EXPECTED: "expected" };
 
 function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<string>): PrFacts {
   const events: any[] = (pr.events?.nodes ?? []).filter(Boolean);
   const at = (type: string, keep: (e: any) => boolean = () => true) =>
     latest(events.filter((e) => e.__typename === type && keep(e)).map((e) => time(e.createdAt)).filter(Number.isFinite));
 
+  const dismissals = new Map<string, number>(events.filter((e) => e.__typename === "ReviewDismissedEvent" && e.review?.id).map((e) => [e.review.id, time(e.createdAt)]));
   const myReviews: MyReview[] = (pr.reviews?.nodes ?? []).filter((r: any) => r && realReview(r))
-    .map((r: any) => ({ id: r.id, state: r.state as ReviewState, submittedAt: time(r.submittedAt), sha: r.commit?.oid ?? null, body: r.body ?? "" }))
+    .map((r: any) => ({
+      id: r.id, state: r.state as ReviewState, submittedAt: time(r.submittedAt), sha: r.commit?.oid ?? null, body: r.body ?? "",
+      ...(dismissals.has(r.id) ? { dismissedAt: dismissals.get(r.id) } : {}),
+    }))
     .sort((a: MyReview, b: MyReview) => a.submittedAt - b.submittedAt);
 
   // A request withdrawn later, for the same reviewer (you, or that team), doesn't count.
@@ -132,7 +144,10 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
   const pending = (pr.reviewRequests?.nodes ?? []).map((n: any) => via(n?.requestedReviewer, viewer, teams)).filter(Boolean);
   const requestPending = pending.find((p: any) => p.via === "user") ?? pending[0] ?? null;
 
-  const conversation: any[] = (pr.conversation?.nodes ?? []).filter((c: any) => c?.author);
+  // Comments, and reviews with their summary and inline comments as one body.
+  const conversation: any[] = (pr.conversation?.nodes ?? []).filter((c: any) => c?.author).map((c: any) => c.__typename === "PullRequestReview"
+    ? { author: c.author, createdAt: c.submittedAt, body: [c.body ?? "", ...(c.comments?.nodes ?? []).map((n: any) => n?.body ?? "")].join("\n") }
+    : c);
   // Your own comment answers the mentions before it.
   const answered = latest(conversation.filter((c) => same(c.author.login, viewer)).map((c) => time(c.createdAt)).filter(Number.isFinite)) ?? 0;
   const mention = conversation
@@ -149,6 +164,7 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
     state: pr.state, isDraft: !!pr.isDraft, title: pr.title ?? "", url: pr.url ?? "", author: pr.author?.login ?? null,
     baseRefName: pr.baseRefName ?? "", headRefName: pr.headRefName ?? "", headSha: pr.headRefOid ?? "",
     updatedAt: time(pr.updatedAt),
+    size: typeof pr.additions === "number" ? { additions: pr.additions, deletions: pr.deletions ?? 0, files: pr.changedFiles ?? 0 } : null,
     ci: CI[pr.head?.nodes?.[0]?.commit?.statusCheckRollup?.state] ?? "none",
     myReviews, otherOpinions, requests, requestPending,
     mention,

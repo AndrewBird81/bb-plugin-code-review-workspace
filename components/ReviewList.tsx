@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useId, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRpc, useBbNavigate, useRealtime } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import { reviewState, type ReviewItem } from "../lib/review-state";
@@ -18,6 +18,7 @@ import type { Turn, TurnGroup } from "../lib/turn";
 import { IconTile } from "./ui/icon-tile";
 import { InlineCode } from "./ui/inline-code";
 import { age, timeAgo } from "./time-ago";
+import type { SyncHealth } from "../src/review-lifecycle";
 
 /** Why it's your turn, with who asked when GitHub says. Null when the status badge says it all. */
 function turnWhy(review: ReviewItem, turn: Turn): string | null {
@@ -39,24 +40,39 @@ const CI_LOOK = {
   pass: { label: "Checks passing", tone: "success", icon: "Check" },
   fail: { label: "Checks failing", tone: "danger", icon: "X" },
   pending: { label: "Checks pending", tone: "warning", icon: "CircleDashed" },
+  expected: { label: "Checks expected", tone: "warning", icon: "CircleDashed" },
 } as const;
 
-/** The row's second line: why, progress on your feedback, new commits, CI, and how long it's been your turn. */
+/** How long the author has gone without pushing or replying to you since your review, when it's a day or more. */
+function authorQuiet(review: ReviewItem): string | null {
+  const s = review.signals ?? {};
+  const last = Math.max(s.lastReviewAt ?? 0, s.headSeenAt ?? 0, s.replyAt ?? 0);
+  return last && Date.now() - last >= 86_400_000 ? age(last) : null;
+}
+
+/** The row's second line: why, progress on your feedback, new commits, CI, and how long it's been your turn or the author's. */
 function TurnMeta({ review, turn }: { review: ReviewItem; turn: Turn }) {
   const why = turnWhy(review, turn);
   const progress = review.progress;
   const commits = review.signals?.commitsSince ?? 0;
   const ci = review.signals?.ci && review.signals.ci !== "none" ? CI_LOOK[review.signals.ci] : null;
   const waited = turn.group === "needs" ? age(turn.at) : null;
-  if (!why && !progress && commits <= 0 && !ci && !waited && !turn.blocking) return null;
+  const outdated = turn.group === "waiting" ? review.signals?.threads?.outdated ?? 0 : 0;
+  const quiet = turn.group === "waiting" ? authorQuiet(review) : null;
+  // The badge says it once the PR is archived for it.
+  const unreachable = turn.reason !== "unreachable" ? review.unreachable : null;
+  if (!why && !progress && commits <= 0 && !ci && !waited && !turn.blocking && !unreachable && !outdated && !quiet) return null;
   return (
     <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
       {turn.blocking && <Badge tone="warning" size="sm">Blocks merge</Badge>}
+      {unreachable && <span className="inline-flex items-center gap-1" title={unreachable.reason === "forbidden" ? "GitHub refused access, for example for SSO" : "Deleted, or you lost access"}><Icon name="AlertCircle" className={cn("size-3", TONE_TEXT.warning)} aria-hidden />Can’t read on GitHub</span>}
       {why && <span>{why}</span>}
       {progress && <span className="tabular-nums" title={progress.source === "assistant" ? undefined : "Resolved or answered"}>{progress.done}/{progress.total} {progress.source === "assistant" ? "addressed" : "handled"}</span>}
+      {outdated > 0 && <span className="tabular-nums" title="The code under these threads changed">{outdated} outdated</span>}
       {commits > 0 && <span className="inline-flex items-center gap-1 tabular-nums"><Icon name="GitCommit" className="size-3" aria-hidden />+{commits} {commits === 1 ? "commit" : "commits"}</span>}
       {ci && <span className="inline-flex items-center gap-1"><Icon name={ci.icon} className={cn("size-3", TONE_TEXT[ci.tone])} aria-hidden />{ci.label}</span>}
       {waited && <span className="text-subtle-foreground">your turn · {waited}</span>}
+      {quiet && <span className="text-subtle-foreground">author quiet {quiet}</span>}
     </span>
   );
 }
@@ -90,6 +106,7 @@ function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: 
           <span className="break-all font-mono text-[11px]">{review.repo ?? review.gitRef}{review.number ? <span className="text-subtle-foreground"> #{review.number}</span> : null}</span>
           {review.author && <span className="inline-flex items-center gap-1.5"><Avatar login={review.author} size={16} />@{review.author}</span>}
           {when && <span className="text-subtle-foreground">{when}</span>}
+          {review.prSize && <span className="tabular-nums">+{review.prSize.additions.toLocaleString()} −{review.prSize.deletions.toLocaleString()} · {review.prSize.files} {review.prSize.files === 1 ? "file" : "files"}</span>}
         </span>
         <TurnMeta review={review} turn={state} />
       </span>
@@ -101,6 +118,19 @@ function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: 
     <ReviewActions review={review} onChanged={onChanged} onDeleted={onChanged} describedBy={titleId} />
     </div>
   );
+}
+
+/** Why GitHub can't be read now, and when it last was. Null when reading is fine. */
+function syncProblem(health: SyncHealth | undefined): string | null {
+  const error = health?.error;
+  if (!error) return null;
+  const detail = error.kind === "auth" ? "GitHub CLI isn’t signed in. Run gh auth login on the BB server."
+    : error.kind === "rate-limit" ? `GitHub’s rate limit was reached. Reading again ${error.retryAt && error.retryAt > Date.now() ? `in ${Math.ceil((error.retryAt - Date.now()) / 60_000)}m` : "soon"}.`
+    : error.kind === "partial" ? `Couldn’t read ${error.count === 1 ? "1 pull request" : `${error.count} pull requests`}.`
+    : error.kind === "teams" ? "Couldn’t read your teams, so team requests may be missing. Run gh auth refresh -s read:org on the BB server."
+    : "Couldn’t reach GitHub.";
+  const read = timeAgo(health?.lastReadAt);
+  return `${read ? `GitHub last read ${read}` : "GitHub hasn’t been read yet"}: ${detail}`;
 }
 
 /** Shown in an empty list: an icon in a soft disc, a heading, and a line of help. */
@@ -129,19 +159,27 @@ export const ReviewList = memo(function ReviewList() {
   const [filter, setFilter] = useState<TurnGroup>("needs");
   const [refreshing, setRefreshing] = useState(false);
   const [syncError, setSyncError] = useState(false);
-  const refresh = useCallback(async () => {
+  const [health, setHealth] = useState<SyncHealth>();
+  const refresh = useCallback(async (force = true) => {
     setRefreshing(true); setSyncError(false);
-    try { const result = await rpc.call("refreshReviews", null); setReviews(result.reviews); }
+    try { const result = await rpc.call("refreshReviews", { force }); setReviews(result.reviews); setHealth(result.sync); }
     catch { setSyncError(true); }
     finally { setRefreshing(false); }
   }, [rpc]);
   const relist = useCallback(() => {
-    void rpc.call("listReviews", null).then((result) => setReviews(result.reviews)).catch(() => {});
+    void rpc.call("listReviews", null).then((result) => { setReviews(result.reviews); setHealth(result.sync); }).catch(() => {});
   }, [rpc]);
-  useRealtime("reviews", relist);
+  // A sync pass can change many reviews at once: re-list once it settles.
+  const relistTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(relistTimer.current), []);
+  useRealtime("reviews", () => {
+    clearTimeout(relistTimer.current);
+    relistTimer.current = setTimeout(relist, 250);
+  });
   useRealtime("gh-account", () => { void refresh(); });
   useEffect(() => {
-    const onFocus = () => { void refresh(); };
+    // Coming back to the window reads only what's due; Refresh reads everything.
+    const onFocus = () => { void refresh(false); };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
@@ -153,7 +191,7 @@ export const ReviewList = memo(function ReviewList() {
     rpc
       .call("listReviews", null)
       .then((r) => {
-        if (!cancelled) setReviews(r.reviews as ReviewItem[]);
+        if (!cancelled) { setReviews(r.reviews as ReviewItem[]); setHealth(r.sync); }
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -300,6 +338,7 @@ export const ReviewList = memo(function ReviewList() {
           </div>
           <Button variant="ghost" size="sm" aria-label={refreshing ? "Refreshing…" : "Refresh"} className="shrink-0 px-2 text-muted-foreground" disabled={refreshing} onClick={() => void refresh()}><Icon name="ArrowReloadHorizontal" className={cn("size-3.5", refreshing && "animate-spin motion-reduce:animate-none")} aria-hidden /><span className="hidden @min-[520px]/review-list:inline">{refreshing ? "Refreshing…" : "Refresh"}</span></Button>
         </div>
+        {!syncError && syncProblem(health) && <p role="status" className="flex items-center gap-2 border-b border-warning/20 bg-warning/10 px-4 py-2.5 text-sm text-warning-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden />{syncProblem(health)}</p>}
         {syncError && <p role="alert" className="flex items-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-2.5 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden />Couldn’t refresh GitHub status. Saved reviews are still available; try Refresh again.</p>}
         {loading ? <div role="status" aria-busy="true" className="divide-y divide-border"><span className="sr-only">Loading reviews…</span>{Array.from({ length: 4 }).map((_, i) => <div key={i} className="flex items-center gap-3.5 px-4 py-3.5"><Skeleton className="size-8 shrink-0 rounded-lg" /><div className="flex-1 space-y-2"><Skeleton className="h-3.5" style={{ width: `${62 - i * 7}%` }} /><Skeleton className="h-3 w-48" /></div><Skeleton className="h-5 w-16 rounded-full" /></div>)}</div>
           : loadError ? <div role="alert" className="px-4 py-10 text-center"><h2 className="font-medium">Couldn’t load your reviews</h2><p className="mt-2 text-sm text-muted-foreground">Your saved reviews haven’t been removed. Check the connection and try again.</p><Button variant="outline" className="mt-4" onClick={() => setReload((n) => n + 1)}>Try again</Button></div>

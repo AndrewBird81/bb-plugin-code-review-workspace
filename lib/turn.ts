@@ -6,12 +6,13 @@ import type { Verdict } from "../src/draft";
 export type TurnGroup = "needs" | "waiting" | "reviewed" | "archive";
 
 export type TurnReason =
-  | "merged" | "closed" | "archived"
+  | "merged" | "closed" | "archived" | "unrequested" | "unreachable"
   | "failed"
   | "new" | "requested" | "team-requested" | "re-requested"
   | "question" | "mentioned" | "handled" | "looks-ready" | "dismissed"
   | "waiting" | "draft" | "snoozed"
-  | "approved" | "commented";
+  | "approved" | "commented"
+  | "own";
 
 /** Your review threads on the PR, by where each stands. */
 export interface ThreadTally {
@@ -50,10 +51,13 @@ export interface TurnSignals {
   isDraft?: boolean;
   /** When bb first saw the current head commit. */
   headSeenAt?: number | null;
-  ci?: "pass" | "fail" | "pending" | "none";
+  /** expected: a required check that hasn't reported. */
+  ci?: "pass" | "fail" | "pending" | "expected" | "none";
   threads?: ThreadTally | null;
-  /** The latest author reply on one of your threads that asks you something. */
+  /** The latest reply on one of your threads that asks you something: the author's, or a mention of you. */
   questionAt?: number | null;
+  /** Who asked it. */
+  questionBy?: string | null;
   /** The latest author reply on one of your threads. */
   replyAt?: number | null;
   /** When the last of your threads became resolved or answered; null while any is waiting on the author. */
@@ -100,6 +104,10 @@ export interface TurnInput {
   signals?: TurnSignals | null;
   snoozedAt?: number | null;
   assessment?: AssessmentSummary | null;
+  /** GitHub can't find the PR, or refuses access, since `since`. */
+  unreachable?: { since: number; reason: "not-found" | "forbidden" } | null;
+  /** You wrote the PR: GitHub allows you only a comment review, and there's no author to wait on. */
+  ownPr?: boolean | null;
   /** A turn that came from a passing state (feedback handled, looks ready); it holds until you act. */
   heldTurn?: { reason: TurnReason; label: string; signal: string; at: number } | null;
 }
@@ -111,6 +119,8 @@ export interface TurnOptions {
   pushChecks: "off" | "progress" | "ready";
   /** How long the author must be quiet before "Feedback handled" counts. */
   quietMs?: number;
+  /** false: a PR found on GitHub only through a team request leaves your list. */
+  teamRequests?: boolean;
 }
 
 export interface Turn {
@@ -137,6 +147,10 @@ export interface Turn {
 }
 
 export const QUIET_MS = 10 * 60_000;
+/** How long GitHub must not find a PR before it goes to Archive. */
+export const UNREACHABLE_MS = 7 * 86_400_000;
+/** How long after a push checks may stay pending or expected before they count as settled: some never report. */
+export const CI_STALE_MS = 60 * 60_000;
 export const defaultTurnOptions: TurnOptions = { wakeOnReplies: "questions", pushChecks: "off" };
 
 const VERDICT_LABEL: Record<Verdict, string> = { APPROVE: "Approved", REQUEST_CHANGES: "Changes requested", COMMENT: "Commented" };
@@ -159,12 +173,15 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
 
   if (review.prState === "MERGED") return make("archive", "merged", "Merged", "View review");
   if (review.prState === "CLOSED" || review.archivedAt) return make("archive", "closed", "Closed", "View review");
+  // Deleted, or out of your reach for good; access refused (say, for SSO) may come back.
+  if (review.unreachable?.reason === "not-found" && now - review.unreachable.since >= UNREACHABLE_MS) return make("archive", "unreachable", "Can’t read on GitHub", "View review");
 
   // A local receipt counts until GitHub reports the review.
   const lastReviewAt = Math.max(s.lastReviewAt ?? 0, review.submittedAt ?? 0) || null;
   const reviewed = lastReviewAt !== null || !!review.submittedVerdict;
   const snoozedAt = review.snoozedAt ?? null;
-  const reRequested = reviewed && after(s.requestedAt, lastReviewAt);
+  // Only a request to you asks you again; a team you're on being asked doesn't.
+  const reRequested = reviewed && s.requestedVia !== "team" && after(s.requestedAt, lastReviewAt);
 
   // A person asking you again outranks your own archive.
   if (review.userArchivedAt && !(reRequested && after(s.requestedAt, review.userArchivedAt))) {
@@ -179,8 +196,17 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   function reviewerTurn(): Turn {
     if (review.kind === "ref") return make("needs", "new", "Ready", "Open review", { at: review.createdAt ?? null });
     const tracked = review.status === "tracked";
+    // Your own PR is yours to review until you have; then nothing brings it back.
+    if (review.ownPr) {
+      if (!reviewed) return make("needs", "own", "Your PR", tracked ? "Start review" : "Open review", { at: review.createdAt ?? null });
+      return make("reviewed", "own", updated ? "Your PR · updated" : "Your PR", "View review");
+    }
     if (!reviewed) {
       if (tracked && s.isDraft) return make("waiting", "draft", "Draft", "Open review");
+      // A PR found on GitHub that no longer asks for you, or only asks a team when you've left those out.
+      if (tracked && review.signals && (!s.requestPending || s.requestedVia === "team" && options.teamRequests === false)) {
+        return make("archive", "unrequested", "No longer requested", "View review");
+      }
       if (s.requestPending || s.requestedAt) {
         const team = s.requestedVia === "team";
         return make("needs", team ? "team-requested" : "requested", team ? "Team review requested" : "Review requested", tracked ? "Start review" : "Open review", {
@@ -223,7 +249,7 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     if (held && after(held.at, lastReviewAt, snoozedAt)) return needs(held.reason, held.label, held.signal, held.at, false);
     // Every thread resolved or answered, new commits, CI settled, and the author quiet for a while.
     const quietAt = Math.max(s.headSeenAt ?? 0, s.handledAt ?? 0) + (options.quietMs ?? QUIET_MS);
-    if (hasThreads && updated && s.ci !== "fail" && s.ci !== "pending" && now >= quietAt && after(s.handledAt, lastReviewAt, snoozedAt)) {
+    if (hasThreads && updated && s.ci !== "fail" && ciSettled(s, now) && now >= quietAt && after(s.handledAt, lastReviewAt, snoozedAt)) {
       return needs("handled", "Feedback handled", `handled:${s.handledAt}`, quietAt, true, s.handledAt);
     }
     const assessment = review.assessment;
@@ -231,9 +257,16 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
       && assessment.addressed === assessment.total && after(assessment.assessedAt, lastReviewAt, snoozedAt)) {
       return needs("looks-ready", "Looks ready", `looks-ready:${head}`, assessment.assessedAt, true);
     }
+    // A comment review with nothing open isn't waiting on anyone.
+    if (verdict === "COMMENT" && threads!.open + threads!.questions === 0) return make("reviewed", "commented", "Commented", "View review");
     if (snoozedAt && snoozedAt >= (lastReviewAt ?? 0)) return make("waiting", "snoozed", "Not yet", "View review", { at: snoozedAt, blocking });
     return make("waiting", "waiting", VERDICT_LABEL[verdict], "View review", { at: lastReviewAt, blocking });
   }
+}
+
+/** Whether the head's checks are done, or have been pending or expected so long they never will be. */
+export function ciSettled(s: TurnSignals, now = Date.now()): boolean {
+  return (s.ci !== "pending" && s.ci !== "expected") || now - (s.headSeenAt ?? now) >= CI_STALE_MS;
 }
 
 /** Progress on your feedback for a list row, such as "2/5 addressed". Null when there's nothing to count. */

@@ -16,7 +16,7 @@ const QUERY = `query($owner:String!,$repo:String!,$number:Int!,$after:String){
 }`;
 
 /** Pages through the PR's review threads (up to 300); a transport failure or unparseable output rejects. */
-export async function fetchMyThreads(run: RunGh, repo: string, number: number, viewer: string): Promise<FeedbackThread[]> {
+export async function fetchMyThreads(run: RunGh, repo: string, number: number, viewer: string, author: string | null = null): Promise<FeedbackThread[]> {
   const [owner, name] = repo.split("/");
   const threads: FeedbackThread[] = [];
   let after: string | null = null;
@@ -27,7 +27,7 @@ export async function fetchMyThreads(run: RunGh, repo: string, number: number, v
     let json: any;
     try { json = JSON.parse(out.stdout); } catch { json = null; }
     if (out.code !== 0 || !json?.data) throw new Error(`Could not read review threads: ${out.stderr.trim() || `gh exited ${out.code}`}`);
-    threads.push(...parseMyThreads(json, viewer));
+    threads.push(...parseMyThreads(json, viewer, author));
     const page = json.data.repository?.pullRequest?.reviewThreads?.pageInfo;
     if (!page?.hasNextPage || !page.endCursor) break;
     after = page.endCursor;
@@ -39,7 +39,11 @@ const same = (a: string | null | undefined, b: string) => !!a && a.toLowerCase()
 const isBot = (author: { __typename?: string; login?: string } | null | undefined) =>
   author?.__typename === "Bot" || !!author?.login?.toLowerCase().endsWith("[bot]");
 
-export function parseMyThreads(json: unknown, viewer: string): FeedbackThread[] {
+/**
+ * With the PR's `author` known, only the author's reply answers or asks; anyone else's counts only
+ * when it mentions the viewer, as a question. Without it, anyone's does.
+ */
+export function parseMyThreads(json: unknown, viewer: string, author: string | null = null): FeedbackThread[] {
   const nodes: any[] = (json as any)?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
   return nodes.flatMap((t) => {
     const first = t?.first?.nodes?.[0];
@@ -61,7 +65,8 @@ export function parseMyThreads(json: unknown, viewer: string): FeedbackThread[] 
     };
     if (thread.isResolved) return [thread];
     const myLast = Math.max(createdAt, ...replies.filter((r) => r.mine).map((r) => r.createdAt));
-    const reply = replies.filter((r) => !r.mine && !r.bot && r.createdAt > myLast).at(-1);
+    const fromAuthor = (r: { author: string }) => !author || same(r.author, author);
+    const reply = replies.filter((r) => !r.mine && !r.bot && r.createdAt > myLast && (fromAuthor(r) || mentions(proseOf(r.body), viewer))).at(-1);
     if (!reply) return [{ ...thread, status: "open" }];
     return [{ ...thread, status: isQuestion(reply.body, viewer) ? "question" : "answered", replyAt: reply.createdAt }];
   });
@@ -69,9 +74,7 @@ export function parseMyThreads(json: unknown, viewer: string): FeedbackThread[] 
 
 /** Whether a reply asks the viewer something: a "?" outside code spans/blocks and quoted lines, or an @viewer mention. */
 export function isQuestion(body: string, viewer: string): boolean {
-  const prose = body
-    .replace(/^ {0,3}(```|~~~)[^\n]*\n[\s\S]*?(^ {0,3}\1[^\n]*$|(?![\s\S]))/gm, "")
-    .replace(/(`+)[\s\S]*?\1/g, "");
+  const prose = proseOf(body);
   if (mentions(prose, viewer)) return true;
   // A "?" in a link's query string isn't a question.
   return prose.split("\n").filter((line) => !/^\s*>/.test(line)).join("\n").replace(/https?:\/\/\S+/g, "").includes("?");
@@ -104,4 +107,11 @@ export function parseAllThreads(json: unknown): PrThread[] {
       latestReply: last ? { author: last.author?.login ?? "ghost", bot: isBot(last.author), body: last.body ?? "" } : null,
     }];
   });
+}
+
+/** The text outside code spans and blocks. */
+function proseOf(body: string): string {
+  return body
+    .replace(/^ {0,3}(```|~~~)[^\n]*\n[\s\S]*?(^ {0,3}\1[^\n]*$|(?![\s\S]))/gm, "")
+    .replace(/(`+)[\s\S]*?\1/g, "");
 }

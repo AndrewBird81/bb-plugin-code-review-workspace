@@ -65,6 +65,12 @@ export interface ReviewLifecycle {
   preparedSignal?: string | null;
   /** When preparing a re-review was last tried, to retry a failed start now and then. */
   prepareTriedAt?: number | null;
+  /** The PR's author is the GitHub account reading it. */
+  ownPr?: boolean | null;
+  /** Lines added and deleted, and files changed, as GitHub last said. */
+  prSize?: { additions: number; deletions: number; files: number } | null;
+  /** GitHub can't find the PR, or refuses access, since this time. */
+  unreachable?: { since: number; reason: "not-found" | "forbidden" } | null;
 }
 
 /** The turn of the reviewer's ask on the summary or a draft comment (src/asks.ts). */
@@ -326,7 +332,8 @@ export function createStore(bb: BbPluginApi): Store {
     head: r.head ?? undefined, gitRef: r.git_ref ?? undefined, url: r.url ?? undefined,
     status: r.status, createdAt: r.created_at, projectId: r.project_id ?? undefined,
     headSha: r.head_sha ?? undefined, cwd: r.cwd ?? undefined,
-    ...JSON.parse((db.prepare(`SELECT state FROM review_lifecycle WHERE target_key=?`).get(r.target_key) as any)?.state ?? "{}"),
+    // listReviews joins the lifecycle in as `lifecycle`; a single review reads it here.
+    ...JSON.parse(("lifecycle" in r ? r.lifecycle : (db.prepare(`SELECT state FROM review_lifecycle WHERE target_key=?`).get(r.target_key) as any)?.state) ?? "{}"),
   });
 
   return {
@@ -374,7 +381,7 @@ export function createStore(bb: BbPluginApi): Store {
       return r ? rowToMeta(r) : null;
     },
     listReviews() {
-      return db.prepare(`SELECT * FROM reviews ORDER BY created_at DESC`).all().map(rowToMeta);
+      return db.prepare(`SELECT r.*, l.state AS lifecycle FROM reviews r LEFT JOIN review_lifecycle l ON l.target_key=r.target_key ORDER BY r.created_at DESC`).all().map(rowToMeta);
     },
     setStatus(k, status) {
       db.prepare(`UPDATE reviews SET status=? WHERE target_key=?`).run(status, k);

@@ -49,12 +49,12 @@ import { getGhAccounts, switchGhAccount, checkRepoAccess } from "./src/gh-accoun
 import { completionNotifications } from "./src/completion-notifications";
 import { createPluginUpdates } from "./src/plugin-updates";
 import { onPrepared } from "./src/generate";
-import { feedbackProgress } from "./lib/turn";
+import { feedbackProgress, type TurnOptions } from "./lib/turn";
 import { baselineOf, feedbackView, headOf, pruneDiffs, remainingBody, sinceReview } from "./src/feedback-view";
 import { assess, changesSinceReview, describeFeedback, readFileAt, startVerification } from "./src/verification";
 import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
-import { threadSignals } from "./src/turn-signals";
+import { threadSignals, turnOptions } from "./src/turn-signals";
 
 export { rpcContract } from "./src/rpc-contract";
 
@@ -137,7 +137,12 @@ export default async function plugin(bb: BbPluginApi) {
 
   // Reviews leave the server with whose turn they are and how far your feedback got.
   // JSON round-trips drop the literal `undefined` fields rowToMeta leaves, which strict rpc output rejects.
-  const decorate = (review: ReviewMeta | null) => review && JSON.parse(JSON.stringify({ ...review, turn: sync.turnOf(review), progress: feedbackProgress(review) }));
+  const decorate = (review: ReviewMeta | null, options?: TurnOptions) => review && JSON.parse(JSON.stringify({ ...review, turn: sync.turnOf(review, undefined, options), progress: feedbackProgress(review) }));
+  /** Every review, decorated with one read of the settings, without the summaries only the assistant reads. */
+  const listed = () => {
+    const options = turnOptions(store.getPreferences().preferences);
+    return store.listReviews().map(({ reviewBodies: _bodies, ...review }) => decorate(review, options));
+  };
   const changed = (targetKey: string) => {
     bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
     bb.realtime.publish("reviews", { ts: Date.now() });
@@ -147,7 +152,10 @@ export default async function plugin(bb: BbPluginApi) {
     if (review.kind !== "pr" || !review.repo || !review.number || !baselineOf(review).at) return;
     const login = (await runGh(["api", "user", "--jq", ".login"])).stdout.trim();
     if (!login) return;
-    store.saveFeedbackThreads(review.targetKey, await fetchMyThreads(runGh, review.repo, review.number, login), store.feedbackFetched(review.targetKey)?.prUpdatedAt ?? null);
+    const threads = await fetchMyThreads(runGh, review.repo, review.number, login, review.author ?? null);
+    // The review may have been deleted while GitHub answered.
+    if (!store.getReview(review.targetKey)) return;
+    store.saveFeedbackThreads(review.targetKey, threads, store.feedbackFetched(review.targetKey)?.prUpdatedAt ?? null);
     store.setLifecycle(review.targetKey, { signals: { ...store.getReview(review.targetKey)!.signals, ...threadSignals(store.listFeedbackThreads(review.targetKey)) } });
     bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
   }
@@ -321,11 +329,11 @@ export default async function plugin(bb: BbPluginApi) {
       // ReviewMeta rows carry optional fields as literal `undefined` own
       // properties (store.ts's rowToMeta), which the rpc layer's strict JSON
       // output check rejects; round-trip through JSON to drop them.
-      return { reviews: store.listReviews().map(decorate) };
+      return { reviews: listed(), sync: sync.health() };
     },
-    async refreshReviews() {
-      await sync.all(true);
-      return { reviews: store.listReviews().map(decorate) };
+    async refreshReviews(input) {
+      await sync.all(input?.force ?? true);
+      return { reviews: listed(), sync: sync.health() };
     },
     getReview({ targetKey }) {
       return { review: decorate(store.getReview(targetKey)) };
@@ -362,8 +370,20 @@ export default async function plugin(bb: BbPluginApi) {
       const m = store.getReview(targetKey);
       if (!m || m.kind !== "pr" || !m.number || !m.repo) return { threads: [] };
       const [owner, repo] = m.repo.split("/");
-      const r = await runGh(ghReviewThreadsArgs(owner, repo, m.number));
-      return { threads: parseReviewThreads(r.code === 0 ? r.stdout : "").threads };
+      // Threads come oldest first: page through them all, up to 1,000, so the newest aren't the ones dropped.
+      const threads: ReturnType<typeof parseReviewThreads>["threads"] = [];
+      let after: string | undefined;
+      for (let page = 0; page < 10; page++) {
+        const r = await runGh(ghReviewThreadsArgs(owner, repo, m.number, after));
+        let json: any = null;
+        try { json = JSON.parse(r.stdout); } catch { /* reported below */ }
+        if (r.code !== 0 || !json?.data) return { threads, error: ghErrorMessage(r) };
+        threads.push(...parseReviewThreads(r.stdout).threads);
+        const info = json.data.repository?.pullRequest?.reviewThreads?.pageInfo;
+        if (!info?.hasNextPage || !info.endCursor) break;
+        after = info.endCursor;
+      }
+      return { threads };
     },
     async replyToThread({ targetKey, inReplyTo, body }) {
       const m = store.getReview(targetKey);

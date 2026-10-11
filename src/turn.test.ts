@@ -46,6 +46,41 @@ test("a request for your review alerts you; a team request is quieter", () => {
   expect(team).toMatchObject({ group: "needs", reason: "team-requested", notify: false });
 });
 
+test("a PR found on GitHub whose request was withdrawn, or a team's with team requests off, leaves Needs review", () => {
+  const tracked = (signals: TurnInput["signals"], status: TurnInput["status"] = "tracked"): TurnInput => ({ targetKey: "a", kind: "pr", status, signals });
+  expect(turn(tracked({ requestedAt: t(30), requestPending: false }))).toMatchObject({ group: "archive", reason: "unrequested", label: "No longer requested", signal: null });
+  const team = tracked({ requestedAt: t(1), requestedVia: "team", requestPending: true });
+  expect(turn(team, { teamRequests: false })).toMatchObject({ group: "archive", reason: "unrequested" });
+  expect(turn(team, { teamRequests: true })).toMatchObject({ group: "needs", reason: "team-requested" });
+  // Not read from GitHub yet, or with a guide you started, it stays.
+  expect(turn(tracked(null))).toMatchObject({ group: "needs", label: "Tracked" });
+  expect(turn(tracked({ requestPending: false }, "ready"))).toMatchObject({ group: "needs", label: "Ready" });
+});
+
+test("your own PR needs your review until you've reviewed it, then it's Reviewed, never waiting and never alerting", () => {
+  const own = (extra: Partial<TurnInput> = {}, signals: TurnInput["signals"] = {}) => changesRequested({ ownPr: true, ...extra }, signals);
+  expect(turn({ targetKey: "a", kind: "pr", status: "ready", ownPr: true, createdAt: t(2) })).toMatchObject({ group: "needs", reason: "own", label: "Your PR", notify: false, signal: null, at: t(2) });
+  expect(turn(own({ submittedVerdict: "COMMENT" }))).toMatchObject({ group: "reviewed", reason: "own", label: "Your PR" });
+  // Open threads, questions, mentions, and pushes don't move it.
+  expect(turn(own({ submittedVerdict: "COMMENT", latestHeadSha: "sha2" }, { questionAt: t(1), mentionAt: t(1), headSeenAt: t(1) })))
+    .toMatchObject({ group: "reviewed", label: "Your PR · updated", updated: true, signal: null });
+  expect(turn(own({ prState: "MERGED" })).group).toBe("archive");
+});
+
+test("a PR GitHub can't find for a week goes to Archive", () => {
+  const gone = (days: number, reason: "not-found" | "forbidden" = "not-found") => changesRequested({ unreachable: { since: NOW - days * 24 * hour, reason } });
+  expect(turn(gone(1)).group).toBe("waiting");
+  expect(turn(gone(8))).toMatchObject({ group: "archive", reason: "unreachable", label: "Can’t read on GitHub" });
+  // Access refused, say for SSO, may come back: it stays.
+  expect(turn(gone(8, "forbidden")).group).toBe("waiting");
+});
+
+test("a team request after your review isn't a re-request, and doesn't undo your archive", () => {
+  const team = { requestedAt: t(1), requestedBy: "carol", requestedVia: "team" as const, requestPending: true };
+  expect(turn(changesRequested({}, team))).toMatchObject({ group: "waiting", reason: "waiting" });
+  expect(turn(changesRequested({ userArchivedAt: t(2) }, team)).group).toBe("archive");
+});
+
 test("a push alone doesn't make it your turn", () => {
   const pushed = turn(changesRequested({ latestHeadSha: "sha2" }, { headSeenAt: t(3) }));
   expect(pushed).toMatchObject({ group: "waiting", reason: "waiting", label: "Changes requested", updated: true, signal: null });
@@ -84,7 +119,11 @@ test("feedback handled: every thread resolved or answered, new commits, CI settl
   expect(turn(changesRequested({ latestHeadSha: "sha2" }, handled))).toMatchObject({ group: "needs", reason: "handled", notify: true, signal: `handled:${t(1)}`, eventAt: t(1) });
   // Without new commits, CI still running or failing, or within the quiet period, it waits.
   expect(turn(changesRequested({}, handled)).group).toBe("waiting");
-  expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, ci: "pending" })).group).toBe("waiting");
+  expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, ci: "pending", headSeenAt: t(0.5) })).group).toBe("waiting");
+  expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, ci: "expected", headSeenAt: t(0.5) })).group).toBe("waiting");
+  // Checks still pending, or expected but never reported, an hour after the push count as settled.
+  expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, ci: "pending" })).reason).toBe("handled");
+  expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, ci: "expected" })).reason).toBe("handled");
   expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, ci: "fail" })).group).toBe("waiting");
   expect(turn(changesRequested({ latestHeadSha: "sha2" }, { ...handled, handledAt: NOW - QUIET_MS / 2 })).group).toBe("waiting");
   // Handled before your last review doesn't count.
@@ -111,6 +150,10 @@ test("a dismissed review is yours again, without an alert", () => {
 test("a comment review waits on the author only while it has threads", () => {
   expect(turn(changesRequested({ submittedVerdict: "COMMENT" }, { threads: null }))).toMatchObject({ group: "reviewed", label: "Commented" });
   expect(turn(changesRequested({ submittedVerdict: "COMMENT" }))).toMatchObject({ group: "waiting", label: "Commented" });
+  // With every thread resolved or answered, nothing is open; new commits on top bring it back as handled.
+  const handled = { threads: { total: 2, resolved: 1, answered: 1, questions: 0, open: 0, outdated: 0 }, handledAt: t(1), headSeenAt: t(2) };
+  expect(turn(changesRequested({ submittedVerdict: "COMMENT" }, handled))).toMatchObject({ group: "reviewed", reason: "commented", label: "Commented" });
+  expect(turn(changesRequested({ submittedVerdict: "COMMENT", latestHeadSha: "sha2" }, handled))).toMatchObject({ group: "needs", reason: "handled" });
 });
 
 test("a draft PR waits on the author", () => {

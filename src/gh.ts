@@ -34,14 +34,15 @@ export function ghPrHeadArgs(number: number, repo?: string): string[] {
   const a = ["pr", "view", String(number), "--json", "headRefOid,reviewDecision,state"];
   return repo ? [...a, "-R", repo] : a;
 }
-const REVIEW_THREADS_QUERY = `query($owner:String!,$repo:String!,$number:Int!){
+const REVIEW_THREADS_QUERY = `query($owner:String!,$repo:String!,$number:Int!,$after:String){
   repository(owner:$owner,name:$repo){ pullRequest(number:$number){
-    reviewThreads(first:100){ nodes{
+    reviewThreads(first:100,after:$after){ pageInfo{hasNextPage endCursor} nodes{
       id isResolved isOutdated path line
       comments(first:100){ nodes{ id databaseId author{login} body } } } } } } }`;
-export function ghReviewThreadsArgs(owner: string, repo: string, number: number): string[] {
+/** One page of the PR's review threads, oldest first; `after` is the previous page's end cursor. */
+export function ghReviewThreadsArgs(owner: string, repo: string, number: number, after?: string): string[] {
   return ["api", "graphql", "-f", `query=${REVIEW_THREADS_QUERY}`,
-    "-f", `owner=${owner}`, "-f", `repo=${repo}`, "-F", `number=${number}`];
+    "-f", `owner=${owner}`, "-f", `repo=${repo}`, "-F", `number=${number}`, ...(after ? ["-f", `after=${after}`] : [])];
 }
 export function ghReplyThreadArgs(repo: string, number: number, inReplyToCommentId: number): string[] {
   return ["api", "-X", "POST", `repos/${repo}/pulls/${number}/comments/${inReplyToCommentId}/replies`, "--input", "-"];

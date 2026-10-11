@@ -73,6 +73,15 @@ test("myReviews drops pending and blank comment-only reviews, keeps blank review
   expect(facts.myReviews[2]).toEqual({ id: "late", state: "CHANGES_REQUESTED", submittedAt: Date.parse("2026-10-03T00:00:00Z"), sha: "c1", body: "Please fix" });
 });
 
+test("a dismissed review carries when GitHub dismissed it, from the timeline", () => {
+  const facts = one(pr({
+    reviews: { nodes: [{ id: "r1", state: "DISMISSED", submittedAt: "2026-10-01T00:00:00Z", body: "", commit: { oid: "c1" } }] },
+    events: { nodes: [{ __typename: "ReviewDismissedEvent", createdAt: "2026-10-03T00:00:00Z", review: { id: "r1" } }] },
+  }));
+  expect(facts.myReviews[0]).toMatchObject({ id: "r1", state: "DISMISSED", dismissedAt: Date.parse("2026-10-03T00:00:00Z") });
+  expect(prFactsQuery([ref(1)]).query).toContain("REVIEW_DISMISSED_EVENT");
+});
+
 test("requests match the viewer case-insensitively and teams the viewer is on", () => {
   const requested = (createdAt: string, actor: string, requestedReviewer: unknown) =>
     ({ __typename: "ReviewRequestedEvent", createdAt, actor: { login: actor }, requestedReviewer });
@@ -124,15 +133,32 @@ test("mention is the latest conversation comment by another person that mentions
   expect(answered.mention).toBeNull();
 });
 
+test("a mention in a review summary or inline comment counts, and your own review answers it", () => {
+  const reviewNode = (author: unknown, body: string, submittedAt: string, comments: string[] = []) =>
+    ({ __typename: "PullRequestReview", author, body, submittedAt, comments: { nodes: comments.map((c) => ({ body: c })) } });
+  expect(one(pr({ conversation: { nodes: [reviewNode(user("bob"), "Looks fine; @me should check the cache", "2026-10-02T00:00:00Z")] } })).mention)
+    .toEqual({ at: Date.parse("2026-10-02T00:00:00Z"), by: "bob" });
+  expect(one(pr({ conversation: { nodes: [reviewNode(user("carol"), "", "2026-10-03T00:00:00Z", ["nit", "@me is this right?"])] } })).mention)
+    .toEqual({ at: Date.parse("2026-10-03T00:00:00Z"), by: "carol" });
+  expect(one(pr({ conversation: { nodes: [reviewNode(user("carol"), "@me thoughts?", "2026-10-03T00:00:00Z"), reviewNode(user("me"), "", "2026-10-04T00:00:00Z", ["Replied"])] } })).mention).toBeNull();
+  expect(prFactsQuery([ref(1)]).query).toContain("PULL_REQUEST_REVIEW]");
+});
+
 test("mentions matches a whole handle only", () => {
   for (const body of ["@me", "hey @me.", "(@ME)", "@me, thoughts?", "line\n@me: see", "**@me**"]) expect(mentions(body, "me"), body).toBe(true);
   for (const body of ["me@me.com", "@meow", "@me-two", "@me_x", "email@me", "@@me", "@me/reviewers", "@org/me", "me"]) expect(mentions(body, "me"), body).toBe(false);
   expect(mentions("thanks @octo-cat!", "octo-cat")).toBe(true);
 });
 
+test("size reads the PR's additions, deletions, and changed files", () => {
+  expect(one(pr({ additions: 120, deletions: 30, changedFiles: 8 })).size).toEqual({ additions: 120, deletions: 30, files: 8 });
+  expect(one(pr()).size).toBeNull();
+  expect(prFactsQuery([ref(1)]).query).toContain("additions deletions changedFiles");
+});
+
 test("ci maps the head commit's rollup state", () => {
   const ci = (state: string | null) => one(pr({ head: { nodes: [{ commit: { statusCheckRollup: state ? { state } : null } }] } })).ci;
-  expect([ci("SUCCESS"), ci("FAILURE"), ci("ERROR"), ci("PENDING"), ci("EXPECTED"), ci(null)]).toEqual(["pass", "fail", "fail", "pending", "pending", "none"]);
+  expect([ci("SUCCESS"), ci("FAILURE"), ci("ERROR"), ci("PENDING"), ci("EXPECTED"), ci(null)]).toEqual(["pass", "fail", "fail", "pending", "expected", "none"]);
   expect(one(pr({ head: { nodes: [] } })).ci).toBe("none");
 });
 
@@ -151,15 +177,19 @@ test("a PR or repository GitHub can't find maps to null and the rest of the batc
   expect(facts.get("pr-3")).toBeNull();
 });
 
-test("a PR that failed for another reason is left out rather than reported missing", () => {
-  const json = { data: { p0: null, p1: { pullRequest: pr() } }, errors: [{ type: "FORBIDDEN", path: ["p0"], message: "SAML enforcement" }] };
-  const facts = parsePrFacts(json, [ref(1, "sso/repo"), ref(2)], "me", noTeams);
-  expect(facts.has("pr-1")).toBe(false);
-  expect(facts.get("pr-2")).not.toBeNull();
+test("a PR GitHub refuses is reported forbidden; one that failed for another reason is left out", () => {
+  const json = { data: { p0: null, p1: { pullRequest: pr() }, p2: null }, errors: [
+    { type: "FORBIDDEN", path: ["p0"], message: "Resource protected by organization SAML enforcement." },
+    { type: "SERVICE_UNAVAILABLE", path: ["p2"], message: "Try again" },
+  ] };
+  const facts = parsePrFacts(json, [ref(1, "sso/repo"), ref(2), ref(3)], "me", noTeams);
+  expect(facts.get("pr-1")).toBe("forbidden");
+  expect(facts.get("pr-2")).toMatchObject({ number: 1 });
+  expect(facts.has("pr-3")).toBe(false);
 });
 
 test("parsePrFacts rejects a response without data", () => {
-  expect(() => parsePrFacts({ errors: [{ message: "API rate limit exceeded" }] }, [ref(1)], "me", noTeams)).toThrow();
+  expect(() => parsePrFacts({ errors: [{ type: "RATE_LIMITED", message: "API rate limit exceeded" }] }, [ref(1)], "me", noTeams)).toThrow("RATE_LIMITED: API rate limit exceeded");
   expect(() => parsePrFacts(null, [ref(1)], "me", noTeams)).toThrow();
 });
 

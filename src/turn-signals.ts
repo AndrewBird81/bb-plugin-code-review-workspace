@@ -6,7 +6,7 @@ import { feedbackProgress, type Turn, type TurnOptions, type TurnSignals } from 
 import { verdictFromMine } from "./review-verdict";
 
 export function turnOptions(preferences: ReviewPreferences): TurnOptions {
-  return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks };
+  return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks, teamRequests: preferences.trackTeamRequests };
 }
 
 /**
@@ -16,7 +16,7 @@ export function turnOptions(preferences: ReviewPreferences): TurnOptions {
 export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string, startedAt: number, now: number): ReviewLifecycle {
   const s = previous.signals ?? {};
   const update: ReviewLifecycle = {
-    prState: facts.state, latestHeadSha: facts.headSha,
+    prState: facts.state, latestHeadSha: facts.headSha, unreachable: null, prSize: facts.size ?? null, ownPr: !!facts.author && facts.author.toLowerCase() === viewer.toLowerCase(),
     archivedAt: facts.state === "OPEN" ? null : previous.archivedAt ?? now,
   };
   const own = verdictFromMine(facts.myReviews);
@@ -30,13 +30,14 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
     }
   }
   const verdict = "submittedVerdict" in update ? update.submittedVerdict : previous.submittedVerdict;
-  // A pending request keeps its time if its event scrolls out of the timeline.
-  const request = facts.requests.at(-1)
+  // A request to you outranks a later one to a team you're on. A pending request keeps its time if its event scrolls out of the timeline.
+  const request = facts.requests.filter((r) => r.via === "user").at(-1) ?? facts.requests.at(-1)
     ?? (facts.requestPending && s.requestedAt ? { at: s.requestedAt, by: s.requestedBy ?? null, via: s.requestedVia ?? facts.requestPending.via } : undefined);
   const others = facts.otherOpinions;
   const reviewedAt = own?.sha ? facts.commits.lastIndexOf(own.sha) : -1;
-  // GitHub doesn't say when it dismissed your review; the first read that saw it stands in.
-  const dismissed = own?.verdict === null ? (s.dismissedAt ?? (previous.submittedVerdict ? now : own.at)) : null;
+  // When the timeline no longer says when GitHub dismissed your review, the first read that saw it stands in.
+  const dismissedAt = facts.myReviews.filter((r) => r.state === "DISMISSED").at(-1)?.dismissedAt;
+  const dismissed = own?.verdict === null ? (dismissedAt ?? s.dismissedAt ?? (previous.submittedVerdict ? now : own.at)) : null;
   // A new review of yours ends a turn that was holding for you.
   if (own && own.at > (s.lastReviewAt ?? 0) && previous.heldTurn) update.heldTurn = null;
   update.signals = {
@@ -66,7 +67,7 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
 const RECEIPT_GRACE = 10 * 60_000;
 
 /** Your threads' standing, as signals. */
-export function threadSignals(threads: ReadonlyArray<FeedbackThread & { resolvedSeenAt?: number | null }>): Pick<TurnSignals, "threads" | "questionAt" | "replyAt" | "handledAt"> {
+export function threadSignals(threads: ReadonlyArray<FeedbackThread & { resolvedSeenAt?: number | null }>): Pick<TurnSignals, "threads" | "questionAt" | "questionBy" | "replyAt" | "handledAt"> {
   const count = (status: FeedbackThread["status"]) => threads.filter((t) => t.status === status).length;
   const tally = {
     total: threads.length, resolved: count("resolved"), answered: count("answered"), questions: count("question"),
@@ -74,9 +75,12 @@ export function threadSignals(threads: ReadonlyArray<FeedbackThread & { resolved
   };
   const latest = (times: Array<number | null | undefined>) => times.reduce<number | null>((max, t) => t != null && t > (max ?? 0) ? t : max, null);
   const handled = tally.total > 0 && tally.open === 0 && tally.questions === 0;
+  const questionAt = latest(threads.filter((t) => t.status === "question").map((t) => t.replyAt));
+  const asked = threads.find((t) => t.status === "question" && t.replyAt === questionAt);
   return {
     threads: tally.total ? tally : null,
-    questionAt: latest(threads.filter((t) => t.status === "question").map((t) => t.replyAt)),
+    questionAt,
+    questionBy: asked?.replies.filter((r) => r.createdAt === questionAt && !r.mine).at(-1)?.author ?? null,
     replyAt: latest(threads.filter((t) => t.status === "question" || t.status === "answered").map((t) => t.replyAt)),
     handledAt: handled ? latest(threads.map((t) => t.status === "resolved" ? t.resolvedSeenAt ?? null : t.replyAt)) : null,
   };
@@ -89,7 +93,7 @@ export function alertBody(review: ReviewMeta, turn: Turn): string {
   const why: Partial<Record<Turn["reason"], string>> = {
     "re-requested": `${s.requestedBy ? `@${s.requestedBy}` : author} re-requested your review`,
     requested: `${s.requestedBy ? `@${s.requestedBy}` : author} requested your review`,
-    question: `${author} asked you something on your feedback`,
+    question: `${s.questionBy ? `@${s.questionBy}` : author} asked you something on your feedback`,
     mentioned: `${s.mentionBy ? `@${s.mentionBy}` : author} mentioned you`,
     handled: "Every thread of your feedback is resolved or answered",
     "looks-ready": "The assistant found all your feedback addressed",
