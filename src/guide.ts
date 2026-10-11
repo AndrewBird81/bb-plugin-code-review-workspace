@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { patchRows, splitPatchByFile, type PatchFile } from "./patch";
+import { diffPositions } from "./review-positions";
 
 export const DiffRefSchema = z.object({
   file: z.string().min(1).describe("The file's exact repo-relative path, as the diff shows it."),
@@ -12,17 +13,34 @@ export const SectionSchema = z.object({
   risk: z.enum(["low", "medium", "high"]).optional().describe("How closely to read this chapter; see the skill's rubric."),
   diffs: z.array(DiffRefSchema).min(1).describe("The chapter's files, each in exactly one chapter."),
 });
+export const HotspotSchema = z.object({
+  file: z.string().min(1).describe("The file's exact repo-relative path, as the diff shows it."),
+  line: z.number().int().min(1).describe("A new-file line the diff shows: added or context."),
+  why: z.string().min(1).describe("The defect that could hide there, in one sentence."),
+});
 export const GuideSchema = z.object({
   title: z.string().min(1).describe("The change, in one line."),
   intent: z.string().min(1).describe("Why the change exists, in 1–2 sentences."),
   sections: z.array(SectionSchema).describe("Chapters, in reading order."),
   unplacedFiles: z.array(z.string()).default([]).describe("Files with nothing to review (binary, mode-only, pure rename). Usually empty."),
+  hotspots: z.array(HotspotSchema).min(1).max(3).optional().describe("The 1–3 places most likely to hide a defect, highest risk first."),
   /** What changed since the reviewer's last review, on a re-review. */
   sinceReview: z.string().optional().describe("On a re-review only: what changed since the reviewer's last review, in 2–4 sentences."),
   review: z.object({ gitRef: z.string().min(1), base: z.string().optional() }).optional(),
   source: z.unknown().optional(),
   generator: z.unknown().optional(),
 });
+/** Hotspots the reviewer can open: each on a new-file line the diff shows. */
+export function checkHotspots(guide: Guide, patch: string): { ok: true } | { ok: false; errors: string[] } {
+  const positions = diffPositions(patch);
+  const errors = (guide.hotspots ?? []).flatMap(({ file, line }, i) => {
+    const lines = positions.get(file)?.right;
+    if (!lines) return [`hotspots.${i}: ${file} isn't in the diff`];
+    return lines.has(line) ? [] : [`hotspots.${i}: line ${line} of ${file} isn't a new-file line the diff shows`];
+  });
+  return errors.length ? { ok: false, errors } : { ok: true };
+}
+
 /** What the guide writer submits; the plugin stamps the rest. */
 export const GuideInputSchema = GuideSchema.omit({ review: true, source: true, generator: true });
 export type Guide = z.infer<typeof GuideSchema>;

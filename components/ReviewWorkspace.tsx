@@ -35,6 +35,7 @@ import { inDiffOrder, shortcutKey } from "../lib/review-shortcuts";
 import { InlineDraftContext } from "./InlineDraft";
 import { DiffThreadsContext, useDiffThreads } from "./LineThreads";
 import { ShortcutsHelp } from "./ShortcutsHelp";
+import { StartHere } from "./StartHere";
 import { splitPatchByFile } from "../src/patch";
 
 const SIDEBAR_MIN = 200;
@@ -460,6 +461,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setSinceOnly(false);
     showComment({ file, line: line ?? 0, side });
   }, [outsideGuide, showComment]);
+  const openHotspot = useCallback((file: string, line: number) => showLocation(file, line, "RIGHT"), [showLocation]);
   const followUp = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
     if (outsideGuide(file, url)) return;
     showLocation(file, line, side);
@@ -711,6 +713,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         <div className="border-b border-border">
           <div className="px-4 pb-3.5 pt-3">
             <ReviewHeader review={review} checks={checks} intent={guide.intent} sinceReview={guide.sinceReview} onShowFeedback={showFeedback} onSnooze={snoozeFromHeader} snoozing={snoozing} trailing={headerTrailing} />
+            {guide.hotspots?.length > 0 && <StartHere hotspots={guide.hotspots} onOpen={openHotspot} />}
           </div>
           {generatingReplacement && <p role="status" className="flex items-center gap-2 border-t border-warning/20 bg-warning/10 px-4 py-2 text-xs text-warning-text"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Regenerating the guide. Your previous diff and unsaved edits remain visible.</p>}
         </div>
