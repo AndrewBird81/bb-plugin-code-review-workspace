@@ -33,6 +33,7 @@ import { defaultPreferences, type ReviewPreferences } from "../lib/review-prefer
 import { useDraftStatus } from "../lib/draft-status";
 import { inDiffOrder, shortcutKey } from "../lib/review-shortcuts";
 import { InlineDraftContext } from "./InlineDraft";
+import { DiffThreadsContext, useDiffThreads } from "./LineThreads";
 import { ShortcutsHelp } from "./ShortcutsHelp";
 import { splitPatchByFile } from "../src/patch";
 
@@ -546,6 +547,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     window.getSelection()?.removeAllRanges();
   }
 
+  // Everyone's GitHub threads, under their lines in the diff unless hidden.
+  const diffThreads = useDiffThreads(targetKey, isPr && view === "diff");
+  const [showThreads, setShowThreads] = useState(true);
   const readContents = useCallback((file: string) => rpc.call("getFileContents", { targetKey, file }), [rpc, targetKey]);
 
   // GitHub-style line selection in the diff (via pierre) → comment / ask agent.
@@ -828,6 +832,19 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   <span className="h-4 w-px bg-border" />
                 </>
               )}
+              {view === "diff" && isPr && diffThreads.threads.length > 0 && <Hint label="GitHub threads" container={rootEl}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="GitHub threads"
+                  aria-pressed={showThreads}
+                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
+                  onClick={() => setShowThreads(!showThreads)}
+                >
+                  <Icon name="Github" className="size-3.5" aria-hidden />
+                  <span className="hidden @min-[1280px]/review:inline">Threads</span>
+                </Button>
+              </Hint>}
               {view === "diff" && <Hint label={unifiedOnly ? "Split view needs a wider pane" : "Split view"} container={rootEl}>
                 <Button
                   variant="ghost"
@@ -888,6 +905,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
             {view === "diff" ? (
               <>
               {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
+              <DiffThreadsContext.Provider value={showThreads ? diffThreads : null}>
               <DiffViewer
                 diffLayout={diffLayout}
                 wrapLines={wrapLines}
@@ -907,6 +925,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 onUnifiedOnly={setUnifiedOnly}
                 readContents={readContents}
               />
+              </DiffThreadsContext.Provider>
               {nextSection && (
                 <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
                   {viewedCount < activeFiles.length && (
@@ -932,7 +951,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 onDraftUpdated={showDraftSummary}
               />
             ) : (
-              <ThreadsPanel targetKey={targetKey} />
+              <ThreadsPanel targetKey={targetKey} onShowInDiff={showLocation} />
             )}
           </div>
         </main>

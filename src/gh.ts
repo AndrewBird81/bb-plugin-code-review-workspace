@@ -37,7 +37,7 @@ export function ghPrHeadArgs(number: number, repo?: string): string[] {
 const REVIEW_THREADS_QUERY = `query($owner:String!,$repo:String!,$number:Int!,$after:String){
   repository(owner:$owner,name:$repo){ pullRequest(number:$number){
     reviewThreads(first:100,after:$after){ pageInfo{hasNextPage endCursor} nodes{
-      id isResolved isOutdated path line
+      id isResolved isOutdated path line diffSide
       comments(first:100){ nodes{ id databaseId author{login} body } } } } } } }`;
 /** One page of the PR's review threads, oldest first; `after` is the previous page's end cursor. */
 export function ghReviewThreadsArgs(owner: string, repo: string, number: number, after?: string): string[] {

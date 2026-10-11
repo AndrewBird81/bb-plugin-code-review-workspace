@@ -17,6 +17,8 @@ export function parseChecks(raw: string): ChecksSummary {
 export interface ThreadComment { id: string; databaseId: number; author: string; body: string }
 export interface ReviewThread {
   id: string; isResolved: boolean; isOutdated: boolean; path: string | null; line: number | null;
+  /** Which side of the diff its line is on: the old file's (LEFT) or the new file's. */
+  side: "LEFT" | "RIGHT";
   comments: ThreadComment[];
 }
 export function parseReviewThreads(raw: string): { threads: ReviewThread[] } {
@@ -25,6 +27,7 @@ export function parseReviewThreads(raw: string): { threads: ReviewThread[] } {
   const nodes = root?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
   const threads: ReviewThread[] = nodes.map((t: any) => ({
     id: t.id, isResolved: !!t.isResolved, isOutdated: !!t.isOutdated, path: t.path ?? null, line: t.line ?? null,
+    side: t.diffSide === "LEFT" ? "LEFT" : "RIGHT",
     comments: (t.comments?.nodes ?? []).map((c: any) => ({
       id: c.id, databaseId: c.databaseId, author: c.author?.login ?? "unknown", body: c.body ?? "",
     })),

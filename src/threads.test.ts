@@ -59,6 +59,7 @@ test("parseReviewThreads flattens a realistic graphql response", () => {
                 isOutdated: false,
                 path: "src/foo.ts",
                 line: 42,
+                diffSide: "LEFT",
                 comments: {
                   nodes: [
                     { id: "PRRC_1", databaseId: 111, author: { login: "alice" }, body: "please fix" },
@@ -89,6 +90,7 @@ test("parseReviewThreads flattens a realistic graphql response", () => {
         isOutdated: false,
         path: "src/foo.ts",
         line: 42,
+        side: "LEFT",
         comments: [
           { id: "PRRC_1", databaseId: 111, author: "alice", body: "please fix" },
           { id: "PRRC_2", databaseId: 112, author: "bob", body: "done" },
@@ -100,6 +102,7 @@ test("parseReviewThreads flattens a realistic graphql response", () => {
         isOutdated: true,
         path: null,
         line: null,
+        side: "RIGHT",
         comments: [],
       },
     ],

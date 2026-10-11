@@ -17,6 +17,8 @@ import { InlineCode } from "./ui/inline-code";
 import { FileTag } from "./FileTag";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { InlineDraftContext, InlineLocation, locationKey } from "./InlineDraft";
+import { DiffThreadsContext, LineThreads, OutdatedThreads, threadLocation } from "./LineThreads";
+import type { ReviewThread } from "../src/threads";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 
@@ -28,7 +30,7 @@ export interface FileViewFlags {
   stale: boolean;
 }
 
-/** A line pierre shows a draft comment, discussion, or comment box under. Its content comes from InlineDraftContext. */
+/** A line pierre shows GitHub threads, a draft comment, a discussion, or the comment box under. Its content comes from DiffThreadsContext and InlineDraftContext. */
 type Annotation = CommentLocation;
 
 // NOTE: @pierre/diffs@1.3.6 — `parsePatchFiles` returns `ParsedPatch[]`, each
@@ -142,7 +144,7 @@ function lineRow(fileEl: HTMLElement, at: CommentLocation): HTMLElement | undefi
 const lineEnd = (file: string, range: SelectedLineRange): CommentLocation => ({ file, line: range.end, side: (range.endSide ?? range.side) === "deletions" ? "LEFT" : "RIGHT" });
 
 function renderAnnotation({ metadata }: DiffLineAnnotation<Annotation>) {
-  return <InlineLocation at={metadata} />;
+  return <><LineThreads at={metadata} /><InlineLocation at={metadata} /></>;
 }
 
 // One file's diff. Pierre redraws a file whenever its options or annotations
@@ -269,6 +271,7 @@ export const DiffViewer = memo(function DiffViewer({
   const theme = useTheme();
   const compact = useMediaQuery("(max-width: 767px)");
   const draft = useContext(InlineDraftContext);
+  const github = useContext(DiffThreadsContext);
   const root = useRef<HTMLDivElement>(null);
   const filtering = sinceOnly && !!since;
   // The chapter's files by value: a reload's new array with the same files mustn't re-parse every diff.
@@ -349,7 +352,24 @@ export const DiffViewer = memo(function DiffViewer({
     if (flipped.length) setCollapsed((c) => ({ ...c, ...Object.fromEntries(flipped.map((file) => [file, views.get(file)?.viewed ?? false])) }));
   }, [views]);
 
-  // The lines in each file with a draft comment, discussion, or the comment box.
+  // GitHub threads go under their lines when this diff shows them; the rest are outdated.
+  const fileThreads = useMemo(() => {
+    const byFile = new Map<string, { placed: CommentLocation[]; outdated: ReviewThread[] }>();
+    if (!github?.threads.length) return byFile;
+    const lines = new Map(splitPatchByFile(patch).map((f) => [f.path, diffLines(f.text)]));
+    for (const thread of github.threads) {
+      const inDiff = thread.path ? lines.get(thread.path) : undefined;
+      if (!thread.path || !inDiff) continue;
+      const entry = byFile.get(thread.path) ?? { placed: [], outdated: [] };
+      const at = threadLocation(thread);
+      if (at && inDiff(at)) entry.placed.push(at);
+      else entry.outdated.push(thread);
+      byFile.set(thread.path, entry);
+    }
+    return byFile;
+  }, [github?.threads, patch]);
+
+  // The lines in each file with a GitHub thread, draft comment, discussion, or the comment box.
   // A file keeps its list until those lines change; their content comes from context.
   const previous = useRef(new Map<string, { key: string; list: DiffLineAnnotation<Annotation>[] }>());
   const annotations = useMemo(() => {
@@ -357,7 +377,7 @@ export const DiffViewer = memo(function DiffViewer({
     for (const path of files) {
       const composer = draft?.composer?.file === path ? draft.composer : null;
       const lines: CommentLocation[] = [];
-      for (const { file, line, side } of [...(draft?.comments ?? []), ...(draft?.discussions ?? [])]) {
+      for (const { file, line, side } of [...(draft?.comments ?? []), ...(draft?.discussions ?? []), ...(fileThreads.get(path)?.placed ?? [])]) {
         const at = { file, line, side };
         if (file === path && !(composer && sameLocation(at, composer)) && !lines.some((seen) => sameLocation(seen, at))) lines.push(at);
       }
@@ -369,7 +389,7 @@ export const DiffViewer = memo(function DiffViewer({
     }
     previous.current = next;
     return next;
-  }, [files, draft?.comments, draft?.discussions, draft?.composer]);
+  }, [files, draft?.comments, draft?.discussions, draft?.composer, fileThreads]);
 
   // Opens the file, then scrolls to the line once the chapter's diffs stop moving:
   // pierre draws each file once its highlighting loads, then sizes the rows beside comments.
@@ -499,6 +519,7 @@ export const DiffViewer = memo(function DiffViewer({
                 Viewed
               </label>
             </div>
+            {!folded && <OutdatedThreads threads={fileThreads.get(path)?.outdated ?? []} />}
             {!folded && typeof loaded === "object" && !loaded.ok && (
               <p role="status" className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
                 <Icon name="Info" className="size-3.5 shrink-0" aria-hidden />{loaded.error}
