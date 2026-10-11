@@ -258,6 +258,17 @@ test("shortcuts wait while you type, and with Ctrl, Meta, or Alt held", async ()
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("shortcuts still work after clicking a Viewed checkbox", async () => {
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  const viewed = slot.getByRole("checkbox", { name: "Viewed src/a.ts" });
+  fireEvent.click(viewed);
+  press("n", {}, viewed);
+  await slot.findByText("bb");
+  expect(currentChapter(slot)?.textContent).toContain("Caching");
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("u opens the next unviewed file in any chapter", async () => {
   const layout = fakeLayout();
   const { slot } = await renderWorkspace({ rpc: { getFileViews: () => ({ views: [{ file: "src/b.ts", viewed: true, stale: false }] }) } });
