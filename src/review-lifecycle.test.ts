@@ -585,6 +585,16 @@ test("sync health: with nothing to read, a good look on GitHub clears an earlier
   expect(s.sync.health().error).toBeNull();
 });
 
+test("a notification about a PR in a renamed repository reads its review, found by URL", async () => {
+  // GitHub follows the rename; the row keeps its old repository name.
+  const s = setup({ pr: { url: "https://github.com/acme/site/pull/1" } });
+  await s.sync.all();
+  s.github.gate.poll = async () => ({ kind: "changed", prs: [{ repo: "acme/site", number: 1, reason: "comment", updatedAt: T0 }] });
+  s.at(0.01);
+  await s.sync.all();
+  expect(s.github.facts).toHaveBeenCalledTimes(2);
+});
+
 test("sync health: a rate limit backs off until it can read again", async () => {
   const s = setup();
   vi.mocked(s.github.facts).mockRejectedValueOnce(new Error("RATE_LIMITED: API rate limit exceeded for user ID 1."));

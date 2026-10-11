@@ -395,7 +395,9 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     // Without notifications, reviews in progress are read every minute instead.
     const interval = (group: Turn["group"]) => gate.kind === "unsupported" && (group === "needs" || group === "waiting") ? MINUTE : INTERVAL[group];
     const reviews = store.listReviews();
-    const due = reviews.filter(readable).filter((r) => force || changed.has(`${r.repo.toLowerCase()}#${r.number}`)
+    // A renamed repository's PRs keep their old name here; their URL has the new one.
+    const fromUrl = (url?: string) => /\/([^/]+\/[^/]+)\/pull\/(\d+)$/.exec(url ?? "")?.slice(1).join("#").toLowerCase();
+    const due = reviews.filter(readable).filter((r) => force || changed.has(`${r.repo.toLowerCase()}#${r.number}`) || changed.has(fromUrl(r.url) ?? "")
       || now - (checked.get(r.targetKey) ?? 0) >= interval(turnOf(r, now).group));
     await read(due.map((r) => r.targetKey));
     for (const review of reviews) if (!disposed) await maintainThread(review.targetKey);
