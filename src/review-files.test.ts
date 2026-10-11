@@ -8,16 +8,19 @@ const patch = [
   "diff --git a/b.ts b/b.ts\nnew file mode 100644\nindex 0..1\n--- /dev/null\n+++ b/b.ts\n@@ -0,0 +1 @@\n+x\n",
   "diff --git a/c.ts b/c.ts\ndeleted file mode 100644\nindex 1..0\n--- a/c.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-y\n",
   file("package-lock.json", "@@ -1 +1 @@\n-{}\n+{ }\n"),
+  file("m.sql", "@@ -1,2 +1,2 @@\n--- note\n+++i;\n keep\n"),
 ].join("");
 
 test("list_review_files lists each file with its status, line counts, size, and kind", () => {
   const text = describeReviewFiles(patch);
-  expect(text).toContain("5 files");
+  expect(text).toContain("6 files");
   expect(text).toMatch(/^src\/a\.ts · modified · \+2 −1 · \d+ chars · code$/m);
-  expect(text).toMatch(/^old\.ts · renamed to new\.ts · \+0 −0 · \d+ chars · code$/m);
+  expect(text).toMatch(/^new\.ts · renamed from old\.ts · \+0 −0 · \d+ chars · code$/m);
   expect(text).toMatch(/^b\.ts · added · \+1 −0/m);
   expect(text).toMatch(/^c\.ts · deleted · \+0 −1/m);
   expect(text).toMatch(/^package-lock\.json · modified · \+1 −1 · \d+ chars · lockfile$/m);
+  // Changed lines that look like file headers still count.
+  expect(text).toMatch(/^m\.sql · modified · \+1 −1/m);
 });
 
 test("patch pages end on file boundaries, unless one file is longer than the page", () => {

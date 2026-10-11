@@ -1,18 +1,16 @@
 // What the agents read of a review's diff: a list of its files, and pages of it.
-import { splitPatchByFile } from "./patch";
+import { patchRows, splitPatchByFile } from "./patch";
 import { classifyFile } from "./classify";
 
 /** list_review_files: one line per changed file, so an agent can plan what to read. */
 export function describeReviewFiles(patch: string): string {
   const files = splitPatchByFile(patch);
-  const rows = files.map(({ path, text }) => {
-    const from = text.match(/^rename from (.+)$/m)?.[1];
-    const to = text.match(/^rename to (.+)$/m)?.[1];
-    const status = from && to ? (path === from ? `renamed to ${to}` : `renamed from ${from}`)
+  const rows = files.map(({ path, oldPath, text }) => {
+    const status = oldPath ? `renamed from ${oldPath}`
       : /^new file mode /m.test(text) ? "added" : /^deleted file mode /m.test(text) ? "deleted" : "modified";
-    const hunks = text.slice(Math.max(0, text.indexOf("\n@@")));
-    const added = hunks.match(/^\+(?!\+\+ )/gm)?.length ?? 0;
-    const removed = hunks.match(/^-(?!-- )/gm)?.length ?? 0;
+    const kinds = patchRows(text).map((row) => row.kind);
+    const added = kinds.filter((kind) => kind === "+").length;
+    const removed = kinds.filter((kind) => kind === "-").length;
     return `${path} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path).category}`;
   });
   return [`${files.length} file${files.length === 1 ? "" : "s"} (path · status · lines added and removed · diff size · kind):`, ...rows].join("\n");
