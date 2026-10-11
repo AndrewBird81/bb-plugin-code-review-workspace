@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Guide } from "./guide";
-import { sameLocation, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type Verdict } from "./draft";
+import { sameLocation, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type Severity, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
 import { defaultPreferences, preferencesSchema, readPreferences, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
@@ -173,8 +173,11 @@ export interface Store extends AgentCommentStore {
   interruptGenerations(): Array<{ targetKey: string; workerId: string | null }>;
   getDraft(targetKey: string): Draft;
   upsertDraftComment(targetKey: string, c: DraftComment): Draft;
-  /** Change only a comment's text, keeping who added it and the diff it was drafted against. Null when there's no comment there. */
-  editDraftComment(targetKey: string, at: CommentLocation, body: string): Draft | null;
+  /**
+   * Change only a comment's text, and with `severity` its severity (null for none), keeping who added it and
+   * the diff it was drafted against. Null when there's no comment there.
+   */
+  editDraftComment(targetKey: string, at: CommentLocation, body: string, severity?: Severity | null): Draft | null;
   /** Null when there's no comment there. */
   deleteDraftComment(targetKey: string, at: CommentLocation): Draft | null;
   /** The reviewer picks a verdict. With body, they also write the summary. */
@@ -258,7 +261,7 @@ export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor
  * change that suggested a verdict, `suggested` is that verdict and `suggestedVerdict` the one before (null for none).
  * For a comment's edit, `startCode` is the code its first line was drafted on.
  */
-export type PreviousState = { body: string; author?: "agent"; chapterId?: string; startLine?: number; startSide?: "LEFT" | "RIGHT"; startCode?: string; relined?: true; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
+export type PreviousState = { body: string; author?: "agent"; severity?: Severity; chapterId?: string; startLine?: number; startSide?: "LEFT" | "RIGHT"; startCode?: string; relined?: true; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
 
 export function createStore(bb: BbPluginApi): Store {
   const db = bb.storage.database();
@@ -587,11 +590,13 @@ export function createStore(bb: BbPluginApi): Store {
         .run(k, c.file, c.line, c.side, this.patchHash(k), code, startCode);
       return d;
     },
-    editDraftComment(k, at, body) {
+    editDraftComment(k, at, body, severity) {
       const d = this.getDraft(k);
       const comment = d.comments.find((c) => sameLocation(c, at));
       if (!comment) return null;
       comment.body = body;
+      if (severity) comment.severity = severity;
+      else if (severity === null) delete comment.severity;
       writeDraft(db, d);
       return d;
     },

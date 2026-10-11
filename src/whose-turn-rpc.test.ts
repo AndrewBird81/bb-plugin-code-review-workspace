@@ -220,3 +220,15 @@ test("a check queued behind another message isn't over when the assistant's curr
   expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null, preparedAt: expect.any(Number) });
   void bb;
 });
+
+test("a non-blocking thread is checked, but left out of what's addressed and of what's left, and listed with its label", async () => {
+  const { tool, call, store } = await setup();
+  store.saveFeedbackThreads("pr-1", [thread("t1", "answered"), { ...thread("t2", "open"), body: "**Nit:** name it `cacheKey`" }], 1);
+  const ok = await tool("assess_feedback", { items: [{ id: "t1", verdict: "addressed", evidence: "Invalidated" }, { id: "t2", verdict: "not_addressed", evidence: "Still `key`" }] });
+  expect(ok).toContain("1 of 1 addressed");
+  expect(store.getReview("pr-1")?.assessment).toMatchObject({ total: 1, addressed: 1, notAddressed: 0 });
+  const { feedback } = await call("getFeedback", { targetKey: "pr-1" });
+  expect(feedback.items.map((i: any) => [i.id, i.label ?? null, i.nonBlocking ?? false])).toEqual([["t1", null, false], ["t2", "Nit", true]]);
+  // Nothing blocking is left, so Request what's left has nothing to ask.
+  expect(await call("useSuggestedVerdict", { targetKey: "pr-1", revision: reviewRevision(store, "pr-1"), mode: "remaining" })).toEqual({ ok: false, error: "Nothing is left open. Consider approving." });
+});

@@ -86,7 +86,7 @@ test("submitting records each agent comment as kept, edited, or removed", async 
   const result = await rpc("submitReview", { targetKey: "pr-1", revision: await revision(), account: "casey" });
   expect(result.ok).toBe(true);
   expect(store.listAgentOutcomes().map(({ at: _at, ...o }) => o)).toEqual([
-    { repo: "acme/web", file: "a.ts", outcome: "removed", body: "Nit: rename.", edited: null },
+    { repo: "acme/web", file: "a.ts", outcome: "removed", body: "**Nit:** rename.", edited: null },
     { repo: "acme/web", file: "a.ts", outcome: "edited", body: "Why 3?\nIt was 2.", edited: "Why 3? Link the ticket." },
     { repo: "acme/web", file: "a.ts", outcome: "kept", body: "Can this overflow?", edited: null },
   ]);
@@ -94,7 +94,7 @@ test("submitting records each agent comment as kept, edited, or removed", async 
   expect(store.agentCommentChanges("pr-1")).toEqual([expect.objectContaining({ kind: "removed", recorded: true })]);
   expect(await rpc("getAgentLearning", null)).toMatchObject({
     total: 3, kept: 1, edited: 1, removed: 1, canSuggest: true, suggestion: { state: "idle" },
-    recentRemoved: [{ repo: "acme/web", file: "a.ts", line: "Nit: rename." }],
+    recentRemoved: [{ repo: "acme/web", file: "a.ts", line: "**Nit:** rename." }],
   });
 });
 

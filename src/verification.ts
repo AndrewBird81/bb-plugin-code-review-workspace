@@ -9,6 +9,7 @@ import { describeInterdiff, interdiff } from "./interdiff";
 import type { AssessmentItem, AssessmentVerdict } from "../lib/feedback";
 import type { Verdict } from "./draft";
 import { untrusted } from "./untrusted";
+import { threadLabel } from "./github/threads";
 
 type Run = typeof runGh;
 const short = (sha: string | null | undefined) => sha ? sha.slice(0, 7) : "unknown";
@@ -161,7 +162,8 @@ export function assess(store: Store, review: ReviewMeta, input: AssessInput): { 
   // During a check, verdicts belong to the commit it started on; the author may have pushed since.
   const head = review.verifyingSince && review.verifyingHead ? review.verifyingHead : headOf(review);
   if (!head) return { ok: false, error: "This review has no commit to check against." };
-  const threadIds = store.listFeedbackThreads(review.targetKey).map((t) => t.id);
+  const threads = store.listFeedbackThreads(review.targetKey);
+  const threadIds = threads.map((t) => t.id);
   const unknown = input.items.filter((item) => !threadIds.includes(item.id) && !isSummaryItem(item.id)).map((item) => item.id);
   if (unknown.length) return { ok: false, error: `Unknown item ids: ${unknown.join(", ")}. Use the thread ids from list_feedback, or "summary:<n>" for asks in a review summary. Nothing was recorded.` };
   const untitled = input.items.filter((item) => isSummaryItem(item.id) && !item.title?.trim() && !store.getAssessment(review.targetKey, head).items.some((i) => i.id === item.id && i.title));
@@ -180,7 +182,8 @@ export function assess(store: Store, review: ReviewMeta, input: AssessInput): { 
     suggestedVerdict: input.suggestedVerdict ?? previous?.suggestedVerdict ?? null,
     suggestedBody: input.suggestedBody?.trim() ?? previous?.suggestedBody ?? "",
   });
-  const summary = summarize(head, store.getAssessment(review.targetKey, head).items, threadIds);
+  // Non-blocking threads are checked too, but don't count toward what's addressed.
+  const summary = summarize(head, store.getAssessment(review.targetKey, head).items, threads.filter((t) => !threadLabel(t.body)?.nonBlocking).map((t) => t.id));
   store.setLifecycle(review.targetKey, { assessment: summary });
   const missing = summary.total - summary.addressed - summary.partial - summary.notAddressed - summary.disputed - summary.unclear;
   return { ok: true, text: `Recorded ${items.length} item${items.length === 1 ? "" : "s"} for ${short(head)}: ${summary.addressed} of ${summary.total} addressed.${missing ? ` ${missing} item${missing === 1 ? " has" : "s have"} no verdict yet.` : ""} The reviewer sees them in the Feedback view.` };

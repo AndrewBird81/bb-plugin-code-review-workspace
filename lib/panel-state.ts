@@ -19,6 +19,8 @@ interface PanelState {
   introCollapsed?: boolean;
   /** The diff wraps long lines instead of scrolling them; unset follows the workspace's width. */
   wrapLines?: boolean;
+  /** Draft review and the diff hide nit comments, in every review. */
+  hideNits?: boolean;
   perReview: Record<string, ReviewUiState>;
 }
 
@@ -82,5 +84,15 @@ export function getWrapLines(): boolean | undefined {
 export function setWrapLines(wrap: boolean) {
   const s = read();
   s.wrapLines = wrap;
+  write(s);
+}
+
+export function getHideNits(): boolean {
+  return read().hideNits ?? false;
+}
+
+export function setHideNits(hide: boolean) {
+  const s = read();
+  s.hideNits = hide;
   write(s);
 }

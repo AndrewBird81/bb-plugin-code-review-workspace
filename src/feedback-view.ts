@@ -9,6 +9,7 @@ import { interdiff, type FileInterdiff } from "./interdiff";
 import { firstLine, type AssessmentItem, type FeedbackItem, type FeedbackView } from "../lib/feedback";
 import { baselineOf, type AssessmentSummary } from "../lib/turn";
 import type { Verdict } from "./draft";
+import { threadLabel } from "./github/threads";
 
 type Run = typeof runGh;
 
@@ -127,10 +128,14 @@ export function feedbackView(store: Store, review: ReviewMeta): FeedbackView {
   const byId = new Map(assessment.items.map((item) => [item.id, item]));
   const drafts = store.listReplyDrafts(review.targetKey);
   const url = (commentId: number) => review.url ? `${review.url}#discussion_r${commentId}` : null;
-  const items: FeedbackItem[] = threads.map(({ resolvedSeenAt: _, ...thread }) => ({
-    id: thread.id, kind: "thread", title: firstLine(thread.body) || `${thread.path ?? "File"} comment`,
-    thread: { ...thread, url: url(thread.commentId) }, assessment: byId.get(thread.id) ?? null, replyDraft: drafts.get(thread.id) ?? null,
-  }));
+  const items: FeedbackItem[] = threads.map(({ resolvedSeenAt: _, ...thread }) => {
+    const label = threadLabel(thread.body);
+    return {
+      id: thread.id, kind: "thread", title: firstLine(thread.body) || `${thread.path ?? "File"} comment`,
+      thread: { ...thread, url: url(thread.commentId) }, assessment: byId.get(thread.id) ?? null, replyDraft: drafts.get(thread.id) ?? null,
+      ...(label ? { label: label.label } : {}), ...(label?.nonBlocking ? { nonBlocking: true as const } : {}),
+    };
+  });
   for (const item of assessment.items) {
     if (isSummaryItem(item.id)) items.push({ id: item.id, kind: "summary", title: item.title ?? "From your review summary", thread: null, assessment: item, replyDraft: null });
   }
@@ -155,9 +160,9 @@ export function summarize(headSha: string, items: AssessmentItem[], threadIds: r
   };
 }
 
-/** A Request changes summary listing the feedback that isn't addressed yet. */
+/** A Request changes summary listing the blocking feedback that isn't addressed yet. */
 export function remainingBody(view: FeedbackView): string {
-  const open = view.items.filter((item) => item.assessment ? item.assessment.verdict !== "addressed" : item.thread?.status !== "resolved");
+  const open = view.items.filter((item) => !item.nonBlocking && (item.assessment ? item.assessment.verdict !== "addressed" : item.thread?.status !== "resolved"));
   if (!open.length) return "";
   const line = (item: FeedbackItem) => {
     const where = item.thread?.path ? ` (\`${item.thread.path}${item.thread.line ? `:${item.thread.line}` : ""}\`)` : "";

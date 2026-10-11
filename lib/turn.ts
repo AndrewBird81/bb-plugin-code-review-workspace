@@ -27,6 +27,8 @@ export interface ThreadTally {
   open: number;
   /** The code under the comment changed. Overlaps the others. */
   outdated: number;
+  /** Threads whose first comment says nit, FYI, optional, or non-blocking; the counts above leave them out. */
+  nonBlocking?: number;
 }
 
 export interface ReviewRound {
@@ -278,14 +280,24 @@ export function ciSettled(s: TurnSignals, now = Date.now()): boolean {
   return (s.ci !== "pending" && s.ci !== "expected") || now - (s.headSeenAt ?? now) >= CI_STALE_MS;
 }
 
-/** Progress on your feedback for a list row, such as "2/5 addressed". Null when there's nothing to count. */
-export function feedbackProgress(review: TurnInput): { done: number; total: number; source: "assistant" | "threads" } | null {
+/**
+ * Progress on your feedback for a list row, such as "2/5 addressed", and `nits`, your non-blocking threads,
+ * which it leaves out. Null when there's nothing to count.
+ */
+export function feedbackProgress(review: TurnInput): { done: number; total: number; source: "assistant" | "threads"; nits?: number } | null {
   const head = review.latestHeadSha ?? review.headSha;
   const a = review.assessment;
-  if (a && a.total > 0 && a.headSha === head) return { done: a.addressed, total: a.total, source: "assistant" };
   const t = review.signals?.threads;
-  if (t && t.total > 0) return { done: t.resolved + t.answered, total: t.total, source: "threads" };
+  const nits = t?.nonBlocking ? { nits: t.nonBlocking } : {};
+  if (a && a.total > 0 && a.headSha === head) return { done: a.addressed, total: a.total, source: "assistant", ...nits };
+  if (t && t.total > 0) return { done: t.resolved + t.answered, total: t.total, source: "threads", ...nits };
   return null;
+}
+
+/** How progress reads: "2/5 addressed", or "2/5 handled" (resolved or answered) from GitHub, then "+2 nits". */
+export function progressText(progress: NonNullable<ReturnType<typeof feedbackProgress>>): string {
+  const nits = progress.nits ? ` +${progress.nits} nit${progress.nits === 1 ? "" : "s"}` : "";
+  return `${progress.done}/${progress.total} ${progress.source === "assistant" ? "addressed" : "handled"}${nits}`;
 }
 
 /** The commit and time your feedback came from: your latest real review, or a newer one submitted here. */

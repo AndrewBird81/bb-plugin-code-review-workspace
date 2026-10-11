@@ -139,7 +139,7 @@ test("bb review comment adds a range as <file>:<start>-<end>, and lists it", asy
   expect(await cli("add", "pr-1", "a.ts:23-21", "--code", "twenty\nmore\nend", "--body", "Tail.")).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("on a.ts:21–23.") });
   expect(await cli("add", "pr-1", "a.ts:2-x", "--code", "x", "--body", "x")).toMatchObject({ exitCode: 2, stderr: expect.stringContaining("a.ts:2-x isn't a <file>:<line> or <file>:<start>-<end>.") });
   expect((await cli("list", "pr-1")).stdout).toContain("a.ts:2–4 RIGHT · added by an agent");
-  expect(JSON.parse((await cli("list", "pr-1", "--json")).stdout).comments[0]).toEqual({ file: "a.ts", startLine: 2, line: 4, side: "RIGHT", author: "agent", body: "Merge these.", stale: false });
+  expect(JSON.parse((await cli("list", "pr-1", "--json")).stdout).comments[0]).toEqual({ file: "a.ts", startLine: 2, line: 4, side: "RIGHT", author: "agent", severity: "none", body: "Merge these.", stale: false });
   expect(store.getDraft("pr-1").comments.map((c) => [c.startLine, c.line])).toEqual([[2, 4], [21, 23]]);
 });
 

@@ -8,7 +8,7 @@ import { invalidComments } from "./review-positions";
 export function createReviewSubmitter(store: Store, run: typeof runGh) {
   const inFlight = new Set<string>();
   /** `shown` is the list of comments the reviewer's page displays, and `summary` its summary and verdict; the draft must still match them. */
-  return async (targetKey: string, revision?: string, account?: string, shown?: Pick<DraftComment, "file" | "line" | "side" | "body">[], summary?: { body: string; verdict: Verdict }): Promise<{ ok: boolean; error?: string; url?: string }> => {
+  return async (targetKey: string, revision?: string, account?: string, shown?: Pick<DraftComment, "file" | "line" | "side" | "severity" | "body">[], summary?: { body: string; verdict: Verdict }): Promise<{ ok: boolean; error?: string; url?: string }> => {
     if (inFlight.has(targetKey)) return { ok: false, error: "This review is already being submitted." };
     inFlight.add(targetKey);
     try {

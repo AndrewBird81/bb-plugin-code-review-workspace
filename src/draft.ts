@@ -1,6 +1,40 @@
 export type Verdict = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
 export const VERDICT_LABEL: Record<Verdict, string> = { APPROVE: "Approve", COMMENT: "Comment", REQUEST_CHANGES: "Request changes" };
 
+/** How much a comment matters to the author. A comment without one has none. */
+export const SEVERITIES = ["blocking", "should-fix", "question", "nit"] as const;
+export type Severity = typeof SEVERITIES[number];
+export const SEVERITY_LABEL: Record<Severity, string> = { blocking: "Blocking", "should-fix": "Should fix", question: "Question", nit: "Nit" };
+
+// "**Blocking:**", "**Blocking**:", or "Blocking:", in any case, and the space after it.
+const LABEL = /^\s*(\*\*|__)?(blocking|should[ -]fix|question|nit)(?:\1:|:\1)\s*/i;
+
+/**
+ * A comment's text and severity as they're kept: a label the text starts with sets the severity, and
+ * leaves the text; otherwise `severity`, where "none" is none.
+ */
+export function severityOf(body: string, severity?: Severity | "none"): { body: string; severity?: Severity } {
+  const label = body.match(LABEL);
+  const rest = label ? body.slice(label[0].length) : "";
+  if (label && rest.trim()) return { severity: label[2].toLowerCase().replace(/[ -]/, "-") as Severity, body: rest };
+  return { body, ...(severity && severity !== "none" ? { severity } : {}) };
+}
+
+/** The text GitHub gets: the severity's label, then the comment. A block, such as a suggestion, starts on its own line. */
+export function postedBody(c: Pick<DraftComment, "body" | "severity">): string {
+  if (!c.severity) return c.body;
+  return `**${SEVERITY_LABEL[c.severity]}:**${/^(```|~~~|#|>|[-*+] |\d+[.)] |\|)/.test(c.body) ? "\n\n" : " "}${c.body}`;
+}
+
+/** "2 blocking · 3 should fix · 1 nit": how many comments have each severity. Empty when none has one. */
+export function severityCounts(comments: readonly Pick<DraftComment, "severity">[]): string {
+  return SEVERITIES.flatMap((severity) => {
+    const n = comments.filter((c) => c.severity === severity).length;
+    const plural = n > 1 && (severity === "question" || severity === "nit") ? "s" : "";
+    return n ? [`${n} ${SEVERITY_LABEL[severity].toLowerCase()}${plural}`] : [];
+  }).join(" · ");
+}
+
 export interface DraftComment {
   file: string;
   /** The last line, under which GitHub shows the comment. */
@@ -13,6 +47,8 @@ export interface DraftComment {
   chapterId?: string;
   /** Added by an agent, through a tool or `bb review comment`. Absent once the reviewer writes or edits it in the panel. */
   author?: "agent";
+  severity?: Severity;
+  /** The text, without its severity's label. */
   body: string;
 }
 
@@ -81,9 +117,9 @@ export interface Draft {
   verdictChosen?: true;
 }
 
-type Keyed = Pick<DraftComment, "file" | "line" | "side" | "body" | "startLine" | "startSide">;
-// A single-line comment's key is as it was before ranges, so drafts saved then still match.
-const keyOf = (c: Keyed) => [c.file, c.line, c.side, c.body, ...c.startLine === undefined ? [] : [c.startLine, c.startSide ?? c.side]];
+type Keyed = Pick<DraftComment, "file" | "line" | "side" | "body" | "startLine" | "startSide" | "severity">;
+// A single-line comment's key is as it was before ranges and severities, so drafts saved then still match.
+const keyOf = (c: Keyed) => [c.file, c.line, c.side, c.body, ...c.startLine === undefined ? [] : [c.startLine, c.startSide ?? c.side], ...c.severity ? [{ severity: c.severity }] : []];
 
 /** A short fingerprint of the comments' places and text, to tell when they changed. */
 export function commentsKey(comments: readonly Keyed[]): string {
@@ -127,7 +163,7 @@ export function toGithubReviewPayload(draft: Draft): {
     comments: draft.comments.map((c) => ({
       path: c.file, line: c.line, side: c.side,
       ...(c.startLine !== undefined ? { start_line: c.startLine, start_side: c.startSide ?? c.side } : {}),
-      body: c.body,
+      body: postedBody(c),
     })),
   };
 }

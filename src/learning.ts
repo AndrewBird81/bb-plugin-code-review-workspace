@@ -3,11 +3,13 @@
 // The reviewer can ask an agent to propose instruction lines from them; nothing applies them but Save.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store } from "./store";
-import { sameLocation, type CommentLocation, type Draft } from "./draft";
+import { postedBody, sameLocation, type CommentLocation, type Draft, type DraftComment } from "./draft";
 import { diffPositions } from "./review-positions";
 import { agentPlacement, machineUnavailable } from "./machines";
 import { spawnExecution } from "./preferences";
 import { untrusted } from "./untrusted";
+
+// Words are kept as GitHub would get them, severity label and all, so a changed severity is an edit.
 
 /** The reviewer removed or edited an agent's draft comment in a review. */
 export interface AgentCommentChange extends CommentLocation {
@@ -101,15 +103,15 @@ const pending = (store: Store, targetKey: string, kind: AgentCommentChange["kind
  * Before the reviewer saves a comment from the panel: their save over an agent's comment edits it,
  * and one that puts back a comment they just removed (Undo) forgets the removal.
  */
-export function noteReviewerSave(store: Store, targetKey: string, comment: CommentLocation & { body: string }) {
+export function noteReviewerSave(store: Store, targetKey: string, comment: CommentLocation & Pick<DraftComment, "body" | "severity">) {
   const existing = store.getDraft(targetKey).comments.find((c) => sameLocation(c, comment));
   if (existing) {
     if (existing.author === "agent" && !pending(store, targetKey, "edited", comment).length) {
-      store.noteAgentCommentChange(targetKey, { ...location(comment), kind: "edited", code: store.draftCommentCode(targetKey, comment) ?? null, body: existing.body, removed: null });
+      store.noteAgentCommentChange(targetKey, { ...location(comment), kind: "edited", code: store.draftCommentCode(targetKey, comment) ?? null, body: postedBody(existing), removed: null });
     }
     return;
   }
-  const removal = pending(store, targetKey, "removed", comment).filter((c) => c.removed === comment.body).at(-1);
+  const removal = pending(store, targetKey, "removed", comment).filter((c) => c.removed === postedBody(comment)).at(-1);
   if (!removal) return;
   store.forgetAgentCommentChange(targetKey, removal.id);
   // Put back, it counts as the agent's words, kept unless the reviewer changes them.
@@ -124,7 +126,7 @@ export function noteReviewerRemoval(store: Store, targetKey: string, at: Comment
   if (existing.author !== "agent" && !edit) return;
   store.noteAgentCommentChange(targetKey, {
     ...location(at), kind: "removed", code: edit?.code ?? store.draftCommentCode(targetKey, at) ?? null,
-    body: edit?.body ?? existing.body, removed: existing.body,
+    body: edit?.body ?? postedBody(existing), removed: postedBody(existing),
   });
   if (edit) store.forgetAgentCommentChange(targetKey, edit.id);
 }
@@ -166,8 +168,9 @@ export function recordOutcomes(store: Store, targetKey: string, draft: Draft) {
   const outcomes: Array<Omit<AgentCommentOutcome, "at">> = [];
   for (const comment of draft.comments) {
     const edit = changes.find((c) => c.kind === "edited" && sameLocation(c, comment));
-    if (comment.author === "agent") outcomes.push({ repo, file: comment.file, outcome: "kept", body: comment.body, edited: null });
-    else if (edit) outcomes.push({ repo, file: comment.file, outcome: edit.body === comment.body ? "kept" : "edited", body: edit.body, edited: edit.body === comment.body ? null : comment.body });
+    const body = postedBody(comment);
+    if (comment.author === "agent") outcomes.push({ repo, file: comment.file, outcome: "kept", body, edited: null });
+    else if (edit) outcomes.push({ repo, file: comment.file, outcome: edit.body === body ? "kept" : "edited", body: edit.body, edited: edit.body === body ? null : body });
   }
   for (const c of changes) if (c.kind === "removed") outcomes.push({ repo, file: c.file, outcome: "removed", body: c.body, edited: null });
   store.recordAgentOutcomes(targetKey, outcomes);
