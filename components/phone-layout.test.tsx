@@ -89,6 +89,19 @@ test("a phone held sideways keeps the toolbar to counts and icons, so it fits on
   slot.lifecycle.unmount();
 });
 
+test("a phone held sideways folds the review's title and Re-review into the top bar, with Ask agent and Settings in the actions menu", async () => {
+  fakeSize(844, 390);
+  const slot = await renderWorkspace();
+  const bar = within(slot.getByRole("button", { name: "All reviews" }).parentElement!);
+  expect(bar.getByText("Parse rows")).toBeTruthy();
+  expect(await bar.findByRole("button", { name: "Re-review" })).toBeTruthy();
+  expect(bar.queryByRole("button", { name: "Ask agent" })).toBeNull();
+  expect(slot.getAllByText("Parse rows")).toHaveLength(1);
+  fireEvent.click(bar.getByRole("button", { name: "Review actions" }));
+  expect(await slot.findByRole("button", { name: "Settings" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("on a wide screen the top bar and toolbar keep their labels", async () => {
   fakeSize(1400, 900);
   const slot = await renderWorkspace();
@@ -104,6 +117,10 @@ test("on a wide screen the top bar and toolbar keep their labels", async () => {
   expect(slot.getByRole("button", { name: "Hide chapter overview" })).toBeTruthy();
   expect(main.getByRole("button", { name: "Focus mode" }).getAttribute("aria-pressed")).toBe("false");
   expect(within(slot.getByRole("group", { name: "Review tools" })).getByRole("button", { name: "Draft review" }).getAttribute("aria-expanded")).toBe("true");
+  // Focus slims the header there, but keeps it out of the top bar.
+  fireEvent.click(main.getByRole("button", { name: "Focus mode" }));
+  expect(bar.queryByText("Parse rows")).toBeNull();
+  expect(slot.getByText("Parse rows")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
