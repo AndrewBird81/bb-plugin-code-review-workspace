@@ -926,7 +926,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={() => { setHideWhitespaceState(!hideWhitespace); setHideWhitespace(!hideWhitespace); }}
                 >
                   <Icon name="Space" className="size-3.5" aria-hidden />
-                  <span className="hidden @min-[1280px]/review:inline">Hide whitespace</span>
+                  {/* A longer label, so only where the toolbar has room for it beside the others. */}
+                  <span className="hidden @min-[1600px]/review:inline">Hide whitespace</span>
                 </Button>
               </Hint>}
               <Hint label="Focus mode" container={rootEl}>
