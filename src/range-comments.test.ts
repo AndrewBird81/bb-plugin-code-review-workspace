@@ -191,6 +191,21 @@ test("undoing the agent's edit of a comment's lines is refused when its old firs
   expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 3, author: "agent", body: "Just these." }]);
 });
 
+test("undoing the agent's text-only edit puts its text back, even after a re-review moved the range's first line", async () => {
+  const { store, call } = await host();
+  await call("add_draft_comment", { file: "a.ts", startLine: 2, line: 4, code: "two();\nthree();\nfour", body: "Merge these." });
+  const end = { file: "a.ts", line: 4, side: "RIGHT" as const };
+  store.addDiscussionMessage("pr-1", end, "reviewer", "Shorter?");
+  await call("edit_draft_comment", { file: "a.ts", line: 4, body: "Merge." });
+  // A new commit adds a line above `two();` and drops `three();`, so the range is now 3–4.
+  const next = [...headers, "@@ -1,4 +1,5 @@", " one", "-two", "+zero", "+two();", " four", " five", "@@ -20,2 +21,3 @@", " twenty", "+more", " end", ""].join("\n");
+  store.savePatch("pr-1", next);
+  store.rebaseDraftComments("pr-1", reanchorAll(store, "pr-1", patch, next));
+  expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 3, author: "agent", body: "Merge." }]);
+  expect(undoChange(store, "pr-1", end)).toMatchObject({ ok: true });
+  expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 3, author: "agent", body: "Merge these." }]);
+});
+
 test("a range whose two ends are one row of the diff isn't one GitHub takes", () => {
   expect(rangeProblem(patch, at(4, 4))).toBe("Lines 4 and 4 of a.ts are one line of the diff. Comment on the line alone.");
   // A context line is on both sides.

@@ -295,7 +295,6 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     if (onSummary && !asking) { closeComposer(); focusSummary(); }
   }
 
-  /** Run a change to the draft; its error goes to `onError` when given, rather than a toast, and the status line shows what that returns, or the error. */
   // Saving disables the box, which drops its focus; a refused save puts it back, with the reason and buttons in view.
   const refocusBox = useRef(false);
   useEffect(() => {
@@ -305,6 +304,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     box?.focus({ preventScroll: true });
     box?.parentElement?.scrollIntoView?.({ block: "nearest" });
   }, [busy]);
+  /** Run a change to the draft; its error goes to `onError` when given, rather than a toast, and the status line shows what that returns, or the error. */
   async function mutate(operation: () => Promise<void>, onError?: (message: string) => string | void) {
     if (lock.current) return;
     lock.current = true; setBusy(true); setStatus({ saving: true });

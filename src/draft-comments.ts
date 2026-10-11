@@ -126,7 +126,8 @@ export function editComment(store: Store, targetKey: string, input: LocationInpu
     if (problem) return { ok: false, error: `${problem} Nothing was changed.` };
     store.upsertDraftComment(targetKey, { ...comment, startLine: undefined, startSide: undefined, ...range, body });
   } else if (!store.editDraftComment(targetKey, at, body)) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
-  store.noteDiscussionChange(targetKey, at, "edited", { body, previous });
+  // Undo puts old lines back only when this edit set new ones; a re-review may move them on its own.
+  store.noteDiscussionChange(targetKey, at, "edited", { body, previous: previous && input.startLine !== undefined ? { ...previous, relined: true } : previous });
   const lines = where({ ...at, ...range });
   return { ok: true, text: reviewers ? `Updated the reviewer's draft comment on ${lines}, as they asked.` : `Updated the draft comment on ${lines}.` };
 }
@@ -157,12 +158,10 @@ const positionsOf = (store: Store, targetKey: string): Positions => {
   return () => positions ??= store.diffPositions(targetKey);
 };
 
-/** The comment at a location, when the agent's edit there changed its lines from `previous`'s. */
+/** The comment at a location, when the agent's edit there set its lines. */
 function relined(store: Store, targetKey: string, at: CommentLocation, previous: PreviousState): DraftComment | null {
-  const comment = store.getDraft(targetKey).comments.find((c) => sameLocation(c, at));
-  if (!comment || !previous) return null;
-  const [now, then] = [rangeOf(comment), rangeOf({ ...at, ...previous })];
-  return now.startLine !== then.startLine || now.startSide !== then.startSide ? comment : null;
+  if (!previous?.relined) return null;
+  return store.getDraft(targetKey).comments.find((c) => sameLocation(c, at)) ?? null;
 }
 
 /**
