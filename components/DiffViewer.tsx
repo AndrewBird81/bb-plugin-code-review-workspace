@@ -342,6 +342,8 @@ export const DiffViewer = memo(function DiffViewer({
     const order = new Map(fileKey.split("\0").map((path, index) => [path, index]));
     const chapter = splitPatchByFile(patch).filter((f) => order.has(f.path)).sort((a, b) => order.get(a.path)! - order.get(b.path)!);
     const shown = filtering ? chapter.filter((f) => since!.get(f.path)?.status !== "unchanged") : chapter;
+    // Split files changed only in their other chapters' hunks.
+    let partsUnchanged = 0;
     const perFile = shown.flatMap((f) => {
       const change = since?.get(f.path);
       const split = splitFiles?.get(f.path);
@@ -354,7 +356,10 @@ export const DiffViewer = memo(function DiffViewer({
       const shown = hideWhitespace ? hideWhitespaceChanges(text) : text;
       const fileDiff = shown ? parseFileDiff(shown) : null;
       // A file whose only change since your review is removed hunks shows just those.
-      if (!fileDiff && !(filtering && dropped)) return [];
+      if (!fileDiff && !(filtering && dropped)) {
+        if (filtering && split && !text) partsUnchanged++;
+        return [];
+      }
       const stats = diffStats(text);
       const shownStats = shown === text ? stats : diffStats(shown);
       return [{
@@ -378,7 +383,7 @@ export const DiffViewer = memo(function DiffViewer({
         inPart: split ? diffLines(own) : undefined,
       }];
     });
-    return { perFile, unchanged: chapter.length - shown.length };
+    return { perFile, unchanged: chapter.length - shown.length + partsUnchanged };
   }, [patch, fileKey, since, filtering, generated, splitFiles, hideWhitespace]);
   // Files loaded in full, each with the diff it was read for, and those showing every line. A new diff starts over.
   const [contents, setContents] = useState<Record<string, { text: string; result: "loading" | FileContentsResult }>>({});
