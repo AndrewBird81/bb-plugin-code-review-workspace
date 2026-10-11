@@ -141,6 +141,14 @@ test("the assistant reads the guide's requirements, and puts a missing or partia
   expect(assistantInstructions("pr-1", guide("Retries") as any, defaultPreferences)).not.toMatch(/requirement/i);
 });
 
+test("the assistant leaves the reviewer's comments and summary to them unless asked, and the longest rules stay within bb's limit", () => {
+  const requirements = [{ text: "Retry once", status: "missing", evidence: "x" }];
+  const text = assistantInstructions("pr-1", { ...guide("Retries"), requirements } as any, { ...defaultPreferences, assistantInstructions: "x".repeat(5000) }, 4242);
+  expect(text).toContain("Change a comment or summary the reviewer wrote only when they ask on it; otherwise suggest the change in chat.");
+  expect(text).toContain("git fetch origin +pull/4242/head");
+  expect(text.length).toBeLessThanOrEqual(4000);
+});
+
 test("a long requirements list can't push the chapters out of the instructions", () => {
   const requirements = Array.from({ length: 100 }, (_, i) => ({ text: `Requirement ${i}`, status: "covered", evidence: "x".repeat(80) }));
   const text = assistantInstructions("pr-1", { ...guide("Retries"), requirements } as any, defaultPreferences);
