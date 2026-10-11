@@ -57,6 +57,12 @@ test("the index holds both sides of the diff, in the guide's order, and the guid
   expect(searchReview(index, "retries", 2)).toMatchObject({ total: 6, hits: [{}, {}] });
 });
 
+test("search ignores accents, and a hit's place is its place in the text", () => {
+  const index = searchIndex(file("docs/café.md", "@@ -0,0 +1 @@\n+Le Café Crème\n"), [{ id: "c1", title: "Menu", overview: "", diffs: [{ file: "docs/café.md" }] }]);
+  expect(searchReview(index, "creme")).toMatchObject({ total: 1, hits: [{ kind: "line", text: "Le Café Crème", at: 8 }] });
+  expect(searchReview(index, "CAFÉ CR")).toMatchObject({ total: 1, hits: [{ at: 3 }] });
+});
+
 test("searching a 30,000-line patch stays fast", () => {
   const lines = Array.from({ length: 100 }, (_, i) => `+const value${i} = compute(${i}); // line ${i}`).join("\n");
   const big = Array.from({ length: 300 }, (_, i) => file(`src/f${i}.ts`, `@@ -0,0 +1,100 @@\n${lines}\n`)).join("");

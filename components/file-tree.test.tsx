@@ -37,6 +37,11 @@ test("the path filter keeps files holding every word, in any case", () => {
   expect(filterPaths(paths, "")).toEqual(paths);
 });
 
+test("the path filter ignores accents", () => {
+  expect(filterPaths(["docs/café.md", "docs/cafe-notes.md", "src/api.ts"], "cafe")).toEqual(["docs/café.md", "docs/cafe-notes.md"]);
+  expect(filterPaths(["docs/cafe-notes.md", "docs/Café.md"], "CAFÉ")).toEqual(["docs/cafe-notes.md", "docs/Café.md"]);
+});
+
 const file = (path: string, hunks: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${hunks}`;
 const patch = [
   file("src/cache/store.ts", "@@ -1 +1 @@\n-a\n+store body\n"),

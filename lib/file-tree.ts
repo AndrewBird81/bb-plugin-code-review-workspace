@@ -1,3 +1,5 @@
+import { fold } from "./review-search";
+
 export interface TreeFolder { kind: "folder"; name: string; path: string; children: TreeNode[] }
 export interface TreeFile { kind: "file"; name: string; path: string }
 export type TreeNode = TreeFolder | TreeFile;
@@ -39,12 +41,12 @@ export function firstFile(nodes: readonly TreeNode[]): string | undefined {
   return first?.kind === "folder" ? firstFile(first.children) : first?.path;
 }
 
-/** The files whose path holds every word of the filter, in any case. */
+/** The files whose path holds every word of the filter, in any case and with or without accents. */
 export function filterPaths(paths: readonly string[], filter: string): string[] {
-  const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
+  const words = fold(filter).split(/\s+/).filter(Boolean);
   if (!words.length) return [...paths];
   return paths.filter((path) => {
-    const lower = path.toLowerCase();
+    const lower = fold(path);
     return words.every((word) => lower.includes(word));
   });
 }
