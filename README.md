@@ -193,7 +193,7 @@ bb plugin dev
 
 Development checks use the SDK test harness, temporary Git repositories, and mocked GitHub writes. Use a Node.js version compatible with the installed `better-sqlite3` package (this release was verified on Node.js 24).
 
-Build and commit `dist/` before tagging a release. Keep published tags immutable. Read [CHANGELOG.md](CHANGELOG.md) for release changes.
+BB builds the plugin from source when it installs or updates it, so the build output in `dist/` isn't committed. Keep published tags immutable. Read [CHANGELOG.md](CHANGELOG.md) for release changes.
 
 Inspired by [plannotator/guides](https://github.com/plannotator/guides). The viewer and generation workflow here run through BB.
 

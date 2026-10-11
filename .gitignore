@@ -1,4 +1,5 @@
-dist/*.map
+# Build output: BB builds the plugin from source when it installs or updates it
+dist/
 node_modules/
 .superpowers/
 
