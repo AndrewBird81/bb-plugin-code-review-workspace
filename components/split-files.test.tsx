@@ -118,3 +118,43 @@ test("since your review, a split file counts and shows only in the chapters whos
   await slot.findByText(/CACHE/);
   slot.lifecycle.unmount();
 });
+
+const currentFile = (slot: Awaited<ReturnType<typeof renderWorkspace>>) => within(slot.getByRole("navigation", { name: "Chapters" })).getAllByRole("button").find((button) => button.getAttribute("aria-current") === "true")?.textContent;
+const currentChapter = (slot: Awaited<ReturnType<typeof renderWorkspace>>) => within(slot.getByRole("navigation", { name: "Chapters" })).getAllByRole("button").find((button) => button.getAttribute("aria-current") === "step")?.textContent;
+const press = (key: string) => fireEvent.keyDown(document.body, { key });
+
+test("] goes through a split file's comments in the chapter showing each line", async () => {
+  const scrollIntoView = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = () => {};
+  const slot = await renderWorkspace({ rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [
+    { file: "src/a.ts", line: 1, side: "RIGHT", body: "Parse it once." },
+    { file: "src/b.ts", line: 1, side: "RIGHT", body: "Use it." },
+    { file: "src/a.ts", line: 20, side: "RIGHT", body: "Expire it." },
+  ] } }) } });
+  await waitFor(() => expect(card(slot).getByText("comment on 1")).toBeTruthy());
+  press("]");
+  await waitFor(() => expect(currentFile(slot)).toContain("a.ts"));
+  expect(currentChapter(slot)).toContain("Parsing");
+  press("]");
+  await waitFor(() => expect(currentFile(slot)).toContain("b.ts"));
+  press("]");
+  await slot.findByText(/CACHE/);
+  expect(currentChapter(slot)).toContain("Caching");
+  Element.prototype.scrollIntoView = scrollIntoView;
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("u goes on from a split file's place in the open chapter", async () => {
+  const scrollIntoView = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = () => {};
+  const withC = { ...guide, sections: [guide.sections[0], { ...guide.sections[1], diffs: [...guide.sections[1].diffs, { file: "src/c.ts", summary: "Evicts a row." }] }] };
+  const slot = await renderWorkspace({ bundle: { guide: withC, patch: `${patch}diff --git a/src/c.ts b/src/c.ts\n--- a/src/c.ts\n+++ b/src/c.ts\n@@ -1 +1 @@\n-c\n+cc\n` } });
+  await slot.findByText(/PARSE/);
+  fireEvent.click(within(slot.getByRole("navigation", { name: "Chapters" })).getByText("Caching"));
+  await slot.findByText(/CACHE/);
+  press("u");
+  await waitFor(() => expect(currentFile(slot)).toContain("c.ts"));
+  expect(currentChapter(slot)).toContain("Caching");
+  Element.prototype.scrollIntoView = scrollIntoView;
+  slot.lifecycle.unmount();
+}, 15_000);

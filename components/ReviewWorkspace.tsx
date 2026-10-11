@@ -35,7 +35,7 @@ import { ReviewActions } from "./ReviewActions";
 import { AccountBar } from "./AccountBar";
 import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
 import { useDraftStatus } from "../lib/draft-status";
-import { inDiffOrder, shortcutKey } from "../lib/review-shortcuts";
+import { inDiffOrder, readingOrder, shortcutKey } from "../lib/review-shortcuts";
 import { InlineDraftContext } from "./InlineDraft";
 import { DiffThreadsContext, useDiffThreads } from "./LineThreads";
 import { CheckFailuresContext, useCheckFailures } from "./CheckFailures";
@@ -680,7 +680,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       setCurrentFile(file);
       fileEls.current.get(file)?.scrollIntoView({ block: "start" });
     };
-    const allFiles: string[] = sections.flatMap((section: any) => section.diffs.map((diff: any) => diff.file));
+    const allFiles = readingOrder(sections);
+    const placeOf = (file: string | undefined) => allFiles.findIndex((entry) => entry.chapter === activeId && entry.file === file);
     const diffOnly = view === "diff";
     switch (key) {
       case "j": case "k": {
@@ -707,23 +708,22 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         return true;
       }
       case "u": {
-        const from = Math.max(currentFile ? allFiles.indexOf(currentFile) : allFiles.indexOf(activeFiles[0]) - 1, -1);
+        const from = Math.max(currentFile ? placeOf(currentFile) : placeOf(activeFiles[0]) - 1, -1);
         const rest = [...allFiles.slice(from + 1), ...allFiles.slice(0, from + 1)];
-        const file = rest.find((f) => !views.get(f)?.viewed);
-        const chapter = file && sections.find((section: any) => section.diffs.some((diff: any) => diff.file === file));
-        if (!file || !chapter) toast.info("Every file is viewed.");
-        else { setView("diff"); onSelectFile(chapter.id, file); }
+        const next = rest.find((entry) => !views.get(entry.file)?.viewed);
+        if (!next) toast.info("Every file is viewed.");
+        else { setView("diff"); onSelectFile(next.chapter, next.file); }
         return true;
       }
       case "]": case "[": {
-        const lines = inDiffOrder(draftLines.current, allFiles);
+        const lines = inDiffOrder(draftLines.current, sections, patch);
         if (!lines.length) return true;
         // From the line you last went to, or else from the current file.
-        const last = lastLine.current ? lines.findIndex((line) => sameLocation(line, lastLine.current!)) : -1;
-        const here = allFiles.indexOf(currentFile ?? activeFiles[0]);
-        const after = lines.findIndex((line) => allFiles.indexOf(line.file) >= here);
+        const last = lastLine.current ? lines.findIndex((line) => sameLocation(line.at, lastLine.current!)) : -1;
+        const here = placeOf(currentFile ?? activeFiles[0]);
+        const after = lines.findIndex((line) => line.place >= here);
         const index = last >= 0 ? last + (key === "]" ? 1 : -1) : key === "]" ? Math.max(after, 0) : (after > 0 ? after : lines.length) - 1;
-        const next = lines[(index + lines.length) % lines.length];
+        const next = lines[(index + lines.length) % lines.length].at;
         lastLine.current = next;
         showComment(next);
         return true;

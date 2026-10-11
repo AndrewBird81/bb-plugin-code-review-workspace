@@ -1,4 +1,5 @@
 import type { CommentLocation } from "../src/draft";
+import { chapterAt } from "../src/hunks";
 
 /** The workspace's single-key shortcuts, as the help sheet lists them. */
 export const SHORTCUTS = [
@@ -26,10 +27,21 @@ export function shortcutKey(event: KeyboardEvent): string | null {
   return event.key;
 }
 
-/** Lines in the order the guide reads them: by chapter, by file within it, then by line. */
-export function inDiffOrder(locations: CommentLocation[], files: string[]): CommentLocation[] {
-  const order = new Map(files.map((file, index) => [file, index]));
+type Chapter = { id: string; diffs: Array<{ file: string; hunks?: number[] }> };
+
+/** Each chapter's files in the order the guide reads them; a file split across chapters is in each. */
+export function readingOrder(sections: Chapter[]): Array<{ chapter: string; file: string }> {
+  return sections.flatMap((section) => section.diffs.map((diff) => ({ chapter: section.id, file: diff.file })));
+}
+
+/** Lines in the order the guide reads them, each with its place in readingOrder: by the chapter showing it, by file within it, then by line. */
+export function inDiffOrder(locations: CommentLocation[], sections: Chapter[], patch: string): Array<{ at: CommentLocation; place: number }> {
+  const order = readingOrder(sections);
   return locations
-    .filter((at) => order.has(at.file))
-    .sort((a, b) => order.get(a.file)! - order.get(b.file)! || a.line - b.line || a.side.localeCompare(b.side));
+    .map((at) => {
+      const chapter = chapterAt(sections, patch, at)?.id;
+      return { at, place: order.findIndex((entry) => entry.chapter === chapter && entry.file === at.file) };
+    })
+    .filter((line) => line.place >= 0)
+    .sort((a, b) => a.place - b.place || a.at.line - b.at.line || a.at.side.localeCompare(b.at.side));
 }
