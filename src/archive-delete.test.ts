@@ -34,6 +34,17 @@ test("archiving moves a review out of the queue until it is unarchived, keeping 
   expect(bb.storage.database().prepare(`SELECT COUNT(*) AS n FROM review_lifecycle WHERE target_key='missing'`).get()).toEqual({ n: 0 });
 });
 
+test("pinning records when, unpinning clears it, and both tell open pages", async () => {
+  const { harness, store } = await setup();
+  expect(await harness.behavior.callRpc("pinReview", { targetKey: "pr-1", pinned: true })).toEqual({ ok: true });
+  expect(store.getReview("pr-1")?.pinnedAt).toEqual(expect.any(Number));
+  expect(store.getReview("pr-2")?.pinnedAt).toBeUndefined();
+  expect(harness.inspection.realtimeSignals.map((s) => s.channel)).toEqual(expect.arrayContaining(["reviews", "review:pr-1"]));
+  expect(await harness.behavior.callRpc("pinReview", { targetKey: "pr-1", pinned: false })).toEqual({ ok: true });
+  expect(store.getReview("pr-1")?.pinnedAt).toBeNull();
+  expect(await harness.behavior.callRpc("pinReview", { targetKey: "missing", pinned: true })).toMatchObject({ ok: false });
+});
+
 test("deleting a review removes its data, queued notification, and hidden worker, and nothing else", async () => {
   const { bb, harness, store } = await setup();
   await bb.storage.kv.set("needs-you:pending:pr-1", { targetKey: "pr-1" });

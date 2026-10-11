@@ -3,17 +3,21 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { Turn } from "../lib/turn";
+import { defaultPreferences } from "../src/preferences";
 
 afterEach(() => { cleanup(); document.body.innerHTML = ""; localStorage.clear(); vi.useRealTimers(); });
 
-/** BB's thread list as it draws its groups: wrappers in a container, each holding a group under its label. */
-function threadList() {
+/** BB's thread list as it draws its groups: wrappers in a container, each holding a group under its label; Pinned's header doesn't stick. */
+function threadList(pinned: "open" | "collapsed" | "none" = "open") {
+  const rows = pinned === "open" ? `<div class="mt-1"><div data-sidebar-sticky-section data-testid="pinned-rows"><div>Per's PR's</div><div>Docs PR</div></div></div>` : "";
   document.body.insertAdjacentHTML("beforeend", `<div data-bb-plugin-root data-bb-plugin="thread-list"><div data-testid="groups">
-    <div><div data-sidebar-sticky-group><div data-sidebar="group-label">Pinned</div></div></div>
+    ${pinned === "none" ? "" : `<div><div data-sidebar-sticky-group data-sidebar-sticky-header="false"><div data-sidebar="group-label">Pinned</div>${rows}</div></div>`}
     <div data-sidebar-visibility-group="threads"><div data-sidebar-sticky-group><div data-sidebar="group-label">Threads</div></div></div>
   </div></div>`);
   return document.querySelector<HTMLElement>('[data-testid="groups"]')!;
 }
+/** A pinned BB thread, so BB draws its Pinned group. */
+const pinnedThread = { id: "thr-1", title: "Per's PR's", isPinned: true, isArchived: false, isHidden: false } as any;
 
 const hour = 3_600_000;
 const turn = (group: Turn["group"], reason: Turn["reason"], hoursAgo: number, blocking = false): Turn =>
@@ -25,10 +29,13 @@ const reviews = [
   { targetKey: "pr-blocking", title: "Blocks merge", repo: "acme/web", number: 2, status: "ready", turn: turn("needs", "re-requested", 1, true) },
 ];
 
-async function renderSidebar(list: unknown[] = reviews) {
+/** Settings as saved: reviews in the thread list unless a test turns them off. */
+const settings = (threadListReviews = true) => ({ preferences: { ...defaultPreferences, threadListReviews }, revision: 0 });
+
+async function renderSidebar(list: unknown[] = reviews, threads: unknown[] = [pinnedThread], status: "ready" | "loading" = "ready") {
   const app = await loadPluginApp(() => import("../app"));
   const overlay = app.appOverlays.find((registration) => registration.id === "needs-review")!;
-  return renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: list }) } });
+  return renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: list }), pinReview: () => ({ ok: true }), getPreferences: () => settings() }, sidebarThreads: { status, threads: threads as any } });
 }
 
 test("Needs review goes last in BB's thread list, below Threads, with only the reviews waiting on you, in the tab's order", async () => {
@@ -108,7 +115,7 @@ test("with nothing waiting on you there's no group, and it appears when a review
   let list: unknown[] = [reviews[1]];
   const app = await loadPluginApp(() => import("../app"));
   const overlay = app.appOverlays.find((registration) => registration.id === "needs-review")!;
-  const slot = renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: list }) } });
+  const slot = renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: list }), getPreferences: () => settings() } });
   await waitFor(() => expect(slot.inspection.rpcCalls.some((call) => call.method === "listReviews")).toBe(true));
   // Out of BB's list altogether while empty.
   expect(groups.children).toHaveLength(2);
@@ -138,5 +145,110 @@ test("how long each has waited keeps up while the page stays open", async () => 
   expect(row.textContent).toBe("Direct request2h");
   await vi.advanceTimersByTimeAsync(3_600_000);
   expect(row.textContent).toBe("Direct request3h");
+  slot.lifecycle.unmount();
+});
+
+const pinnedReview = { ...reviews[2], pinnedAt: Date.now() - hour };
+
+test("a pinned review sits in BB's Pinned group after its threads, and leaves Needs review", async () => {
+  threadList();
+  const slot = await renderSidebar([pinnedReview, reviews[3]]);
+  const pinnedRows = document.querySelector<HTMLElement>('[data-testid="pinned-rows"]')!;
+  const row = await within(pinnedRows).findByRole("link", { name: /Direct request/ });
+  expect(pinnedRows.lastElementChild!.contains(row)).toBe(true);
+  expect(pinnedRows.children).toHaveLength(3);
+  const needs = within(document.body).getByRole("region", { name: "Needs review" });
+  expect(within(needs).getAllByRole("link").map((link) => link.textContent)).toEqual(["Blocks merge1h"]);
+  expect(within(pinnedRows).getByRole("button", { name: "Unpin Direct request" })).toBeTruthy();
+  slot.lifecycle.unmount();
+  expect(pinnedRows.children).toHaveLength(2);
+});
+
+test("Pin moves a review into Pinned at once, and Unpin moves it back", async () => {
+  threadList();
+  const slot = await renderSidebar([reviews[2], reviews[3]]);
+  fireEvent.click(await within(document.body).findByRole("button", { name: "Pin Direct request" }));
+  const pinnedRows = document.querySelector<HTMLElement>('[data-testid="pinned-rows"]')!;
+  expect(await within(pinnedRows).findByRole("link", { name: /Direct request/ })).toBeTruthy();
+  expect(slot.inspection.rpcCalls.filter((call) => call.method === "pinReview").map((call) => call.input)).toEqual([{ targetKey: "pr-direct", pinned: true }]);
+  fireEvent.click(within(pinnedRows).getByRole("button", { name: "Unpin Direct request" }));
+  const needs = within(document.body).getByRole("region", { name: "Needs review" });
+  expect(await within(needs).findByRole("link", { name: /Direct request/ })).toBeTruthy();
+  expect(within(pinnedRows).queryByRole("link")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("collapsing BB's Pinned hides pinned reviews with its threads", async () => {
+  threadList("collapsed");
+  const slot = await renderSidebar([pinnedReview, reviews[3]]);
+  await within(document.body).findByRole("region", { name: "Needs review" });
+  expect(within(document.body).queryByRole("link", { name: /Direct request/ })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("with no pinned thread, BB draws no Pinned, so pinned reviews get one of their own, first", async () => {
+  const groups = threadList("none");
+  const slot = await renderSidebar([pinnedReview, reviews[3]], []);
+  const pinned = await within(document.body).findByRole("region", { name: "Pinned" });
+  expect(groups.firstElementChild!.contains(pinned)).toBe(true);
+  expect(within(pinned).getByRole("link", { name: /Direct request/ })).toBeTruthy();
+  expect(groups.lastElementChild!.querySelector('[aria-label="Needs review"]')).toBeTruthy();
+  fireEvent.click(within(pinned).getByRole("button", { name: /^Pinned/ }));
+  expect(within(pinned).queryByRole("link")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("pinned reviews wait for BB's threads to load, so a Pinned of their own doesn't flash up", async () => {
+  threadList("none");
+  const slot = await renderSidebar([pinnedReview, reviews[3]], [], "loading");
+  await within(document.body).findByRole("region", { name: "Needs review" });
+  expect(within(document.body).queryByRole("region", { name: "Pinned" })).toBeNull();
+  expect(within(document.body).queryByRole("link", { name: /Direct request/ })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("an archived review leaves Pinned", async () => {
+  threadList();
+  const archived = { ...pinnedReview, turn: turn("archive", "merged", 1) };
+  const slot = await renderSidebar([archived, reviews[3]]);
+  await within(document.body).findByRole("region", { name: "Needs review" });
+  expect(within(document.body).queryByRole("link", { name: /Direct request/ })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("turned off in Settings, nothing goes into BB's list; turned back on, it comes back", async () => {
+  const groups = threadList();
+  let enabled = false;
+  const app = await loadPluginApp(() => import("../app"));
+  const overlay = app.appOverlays.find((registration) => registration.id === "needs-review")!;
+  const slot = renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: [pinnedReview, reviews[3]] }), getPreferences: () => settings(enabled) }, sidebarThreads: { status: "ready", threads: [pinnedThread] } });
+  await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "getPreferences")).toHaveLength(1));
+  await waitFor(() => expect(slot.inspection.rpcCalls.some((call) => call.method === "listReviews")).toBe(true));
+  expect(groups.children).toHaveLength(2);
+  expect(document.querySelector('[data-testid="pinned-rows"]')!.children).toHaveLength(2);
+  enabled = true;
+  await slot.emitRealtime("preferences", {});
+  expect(await within(document.body).findByRole("region", { name: "Needs review" })).toBeTruthy();
+  expect(document.querySelector('[data-testid="pinned-rows"]')!.children).toHaveLength(3);
+  enabled = false;
+  await slot.emitRealtime("preferences", {});
+  await waitFor(() => expect(groups.children).toHaveLength(2));
+  expect(document.querySelector('[data-testid="pinned-rows"]')!.children).toHaveLength(2);
+  slot.lifecycle.unmount();
+});
+
+test("Settings turns reviews in the thread list off, saying why someone would", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  let record = settings();
+  const save = vi.fn(async (input: any) => record = { ...input, revision: input.revision + 1 });
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record, savePreferences: save } });
+  const toggle = await slot.findByRole("checkbox", { name: /Show reviews in the thread list/ }) as HTMLInputElement;
+  expect(toggle.checked).toBe(true);
+  expect(toggle.closest("label")!.textContent).toContain("If a BB update makes that list misbehave");
+  fireEvent.click(toggle);
+  fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
+  await slot.findByText("Settings saved");
+  expect(save.mock.calls[0][0].preferences.threadListReviews).toBe(false);
   slot.lifecycle.unmount();
 });

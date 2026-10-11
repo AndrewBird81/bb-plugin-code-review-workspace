@@ -145,9 +145,13 @@ export const rpcContract = defineRpcContract({
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
 
-  // Reviewer-managed archive, and permanent deletion of a review's saved data
+  // Reviewer-managed archive and pin, and permanent deletion of a review's saved data
   archiveReview: {
     input: z.object({ targetKey: z.string(), archived: z.boolean() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  pinReview: {
+    input: z.object({ targetKey: z.string(), pinned: z.boolean() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   deleteReview: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },

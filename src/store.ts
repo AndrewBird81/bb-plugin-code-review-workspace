@@ -16,6 +16,8 @@ export interface ReviewLifecycle {
   archivedAt?: number | null;
   /** Archived by the reviewer. GitHub sync owns archivedAt and never changes this. */
   userArchivedAt?: number | null;
+  /** Pinned by the reviewer, into BB's Pinned group in the thread list, since this time. */
+  pinnedAt?: number | null;
   submittedVerdict?: Verdict | null;
   submittedAt?: number | null;
   submittedHeadSha?: string | null;

@@ -3,7 +3,7 @@
 // Registers the "Guided Review" navPanel (a sidebar entry + its own route).
 // The panel routes by subPath: "" renders the review list, anything else
 // renders the chapter/diff workspace for that target. An app overlay adds
-// Needs review to BB's thread list, which has no slot of its own for it.
+// Needs review and pinned reviews to BB's thread list, which has no slot for them.
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import { ReviewPanel } from "./components/ReviewPanel";
 import { ReviewSettings } from "./components/ReviewSettings";

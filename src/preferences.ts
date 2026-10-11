@@ -41,6 +41,7 @@ export const preferencesSchema = z.object({
   verificationPrompt: z.string().max(12000),
   unattendedAuthors: z.enum(["members", "anyone"]),
   runRepoChecks: z.boolean(),
+  threadListReviews: z.boolean(),
 }).strict();
 
 /** Saved settings as they read now: missing fields take their defaults, and older defaults the current ones. */

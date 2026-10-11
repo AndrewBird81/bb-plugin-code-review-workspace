@@ -4,6 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { patchReviewState } from "../lib/panel-state";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
+import { defaultPreferences } from "../src/preferences";
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); });
 
 const guide = { title: "Guide", intent: "Intent", sections: [{ id: "core", title: "Core", overview: "Overview", diffs: [{ file: "a.ts", summary: "Adds a" }] }], unplacedFiles: [] };
@@ -17,6 +18,8 @@ async function list(initial: any[], overrides: Record<string, (input: any) => un
     getGhAccounts: () => ({ active: "me", accounts: [] }),
     listReviews: () => ({ reviews }),
     archiveReview: ({ targetKey, archived }: any) => { reviews = reviews.map((r) => r.targetKey === targetKey ? { ...r, userArchivedAt: archived ? 5 : null } : r); return { ok: true }; },
+    pinReview: ({ targetKey, pinned }: any) => { reviews = reviews.map((r) => r.targetKey === targetKey ? { ...r, pinnedAt: pinned ? 5 : null } : r); return { ok: true }; },
+    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
     deleteReview: ({ targetKey }: any) => { reviews = reviews.filter((r) => r.targetKey !== targetKey); return { ok: true }; },
     ...overrides,
   } });
@@ -46,6 +49,32 @@ test("archiving an unfinished review moves it to Archive until it is unarchived"
   slot.lifecycle.unmount();
 });
 
+test("Pin puts a review with your pinned threads and marks it in the list; Unpin takes it out", async () => {
+  const { slot, menu, calls } = await list([{ targetKey: "a", title: "Important change", status: "ready", prState: "OPEN" }]);
+  await slot.findByText("Important change");
+  expect(slot.queryByLabelText("Pinned")).toBeNull();
+  menu();
+  fireEvent.click(await slot.findByRole("button", { name: "Pin" }));
+  expect(await slot.findByLabelText("Pinned")).toBeTruthy();
+  menu();
+  fireEvent.click(await slot.findByRole("button", { name: "Unpin" }));
+  await waitFor(() => expect(slot.queryByLabelText("Pinned")).toBeNull());
+  expect(calls("pinReview")).toEqual([{ targetKey: "a", pinned: true }, { targetKey: "a", pinned: false }]);
+  slot.lifecycle.unmount();
+});
+
+test("with reviews kept out of the thread list in Settings, there's no Pin, and no pin in the list", async () => {
+  const { slot, menu } = await list([{ targetKey: "a", title: "Important change", status: "ready", prState: "OPEN", pinnedAt: 5 }], { getPreferences: () => ({ preferences: { ...defaultPreferences, threadListReviews: false }, revision: 0 }) });
+  await slot.findByText("Important change");
+  await waitFor(() => expect(slot.inspection.rpcCalls.some((call) => call.method === "getPreferences")).toBe(true));
+  menu();
+  await slot.findByRole("button", { name: "Archive" });
+  expect(slot.queryByRole("button", { name: "Pin" })).toBeNull();
+  expect(slot.queryByRole("button", { name: "Unpin" })).toBeNull();
+  expect(slot.queryByLabelText("Pinned")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("merged reviews can be deleted but not unarchived", async () => {
   const { slot, tab, menu } = await list([{ targetKey: "m", title: "Shipped change", status: "ready", prState: "MERGED", archivedAt: 1, userArchivedAt: 1 }]);
   await tab(/^Archive/);
@@ -55,6 +84,8 @@ test("merged reviews can be deleted but not unarchived", async () => {
   await slot.findByRole("button", { name: "Delete…" });
   expect(slot.queryByRole("button", { name: "Unarchive" })).toBeNull();
   expect(slot.queryByRole("button", { name: "Archive" })).toBeNull();
+  // Archive takes a review out of Pinned, so there's nothing to pin it to.
+  expect(slot.queryByRole("button", { name: "Pin" })).toBeNull();
   slot.lifecycle.unmount();
 });
 

@@ -12,9 +12,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { SnoozeChoices } from "./SnoozeChoices";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
-/** Start a tracked review, set it aside ("Not yet"), archive, unarchive, or permanently delete one saved review. */
-export function ReviewActions({ review, items, onChanged, onDeleted, describedBy, className }: {
+/** Start a tracked review, set it aside ("Not yet"), pin it in BB's thread list, archive, unarchive, or permanently delete one saved review. */
+export function ReviewActions({ review, items, pinnable = false, onChanged, onDeleted, describedBy, className }: {
   review: ReviewItem;
+  /** Offer Pin: Settings shows reviews in BB's thread list. */
+  pinnable?: boolean;
   /** Actions listed first, such as those a narrow top bar has no room for. */
   items?: { label: string; icon: IconName; onSelect: () => void }[];
   onChanged?: () => void;
@@ -55,6 +57,12 @@ export function ReviewActions({ review, items, onChanged, onDeleted, describedBy
   async function setArchived(archived: boolean) {
     setMenuOpen(false);
     const ok = await run(() => rpc.call("archiveReview", { targetKey: review.targetKey, archived }), archived ? "Review archived" : "Review unarchived");
+    if (ok) onChanged?.();
+  }
+
+  async function setPinned(pinned: boolean) {
+    setMenuOpen(false);
+    const ok = await run(() => rpc.call("pinReview", { targetKey: review.targetKey, pinned }), pinned ? "Pinned with your pinned threads" : "Unpinned");
     if (ok) onChanged?.();
   }
 
@@ -102,6 +110,10 @@ export function ReviewActions({ review, items, onChanged, onDeleted, describedBy
         {snoozableUntil && <SnoozeChoices disabled={busy} onPick={(until) => void setSnoozed(true, until)} />}
         {turn.reason === "snoozed" && <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground hover:text-foreground" onClick={() => void setSnoozed(false)}>
           <Icon name="ArrowTurnBackward" aria-hidden />Back to Needs review
+        </Button>}
+        {/* Archive takes a review out of Pinned, so it offers only Unpin there. */}
+        {pinnable && (review.pinnedAt || turn.group !== "archive") && <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground hover:text-foreground" onClick={() => void setPinned(!review.pinnedAt)}>
+          <Icon name={review.pinnedAt ? "PinOff" : "Pin"} aria-hidden />{review.pinnedAt ? "Unpin" : "Pin"}
         </Button>}
         {!closed && <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground hover:text-foreground" onClick={() => void setArchived(!review.userArchivedAt)}>
           <Icon name={review.userArchivedAt ? "ArchiveRestore" : "Archive"} aria-hidden />{review.userArchivedAt ? "Unarchive" : "Archive"}

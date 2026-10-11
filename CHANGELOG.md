@@ -3,6 +3,8 @@
 ## 0.5.1 — 2026-10-11
 
 - **Needs review** in BB's thread list: the reviews waiting on you, below Pinned and Threads, collapsible like them. Choosing one opens it, and closes the sidebar on a phone.
+- **Pin** a review, from that list or its Review actions menu, to keep it in BB's Pinned group after your pinned threads, until you unpin it or it's archived.
+- **Settings → BB's thread list → Show reviews in the thread list** turns both off, for a BB update that breaks them or a list you'd rather keep to threads. It's on by default.
 - The review list scrolls in BB, on a phone and in a short window, instead of stopping at the window's edge. So does a tracked PR's page.
 - On a phone, the chapter list no longer draws over Draft review when both are open: it scrolls in the room above, and the toolbar row with Chapters stays.
 

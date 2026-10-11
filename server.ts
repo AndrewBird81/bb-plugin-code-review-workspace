@@ -528,6 +528,12 @@ export default async function plugin(bb: BbPluginApi) {
       bb.realtime.publish("reviews", { ts: Date.now() });
       return { ok: true };
     },
+    pinReview({ targetKey, pinned }) {
+      if (!store.getReview(targetKey)) return { ok: false, error: "This review no longer exists." };
+      store.setLifecycle(targetKey, { pinnedAt: pinned ? Date.now() : null });
+      changed(targetKey);
+      return { ok: true };
+    },
     async deleteReview({ targetKey }) {
       const review = store.getReview(targetKey);
       if (!review) return { ok: true };

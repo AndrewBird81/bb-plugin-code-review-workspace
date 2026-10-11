@@ -20,6 +20,7 @@ import { InlineCode } from "./ui/inline-code";
 import { age, timeAgo } from "./time-ago";
 import type { SyncHealth } from "../src/review-lifecycle";
 import { notRunReason } from "../lib/trust";
+import { useThreadListReviews } from "./NeedsReviewSidebar";
 
 /** Why it's your turn, with who asked when GitHub says. Null when the status badge says it all. */
 function turnWhy(review: ReviewItem, turn: Turn): string | null {
@@ -100,7 +101,7 @@ function withStacks(rows: ReviewItem[]): ReviewItem[][] {
   return groups;
 }
 
-function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: () => void; onChanged: () => void }) {
+function ReviewRow({ review, pinnable, onOpen, onChanged }: { review: ReviewItem; pinnable: boolean; onOpen: () => void; onChanged: () => void }) {
   const state = reviewState(review);
   const kind = kindLook(review);
   const titleId = useId();
@@ -111,7 +112,7 @@ function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: 
     <button type="button" onClick={onOpen} className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 py-3 pl-3 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:gap-x-3.5 sm:pl-4 @min-[520px]/review-list:grid-cols-[auto_minmax(0,1fr)_auto]">
       <IconTile tone={kind.tone} icon={kind.icon} className="row-span-4" />
       <span className="contents">
-        <span id={titleId} className="block text-sm font-medium leading-snug text-foreground"><InlineCode text={review.title ?? review.gitRef ?? review.targetKey} /></span>
+        <span id={titleId} className="block text-sm font-medium leading-snug text-foreground"><InlineCode text={review.title ?? review.gitRef ?? review.targetKey} />{pinnable && review.pinnedAt && <Icon name="Pin" className="ml-1.5 inline size-3.5 align-[-2px] text-muted-foreground" aria-label="Pinned" />}</span>
         <span className="col-start-2 mt-1.5 flex items-center gap-3 justify-self-start @min-[520px]/review-list:col-start-3 @min-[520px]/review-list:row-span-3 @min-[520px]/review-list:row-start-1 @min-[520px]/review-list:mt-0 @min-[520px]/review-list:justify-self-end">
           <span className="hidden items-center gap-0.5 text-xs text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/row:text-foreground group-hover/row:opacity-100 group-focus-within/row:opacity-100 @min-[640px]/review-list:inline-flex">{state.action}<Icon name="ChevronRight" className="size-3.5" aria-hidden /></span>
           <StatusBadge review={review} />
@@ -126,7 +127,7 @@ function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: 
         <TurnMeta review={review} turn={state} />
       </span>
     </button>
-    <ReviewActions review={review} onChanged={onChanged} onDeleted={onChanged} describedBy={titleId} />
+    <ReviewActions review={review} pinnable={pinnable} onChanged={onChanged} onDeleted={onChanged} describedBy={titleId} />
     </div>
   );
 }
@@ -175,6 +176,7 @@ function EmptyState({ icon, tone, title, children }: { icon: Parameters<typeof I
 export const ReviewList = memo(function ReviewList() {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
+  const pinnable = useThreadListReviews() === true;
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState("");
@@ -263,7 +265,7 @@ export const ReviewList = memo(function ReviewList() {
   if (filter === "needs") visible.sort(needsOrder);
   if (filter === "waiting") visible.sort(waitingOrder);
   const teamStart = filter === "needs" ? visible.findIndex((review) => reviewState(review).reason === "team-requested") : -1;
-  const row = (review: ReviewItem) => <ReviewRow key={review.targetKey} review={review} onOpen={() => open(review.targetKey)} onChanged={relist} />;
+  const row = (review: ReviewItem) => <ReviewRow key={review.targetKey} review={review} pinnable={pinnable} onOpen={() => open(review.targetKey)} onChanged={relist} />;
   const rows = (reviews: ReviewItem[]) => withStacks(reviews).map((group) => group.length === 1 ? row(group[0]!)
     : <div key={group[0]!.targetKey} role="group" aria-label={`Stack of ${group[0]!.stack!.members.length} in ${group[0]!.repo}`} className="divide-y divide-border border-l-2 border-primary/40">{group.map(row)}</div>);
 
