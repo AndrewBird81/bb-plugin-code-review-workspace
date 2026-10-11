@@ -58,13 +58,13 @@ export function feedbackTally(items: FeedbackItem[]): string | null {
 
 function VerdictChip({ verdict }: { verdict: AssessmentVerdict }) {
   const look = VERDICT_LOOK[verdict];
-  return <Badge tone={look.tone} title="The assistant’s check" icon={<Icon name="Sparkles" aria-hidden />}>{look.label}</Badge>;
+  return <Badge tone={look.tone} title="The agent’s check" icon={<Icon name="Sparkles" aria-hidden />}>{look.label}</Badge>;
 }
 
 function Evidence({ text }: { text: string }) {
   return (
     <div className="flex gap-2 rounded-md border-l-2 border-(--ansi-13)/60 bg-(--ansi-13)/5 px-2.5 py-1.5">
-      <Icon name="Sparkles" className="mt-0.5 size-3.5 shrink-0 text-(--ansi-13)" aria-label="Assistant" />
+      <Icon name="Sparkles" className="mt-0.5 size-3.5 shrink-0 text-(--ansi-13)" aria-label="Agent" />
       <Markdown content={text} className="min-w-0 text-sm leading-relaxed" />
     </div>
   );
@@ -225,7 +225,7 @@ function ThreadCard({ item, thread, actions, onShowLocation, onFollowUp }: {
       {item.assessment?.evidence && <Evidence text={item.assessment.evidence} />}
       {replying && (
         <div className="space-y-2 border-t border-border pt-2.5">
-          {drafted && <Badge tone="agent" size="sm" icon={<Icon name="Sparkles" aria-hidden />}>Drafted by assistant</Badge>}
+          {drafted && <Badge tone="agent" size="sm" icon={<Icon name="Sparkles" aria-hidden />}>Drafted by agent</Badge>}
           <Textarea ref={box} aria-label={`Reply to ${item.title}`} value={text} disabled={busy} onChange={(event) => setText(event.target.value)} onBlur={saveIfChanged} placeholder="Reply on GitHub…" />
           <div className="flex flex-wrap gap-2">
             <Button size="sm" data-reply-action="send" disabled={busy || !text.trim()} onClick={() => void settle(send)}><Icon name="Github" aria-hidden />Send</Button>
@@ -434,7 +434,7 @@ export const FeedbackPanel = memo(function FeedbackPanel({ targetKey, review, re
             {tally && <span className="font-medium tabular-nums text-foreground/90" title={items.some((item) => item.assessment) ? undefined : "Resolved or answered"}>{tally}</span>}
             {tally && run && <span aria-hidden>·</span>}
             {run && <span>Checked {checked ?? "earlier"} · <span className="font-mono">{run.headSha.slice(0, 7)}</span></span>}
-            {run && !run.current && <Badge tone="warning" size="sm" title="The assistant checked an earlier commit than the PR’s head.">older commit</Badge>}
+            {run && !run.current && <Badge tone="warning" size="sm" title="The agent checked an earlier commit than the PR’s head.">older commit</Badge>}
           </p>
         </div>
         <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={!!busy} onClick={() => void checkAgain()}>
@@ -445,10 +445,10 @@ export const FeedbackPanel = memo(function FeedbackPanel({ targetKey, review, re
         </Button>
       </header>
       {run && (
-        <section aria-label="Assistant’s suggestion" className="space-y-2 rounded-xl border border-(--ansi-13)/30 border-l-[3px] border-l-(--ansi-13)/60 bg-(--ansi-13)/5 p-3">
+        <section aria-label="Agent’s suggestion" className="space-y-2 rounded-xl border border-(--ansi-13)/30 border-l-[3px] border-l-(--ansi-13)/60 bg-(--ansi-13)/5 p-3">
           <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
             <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />
-            {run.suggestedVerdict ? `Assistant suggests: ${SUGGESTED_LABEL[run.suggestedVerdict]}` : "Assistant’s check"}
+            {run.suggestedVerdict ? `Agent suggests: ${SUGGESTED_LABEL[run.suggestedVerdict]}` : "Agent’s check"}
           </p>
           {(run.suggestedBody || run.summary) && <Markdown content={withLineBreaks(run.suggestedBody || run.summary)} className="text-sm leading-relaxed" />}
           {(run.suggestedVerdict || left) && (
@@ -472,7 +472,7 @@ export const FeedbackPanel = memo(function FeedbackPanel({ targetKey, review, re
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Replace your summary?</DialogTitle>
-            <DialogDescription>The assistant’s draft replaces the review summary you wrote.</DialogDescription>
+            <DialogDescription>The agent’s draft replaces the review summary you wrote.</DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:space-x-0">
             <Button variant="outline" onClick={() => setConfirming(null)}>Keep mine</Button>

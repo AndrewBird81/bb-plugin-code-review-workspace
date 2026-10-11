@@ -116,15 +116,15 @@ test("Resolve, Unresolve, location, and Follow up act on the right thread", asyn
   expect(onFollowUp).toHaveBeenCalledWith("src/b.ts", 4, "LEFT", null);
 });
 
-test("a reply drafted by the assistant can be edited, saved, sent, or discarded", async () => {
+test("a reply drafted by the agent can be edited, saved, sent, or discarded", async () => {
   const { slot, rpc } = render(checkedView);
   const b = within(await slot.findByRole("article", { name: "Handle the empty list" }));
   const box = b.getByRole("textbox", { name: "Reply to Handle the empty list" }) as HTMLTextAreaElement;
   expect(box.value).toBe("Still missing the empty case?");
-  expect(b.getByText("Drafted by assistant")).toBeTruthy();
+  expect(b.getByText("Drafted by agent")).toBeTruthy();
 
   fireEvent.change(box, { target: { value: "The empty list still throws." } });
-  expect(b.queryByText("Drafted by assistant")).toBeNull();
+  expect(b.queryByText("Drafted by agent")).toBeNull();
   fireEvent.blur(box);
   await vi.waitFor(() => expect(rpc.saveReplyDraft).toHaveBeenCalledWith({ targetKey: "pr-1", threadId: "B", body: "The empty list still throws." }));
 
@@ -151,7 +151,8 @@ test("a failed reply keeps its text", async () => {
 
 test("the suggested verdict goes into the draft, as suggested or as what's left", async () => {
   const { slot, rpc, onDraftUpdated } = render(checkedView);
-  await slot.findByText("Assistant suggests: Request changes");
+  await slot.findByText("Agent suggests: Request changes");
+  expect(slot.getByRole("region", { name: "Agent’s suggestion" })).toBeTruthy();
   expect(slot.getByText("Two asks remain.")).toBeTruthy();
   fireEvent.click(slot.getByRole("button", { name: "Use as draft" }));
   await vi.waitFor(() => expect(rpc.useSuggestedVerdict).toHaveBeenCalledWith({ targetKey: "pr-1", mode: "suggested", revision: "r1" }));
@@ -190,7 +191,7 @@ test("without the assistant's check: thread tally, questions then open first, no
   expect((await slot.findByText("2 of 4 handled")).getAttribute("title")).toBe("Resolved or answered");
   expect(slot.getAllByRole("article").map((card) => card.getAttribute("aria-label"))).toEqual(["Question one", "Open one", "Resolved one", "Answered one"]);
   expect(within(slot.getByRole("article", { name: "Answered one" })).getByText("Author replied")).toBeTruthy();
-  expect(slot.queryByText(/Assistant suggests/)).toBeNull();
+  expect(slot.queryByText(/suggests:/)).toBeNull();
   expect(slot.queryByText(/Checked/)).toBeNull();
 });
 
