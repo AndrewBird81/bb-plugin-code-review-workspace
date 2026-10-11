@@ -18,6 +18,7 @@ import { setDraftStatus } from "../lib/draft-status";
 import { usePortalScopeProps } from "../lib/portal-scope";
 import { ComposerNotes, composerKeys, InlineComposerContext, InlineDraftContext, locationKey, type InlineComposer, type InlineDraft } from "./InlineDraft";
 import { SummaryCard } from "./SummaryCard";
+import { FixHandoff } from "./FixHandoff";
 import { Markdown, UrlLink } from "@get-bb/plugin-sdk/app";
 import { Badge } from "./ui/badge";
 import { FilePath } from "./ui/file-path";
@@ -544,6 +545,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
               <ComposerNotes error={composerError} rebuilding={rebuilding} keepOnCurrentDiff={olderDiff ? keepOnCurrentDiff : null} />
               <div className="flex flex-wrap gap-2"><Button disabled={!canAdd} onClick={() => void addComment()}>{editing ? "Save comment" : "Add to draft"}</Button><Button variant="ghost" disabled={busy} onClick={cancelComposer}>Cancel</Button></div>
             </div>)}
+            {(isLocal || ownPr) && <FixHandoff targetKey={targetKey} comments={sortedComments} />}
           </div>
           <footer className="shrink-0 space-y-2.5 border-t border-border p-3">
             {!isLocal && <>
