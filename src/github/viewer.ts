@@ -67,5 +67,6 @@ export function createViewer(run: RunGh, options: { ttlMs?: number; retryMs?: nu
     return switched;
   }
 
-  return { login, teams, reset: () => { generation++; }, changed, errors: () => ({ ...errors }) };
+  // Forgetting the token too keeps a switch made here from being noticed again as one made outside.
+  return { login, teams, reset: () => { generation++; token = null; }, changed, errors: () => ({ ...errors }) };
 }

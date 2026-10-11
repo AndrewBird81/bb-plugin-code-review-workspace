@@ -90,3 +90,13 @@ test("errors keeps the last failed login and teams reads", async () => {
   await viewer.teams();
   expect(viewer.errors!()).toEqual({ login: "HTTP 401: Bad credentials", teams: "HTTP 403: needs read:org" });
 });
+
+test("reset forgets the token too, so the next check records the new account without reporting a switch", async () => {
+  let token = "gho_one";
+  const run = vi.fn(async (args: string[]) => (args[0] === "auth" ? ok(`${token}\n`) : ok("me")));
+  const viewer = createViewer(run);
+  await viewer.changed();
+  token = "gho_two";
+  viewer.reset();
+  expect(await viewer.changed()).toBe(false);
+});
