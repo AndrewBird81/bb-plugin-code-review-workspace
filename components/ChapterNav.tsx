@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { cn } from "../lib/utils";
 import { classifyFile } from "../src/classify";
 import { Icon } from "./ui/icon";
@@ -8,6 +8,11 @@ import { FileTag } from "./FileTag";
 import { InlineCode } from "./ui/inline-code";
 import type { FileViewFlags } from "./DiffViewer";
 import { readingLines } from "../lib/review-size";
+import { FileTree } from "./FileTree";
+import type { FileInterdiff } from "../src/interdiff";
+import type { ReviewThread } from "../src/threads";
+import type { FileOwners } from "../src/codeowners";
+import type { NavView } from "../lib/panel-state";
 
 interface Section {
   id: string;
@@ -56,6 +61,11 @@ export const ChapterNav = memo(function ChapterNav({
   changedSince,
   lines,
   generated,
+  view = "chapters",
+  onViewChange,
+  since,
+  threads,
+  owners,
   sinceWhat = "your review",
 }: {
   sections: Section[];
@@ -71,23 +81,48 @@ export const ChapterNav = memo(function ChapterNav({
   lines?: ReadonlyMap<string, number>;
   /** Files the repo's .gitattributes marks generated or vendored. */
   generated?: ReadonlySet<string>;
-  /** What changedSince compares with: "your review", or a commit. */
+  /** The chapters, or every file as a folder tree. */
+  view?: NavView;
+  onViewChange?: (view: NavView) => void;
+  /** All files: each file compared with your last review, everyone's GitHub threads, and CODEOWNERS owners. */
+  since?: Map<string, FileInterdiff> | null;
+  threads?: readonly ReviewThread[];
+  owners?: ReadonlyMap<string, FileOwners>;
+  /** What changedSince and since compare with: "your review", or a commit. */
   sinceWhat?: string;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const isExpanded = (id: string) => expanded[id] ?? id === activeId;
   const allFiles = sections.flatMap((s) => s.diffs.map((d) => d.file));
   const viewedAll = allFiles.filter((f) => views.get(f)?.viewed).length;
+  const chapterOf = useMemo(() => new Map(sections.flatMap((s) => s.diffs.map((d) => [d.file, s.id] as const))), [sections]);
 
   return (
     <nav aria-label="Chapters" className="space-y-3">
       <div className="space-y-1.5 px-2 pt-1">
-        <div className="flex items-baseline justify-between gap-2 text-[11px]">
-          <span className="font-semibold uppercase tracking-wider text-subtle-foreground">Chapters</span>
+        <div className="flex items-center justify-between gap-2 text-[11px]">
+          {onViewChange ? (
+            <span className="-ml-1 inline-flex items-center gap-0.5 rounded-md bg-muted/40 p-0.5 ring-1 ring-inset ring-border">
+              {(["chapters", "files"] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={view === value}
+                  onClick={() => onViewChange(value)}
+                  className="rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider text-subtle-foreground hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-xs"
+                >
+                  {value === "chapters" ? "Chapters" : "All files"}
+                </button>
+              ))}
+            </span>
+          ) : <span className="font-semibold uppercase tracking-wider text-subtle-foreground">Chapters</span>}
           <span className="tabular-nums text-muted-foreground">{viewedAll}/{allFiles.length} files viewed</span>
         </div>
         <Progress value={viewedAll} max={allFiles.length} label="Files viewed" />
       </div>
+      {view === "files" ? (
+        <FileTree chapterOf={chapterOf} views={views} onSelectFile={onSelectFile} currentFile={currentFile} since={since} threads={threads} owners={owners} generated={generated} sinceWhat={sinceWhat} />
+      ) : (
       <ol className="relative space-y-0.5">
         {sections.map((s, index) => {
           const active = s.id === activeId;
@@ -184,6 +219,7 @@ export const ChapterNav = memo(function ChapterNav({
           );
         })}
       </ol>
+      )}
     </nav>
   );
 });

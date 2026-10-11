@@ -19,8 +19,12 @@ interface PanelState {
   introCollapsed?: boolean;
   /** The diff wraps long lines instead of scrolling them; unset follows the workspace's width. */
   wrapLines?: boolean;
+  /** The sidebar lists the chapters, or every file as a folder tree, in every review. */
+  navView?: NavView;
   perReview: Record<string, ReviewUiState>;
 }
+
+export type NavView = "chapters" | "files";
 
 const KEY = "gr:panelstate";
 
@@ -82,5 +86,15 @@ export function getWrapLines(): boolean | undefined {
 export function setWrapLines(wrap: boolean) {
   const s = read();
   s.wrapLines = wrap;
+  write(s);
+}
+
+export function getNavView(): NavView {
+  return read().navView ?? "chapters";
+}
+
+export function setNavView(view: NavView) {
+  const s = read();
+  s.navView = view;
   write(s);
 }

@@ -7,6 +7,7 @@ export const SHORTCUTS = [
   { keys: ["v"], label: "Mark the file viewed, or not, and go to the next" },
   { keys: ["u"], label: "Next unviewed file, in any chapter" },
   { keys: ["]", "["], label: "Next or previous comment or discussion" },
+  { keys: ["f"], label: "All files, with the cursor in their filter" },
   { keys: ["a"], label: "Ask agent" },
   { keys: ["s"], label: "Submit review" },
   { keys: ["?"], label: "Show these shortcuts" },

@@ -9,7 +9,7 @@ import { baselineOf, computeTurn, type TurnReason } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
-import { getReviewState, getWrapLines, patchReviewState, setLastReview, setWrapLines } from "../lib/panel-state";
+import { getNavView, getReviewState, getWrapLines, patchReviewState, setLastReview, setNavView, setWrapLines, type NavView } from "../lib/panel-state";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { ReviewHeader, ReviewTitleLink } from "./ReviewHeader";
@@ -138,6 +138,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [compareFrom, setCompareFrom] = useState<string | null>(null);
   const narrowOnLoad = useRef(false);
   const [owners, setOwners] = useState<Map<string, FileOwners>>(new Map());
+  // Chapters or All files, in every review.
+  const [navView, setNavViewState] = useState(getNavView);
+  const changeNavView = useCallback((next: NavView) => { setNavViewState(next); setNavView(next); }, []);
   const [snoozing, setSnoozing] = useState(false);
   const [reveal, setReveal] = useState<{ at: CommentLocation; nonce: number }>();
 
@@ -697,6 +700,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         showComment(next);
         return true;
       }
+      case "f": {
+        // The filter is in the sidebar, which may be hidden.
+        changeNavView("files");
+        if (compact) setMobileChapters(true);
+        else setSidebarCollapsed(false);
+        requestAnimationFrame(() => rootRef.current?.querySelector<HTMLInputElement>("[data-filter-box]")?.focus());
+        return true;
+      }
       case "a": askAgent(); return true;
       case "s": showDraftSummary(); return true;
       case "?": setShortcutsOpen(true); return true;
@@ -816,6 +827,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 changedSince={changedSince}
                 lines={lines}
                 generated={generated}
+                view={navView}
+                onViewChange={changeNavView}
+                since={since}
+                threads={diffThreads.threads}
+                owners={owners}
                 sinceWhat={sinceWhat}
               />
             </aside>
