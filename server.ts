@@ -59,6 +59,7 @@ import { assess, changesSinceReview, describeFeedback, readFileAt, startVerifica
 import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
 import { threadSignals, turnOptions } from "./src/turn-signals";
+import { mayRunChecks } from "./lib/trust";
 import { createInstructionSuggester, describeRemovals, learningStats, noteReviewerRemoval, noteReviewerSave, recordOutcomes, removalWarning } from "./src/learning";
 
 export { rpcContract } from "./src/rpc-contract";
@@ -352,10 +353,11 @@ export default async function plugin(bb: BbPluginApi) {
     },
     getPreferences() { return store.getPreferences(); },
     savePreferences({ preferences, revision }) {
-      const before = store.getPreferences().preferences.assistantInstructions;
+      const before = store.getPreferences().preferences;
       const result = store.savePreferences(preferences, revision);
       bb.realtime.publish("preferences", {});
-      if (result.preferences.assistantInstructions !== before) void refreshAssistants(bb, store);
+      // These are in the assistants' instructions; whether they may run the repo's checks depends on the last two.
+      if ((["assistantInstructions", "runRepoChecks", "unattendedAuthors"] as const).some((key) => result.preferences[key] !== before[key])) void refreshAssistants(bb, store);
       return result;
     },
     async getAgentDefaults() {
@@ -849,7 +851,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "read_file",
     description: "Read a file of this review with line numbers, up to 400 lines from startLine. ref \"current\" (the default) is the PR's head now, or a local review's changed side; \"base\" is the commit the diff starts from, before the change; \"reviewed\" is the commit the reviewer last reviewed (PRs only).",
-    instructions: "To read code beyond the diff at the PR's head without changing anything: if your working directory is a git checkout of the PR's repository, run `git fetch origin +pull/<number>/head:refs/guided-review/pr-<number>`, then `git show refs/guided-review/pr-<number>:<path>` or `git grep <pattern> refs/guided-review/pr-<number>`. Never check out, commit, push, or change the working tree. Otherwise, use read_file.",
+    instructions: "To read code beyond the diff at the PR's head without changing anything: if your working directory is a git checkout of the PR's repository, run `git fetch origin +pull/<number>/head:refs/guided-review/pr-<number>`, then `git show refs/guided-review/pr-<number>:<path>` or `git grep <pattern> refs/guided-review/pr-<number>`. Never check out, commit, push, or change the working tree, except as your instructions allow for the repo's checks. Otherwise, use read_file.",
     parameters: z.object({
       path: z.string().min(1).describe("Repo-relative path."),
       ref: z.enum(["current", "base", "reviewed"]).optional(),
@@ -1007,7 +1009,7 @@ export default async function plugin(bb: BbPluginApi) {
       return {
         tools: ["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
           "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"], skills: [],
-        ...(review ? { instructions: assistantInstructions(review.targetKey, store.getGuide(review.targetKey), store.getPreferences().preferences) } : {}),
+        ...(review ? { instructions: assistantInstructions(review.targetKey, store.getGuide(review.targetKey), store.getPreferences().preferences, mayRunChecks(review, store.getPreferences().preferences) ? review.number : undefined) } : {}),
       };
     }
     return { tools: [], skills: [] };

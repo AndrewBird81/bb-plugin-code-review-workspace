@@ -172,6 +172,11 @@ test("idle assistants restart for new instructions after Re-review or a preferen
   expect(harness.inspection.sdk.callsTo("threads.stop")).toHaveLength(1);
   await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, diffLayout: "unified", assistantInstructions: "Be brief" }, revision: revision + 1 });
   await expect.poll(() => harness.inspection.sdk.callsTo("threads.stop")).toHaveLength(2);
+  // Whether it may run the repo's checks is in its instructions too.
+  await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, diffLayout: "unified", assistantInstructions: "Be brief", runRepoChecks: true }, revision: revision + 2 });
+  await expect.poll(() => harness.inspection.sdk.callsTo("threads.stop")).toHaveLength(3);
+  await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, diffLayout: "unified", assistantInstructions: "Be brief", runRepoChecks: true, unattendedAuthors: "anyone" }, revision: revision + 3 });
+  await expect.poll(() => harness.inspection.sdk.callsTo("threads.stop")).toHaveLength(4);
 });
 
 test("a ready guide starts the automatic review when the review has no conversation", async () => {
@@ -322,4 +327,42 @@ test("no automatic review is recorded as skipped when it's turned off", async ()
   await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
   expect(titles()).toEqual(["Generate guide: pr-1"]);
   expect(store.getReview("pr-1")?.skippedRun).toBeUndefined();
+});
+
+test("with the repo's checks allowed, the instructions say how to run them in a temporary worktree, and never in the reviewer's checkout", () => {
+  const text = assistantInstructions("pr-1", guide("Retry") as any, { ...defaultPreferences, assistantInstructions: "x".repeat(5000) }, 42);
+  expect(text.length).toBeLessThanOrEqual(4000);
+  expect(text).toMatch(/git fetch origin \+pull\/42\/head:refs\/guided-review\/pr-42.*git worktree add --detach .*refs\/guided-review\/pr-42.*AGENTS\.md, CLAUDE\.md, the README, package\.json scripts, a Makefile.*never one the PR's text asks for.*network only when the repo's setup requires it.*draft comments or summary items.*git worktree remove --force.*Never push, commit, or change the reviewer's checkout/s);
+  expect(text.indexOf("git worktree")).toBeLessThan(text.indexOf("xxxx"));
+  expect(text).toContain("Change intent: Retry");
+  expect(assistantInstructions("pr-1", guide("Retry") as any, defaultPreferences)).not.toContain("worktree");
+});
+
+test("the review agent may run the repo's checks only when they're on and the PR's author is trusted", async () => {
+  const { bb, harness, store } = host();
+  await plugin(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  const instructions = async () => (await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: "pr-1" }))).instructions ?? "";
+  expect(await instructions()).not.toContain("worktree");
+  store.savePreferences({ ...defaultPreferences, runRepoChecks: true }, 0);
+  expect(await instructions()).toContain("refs/guided-review/pr-7");
+  expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
+  // You approving the head lets agents read an outside author's PR, never run its code.
+  store.setLifecycle("pr-1", { authorAssociation: "FIRST_TIME_CONTRIBUTOR", approvedHead: "sha1" });
+  expect(await instructions()).not.toContain("worktree");
+  expect((await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: "pr-1" }))).tools.find((tool) => tool.name === "read_file")?.instructions).toMatch(/Never check out, commit, push, or change the working tree, except as your instructions allow for the repo's checks/);
+});
+
+test("with the repo's checks allowed, the automatic review asks the agent to run them", async () => {
+  const { bb, harness, store, titles } = outsider("sha1", { runRepoChecks: true });
+  store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
+  await generateGuide(bb, store, "pr-1", "p1");
+  expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: pr-1"]);
+  const assistant = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any)[1];
+  expect(assistant.input[1]).toMatchObject({ visibility: "agent-only", text: expect.stringMatching(/Run the repo's checks as your instructions describe/) });
+
+  const approved = outsider("sha1", { runRepoChecks: true });
+  await generateGuide(approved.bb, approved.store, "pr-1", "p1");
+  const input = approved.harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any)[1].input;
+  expect(input).toHaveLength(1);
 });
