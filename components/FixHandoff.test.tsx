@@ -2,10 +2,17 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import type { DraftProviderProps } from "./DraftProvider";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); });
+
+/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+async function draftTray() {
+  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
+  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+}
 
 const comments = [
   { file: "src/a.ts", line: 2, side: "RIGHT", body: "Rename this." },
@@ -14,7 +21,7 @@ const comments = [
 
 async function renderTray(rpc: Record<string, unknown>, props: Record<string, unknown>) {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const draft = { targetKey: "k", verdict: "COMMENT", body: "", comments };
   const component = () => <DraftTray targetKey="k" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" {...props} />;
   const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft, stale: [], discussions: [] }), setVerdict: () => ({ draft }), ...rpc } as any });

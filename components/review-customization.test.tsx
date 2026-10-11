@@ -3,8 +3,15 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import type { DraftProviderProps } from "./DraftProvider";
 
 afterEach(cleanup);
+
+/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+async function draftTray() {
+  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
+  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+}
 
 test("settings have an installed slot, save explicitly, and restore defaults without silently saving", async () => {
   const app = await loadPluginApp(() => import("../app"));
@@ -60,7 +67,7 @@ test("failed note writes preserve a recoverable copy after remount", async () =>
 
 test("editing a draft comment replaces it without changing its location", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const comment = { file: "a.ts", line: 1, side: "RIGHT", body: "Old feedback", chapterId: "original" };
   const draft = { targetKey: "edit", verdict: "COMMENT", body: "", comments: [comment] };
   const save = vi.fn(async ({ comment }: any) => ({ draft: { ...draft, comments: [comment] } }));
@@ -97,7 +104,7 @@ test("comparing conflicting notes preserves edits made while the saved version l
 
 test("the review activity rail collapses each tool without losing editor state", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const slot = renderSlot({ component: (props: any) => <DraftTray {...props} /> }, { targetKey: "sidebar-editors", activeChapterId: "c1", activeFiles: ["a.ts"], agent: {} }, { rpc: {
     getDraft: () => ({ draft: { targetKey: "sidebar-editors", verdict: "COMMENT", body: "", comments: [] } }),
     getReviewerNotes: () => ({ body: "", revision: 0 }), saveReviewerNotes: ({ body }: any) => ({ body, revision: 1 }),
@@ -129,7 +136,7 @@ test("the review activity rail collapses each tool without losing editor state",
 
 test("collapsed tool choice survives remount", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const props = { targetKey: "sidebar-restore", activeChapterId: "c1", activeFiles: ["a.ts"] };
   const rpc = { getDraft: () => ({ draft: { targetKey: props.targetKey, verdict: "COMMENT", body: "", comments: [] } }), getReviewerNotes: () => ({ body: "", revision: 0 }) };
   let slot = renderSlot({ component: (props: any) => <DraftTray {...props} /> }, props, { rpc });
@@ -144,7 +151,7 @@ test("collapsed tool choice survives remount", async () => {
 
 test("a new line-comment request reveals an unfinished comment without replacing it", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   function Workspace() {
     const [nonce, setNonce] = useState(0);
     return <><button onClick={() => setNonce((value) => value + 1)}>Comment on selected line</button><DraftTray targetKey="unfinished-comment" activeChapterId="c1" activeFiles={["a.ts"]} prefill={nonce ? { file: "b.ts", line: 7, side: "RIGHT", nonce } : undefined} /></>;
@@ -288,7 +295,7 @@ test("the automatic review prompt starts from the default and can be turned off"
 
 test("an assistant's comment appears in an open draft, and Submit sends only the comments shown", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const mine = { file: "a.ts", line: 1, side: "RIGHT", body: "My comment", chapterId: "c1" };
   const theirs = { file: "a.ts", line: 2, side: "RIGHT", body: "The assistant's comment" };
   const stored = { targetKey: "live", verdict: "COMMENT", body: "", comments: [mine] as any[] };
@@ -307,7 +314,7 @@ test("an assistant's comment appears in an open draft, and Submit sends only the
 
 test("a draft labels agents' comments, and Remove names the comment's location", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const mine = { file: "a.ts", line: 1, side: "RIGHT", body: "My comment" };
   const theirs = { file: "a.ts", line: 2, side: "LEFT", author: "agent", body: "The agent's comment" };
   const draft = { targetKey: "labels", verdict: "COMMENT", body: "", comments: [mine, theirs] };

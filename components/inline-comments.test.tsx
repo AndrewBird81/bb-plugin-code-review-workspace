@@ -2,6 +2,7 @@ import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import type { DraftProviderProps } from "./DraftProvider";
 
 // Render the diff's annotations, not @pierre/diffs' internals. Like pierre,
 // the gutter "+" reports a line selection right after its own click.
@@ -19,12 +20,18 @@ vi.mock("@pierre/diffs/react", () => ({
 
 afterEach(() => { cleanup(); sessionStorage.clear(); });
 
+/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+async function draftTray() {
+  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
+  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+}
+
 const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1,2 @@\n-old\n+new\n+more\n";
 const empty = (targetKey: string) => ({ targetKey, verdict: "COMMENT", body: "", comments: [] as any[] });
 
 async function renderReview(targetKey: string, rpc: Record<string, unknown>, onShowComment = vi.fn()) {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const { DiffViewer } = await import("./DiffViewer");
   const component = () => (
     <DraftTray targetKey={targetKey} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" onShowComment={onShowComment}>
@@ -96,7 +103,7 @@ test("the gutter + on a line with a comment opens that comment, and Remove delet
 
 test("commenting on selected lines opens the box at the last line, leaving the panel as it was", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const { DiffViewer } = await import("./DiffViewer");
   function Review() {
     const [nonce, setNonce] = useState(0);
@@ -202,7 +209,7 @@ test("the comment box can send its text to the agent instead, which starts a dis
 
 test("asking about selected lines opens a message box at the last line, and quotes from the first", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const { DiffViewer } = await import("./DiffViewer");
   const askAgent = vi.fn(async () => ({ draft: empty("lines"), stale: [], discussions: [] }));
   function Review() {

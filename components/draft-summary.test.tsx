@@ -4,12 +4,19 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { commentsKey, SUMMARY_AT } from "../src/draft";
+import type { DraftProviderProps } from "./DraftProvider";
 
 afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); });
 
+/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+async function draftTray() {
+  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
+  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+}
+
 async function renderTray(targetKey: string, rpc: Record<string, unknown>, props: Record<string, unknown> = {}) {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   // "Show draft" stands in for the Feedback view's Use as draft, and the top bar's Submit review.
   const component = () => {
     const [showDraft, setShowDraft] = useState<{ at: number }>();
@@ -178,7 +185,7 @@ test("a line comment after the summary's box starts on a real line", async () =>
 
 test("a line comment's box never turns into the summary's, even with its location cleared", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const slot = renderSlot({ component: () => <DraftTray targetKey="clear" activeChapterId="c1" activeFiles={[]} reviewRevision="r1" /> }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getDraft: () => ({ draft: draftOf() }) } as any });
   await slot.findByText("Draft saved");
   fireEvent.click(slot.getByRole("button", { name: "Add comment" }));
@@ -192,7 +199,7 @@ test("a line comment's box never turns into the summary's, even with its locatio
 
 test("agreeing a suggestion replaces your summary closes its box; just opening the draft keeps it", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   let draft = draftOf({ body: "Mine." });
   const component = () => {
     const [showDraft, setShowDraft] = useState<{ at: number; replaced?: boolean }>();

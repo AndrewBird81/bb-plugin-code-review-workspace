@@ -4,6 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { readDraftRecovery } from "../lib/draft-recovery";
+import type { DraftProviderProps } from "./DraftProvider";
 
 // Render the diff's annotations, not @pierre/diffs' internals, and a drag from line 4 up to line 2 as pierre reports it.
 vi.mock("@pierre/diffs/react", () => ({
@@ -17,6 +18,12 @@ vi.mock("@pierre/diffs/react", () => ({
 }));
 
 afterEach(() => { cleanup(); sessionStorage.clear(); });
+
+/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+async function draftTray() {
+  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
+  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+}
 
 const patch = [
   "diff --git a/src/a.ts b/src/a.ts", "--- a/src/a.ts", "+++ b/src/a.ts", "@@ -1,3 +1,5 @@",
@@ -32,7 +39,7 @@ const draftOf = (comments: any[] = []) => ({ targetKey: "k", verdict: "COMMENT",
 
 async function renderReview(rpc: Record<string, unknown>, prefill?: Record<string, unknown>) {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const { DiffViewer } = await import("./DiffViewer");
   const component = () => (
     <DraftTray targetKey="k" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" patch={patch} prefill={prefill as any}>

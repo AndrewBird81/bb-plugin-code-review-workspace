@@ -2,8 +2,15 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import type { DraftProviderProps } from "./DraftProvider";
 
 afterEach(cleanup);
+
+/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+async function draftTray() {
+  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
+  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+}
 const account = () => ({ active: "reviewer", accounts: [{ login: "reviewer", active: true }] });
 
 test("list load failure is distinct from an empty account and can recover", async () => {
@@ -38,7 +45,7 @@ test("workspace load failure has retry instead of an endless generation skeleton
 
 test("a saved summary persists; submit is explicit and locked", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   let stored = { targetKey: "pr-7", verdict: "COMMENT", body: "", comments: [] };
   const saveSummary = vi.fn(async (input: any) => { stored = { ...stored, body: input.body }; return { draft: stored, stale: [], discussions: [] }; });
   let release: (result: { ok: boolean }) => void = () => {};
@@ -67,7 +74,7 @@ test("a saved summary persists; submit is explicit and locked", async () => {
 
 test("local review keeps draft notes but never offers GitHub submission", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const slot = renderSlot({ component: (props: any) => <DraftTray {...props} /> }, { targetKey: "ref-local", activeChapterId: "core", activeFiles: ["file.ts"], isLocal: true }, { rpc: {
     setReviewPresence: () => ({ ok: true }),
     getDraft: () => ({ draft: { targetKey: "ref-local", verdict: "COMMENT", body: "", comments: [] } }),
@@ -79,7 +86,7 @@ test("local review keeps draft notes but never offers GitHub submission", async 
 
 test("failed draft loading blocks edits and preserves the stored draft", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const setVerdict = vi.fn();
   const slot = renderSlot({ component: (props: any) => <DraftTray {...props} /> }, { targetKey: "pr-7", activeChapterId: "core", activeFiles: [] }, { rpc: {
     setReviewPresence: () => ({ ok: true }),
@@ -93,7 +100,7 @@ test("failed draft loading blocks edits and preserves the stored draft", async (
 
 test("a later dismissed approval replaces the local success receipt", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const { useState } = await import("react");
   const { act } = await import("@testing-library/react");
   let updateReview!: (review: any) => void;

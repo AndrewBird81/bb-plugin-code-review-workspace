@@ -21,7 +21,8 @@ import { ComparePicker } from "./ComparePicker";
 import type { FileOwners } from "../src/codeowners";
 import { ChapterIntro } from "./ChapterIntro";
 import { DiffViewer, type FileViewFlags } from "./DiffViewer";
-import { DraftTray, type CommentPrefill } from "./DraftTray";
+import { DraftProvider, type CommentPrefill } from "./DraftProvider";
+import { DraftPanel } from "./DraftPanel";
 import { RereviewBanner } from "./RereviewBanner";
 import { ThreadsPanel } from "./ThreadsPanel";
 import { FeedbackPanel } from "./FeedbackPanel";
@@ -878,6 +879,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   return (
     <WorkspaceProvider api={api}>
+    {/* The draft's provider shares it with the diff, which shows each comment under its line, and with its panel. */}
+    <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} agent={{ patch, injection, container: rootEl }} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
     <div
       ref={(el) => {
         rootRef.current = el;
@@ -925,8 +928,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         </p>
       )}
       <div className="flex min-h-0 flex-1 flex-col @min-[1024px]/review:flex-row">
-      {/* The draft panel owns the draft and shares it with the diff, which shows each comment under its line. */}
-      <DraftTray patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} agent={{ patch, injection, container: rootEl }} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
       {/* On a phone the chapters and the review panel can both be open: the chapters give way and scroll, so they never draw over the panel. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @min-[768px]/review:flex-row">
         {navOpen && (
@@ -1164,7 +1165,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         </main>
       </div>
       <DraftLines into={draftLines} />
-      </DraftTray>
+      <DraftPanel />
       </div>
 
       {/* Line-selection action bar — GitHub-style: pick lines, then act. */}
@@ -1213,6 +1214,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       )}
 
     </div>
+    </DraftProvider>
     </WorkspaceProvider>
   );
 });

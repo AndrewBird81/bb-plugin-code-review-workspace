@@ -2,6 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import type { DraftProviderProps } from "./DraftProvider";
 
 // Render the diff's annotations, not @pierre/diffs' internals.
 vi.mock("@pierre/diffs/react", () => ({
@@ -20,6 +21,12 @@ const { toast } = await import("sonner");
 
 afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); });
 
+/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+async function draftTray() {
+  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
+  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+}
+
 const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1,4 @@\n-old\n+one\n+two\n+three\n+four\n";
 const at = (line: number) => ({ file: "src/a.ts", line, side: "RIGHT" });
 const blocking = { ...at(1), severity: "blocking", body: "This drops writes." };
@@ -28,7 +35,7 @@ const plain = { ...at(4), body: "No label." };
 
 async function renderReview(targetKey: string, rpc: Record<string, unknown>) {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const { DiffViewer } = await import("./DiffViewer");
   const component = () => (
     <DraftTray targetKey={targetKey} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" patch={patch}>

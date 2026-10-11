@@ -2,15 +2,22 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import type { DraftProviderProps } from "./DraftProvider";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 const { toast } = await import("sonner");
 
 afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); });
 
+/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+async function draftTray() {
+  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
+  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+}
+
 async function renderTray(targetKey: string, rpc: Record<string, unknown>, props: Record<string, unknown> = {}) {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const component = () => <DraftTray targetKey={targetKey} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" {...props} />;
   const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), ...rpc } as any });
   await slot.findByText("Draft saved");
@@ -175,7 +182,7 @@ test("Submit waits while comments are on an older diff, and names them", async (
 
 test("while the guide rebuilds, comment saves and Submit wait; a comment from before offers to keep it on the new diff", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const { useState } = await import("react");
   let draft = draftOf({ body: "Summary." });
   const saveDraftComment = vi.fn(async ({ revision, comment }: any) => {
@@ -286,7 +293,7 @@ test("below 768px wide the review panel starts collapsed, and doesn't forget it 
   const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(max-width: 767px)", media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }) as MediaQueryList);
   try {
     await loadPluginApp(() => import("../app"));
-    const { DraftTray } = await import("./DraftTray");
+    const DraftTray = await draftTray();
     const slot = renderSlot({ component: () => <DraftTray targetKey="narrow" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" /> }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }) } as any });
     const tool = await slot.findByRole("button", { name: "Draft review" });
     expect(tool.getAttribute("aria-expanded")).toBe("false");
@@ -331,7 +338,7 @@ test("on a chapter with no files, the Add comment form starts on the review's fi
 
 test("a comment refused for an older diff says so in the status line too, not that another window changed it", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const { useState } = await import("react");
   const saveDraftComment = vi.fn(async () => { throw new Error("This review changed in another window. Open the latest diff before saving or submitting feedback. Your text is still here."); });
   const component = () => {

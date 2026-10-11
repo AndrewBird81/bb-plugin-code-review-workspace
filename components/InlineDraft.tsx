@@ -8,7 +8,7 @@ import { Textarea } from "./ui/textarea";
 import { Badge, SpeakerMark, TONE_TEXT, type Tone } from "./ui/badge";
 import { withLineBreaks } from "../src/line-breaks";
 
-/** The draft as the diff shows it, under each comment's line. DraftTray owns the draft and provides this. */
+/** The draft as the diff shows it, under each comment's line. DraftProvider owns the draft and provides this. */
 export interface InlineDraft {
   comments: DraftComment[];
   /** Comments drafted against an older diff, which submitting refuses. */
@@ -233,7 +233,7 @@ export function ComposerNotes({ error, rebuilding, keepOnCurrentDiff }: Pick<Inl
   </>;
 }
 
-/** The box for a new comment in the diff, an edit, or a message to the agent, wherever DraftTray opened it. */
+/** The box for a new comment in the diff, an edit, or a message to the agent, wherever DraftProvider opened it. */
 function ComposerBox({ mode, divided = false }: { mode: "new" | "edit" | "ask"; divided?: boolean }) {
   const draft = useContext(InlineDraftContext);
   const composer = useContext(InlineComposerContext);

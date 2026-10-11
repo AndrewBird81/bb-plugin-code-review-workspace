@@ -3,7 +3,14 @@ import { cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { readDraftRecovery } from "../lib/draft-recovery";
+import type { DraftProviderProps } from "./DraftProvider";
 afterEach(() => { cleanup(); sessionStorage.clear(); });
+
+/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+async function draftTray() {
+  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
+  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+}
 
 test("closing a document releases its lease, while a cached page keeps its editors protected", async () => {
   await loadPluginApp(() => import("../app"));
@@ -24,7 +31,7 @@ test("closing a document releases its lease, while a cached page keeps its edito
 
 test("an unsaved summary survives closing the panel and reopens in its box", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const save = vi.fn();
   const component = () => <DraftTray targetKey="kept-summary" activeChapterId="chapter" activeFiles={[]} reviewRevision="revision" />;
   const rpc = { getDraft: () => ({ draft: { targetKey: "kept-summary", verdict: "COMMENT", body: "", comments: [] } }), saveSummary: save };
@@ -40,7 +47,7 @@ test("an unsaved summary survives closing the panel and reopens in its box", asy
 
 test("recovered summary text saves with the revision it was written against", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   const draft = { targetKey: "recovery", verdict: "COMMENT", body: "", comments: [] };
   const save = vi.fn(async (_input: any) => { throw new Error("This review changed in another window."); });
   const rpc = { getDraft: () => ({ draft }), saveSummary: save };
@@ -62,7 +69,7 @@ test("recovered summary text saves with the revision it was written against", as
 
 test("summary text saved for recovery before the summary had its own box reopens in it", async () => {
   await loadPluginApp(() => import("../app"));
-  const { DraftTray } = await import("./DraftTray");
+  const DraftTray = await draftTray();
   sessionStorage.setItem("guided-review:draft-recovery:legacy", JSON.stringify({ summary: { verdict: "REQUEST_CHANGES", body: "Older unsaved words", revision: "old" } }));
   const rpc = { getDraft: () => ({ draft: { targetKey: "legacy", verdict: "COMMENT", body: "", comments: [] } }) };
   const slot = renderSlot({ component: () => <DraftTray targetKey="legacy" activeChapterId="chapter" activeFiles={[]} reviewRevision="new" /> }, {}, { rpc });
