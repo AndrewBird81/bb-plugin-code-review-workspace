@@ -42,3 +42,11 @@ test("a parent you wrote, or a branching stack, still reads in order", () => {
   expect(stacks.get("pr-1")?.children.map((c) => c.number)).toEqual([2, 3]);
   expect(stacks.get("pr-2")?.parent).toMatchObject({ reviewed: true });
 });
+
+test("a long-lived base branch, such as develop with a release PR open from it, is no stack parent", () => {
+  const stacks = findStacks([
+    pr(30, "main", "develop"), pr(31, "develop", "feat-a"), pr(32, "develop", "feat-b"),
+    pr(40, "release/2.4", "fix"), pr(41, "main", "release/2.4"),
+  ]);
+  expect(stacks.size).toBe(0);
+});

@@ -1,5 +1,6 @@
 // Batched reads of the PR facts the turn rules need, one aliased GraphQL query per batch.
 import type { MyReview, PrFacts, PrRead, PrRef, ReviewRequestEvent, ReviewState, RunGh } from "./types";
+import { longLivedBranch } from "../../lib/stacks";
 
 export const BATCH_SIZE = 10;
 
@@ -163,8 +164,8 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
     .filter((r: any) => r?.author && !same(r.author.login, viewer) && !isBot(r.author) && (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED"))
     .map((r: any) => ({ login: r.author.login as string, state: r.state as "APPROVED" | "CHANGES_REQUESTED" }));
 
-  // Into the default branch is no stack, even when a PR (say, a deploy) has it as its head.
-  const parent = pr.baseRefName !== pr.baseRepository?.defaultBranchRef?.name ? pr.baseRef?.associatedPullRequests?.nodes?.[0] : null;
+  // Into the default or another long-lived branch is no stack, even when a PR (say, a deploy or release) has it as its head.
+  const parent = pr.baseRefName !== pr.baseRepository?.defaultBranchRef?.name && !longLivedBranch(pr.baseRefName ?? "") ? pr.baseRef?.associatedPullRequests?.nodes?.[0] : null;
 
   return {
     targetKey: ref.targetKey, repo: ref.repo, number: pr.number ?? ref.number,

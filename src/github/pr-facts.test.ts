@@ -163,6 +163,8 @@ test("the stack parent is the open PR whose head is this PR's base branch, unles
   expect(one(stacked("feat-a", [parent])).stackParent).toEqual(parent);
   // A deploy PR from main doesn't make every PR into main a stack.
   expect(one(stacked("main", [parent])).stackParent).toBeNull();
+  // Nor does a gitflow release PR from develop make every PR into develop one.
+  for (const base of ["develop", "Dev", "trunk", "staging", "production", "release/2.4"]) expect(one(stacked(base, [parent])).stackParent).toBeNull();
   expect(one(stacked("feat-a", [])).stackParent).toBeNull();
   expect(one(pr()).stackParent).toBeNull();
   expect(prFactsQuery([ref(1)]).query).toContain("baseRef{associatedPullRequests(states:OPEN,first:1){nodes{number title url}}} baseRepository{defaultBranchRef{name}}");
