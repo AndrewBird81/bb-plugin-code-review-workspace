@@ -136,6 +136,28 @@ test("Remove nits removes every nit, and Undo puts them back as they were", asyn
   slot.lifecycle.unmount();
 });
 
+test("approving with blocking comments in the draft asks once more", async () => {
+  const submitReview = vi.fn(async () => ({ ok: true }));
+  const rpc = stored([blocking, { ...blocking, ...at(2) }, plain], { verdict: "APPROVE", verdictChosen: true });
+  const { slot } = await renderReview("approve", { ...rpc, submitReview });
+  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  const ask = await slot.findByRole("alert");
+  expect(ask.textContent).toContain("Approve with 2 blocking comments?");
+  expect(submitReview).not.toHaveBeenCalled();
+  fireEvent.click(within(ask).getByRole("button", { name: "Submit anyway" }));
+  await waitFor(() => expect(submitReview).toHaveBeenCalledWith(expect.objectContaining({ verdict: "APPROVE", comments: expect.arrayContaining([expect.objectContaining({ severity: "blocking" })]) })));
+  slot.lifecycle.unmount();
+});
+
+test("a Comment review with blocking comments doesn’t ask", async () => {
+  const submitReview = vi.fn(async () => ({ ok: true }));
+  const { slot } = await renderReview("no-ask", { ...stored([blocking], { body: "Summary." }), submitReview });
+  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  await waitFor(() => expect(submitReview).toHaveBeenCalled());
+  expect(slot.queryByText(/blocking comment/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("an unfinished comment's severity is recovered with its text after the page reloads", async () => {
   const rpc = stored([]);
   let { slot, diff } = await renderReview("recover", rpc);
