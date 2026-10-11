@@ -106,7 +106,12 @@ export const ChapterNav = memo(function ChapterNav({
     const texts = new Map(splitPatchByFile(patch ?? "").map((f) => [f.path, f.text]));
     return new Map(sections.map((s) => [s.id, new Map(s.diffs.flatMap((d) => d.hunks && texts.has(d.file) ? [[d.file, changedLines(filePart(texts.get(d.file)!, d.hunks)).get(d.file) ?? 0] as const] : []))]));
   }, [sections, patch]);
-  const chapterOf = useMemo(() => new Map(sections.flatMap((s) => s.diffs.map((d) => [d.file, s.id] as const))), [sections]);
+  // A split file opens in the open chapter when it's there, else in the first chapter with it.
+  const chapterOf = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of sections) for (const d of s.diffs) if (!map.has(d.file) || s.id === activeId) map.set(d.file, s.id);
+    return map;
+  }, [sections, activeId]);
 
   return (
     <nav aria-label="Chapters" className="space-y-3">

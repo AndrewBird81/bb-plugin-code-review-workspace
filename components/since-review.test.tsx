@@ -62,11 +62,12 @@ test("removed files show only in the chapter that shows them", () => {
   expect(screen.queryByRole("region", { name: "src/d.ts removed" })).toBeNull();
 });
 
-test("with the filter off, every file shows in full and changed ones are badged", () => {
+test("with the filter off, every file shows in full and changed or added ones are badged", () => {
   render(<DiffViewer patch={current} files={chapter} views={new Map()} onToggleViewed={() => {}} since={since} />);
   expect(diffOf("src/a.ts")!.getByTestId("filediff").textContent).toContain("new");
   expect(diffOf("src/a.ts")!.getByText("Changed since your review")).toBeTruthy();
-  expect(diffOf("src/c.ts")!.getByText("Changed since your review")).toBeTruthy();
+  // A file new to the PR since then says so, as All files does.
+  expect(diffOf("src/c.ts")!.getByText("Added since your review")).toBeTruthy();
   expect(diffOf("src/b.ts")!.queryByText("Changed since your review")).toBeNull();
   expect(screen.queryByText(/unchanged since your review/)).toBeNull();
   expect(screen.queryByRole("region", { name: "src/d.ts removed" })).toBeNull();

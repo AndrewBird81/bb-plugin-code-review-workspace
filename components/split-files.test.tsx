@@ -3,6 +3,9 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import { render } from "@testing-library/react";
+import { interdiff } from "../src/interdiff";
+import { DiffViewer } from "./DiffViewer";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Each diff's new lines, and the lines it has comments under.
@@ -175,6 +178,13 @@ test("a split file shows Changed since your review only in the chapters whose hu
   await slot.findByText(/CACHE/);
   expect(card(slot).getByText("Changed since your review")).toBeTruthy();
   slot.lifecycle.unmount();
+});
+
+test("showing only changes, a split file whose hunks here didn't change counts as unchanged", () => {
+  const since = new Map(interdiff(patch.replace("+CACHE", "+CACHED"), patch).map((f) => [f.file, f]));
+  const view = render(<DiffViewer patch={patch} files={["src/a.ts", "src/b.ts"]} splitFiles={new Map([["src/a.ts", { hunks: [1], alsoIn: ["Caching"] }]])} views={new Map()} onToggleViewed={() => {}} since={since} sinceOnly />);
+  expect(view.getByText("No changes in this chapter since your review.")).toBeTruthy();
+  expect(view.getByText("2 files unchanged since your review")).toBeTruthy();
 });
 
 test("a split file shows Changed since your review in the chapter nearest a change gone since then", async () => {

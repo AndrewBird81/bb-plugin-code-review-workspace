@@ -106,13 +106,17 @@ function scrollParent(el: Element): Element | null {
 }
 
 // Scrolls the review only vertically: scrollIntoView would also scroll the diff's code sideways.
-function scrollToCenter(el: HTMLElement, behavior: ScrollBehavior) {
+// Centers `from` down to `el` in the part of the review the file's sticky header doesn't cover,
+// or puts `from` just under the header when they don't fit.
+function scrollToCenter(el: HTMLElement, behavior: ScrollBehavior, header = 0, from: HTMLElement = el) {
   let box = outer(el);
   while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = outer(box);
   if (!box) return;
-  const target = el.getBoundingClientRect();
+  const top = from.getBoundingClientRect().top;
+  const height = el.getBoundingClientRect().bottom - top;
   const view = box.getBoundingClientRect();
-  box.scrollBy({ top: target.top - view.top - (view.height - target.height) / 2, behavior });
+  const room = view.height - header;
+  box.scrollBy({ top: top - view.top - header - Math.max(0, (room - height) / 2), behavior });
 }
 
 /** Outlines where a reveal landed for a moment, so it's clear which line or comment it is. */
@@ -342,6 +346,8 @@ export const DiffViewer = memo(function DiffViewer({
     const order = new Map(fileKey.split("\0").map((path, index) => [path, index]));
     const chapter = splitPatchByFile(patch).filter((f) => order.has(f.path)).sort((a, b) => order.get(a.path)! - order.get(b.path)!);
     const shown = filtering ? chapter.filter((f) => since!.get(f.path)?.status !== "unchanged") : chapter;
+    // Split files changed only in their other chapters' hunks.
+    let partsUnchanged = 0;
     const perFile = shown.flatMap((f) => {
       const change = since?.get(f.path);
       const split = splitFiles?.get(f.path);
@@ -354,7 +360,10 @@ export const DiffViewer = memo(function DiffViewer({
       const shown = hideWhitespace ? hideWhitespaceChanges(text) : text;
       const fileDiff = shown ? parseFileDiff(shown) : null;
       // A file whose only change since your review is removed hunks shows just those.
-      if (!fileDiff && !(filtering && dropped)) return [];
+      if (!fileDiff && !(filtering && dropped)) {
+        if (filtering && split && !text) partsUnchanged++;
+        return [];
+      }
       const stats = diffStats(text);
       const shownStats = shown === text ? stats : diffStats(shown);
       return [{
@@ -378,7 +387,7 @@ export const DiffViewer = memo(function DiffViewer({
         inPart: split ? diffLines(own) : undefined,
       }];
     });
-    return { perFile, unchanged: chapter.length - shown.length };
+    return { perFile, unchanged: chapter.length - shown.length + partsUnchanged };
   }, [patch, fileKey, since, filtering, generated, splitFiles, hideWhitespace]);
   // Files loaded in full, each with the diff it was read for, and those showing every line. A new diff starts over.
   const [contents, setContents] = useState<Record<string, { text: string; result: "loading" | FileContentsResult }>>({});
@@ -521,15 +530,16 @@ export const DiffViewer = memo(function DiffViewer({
     let lastHeight = -1;
     let frame = requestAnimationFrame(function attempt() {
       const fileEl = Array.from(root.current?.querySelectorAll<HTMLElement>("[data-file]") ?? []).find((el) => el.dataset.file === at.file);
+      const row = fileEl ? lineRow(fileEl, at) : undefined;
       const landOn = (el: HTMLElement, center: boolean) => {
-        if (center) scrollToCenter(el, behavior);
+        // A comment lands with its line, which is above it, and the threads between them.
+        if (center) scrollToCenter(el, behavior, fileEl!.querySelector("[data-file-header]")?.getBoundingClientRect().height, row?.getClientRects().length ? row : el);
         else el.scrollIntoView({ behavior, block: "start" });
         flash(el);
       };
       // No line: just the file.
       if (at.line < 1 && fileEl) return landOn(fileEl, false);
-      const target = Array.from(fileEl?.querySelectorAll<HTMLElement>("[data-draft-at]") ?? []).find((el) => el.dataset.draftAt === locationKey(at))
-        ?? (fileEl ? lineRow(fileEl, at) : undefined);
+      const target = Array.from(fileEl?.querySelectorAll<HTMLElement>("[data-draft-at]") ?? []).find((el) => el.dataset.draftAt === locationKey(at)) ?? row;
       const shown = !!target?.getClientRects().length;
       const height = root.current?.offsetHeight ?? 0;
       const settled = height === lastHeight;
@@ -572,7 +582,7 @@ export const DiffViewer = memo(function DiffViewer({
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
         const folded = isCollapsed(path);
-        const commentCount = draft?.comments.filter((c) => c.file === path && (inPart?.(c) ?? true)).length ?? 0;
+        const commentCount = draft?.comments.filter((c) => c.file === path && (inPart?.(c) ?? true) && !(draft.hideNits && c.severity === "nit")).length ?? 0;
         const commentLabel = `${commentCount} draft comment${commentCount === 1 ? "" : "s"}`;
         const loaded = contentsFor(path, source);
         const loading = loaded === "loading";
@@ -589,7 +599,7 @@ export const DiffViewer = memo(function DiffViewer({
               viewed && folded && "opacity-75 focus-within:opacity-100 hover:opacity-100",
             )}
           >
-            <div className={cn("sticky top-0 z-10 flex min-h-10 items-center gap-2 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] px-2 py-1.5", !folded && "border-b border-border")}>
+            <div data-file-header className={cn("sticky top-0 z-10 flex min-h-10 flex-wrap items-center gap-2 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] px-2 py-1.5", !folded && "border-b border-border")}>
               <button
                 type="button"
                 aria-label={`${folded ? "Expand" : "Collapse"} ${path}`}
@@ -598,7 +608,7 @@ export const DiffViewer = memo(function DiffViewer({
               >
                 <Icon name="ChevronDown" className={cn("size-3.5 transition-transform duration-150", folded && "-rotate-90")} aria-hidden />
               </button>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 basis-40">
                 <FilePath path={path} className="text-xs" nameClassName="font-medium" />
                 {oldPath && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">Renamed from <span className="font-mono">{oldPath}</span></p>}
                 {summaries?.get(path) && <p className="mt-0.5 text-xs leading-snug text-muted-foreground"><InlineCode text={summaries.get(path)!} /></p>}
@@ -610,46 +620,49 @@ export const DiffViewer = memo(function DiffViewer({
                   </p>
                 )}
               </div>
-              <FileTag file={path} generated={generated.has(path)} />
-              {folded && !viewed && noisy.has(path) && (
-                <Button variant="ghost" size="sm" aria-label={`Show diff of ${path}`} className="h-6 shrink-0 px-2 text-[11px]" onClick={() => toggleCollapsed(path)}>Show diff</Button>
-              )}
-              {readContents && source && !folded && (full ? (
-                <Button variant="ghost" size="sm" aria-label={`Whole file ${path}`} aria-pressed={!!wholeFile[path]} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground aria-pressed:text-primary" onClick={() => setWholeFile((w) => ({ ...w, [path]: !w[path] }))}>
-                  <Icon name="FileText" className="size-3" aria-hidden />Whole file
-                </Button>
-              ) : (
-                <Button variant="ghost" size="sm" aria-label={`Expand ${path} around its changes`} disabled={loading} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground" onClick={() => void expand(path, source.text)}>
-                  <Icon name={loading ? "Loading" : "ArrowUpDown"} className={cn("size-3", loading && "animate-spin motion-reduce:animate-none")} aria-hidden />Expand
-                </Button>
-              ))}
-              {commentCount > 0 && (
-                <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 text-[11px] leading-5 text-primary" title={commentLabel}>
-                  <Icon name="MessageSquare" className="size-3" aria-hidden />
-                  <span aria-hidden>{commentCount}</span>
-                  <span className="sr-only">{commentLabel}</span>
-                </span>
-              )}
-              {stale && (
-                <Badge tone="warning" size="sm" title="This file changed since you marked it viewed">changed</Badge>
-              )}
-              {changedHere && (
-                <Badge tone="primary" size="sm" icon={<Icon name="GitCommit" aria-hidden />} title={change!.status === "added" ? `Added to the PR since ${sinceWhat}` : `Changed since ${sinceWhat}`}>Changed since {sinceWhat}</Badge>
-              )}
-              <DiffStat add={stats.add} del={stats.del} className="hidden @min-[700px]/review:inline-flex" />
-              <label className={cn(
-                "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors",
-                viewed ? "border-success/30 bg-success/10 text-diff-added" : "border-border text-muted-foreground hover:border-input hover:text-foreground",
-              )}>
-                <input
-                  type="checkbox"
-                  className="size-3.5 accent-(--success)"
-                  checked={viewed}
-                  aria-label={`Viewed ${path}`}
-                  onChange={(e) => handleToggleViewed(path, e.target.checked)}
-                />
-                Viewed
-              </label>
+              {/* On a narrow screen these wrap under the file's name rather than squeeze it. */}
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                <FileTag file={path} generated={generated.has(path)} />
+                {folded && !viewed && noisy.has(path) && (
+                  <Button variant="ghost" size="sm" aria-label={`Show diff of ${path}`} className="h-6 shrink-0 px-2 text-[11px]" onClick={() => toggleCollapsed(path)}>Show diff</Button>
+                )}
+                {readContents && source && !folded && (full ? (
+                  <Button variant="ghost" size="sm" aria-label={`Whole file ${path}`} aria-pressed={!!wholeFile[path]} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground aria-pressed:text-primary" onClick={() => setWholeFile((w) => ({ ...w, [path]: !w[path] }))}>
+                    <Icon name="FileText" className="size-3" aria-hidden />Whole file
+                  </Button>
+                ) : (
+                  <Button variant="ghost" size="sm" aria-label={`Expand ${path} around its changes`} disabled={loading} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground" onClick={() => void expand(path, source.text)}>
+                    <Icon name={loading ? "Loading" : "ArrowUpDown"} className={cn("size-3", loading && "animate-spin motion-reduce:animate-none")} aria-hidden />Expand
+                  </Button>
+                ))}
+                {commentCount > 0 && (
+                  <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 text-[11px] leading-5 text-primary" title={commentLabel}>
+                    <Icon name="MessageSquare" className="size-3" aria-hidden />
+                    <span aria-hidden>{commentCount}</span>
+                    <span className="sr-only">{commentLabel}</span>
+                  </span>
+                )}
+                {stale && (
+                  <Badge tone="warning" size="sm" title="This file changed since you marked it viewed">changed</Badge>
+                )}
+                {changedHere && (
+                  <Badge tone="primary" size="sm" icon={<Icon name="GitCommit" aria-hidden />} title={change!.status === "added" ? `Added to the PR since ${sinceWhat}` : `Changed since ${sinceWhat}`}>{change!.status === "added" ? "Added" : "Changed"} since {sinceWhat}</Badge>
+                )}
+                <DiffStat add={stats.add} del={stats.del} className="hidden @min-[700px]/review:inline-flex" />
+                <label className={cn(
+                  "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors",
+                  viewed ? "border-success/30 bg-success/10 text-diff-added" : "border-border text-muted-foreground hover:border-input hover:text-foreground",
+                )}>
+                  <input
+                    type="checkbox"
+                    className="size-3.5 accent-(--success)"
+                    checked={viewed}
+                    aria-label={`Viewed ${path}`}
+                    onChange={(e) => handleToggleViewed(path, e.target.checked)}
+                  />
+                  Viewed
+                </label>
+              </div>
             </div>
             {!folded && first && <OutdatedThreads threads={fromGitHub.get(path)?.outdated ?? []} />}
             {!folded && whitespaceOnly && (

@@ -6,6 +6,8 @@ import { defaultPreferences } from "../src/preferences";
 import { interdiff } from "../src/interdiff";
 import { fileTree, filterPaths, firstFile } from "../lib/file-tree";
 import { getNavView } from "../lib/panel-state";
+import { render } from "@testing-library/react";
+import { ChapterNav } from "./ChapterNav";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre>{fileDiff.additionLines.join("")}</pre> }));
@@ -35,6 +37,29 @@ test("the path filter keeps files holding every word, in any case", () => {
   expect(filterPaths(paths, "cache STORE")).toEqual(["src/cache/Store.ts"]);
   expect(filterPaths(paths, " test ")).toEqual(["test/cache.test.ts"]);
   expect(filterPaths(paths, "")).toEqual(paths);
+});
+
+test("the path filter ignores accents", () => {
+  expect(filterPaths(["docs/café.md", "docs/cafe-notes.md", "src/api.ts"], "cafe")).toEqual(["docs/café.md", "docs/cafe-notes.md"]);
+  expect(filterPaths(["docs/cafe-notes.md", "docs/Café.md"], "CAFÉ")).toEqual(["docs/cafe-notes.md", "docs/Café.md"]);
+});
+
+test("a file split across chapters opens in the current chapter when it lists the file, else the first that does", () => {
+  const sections = [
+    { id: "c1", title: "One", overview: "", diffs: [{ file: "src/server.ts", hunks: [2] }] },
+    { id: "c2", title: "Two", overview: "", diffs: [{ file: "src/server.ts", hunks: [1] }] },
+    { id: "c3", title: "Three", overview: "", diffs: [{ file: "README.md" }] },
+  ];
+  const onSelectFile = vi.fn();
+  const tree = (activeId: string) => <ChapterNav sections={sections} activeId={activeId} onSelect={() => {}} views={new Map()} onSelectFile={onSelectFile} view="files" />;
+  const view = render(tree("c1"));
+  const server = () => within(view.getByRole("list", { name: "All files" })).getByTitle("src/server.ts");
+  fireEvent.click(server());
+  view.rerender(tree("c2"));
+  fireEvent.click(server());
+  view.rerender(tree("c3"));
+  fireEvent.click(server());
+  expect(onSelectFile.mock.calls).toEqual([["c1", "src/server.ts"], ["c2", "src/server.ts"], ["c1", "src/server.ts"]]);
 });
 
 const file = (path: string, hunks: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${hunks}`;
