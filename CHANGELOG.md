@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2 — 2026-10-11
+
+- Collapse a review's header from the chevron at its top-right, and expand it from the same spot. It replaces Focus in the diff toolbar. On a phone, reviews you opened before 0.5.0 now start collapsed too; they had kept the full header.
+- The chapters toggle moved from the diff toolbar to the top bar, beside All reviews. On a phone the toolbar is a row shorter.
+- **Full screen** works on an iPhone, which can't make a page full screen: the review covers the window, BB's bars included, until you exit.
+- On a phone, a review's full header puts Not yet, Snooze, and Re-review on their own row instead of running them off the screen.
+- On a phone held sideways, the top bar shows more of the review's title: All reviews keeps to its arrow there.
+
 ## 0.5.1 — 2026-10-11
 
 - **Needs review** in BB's thread list: the reviews waiting on you, below Pinned and Threads, collapsible like them. Choosing one opens it, and closes the sidebar on a phone.
