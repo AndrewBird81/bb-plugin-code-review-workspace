@@ -5,7 +5,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { interdiff } from "../src/interdiff";
 import { fileTree, filterPaths, firstFile } from "../lib/file-tree";
-import { getNavView } from "../lib/panel-state";
+import { getNavView, setHideNits } from "../lib/panel-state";
 import { render } from "@testing-library/react";
 import { ChapterNav } from "./ChapterNav";
 
@@ -91,7 +91,7 @@ async function renderWorkspace() {
     checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
     checkForUpdates: () => ({ hasNewCommits: false }),
     getDraft: () => ({
-      draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [{ ...at("src/cache/store.ts", 1), body: "Why?" }, { ...at("src/cache/store.ts", 1), side: "LEFT", body: "And this?" }] },
+      draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [{ ...at("src/cache/store.ts", 1), body: "Why?" }, { ...at("src/cache/store.ts", 1), side: "LEFT", body: "And this?", severity: "nit" }] },
       stale: [], discussions: [{ ...at("src/cache/evict.ts", 1), entries: [{ author: "reviewer", kind: "message", body: "Safe?", createdAt: 1 }], waiting: false }],
     }),
     getReviewThreads: () => ({ threads: [
@@ -144,6 +144,14 @@ test("All files lists every file as a tree with what's on it, and the choice sti
   fireEvent.click(nav(again).getByRole("button", { name: "Chapters" }));
   expect(getNavView()).toBe("chapters");
   again.lifecycle.unmount();
+}, 15_000);
+
+test("with Hide nits on, All files counts the comments it shows, as the file's header does", async () => {
+  setHideNits(true);
+  const slot = await renderWorkspace();
+  fireEvent.click(nav(slot).getByRole("button", { name: "All files" }));
+  expect(within(fileRow(slot, "src/cache/store.ts")).getByText("1 draft comment")).toBeTruthy();
+  slot.lifecycle.unmount();
 }, 15_000);
 
 test("choosing a file in All files opens it in its chapter at its header", async () => {

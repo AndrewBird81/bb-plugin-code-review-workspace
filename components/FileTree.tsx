@@ -68,7 +68,8 @@ export const FileTree = memo(function FileTree({
 
   const shown = useMemo(() => filterPaths([...chapterOf.keys()], filter), [chapterOf, filter]);
   const tree = useMemo(() => fileTree(shown), [shown]);
-  const comments = useMemo(() => count(draft?.comments), [draft?.comments]);
+  // Hidden nits count nowhere, as in the file's header.
+  const comments = useMemo(() => count(draft?.comments.filter((c) => !(draft.hideNits && c.severity === "nit"))), [draft?.comments, draft?.hideNits]);
   const discussions = useMemo(() => count(draft?.discussions), [draft?.discussions]);
   const openThreads = useMemo(() => count(threads?.filter((thread) => !thread.isResolved)), [threads]);
 
