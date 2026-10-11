@@ -33,6 +33,12 @@ function arrange(folder: TreeFolder): TreeFolder {
   return { ...folder, children };
 }
 
+/** The first file the tree shows: a folder comes before its files, and isn't empty. */
+export function firstFile(nodes: readonly TreeNode[]): string | undefined {
+  const [first] = nodes;
+  return first?.kind === "folder" ? firstFile(first.children) : first?.path;
+}
+
 /** The files whose path holds every word of the filter, in any case. */
 export function filterPaths(paths: readonly string[], filter: string): string[] {
   const words = filter.toLowerCase().split(/\s+/).filter(Boolean);

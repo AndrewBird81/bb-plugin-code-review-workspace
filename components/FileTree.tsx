@@ -1,6 +1,6 @@
 import { memo, useContext, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "../lib/utils";
-import { fileTree, filterPaths, type TreeNode } from "../lib/file-tree";
+import { fileTree, filterPaths, firstFile, type TreeNode } from "../lib/file-tree";
 import type { FileInterdiff } from "../src/interdiff";
 import type { ReviewThread } from "../src/threads";
 import type { FileOwners } from "../src/codeowners";
@@ -177,7 +177,7 @@ export const FileTree = memo(function FileTree({
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && shown.length) { event.preventDefault(); open(shown[0]); }
+            if (event.key === "Enter" && shown.length) { event.preventDefault(); open(firstFile(tree)!); }
             else if (event.key === "ArrowDown") {
               event.preventDefault();
               event.currentTarget.closest("[data-file-tree]")?.querySelector<HTMLElement>("[data-tree-row]")?.focus();

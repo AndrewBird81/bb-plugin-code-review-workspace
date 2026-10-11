@@ -4,7 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { interdiff } from "../src/interdiff";
-import { fileTree, filterPaths } from "../lib/file-tree";
+import { fileTree, filterPaths, firstFile } from "../lib/file-tree";
 import { getNavView } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
@@ -22,6 +22,12 @@ test("changed files make a folder tree: folders first, by name, and a folder hol
     { src: [{ "lib/deep": ["a.ts", "b.ts"] }, "app.ts"] },
     "README.md",
   ]);
+});
+
+test("the tree's first file is the one it shows first: in its first folder, not the guide's first", () => {
+  expect(firstFile(fileTree(["src/z/a.ts", "docs/a.md", "a.ts"]))).toBe("docs/a.md");
+  expect(firstFile(fileTree(["b.ts", "a.ts"]))).toBe("a.ts");
+  expect(firstFile([])).toBeUndefined();
 });
 
 test("the path filter keeps files holding every word, in any case", () => {
@@ -158,5 +164,17 @@ test("f shows All files with the cursor in the filter; Enter opens the first mat
   fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
   fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
   expect(document.activeElement).toBe(filter);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("Enter in the filter opens the first file the tree shows, not the guide's first", async () => {
+  const slot = await renderWorkspace();
+  fireEvent.keyDown(document.body, { key: "f" });
+  const filter = await slot.findByRole("searchbox", { name: "Filter files" });
+  // In the guide, store.ts comes first; the tree shows evict.ts first.
+  fireEvent.change(filter, { target: { value: "cache" } });
+  fireEvent.keyDown(filter, { key: "Enter" });
+  await slot.findByText(/evict body/);
+  expect(fileRow(slot, "src/cache/evict.ts").getAttribute("aria-current")).toBe("true");
   slot.lifecycle.unmount();
 }, 15_000);
