@@ -24,9 +24,11 @@ const commits = [
 
 async function renderWorkspace(review: Record<string, unknown>) {
   const app = await loadPluginApp(() => import("../app"));
+  // What a new push and rebuild change.
+  const pr = { headSha: "c3ccccc", commits, revision: "r1" };
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
-    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Cache rows", headSha: "c3ccccc", ...review }, guide, patch: head, revision: "r1" }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Cache rows", headSha: pr.headSha, ...review }, guide, patch: head, revision: pr.revision }),
     getChecks: () => ({ bucket: "none", checks: [] }),
     getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
     getFileViews: () => ({ views: [] }),
@@ -36,7 +38,7 @@ async function renderWorkspace(review: Record<string, unknown>) {
     getReviewerNotes: () => ({ body: "", revision: 0 }),
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
     markSeen: () => ({ ok: true }),
-    getPrCommits: vi.fn(() => ({ commits })),
+    getPrCommits: vi.fn(() => ({ commits: pr.commits })),
     getSinceReview: vi.fn(({ from }: { from?: string }) => {
       const sha = from ?? "c1aaaaa";
       return { baseline: { sha, at: from ? null : 1, verdict: from ? null : "COMMENT" }, files: interdiff(diffs[sha], head) };
@@ -45,7 +47,12 @@ async function renderWorkspace(review: Record<string, unknown>) {
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
   await slot.findByRole("heading", { name: "Cache rows" });
   await slot.findByText("b2");
-  return { slot, rpc: handlers };
+  /** A new commit is pushed, and the review rebuilt on it. */
+  const push = async () => {
+    Object.assign(pr, { headSha: "c4ddddd", commits: [{ sha: "c4ddddd", headline: "Log misses", committedAt: Date.now() }, ...commits], revision: "r2" });
+    await slot.emitRealtime("review:pr-42", {});
+  };
+  return { slot, rpc: handlers, push };
 }
 
 test("the diff compares from a commit you pick, newest first, with your review marked, and says what it compares", async () => {
@@ -104,5 +111,18 @@ test("a PR you haven't reviewed can be compared from one of its commits, from th
 test("a local review has no commits to pick", async () => {
   const { slot } = await renderWorkspace({ kind: "ref", gitRef: "main..HEAD" });
   expect(slot.queryByRole("button", { name: "Compare from a commit" })).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("after a new push and rebuild, the commit list and how many commits ago are read again", async () => {
+  const { slot, rpc, push } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" });
+  fireEvent.click(await slot.findByRole("button", { name: "Compare from a commit" }));
+  fireEvent.click(await within(await slot.findByRole("list", { name: "Commits" })).findByText("Invalidate on write"));
+  await slot.findByRole("button", { name: "Since c2bbbbb, 1 commit ago" });
+  await push();
+  await slot.findByRole("button", { name: "Since c2bbbbb, 2 commits ago" });
+  expect(rpc.getPrCommits).toHaveBeenCalledTimes(2);
+  fireEvent.click(slot.getByRole("button", { name: "Compare from a commit" }));
+  expect(await within(await slot.findByRole("list", { name: "Commits" })).findByText("Rename key")).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);

@@ -50,7 +50,9 @@ export function ComparePicker({ targetKey, baseline, head, from, onFrom, availab
 }) {
   const rpc = useRpc<typeof rpcContract>();
   const [open, setOpen] = useState(false);
-  const [commits, setCommits] = useState<PrCommit[] | null>(null);
+  // The commits up to the head they were read at: a new push adds some, and moves each one further back.
+  const [listed, setListed] = useState<{ head: string | null; commits: PrCommit[] } | null>(null);
+  const commits = listed?.head === head ? listed.commits : null;
   const [error, setError] = useState<string | null>(null);
   const label = compareLabel(from, commits);
 
@@ -58,11 +60,12 @@ export function ComparePicker({ targetKey, baseline, head, from, onFrom, availab
     setError(null);
     rpc.call("getPrCommits", { targetKey }).then((result) => {
       if (result.error) setError(result.error);
-      else setCommits(result.commits);
+      else setListed({ head, commits: result.commits });
     }, (reason) => setError(reason instanceof Error ? reason.message : "Couldn’t read the PR’s commits."));
   }
-  // A comparison picked before the toolbar last drew needs the commits for its label.
-  useEffect(() => { if (from && !commits) load(); }, [from]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A comparison picked before the toolbar last drew, or before a new push, needs the commits for its label;
+  // the menu open at a push needs them to list.
+  useEffect(() => { if ((from || open) && !commits) load(); }, [from, head]); // eslint-disable-line react-hooks/exhaustive-deps
   const pick = (sha: string | null) => { setOpen(false); onFrom(sha === baseline ? null : sha); };
   const choices = commits?.filter((commit) => commit.sha !== head) ?? [];
   const item = "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-state-hover focus-visible:bg-state-hover focus-visible:outline-none";
