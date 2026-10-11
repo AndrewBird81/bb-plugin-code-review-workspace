@@ -39,6 +39,8 @@ export const preferencesSchema = z.object({
   trackTeamRequests: z.boolean(),
   autoStartRepos: z.array(z.string().trim().toLowerCase().regex(REPO_PATTERN, "Use owner/repo, owner/*, or *.")).max(50),
   verificationPrompt: z.string().max(12000),
+  unattendedAuthors: z.enum(["members", "anyone"]),
+  runRepoChecks: z.boolean(),
 }).strict();
 
 /** Saved settings as they read now: missing fields take their defaults, and older defaults the current ones. */

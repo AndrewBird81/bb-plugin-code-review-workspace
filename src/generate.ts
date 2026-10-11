@@ -2,11 +2,12 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store } from "./store";
 import { completionNotifications } from "./completion-notifications";
 import { defaultPreferences, guidePreferencesPrompt, spawnExecution, type ReviewPreferences } from "./preferences";
-import { refreshAssistants, startAutomaticReview } from "./agent";
+import { refreshAssistants, skipRun, startAutomaticReview } from "./agent";
 import { agentPlacement, machineUnavailable } from "./machines";
 import { startVerification } from "./verification";
 import { baselineOf } from "./feedback-view";
 import type { Guide } from "./guide";
+import { mayRunUnattended } from "../lib/trust";
 
 const preparedListeners = new WeakMap<BbPluginApi, (targetKey: string) => void>();
 /** Told when a guide's automatic follow-up (the review or the feedback check) has started or can't. */
@@ -52,7 +53,8 @@ export async function generateGuide(
   store: Store,
   targetKey: string,
   projectId: string,
-  options: { notify?: boolean } = {},
+  /** unattended: started with no click from you, so it doesn't approve agents on the PR's head. */
+  options: { notify?: boolean; unattended?: boolean } = {},
 ): Promise<void> {
   let generationId: string | undefined;
   let workerId: string | undefined;
@@ -63,6 +65,8 @@ export async function generateGuide(
   runs.add(controller);
   try {
     const review = store.getReview(targetKey);
+    // A guide you start approves agents on its head, whoever wrote the PR (lib/trust.ts).
+    if (!options.unattended && review?.headSha) store.setLifecycle(targetKey, { approvedHead: review.headSha, skippedRun: null });
     const earlier = { guide: store.getGuide(targetKey), reviewed: !!(review && baselineOf(review).at) };
     generationId = store.beginGeneration(targetKey);
     threads = bb.sdk.threads;
@@ -124,7 +128,11 @@ export async function generateGuide(
     bb.realtime.publish("reviews", { ts: Date.now() });
     // A review you already reviewed gets its feedback checked; a new one, the automatic review.
     const review = store.getReview(targetKey);
-    const checking = ok && !!review && !!baselineOf(review).at && await startVerification(bb, store, targetKey, "the guide was rebuilt for the PR's new commits");
+    // An untrusted author's check waits for your click; the automatic review gates itself.
+    const preferences = store.getPreferences().preferences;
+    const trusted = !!review && mayRunUnattended(review, preferences, review.headSha);
+    if (ok && review && baselineOf(review).at && !trusted && preferences.verificationPrompt.trim()) skipRun(bb, store, targetKey, "check", review.headSha ?? null);
+    const checking = ok && !!review && !!baselineOf(review).at && trusted && await startVerification(bb, store, targetKey, "the guide was rebuilt for the PR's new commits");
     const newCommits = before && review?.headSha && before !== review.headSha ? { from: before, to: review.headSha } : undefined;
     if (ok && !checking && !(review && baselineOf(review).at)) await startAutomaticReview(bb, store, targetKey, newCommits).catch((error) => {
       bb.log.warn(`The automatic review of ${targetKey} didn't start: ${String(error)}`);

@@ -72,6 +72,10 @@ export interface ReviewLifecycle {
   ownPr?: boolean | null;
   /** How the PR's author is related to its repository, as GitHub last said (OWNER, MEMBER, …). Unset until read. */
   authorAssociation?: string | null;
+  /** The head commit you started agents on (lib/trust.ts): runs that follow on it start with no click, whoever the author. */
+  approvedHead?: string | null;
+  /** A run that didn't start on its own because the author isn't trusted, for the reviewer to start with one click. */
+  skippedRun?: { run: "guide" | "review" | "check"; head: string | null; at: number } | null;
   /** Lines added and deleted, and files changed, as GitHub last said. */
   prSize?: { additions: number; deletions: number; files: number } | null;
   /** GitHub can't find the PR, or refuses access, since this time. */

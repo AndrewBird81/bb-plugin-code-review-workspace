@@ -17,6 +17,7 @@ function host(threads: Record<string, unknown> = {}, projects: Record<string, un
   }, projects } });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "p1" });
+  store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
   return { bb, harness, store };
 }
 
@@ -267,4 +268,58 @@ test("a guide rebuilt for new commits asks the assistant to re-check its draft c
   expect(sent.input).toEqual([{ type: "text", mentions: [], visibility: "agent-only", text: expect.stringMatching(/New commits: 2222222→3333333\. Re-check your draft comments against the new diff, delete the ones the commits fixed, and review only what changed\./) }]);
   // No conversation was started over the existing one.
   expect(harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title)).toEqual(["Generate guide: pr-1", "Generate guide: pr-1"]);
+});
+
+/** A PR from someone outside acme, at `head`, whose guide finishes when its writer goes idle. */
+function outsider(head = "sha1", preferences: Partial<typeof defaultPreferences> = {}) {
+  let spawned = 0;
+  const h = host(
+    { spawn: async () => ({ id: `thread-${++spawned}` }), wait: async () => { h.store.saveGuide("pr-1", guide("Retry") as any); } },
+    { defaultExecutionOptions: async () => opus },
+  );
+  h.store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, author: "mallory", status: "generating", createdAt: 1, projectId: "p1", headSha: head });
+  h.store.setLifecycle("pr-1", { authorAssociation: "FIRST_TIME_CONTRIBUTOR", ownPr: false });
+  if (Object.keys(preferences).length) h.store.savePreferences({ ...defaultPreferences, ...preferences }, 0);
+  const titles = () => h.harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title);
+  return { ...h, titles };
+}
+
+test("an outside author's guide that started on its own doesn't start the automatic review; the review says what didn't run", async () => {
+  const { bb, store, harness, titles } = outsider();
+  await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
+  expect(store.getReview("pr-1")?.status).toBe("ready");
+  expect(titles()).toEqual(["Generate guide: pr-1"]);
+  expect(store.getReview("pr-1")?.skippedRun).toEqual({ run: "review", head: "sha1", at: expect.any(Number) });
+  expect(harness.inspection.realtimeSignals.map((signal) => signal.channel)).toContain("reviews");
+});
+
+test("a guide you start approves its head, so the automatic review follows; a new head is gated again", async () => {
+  const { bb, store, titles } = outsider();
+  store.setLifecycle("pr-1", { skippedRun: { run: "guide", head: "sha1", at: 1 } });
+  await generateGuide(bb, store, "pr-1", "p1");
+  expect(store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", skippedRun: null });
+  expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: pr-1"]);
+
+  const next = outsider("sha2");
+  next.store.setLifecycle("pr-1", { approvedHead: "sha1" });
+  await generateGuide(next.bb, next.store, "pr-1", "p1", { unattended: true });
+  expect(next.titles()).toEqual(["Generate guide: pr-1"]);
+  expect(next.store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "review", head: "sha2" });
+});
+
+test("an outside author's rebuilt guide doesn't start the feedback check on its own", async () => {
+  const { bb, store, harness, titles } = outsider();
+  store.setLifecycle("pr-1", { submittedVerdict: "REQUEST_CHANGES", submittedAt: 5, submittedHeadSha: "sha0" });
+  await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
+  expect(titles()).toEqual(["Generate guide: pr-1"]);
+  expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
+  expect(store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "check", head: "sha1" });
+  expect(store.getReview("pr-1")?.verifyingSince).toBeFalsy();
+});
+
+test("no automatic review is recorded as skipped when it's turned off", async () => {
+  const { bb, store, titles } = outsider("sha1", { automaticReview: "" });
+  await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
+  expect(titles()).toEqual(["Generate guide: pr-1"]);
+  expect(store.getReview("pr-1")?.skippedRun).toBeUndefined();
 });

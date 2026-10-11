@@ -14,7 +14,7 @@ interface Deps {
 const rerunning = new WeakMap<BbPluginApi, Set<string>>();
 
 /** Re-read the target and regenerate its guide. `notify: false` leaves alerts to the turn that asked for it. */
-export async function rerunReview(deps: Deps, targetKey: string, options: { notify?: boolean } = {}): Promise<{ ok: boolean; error?: string }> {
+export async function rerunReview(deps: Deps, targetKey: string, options: { notify?: boolean; unattended?: boolean } = {}): Promise<{ ok: boolean; error?: string }> {
   // A re-review already reading the target starts the guide for both callers.
   const running = rerunning.get(deps.bb) ?? new Set<string>();
   rerunning.set(deps.bb, running);
@@ -27,7 +27,7 @@ export async function rerunReview(deps: Deps, targetKey: string, options: { noti
   }
 }
 
-async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean }): Promise<{ ok: boolean; error?: string }> {
+async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean; unattended?: boolean }): Promise<{ ok: boolean; error?: string }> {
   const m = deps.store.getReview(targetKey);
   if (!m || !m.projectId) return { ok: false, error: "Unknown review or missing project." };
   const unavailable = await guideWriterUnavailable(deps.bb, deps.store);
@@ -61,7 +61,7 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean 
 }
 
 /** Rebuild an existing review's guide for a new diff, keeping the current guide in case it fails and moving the draft comments. */
-export function rebuildReview(deps: Pick<Deps, "bb" | "store">, m: ReviewMeta & { projectId: string }, patch: string, options: { notify?: boolean } = {}) {
+export function rebuildReview(deps: Pick<Deps, "bb" | "store">, m: ReviewMeta & { projectId: string }, patch: string, options: { notify?: boolean; unattended?: boolean } = {}) {
   const targetKey = m.targetKey;
   const previous = deps.store.readPatch(targetKey, 0, deps.store.readPatch(targetKey, 0, 0).total).text;
   // If the new guide fails, the current one comes back.

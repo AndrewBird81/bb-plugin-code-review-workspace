@@ -85,12 +85,12 @@ export default async function plugin(bb: BbPluginApi) {
       const review = store.getReview(targetKey);
       if (!review) return false;
       // An out-of-date guide is rebuilt first; its completion starts the check.
-      if (review.status === "tracked" || review.headSha !== headOf(review)) return (await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey, { notify: false })).ok;
+      if (review.status === "tracked" || review.headSha !== headOf(review)) return (await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey, { notify: false, unattended: true })).ok;
       return startVerification(bb, store, targetKey, reasons[reason] ?? "the review came back to the reviewer");
     },
     checkPushes: (targetKey) => startVerification(bb, store, targetKey, "the author pushed new commits and they have settled"),
     async autoStart(targetKey) {
-      return (await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey, { notify: false })).ok;
+      return (await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey, { notify: false, unattended: true })).ok;
     },
     async projectId() {
       if (personalProject) return personalProject;
@@ -108,7 +108,7 @@ export default async function plugin(bb: BbPluginApi) {
         await bb.sdk.threads.archive({ threadId: workerId }).catch(() => {});
         await bb.sdk.threads.stop({ threadId: workerId }).catch(() => {});
       }
-      const restarted = await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey, { notify: false });
+      const restarted = await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey, { notify: false, unattended: true });
       if (!restarted.ok) bb.log.warn(`The interrupted guide for ${targetKey} didn't restart: ${restarted.error}`);
     }
   })().catch((error) => bb.log.warn(`Could not restart interrupted guides: ${String(error)}`));

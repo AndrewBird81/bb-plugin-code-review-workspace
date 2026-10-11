@@ -11,7 +11,7 @@ const T0 = Date.parse("2026-10-10T12:00:00Z");
 function facts(ref: PrRef, extra: Partial<PrFacts> = {}): PrFacts {
   return {
     targetKey: ref.targetKey, repo: ref.repo, number: ref.number, state: "OPEN", isDraft: false, title: "Expire cache entries", url: "https://github.com/acme/web/pull/1",
-    author: "alice", baseRefName: "main", headRefName: "cache", headSha: "sha1", updatedAt: 1, ci: "pass",
+    author: "alice", authorAssociation: "MEMBER", baseRefName: "main", headRefName: "cache", headSha: "sha1", updatedAt: 1, ci: "pass",
     myReviews: [], otherOpinions: [], requests: [], requestRemovedAt: null, requestPending: null, mention: null, commits: ["sha1"], ...extra,
   };
 }
@@ -684,4 +684,68 @@ test("the sync keeps the author's association with the repository", async () => 
   const s = setup({ pr: { authorAssociation: "CONTRIBUTOR" } });
   await s.sync.all();
   expect(s.store.getReview("pr-1")?.authorAssociation).toBe("CONTRIBUTOR");
+});
+
+test("a request from an author outside the organization doesn't start the guide; it records why, and alerts now", async () => {
+  const s = setup({ preferences: { autoStartRepos: ["acme/*"] } });
+  s.store.setStatus("pr-1", "tracked");
+  s.store.setLifecycle("pr-1", { newRequest: true });
+  s.pr({ authorAssociation: "FIRST_TIME_CONTRIBUTOR", requestPending: { via: "user" }, requests: [{ at: T0 - HOUR, by: "dan", via: "user" }] });
+  await s.sync.all();
+  expect(s.actions.autoStart).not.toHaveBeenCalled();
+  expect(s.store.getReview("pr-1")?.skippedRun).toEqual({ run: "guide", head: "sha1", at: T0 });
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  // Nothing tries again on its own.
+  s.at(1);
+  await s.sync.all(true);
+  expect(s.actions.autoStart).not.toHaveBeenCalled();
+});
+
+test("with agents on their own for anyone, an outside author's request starts the guide", async () => {
+  const s = setup({ preferences: { autoStartRepos: ["acme/*"], unattendedAuthors: "anyone" } });
+  s.store.setStatus("pr-1", "tracked");
+  s.store.setLifecycle("pr-1", { newRequest: true });
+  s.pr({ authorAssociation: "NONE", requestPending: { via: "user" }, requests: [{ at: T0 - HOUR, by: "dan", via: "user" }] });
+  await s.sync.all();
+  expect(s.actions.autoStart).toHaveBeenCalledWith("pr-1");
+  expect(s.store.getReview("pr-1")?.skippedRun).toBeUndefined();
+});
+
+test("an outside author's re-request doesn't start the feedback check, unless you started agents on that head", async () => {
+  const s = setup({ reviewed: true, pr: { authorAssociation: "CONTRIBUTOR" } });
+  await s.sync.all();
+  s.pr({ requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.actions.prepare).not.toHaveBeenCalled();
+  expect(s.store.getReview("pr-1")?.skippedRun).toEqual({ run: "check", head: "sha1", at: T0 + 0.2 * HOUR });
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+
+  // You started agents on sha1: its next re-request prepares as usual.
+  s.store.setLifecycle("pr-1", { approvedHead: "sha1", skippedRun: null });
+  s.pr({ requests: [{ at: T0 + 0.3 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.4);
+  await s.sync.all(true);
+  expect(s.actions.prepare).toHaveBeenCalledWith("pr-1", "re-requested");
+
+  // A new push is gated again.
+  vi.mocked(s.actions.prepare).mockClear();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 + 0.5 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.6);
+  await s.sync.all(true);
+  expect(s.actions.prepare).not.toHaveBeenCalled();
+  expect(s.store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "check", head: "sha2" });
+});
+
+test("an outside author's settled pushes aren't checked on their own; the review says so once", async () => {
+  const s = setup({ reviewed: true, preferences: { pushChecks: "progress" }, pr: { authorAssociation: "NONE" } });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"] });
+  s.at(0.1);
+  await s.sync.all(true);
+  s.at(0.5);
+  await s.sync.all(true);
+  await s.sync.all(true);
+  expect(s.actions.checkPushes).not.toHaveBeenCalled();
+  expect(s.store.getReview("pr-1")).toMatchObject({ skippedRun: { run: "check", head: "sha2" }, autoRunHead: "sha2" });
 });

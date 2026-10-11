@@ -4,6 +4,7 @@ import type { Guide } from "./guide";
 import { isMissingThread } from "./thread-errors";
 import { runGh } from "./gh";
 import { assistantPreferencesPrompt, spawnExecution, type AgentExecution, type ReviewPreferences } from "./preferences";
+import { mayRunUnattended } from "../lib/trust";
 import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
 
 // bb truncates configure instructions at 4,096 characters.
@@ -131,11 +132,14 @@ async function spawnConversation(bb: BbPluginApi, store: Store, args: { targetKe
  * with the automatic review off. A blank prompt turns the automatic review off.
  */
 export async function startAutomaticReview(bb: BbPluginApi, store: Store, targetKey: string, newCommits?: { from: string; to: string }): Promise<void> {
-  const prompt = store.getPreferences().preferences.automaticReview.trim();
+  const preferences = store.getPreferences().preferences;
+  const prompt = preferences.automaticReview.trim();
   if (!prompt && !newCommits) return;
   const { threadId, defaults } = await getConversation(bb, store, targetKey);
   if (threadId) {
-    if (newCommits && store.getDraft(targetKey).comments.some((comment) => comment.author === "agent")) await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{
+    // An untrusted author's new commits reach the conversation once you start agents on them.
+    const review = store.getReview(targetKey);
+    if (newCommits && review && mayRunUnattended(review, preferences, review.headSha) && store.getDraft(targetKey).comments.some((comment) => comment.author === "agent")) await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{
       type: "text", mentions: [], visibility: "agent-only",
       text: `New commits: ${newCommits.from.slice(0, 7)}→${newCommits.to.slice(0, 7)}. Re-check your draft comments against the new diff, delete the ones the commits fixed, and review only what changed.`,
     }] });
@@ -149,9 +153,18 @@ export async function startAutomaticReview(bb: BbPluginApi, store: Store, target
   // The sync knows once it has read the PR; before that, ask gh who you are.
   const login = review?.kind === "pr" && review.author && typeof review.ownPr !== "boolean" ? await runGh(["api", "user", "--jq", ".login"]).then((r) => r.code === 0 ? r.stdout.trim() : "", () => "") : "";
   const own = review?.ownPr === true || (!!login && login.toLowerCase() === review?.author?.toLowerCase());
+  // An untrusted author's PR waits for your click.
+  if (review && !own && !mayRunUnattended(review, preferences, review.headSha)) return skipRun(bb, store, targetKey, "review", review.headSha ?? null);
   // A conversation the reviewer is starting comes first.
   if (starting(bb, targetKey)) return;
   await startConversation(bb, store, { targetKey, text, agent: defaults, ...(own ? { context: SELF_REVIEW } : {}) });
+}
+
+/** Record a run that didn't start on its own because of the PR's author, for the reviewer to start with one click. */
+export function skipRun(bb: BbPluginApi, store: Store, targetKey: string, run: "guide" | "review" | "check", head: string | null): void {
+  store.setLifecycle(targetKey, { skippedRun: { run, head, at: Date.now() } });
+  bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
+  bb.realtime.publish("reviews", { ts: Date.now() });
 }
 
 const SELF_REVIEW = "This is the reviewer's own PR, so this is a self-review. GitHub allows only a Comment review on your own PR: suggest COMMENT, and frame comments as what to fix before asking for review.";

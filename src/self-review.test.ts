@@ -29,6 +29,7 @@ test("someone else's PR gets the ordinary automatic review", async () => {
   runGh.mockResolvedValue({ stdout: "me\n", stderr: "", code: 0 });
   const { bb, harness, store } = host();
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, author: "alice", status: "ready", createdAt: 1, projectId: "p1" });
+  store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
   await startAutomaticReview(bb, store, "pr-1");
   expect(input(harness)).toHaveLength(1);
 });
