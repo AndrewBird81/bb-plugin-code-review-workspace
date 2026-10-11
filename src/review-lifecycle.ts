@@ -65,6 +65,8 @@ const PUSH_QUIET = 15 * MINUTE;
 const DISCOVER_EVERY = 5 * MINUTE;
 /** The account discovery last ran for; its first run only fills the list. */
 const DISCOVERED = "discovery:account";
+/** Raise when the turn rules change what counts as an event (0.5.0: non-blocking threads, mentions, CI that never reports). */
+const TURN_RULES = 5;
 /**
  * Threads are re-read when the PR changes, and at least this often while it's active and one of yours is
  * unresolved: resolving a thread may not change the PR's updatedAt. Each read costs about 2 GraphQL points.
@@ -113,6 +115,16 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     return login;
   }
   bb.onDispose(() => { disposed = true; });
+  // New turn rules can make events read before them a new turn; like the time before bb watched a PR, they're history.
+  let rulesUpgraded: Promise<void> | null = null;
+  const upgradeRules = () => rulesUpgraded ??= (async () => {
+    if (await bb.storage.kv.get<number>("turn-rules") === TURN_RULES) return;
+    const at = clock();
+    for (const review of store.listReviews()) {
+      if (review.watchingSince != null) store.setLifecycle(review.targetKey, { watchingSince: at, watchedHead: review.latestHeadSha ?? review.headSha ?? null });
+    }
+    await bb.storage.kv.set("turn-rules", TURN_RULES);
+  })().catch((error) => bb.log.warn(`Could not start the new turn rules: ${String(error)}`));
 
   const turnOf = (review: ReviewMeta, now = clock(), options = turnOptions(store.getPreferences().preferences)) => computeTurn(review, options, now);
   // Stale alerts drop when the review is no longer your turn for the same reason.
@@ -155,6 +167,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     const fresh = keys.filter((key) => !inflight.has(key));
     if (!fresh.length) { await Promise.allSettled(waiting); return; }
     const task = (async () => {
+      await upgradeRules();
       if (limited()) return;
       const login = await viewerLogin();
       if (!login || disposed) return;
@@ -268,6 +281,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
    * Events from before bb watched the review are recorded without acting, except a new request found on GitHub.
    */
   async function evaluateNow(key: string, firstRead: boolean): Promise<void> {
+    await upgradeRules();
     let review = store.getReview(key);
     if (!review || disposed) return;
     const now = clock();

@@ -2,6 +2,8 @@
 
 ## 0.5.0 — 2026-10-11
 
+Reload Guided Review pages left open across the update: until then they can't save. Events from before the update don't alert or start agents under the new whose-turn rules.
+
 ### Reviewing the diff
 
 - Each chapter opens on an intro with its overview, and medium- and high-risk chapters list **What to verify**. The end of a chapter offers the next one, and a review reopens on the chapter you were reading.

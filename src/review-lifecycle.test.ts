@@ -791,3 +791,26 @@ test("an outside author's settled pushes aren't checked on their own; the review
   expect(s.actions.checkPushes).not.toHaveBeenCalled();
   expect(s.store.getReview("pr-1")).toMatchObject({ skippedRun: { run: "check", head: "sha2" }, autoRunHead: "sha2" });
 });
+
+test("after an upgrade to new turn rules, turns found in events from before it are history; later ones act", async () => {
+  // Watched since long before, re-requested an hour before the upgrade, at a head bb hadn't read yet.
+  const s = setup({ reviewed: true, pr: { headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 - HOUR, by: "alice", via: "user" }] } });
+  s.store.setLifecycle("pr-1", { watchingSince: T0 - 10 * HOUR, watchedHead: "sha1" });
+  await s.sync.all();
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs", reason: "re-requested" });
+  expect(s.published).toHaveLength(0);
+  expect(s.actions.prepare).not.toHaveBeenCalled();
+  // A re-request after the upgrade alerts and prepares as usual.
+  s.pr({ requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.actions.prepare).toHaveBeenCalledTimes(1);
+});
+
+test("once the turn rules are current, an event from before a pass still acts", async () => {
+  const s = setup({ reviewed: true, pr: { headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 - HOUR, by: "alice", via: "user" }] } });
+  s.store.setLifecycle("pr-1", { watchingSince: T0 - 10 * HOUR, watchedHead: "sha1" });
+  await s.bb.storage.kv.set("turn-rules", 5);
+  await s.sync.all();
+  expect(s.actions.prepare).toHaveBeenCalledTimes(1);
+});
