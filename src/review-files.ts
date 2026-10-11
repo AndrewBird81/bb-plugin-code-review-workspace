@@ -2,8 +2,8 @@
 import { patchRows, splitPatchByFile } from "./patch";
 import { classifyFile } from "./classify";
 
-/** list_review_files: one line per changed file, so an agent can plan what to read. */
-export function describeReviewFiles(patch: string): string {
+/** list_review_files: one line per changed file, so an agent can plan what to read. `generated`: the files the repo's .gitattributes marks generated. */
+export function describeReviewFiles(patch: string, generated: string[] = []): string {
   const files = splitPatchByFile(patch);
   const rows = files.map(({ path, oldPath, text }) => {
     const status = oldPath ? `renamed from ${oldPath}`
@@ -11,7 +11,7 @@ export function describeReviewFiles(patch: string): string {
     const kinds = patchRows(text).map((row) => row.kind);
     const added = kinds.filter((kind) => kind === "+").length;
     const removed = kinds.filter((kind) => kind === "-").length;
-    return `${path} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path).category}`;
+    return `${path} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path, generated.includes(path)).category}`;
   });
   return [`${files.length} file${files.length === 1 ? "" : "s"} (path · status · lines added and removed · diff size · kind):`, ...rows].join("\n");
 }

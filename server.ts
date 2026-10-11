@@ -685,7 +685,11 @@ export default async function plugin(bb: BbPluginApi) {
     name: "list_review_files",
     description: "List a Guided Review target's changed files: path, status (added, deleted, modified, renamed), lines added and removed, diff size, and kind (code, test, docs, config, lockfile, generated).",
     parameters: z.object({ targetKey: z.string() }),
-    execute: ({ targetKey }) => describeReviewFiles(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text),
+    execute: async ({ targetKey }) => {
+      const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
+      const review = store.getReview(targetKey);
+      return describeReviewFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : []);
+    },
   });
 
   // The review assistant's draft tools act only on its own review's local draft.

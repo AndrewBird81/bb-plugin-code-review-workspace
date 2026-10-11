@@ -71,14 +71,22 @@ const NONE = new Set<string>();
 /** Below this width the diff shows one column, whatever the reading layout: each side of a split needs about 480px. */
 const UNIFIED_BELOW = 960;
 
+// A line's row is in pierre's shadow root, so the way out of it goes through its host.
+const outer = (el: Element): Element | null => el.parentElement ?? (el.getRootNode() as Partial<ShadowRoot>).host ?? null;
+
 // Scrolls the review only vertically: scrollIntoView would also scroll the diff's code sideways.
 function scrollToCenter(el: HTMLElement, behavior: ScrollBehavior) {
-  let box = el.parentElement;
-  while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+  let box = outer(el);
+  while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = outer(box);
   if (!box) return;
   const target = el.getBoundingClientRect();
   const view = box.getBoundingClientRect();
   box.scrollBy({ top: target.top - view.top - (view.height - target.height) / 2, behavior });
+}
+
+/** Outlines where a reveal landed for a moment, so it's clear which line or comment it is. */
+function flash(el: HTMLElement) {
+  el.animate?.([{ outline: "2px solid var(--primary)", outlineOffset: "-2px" }, { outline: "2px solid transparent", outlineOffset: "-2px" }], { duration: 1600, easing: "ease-in" });
 }
 
 /**
@@ -143,6 +151,9 @@ function lineRow(fileEl: HTMLElement, at: CommentLocation): HTMLElement | undefi
   return (shadow?.querySelector<HTMLElement>(`[data-line-type="${own}"][data-line="${at.line}"]`)
     ?? shadow?.querySelector<HTMLElement>(`:is(${column},[data-unified]) [data-line="${at.line}"]:not([data-line-type="${other}"])`)) ?? undefined;
 }
+
+/** A file's diff with its whole contents, from the diff text and contents it was made from. */
+type FullDiff = { text: string; loaded: FileContentsResult; fileDiff: FileDiffMetadata; commentable: (at: CommentLocation) => boolean };
 
 const lineEnd = (file: string, range: SelectedLineRange): CommentLocation => ({ file, line: range.end, side: (range.endSide ?? range.side) === "deletions" ? "LEFT" : "RIGHT" });
 
@@ -298,6 +309,7 @@ export const DiffViewer = memo(function DiffViewer({
       const stats = diffStats(text);
       return [{
         path: f.path,
+        oldPath: f.oldPath,
         stats,
         noisy: startsFolded(f.path, stats, generated.has(f.path)),
         fileDiff,
@@ -309,21 +321,32 @@ export const DiffViewer = memo(function DiffViewer({
     });
     return { perFile, unchanged: chapter.length - shown.length };
   }, [patch, fileKey, since, filtering, generated]);
-  // Files loaded in full, and those showing every line. A new diff starts over.
-  const [contents, setContents] = useState<Record<string, "loading" | FileContentsResult>>({});
+  // Files loaded in full, each with the diff it was read for, and those showing every line. A new diff starts over.
+  const [contents, setContents] = useState<Record<string, { text: string; result: "loading" | FileContentsResult }>>({});
   const [wholeFile, setWholeFile] = useState<Record<string, boolean>>({});
   useEffect(() => { setContents({}); setWholeFile({}); }, [patch]);
-  async function expand(path: string) {
-    setContents((c) => ({ ...c, [path]: "loading" }));
+  async function expand(path: string, text: string) {
+    setContents((c) => ({ ...c, [path]: { text, result: "loading" } }));
     const result = await readContents!(path).catch((): FileContentsResult => ({ ok: false, error: "Couldn’t load the file." }));
-    setContents((c) => ({ ...c, [path]: result }));
+    // A reply for a diff since replaced would pair its contents with the new diff.
+    setContents((c) => (c[path]?.text === text ? { ...c, [path]: { text, result } } : c));
   }
-  const expanded = useMemo(() => new Map(perFile.flatMap(({ path, source }) => {
-    const loaded = contents[path];
-    if (!source || typeof loaded !== "object" || !loaded.ok) return [];
-    const fileDiff = processFile(source.text, { oldFile: { name: source.oldPath ?? path, contents: loaded.old ?? "" }, newFile: { name: path, contents: loaded.new ?? "" } });
-    return fileDiff ? [[path, { fileDiff, commentable: diffLines(source.text) }] as const] : [];
-  })), [perFile, contents]);
+  const contentsFor = (path: string, source: { text: string } | null) => (source && contents[path]?.text === source.text ? contents[path].result : undefined);
+  // Each file's full diff is made again only when its diff or contents change: a new one redraws the file.
+  const fullDiffs = useRef(new Map<string, FullDiff>());
+  const expanded = useMemo(() => {
+    const next = new Map<string, FullDiff>();
+    for (const { path, source } of perFile) {
+      const loaded = contentsFor(path, source);
+      if (!source || typeof loaded !== "object" || !loaded.ok) continue;
+      const cached = fullDiffs.current.get(path);
+      if (cached?.text === source.text && cached.loaded === loaded) { next.set(path, cached); continue; }
+      const fileDiff = processFile(source.text, { oldFile: { name: source.oldPath ?? path, contents: loaded.old ?? "" }, newFile: { name: path, contents: loaded.new ?? "" } });
+      if (fileDiff) next.set(path, { text: source.text, loaded, fileDiff, commentable: diffLines(source.text) });
+    }
+    fullDiffs.current = next;
+    return next;
+  }, [perFile, contents]);
   const removed = useMemo(() => (filtering && showRemoved ? [...since!.values()].filter((f) => f.status === "removed") : []), [since, filtering, showRemoved]);
 
   // Side-by-side needs room: squeezed between the chapters and the review panel, each side would clip its code.
@@ -417,18 +440,23 @@ export const DiffViewer = memo(function DiffViewer({
     let lastHeight = -1;
     let frame = requestAnimationFrame(function attempt() {
       const fileEl = Array.from(root.current?.querySelectorAll<HTMLElement>("[data-file]") ?? []).find((el) => el.dataset.file === at.file);
+      const landOn = (el: HTMLElement, center: boolean) => {
+        if (center) scrollToCenter(el, behavior);
+        else el.scrollIntoView({ behavior, block: "start" });
+        flash(el);
+      };
       // No line: just the file.
-      if (at.line < 1 && fileEl) return fileEl.scrollIntoView({ behavior, block: "start" });
+      if (at.line < 1 && fileEl) return landOn(fileEl, false);
       const target = Array.from(fileEl?.querySelectorAll<HTMLElement>("[data-draft-at]") ?? []).find((el) => el.dataset.draftAt === locationKey(at))
         ?? (fileEl ? lineRow(fileEl, at) : undefined);
       const shown = !!target?.getClientRects().length;
       const height = root.current?.offsetHeight ?? 0;
       const settled = height === lastHeight;
       lastHeight = height;
-      if (shown && drawn() && settled) scrollToCenter(target!, behavior);
+      if (shown && drawn() && settled) landOn(target!, true);
       else if (++tries < 90) frame = requestAnimationFrame(attempt);
-      else if (shown) scrollToCenter(target!, behavior);
-      else fileEl?.scrollIntoView({ behavior, block: "start" });
+      else if (shown) landOn(target!, true);
+      else if (fileEl) landOn(fileEl, false);
     });
     return () => cancelAnimationFrame(frame);
   }, [reveal]);
@@ -458,14 +486,14 @@ export const DiffViewer = memo(function DiffViewer({
 
   return (
     <div ref={root} className="space-y-4">
-      {perFile.map(({ path, stats, fileDiff, source, change, css }) => {
+      {perFile.map(({ path, oldPath, stats, fileDiff, source, change, css }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
         const folded = isCollapsed(path);
         const commentCount = draft?.comments.filter((c) => c.file === path).length ?? 0;
         const commentLabel = `${commentCount} draft comment${commentCount === 1 ? "" : "s"}`;
-        const loaded = contents[path];
+        const loaded = contentsFor(path, source);
         const loading = loaded === "loading";
         const full = expanded.get(path);
         return (
@@ -490,18 +518,19 @@ export const DiffViewer = memo(function DiffViewer({
               </button>
               <div className="min-w-0 flex-1">
                 <FilePath path={path} className="text-xs" nameClassName="font-medium" />
+                {oldPath && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">Renamed from <span className="font-mono">{oldPath}</span></p>}
                 {summaries?.get(path) && <p className="mt-0.5 text-xs leading-snug text-muted-foreground"><InlineCode text={summaries.get(path)!} /></p>}
               </div>
               <FileTag file={path} generated={generated.has(path)} />
               {folded && !viewed && noisy.has(path) && (
-                <Button variant="ghost" size="sm" className="h-6 shrink-0 px-2 text-[11px]" onClick={() => toggleCollapsed(path)}>Show diff</Button>
+                <Button variant="ghost" size="sm" aria-label={`Show diff of ${path}`} className="h-6 shrink-0 px-2 text-[11px]" onClick={() => toggleCollapsed(path)}>Show diff</Button>
               )}
               {readContents && source && !folded && (full ? (
                 <Button variant="ghost" size="sm" aria-label={`Whole file ${path}`} aria-pressed={!!wholeFile[path]} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground aria-pressed:text-primary" onClick={() => setWholeFile((w) => ({ ...w, [path]: !w[path] }))}>
                   <Icon name="FileText" className="size-3" aria-hidden />Whole file
                 </Button>
               ) : (
-                <Button variant="ghost" size="sm" aria-label={`Expand ${path} around its changes`} disabled={loading} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground" onClick={() => void expand(path)}>
+                <Button variant="ghost" size="sm" aria-label={`Expand ${path} around its changes`} disabled={loading} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground" onClick={() => void expand(path, source.text)}>
                   <Icon name={loading ? "Loading" : "ArrowUpDown"} className={cn("size-3", loading && "animate-spin motion-reduce:animate-none")} aria-hidden />Expand
                 </Button>
               ))}

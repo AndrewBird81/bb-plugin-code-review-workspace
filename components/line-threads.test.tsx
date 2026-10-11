@@ -98,3 +98,16 @@ test("Show in diff in the Threads view opens the diff at the thread", async () =
   expect(await main.findByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+test("Show in diff in the Threads view shows GitHub threads in the diff again if they were hidden", async () => {
+  const { slot, file } = await renderWorkspace();
+  const main = within(slot.getByRole("main"));
+  await file().findByRole("article", { name: "GitHub thread on src/a.ts:2" });
+  fireEvent.click(main.getByRole("button", { name: "GitHub threads" }));
+  fireEvent.click(main.getByRole("button", { name: "Threads" }));
+  await main.findByText("Why upper case?");
+  fireEvent.click(main.getAllByRole("button", { name: "Show in diff" })[0]);
+  expect(await file().findByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeTruthy();
+  expect(main.getByRole("button", { name: "GitHub threads" }).getAttribute("aria-pressed")).toBe("true");
+  slot.lifecycle.unmount();
+});

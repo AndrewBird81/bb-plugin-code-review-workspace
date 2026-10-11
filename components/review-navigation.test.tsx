@@ -98,10 +98,27 @@ test("after a chapter's last file, Next opens the next chapter at its top", asyn
   await slot.findByText("bb");
   expect(currentChapter(slot)?.textContent).toContain("Caching");
   expect(scroller(slot).scrollTop).toBe(0);
-  // The last chapter has nothing next.
+  // The last chapter has no next chapter, but offers to finish.
   expect(within(slot.getByRole("main")).queryByRole("button", { name: /^Next:/ })).toBeNull();
   slot.lifecycle.unmount();
 });
+
+test("the last chapter ends on Done, which opens Draft review to submit, marking the chapter viewed if you ask", async () => {
+  patchReviewState("pr-42", { activeId: "c2" });
+  const { slot, rpc } = await renderWorkspace();
+  await slot.findByText("bb");
+  const main = within(slot.getByRole("main"));
+  const draftOpen = () => slot.getByRole("button", { name: "Draft review" }).getAttribute("aria-pressed") === "true";
+  if (draftOpen()) fireEvent.click(slot.getByRole("button", { name: "Draft review" }));
+  fireEvent.click(main.getByRole("button", { name: "Mark chapter viewed and finish" }));
+  expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts", "src/c.ts"] });
+  await waitFor(() => expect(draftOpen()).toBe(true));
+  fireEvent.click(slot.getByRole("button", { name: "Draft review" }));
+  await waitFor(() => expect(draftOpen()).toBe(false));
+  fireEvent.click(main.getByRole("button", { name: "Done: Submit review" }));
+  await waitFor(() => expect(draftOpen()).toBe(true));
+  slot.lifecycle.unmount();
+}, 15_000);
 
 test("Mark chapter viewed and continue marks the chapter's files and opens the next", async () => {
   const { slot, rpc } = await renderWorkspace();
@@ -205,19 +222,25 @@ test("Ask agent about this goes when the diff scrolls away from its text", async
   slot.lifecycle.unmount();
 }, 15_000);
 
-// jsdom has no layout: the file last scrolled to sits at the top, the others far below or above it.
-function fakeLayout() {
+// jsdom has no layout: the file last scrolled to sits at the top, the others `height` apart below or above it.
+// A chapter that can't scroll keeps its first file below the intro, whatever is scrolled to.
+function fakeLayout({ height = 1000, stuck = false } = {}) {
   let top: string | undefined;
   const scrollIntoView = Element.prototype.scrollIntoView;
   const measure = Element.prototype.getBoundingClientRect;
-  Element.prototype.scrollIntoView = function (this: Element) { top = (this as HTMLElement).dataset.file ?? top; };
+  const tops: string[] = [];
+  Element.prototype.scrollIntoView = function (this: Element) { const file = (this as HTMLElement).dataset.file; if (file) tops.push(file); if (!stuck) top = file ?? top; };
   Element.prototype.getBoundingClientRect = function (this: Element) {
     const file = (this as HTMLElement).dataset?.file;
     const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-file]")).map((el) => el.dataset.file);
-    const offset = file && top ? (cards.indexOf(file) - cards.indexOf(top)) * 1000 : file ? 500 : 0;
-    return { top: offset, left: 0, width: 0, height: 0, right: 0, bottom: 0 } as DOMRect;
+    const offset = file && top ? (cards.indexOf(file) - cards.indexOf(top)) * height : file ? 500 + cards.indexOf(file) * height : 0;
+    return { top: offset, left: 0, width: 0, height: file ? height : 0, right: 0, bottom: file ? offset + height : 0 } as DOMRect;
   };
-  return { top: () => top, restore: () => { Element.prototype.scrollIntoView = scrollIntoView; Element.prototype.getBoundingClientRect = measure; } };
+  return {
+    top: () => (stuck ? tops.at(-1) : top),
+    scrollTo: (file: string) => { top = file; },
+    restore: () => { Element.prototype.scrollIntoView = scrollIntoView; Element.prototype.getBoundingClientRect = measure; },
+  };
 }
 const press = (key: string, init: KeyboardEventInit = {}, target: Element = document.body) => fireEvent.keyDown(target, { key, ...init });
 
@@ -228,8 +251,7 @@ test("j and k move between files, n and p between chapters, and v marks the file
   press("n");
   await slot.findByText("bb");
   expect(currentChapter(slot)?.textContent).toContain("Caching");
-  press("j");
-  expect(layout.top()).toBe("src/b.ts");
+  // The chapter opens on its first file, so j goes to the second.
   press("j");
   expect(layout.top()).toBe("src/c.ts");
   press("k");
@@ -240,6 +262,47 @@ test("j and k move between files, n and p between chapters, and v marks the file
   press("p");
   await slot.findByText("aa");
   expect(currentChapter(slot)?.textContent).toContain("Parsing");
+  layout.restore();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+const currentFile = (slot: Slot) => chapters(slot).getAllByRole("button").find((button) => button.getAttribute("aria-current") === "true")?.textContent;
+
+test("j, k, and v act on the file they went to, even in a chapter that can't scroll, and the sidebar marks it", async () => {
+  const layout = fakeLayout({ stuck: true });
+  const { slot, rpc } = await renderWorkspace();
+  await slot.findByText("aa");
+  press("n");
+  await slot.findByText("bb");
+  expect(currentFile(slot)).toBe("b.ts");
+  press("j");
+  expect(currentFile(slot)).toBe("c.ts");
+  press("v");
+  expect(rpc.setFileViewed).toHaveBeenCalledWith({ targetKey: "pr-42", file: "src/c.ts", viewed: true });
+  press("k");
+  expect(currentFile(slot)).toBe("b.ts");
+  press("v");
+  expect(rpc.setFileViewed).toHaveBeenLastCalledWith({ targetKey: "pr-42", file: "src/b.ts", viewed: true });
+  layout.restore();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("v marks the file at the top even when the next file's header is just below it, and scrolling moves the current file", async () => {
+  const layout = fakeLayout({ height: 50 });
+  const { slot, rpc } = await renderWorkspace();
+  await slot.findByText("aa");
+  press("n");
+  await slot.findByText("bb");
+  press("k");
+  expect(layout.top()).toBe("src/b.ts");
+  press("v");
+  expect(rpc.setFileViewed).toHaveBeenCalledWith({ targetKey: "pr-42", file: "src/b.ts", viewed: true });
+  await waitFor(() => expect(currentFile(slot)).toBe("c.ts"));
+  // Scrolling yourself makes the file at the top current.
+  fireEvent.wheel(scroller(slot));
+  layout.scrollTo("src/b.ts");
+  fireEvent.scroll(scroller(slot));
+  await waitFor(() => expect(currentFile(slot)).toBe("b.ts"));
   layout.restore();
   slot.lifecycle.unmount();
 }, 15_000);
