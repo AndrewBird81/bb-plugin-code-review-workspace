@@ -67,8 +67,8 @@ export function patchReviewState(targetKey: string, patch: Partial<ReviewUiState
   write(s);
 }
 
-export function getIntroCollapsed(): boolean {
-  return read().introCollapsed ?? false;
+export function getIntroCollapsed(): boolean | undefined {
+  return read().introCollapsed;
 }
 
 export function setIntroCollapsed(collapsed: boolean) {

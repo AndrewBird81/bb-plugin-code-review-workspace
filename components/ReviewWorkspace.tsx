@@ -93,6 +93,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const navigate = useBbNavigate();
   const codeTheme = experimental_useCodeTheme();
   const compactViewport = useMediaQuery("(max-width: 767px)");
+  const shortViewport = useMediaQuery("(max-height: 499px)");
   const [mobileChapters, setMobileChapters] = useState(false);
   const [preferences, setPreferences] = useState<{ preferences: ReviewPreferences; revision: number } | null>(null);
   const diffLayout = preferences?.preferences.diffLayout ?? defaultPreferences.diffLayout;
@@ -137,7 +138,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   // Screen utilization: resizable/collapsible sidebar, focus mode, fullscreen.
   const [sidebarWidth, setSidebarWidth] = useState(persisted.sidebarWidth ?? 288);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [chosenSidebarCollapsed, setSidebarCollapsed] = useState<boolean | null>(null);
   const [chosenFocus, setFocus] = useState(persisted.focus);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -147,17 +148,24 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
   // Compact by the workspace's own width: a narrow BB pane on a wide screen is as tight as a phone.
-  // Only whether it's compact: the width changes every frame of a pane drag.
+  // Short by its height, as on a phone held sideways. Only whether: the size changes every frame of a pane drag.
   const [narrowRoot, setNarrowRoot] = useState<boolean | null>(null);
+  const [shortRoot, setShortRoot] = useState<boolean | null>(null);
   useEffect(() => {
     if (!rootEl || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => setNarrowRoot(entry.contentRect.width < 768));
+    const observer = new ResizeObserver(([entry]) => {
+      setNarrowRoot(entry.contentRect.width < 768);
+      setShortRoot(entry.contentRect.height < 500);
+    });
     observer.observe(rootEl);
     return () => observer.disconnect();
   }, [rootEl]);
   const compact = narrowRoot ?? compactViewport;
-  // Without a choice of your own, Focus gives a compact workspace's diff the room.
-  const focus = chosenFocus ?? compact;
+  const short = shortRoot ?? shortViewport;
+  // Without a choice of your own, Focus gives a compact or short workspace's diff the room,
+  // and a short one starts with the chapters hidden, so code shows on open.
+  const focus = chosenFocus ?? (compact || short);
+  const sidebarCollapsed = chosenSidebarCollapsed ?? short;
   // Likewise long lines wrap there, rather than scroll sideways.
   const [chosenWrap, setChosenWrap] = useState(getWrapLines);
   const wrapLines = chosenWrap ?? compact;
@@ -496,6 +504,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [outsideGuide, showLocation]);
   const showDraftSummary = useCallback((replaced = false) => setShowDraft({ at: Date.now(), replaced }), []);
   const askAgent = useCallback(() => setInjection({ context: { file: currentFile, chapterId: activeId }, nonce: Date.now() }), [currentFile, activeId]);
+  const openSettings = async () => {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` });
+  };
   const showFeedback = useMemo(() => isPr ? () => setView("feedback") : undefined, [isPr]);
   const snoozeFromHeader = useMemo(() => isPr ? (snoozed: boolean, until?: number) => void snooze(snoozed, until) : undefined, [isPr, snooze]);
   const archived = !!review?.archivedAt;
@@ -737,7 +749,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
       {loadError && <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden /><span className="min-w-0 flex-1">{loadError}</span><Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button></div>}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} /><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={askAgent}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask agent</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={async () => { if (document.fullscreenElement) await document.exitFullscreen(); navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` }); }}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button><ReviewActions review={review} className="size-8" onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} />{!compact && <><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={askAgent}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask agent</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={openSettings}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button></>}<ReviewActions review={review} className="size-8" items={compact ? [{ label: "Ask agent", icon: "Sparkles", onSelect: askAgent }, { label: "Settings", icon: "Settings", onSelect: openSettings }] : undefined} onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
       {/* Header — full when reviewing normally, slim in focus mode. */}
       {focus ? (
         <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-3 py-2">
@@ -820,7 +832,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               aria-label={(compact ? !mobileChapters : sidebarCollapsed) ? "Show chapters" : "Hide chapters"}
               aria-pressed={compact ? mobileChapters : !sidebarCollapsed}
               className="h-9 px-1.5 text-muted-foreground aria-pressed:text-primary md:h-7"
-              onClick={() => compact ? setMobileChapters((value) => !value) : setSidebarCollapsed((value) => !value)}
+              onClick={() => compact ? setMobileChapters((value) => !value) : setSidebarCollapsed(!sidebarCollapsed)}
             >
               <Icon name="PanelLeft" className="size-4" aria-hidden />
               {compact && "Chapters"}
@@ -862,7 +874,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground md:ml-auto">
               {view === "diff" && activeFiles.length > 0 && (
                 <>
-                  <span className={cn("tabular-nums", viewedCount === activeFiles.length && "text-diff-added")}>{viewedCount}/{activeFiles.length} in this chapter</span>
+                  {/* A compact toolbar keeps to the counts and icons. */}
+                  <span className={cn("tabular-nums", viewedCount === activeFiles.length && "text-diff-added")}>{viewedCount}/{activeFiles.length}{compact ? <span className="sr-only"> in this chapter</span> : " in this chapter"}</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -871,7 +884,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                     onClick={markAllViewed}
                   >
                     <Icon name="CircleCheck" className="size-3.5" aria-hidden />
-                    Mark chapter viewed
+                    <span className={cn(compact && "sr-only")}>Mark chapter viewed</span>
                   </Button>
                   <span className="h-4 w-px bg-border" />
                 </>
@@ -889,7 +902,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   <span className="hidden @min-[1280px]/review:inline">Threads</span>
                 </Button>
               </Hint>}
-              {view === "diff" && <Hint label={unifiedOnly ? "Split view needs a wider pane" : "Split view"} container={rootEl}>
+              {/* A compact workspace always shows the diff unified. */}
+              {view === "diff" && !compact && <Hint label={unifiedOnly ? "Split view needs a wider pane" : "Split view"} container={rootEl}>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -962,7 +976,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
             {view === "diff" ? (
               <>
-              {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
+              {activeSection && <ChapterIntro key={activeSection.id} collapsedByDefault={short} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
               <CheckFailuresContext.Provider value={checkFailures}>
               <DiffThreadsContext.Provider value={showThreads ? diffThreads : null}>
               <DiffViewer

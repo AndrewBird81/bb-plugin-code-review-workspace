@@ -7,14 +7,16 @@ import { canSnooze, canSnoozeUntil, snoozeLabel } from "../lib/turn";
 import { updateDraftRecovery } from "../lib/draft-recovery";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
-import { Icon } from "./ui/icon";
+import { Icon, type IconName } from "./ui/icon";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { SnoozeChoices } from "./SnoozeChoices";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
 /** Start a tracked review, set it aside ("Not yet"), archive, unarchive, or permanently delete one saved review. */
-export function ReviewActions({ review, onChanged, onDeleted, describedBy, className }: {
+export function ReviewActions({ review, items, onChanged, onDeleted, describedBy, className }: {
   review: ReviewItem;
+  /** Actions listed first, such as those a narrow top bar has no room for. */
+  items?: { label: string; icon: IconName; onSelect: () => void }[];
   onChanged?: () => void;
   onDeleted?: () => void;
   /** Id of the element naming this review, for screen readers. */
@@ -85,6 +87,9 @@ export function ReviewActions({ review, onChanged, onDeleted, describedBy, class
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" mobileTitle="Review actions" className="w-60 max-w-[calc(100vw-24px)] p-1">
+        {items?.map((item) => <Button key={item.label} variant="ghost" size="sm" className="w-full justify-start text-muted-foreground hover:text-foreground" onClick={() => { setMenuOpen(false); item.onSelect(); }}>
+          <Icon name={item.icon} aria-hidden />{item.label}
+        </Button>)}
         {review.status === "tracked" && <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground hover:text-foreground" onClick={() => void startTracked()}>
           <Icon name="Sparkles" aria-hidden />Start review
         </Button>}

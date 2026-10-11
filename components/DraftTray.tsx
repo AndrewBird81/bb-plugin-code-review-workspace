@@ -100,8 +100,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     const saved = getReviewState(targetKey).activeTool;
     return saved === "notes" || saved === "agent" && agent ? saved : "draft";
   });
-  // On a narrow screen the open panel crowds out the diff, so it starts collapsed there, and that isn't saved.
-  const [narrow] = useState(() => window.matchMedia?.("(max-width: 767px)").matches ?? false);
+  // On a narrow or short screen the open panel crowds out the diff, so it starts collapsed there, and that isn't saved.
+  const [narrow] = useState(() => ["(max-width: 767px)", "(max-height: 499px)"].some((query) => window.matchMedia?.(query).matches));
   const [toolsOpen, setToolsOpen] = useState(() => !narrow && getReviewState(targetKey).toolsOpen !== false);
   const panelId = useId();
   const railRef = useRef<HTMLDivElement>(null);
