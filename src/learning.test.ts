@@ -186,6 +186,9 @@ test("suggesting instructions runs a hidden worker on the recent removed and edi
   expect(harness.inspection.sdk.callsTo("threads.archive")).toEqual([[{ threadId: "suggester" }]]);
   // Nothing changed the reviewer's instructions.
   expect(store.getPreferences().revision).toBe(0);
+  // Once the reviewer adds or discards it, it's forgotten.
+  expect(await rpc("dismissInstructionSuggestion", null)).toEqual({ ok: true });
+  expect((await rpc("getAgentLearning", null)).suggestion).toEqual({ state: "idle" });
 });
 
 test("a suggestion that fails says so", async () => {

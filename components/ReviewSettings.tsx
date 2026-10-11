@@ -84,21 +84,29 @@ function AgentCommentLearning({ instructions, onAdd }: { instructions: string; o
   const [proposal, setProposal] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [nothing, setNothing] = useState(false);
-  // A proposal opens once its run is seen, so an earlier one doesn't reopen with Settings.
+  // A run's result shows once the run is seen. A proposal that finished while you were away opens with Settings,
+  // and the server keeps it until you add or discard it.
   const waiting = useRef(false);
+  const opened = useRef(false);
   const load = useCallback(async () => {
     const next = await rpc.call("getAgentLearning", null).catch(() => null);
     if (!next) return;
     setLearning(next);
     const { suggestion } = next;
+    const opening = !opened.current;
+    opened.current = true;
     if (suggestion.state === "running") waiting.current = true;
     else if (waiting.current) {
       waiting.current = false;
       if (suggestion.state === "ready" && suggestion.text) setProposal(suggestion.text);
       if (suggestion.state === "ready" && !suggestion.text) setNothing(true);
       if (suggestion.state === "failed") setError(suggestion.error ?? "The agent couldn’t suggest changes. Try again.");
-    }
+    } else if (opening && suggestion.state === "ready" && suggestion.text) setProposal(suggestion.text);
   }, [rpc]);
+  function settle() {
+    setProposal(null);
+    void rpc.call("dismissInstructionSuggestion", null).catch(() => {});
+  }
   useEffect(() => { void load(); }, [load]);
   useRealtime("learning", () => { void load(); });
   async function suggest() {
@@ -126,8 +134,8 @@ function AgentCommentLearning({ instructions, onAdd }: { instructions: string; o
     {proposal !== null && <div className="space-y-2 rounded-lg border border-border p-3">
       <Textarea aria-label="Suggested instructions" rows={5} value={proposal} onChange={(event) => setProposal(event.target.value)} />
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" disabled={!proposal.trim() || !fits} onClick={() => { onAdd(proposal.trim()); setProposal(null); }}>Add to instructions</Button>
-        <Button variant="ghost" size="sm" onClick={() => setProposal(null)}>Discard</Button>
+        <Button size="sm" disabled={!proposal.trim() || !fits} onClick={() => { onAdd(proposal.trim()); settle(); }}>Add to instructions</Button>
+        <Button variant="ghost" size="sm" onClick={settle}>Discard</Button>
         {!fits && <span className="text-xs text-muted-foreground">Too long to add. Shorten it or your instructions first.</span>}
       </div>
     </div>}

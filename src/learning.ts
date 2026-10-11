@@ -275,5 +275,9 @@ export function createInstructionSuggester(bb: BbPluginApi, store: Store, change
       void run(suggestionPrompt(store.getPreferences().preferences.assistantInstructions, material));
       return { ok: true };
     },
+    /** Forget a finished proposal; one still running carries on. */
+    dismiss() {
+      if (suggestion.state !== "idle" && suggestion.state !== "running") settle({ state: "idle" });
+    },
   };
 }

@@ -38,7 +38,8 @@ test("with no submitted comments yet, Settings says what it will show, and there
 test("a suggestion comes back to edit and add to the instructions, which change only when you save", async () => {
   let learning: any = stats;
   const suggest = vi.fn(() => { learning = { ...stats, suggestion: { state: "running", at: 5 } }; return { ok: true }; });
-  const { slot, savePreferences, saved } = await settings({ getAgentLearning: () => learning, suggestAssistantInstructions: suggest });
+  const dismiss = vi.fn(() => ({ ok: true }));
+  const { slot, savePreferences, saved } = await settings({ getAgentLearning: () => learning, suggestAssistantInstructions: suggest, dismissInstructionSuggestion: dismiss });
   fireEvent.click(await slot.findByRole("button", { name: "Suggest instruction changes" }));
   await slot.findByRole("button", { name: "Suggesting…" });
   expect(suggest).toHaveBeenCalledTimes(1);
@@ -50,6 +51,7 @@ test("a suggestion comes back to edit and add to the instructions, which change 
   fireEvent.click(slot.getByRole("button", { name: "Add to instructions" }));
   expect(slot.queryByRole("textbox", { name: "Suggested instructions" })).toBeNull();
   expect((slot.getByRole("textbox", { name: "Assistant instructions" }) as HTMLTextAreaElement).value).toBe("Prioritize correctness.\nSkip naming nits.");
+  expect(dismiss).toHaveBeenCalledTimes(1);
   expect(savePreferences).not.toHaveBeenCalled();
   fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
   await waitFor(() => expect(saved().preferences.assistantInstructions).toBe("Prioritize correctness.\nSkip naming nits."));
@@ -72,9 +74,19 @@ test("a suggestion that fails, or finds nothing, says so", async () => {
   slot.lifecycle.unmount();
 });
 
-test("an earlier proposal doesn't reopen with Settings", async () => {
-  const { slot } = await settings({ getAgentLearning: () => ({ ...stats, suggestion: { state: "ready", at: 6, text: "Old idea." } }) });
-  await slot.findByText("Of the agent’s last 12 comments you kept 7 as written, edited 3, removed 2.");
+test("a proposal that finished while you were away opens with Settings, until you discard it", async () => {
+  let learning: any = { ...stats, suggestion: { state: "ready", at: 6, text: "Old idea." } };
+  const dismiss = vi.fn(() => { learning = stats; return { ok: true }; });
+  const { slot } = await settings({ getAgentLearning: () => learning, dismissInstructionSuggestion: dismiss });
+  expect((await slot.findByRole("textbox", { name: "Suggested instructions" }) as HTMLTextAreaElement).value).toBe("Old idea.");
+  fireEvent.click(slot.getByRole("button", { name: "Discard" }));
   expect(slot.queryByRole("textbox", { name: "Suggested instructions" })).toBeNull();
+  expect(dismiss).toHaveBeenCalledTimes(1);
+  // A finished run that failed or found nothing isn't news on a later visit.
+  learning = { ...stats, suggestion: { state: "failed", at: 7, error: "The agent couldn’t suggest changes. Try again." } };
   slot.lifecycle.unmount();
+  const again = (await settings({ getAgentLearning: () => learning })).slot;
+  await again.findByText("Of the agent’s last 12 comments you kept 7 as written, edited 3, removed 2.");
+  expect(again.queryByText("The agent couldn’t suggest changes. Try again.")).toBeNull();
+  again.lifecycle.unmount();
 });

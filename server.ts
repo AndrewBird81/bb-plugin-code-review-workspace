@@ -342,6 +342,7 @@ export default async function plugin(bb: BbPluginApi) {
     },
     getAgentLearning() { return { ...learningStats(store), canSuggest: suggester.possible(), suggestion: suggester.current() }; },
     suggestAssistantInstructions() { return suggester.start(); },
+    dismissInstructionSuggestion() { suggester.dismiss(); return { ok: true }; },
     getReviewerNotes({ targetKey }) { return store.getReviewerNotes(targetKey); },
     saveReviewerNotes({ targetKey, body, revision }) { return store.saveReviewerNotes(targetKey, body, revision); },
     ping() {

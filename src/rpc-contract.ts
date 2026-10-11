@@ -74,6 +74,8 @@ export const rpcContract = defineRpcContract({
   },
   /** Ask the review assistant's agent to propose instruction lines; the proposal arrives through getAgentLearning. */
   suggestAssistantInstructions: { input: z.null(), output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
+  /** Forget a finished proposal, once the reviewer adds it to their instructions or discards it. */
+  dismissInstructionSuggestion: { input: z.null(), output: z.object({ ok: z.boolean() }) },
   getReviewerNotes: { input: targetKey, output: z.object({ body: z.string(), revision: z.number().int() }) },
   saveReviewerNotes: {
     input: z.object({ targetKey: z.string(), body: z.string().max(100000), revision: z.number().int().min(0) }).strict(),
