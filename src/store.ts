@@ -6,7 +6,7 @@ import { defaultPreferences, preferencesSchema, readPreferences, type Preference
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
 import type { AssessmentItem, AssessmentRun, ReplyDraft } from "../lib/feedback";
 import type { FeedbackThread } from "./github/types";
-import { diffPositions } from "./review-positions";
+import { diffPositions, rangeProblem } from "./review-positions";
 import { reanchor } from "./reanchor";
 import { renamedPaths } from "./patch";
 
@@ -221,13 +221,13 @@ export interface Store {
   ignoreDiscovery(targetKey: string): void;
   unignoreDiscovery(targetKey: string): void;
   isDiscoveryIgnored(targetKey: string): boolean;
-  /** The text a draft comment's line had when it was drafted. */
-  draftCommentCode(targetKey: string, at: CommentLocation): string | undefined;
+  /** The text a draft comment's line, or with "start" its range's first line, had when it was drafted. */
+  draftCommentCode(targetKey: string, at: CommentLocation, end?: "start" | "line"): string | undefined;
   /**
    * Mark draft comments as drafted against the current diff, each at a possibly new line, all at once.
    * A comment whose new place another comment ends up on stays where it was, drafted against the older diff.
    */
-  rebaseDraftComments(targetKey: string, placements: ReadonlyArray<{ at: CommentLocation; line: number }>): void;
+  rebaseDraftComments(targetKey: string, placements: ReadonlyArray<{ at: CommentLocation; line: number; startLine?: number }>): void;
 }
 
 /** A summary change: any of these fields, where undefined clears it. */
@@ -238,7 +238,7 @@ export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor
  * What a comment or the summary was before an agent changed it; null when there was none. For a summary
  * change that suggested a verdict, `suggested` is that verdict and `suggestedVerdict` the one before (null for none).
  */
-export type PreviousState = { body: string; author?: "agent"; chapterId?: string; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
+export type PreviousState = { body: string; author?: "agent"; chapterId?: string; startLine?: number; startSide?: "LEFT" | "RIGHT"; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
 
 export function createStore(bb: BbPluginApi): Store {
   const db = bb.storage.database();
@@ -302,6 +302,8 @@ export function createStore(bb: BbPluginApi): Store {
     // Before an agent's change, the comment or summary it replaced, as JSON.
     `ALTER TABLE discussion_entries ADD COLUMN previous TEXT`,
     `ALTER TABLE generations ADD COLUMN worker_id TEXT`,
+    // A range comment's first line's text when it was drafted.
+    `ALTER TABLE draft_comment_revisions ADD COLUMN start_code TEXT`,
   ]);
   const at = (k: string, { file, line, side }: CommentLocation) => [k, file, line, side] as const;
   const hasDiscussion = (k: string, location: CommentLocation) =>
@@ -504,10 +506,12 @@ export function createStore(bb: BbPluginApi): Store {
       if (i >= 0) d.comments[i] = c; else d.comments.push(c);
       writeDraft(db, d);
       const patch = this.readPatch(k, 0, this.readPatch(k, 0, 0).total).text;
-      const code = diffPositions(patch).get(c.file)?.[c.side === "LEFT" ? "left" : "right"].get(c.line) ?? null;
-      db.prepare(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code) VALUES (?,?,?,?,?,?)
-        ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code`)
-        .run(k, c.file, c.line, c.side, patchHash(patch), code);
+      const positions = diffPositions(patch).get(c.file);
+      const code = positions?.[c.side === "LEFT" ? "left" : "right"].get(c.line) ?? null;
+      const startCode = c.startLine === undefined ? null : positions?.[(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
+      db.prepare(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`)
+        .run(k, c.file, c.line, c.side, patchHash(patch), code, startCode);
       return d;
     },
     editDraftComment(k, at, body) {
@@ -737,8 +741,9 @@ export function createStore(bb: BbPluginApi): Store {
     isDiscoveryIgnored(k) {
       return !!db.prepare(`SELECT 1 FROM discovery_ignores WHERE target_key=?`).get(k);
     },
-    draftCommentCode(k, { file, line, side }) {
-      return (db.prepare(`SELECT code FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).get(k, file, line, side) as any)?.code ?? undefined;
+    draftCommentCode(k, { file, line, side }, end = "line") {
+      const row = db.prepare(`SELECT code, start_code FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).get(k, file, line, side) as any;
+      return (end === "start" ? row?.start_code : row?.code) ?? undefined;
     },
     rebaseDraftComments(k, placements) {
       const patch = this.readPatch(k, 0, this.readPatch(k, 0, 0).total).text;
@@ -746,9 +751,11 @@ export function createStore(bb: BbPluginApi): Store {
       db.transaction(() => {
         const d = this.getDraft(k);
         const moves = new Map<DraftComment, number>();
-        for (const { at, line } of placements) {
+        const starts = new Map<DraftComment, number>();
+        for (const { at, line, startLine } of placements) {
           const comment = d.comments.find((c) => sameLocation(c, at));
           if (comment) moves.set(comment, line);
+          if (comment && startLine !== undefined) starts.set(comment, startLine);
         }
         // Collisions count only among final places; a comment that would share one keeps its old place.
         for (let clash = true; clash;) {
@@ -765,10 +772,12 @@ export function createStore(bb: BbPluginApi): Store {
         for (const c of moves.keys()) db.prepare(`DELETE FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).run(k, c.file, c.line, c.side);
         for (const [c, line] of moves) {
           c.line = line;
+          if (starts.has(c)) c.startLine = starts.get(c);
           const code = positions.get(c.file)?.[c.side === "LEFT" ? "left" : "right"].get(line) ?? null;
-          db.prepare(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code) VALUES (?,?,?,?,?,?)
-            ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code`)
-            .run(k, c.file, line, c.side, patchHash(patch), code);
+          const startCode = c.startLine === undefined ? null : positions.get(c.file)?.[(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
+          db.prepare(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
+            ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`)
+            .run(k, c.file, line, c.side, patchHash(patch), code, startCode);
         }
         writeDraft(db, d);
       })();
@@ -784,11 +793,20 @@ const REVIEW_TABLES = [
   "assessment_items", "assessment_runs", "reply_drafts", "guide_backups",
 ] as const;
 
-/** Where each unsent comment's line is in `next`, for rebaseDraftComments; comments whose lines are gone are left out. */
-export function reanchorAll(store: Store, k: string, previous: string, next: string): Array<{ at: CommentLocation; line: number }> {
+/**
+ * Where each unsent comment's line is in `next`, for rebaseDraftComments, and its range's first line. Comments whose
+ * lines are gone are left out, as are ranges that lost an end or would no longer be a range GitHub takes.
+ */
+export function reanchorAll(store: Store, k: string, previous: string, next: string): Array<{ at: CommentLocation; line: number; startLine?: number }> {
   return store.getDraft(k).comments.flatMap((comment) => {
     const placed = reanchor({ ...comment, code: store.draftCommentCode(k, comment) }, previous, next);
-    return placed.status === "lost" ? [] : [{ at: comment, line: placed.status === "moved" ? placed.line : comment.line }];
+    if (placed.status === "lost") return [];
+    const line = placed.status === "moved" ? placed.line : comment.line;
+    if (comment.startLine === undefined) return [{ at: comment, line }];
+    const start = reanchor({ file: comment.file, line: comment.startLine, side: comment.startSide ?? comment.side, code: store.draftCommentCode(k, comment, "start") }, previous, next);
+    if (start.status === "lost") return [];
+    const startLine = start.status === "moved" ? start.line : comment.startLine;
+    return rangeProblem(next, { ...comment, line, startLine }) ? [] : [{ at: comment, line, startLine }];
   });
 }
 

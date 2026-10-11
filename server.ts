@@ -16,7 +16,7 @@ import { createPrReview } from "./src/start-review";
 import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
 import { listMachines } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
-import { commentsKey, SUMMARY_AT } from "./src/draft";
+import { commentsKey, rangeOf, SUMMARY_AT } from "./src/draft";
 import { describeDraft, writeSummary } from "./src/draft-summary";
 import { runSummaryCommand } from "./src/summary-command";
 import { askAgent, settleDiscussions } from "./src/discussions";
@@ -40,7 +40,7 @@ import {
 import { createReviewSync } from "./src/review-lifecycle";
 import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
-import { invalidComments } from "./src/review-positions";
+import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
 import { stopGuideGenerations, hasGuideGenerations, guideWorkerFailed } from "./src/generate";
 import { parseChecks, parseReviewThreads } from "./src/threads";
@@ -463,12 +463,16 @@ export default async function plugin(bb: BbPluginApi) {
     getDraft({ targetKey }) {
       return draftState(targetKey);
     },
-    saveDraftComment({ targetKey, comment, revision }) {
+    saveDraftComment({ targetKey, comment: { startLine, startSide, ...input }, revision }) {
       requireReviewRevision(store, targetKey, revision);
+      const comment = { ...input, ...rangeOf({ ...input, startLine, startSide }) };
+      const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
       // GitHub refuses a comment on a line the diff doesn't show; say so now, not at submit.
-      if (invalidComments(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, [comment]).length) {
+      if (invalidComments(patch, [{ ...comment, startLine: undefined }]).length) {
         throw new Error(`${comment.file}:${comment.line} isn’t in the current diff. Choose a line the diff shows.`);
       }
+      const range = rangeProblem(patch, comment);
+      if (range) throw new Error(range);
       // Your words now, and an ask on the comment is over.
       setAsk(store, targetKey, comment, null);
       return draftState(targetKey, store.upsertDraftComment(targetKey, comment));
@@ -646,6 +650,10 @@ export default async function plugin(bb: BbPluginApi) {
     side: z.enum(["RIGHT", "LEFT"]).optional().describe("RIGHT, the default, for an added or unchanged line; LEFT for a removed line."),
   };
   const body = z.string().trim().min(1).describe("The comment, in GitHub Markdown.");
+  const range = {
+    startLine: z.number().int().min(1).optional().describe("For a comment on several lines, the first; line is the last. Both in one hunk of the diff."),
+    startSide: z.enum(["RIGHT", "LEFT"]).optional().describe("The first line's side, when it isn't side: LEFT for a range from a removed line to an added one."),
+  };
   bb.agents.registerTool({
     name: "list_draft_comments",
     description: "Show the reviewer's local draft for this review: the review summary and who wrote it (an agent or the reviewer), the verdict the reviewer picked and the one suggested, then each comment's location, who added it, and text.",
@@ -654,19 +662,20 @@ export default async function plugin(bb: BbPluginApi) {
   });
   bb.agents.registerTool({
     name: "add_draft_comment",
-    description: "Add an inline comment to the reviewer's local draft for this review, on one line of the current diff. Nothing reaches GitHub: the reviewer edits, removes, or submits it. Refuses a line that already has a draft comment.",
-    instructions: "During a review pass, or when the reviewer asks, add each verified issue with add_draft_comment on the line it concerns. In ordinary chat, answer in chat. Put one issue in each comment. Start it with **Blocking:**, **Should fix:**, or **Question:**, then say concretely what fails and the fix. When the fix changes the commented line, add a ```suggestion block with its exact replacement, indentation included; a suggestion replaces only that line. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment; edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit, remove, and submit it. Never post to GitHub yourself, for example with gh pr review, gh pr comment, gh api writes, or git push.",
+    description: "Add an inline comment to the reviewer's local draft for this review, on a line of the current diff, or with startLine on lines startLine to line. Nothing reaches GitHub: the reviewer edits, removes, or submits it. Refuses a line that already has a draft comment.",
+    instructions: "During a review pass, or when the reviewer asks, add each verified issue with add_draft_comment on the line it concerns, or the lines (startLine to line). In ordinary chat, answer in chat. Put one issue in each comment. Start it with **Blocking:**, **Should fix:**, or **Question:**, then say concretely what fails and the fix. Prefer a ```suggestion block for a small, mechanical fix: it holds the exact replacement, indentation included, for exactly the commented lines, line alone or startLine to line, and the author applies it with one click. Give a range that covers every line the suggestion replaces, and no more. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment; edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit, remove, and submit it. Never post to GitHub yourself, for example with gh pr review, gh pr comment, gh api writes, or git push.",
     parameters: z.object({
       ...location,
-      code: z.string().describe("The line's text, without the diff's leading +, -, or space. It must match the line."),
+      ...range,
+      code: z.string().describe("The line's text, without the diff's leading +, -, or space. It must match the line. For a range, the lines' text, one per line: its first and last must match startLine and line."),
       body,
     }),
     execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => addComment(store, targetKey, input)),
   });
   bb.agents.registerTool({
     name: "edit_draft_comment",
-    description: "Replace the text of the draft comment at a file, line, and side in the reviewer's local draft. Its location stays; to move a comment, delete it and add it again. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked on that comment for the change.",
-    parameters: z.object({ ...location, body }),
+    description: "Replace the text of the draft comment at a file, line, and side in the reviewer's local draft; line is a range's last line. With startLine and code, it also sets the range's first line, for example to fit a suggestion block. Its last line stays; to move a comment, delete it and add it again. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked on that comment for the change.",
+    parameters: z.object({ ...location, ...range, code: z.string().optional().describe("With startLine: the lines' text, one per line, as add_draft_comment takes it."), body }),
     execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => editComment(store, targetKey, input, threadId)),
   });
   bb.agents.registerTool({

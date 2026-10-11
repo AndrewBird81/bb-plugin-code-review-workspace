@@ -3,8 +3,13 @@ export const VERDICT_LABEL: Record<Verdict, string> = { APPROVE: "Approve", COMM
 
 export interface DraftComment {
   file: string;
+  /** The last line, under which GitHub shows the comment. */
   line: number;
   side: "LEFT" | "RIGHT";
+  /** The first line, when the comment covers more than one. It's in the same hunk as `line`, and before it. */
+  startLine?: number;
+  /** The first line's side, when it isn't `side`: a range from a removed line to an added one. */
+  startSide?: "LEFT" | "RIGHT";
   chapterId?: string;
   /** Added by an agent, through a tool or `bb review comment`. Absent once the reviewer writes or edits it in the panel. */
   author?: "agent";
@@ -21,6 +26,18 @@ export function sameLocation(a: CommentLocation, b: CommentLocation): boolean {
 /** Where the review summary's discussion is kept: no line of a diff is here. */
 export const SUMMARY_AT: CommentLocation = { file: "", line: 0, side: "RIGHT" };
 export const isSummary = (at: CommentLocation) => sameLocation(at, SUMMARY_AT);
+
+type Range = Pick<DraftComment, "line" | "side" | "startLine" | "startSide">;
+
+/** A comment's range as it's kept: a start only for more than one line, and a start side only when it isn't `side`. */
+export function rangeOf(c: Range): Pick<DraftComment, "startLine" | "startSide"> {
+  const startSide = c.startSide ?? c.side;
+  if (c.startLine === undefined || c.startLine === c.line && startSide === c.side) return {};
+  return { startLine: c.startLine, ...(startSide !== c.side ? { startSide } : {}) };
+}
+
+/** A comment's lines as the reviewer reads them: "15", or "10–15" for a range. */
+export const linesOf = (c: Range) => c.startLine === undefined ? `${c.line}` : `${c.startLine}–${c.line}`;
 
 /**
  * A message in a discussion with the review assistant, the assistant's change to the
@@ -64,11 +81,15 @@ export interface Draft {
   verdictChosen?: true;
 }
 
+type Keyed = Pick<DraftComment, "file" | "line" | "side" | "body" | "startLine" | "startSide">;
+// A single-line comment's key is as it was before ranges, so drafts saved then still match.
+const keyOf = (c: Keyed) => [c.file, c.line, c.side, c.body, ...c.startLine === undefined ? [] : [c.startLine, c.startSide ?? c.side]];
+
 /** A short fingerprint of the comments' places and text, to tell when they changed. */
-export function commentsKey(comments: readonly Pick<DraftComment, "file" | "line" | "side" | "body">[]): string {
+export function commentsKey(comments: readonly Keyed[]): string {
   // FNV-1a: the same value on the server and in the panel, without crypto.
   let hash = 0x811c9dc5;
-  const text = JSON.stringify(comments.map((c) => [c.file, c.line, c.side, c.body]));
+  const text = JSON.stringify(comments.map(keyOf));
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
   return `${comments.length}:${hash.toString(16)}`;
 }
@@ -90,19 +111,23 @@ export function summaryChanges(draft: Draft): { comments: boolean; verdict: Verd
 }
 
 /** Whether two lists hold the same comments, in the same order. */
-export function sameComments(a: readonly DraftComment[], b: readonly Pick<DraftComment, "file" | "line" | "side" | "body">[]): boolean {
-  const key = (c: Pick<DraftComment, "file" | "line" | "side" | "body">) => JSON.stringify([c.file, c.line, c.side, c.body]);
+export function sameComments(a: readonly DraftComment[], b: readonly Keyed[]): boolean {
+  const key = (c: Keyed) => JSON.stringify(keyOf(c));
   return a.length === b.length && a.every((c, i) => key(c) === key(b[i]));
 }
 
 export function toGithubReviewPayload(draft: Draft): {
   event: Verdict;
   body: string;
-  comments: { path: string; line: number; side: string; body: string }[];
+  comments: { path: string; line: number; side: string; start_line?: number; start_side?: string; body: string }[];
 } {
   return {
     event: draft.verdict,
     body: draft.body,
-    comments: draft.comments.map((c) => ({ path: c.file, line: c.line, side: c.side, body: c.body })),
+    comments: draft.comments.map((c) => ({
+      path: c.file, line: c.line, side: c.side,
+      ...(c.startLine !== undefined ? { start_line: c.startLine, start_side: c.startSide ?? c.side } : {}),
+      body: c.body,
+    })),
   };
 }
