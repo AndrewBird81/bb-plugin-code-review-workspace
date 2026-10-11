@@ -80,6 +80,22 @@ export function isQuestion(body: string, viewer: string): boolean {
   return prose.split("\n").filter((line) => !/^\s*>/.test(line)).join("\n").replace(/https?:\/\/\S+/g, "").includes("?");
 }
 
+const THREAD_LABELS: Record<string, { label: string; nonBlocking: boolean }> = {
+  blocking: { label: "Blocking", nonBlocking: false }, shouldfix: { label: "Should fix", nonBlocking: false }, question: { label: "Question", nonBlocking: false },
+  nit: { label: "Nit", nonBlocking: true }, fyi: { label: "FYI", nonBlocking: true }, optional: { label: "Optional", nonBlocking: true }, nonblocking: { label: "Non-blocking", nonBlocking: true },
+};
+// "**Nit:**", "**Nit**:", or "Nit:", in any case, at the start of the first comment.
+const THREAD_LABEL = /^\s*(\*\*|__)?(blocking|should[ -]fix|question|nit|fyi|optional|non[ -]?blocking)(?:\1:|:\1)/i;
+
+/**
+ * The label a thread's first comment starts with: a severity's (src/draft.ts), or nit, FYI, optional, or
+ * non-blocking, which make it non-blocking: it doesn't hold the author's turn. Null without one.
+ */
+export function threadLabel(body: string): { label: string; nonBlocking: boolean } | null {
+  const match = body.match(THREAD_LABEL);
+  return match ? THREAD_LABELS[match[2].toLowerCase().replace(/[ -]/g, "")] : null;
+}
+
 /** A review thread anyone started on the PR, briefly. */
 export interface PrThread {
   id: string;

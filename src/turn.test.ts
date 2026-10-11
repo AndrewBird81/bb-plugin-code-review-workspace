@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
-import { baselineOf, canSnooze, canSnoozeUntil, computeTurn, feedbackProgress, QUIET_MS, snoozeLabel, snoozeTimes, type TurnInput, type TurnOptions } from "../lib/turn";
+import { baselineOf, canSnooze, canSnoozeUntil, computeTurn, feedbackProgress, progressText, QUIET_MS, snoozeLabel, snoozeTimes, type TurnInput, type TurnOptions } from "../lib/turn";
+import { threadSignals } from "./turn-signals";
+import type { FeedbackThread } from "./github/types";
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
 const hour = 3_600_000;
@@ -258,4 +260,29 @@ test("the baseline is your latest review, here or on GitHub, and Not yet needs o
   expect(canSnooze({ targetKey: "a", status: "ready" }, turn({ targetKey: "a", status: "ready" }))).toBe(false);
   const failed = changesRequested({ status: "error" }, { requestedAt: t(1) });
   expect(canSnooze(failed, turn(failed))).toBe(false);
+});
+
+const mine = (status: FeedbackThread["status"], body: string, replyAt: number | null = null): FeedbackThread => ({
+  id: body, commentId: 1, reviewId: null, path: "a.ts", line: 1, originalLine: 1, startLine: null, side: "RIGHT", subjectType: "LINE",
+  body, createdAt: t(5), isResolved: status === "resolved", resolvedBy: null, isOutdated: false, replies: [], status, replyAt,
+});
+
+test("a non-blocking thread doesn't hold Feedback handled or count in progress, and is counted apart", () => {
+  const threads = [mine("resolved", "Drops writes."), mine("answered", "**Should fix:** rename", t(1)), mine("open", "**Nit:** spacing"), mine("open", "FYI: a helper exists")];
+  const signals = threadSignals(threads);
+  expect(signals.threads).toEqual({ total: 2, resolved: 1, answered: 1, questions: 0, open: 0, outdated: 0, nonBlocking: 2 });
+  expect(signals.handledAt).toBe(t(1));
+  const review = changesRequested({ latestHeadSha: "sha2" }, { ...signals, headSeenAt: t(2) });
+  expect(turn(review)).toMatchObject({ group: "needs", reason: "handled", label: "Feedback handled" });
+  expect(feedbackProgress(review)).toEqual({ done: 2, total: 2, source: "threads", nits: 2 });
+  expect(progressText(feedbackProgress(review)!)).toBe("2/2 handled +2 nits");
+  expect(progressText({ done: 1, total: 3, source: "assistant", nits: 1 })).toBe("1/3 addressed +1 nit");
+  expect(progressText({ done: 1, total: 3, source: "assistant" })).toBe("1/3 addressed");
+  // A question on one is still a question for you.
+  const asked = threadSignals([...threads, mine("question", "nit: why not a map?", t(0.5))]);
+  expect(asked).toMatchObject({ questionAt: t(0.5), threads: { total: 2, nonBlocking: 3 } });
+  // Only non-blocking threads open on a comment review: nobody's waiting.
+  const comment = { ...changesRequested({ submittedVerdict: "COMMENT" }, threadSignals([mine("open", "nit: spacing")])) };
+  expect(turn(comment)).toMatchObject({ group: "reviewed", label: "Commented" });
+  expect(feedbackProgress(comment)).toBeNull();
 });

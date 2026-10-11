@@ -41,6 +41,10 @@ export interface FeedbackItem {
   thread: (FeedbackThread & { url: string | null }) | null;
   assessment: AssessmentItem | null;
   replyDraft: ReplyDraft | null;
+  /** The label the thread's first comment starts with (src/github/threads.ts threadLabel). */
+  label?: string;
+  /** A nit, FYI, optional, or non-blocking thread: it doesn't count toward what's addressed or left. */
+  nonBlocking?: true;
 }
 
 export interface FeedbackView {

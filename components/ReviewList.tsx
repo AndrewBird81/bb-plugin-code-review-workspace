@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Avatar } from "./ui/avatar";
 import { StatusBadge, kindLook } from "./ReviewStatus";
 import { Badge, TONE_TEXT } from "./ui/badge";
-import type { Turn, TurnGroup } from "../lib/turn";
+import { progressText, type Turn, type TurnGroup } from "../lib/turn";
 import { IconTile } from "./ui/icon-tile";
 import { InlineCode } from "./ui/inline-code";
 import { age, timeAgo } from "./time-ago";
@@ -67,7 +67,7 @@ function TurnMeta({ review, turn }: { review: ReviewItem; turn: Turn }) {
       {turn.blocking && <Badge tone="warning" size="sm">Blocks merge</Badge>}
       {unreachable && <span className="inline-flex items-center gap-1" title={unreachable.reason === "forbidden" ? "GitHub refused access, for example for SSO" : "Deleted, or you lost access"}><Icon name="AlertCircle" className={cn("size-3", TONE_TEXT.warning)} aria-hidden />Can’t read on GitHub</span>}
       {why && <span>{why}</span>}
-      {progress && <span className="tabular-nums" title={progress.source === "assistant" ? undefined : "Resolved or answered"}>{progress.done}/{progress.total} {progress.source === "assistant" ? "addressed" : "handled"}</span>}
+      {progress && <span className="tabular-nums" title={progress.source === "assistant" ? undefined : "Resolved or answered"}>{progressText(progress)}</span>}
       {outdated > 0 && <span className="tabular-nums" title="The code under these threads changed">{outdated} outdated</span>}
       {commits > 0 && <span className="inline-flex items-center gap-1 tabular-nums"><Icon name="GitCommit" className="size-3" aria-hidden />+{commits} {commits === 1 ? "commit" : "commits"}</span>}
       {ci && <span className="inline-flex items-center gap-1"><Icon name={ci.icon} className={cn("size-3", TONE_TEXT[ci.tone])} aria-hidden />{ci.label}</span>}

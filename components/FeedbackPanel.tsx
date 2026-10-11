@@ -37,16 +37,23 @@ const STATUS_LOOK: Record<FeedbackThread["status"], { label: string; tone: Tone 
 
 const SUGGESTED_LABEL: Record<Verdict, string> = { APPROVE: "Approve", REQUEST_CHANGES: "Request changes", COMMENT: "Comment" };
 
-/** Questions for you first, whatever the assistant's verdict, then what needs a look, then what waits on the author, then what's done. */
+/**
+ * Blocking feedback before non-blocking; within each, questions for you first, whatever the assistant's
+ * verdict, then what needs a look, then what waits on the author, then what's done.
+ */
 export function feedbackRank(item: FeedbackItem): number {
+  const after = item.nonBlocking ? 4 : 0;
   const status = item.thread?.status;
-  if (status === "question") return 0;
+  if (status === "question") return after;
   const verdict = item.assessment?.verdict;
-  if (verdict) return verdict === "addressed" ? 3 : 1;
-  return status === "resolved" || status === "answered" ? 3 : 2;
+  if (verdict) return after + (verdict === "addressed" ? 3 : 1);
+  return after + (status === "resolved" || status === "answered" ? 3 : 2);
 }
 
-/** "4 of 5 addressed" from the assistant's check, or "2 of 5 handled" (resolved or answered) from GitHub. */
+/** A thread label's tone: a severity's as on draft comments, and neutral for non-blocking ones. */
+const LABEL_TONE: Partial<Record<string, Tone>> = { Blocking: "danger", "Should fix": "warning", Question: "primary" };
+
+/** "4 of 5 addressed" from the assistant's check, or "2 of 5 handled" (resolved or answered) from GitHub. Pass blocking items only. */
 export function feedbackTally(items: FeedbackItem[]): string | null {
   if (items.some((item) => item.assessment)) {
     return `${items.filter((item) => item.assessment?.verdict === "addressed").length} of ${items.length} addressed`;
@@ -205,6 +212,7 @@ function ThreadCard({ item, thread, actions, onShowLocation, onFollowUp }: {
       <div className="flex flex-wrap items-center gap-1.5">
         {item.assessment && <VerdictChip verdict={item.assessment.verdict} />}
         <Badge tone={status.tone}>{status.label}</Badge>
+        {item.label && <Badge tone={LABEL_TONE[item.label] ?? "neutral"}>{item.label}</Badge>}
         {thread.isOutdated && <Badge icon={<Icon name="GitCommit" aria-hidden />}>Code changed</Badge>}
         {file ? (
           <button
@@ -420,10 +428,13 @@ export const FeedbackPanel = memo(function FeedbackPanel({ targetKey, review, re
 
   const byId = new Map(feedback.items.map((item) => [item.id, item]));
   const items = order.flatMap((id) => byId.get(id) ?? []);
-  const tally = feedbackTally(items);
+  // Non-blocking threads don't count toward what's addressed or left.
+  const blocking = items.filter((item) => !item.nonBlocking);
+  const nits = items.length - blocking.length;
+  const tally = feedbackTally(blocking);
   const run = feedback.run;
   const checked = run && timeAgo(run.assessedAt);
-  const left = items.some((item) => item.assessment && item.assessment.verdict !== "addressed");
+  const left = blocking.some((item) => item.assessment && item.assessment.verdict !== "addressed");
 
   return (
     <div className="space-y-3">
@@ -431,8 +442,9 @@ export const FeedbackPanel = memo(function FeedbackPanel({ targetKey, review, re
         <div className="min-w-0 flex-1 space-y-0.5">
           <h2 className="text-sm font-semibold text-foreground">Your feedback</h2>
           <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
-            {tally && <span className="font-medium tabular-nums text-foreground/90" title={items.some((item) => item.assessment) ? undefined : "Resolved or answered"}>{tally}</span>}
-            {tally && run && <span aria-hidden>·</span>}
+            {tally && <span className="font-medium tabular-nums text-foreground/90" title={blocking.some((item) => item.assessment) ? undefined : "Resolved or answered"}>{tally}</span>}
+            {nits > 0 && <span className="tabular-nums" title="Nits, FYIs, and optional points, which don’t hold the review">+{nits} nit{nits === 1 ? "" : "s"}</span>}
+            {(tally || nits > 0) && run && <span aria-hidden>·</span>}
             {run && <span>Checked {checked ?? "earlier"} · <span className="font-mono">{run.headSha.slice(0, 7)}</span></span>}
             {run && !run.current && <Badge tone="warning" size="sm" title="The agent checked an earlier commit than the PR’s head.">older commit</Badge>}
           </p>

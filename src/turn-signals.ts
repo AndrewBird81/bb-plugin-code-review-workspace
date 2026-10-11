@@ -4,6 +4,7 @@ import type { FeedbackThread, PrFacts } from "./github/types";
 import type { ReviewPreferences } from "./preferences";
 import { feedbackProgress, type Turn, type TurnOptions, type TurnSignals } from "../lib/turn";
 import { verdictFromMine } from "./review-verdict";
+import { threadLabel } from "./github/threads";
 
 export function turnOptions(preferences: ReviewPreferences): TurnOptions {
   return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks, teamRequests: preferences.trackTeamRequests };
@@ -67,22 +68,23 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
 
 const RECEIPT_GRACE = 10 * 60_000;
 
-/** Your threads' standing, as signals. */
-export function threadSignals(threads: ReadonlyArray<FeedbackThread & { resolvedSeenAt?: number | null }>): Pick<TurnSignals, "threads" | "questionAt" | "questionBy" | "replyAt" | "handledAt"> {
+/** Your threads' standing, as signals. Non-blocking threads are counted apart, and hold nothing but questions. */
+export function threadSignals(all: ReadonlyArray<FeedbackThread & { resolvedSeenAt?: number | null }>): Pick<TurnSignals, "threads" | "questionAt" | "questionBy" | "replyAt" | "handledAt"> {
+  const threads = all.filter((t) => !threadLabel(t.body)?.nonBlocking);
   const count = (status: FeedbackThread["status"]) => threads.filter((t) => t.status === status).length;
   const tally = {
     total: threads.length, resolved: count("resolved"), answered: count("answered"), questions: count("question"),
-    open: count("open"), outdated: threads.filter((t) => t.isOutdated).length,
+    open: count("open"), outdated: threads.filter((t) => t.isOutdated).length, nonBlocking: all.length - threads.length,
   };
   const latest = (times: Array<number | null | undefined>) => times.reduce<number | null>((max, t) => t != null && t > (max ?? 0) ? t : max, null);
   const handled = tally.total > 0 && tally.open === 0 && tally.questions === 0;
-  const questionAt = latest(threads.filter((t) => t.status === "question").map((t) => t.replyAt));
-  const asked = threads.find((t) => t.status === "question" && t.replyAt === questionAt);
+  const questionAt = latest(all.filter((t) => t.status === "question").map((t) => t.replyAt));
+  const asked = all.find((t) => t.status === "question" && t.replyAt === questionAt);
   return {
-    threads: tally.total ? tally : null,
+    threads: all.length ? tally : null,
     questionAt,
     questionBy: asked?.replies.filter((r) => r.createdAt === questionAt && !r.mine).at(-1)?.author ?? null,
-    replyAt: latest(threads.filter((t) => t.status === "question" || t.status === "answered").map((t) => t.replyAt)),
+    replyAt: latest(all.filter((t) => t.status === "question" || t.status === "answered").map((t) => t.replyAt)),
     handledAt: handled ? latest(threads.map((t) => t.status === "resolved" ? t.resolvedSeenAt ?? null : t.replyAt)) : null,
   };
 }

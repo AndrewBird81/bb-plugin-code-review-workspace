@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { fetchMyThreads, isQuestion, parseAllThreads, parseMyThreads } from "./threads";
+import { fetchMyThreads, isQuestion, parseAllThreads, parseMyThreads, threadLabel } from "./threads";
 import cli9083 from "./fixtures/threads-cli-9083.json";
 
 const user = (login: string) => ({ __typename: "User", login });
@@ -131,4 +131,20 @@ test("parseAllThreads keeps everyone's threads, bots included, with the first co
     { id: "PRRT_1", path: "src/a.ts", line: 12, isResolved: true, isOutdated: false, author: "me", bot: false, body: "Rename this?", latestReply: null },
   ]);
   expect(parseAllThreads(cli9083)).toHaveLength(4);
+});
+
+test("a thread's label is its first comment's: a severity's, or a non-blocking one", () => {
+  expect(threadLabel("**Nit:** spacing")).toEqual({ label: "Nit", nonBlocking: true });
+  expect(threadLabel("nit: spacing")).toEqual({ label: "Nit", nonBlocking: true });
+  expect(threadLabel("FYI: there's a helper for this")).toEqual({ label: "FYI", nonBlocking: true });
+  expect(threadLabel("**Optional**: inline it")).toEqual({ label: "Optional", nonBlocking: true });
+  expect(threadLabel("Non-blocking: rename")).toEqual({ label: "Non-blocking", nonBlocking: true });
+  expect(threadLabel("nonblocking: rename")).toEqual({ label: "Non-blocking", nonBlocking: true });
+  expect(threadLabel("non blocking: rename")).toEqual({ label: "Non-blocking", nonBlocking: true });
+  expect(threadLabel("**Blocking:** drops writes")).toEqual({ label: "Blocking", nonBlocking: false });
+  expect(threadLabel("**Should fix:** rename")).toEqual({ label: "Should fix", nonBlocking: false });
+  expect(threadLabel("Question: why?")).toEqual({ label: "Question", nonBlocking: false });
+  expect(threadLabel("Rename this?")).toBeNull();
+  expect(threadLabel("A nit: spacing")).toBeNull();
+  expect(threadLabel("**FYI: unclosed")).toBeNull();
 });

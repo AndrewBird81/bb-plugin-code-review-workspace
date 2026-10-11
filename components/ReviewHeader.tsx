@@ -5,7 +5,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import type { StackMember, StackPlace } from "../lib/stacks";
 import { LINES_PER_HOUR, readingTime } from "../lib/review-size";
 import { reviewState } from "../lib/review-state";
-import { canSnooze, canSnoozeUntil, computeTurn, type ReviewRound, type Turn } from "../lib/turn";
+import { canSnooze, canSnoozeUntil, computeTurn, progressText, type feedbackProgress, type ReviewRound, type Turn } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
 import { Badge } from "./ui/badge";
@@ -143,7 +143,7 @@ export const ReviewHeader = memo(function ReviewHeader({
   const state = reviewState(review);
   const turn: Turn = review.turn ?? computeTurn(review);
   const rounds: ReviewRound[] = review.signals?.rounds ?? [];
-  const progress: { done: number; total: number; source: "assistant" | "threads" } | null = review.progress ?? null;
+  const progress: ReturnType<typeof feedbackProgress> = review.progress ?? null;
   const stack: StackPlace | null = review.stack ?? null;
 
   return (
@@ -161,7 +161,7 @@ export const ReviewHeader = memo(function ReviewHeader({
             {progress && progress.total > 0 && (
               <button type="button" onClick={onShowFeedback} title={progress.source === "assistant" ? "Show your feedback" : "Resolved or answered. Show your feedback"} className="rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
                 <Badge tone={progress.done === progress.total ? "success" : "primary"} className="cursor-pointer tabular-nums" icon={progress.source === "assistant" ? <Icon name="Sparkles" aria-hidden /> : <Icon name="MessageSquare" aria-hidden />}>
-                  {progress.done}/{progress.total} {progress.source === "assistant" ? "addressed" : "handled"}
+                  {progressText(progress)}
                 </Badge>
               </button>
             )}

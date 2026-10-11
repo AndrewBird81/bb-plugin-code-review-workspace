@@ -340,3 +340,29 @@ test("a suggestion already in the draft offers to open it instead", async () => 
   fireEvent.click(slot.getByRole("button", { name: "Open draft" }));
   expect(onDraftUpdated).toHaveBeenCalledWith();
 });
+
+test("non-blocking threads come after blocking ones with their label, outside the tally, and don't offer what's left", async () => {
+  const nit = (id: string, title: string, over: Parameters<typeof item>[2] = {}) => item(id, title, { label: "Nit", nonBlocking: true, ...over });
+  const { slot } = render({
+    ...checkedView,
+    items: [
+      nit("N", "Spacing", { thread: { status: "question" }, assessment: assessed("not_addressed", "Still tight.") }),
+      item("A", "Drops writes", { label: "Blocking", thread: { status: "resolved", isResolved: true }, assessment: assessed("addressed", "Fixed.") }),
+      nit("F", "A helper exists", { label: "FYI", assessment: assessed("not_addressed", "Not used.") }),
+      item("B", "Handle the empty list", { assessment: assessed("addressed", "Handled.") }),
+    ],
+  });
+  expect(await slot.findByText("2 of 2 addressed")).toBeTruthy();
+  expect(slot.getByText("+2 nits")).toBeTruthy();
+  expect(slot.getAllByRole("article").map((card) => card.getAttribute("aria-label"))).toEqual(["Drops writes", "Handle the empty list", "Spacing", "A helper exists"]);
+  expect(within(slot.getByRole("article", { name: "Spacing" })).getByText("Nit")).toBeTruthy();
+  expect(within(slot.getByRole("article", { name: "A helper exists" })).getByText("FYI")).toBeTruthy();
+  expect(within(slot.getByRole("article", { name: "Drops writes" })).getByText("Blocking")).toBeTruthy();
+  expect(slot.queryByRole("button", { name: "Request what’s left" })).toBeNull();
+});
+
+test("without the assistant's check, the thread tally leaves out non-blocking threads too", async () => {
+  const { slot } = render({ ...checkedView, run: null, items: [item("O", "Open one"), item("N", "Nit one", { label: "Nit", nonBlocking: true, thread: { status: "resolved", isResolved: true } })] });
+  expect(await slot.findByText("0 of 1 handled")).toBeTruthy();
+  expect(slot.getByText("+1 nit")).toBeTruthy();
+});
