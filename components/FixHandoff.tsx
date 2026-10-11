@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
-import type { DraftComment } from "../src/draft";
+import { linesOf, type DraftComment } from "../src/draft";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { locationKey } from "./InlineDraft";
@@ -36,7 +36,7 @@ export function FixHandoff({ targetKey, comments }: { targetKey: string; comment
         const key = locationKey(comment);
         return <label key={key} className="flex items-start gap-2.5 text-xs">
           <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" disabled={busy} checked={!left.includes(key)} onChange={(event) => setLeft(event.target.checked ? left.filter((k) => k !== key) : [...left, key])} />
-          <span className="min-w-0"><span className="font-mono text-[11px]">{comment.file}:{comment.line}</span> <span className="line-clamp-1 break-words text-muted-foreground">{comment.body}</span></span>
+          <span className="min-w-0"><span className="font-mono text-[11px]">{comment.file}:{linesOf(comment)}</span> <span className="line-clamp-1 break-words text-muted-foreground">{comment.body}</span></span>
         </label>;
       })}
       <p className="text-xs text-muted-foreground">Starts a BB thread in this project to fix them. Your draft stays as it is.</p>
@@ -44,6 +44,6 @@ export function FixHandoff({ targetKey, comments }: { targetKey: string; comment
         <Button size="sm" disabled={busy || !chosen.length} onClick={() => void start()}>{busy && <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />}Start thread</Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => setChoosing(false)}>Cancel</Button>
       </div>
-    </fieldset> : comments.length > 0 && <Button variant="outline" size="sm" onClick={() => { setChoosing(true); setError(null); }}><Icon name="Code" className="size-4" aria-hidden />Fix in a new thread</Button>}
+    </fieldset> : comments.length > 0 && <Button variant="outline" size="sm" onClick={() => { setChoosing(true); setLeft([]); setError(null); }}><Icon name="Code" className="size-4" aria-hidden />Fix in a new thread</Button>}
   </section>;
 }

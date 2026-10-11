@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { ReviewMeta, Store } from "./store";
-import { sameLocation, type CommentLocation, type DraftComment } from "./draft";
+import { linesOf, sameLocation, type CommentLocation, type DraftComment } from "./draft";
 import { runGh } from "./gh";
 import { patchRows, splitPatchByFile } from "./patch";
 import { spawnExecution } from "./preferences";
@@ -56,8 +56,8 @@ function where(review: ReviewMeta): string {
 /** The fix thread's first message: where to work, each comment with its lines' code, and what not to do. */
 export function fixMessage(review: ReviewMeta, comments: readonly FixComment[], patch: string, stale: readonly CommentLocation[]): string {
   const items = comments.map((comment) => {
-    const lines = comment.startLine === undefined ? `${comment.line}` : `${comment.startLine}-${comment.line}`;
-    const at = `\`${comment.file}:${lines}\`${comment.side === "LEFT" ? " (old line)" : ""}`;
+    const cross = comment.startLine !== undefined && (comment.startSide ?? comment.side) !== comment.side;
+    const at = `\`${comment.file}:${linesOf(comment)}\`${cross ? ` (old line ${comment.startLine} to new line ${comment.line})` : comment.side === "LEFT" ? " (old line)" : ""}`;
     if (stale.some((s) => sameLocation(s, comment))) return `${at}, written against an older diff, so the line may have moved:\n${comment.body}`;
     const code = codeAt(patch, comment);
     return code ? `${at}\n${fenced(code, "diff")}\n${comment.body}` : `${at}\n${comment.body}`;
@@ -78,7 +78,7 @@ export async function startFixThread(bb: BbPluginApi, store: Store, targetKey: s
   const comments = store.getDraft(targetKey).comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
   if (!comments.length) throw new Error("Those comments are no longer in the draft.");
   const agent = store.getPreferences().preferences.assistantAgent;
-  if (!agent && !(await bb.sdk.projects.defaultExecutionOptions({ projectId: review.projectId }))) throw new Error("bb has no default agent for the review's project. Choose a Review assistant agent in Review settings.");
+  if (!agent && !(await bb.sdk.projects.defaultExecutionOptions({ projectId: review.projectId }).catch(() => null))) throw new Error("bb has no default agent for the review's project. Choose a Review assistant agent in Review settings.");
   const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
   const title = `Fix review comments: ${review.kind === "pr" ? `#${review.number} ${review.title ?? ""}`.trim() : review.gitRef}`;
   try {

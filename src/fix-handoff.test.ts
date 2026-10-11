@@ -77,7 +77,7 @@ test("a range comment quotes its lines across both sides, and a comment on an ol
     { file: "src/a.ts", startLine: 2, startSide: "LEFT", line: 2, side: "RIGHT", body: "Keep b." },
     { file: "src/a.ts", line: 4, side: "RIGHT", body: "Moved?" },
   ], PATCH, [{ file: "src/a.ts", line: 4, side: "RIGHT" }]);
-  expect(text).toContain("`src/a.ts:2-2`\n```diff\n-const b = 2;\n+const b = 3;\n```\nKeep b.");
+  expect(text).toContain("`src/a.ts:2–2` (old line 2 to new line 2)\n```diff\n-const b = 2;\n+const b = 3;\n```\nKeep b.");
   expect(text).toContain("`src/a.ts:4`, written against an older diff, so the line may have moved:\nMoved?");
 });
 

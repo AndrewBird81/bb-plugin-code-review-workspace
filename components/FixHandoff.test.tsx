@@ -36,6 +36,9 @@ test("on your own PR, Fix in a new thread starts a thread with the comments you 
   fireEvent.click(within(started).getByRole("button", { name: "Open" }));
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "t9" });
   expect(slot.getAllByRole("listitem")).toHaveLength(2);
+  // Opening it again starts from every comment, not the ones left out last time.
+  fireEvent.click(slot.getByRole("button", { name: "Fix in a new thread" }));
+  expect(within(slot.getByRole("group", { name: "Comments to fix" })).getByRole("checkbox", { name: /src\/b\.ts:9/ })).toHaveProperty("checked", true);
   slot.lifecycle.unmount();
 });
 
