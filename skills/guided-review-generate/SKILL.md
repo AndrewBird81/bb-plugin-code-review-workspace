@@ -36,6 +36,11 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat everythi
    `{ file, line, why }`, where `line` is a new-file line the diff shows (added or context) and
    `why` names the defect that could hide there in one sentence. The reviewer reads these first,
    since defects in what's read last get missed. Leave `hotspots` out for a purely mechanical change.
+   When the PR description or a linked ticket says what the change should do, list each thing it
+   asks for in `requirements`: `{ text, status, evidence, file, line }`, with `status` exactly
+   `covered`, `partial`, `missing`, or `unclear`, and `evidence` saying in one short sentence what
+   the code does or what's absent. A `covered` requirement names the `file` and `line` (a new-file
+   line the diff shows) that do it. Leave `requirements` out when the PR doesn't say what it should do.
    On a re-review the task says so: keep the earlier guide's chapter ids, titles, and order where
    the files still fit, and write `sinceReview`: 2–4 sentences on what changed since the reviewer's
    last review, from `read_changes_since_review`. Leave `sinceReview` out otherwise.

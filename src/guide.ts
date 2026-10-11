@@ -19,25 +19,46 @@ export const HotspotSchema = z.object({
   line: z.number().int().min(1).describe("A new-file line the diff shows: added or context."),
   why: z.string().min(1).describe("The defect that could hide there, in one sentence."),
 });
+export const RequirementSchema = z.object({
+  text: z.string().min(1).describe("One thing the PR description or a linked ticket asks for, in a short line."),
+  status: z.enum(["covered", "partial", "missing", "unclear"]).describe("Whether the diff does it."),
+  evidence: z.string().min(1).describe("Why, in one short sentence: what the code does, or what's absent."),
+  file: z.string().min(1).optional().describe("Where the diff does it: the file's exact repo-relative path. Required when covered."),
+  line: z.number().int().min(1).optional().describe("A new-file line the diff shows in that file. Required when covered."),
+});
 export const GuideSchema = z.object({
   title: z.string().min(1).describe("The change, in one line."),
   intent: z.string().min(1).describe("Why the change exists, in 1–2 sentences."),
   sections: z.array(SectionSchema).describe("Chapters, in reading order."),
   unplacedFiles: z.array(z.string()).default([]).describe("Files with nothing to review (binary, mode-only, pure rename). Usually empty."),
   hotspots: z.array(HotspotSchema).min(1).max(3).optional().describe("The 1–3 places most likely to hide a defect, highest risk first."),
+  requirements: z.array(RequirementSchema).min(1).optional().describe("What the PR description and its linked tickets ask for, each checked against the diff. Leave out when the PR doesn't say what it should do."),
   /** What changed since the reviewer's last review, on a re-review. */
   sinceReview: z.string().optional().describe("On a re-review only: what changed since the reviewer's last review, in 2–4 sentences."),
   review: z.object({ gitRef: z.string().min(1), base: z.string().optional() }).optional(),
   source: z.unknown().optional(),
   generator: z.unknown().optional(),
 });
+function lineErrors(positions: ReturnType<typeof diffPositions>, at: string, file: string, line: number): string[] {
+  const lines = positions.get(file)?.right;
+  if (!lines) return [`${at}: ${file} isn't in the diff`];
+  return lines.has(line) ? [] : [`${at}: line ${line} of ${file} isn't a new-file line the diff shows`];
+}
+
 /** Hotspots the reviewer can open: each on a new-file line the diff shows. */
 export function checkHotspots(guide: Guide, patch: string): { ok: true } | { ok: false; errors: string[] } {
   const positions = diffPositions(patch);
-  const errors = (guide.hotspots ?? []).flatMap(({ file, line }, i) => {
-    const lines = positions.get(file)?.right;
-    if (!lines) return [`hotspots.${i}: ${file} isn't in the diff`];
-    return lines.has(line) ? [] : [`hotspots.${i}: line ${line} of ${file} isn't a new-file line the diff shows`];
+  const errors = (guide.hotspots ?? []).flatMap(({ file, line }, i) => lineErrors(positions, `hotspots.${i}`, file, line));
+  return errors.length ? { ok: false, errors } : { ok: true };
+}
+
+/** Requirements the reviewer can check: a covered one opens the new-file line that does it. */
+export function checkRequirements(guide: Guide, patch: string): { ok: true } | { ok: false; errors: string[] } {
+  const positions = diffPositions(patch);
+  const errors = (guide.requirements ?? []).flatMap(({ status, file, line }, i) => {
+    if (file !== undefined && line !== undefined) return lineErrors(positions, `requirements.${i}`, file, line);
+    if (file !== undefined || line !== undefined) return [`requirements.${i}: give both file and line, or neither`];
+    return status === "covered" ? [`requirements.${i}: a covered requirement needs the file and line that do it`] : [];
   });
   return errors.length ? { ok: false, errors } : { ok: true };
 }
