@@ -152,6 +152,9 @@ function lineRow(fileEl: HTMLElement, at: CommentLocation): HTMLElement | undefi
     ?? shadow?.querySelector<HTMLElement>(`:is(${column},[data-unified]) [data-line="${at.line}"]:not([data-line-type="${other}"])`)) ?? undefined;
 }
 
+/** A file's diff with its whole contents, from the diff text and contents it was made from. */
+type FullDiff = { text: string; loaded: FileContentsResult; fileDiff: FileDiffMetadata; commentable: (at: CommentLocation) => boolean };
+
 const lineEnd = (file: string, range: SelectedLineRange): CommentLocation => ({ file, line: range.end, side: (range.endSide ?? range.side) === "deletions" ? "LEFT" : "RIGHT" });
 
 function renderAnnotation({ metadata }: DiffLineAnnotation<Annotation>) {
@@ -317,21 +320,32 @@ export const DiffViewer = memo(function DiffViewer({
     });
     return { perFile, unchanged: chapter.length - shown.length };
   }, [patch, fileKey, since, filtering, generated]);
-  // Files loaded in full, and those showing every line. A new diff starts over.
-  const [contents, setContents] = useState<Record<string, "loading" | FileContentsResult>>({});
+  // Files loaded in full, each with the diff it was read for, and those showing every line. A new diff starts over.
+  const [contents, setContents] = useState<Record<string, { text: string; result: "loading" | FileContentsResult }>>({});
   const [wholeFile, setWholeFile] = useState<Record<string, boolean>>({});
   useEffect(() => { setContents({}); setWholeFile({}); }, [patch]);
-  async function expand(path: string) {
-    setContents((c) => ({ ...c, [path]: "loading" }));
+  async function expand(path: string, text: string) {
+    setContents((c) => ({ ...c, [path]: { text, result: "loading" } }));
     const result = await readContents!(path).catch((): FileContentsResult => ({ ok: false, error: "Couldn’t load the file." }));
-    setContents((c) => ({ ...c, [path]: result }));
+    // A reply for a diff since replaced would pair its contents with the new diff.
+    setContents((c) => (c[path]?.text === text ? { ...c, [path]: { text, result } } : c));
   }
-  const expanded = useMemo(() => new Map(perFile.flatMap(({ path, source }) => {
-    const loaded = contents[path];
-    if (!source || typeof loaded !== "object" || !loaded.ok) return [];
-    const fileDiff = processFile(source.text, { oldFile: { name: source.oldPath ?? path, contents: loaded.old ?? "" }, newFile: { name: path, contents: loaded.new ?? "" } });
-    return fileDiff ? [[path, { fileDiff, commentable: diffLines(source.text) }] as const] : [];
-  })), [perFile, contents]);
+  const contentsFor = (path: string, source: { text: string } | null) => (source && contents[path]?.text === source.text ? contents[path].result : undefined);
+  // Each file's full diff is made again only when its diff or contents change: a new one redraws the file.
+  const fullDiffs = useRef(new Map<string, FullDiff>());
+  const expanded = useMemo(() => {
+    const next = new Map<string, FullDiff>();
+    for (const { path, source } of perFile) {
+      const loaded = contentsFor(path, source);
+      if (!source || typeof loaded !== "object" || !loaded.ok) continue;
+      const cached = fullDiffs.current.get(path);
+      if (cached?.text === source.text && cached.loaded === loaded) { next.set(path, cached); continue; }
+      const fileDiff = processFile(source.text, { oldFile: { name: source.oldPath ?? path, contents: loaded.old ?? "" }, newFile: { name: path, contents: loaded.new ?? "" } });
+      if (fileDiff) next.set(path, { text: source.text, loaded, fileDiff, commentable: diffLines(source.text) });
+    }
+    fullDiffs.current = next;
+    return next;
+  }, [perFile, contents]);
   const removed = useMemo(() => (filtering && showRemoved ? [...since!.values()].filter((f) => f.status === "removed") : []), [since, filtering, showRemoved]);
 
   // Side-by-side needs room: squeezed between the chapters and the review panel, each side would clip its code.
@@ -478,7 +492,7 @@ export const DiffViewer = memo(function DiffViewer({
         const folded = isCollapsed(path);
         const commentCount = draft?.comments.filter((c) => c.file === path).length ?? 0;
         const commentLabel = `${commentCount} draft comment${commentCount === 1 ? "" : "s"}`;
-        const loaded = contents[path];
+        const loaded = contentsFor(path, source);
         const loading = loaded === "loading";
         const full = expanded.get(path);
         return (
@@ -514,7 +528,7 @@ export const DiffViewer = memo(function DiffViewer({
                   <Icon name="FileText" className="size-3" aria-hidden />Whole file
                 </Button>
               ) : (
-                <Button variant="ghost" size="sm" aria-label={`Expand ${path} around its changes`} disabled={loading} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground" onClick={() => void expand(path)}>
+                <Button variant="ghost" size="sm" aria-label={`Expand ${path} around its changes`} disabled={loading} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground" onClick={() => void expand(path, source.text)}>
                   <Icon name={loading ? "Loading" : "ArrowUpDown"} className={cn("size-3", loading && "animate-spin motion-reduce:animate-none")} aria-hidden />Expand
                 </Button>
               ))}
