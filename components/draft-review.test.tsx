@@ -364,3 +364,18 @@ test("Undo after removing keeps an agent's comment the agent's, and isn't offere
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo-agent", revision: "r1", comment: agents }));
   slot.lifecycle.unmount();
 });
+
+test("collapsing the panel puts focus on the rail without opening its tooltip over the toolbar", async () => {
+  const draft = draftOf({ comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "One." }] });
+  const slot = await renderTray("collapse-tip", { getDraft: () => ({ draft, stale: [], discussions: [] }) });
+  const [collapse] = slot.getAllByRole("button", { name: "Collapse review panel" }).slice(-1);
+  fireEvent.click(collapse);
+  const rail = within(slot.getByRole("group", { name: "Review tools" })).getByRole("button", { name: "Draft review" });
+  await waitFor(() => expect(document.activeElement).toBe(rail));
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  expect(slot.queryByRole("tooltip")).toBeNull();
+  // Moving on along the rail still shows its tooltips.
+  within(slot.getByRole("group", { name: "Review tools" })).getByRole("button", { name: "Reviewer notes" }).focus();
+  expect((await slot.findByRole("tooltip")).textContent).toBe("Reviewer notes");
+  slot.lifecycle.unmount();
+});

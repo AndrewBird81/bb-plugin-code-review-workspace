@@ -108,9 +108,12 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const scopeProps = usePortalScopeProps();
   useEffect(() => { patchReviewState(targetKey, { activeTool: tab, ...(narrow ? {} : { toolsOpen }) }); }, [targetKey, tab, toolsOpen, narrow]);
   useEffect(() => { if (agent?.injection) { setTab("agent"); setToolsOpen(true); } }, [agent?.injection]);
+  // The rail's open tooltip. Collapsing focuses the rail, which would open one over the toolbar.
+  const [railTip, setRailTip] = useState<string | null>(null);
   function collapse() {
     setToolsOpen(false);
     railRef.current?.querySelector<HTMLButtonElement>(`[data-tool="${tab}"]`)?.focus();
+    setRailTip(null);
   }
   function selectTool(next: typeof tab) {
     if (toolsOpen && tab === next) collapse();
@@ -525,7 +528,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   <aside aria-label="Review tools" className={cn("flex max-h-[50vh] min-h-0 shrink-0 flex-col border-t border-border bg-background @min-[1024px]/review:h-full @min-[1024px]/review:max-h-none @min-[1024px]/review:flex-row-reverse @min-[1024px]/review:border-l @min-[1024px]/review:border-t-0", toolsOpen ? "@min-[1024px]/review:w-[384px]" : "@min-[1024px]/review:w-11", toolsOpen && tab === "agent" && "h-[50vh]")}>
     <div ref={railRef} role="group" aria-label="Review tools" className={cn("flex h-11 shrink-0 items-center gap-0.5 bg-surface-raised p-0.5 @min-[1024px]/review:h-full @min-[1024px]/review:w-11 @min-[1024px]/review:flex-col @min-[1024px]/review:gap-1 @min-[1024px]/review:pt-1.5", toolsOpen && "border-b border-border @min-[1024px]/review:border-b-0 @min-[1024px]/review:border-l")}>
       <Tooltip.Provider delayDuration={350}>
-        {toolItems.map((tool) => <Tooltip.Root key={tool.id}>
+        {toolItems.map((tool) => <Tooltip.Root key={tool.id} open={railTip === tool.id} onOpenChange={(open) => setRailTip((tip) => open ? tool.id : tip === tool.id ? null : tip)}>
           <Tooltip.Trigger asChild>
             <Button variant="ghost" size="icon" data-tool={tool.id} aria-label={tool.label} aria-pressed={toolsOpen && tab === tool.id} aria-expanded={toolsOpen && tab === tool.id} aria-controls={panelId} onClick={() => selectTool(tool.id)} className={cn("relative size-10 shrink-0 rounded-lg text-muted-foreground aria-pressed:bg-primary/10 aria-pressed:text-primary aria-pressed:hover:bg-primary/15 [&_svg]:size-[18px]", tool.id === "agent" && "aria-pressed:bg-(--ansi-13)/10 aria-pressed:text-(--ansi-13) aria-pressed:hover:bg-(--ansi-13)/15", toolsOpen && tab === tool.id && "after:absolute after:inset-x-2.5 after:-bottom-0.5 after:h-0.5 after:rounded-full after:bg-current @min-[1024px]/review:after:inset-y-2.5 @min-[1024px]/review:after:-right-0.5 @min-[1024px]/review:after:left-auto @min-[1024px]/review:after:h-auto @min-[1024px]/review:after:w-0.5")}>
               <Icon name={tool.icon} aria-hidden />
