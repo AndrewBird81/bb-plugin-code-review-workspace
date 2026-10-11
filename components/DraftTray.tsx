@@ -282,15 +282,16 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     if (onSummary && !asking) { closeComposer(); focusSummary(); }
   }
 
-  /** Run a change to the draft; its error goes to `onError` when given, rather than a toast. */
-  async function mutate(operation: () => Promise<void>, onError?: (message: string) => void) {
+  /** Run a change to the draft; its error goes to `onError` when given, rather than a toast, and the status line shows what that returns, or the error. */
+  async function mutate(operation: () => Promise<void>, onError?: (message: string) => string | void) {
     if (lock.current) return;
     lock.current = true; setBusy(true); setStatus({ saving: true });
     try { await operation(); if (mounted.current) setStatus({}); }
     catch (error) {
       const message = error instanceof Error ? error.message : "Couldn’t save the draft. Try again.";
-      if (onError) onError(message); else toast.error(message);
-      if (mounted.current) setStatus({ error: message });
+      const shown = onError?.(message);
+      if (!onError) toast.error(message);
+      if (mounted.current) setStatus({ error: shown || message });
     }
     finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
@@ -348,8 +349,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
       focusComment({ file, line: Number(line), side }, inline);
     }, (message) => {
       if (!mounted.current) return;
-      if (!rebuilding && composerRevision.current !== revisionRef.current) setOlderDiff(true);
-      else setComposerError(message);
+      if (!rebuilding && composerRevision.current !== revisionRef.current) { setOlderDiff(true); return "Not saved: it was written against an older diff."; }
+      setComposerError(message);
     });
   }
   async function removeComment(comment: DraftComment) {

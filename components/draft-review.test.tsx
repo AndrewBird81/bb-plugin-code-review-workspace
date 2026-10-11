@@ -306,3 +306,22 @@ test("on a chapter with no files, the Add comment form starts on the review's fi
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ file: "src/a.ts" }) })));
   slot.lifecycle.unmount();
 });
+
+test("a comment refused for an older diff says so in the status line too, not that another window changed it", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { DraftTray } = await import("./DraftTray");
+  const { useState } = await import("react");
+  const saveDraftComment = vi.fn(async () => { throw new Error("This review changed in another window. Open the latest diff before saving or submitting feedback. Your text is still here."); });
+  const component = () => {
+    const [revision, setRevision] = useState("r1");
+    return <><button onClick={() => setRevision("r2")}>New diff</button><DraftTray targetKey="older" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision={revision} account="reviewer" /></>;
+  };
+  const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), saveDraftComment } as any });
+  await slot.findByText("Draft saved");
+  writeComment(slot, "Written on r1.");
+  fireEvent.click(slot.getByRole("button", { name: "New diff" }));
+  fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
+  await slot.findByRole("button", { name: "Keep on current diff" });
+  expect(status(slot).textContent).toBe("Not saved: it was written against an older diff.");
+  slot.lifecycle.unmount();
+});
