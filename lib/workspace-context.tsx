@@ -1,0 +1,101 @@
+// The review workspace's state and commands, for the views inside it (useWorkspace) and for BB's title bar outside it
+// (useWorkspaceFor, through the store), so panels can mount anywhere without the workspace passing props down.
+import { createContext, useContext, useEffect, type ReactNode } from "react";
+import type { FileViewFlags } from "../components/DiffViewer";
+import type { CommentLocation } from "../src/draft";
+import type { Guide } from "../src/guide";
+import type { FileInterdiff } from "../src/interdiff";
+import type { AgentMessageContext } from "../src/store";
+import type { NavView } from "./panel-state";
+import type { ReviewPreferences } from "./review-preferences";
+import type { ReviewItem } from "./review-state";
+import { publishWorkspace } from "./workspace-store";
+
+/** A chapter as the workspace shows it: the guide's, or Other files, for changed files the guide doesn't place. */
+export type Chapter = Pick<Guide["sections"][number], "id" | "title" | "overview" | "risk" | "focus"> & {
+  diffs: Array<{ file: string; summary?: string; hunks?: number[] }>;
+};
+
+type Side = "LEFT" | "RIGHT";
+
+export interface WorkspaceApi {
+  targetKey: string;
+  review: ReviewItem;
+  guide: Guide;
+  /** The guide's chapters, then Other files for changed files they don't list. */
+  sections: Chapter[];
+  /** The chapter showing. */
+  activeId: string;
+  /** Show a chapter, from its intro. */
+  go(id: string): void;
+  /** The chapters and files beside the code. */
+  nav: { open: boolean; toggle(): void; view: NavView; setView(view: NavView): void };
+  files: {
+    views: Map<string, FileViewFlags>;
+    toggleViewed(file: string, viewed: boolean): void;
+    /** Mark every file in a chapter viewed. */
+    markChapterViewed(id: string): void;
+  };
+  /** Which pushes the diff shows: all of the PR, or what changed since your review or a commit you picked. */
+  compare: {
+    /** Your last review's commit, and the PR's head. */
+    baseline: string | null;
+    head: string | null;
+    /** A commit picked to compare from, instead of your last review. */
+    from: string | null;
+    pick(sha: string | null): void;
+    /** Each file's change since then, once loaded; null when there's nothing to compare. */
+    since: Map<string, FileInterdiff> | null;
+    /** The diff shows only what changed since then. */
+    narrowed: boolean;
+    setNarrowed(narrowed: boolean): void;
+    error: string | null;
+    /** "your review", or the picked commit's short sha. */
+    what: string;
+  };
+  /** How the diff draws. */
+  display: {
+    layout: ReviewPreferences["diffLayout"];
+    toggleLayout(): void;
+    /** The pane is too narrow for split, so the diff shows unified whatever the layout. */
+    unifiedOnly: boolean;
+    wrap: boolean;
+    setWrap(wrap: boolean): void;
+    hideWhitespace: boolean;
+    setHideWhitespace(hide: boolean): void;
+    /** GitHub's threads show under their lines. */
+    githubThreads: boolean;
+    setGithubThreads(show: boolean): void;
+  };
+  /** Show a comment's line in the diff, switching chapters as needed. */
+  reveal(at: CommentLocation): void;
+  /** Show a line in the whole diff, or the file for a null line. A file the PR no longer changes offers its GitHub link instead. */
+  showLocation(file: string, line: number | null, side: Side, url?: string | null): void;
+  /** Show a thread's line with a comment box open there, to follow up on it. */
+  followUp(file: string, line: number | null, side: Side, url?: string | null): void;
+  /** Open the agent; its next message is about `context`, or else the file you're on. */
+  askAgent(context?: AgentMessageContext): void;
+  /** Open the draft at its summary. `replaced`: you agreed the agent's summary replaces the one you were writing. */
+  openFinish(replaced?: boolean): void;
+  fullscreen: { available: boolean; on: boolean; toggle(): void };
+  snooze(snoozed: boolean, until?: number): Promise<void>;
+  /** Write the guide again, as for new commits. */
+  rebuild(): Promise<void>;
+  /** Read the review, guide and diff again. */
+  reload(): Promise<void>;
+}
+
+const WorkspaceContext = createContext<WorkspaceApi | null>(null);
+
+/** Gives the workspace's views its api, and BB's title bar too, through the store. */
+export function WorkspaceProvider({ api, children }: { api: WorkspaceApi; children: ReactNode }) {
+  useEffect(() => publishWorkspace(api), [api]);
+  return <WorkspaceContext.Provider value={api}>{children}</WorkspaceContext.Provider>;
+}
+
+/** The workspace this view is in. */
+export function useWorkspace(): WorkspaceApi {
+  const api = useContext(WorkspaceContext);
+  if (!api) throw new Error("useWorkspace() is only for views inside a review's workspace.");
+  return api;
+}

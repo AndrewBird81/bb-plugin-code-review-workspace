@@ -14,7 +14,7 @@ export default defineConfig({
       {
         test: {
           name: "frontend",
-          include: ["components/**/*.test.tsx"],
+          include: ["components/**/*.test.tsx", "lib/**/*.test.ts"],
           environment: "jsdom",
         },
       },

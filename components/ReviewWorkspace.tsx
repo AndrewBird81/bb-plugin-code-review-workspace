@@ -3,6 +3,7 @@ import { useRpc, useRealtime, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { SelectedLineRange } from "@pierre/diffs";
 import type { rpcContract } from "../src/rpc-contract";
+import type { AgentMessageContext } from "../src/store";
 import { VERDICT_LABEL, sameLocation, type CommentLocation } from "../src/draft";
 import type { FileInterdiff } from "../src/interdiff";
 import { baselineOf, computeTurn, type TurnReason } from "../lib/turn";
@@ -10,6 +11,7 @@ import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { getHideWhitespace, getNavView, getReviewState, getWrapLines, patchReviewState, setHideWhitespace, setLastReview, setNavView, setWrapLines, type NavView } from "../lib/panel-state";
+import { WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { ReviewHeader, ReviewTitleLink } from "./ReviewHeader";
@@ -188,6 +190,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Likewise long lines wrap there, rather than scroll sideways.
   const [chosenWrap, setChosenWrap] = useState(getWrapLines);
   const wrapLines = chosenWrap ?? compact;
+  const changeWrap = useCallback((wrap: boolean) => { setChosenWrap(wrap); setWrapLines(wrap); }, []);
+  const navOpen = compact ? mobileChapters : !sidebarCollapsed;
+  const toggleNav = useCallback(() => compact ? setMobileChapters((value) => !value) : setSidebarCollapsed(!sidebarCollapsed), [compact, sidebarCollapsed]);
   // A short workspace's toolbar is compact too, so it keeps to one row above the code.
   const compactToolbar = compact || short;
   // Collapsed there, the header's title joins the top bar's row, which moves Ask agent and Settings into ⋯ as on a phone.
@@ -196,6 +201,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // The toolbar's icons show labels only where its second row fits them all, beside the chapters and review panel.
   const toolbarLabel = compactToolbar ? "hidden" : "hidden @min-[920px]/toolbar:inline";
   const [hideWhitespace, setHideWhitespaceState] = useState(getHideWhitespace);
+  const changeHideWhitespace = useCallback((hide: boolean) => { setHideWhitespaceState(hide); setHideWhitespace(hide); }, []);
   const didRestoreScroll = useRef(false);
   const reducedMotion =
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -370,7 +376,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     } finally { setSnoozing(false); }
   }, [rpc, targetKey, load]);
 
-  async function rebuild() {
+  const rebuild = useCallback(async () => {
     if (rebuilding) return;
     setRebuilding(true);
     setLoadError(null);
@@ -381,7 +387,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Couldn’t rebuild the guide.");
     } finally { setRebuilding(false); }
-  }
+  }, [rebuilding, rpc, targetKey, load]);
 
   const checkAccess = useMemo(
     () => async () => {
@@ -415,6 +421,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     else void rootRef.current?.requestFullscreen().catch(() => {});
   }, []);
   const fullscreen = isFullscreen || covering;
+  const canFullscreen = document.fullscreenEnabled || "showPopover" in HTMLElement.prototype;
   useLayoutEffect(() => {
     if (!covering || !rootEl) return;
     rootEl.setAttribute("popover", "manual");
@@ -481,8 +488,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     [rpc, targetKey, loadViews],
   );
 
-  const markAllViewed = useCallback(() => {
-    const todo = activeFiles.filter((f) => !views.get(f)?.viewed);
+  const markChapterViewed = useCallback((id: string) => {
+    const files: string[] = sections.find((section: any) => section.id === id)?.diffs.map((d: any) => d.file) ?? [];
+    const todo = files.filter((f) => !views.get(f)?.viewed);
     if (!todo.length) return;
     setViews((prev) => {
       const next = new Map(prev);
@@ -493,7 +501,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       .call("setFilesViewed", { targetKey, files: todo })
       .then(() => loadViews())
       .catch(() => loadViews());
-  }, [activeFiles, views, rpc, targetKey, loadViews]);
+  }, [sections, views, rpc, targetKey, loadViews]);
 
   // A new chapter opens at its top, unless you're jumping to a place in it.
   const jumping = useRef(false);
@@ -599,7 +607,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (line != null) setDraftPrefill({ file, line, side, nonce: Date.now() });
   }, [outsideGuide, showLocation]);
   const showDraftSummary = useCallback((replaced = false) => setShowDraft({ at: Date.now(), replaced }), []);
-  const askAgent = useCallback(() => setInjection({ context: { file: currentFile, chapterId: activeId }, nonce: Date.now() }), [currentFile, activeId]);
+  // Read when you ask, so asking doesn't change with each scroll, nor the workspace's api with it.
+  const currentFileRef = useRef(currentFile);
+  currentFileRef.current = currentFile;
+  const askAgent = useCallback((context?: AgentMessageContext) => setInjection({ context: context ?? { file: currentFileRef.current, chapterId: activeId }, nonce: Date.now() }), [activeId]);
   const openSettings = async () => {
     if (document.fullscreenElement) await document.exitFullscreen();
     navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` });
@@ -834,7 +845,18 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     resizeCleanup.current = onUp;
   }
 
-  if (!guide) {
+  const api = useMemo((): WorkspaceApi | null => guide ? {
+    targetKey, review: review ?? { targetKey }, guide, sections, activeId, go: selectChapter,
+    nav: { open: navOpen, toggle: toggleNav, view: navView, setView: changeNavView },
+    files: { views, toggleViewed, markChapterViewed },
+    compare: { baseline: baselineSha, head: review?.headSha ?? null, from: compareFrom, pick: pickCompare, since, narrowed: sinceOnly, setNarrowed: setSinceOnly, error: sinceError, what: sinceWhat },
+    display: { layout: diffLayout, toggleLayout, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads },
+    reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
+    fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen },
+    snooze, rebuild, reload: load,
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, navOpen, toggleNav, navView, changeNavView, views, toggleViewed, markChapterViewed, baselineSha, compareFrom, pickCompare, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, snooze, rebuild, load]);
+
+  if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");
     if (loadError) return <ReviewError title="Couldn’t load this review" message={loadError} onRetry={() => void load()} onBack={back} />;
     if (loading) return <ReviewSkeleton />;
@@ -855,6 +877,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const nextSection = activeIndex >= 0 ? sections[activeIndex + 1] : undefined;
 
   return (
+    <WorkspaceProvider api={api}>
     <div
       ref={(el) => {
         rootRef.current = el;
@@ -864,7 +887,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
       {loadError && <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden /><span className="min-w-0 flex-1">{loadError}</span><Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button></div>}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" aria-label="All reviews" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden />{/* The review's title there needs the room. */}{!headerInTopBar && " All reviews"}</Button><Hint label={(compact ? !mobileChapters : sidebarCollapsed) ? "Show chapters" : "Hide chapters"} container={rootEl}><Button variant="ghost" size="sm" aria-label={(compact ? !mobileChapters : sidebarCollapsed) ? "Show chapters" : "Hide chapters"} aria-pressed={compact ? mobileChapters : !sidebarCollapsed} className="size-8 px-0 text-muted-foreground aria-pressed:text-primary" onClick={() => compact ? setMobileChapters((value) => !value) : setSidebarCollapsed(!sidebarCollapsed)}><Icon name={compact ? "ListView" : "PanelLeft"} className="size-4" aria-hidden /></Button></Hint>{headerInTopBar && <><span className="flex min-w-0 flex-1 text-sm font-medium text-foreground"><ReviewTitleLink url={review?.url}>{review?.title ?? guide.title ?? targetKey}</ReviewTitleLink></span>{expandHeader}</>}<div className="ml-auto flex flex-wrap items-center gap-1">{headerInTopBar && generatingReplacement && <p role="status" className="flex items-center gap-1.5 text-xs text-warning-text"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Regenerating the guide…</p>}{headerInTopBar && !review?.archivedAt && <RereviewBanner targetKey={targetKey} />}<SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} />{!toolsInMenu && <><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={askAgent}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask agent</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={openSettings}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button></>}<ReviewActions review={review} className="size-8" pinnable={preferences?.preferences.threadListReviews === true} items={toolsInMenu ? [{ label: "Ask agent", icon: "Sparkles", onSelect: askAgent }, { label: "Settings", icon: "Settings", onSelect: openSettings }] : undefined} onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" aria-label="All reviews" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden />{/* The review's title there needs the room. */}{!headerInTopBar && " All reviews"}</Button><Hint label={navOpen ? "Hide chapters" : "Show chapters"} container={rootEl}><Button variant="ghost" size="sm" aria-label={navOpen ? "Hide chapters" : "Show chapters"} aria-pressed={navOpen} className="size-8 px-0 text-muted-foreground aria-pressed:text-primary" onClick={toggleNav}><Icon name={compact ? "ListView" : "PanelLeft"} className="size-4" aria-hidden /></Button></Hint>{headerInTopBar && <><span className="flex min-w-0 flex-1 text-sm font-medium text-foreground"><ReviewTitleLink url={review?.url}>{review?.title ?? guide.title ?? targetKey}</ReviewTitleLink></span>{expandHeader}</>}<div className="ml-auto flex flex-wrap items-center gap-1">{headerInTopBar && generatingReplacement && <p role="status" className="flex items-center gap-1.5 text-xs text-warning-text"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Regenerating the guide…</p>}{headerInTopBar && !review?.archivedAt && <RereviewBanner targetKey={targetKey} />}<SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} />{!toolsInMenu && <><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => askAgent()}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask agent</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={openSettings}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button></>}<ReviewActions review={review} className="size-8" pinnable={preferences?.preferences.threadListReviews === true} items={toolsInMenu ? [{ label: "Ask agent", icon: "Sparkles", onSelect: askAgent }, { label: "Settings", icon: "Settings", onSelect: openSettings }] : undefined} onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
       {/* Header — full, or collapsed to its title: in the top bar when also short. */}
       {headerInTopBar ? null : headerCollapsed ? (
         <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-3 py-2">
@@ -906,7 +929,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       <DraftTray patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} agent={{ patch, injection, container: rootEl }} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
       {/* On a phone the chapters and the review panel can both be open: the chapters give way and scroll, so they never draw over the panel. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @min-[768px]/review:flex-row">
-        {(compact ? mobileChapters : !sidebarCollapsed) && (
+        {navOpen && (
           <>
             <aside
               className="max-h-[40vh] overflow-y-auto border-b border-border bg-surface-raised p-2 @min-[768px]/review:max-h-none @min-[768px]/review:shrink-0 @min-[768px]/review:border-b-0"
@@ -999,7 +1022,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                     size="sm"
                     className="h-9 px-2 text-xs md:h-7"
                     disabled={viewedCount === activeFiles.length}
-                    onClick={markAllViewed}
+                    onClick={() => markChapterViewed(activeId)}
                   >
                     <Icon name="CircleCheck" className="size-3.5" aria-hidden />
                     <span className={cn(compactToolbar && "sr-only")}>Mark chapter viewed</span>
@@ -1042,7 +1065,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   aria-label="Wrap lines"
                   aria-pressed={wrapLines}
                   className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
-                  onClick={() => { setChosenWrap(!wrapLines); setWrapLines(!wrapLines); }}
+                  onClick={() => changeWrap(!wrapLines)}
                 >
                   <Icon name="TextWrap" className="size-3.5" aria-hidden />
                   <span className={toolbarLabel}>Wrap</span>
@@ -1055,13 +1078,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   aria-label="Hide whitespace"
                   aria-pressed={hideWhitespace}
                   className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
-                  onClick={() => { setHideWhitespaceState(!hideWhitespace); setHideWhitespace(!hideWhitespace); }}
+                  onClick={() => changeHideWhitespace(!hideWhitespace)}
                 >
                   <Icon name="Space" className="size-3.5" aria-hidden />
                   <span className={toolbarLabel}>Hide whitespace</span>
                 </Button>
               </Hint>}
-              {(document.fullscreenEnabled || "showPopover" in HTMLElement.prototype) && <Hint label={fullscreen ? "Exit full screen" : "Full screen"} container={rootEl}>
+              {canFullscreen && <Hint label={fullscreen ? "Exit full screen" : "Full screen"} container={rootEl}>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1113,7 +1136,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               {activeSection && (
                 <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
                   {viewedCount < activeFiles.length && (
-                    <Button variant="outline" size="sm" onClick={() => { markAllViewed(); if (nextSection) selectChapter(nextSection.id); else showDraftSummary(); }}>
+                    <Button variant="outline" size="sm" onClick={() => { markChapterViewed(activeId); if (nextSection) selectChapter(nextSection.id); else showDraftSummary(); }}>
                       <Icon name="CircleCheck" className="size-3.5" aria-hidden />
                       {nextSection ? "Mark chapter viewed and continue" : "Mark chapter viewed and finish"}
                     </Button>
@@ -1190,6 +1213,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       )}
 
     </div>
+    </WorkspaceProvider>
   );
 });
 ReviewWorkspace.displayName = "ReviewWorkspace";
