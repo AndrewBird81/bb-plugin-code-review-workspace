@@ -98,10 +98,27 @@ test("after a chapter's last file, Next opens the next chapter at its top", asyn
   await slot.findByText("bb");
   expect(currentChapter(slot)?.textContent).toContain("Caching");
   expect(scroller(slot).scrollTop).toBe(0);
-  // The last chapter has nothing next.
+  // The last chapter has no next chapter, but offers to finish.
   expect(within(slot.getByRole("main")).queryByRole("button", { name: /^Next:/ })).toBeNull();
   slot.lifecycle.unmount();
 });
+
+test("the last chapter ends on Done, which opens Draft review to submit, marking the chapter viewed if you ask", async () => {
+  patchReviewState("pr-42", { activeId: "c2" });
+  const { slot, rpc } = await renderWorkspace();
+  await slot.findByText("bb");
+  const main = within(slot.getByRole("main"));
+  const draftOpen = () => slot.getByRole("button", { name: "Draft review" }).getAttribute("aria-pressed") === "true";
+  if (draftOpen()) fireEvent.click(slot.getByRole("button", { name: "Draft review" }));
+  fireEvent.click(main.getByRole("button", { name: "Mark chapter viewed and finish" }));
+  expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts", "src/c.ts"] });
+  await waitFor(() => expect(draftOpen()).toBe(true));
+  fireEvent.click(slot.getByRole("button", { name: "Draft review" }));
+  await waitFor(() => expect(draftOpen()).toBe(false));
+  fireEvent.click(main.getByRole("button", { name: "Done: Submit review" }));
+  await waitFor(() => expect(draftOpen()).toBe(true));
+  slot.lifecycle.unmount();
+}, 15_000);
 
 test("Mark chapter viewed and continue marks the chapter's files and opens the next", async () => {
   const { slot, rpc } = await renderWorkspace();

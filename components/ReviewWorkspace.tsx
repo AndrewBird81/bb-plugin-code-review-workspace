@@ -963,16 +963,17 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>
-              {nextSection && (
+              {/* After the last chapter, what's next is the review itself. */}
+              {activeSection && (
                 <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
                   {viewedCount < activeFiles.length && (
-                    <Button variant="outline" size="sm" onClick={() => { markAllViewed(); selectChapter(nextSection.id); }}>
+                    <Button variant="outline" size="sm" onClick={() => { markAllViewed(); if (nextSection) selectChapter(nextSection.id); else showDraftSummary(); }}>
                       <Icon name="CircleCheck" className="size-3.5" aria-hidden />
-                      Mark chapter viewed and continue
+                      {nextSection ? "Mark chapter viewed and continue" : "Mark chapter viewed and finish"}
                     </Button>
                   )}
-                  <Button variant={viewedCount < activeFiles.length ? "ghost" : "soft"} size="sm" className="min-w-0 max-w-full" onClick={() => selectChapter(nextSection.id)}>
-                    <span className="truncate">Next: <InlineCode text={nextSection.title} /></span>
+                  <Button variant={viewedCount < activeFiles.length ? "ghost" : "soft"} size="sm" className="min-w-0 max-w-full" onClick={() => nextSection ? selectChapter(nextSection.id) : showDraftSummary()}>
+                    <span className="truncate">{nextSection ? <>Next: <InlineCode text={nextSection.title} /></> : `Done: ${isPr ? "Submit review" : "open Draft review"}`}</span>
                     <Icon name="ArrowRight" className="size-3.5" aria-hidden />
                   </Button>
                 </div>
