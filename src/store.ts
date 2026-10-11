@@ -334,24 +334,28 @@ export function createStore(bb: BbPluginApi): Store {
     db.prepare(`UPDATE patches SET hash=? WHERE target_key=?`).run(hash, k);
     return hash;
   };
-  // Files were once keyed by their old path when renamed; a draft saved then moves to the new path when read.
+  // Files were once keyed by their old path when renamed; what was saved then moves to the new path when read.
   const renamesOf = (k: string) => {
     const { entry, patch } = parsedPatch(k);
     return entry.renamed ??= renamedPaths(patch());
   };
-  const followRenames = (draft: Draft): Draft => {
-    if (!draft.comments.length) return draft;
-    const renamed = renamesOf(draft.targetKey);
-    if (!draft.comments.some((c) => renamed.has(c.file))) return draft;
-    const moved = { ...draft, comments: draft.comments.map((c) => ({ ...c, file: renamed.get(c.file) ?? c.file })) };
-    db.transaction(() => {
+  const followRenames = (k: string) => {
+    const renamed = renamesOf(k);
+    if (renamed.size) db.transaction(() => {
       for (const [from, to] of renamed) {
-        for (const table of ["draft_comment_revisions", "discussion_entries", "discussion_waits"]) {
-          db.prepare(`UPDATE OR IGNORE ${table} SET file=? WHERE target_key=? AND file=?`).run(to, draft.targetKey, from);
+        for (const table of ["draft_comment_revisions", "discussion_entries", "discussion_waits", "file_views"]) {
+          db.prepare(`UPDATE OR IGNORE ${table} SET file=? WHERE target_key=? AND file=?`).run(to, k, from);
         }
       }
-      writeDraft(db, moved);
     })();
+    return renamed;
+  };
+  const followDraftRenames = (draft: Draft): Draft => {
+    if (!draft.comments.length) return draft;
+    const renamed = followRenames(draft.targetKey);
+    if (!draft.comments.some((c) => renamed.has(c.file))) return draft;
+    const moved = { ...draft, comments: draft.comments.map((c) => ({ ...c, file: renamed.get(c.file) ?? c.file })) };
+    writeDraft(db, moved);
     return moved;
   };
 
@@ -530,7 +534,7 @@ export function createStore(bb: BbPluginApi): Store {
     getDraft(k) {
       const row: any = db.prepare(`SELECT * FROM drafts WHERE target_key=?`).get(k);
       if (!row) return { targetKey: k, verdict: "COMMENT", body: "", comments: [] };
-      return followRenames({ targetKey: k, verdict: row.verdict, body: row.body, comments: JSON.parse(row.comments), ...(row.meta ? JSON.parse(row.meta) : {}) });
+      return followDraftRenames({ targetKey: k, verdict: row.verdict, body: row.body, comments: JSON.parse(row.comments), ...(row.meta ? JSON.parse(row.meta) : {}) });
     },
     upsertDraftComment(k, c) {
       const d = this.getDraft(k);
@@ -587,6 +591,7 @@ export function createStore(bb: BbPluginApi): Store {
       writeDraft(db, current);
     },
     listDiscussions(k) {
+      followRenames(k);
       const waiting = db.prepare(`SELECT file,line,side FROM discussion_waits WHERE target_key=?`).all(k) as CommentLocation[];
       const discussions: Discussion[] = [];
       for (const row of db.prepare(`SELECT * FROM discussion_entries WHERE target_key=? ORDER BY id`).all(k) as any[]) {
@@ -640,6 +645,7 @@ export function createStore(bb: BbPluginApi): Store {
       return db.prepare(`DELETE FROM discussion_waits WHERE target_key=?`).run(k).changes > 0;
     },
     getFileViews(k) {
+      followRenames(k);
       return db
         .prepare(`SELECT file, hash, viewed_at FROM file_views WHERE target_key=?`)
         .all(k)

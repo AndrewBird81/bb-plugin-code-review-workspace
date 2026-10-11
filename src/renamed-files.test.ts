@@ -43,3 +43,13 @@ test("a draft comment, its discussion, and the guide saved under a renamed file'
   expect(store.listDiscussions("pr-1").map((d) => d.file)).toEqual(["src/new.ts"]);
   expect(store.getGuide("pr-1")?.sections[0].diffs[0].file).toBe("src/new.ts");
 });
+
+test("a discussion without a comment, and a Viewed mark, saved under a renamed file's old path follow the file", async () => {
+  const { store } = await host();
+  store.addDiscussionMessage("pr-1", { file: "src/old.ts", line: 2, side: "RIGHT" }, "reviewer", "Is this right?");
+  store.setFileViewed("pr-1", "src/old.ts", "hash");
+  expect(store.listDiscussions("pr-1").map((d) => [d.file, d.waiting])).toEqual([["src/new.ts", true]]);
+  expect(store.getFileViews("pr-1").map((v) => v.file)).toEqual(["src/new.ts"]);
+  store.unsetFileViewed("pr-1", "src/new.ts");
+  expect(store.getFileViews("pr-1")).toEqual([]);
+});
