@@ -50,7 +50,7 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
       role="group"
       aria-label="Review commands"
       hidden={away}
-      className={cn("flex shrink-0 items-center gap-1 border-t border-border px-1.5 pt-1 pb-[calc(4px+env(safe-area-inset-bottom))]", away && "hidden")}
+      className={cn("flex shrink-0 items-center gap-1 border-t border-border px-1.5 pt-[3px] pb-[calc(4px+env(safe-area-inset-bottom))]", away && "hidden")}
       style={OPAQUE}
     >
       <Button variant="ghost" aria-label="All reviews" className={tab} onClick={() => void leave()}>

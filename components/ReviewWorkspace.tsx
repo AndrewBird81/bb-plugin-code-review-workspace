@@ -492,11 +492,30 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const unpin = useCallback(() => { pinned.current = false; }, []);
   const reviewFiles: string[] = useMemo(() => [...new Set<string>(sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)))], [sections]);
 
-  // Restore the saved scroll position once the page it was saved on shows.
+  // Restore the saved scroll position once the page it was saved on shows. The diff draws its files a moment later, so
+  // it follows them down until it gets there, for a few seconds, or until you scroll yourself.
   useEffect(() => {
-    if (restoreScroll.current === null || !activeId || !scrollBox.current) return;
-    if (restoreScroll.current) scrollBox.current.scrollTop = restoreScroll.current;
+    const box = scrollBox.current;
+    const top = restoreScroll.current;
+    if (top === null || !activeId || !box) return;
     restoreScroll.current = null;
+    if (!top) return;
+    let frame = 0;
+    const until = Date.now() + 3000;
+    const follow = () => {
+      box.scrollTop = top;
+      if (box.scrollTop < top - 1 && Date.now() < until) frame = requestAnimationFrame(follow);
+    };
+    const stop = () => cancelAnimationFrame(frame);
+    const inputs = ["wheel", "touchstart", "pointerdown"] as const;
+    inputs.forEach((type) => box.addEventListener(type, stop, { once: true }));
+    window.addEventListener("keydown", stop, { once: true });
+    follow();
+    return () => {
+      stop();
+      inputs.forEach((type) => box.removeEventListener(type, stop));
+      window.removeEventListener("keydown", stop);
+    };
   }, [activeId, patch]);
 
   const toggleViewed = useCallback(

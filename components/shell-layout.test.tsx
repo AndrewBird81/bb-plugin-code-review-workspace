@@ -220,3 +220,29 @@ test("an older version's saved state opens at its chapter and scroll position, w
   expect(errors).not.toHaveBeenCalled();
   slot.lifecycle.unmount();
 });
+
+test("a saved scroll position the diff can't reach yet is reached as its files draw, unless you scroll first", async () => {
+  fakePane(1400);
+  // How far the code can scroll so far, as its files draw.
+  let room = 100;
+  let top = 0;
+  const scrollTop = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+  Object.defineProperty(Element.prototype, "scrollTop", { configurable: true, get() { return top; }, set(value: number) { top = Math.min(value, room); } });
+  restores.push(() => Object.defineProperty(Element.prototype, "scrollTop", scrollTop));
+  localStorage.setItem("gr:panelstate", JSON.stringify({ layoutVersion: 2, perReview: { "pr-42": { activeId: "c2", scrollTop: 500 } } }));
+  let { slot } = await renderWorkspace({ opened: false });
+  await slot.findByText("bb");
+  expect(top).toBe(100);
+  room = 1000;
+  await waitFor(() => expect(top).toBe(500));
+  slot.lifecycle.unmount();
+  room = 100; top = 0;
+  localStorage.setItem("gr:panelstate", JSON.stringify({ layoutVersion: 2, perReview: { "pr-42": { activeId: "c2", scrollTop: 500 } } }));
+  ({ slot } = await renderWorkspace({ opened: false }));
+  await slot.findByText("bb");
+  fireEvent.wheel(slot.getByRole("main").querySelector(".overflow-y-auto")!);
+  room = 1000;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(top).toBe(100);
+  slot.lifecycle.unmount();
+});
