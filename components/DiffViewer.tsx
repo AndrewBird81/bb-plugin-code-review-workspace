@@ -368,6 +368,8 @@ export const DiffViewer = memo(function DiffViewer({
         // Only the PR's own diff can be shown in full, not changes since your review.
         source: text === f.text && fileDiff?.hunks.length ? f : null,
         change,
+        // A split file changed here when its hunks in this chapter did, or changes near them went.
+        changedHere: change?.status === "added" || (change?.status === "changed" && (!split || !!hunksIn(change.patch, own) || !!dropped)),
         css: change?.status === "changed" ? sinceReviewCSS(change.newLines, change.newDeletions) : "",
         split,
         first,
@@ -565,7 +567,7 @@ export const DiffViewer = memo(function DiffViewer({
 
   return (
     <div ref={root} className="space-y-4">
-      {perFile.map(({ path, oldPath, stats, fileDiff, whitespaceOnly, source, change, css, split, first, dropped, inPart }) => {
+      {perFile.map(({ path, oldPath, stats, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, inPart }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
@@ -631,8 +633,8 @@ export const DiffViewer = memo(function DiffViewer({
               {stale && (
                 <Badge tone="warning" size="sm" title="This file changed since you marked it viewed">changed</Badge>
               )}
-              {(change?.status === "changed" || change?.status === "added") && (
-                <Badge tone="primary" size="sm" icon={<Icon name="GitCommit" aria-hidden />} title={change.status === "added" ? `Added to the PR since ${sinceWhat}` : `Changed since ${sinceWhat}`}>Changed since {sinceWhat}</Badge>
+              {changedHere && (
+                <Badge tone="primary" size="sm" icon={<Icon name="GitCommit" aria-hidden />} title={change!.status === "added" ? `Added to the PR since ${sinceWhat}` : `Changed since ${sinceWhat}`}>Changed since {sinceWhat}</Badge>
               )}
               <DiffStat add={stats.add} del={stats.del} className="hidden @min-[700px]/review:inline-flex" />
               <label className={cn(

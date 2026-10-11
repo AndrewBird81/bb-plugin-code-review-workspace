@@ -158,3 +158,40 @@ test("u goes on from a split file's place in the open chapter", async () => {
   Element.prototype.scrollIntoView = scrollIntoView;
   slot.lifecycle.unmount();
 }, 15_000);
+
+test("a split file shows Changed since your review only in the chapters whose hunks changed", async () => {
+  const { interdiff } = await import("../src/interdiff");
+  const reviewed = patch.replace("+CACHE", "+CACHED");
+  const slot = await renderWorkspace({
+    review: { signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" },
+    rpc: { getSinceReview: () => ({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(reviewed, patch) }) },
+  });
+  const nav = within(slot.getByRole("navigation", { name: "Chapters" }));
+  await waitFor(() => expect(nav.getByText("1 changed")).toBeTruthy());
+  fireEvent.click(nav.getByText("Parsing"));
+  await slot.findByText(/PARSE/);
+  expect(card(slot).queryByText("Changed since your review")).toBeNull();
+  fireEvent.click(nav.getByText("Caching"));
+  await slot.findByText(/CACHE/);
+  expect(card(slot).getByText("Changed since your review")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("a split file shows Changed since your review in the chapter nearest a change gone since then", async () => {
+  const { interdiff } = await import("../src/interdiff");
+  const reviewed = patch.replace("+CACHE\n keep\n", "+CACHE\n keep\n@@ -30 +30 @@\n-x\n+X\n");
+  const slot = await renderWorkspace({
+    review: { signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" },
+    rpc: { getSinceReview: () => ({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(reviewed, patch) }) },
+  });
+  const nav = within(slot.getByRole("navigation", { name: "Chapters" }));
+  await waitFor(() => expect(nav.getByText("1 changed")).toBeTruthy());
+  expect(nav.getByText("1 changed").closest("li")!.textContent).toContain("Caching");
+  fireEvent.click(nav.getByText("Parsing"));
+  await slot.findByText(/PARSE/);
+  expect(card(slot).queryByText("Changed since your review")).toBeNull();
+  fireEvent.click(nav.getByText("Caching"));
+  await slot.findByText(/CACHE/);
+  expect(card(slot).getByText("Changed since your review")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
