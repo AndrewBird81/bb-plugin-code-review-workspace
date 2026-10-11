@@ -58,13 +58,34 @@ export function pruneDiffs(store: Store, review: ReviewMeta) {
   store.pruneSnapshots(review.targetKey, [review.headSha, baselineOf(review).sha, headOf(review)].filter((sha): sha is string => !!sha));
 }
 
-/** The displayed diff compared with the diff at your last review; null when there's nothing to compare. */
-export async function sinceReview(store: Store, run: Run, review: ReviewMeta): Promise<{ baseline: { sha: string; at: number | null; verdict: Verdict | null }; files: FileInterdiff[] } | null> {
+type SinceReview = { baseline: { sha: string; at: number | null; verdict: Verdict | null }; files: FileInterdiff[] };
+/** The latest comparisons, by review, for the few reviews compared last. */
+const compared = new WeakMap<Store, Map<string, { key: string; since: SinceReview }>>();
+const COMPARED_REVIEWS = 8;
+
+/**
+ * The displayed diff compared with the diff at your last review; null when there's nothing to compare.
+ * An added file's patch is left out: the page has its whole diff already.
+ */
+export async function sinceReview(store: Store, run: Run, review: ReviewMeta): Promise<SinceReview | null> {
   const baseline = baselineOf(review);
   if (!baseline.sha || !review.headSha || baseline.sha === review.headSha) return null;
+  const cache = compared.get(store) ?? new Map<string, { key: string; since: SinceReview }>();
+  compared.set(store, cache);
+  const key = JSON.stringify([baseline, store.patchHash(review.targetKey)]);
+  const hit = cache.get(review.targetKey);
+  cache.delete(review.targetKey);
+  if (hit?.key === key) {
+    cache.set(review.targetKey, hit);
+    return hit.since;
+  }
   const reviewed = await diffAt(store, run, review, baseline.sha);
   const current = store.readPatch(review.targetKey, 0, store.readPatch(review.targetKey, 0, 0).total).text;
-  return { baseline: { ...baseline, sha: baseline.sha }, files: interdiff(reviewed, current) };
+  const files = interdiff(reviewed, current).map((f) => (f.status === "added" ? { ...f, patch: "" } : f));
+  const since = { baseline: { ...baseline, sha: baseline.sha }, files };
+  cache.set(review.targetKey, { key, since });
+  if (cache.size > COMPARED_REVIEWS) cache.delete(cache.keys().next().value!);
+  return since;
 }
 
 /** Summary asks are the assistant's items "summary:<n>". */
