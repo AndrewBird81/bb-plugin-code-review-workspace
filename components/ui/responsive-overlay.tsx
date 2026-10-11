@@ -683,8 +683,9 @@ export function PersistentResponsiveDrawerShell({
         inert={!open}
         role="dialog"
         tabIndex={-1}
+        // As tall as its content: portaled straight into <body>, a page rule like `body > div { height: 100vh }` would stretch it.
         className={cn(
-          "fixed inset-x-0 bottom-0 z-50 mt-24 flex max-h-[92dvh] flex-col rounded-t-xl border bg-background outline-none",
+          "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto max-h-[92dvh] flex-col rounded-t-xl border bg-background outline-none",
           contentClassName,
         )}
         style={{

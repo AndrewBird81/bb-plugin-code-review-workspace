@@ -39,6 +39,19 @@ test("the workspace says what didn't run on its own and why, and Run starts it",
   expect(banner.textContent).toContain("Not run automatically: @mallory isn’t a member of acme");
   fireEvent.click(slot.getByRole("button", { name: "Run review" }));
   await waitFor(() => expect(runSkipped).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  const { toast } = await import("sonner");
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Review started"));
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a run that can't start says why", async () => {
+  const app = await loadPluginApp(() => import("../app"));
+  const runSkipped = vi.fn(() => ({ ok: false, error: "No coding agent is set up." }));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, workspace({ ...outsider, status: "ready", skippedRun: { run: "check", head: "sha1", at: 1 } }, { runSkipped }));
+  fireEvent.click(await slot.findByRole("button", { name: "Run check" }));
+  const { toast } = await import("sonner");
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith("No coding agent is set up."));
+  expect(toast.success).not.toHaveBeenCalledWith("Check started");
   slot.lifecycle.unmount();
 }, 15_000);
 

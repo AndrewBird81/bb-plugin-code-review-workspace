@@ -80,6 +80,29 @@ test("on a phone the toolbar keeps to counts and icons, without Split, which can
   slot.lifecycle.unmount();
 });
 
+test("a phone held sideways keeps the toolbar to counts and icons, so it fits one row", async () => {
+  fakeSize(844, 390);
+  const slot = await renderWorkspace();
+  const main = within(slot.getByRole("main"));
+  expect(within(main.getByRole("button", { name: "Mark chapter viewed" })).getByText("Mark chapter viewed").className).toContain("sr-only");
+  expect(main.getByText("in this chapter", { exact: false }).className).toContain("sr-only");
+  expect(within(main.getByRole("button", { name: "Wrap lines" })).getByText("Wrap").className).toBe("hidden");
+  slot.lifecycle.unmount();
+});
+
+test("a phone held sideways folds the review's title and Re-review into the top bar, with Ask agent and Settings in the actions menu", async () => {
+  fakeSize(844, 390);
+  const slot = await renderWorkspace();
+  const bar = within(slot.getByRole("button", { name: "All reviews" }).parentElement!);
+  expect(bar.getByText("Parse rows")).toBeTruthy();
+  expect(await bar.findByRole("button", { name: "Re-review" })).toBeTruthy();
+  expect(bar.queryByRole("button", { name: "Ask agent" })).toBeNull();
+  expect(slot.getAllByText("Parse rows")).toHaveLength(1);
+  fireEvent.click(bar.getByRole("button", { name: "Review actions" }));
+  expect(await slot.findByRole("button", { name: "Settings" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("on a wide screen the top bar and toolbar keep their labels", async () => {
   fakeSize(1400, 900);
   const slot = await renderWorkspace();
@@ -90,11 +113,19 @@ test("on a wide screen the top bar and toolbar keep their labels", async () => {
   expect(main.getByRole("button", { name: "Split view" })).toBeTruthy();
   expect(main.getByText("0/1 in this chapter")).toBeTruthy();
   expect(within(main.getByRole("button", { name: "Mark chapter viewed" })).getByText("Mark chapter viewed").className).not.toContain("sr-only");
+  // The icons' labels show by the toolbar's own width, which the chapters and review panel narrow: Hide whitespace's too.
+  const label = (name: string, text: string) => within(main.getByRole("button", { name })).getByText(text).className;
+  expect(label("Wrap lines", "Wrap")).toContain("/toolbar:inline");
+  expect(label("Hide whitespace", "Hide whitespace")).toBe(label("Wrap lines", "Wrap"));
   // Not short: chapters, the overview, and the saved open panel show, and Focus is off.
   expect(slot.getByRole("button", { name: "Hide chapters" })).toBeTruthy();
   expect(slot.getByRole("button", { name: "Hide chapter overview" })).toBeTruthy();
   expect(main.getByRole("button", { name: "Focus mode" }).getAttribute("aria-pressed")).toBe("false");
   expect(within(slot.getByRole("group", { name: "Review tools" })).getByRole("button", { name: "Draft review" }).getAttribute("aria-expanded")).toBe("true");
+  // Focus slims the header there, but keeps it out of the top bar.
+  fireEvent.click(main.getByRole("button", { name: "Focus mode" }));
+  expect(bar.queryByText("Parse rows")).toBeNull();
+  expect(slot.getByText("Parse rows")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

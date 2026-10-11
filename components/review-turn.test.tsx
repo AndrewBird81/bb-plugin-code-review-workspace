@@ -78,6 +78,17 @@ test("a view the reviewer chose wins over the turn", async () => {
   slot.lifecycle.unmount();
 });
 
+test("a review you haven't given opens on Diff, even after you chose Feedback in it", async () => {
+  patchReviewState("pr-42", { view: "feedback" });
+  const { slot } = await renderWorkspace({ turn: turn({ reason: "requested", label: "Review requested" }) });
+  await slot.findByRole("heading", { name: "Parse rows" });
+  await waitFor(() => expect(viewButton(slot, "Diff").getAttribute("aria-pressed")).toBe("true"));
+  // Choosing it again still shows it.
+  fireEvent.click(viewButton(slot, "Feedback"));
+  expect(viewButton(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
+  slot.lifecycle.unmount();
+});
+
 test("a local review has no Feedback view", async () => {
   const { slot } = await renderWorkspace({ kind: "ref", gitRef: "main...x" });
   await slot.findByRole("heading", { name: "Parse rows" });

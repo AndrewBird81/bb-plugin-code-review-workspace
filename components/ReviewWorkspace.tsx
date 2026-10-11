@@ -129,6 +129,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // The reviewer's choice persists; without one, the review's turn picks the first view once.
   const [chosenView, setView] = useState<View | null>(persisted.view ?? null);
   const [defaultView, setDefaultView] = useState<View | null>(null);
+  const opened = useRef(false);
   const [revision, setRevision] = useState("");
   const [repoAccess, setRepoAccess] = useState<{ accessible: boolean; repo: string | null; account: string | null } | null>(null);
   const [views, setViews] = useState<Map<string, FileViewFlags>>(new Map());
@@ -185,6 +186,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Likewise long lines wrap there, rather than scroll sideways.
   const [chosenWrap, setChosenWrap] = useState(getWrapLines);
   const wrapLines = chosenWrap ?? compact;
+  // A short workspace's toolbar is compact too, so it keeps to one row above the code.
+  const compactToolbar = compact || short;
+  // With Focus on there, the slim header joins the top bar's row, which moves Ask agent and Settings into ⋯ as on a phone.
+  const headerInTopBar = short && focus;
+  const toolsInMenu = compact || headerInTopBar;
+  // The toolbar's icons show labels only where its second row fits them all, beside the chapters and review panel.
+  const toolbarLabel = compactToolbar ? "hidden" : "hidden @min-[920px]/toolbar:inline";
   const [hideWhitespace, setHideWhitespaceState] = useState(getHideWhitespace);
   const didRestoreScroll = useRef(false);
   const reducedMotion =
@@ -254,6 +262,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       shownPatch.current = { targetKey, revision, patch };
       setRevision(revision);
       setReview(review);
+      // A review you haven't given has no feedback yet, so it opens on the diff whatever you chose in it before.
+      if (review && !opened.current) {
+        opened.current = true;
+        if (baselineOf(review).at === null) setView((current) => current === "feedback" ? null : current);
+      }
       if (review) setDefaultView((current) => current ?? (opensOnFeedback(review) ? "feedback" : "diff"));
       const guideJson = JSON.stringify(guide ?? null);
       if (guideJson !== shownGuide.current) {
@@ -474,11 +487,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const changed = sections.find((section: any) => changedSince[section.id] > 0);
     if (changed) setActiveId(changed.id);
   }, [changedSince, sections]);
+  // A chapter you choose opens on its intro, with its first file next, even a file you were on in the last chapter.
   const selectChapter = useCallback((id: string) => {
     pickChangedChapter.current = false;
+    if (id !== activeId) {
+      pinned.current = false;
+      setCurrentFile(sections.find((section: any) => section.id === id)?.diffs[0]?.file);
+    }
     setActiveId(id);
     setMobileChapters(false);
-  }, []);
+  }, [activeId, sections]);
 
   const registerFileEl = useCallback((file: string, el: HTMLElement | null) => {
     if (el) fileEls.current.set(file, el);
@@ -811,9 +829,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
       {loadError && <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden /><span className="min-w-0 flex-1">{loadError}</span><Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button></div>}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} />{!compact && <><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={askAgent}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask agent</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={openSettings}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button></>}<ReviewActions review={review} className="size-8" items={compact ? [{ label: "Ask agent", icon: "Sparkles", onSelect: askAgent }, { label: "Settings", icon: "Settings", onSelect: openSettings }] : undefined} onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
-      {/* Header — full when reviewing normally, slim in focus mode. */}
-      {focus ? (
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button>{headerInTopBar && <span className="flex min-w-0 flex-1 text-sm font-medium text-foreground"><ReviewTitleLink url={review?.url}>{review?.title ?? guide.title ?? targetKey}</ReviewTitleLink></span>}<div className="ml-auto flex flex-wrap items-center gap-1">{headerInTopBar && generatingReplacement && <p role="status" className="flex items-center gap-1.5 text-xs text-warning-text"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Regenerating the guide…</p>}{headerInTopBar && !review?.archivedAt && <RereviewBanner targetKey={targetKey} />}<SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} />{!toolsInMenu && <><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={askAgent}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask agent</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={openSettings}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button></>}<ReviewActions review={review} className="size-8" items={toolsInMenu ? [{ label: "Ask agent", icon: "Sparkles", onSelect: askAgent }, { label: "Settings", icon: "Settings", onSelect: openSettings }] : undefined} onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
+      {/* Header — full when reviewing normally, slim in focus mode, and in the top bar when also short. */}
+      {headerInTopBar ? null : focus ? (
         <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-3 py-2">
           <IconTile {...kindLook(review ?? { targetKey })} className="size-6 rounded-md" iconClassName="size-3.5" />
           <span className="flex min-w-0 flex-1 text-sm font-medium text-foreground">
@@ -897,7 +915,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           </>
         )}
         <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
-          <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
+          <div className="@container/toolbar flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
             <Button
               variant="ghost"
               size="sm"
@@ -948,7 +966,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               {view === "diff" && activeFiles.length > 0 && (
                 <>
                   {/* A compact toolbar keeps to the counts and icons. */}
-                  <span className={cn("tabular-nums", viewedCount === activeFiles.length && "text-diff-added")}>{viewedCount}/{activeFiles.length}{compact ? <span className="sr-only"> in this chapter</span> : " in this chapter"}</span>
+                  <span className={cn("tabular-nums", viewedCount === activeFiles.length && "text-diff-added")}>{viewedCount}/{activeFiles.length}{compactToolbar ? <span className="sr-only"> in this chapter</span> : " in this chapter"}</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -957,7 +975,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                     onClick={markAllViewed}
                   >
                     <Icon name="CircleCheck" className="size-3.5" aria-hidden />
-                    <span className={cn(compact && "sr-only")}>Mark chapter viewed</span>
+                    <span className={cn(compactToolbar && "sr-only")}>Mark chapter viewed</span>
                   </Button>
                   <span className="h-4 w-px bg-border" />
                 </>
@@ -972,7 +990,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={() => setShowThreads(!showThreads)}
                 >
                   <Icon name="Github" className="size-3.5" aria-hidden />
-                  <span className="hidden @min-[1280px]/review:inline">Threads</span>
+                  <span className={toolbarLabel}>Threads</span>
                 </Button>
               </Hint>}
               {/* A compact workspace always shows the diff unified. */}
@@ -987,7 +1005,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={() => void toggleLayout()}
                 >
                   <Icon name="Columns2" className="size-3.5" aria-hidden />
-                  <span className="hidden @min-[1280px]/review:inline">Split</span>
+                  <span className={toolbarLabel}>Split</span>
                 </Button>
               </Hint>}
               {view === "diff" && <Hint label="Wrap lines" container={rootEl}>
@@ -1000,7 +1018,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={() => { setChosenWrap(!wrapLines); setWrapLines(!wrapLines); }}
                 >
                   <Icon name="TextWrap" className="size-3.5" aria-hidden />
-                  <span className="hidden @min-[1280px]/review:inline">Wrap</span>
+                  <span className={toolbarLabel}>Wrap</span>
                 </Button>
               </Hint>}
               {view === "diff" && <Hint label="Hide whitespace" container={rootEl}>
@@ -1013,8 +1031,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={() => { setHideWhitespaceState(!hideWhitespace); setHideWhitespace(!hideWhitespace); }}
                 >
                   <Icon name="Space" className="size-3.5" aria-hidden />
-                  {/* A longer label, so only where the toolbar has room for it beside the others. */}
-                  <span className="hidden @min-[1600px]/review:inline">Hide whitespace</span>
+                  <span className={toolbarLabel}>Hide whitespace</span>
                 </Button>
               </Hint>}
               <Hint label="Focus mode" container={rootEl}>
@@ -1027,7 +1044,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={() => setFocus(!focus)}
                 >
                   <Icon name="Minimize2" className="size-3.5" aria-hidden />
-                  <span className="hidden @min-[1280px]/review:inline">Focus</span>
+                  <span className={toolbarLabel}>Focus</span>
                 </Button>
               </Hint>
               <Hint label={isFullscreen ? "Exit full screen" : "Full screen"} container={rootEl}>
@@ -1040,7 +1057,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   onClick={toggleFullscreen}
                 >
                   <Icon name={isFullscreen ? "Minimize2" : "Maximize2"} className="size-3.5" aria-hidden />
-                  <span className="hidden @min-[1280px]/review:inline">{isFullscreen ? "Exit" : "Full screen"}</span>
+                  <span className={toolbarLabel}>{isFullscreen ? "Exit" : "Full screen"}</span>
                 </Button>
               </Hint>
             </div>

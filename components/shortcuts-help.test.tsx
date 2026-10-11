@@ -2,6 +2,7 @@
 import { afterEach, expect, test } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { ShortcutsHelp } from "./ShortcutsHelp";
+import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 
 afterEach(cleanup);
 
@@ -11,4 +12,11 @@ test("the shortcuts sheet sizes to its list, not to a page rule for <body>'s chi
   // Portaled straight into <body>.
   expect(dialog.parentElement).toBe(document.body);
   expect(dialog.className.split(" ")).toEqual(expect.arrayContaining(["h-auto", "max-h-[85dvh]", "overflow-y-auto"]));
+});
+
+test("on a phone the shortcuts sheet is as tall as its list", async () => {
+  render(<CompactViewportOverrideProvider isCompactViewport><ShortcutsHelp open onOpenChange={() => {}} /></CompactViewportOverrideProvider>);
+  const sheet = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+  expect(sheet.parentElement).toBe(document.body);
+  expect(sheet.className.split(" ")).toContain("h-auto");
 });
