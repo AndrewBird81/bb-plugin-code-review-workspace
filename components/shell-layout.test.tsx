@@ -112,6 +112,29 @@ test("over the code, the panel closes on Esc or a tap on the dimmed code, and a 
   slot.lifecycle.unmount();
 });
 
+test("over the code, Tab in Finish review stops at Private notes, and goes past its notes while they're closed, to the verdict and Submit", async () => {
+  fakePane(900);
+  const { slot } = await renderWorkspace();
+  fireEvent.keyDown(document.body, { key: "s" });
+  const finish = within(await slot.findByRole("dialog", { name: "Finish review" }));
+  const remove = await finish.findByRole("button", { name: "Remove comment on src/b.ts:1" });
+  const notes = finish.getByText("Private notes").closest("summary")!;
+  const approve = within(finish.getByRole("group", { name: "Review verdict" })).getByRole("button", { name: "Approve" });
+  const box = finish.getByRole("textbox", { name: "Private reviewer notes" }) as HTMLTextAreaElement;
+  await waitFor(() => expect(box.disabled).toBe(false));
+  // After the summary takes the focus as Finish opens.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const tab = (from: HTMLElement, shiftKey = false) => { from.focus(); fireEvent.keyDown(from, { key: "Tab", shiftKey }); return document.activeElement; };
+  expect(tab(remove)).toBe(notes);
+  // jsdom draws a closed <details>' content, which a browser doesn't, and can't focus.
+  expect(tab(notes)).toBe(approve);
+  expect(tab(approve, true)).toBe(notes);
+  expect(tab(notes, true)).toBe(remove);
+  (notes.parentElement as HTMLDetailsElement).open = true;
+  expect(tab(notes)).toBe(box);
+  slot.lifecycle.unmount();
+});
+
 test("with the panel docked, the chapters toggle peeks the chapters over the code; a pick closes them, and the panel stays", async () => {
   fakePane(1056);
   const { slot, comments } = await renderWorkspace();

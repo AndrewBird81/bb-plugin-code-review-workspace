@@ -3,10 +3,18 @@ import { useLayoutEffect, useRef, type KeyboardEvent, type PointerEvent, type Re
 import { cn } from "../../lib/utils";
 import { TOUCH_HANDLE } from "../touch";
 
-const FOCUSABLE = ["a[href]", "button:not([disabled])", "input:not([disabled])", "select:not([disabled])", "textarea:not([disabled])", '[tabindex]:not([tabindex="-1"])'].join(",");
+const FOCUSABLE = ["a[href]", "button:not([disabled])", "input:not([disabled])", "select:not([disabled])", "textarea:not([disabled])", "summary", '[contenteditable]:not([contenteditable="false"])', '[tabindex]:not([tabindex="-1"])'].join(",");
+
+/** Whether a closed <details> hides `item`: all of one but its summary. */
+function inClosedDetails(item: HTMLElement): boolean {
+  for (let details = item.closest("details:not([open])"); details; details = details.parentElement?.closest("details:not([open])") ?? null) {
+    if (!details.querySelector(":scope > summary")?.contains(item)) return true;
+  }
+  return false;
+}
 
 function focusables(el: HTMLElement): HTMLElement[] {
-  return Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((item) => !item.closest("[hidden], [aria-hidden=\"true\"], [inert]"));
+  return Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((item) => !item.closest("[hidden], [aria-hidden=\"true\"], [inert]") && !inClosedDetails(item));
 }
 
 // Whether the last input was a key rather than a pointer: focus moved for a keyboard opens tooltips that a click
