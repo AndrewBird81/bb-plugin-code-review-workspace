@@ -122,7 +122,7 @@ test("a phone held sideways keeps its band to 40px: All reviews and the chapter,
   expect(band(slot).className.split(" ")).toContain("h-10");
   const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
   expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("");
-  expect(crumbs.getByLabelText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
+  expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
   const main = within(slot.getByRole("main"));
   expect(main.queryByRole("button", { name: "Wrap lines" })).toBeNull();
   fireEvent.click(main.getByRole("button", { name: "Diff options" }));
@@ -137,7 +137,7 @@ test("on a wide screen the band shows the review's title beside the chapter, and
   const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
   expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("All reviews");
   expect(crumbs.getByRole("button", { name: "Parse rows" })).toBeTruthy();
-  expect(crumbs.getByLabelText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
+  expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
   const main = within(slot.getByRole("main"));
   expect(main.getByRole("button", { name: "Split view" })).toBeTruthy();
   expect(main.getByText("0 of 1 files viewed in this chapter")).toBeTruthy();

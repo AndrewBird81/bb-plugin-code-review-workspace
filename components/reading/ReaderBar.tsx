@@ -58,7 +58,8 @@ export function ReaderBar({ threads }: { threads: boolean }) {
               <button type="button" title="Overview" className="min-w-0 max-w-56 truncate rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" onClick={() => go(OVERVIEW)}>{review.title ?? guide.title ?? targetKey}</button>
               <span aria-hidden className="text-subtle-foreground">/</span>
             </span>}
-            <span aria-label={`Chapter ${index + 1} of ${sections.length}: ${chapter.title}, ${viewed} of ${chapterFiles.length} files viewed`} className="flex min-w-0 items-center gap-1.5">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="sr-only">{`Chapter ${index + 1} of ${sections.length}: ${chapter.title}, ${viewed} of ${chapterFiles.length} files viewed`}</span>
               <ChapterStep index={index} viewed={viewed} total={chapterFiles.length} />
               <span aria-hidden className="min-w-0 truncate font-medium text-foreground"><InlineCode text={chapter.title} /></span>
             </span>
