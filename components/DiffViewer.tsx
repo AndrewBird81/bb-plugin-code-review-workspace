@@ -60,10 +60,12 @@ const LARGE_DIFF = 1500;
 const TOKENIZE_MAX_LENGTH = 5000;
 
 /** Lockfiles, generated output, and huge diffs: noise to fold until asked for. */
-function startsFolded(path: string, stats: { add: number; del: number }): boolean {
-  const { category } = classifyFile(path);
+function startsFolded(path: string, stats: { add: number; del: number }, declared: boolean): boolean {
+  const { category } = classifyFile(path, declared);
   return category === "lockfile" || category === "generated" || stats.add + stats.del > LARGE_DIFF;
 }
+
+const NONE = new Set<string>();
 
 /** Below this width the diff shows one column, whatever the reading layout: each side of a split needs about 480px. */
 const UNIFIED_BELOW = 960;
@@ -240,6 +242,7 @@ export const DiffViewer = memo(function DiffViewer({
   showRemoved = true,
   onUnifiedOnly,
   readContents,
+  generated = NONE,
 }: {
   diffLayout?: "split" | "unified";
   /** Wrap long lines instead of scrolling them sideways. */
@@ -267,6 +270,8 @@ export const DiffViewer = memo(function DiffViewer({
   onUnifiedOnly?: (unifiedOnly: boolean) => void;
   /** A file's whole contents, to show the code around its changes. */
   readContents?: (file: string) => Promise<FileContentsResult>;
+  /** Files the repo's .gitattributes marks generated or vendored. */
+  generated?: Set<string>;
 }) {
   const theme = useTheme();
   const compact = useMediaQuery("(max-width: 767px)");
@@ -292,7 +297,7 @@ export const DiffViewer = memo(function DiffViewer({
       return [{
         path: f.path,
         stats,
-        noisy: startsFolded(f.path, stats),
+        noisy: startsFolded(f.path, stats, generated.has(f.path)),
         fileDiff,
         // Only the PR's own diff can be shown in full, not changes since your review.
         source: text === f.text && fileDiff?.hunks.length ? f : null,
@@ -301,7 +306,7 @@ export const DiffViewer = memo(function DiffViewer({
       }];
     });
     return { perFile, unchanged: chapter.length - shown.length };
-  }, [patch, fileKey, since, filtering]);
+  }, [patch, fileKey, since, filtering, generated]);
   // Files loaded in full, and those showing every line. A new diff starts over.
   const [contents, setContents] = useState<Record<string, "loading" | FileContentsResult>>({});
   const [wholeFile, setWholeFile] = useState<Record<string, boolean>>({});
@@ -478,7 +483,7 @@ export const DiffViewer = memo(function DiffViewer({
                 <FilePath path={path} className="text-xs" nameClassName="font-medium" />
                 {summaries?.get(path) && <p className="mt-0.5 text-xs leading-snug text-muted-foreground"><InlineCode text={summaries.get(path)!} /></p>}
               </div>
-              <FileTag file={path} />
+              <FileTag file={path} generated={generated.has(path)} />
               {folded && !viewed && noisy.has(path) && (
                 <Button variant="ghost" size="sm" className="h-6 shrink-0 px-2 text-[11px]" onClick={() => toggleCollapsed(path)}>Show diff</Button>
               )}

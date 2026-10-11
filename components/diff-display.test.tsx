@@ -74,6 +74,17 @@ test("a file you viewed opens folded, without drawing its diff first", async () 
   slot.lifecycle.unmount();
 });
 
+test("files the repo's .gitattributes marks generated start folded and tagged, without drawing first", async () => {
+  patchReviewState("pr-42", { activeId: "c2" });
+  const { slot } = await renderWorkspace({ rpc: { getGeneratedFiles: () => ({ files: ["src/b.ts"] }) } });
+  await slot.findByText("cc");
+  expect(drawn.map((d) => d.name)).not.toContain("src/b.ts");
+  const header = within(slot.container.querySelector<HTMLElement>('[data-file="src/b.ts"]')!);
+  expect(header.getByText("generated · skip")).toBeTruthy();
+  expect(header.getByRole("button", { name: "Show diff" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("an older viewed-state refresh landing last doesn't undo a newer mark", async () => {
   patchReviewState("pr-42", { activeId: "c2" });
   const replies: ((value: unknown) => void)[] = [];

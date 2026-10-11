@@ -6,7 +6,7 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore, type ReviewMeta } from "./store";
 import { runGit } from "./gh";
 import { splitPatchByFile } from "./patch";
-import { readFileContents } from "./file-contents";
+import { readFileContents, readGeneratedFiles } from "./file-contents";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh }));
@@ -93,4 +93,45 @@ test("getFileContents reads a file of the review's diff", async () => {
   runGh.mockImplementation(github({ "src/a.ts?ref=base1": oldText, "src/a.ts?ref=head6": newText }));
   expect(await harness.behavior.callRpc("getFileContents", { targetKey: "pr-1", file: "src/a.ts" })).toEqual({ ok: true, old: oldText, new: newText });
   expect(await harness.behavior.callRpc("getFileContents", { targetKey: "pr-1", file: "src/b.ts" })).toEqual({ ok: false, error: "src/b.ts isn’t in this review’s diff." });
+});
+
+test("a PR's .gitattributes at its head says which changed files are generated, once per commit", async () => {
+  const gh = github({ ".gitattributes?ref=head7": "gen/** linguist-generated\n" });
+  expect(await readGeneratedFiles({ runGh: gh, runGit: noGit }, { ...pr, headSha: "head7" }, ["gen/a.ts", "src/b.ts"])).toEqual(["gen/a.ts"]);
+  expect(await readGeneratedFiles({ runGh: gh, runGit: noGit }, { ...pr, headSha: "head7" }, ["gen/a.ts", "src/b.ts"])).toEqual(["gen/a.ts"]);
+  expect(gh).toHaveBeenCalledTimes(1);
+  // No .gitattributes: nothing is declared generated, and that's kept too.
+  const none = github({});
+  expect(await readGeneratedFiles({ runGh: none, runGit: noGit }, { ...pr, headSha: "head8" }, ["gen/a.ts"])).toEqual([]);
+  expect(await readGeneratedFiles({ runGh: none, runGit: noGit }, { ...pr, headSha: "head8" }, ["gen/a.ts"])).toEqual([]);
+  expect(none).toHaveBeenCalledTimes(1);
+});
+
+test("a local review reads .gitattributes from the end of its range, or the working tree", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "gr-gitattributes-"));
+  try {
+    const git = (...args: string[]) => runGit(args, { cwd });
+    await git("init", "-q", "-b", "main");
+    await git("config", "user.email", "t@example.com");
+    await git("config", "user.name", "t");
+    await writeFile(join(cwd, ".gitattributes"), "*.gen.ts linguist-generated\n");
+    await git("add", ".");
+    await git("commit", "-qm", "base");
+    const local: ReviewMeta = { targetKey: "ref-1", kind: "ref", gitRef: "main..main", cwd, status: "ready", createdAt: 1 };
+    expect(await readGeneratedFiles({ runGh: vi.fn(), runGit }, local, ["a.gen.ts", "b.ts"])).toEqual(["a.gen.ts"]);
+    await writeFile(join(cwd, ".gitattributes"), "b.ts linguist-vendored\n");
+    expect(await readGeneratedFiles({ runGh: vi.fn(), runGit }, { ...local, gitRef: "HEAD" }, ["a.gen.ts", "b.ts"])).toEqual(["b.ts"]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("getGeneratedFiles lists the review's changed files its repo declares generated", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ ...pr, headSha: "head9" });
+  store.savePatch("pr-1", patch);
+  runGh.mockImplementation(github({ ".gitattributes?ref=head9": "src/a.ts linguist-generated\n" }));
+  expect(await harness.behavior.callRpc("getGeneratedFiles", { targetKey: "pr-1" })).toEqual({ files: ["src/a.ts"] });
 });

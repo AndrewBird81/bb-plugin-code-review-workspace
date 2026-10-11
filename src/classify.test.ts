@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { classifyFile } from "./classify";
+import { classifyFile, declaredGenerated } from "./classify";
 
 test("tests get a neutral tag and stay in review", () => {
   for (const p of [
@@ -67,4 +67,22 @@ test("every result carries a short human label", () => {
   expect(classifyFile("a.test.ts").label).toBe("test");
   expect(classifyFile("yarn.lock").label).toBe("lockfile");
   expect(classifyFile("dist/x.js").label).toBe("generated");
+});
+
+test("files the repo's .gitattributes marks linguist-generated or linguist-vendored are generated", () => {
+  const attributes = [
+    "# Generated code",
+    "*.pb.go linguist-generated=true",
+    "/api/schema.ts linguist-generated",
+    "vendor/** linguist-vendored",
+    "vendor/keep/** -linguist-vendored",
+    "docs/**/*.html linguist-generated",
+    "build/ linguist-generated",
+    "*.md text eol=lf",
+  ].join("\n");
+  expect(declaredGenerated(attributes, [
+    "svc/user.pb.go", "api/schema.ts", "web/api/schema.ts", "vendor/lib/x.js", "vendor/keep/y.js",
+    "docs/a/b/page.html", "docs/page.html", "build/out.js", "README.md", "src/main.go",
+  ])).toEqual(["svc/user.pb.go", "api/schema.ts", "vendor/lib/x.js", "docs/a/b/page.html", "docs/page.html"]);
+  expect(declaredGenerated("", ["a.ts"])).toEqual([]);
 });

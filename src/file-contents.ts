@@ -4,9 +4,11 @@ import { join } from "node:path";
 import type { ReviewMeta } from "./store";
 import { ghErrorMessage, type runGh, type runGit } from "./gh";
 import { patchRows, type PatchFile } from "./patch";
+import { declaredGenerated } from "./classify";
 
 export type FileContentsResult = { ok: true; old: string | null; new: string | null } | { ok: false; error: string };
-type Read = { text: string } | { error: string };
+/** `missing`: GitHub has no such file at that commit. */
+type Read = { text: string } | { error: string; missing?: boolean };
 
 /** Larger files stay as the diff: pierre would draw them as plain text, and they'd fill the panel's memory. */
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -39,7 +41,7 @@ async function githubFile(gh: typeof runGh, repo: string, sha: string, path: str
   if (cached !== undefined) return { text: cached };
   const encoded = path.split("/").map(encodeURIComponent).join("/");
   const out = await gh(["api", "-H", "Accept: application/vnd.github.raw", `repos/${repo}/contents/${encoded}?ref=${sha}`], { maxBuffer: MAX_FILE_BYTES });
-  if (out.code !== 0) return /too much to read/.test(out.stderr) ? tooLarge(path) : { error: `Couldn’t read ${path}: ${ghErrorMessage(out)}` };
+  if (out.code !== 0) return /too much to read/.test(out.stderr) ? tooLarge(path) : { error: `Couldn’t read ${path}: ${ghErrorMessage(out)}`, missing: /HTTP 404|Not Found/.test(out.stderr + out.stdout) };
   remember(key, out.stdout);
   return { text: out.stdout };
 }
@@ -117,4 +119,30 @@ export async function readFileContents(gh: { runGh: typeof runGh; runGit: typeof
   const contents = { old: added ? null : old.text, new: deleted ? null : next.text };
   if (!matchesPatch(file.text, contents.old, contents.new)) return { ok: false, error: "The file doesn’t match the diff, so only the diff shows." };
   return { ok: true, ...contents };
+}
+
+/** Generated or not, by the repo's .gitattributes at a PR's head: kept per commit. */
+const generatedCache = new Map<string, string>();
+
+/** The changed files the repo's root .gitattributes, at the diff's new side, marks generated or vendored. */
+export async function readGeneratedFiles(gh: { runGh: typeof runGh; runGit: typeof runGit }, review: ReviewMeta, paths: string[]): Promise<string[]> {
+  let attributes: Read;
+  if (review.kind === "pr") {
+    if (!review.repo || !review.headSha) return [];
+    const key = `${review.repo}\0${review.headSha}`;
+    if (!generatedCache.has(key)) {
+      // A repo without the file has nothing to declare; another failure is worth trying again.
+      const read = await githubFile(gh.runGh, review.repo, review.headSha, ".gitattributes");
+      if ("error" in read && !read.missing) return [];
+      generatedCache.set(key, "text" in read ? read.text : "");
+      if (generatedCache.size > CACHE_SIZE) generatedCache.delete(generatedCache.keys().next().value!);
+    }
+    attributes = { text: generatedCache.get(key)! };
+  } else {
+    if (!review.cwd || !review.gitRef) return [];
+    const revs = await localRevs(gh.runGit, review);
+    if ("error" in revs) return [];
+    attributes = revs.to === null ? await workingTreeFile(review.cwd, ".gitattributes") : await gitFile(gh.runGit, review.cwd, revs.to, ".gitattributes");
+  }
+  return "text" in attributes ? declaredGenerated(attributes.text, paths) : [];
 }

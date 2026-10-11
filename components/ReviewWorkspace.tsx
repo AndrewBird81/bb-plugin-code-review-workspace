@@ -118,6 +118,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [revision, setRevision] = useState("");
   const [repoAccess, setRepoAccess] = useState<{ accessible: boolean; repo: string | null; account: string | null } | null>(null);
   const [views, setViews] = useState<Map<string, FileViewFlags>>(new Map());
+  const [generated, setGenerated] = useState<Set<string>>(new Set());
   const [injection, setInjection] = useState<DockInjection | undefined>();
   const [currentFile, setCurrentFile] = useState<string | undefined>();
   const [sel, setSel] = useState<{ x: number; y: number; file: string; code: string } | null>(null);
@@ -203,10 +204,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setLoadError(null);
     try {
       // Views come with the diff, so viewed files are folded before it first draws.
-      const [{ review, guide, patch, revision }, checksRes, viewsRes] = await Promise.all([
+      const [{ review, guide, patch, revision }, checksRes, viewsRes, generatedRes] = await Promise.all([
         rpc.call("getReviewBundle", { targetKey }),
         rpc.call("getChecks", { targetKey }).catch(() => null),
         rpc.call("getFileViews", { targetKey }).catch(() => null),
+        // Like views, so files the repo marks generated are folded before the diff draws.
+        rpc.call("getGeneratedFiles", { targetKey }).catch(() => null),
       ]);
       if (id !== request.current) return;
       // A deleted review shows "Review not found" rather than a pending regeneration.
@@ -228,6 +231,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       }
       setPatch(patch);
       if (viewsRes && viewsId === viewsRequest.current) setViews(viewMap(viewsRes.views));
+      if (generatedRes) setGenerated((current) => current.size === generatedRes.files.length && generatedRes.files.every((file) => current.has(file)) ? current : new Set(generatedRes.files));
       setChecks(checksRes);
       const chapters = guide?.sections ? withOtherFiles(guide.sections, patch) : [];
       if (chapters.length) {
@@ -927,6 +931,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 showRemoved={activeId === sections.at(-1)?.id}
                 onUnifiedOnly={setUnifiedOnly}
                 readContents={readContents}
+                generated={generated}
               />
               </DiffThreadsContext.Provider>
               {nextSection && (

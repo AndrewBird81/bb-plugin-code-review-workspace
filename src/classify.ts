@@ -39,7 +39,8 @@ function base(path: string): string {
 // Order matters: the first matching rule wins. Tests and lockfiles are checked
 // before the generic "generated" / "code" fallbacks so a `dist/foo.test.js`
 // still reads as a test, and a lockfile is never mistaken for config.
-export function classifyFile(path: string): FileClass {
+/** `declared`: the repo's .gitattributes marks the file generated or vendored. */
+export function classifyFile(path: string, declared = false): FileClass {
   const p = path.toLowerCase();
   const name = base(p);
 
@@ -50,6 +51,7 @@ export function classifyFile(path: string): FileClass {
   });
 
   if (LOCKFILES.has(name)) return is("lockfile", true);
+  if (declared) return is("generated", true);
 
   // Test snapshots are written by the test runner, not by hand.
   if (/(^|\/)__snapshots__\//.test(p) || name.endsWith(".snap")) return is("generated", true);
@@ -91,4 +93,51 @@ export function classifyFile(path: string): FileClass {
   }
 
   return is("code", false);
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** A .gitattributes pattern, by gitignore's rules: without a slash it matches a name at any depth. */
+function attributePattern(pattern: string): RegExp {
+  const anchored = pattern.includes("/");
+  const glob = pattern.replace(/^\//, "");
+  let source = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === "*" && glob[i + 1] === "*") {
+      // "**/" is any number of directories, even none; a trailing "**" is everything inside.
+      if (glob[i + 2] === "/") { source += "(?:.*/)?"; i += 2; } else { source += ".*"; i++; }
+    } else if (c === "*") source += "[^/]*";
+    else if (c === "?") source += "[^/]";
+    else if (c === "[" && glob.indexOf("]", i + 2) > 0) {
+      const end = glob.indexOf("]", i + 2);
+      source += `[${glob.slice(i + 1, end).replace(/^!/, "^").replace(/\\/g, "\\\\")}]`;
+      i = end;
+    } else if (c === "\\" && i + 1 < glob.length) source += escapeRegExp(glob[++i]);
+    else source += escapeRegExp(c);
+  }
+  return new RegExp(anchored ? `^${source}$` : `(?:^|/)${source}$`);
+}
+
+/**
+ * The paths a repo's root .gitattributes marks linguist-generated or linguist-vendored, as GitHub
+ * folds them. The last line matching a path sets each attribute, and a directory-only pattern
+ * ("build/") matches no file, as in git.
+ */
+export function declaredGenerated(gitattributes: string, paths: string[]): string[] {
+  const rules = gitattributes.split(/\r?\n/).flatMap((line) => {
+    const [pattern, ...attributes] = line.trim().split(/\s+/);
+    if (!pattern || pattern.startsWith("#") || pattern.startsWith("[attr]") || pattern.endsWith("/")) return [];
+    const set = new Map<string, boolean>();
+    for (const attribute of attributes) {
+      const [, unset, name, value] = attribute.match(/^([-!]?)(linguist-(?:generated|vendored))(?:=(.*))?$/) ?? [];
+      if (name) set.set(name, !unset && value !== "false");
+    }
+    return set.size ? [{ match: attributePattern(pattern), set }] : [];
+  });
+  return paths.filter((path) => {
+    const state = new Map<string, boolean>();
+    for (const rule of rules) if (rule.match.test(path)) for (const [name, on] of rule.set) state.set(name, on);
+    return state.get("linguist-generated") === true || state.get("linguist-vendored") === true;
+  });
 }
