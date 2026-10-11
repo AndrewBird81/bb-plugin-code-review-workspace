@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { useRpc, useBbNavigate, experimental_PermissionModePicker as PermissionModePicker, experimental_ProviderModelPicker as ProviderModelPicker } from "@get-bb/plugin-sdk/app";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRpc, useRealtime, useBbNavigate, experimental_PermissionModePicker as PermissionModePicker, experimental_ProviderModelPicker as ProviderModelPicker } from "@get-bb/plugin-sdk/app";
+import type { PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import type { PreferencesRecord } from "../src/preferences";
 import type { Machine } from "../src/machines";
@@ -72,6 +73,65 @@ function RepoPatterns({ value, onChange }: { value: string[]; onChange(value: st
   // Follow loads, discards, and restored defaults.
   if (parseRepoPatterns(text).join("\n") !== value.join("\n")) setText(value.join("\n"));
   return <Textarea aria-label="Start guides automatically" aria-describedby="auto-start-help" rows={3} value={text} placeholder={"acme/app\nacme/*"} className="font-mono text-xs" onChange={(event) => { setText(event.target.value); onChange(parseRepoPatterns(event.target.value)); }} />;
+}
+
+type AgentLearning = PluginRpcResult<typeof rpcContract["getAgentLearning"]>;
+
+/** How the agent's comments fared in your submitted reviews, and its proposal for your instructions, which only Save applies. */
+function AgentCommentLearning({ instructions, onAdd }: { instructions: string; onAdd(lines: string): void }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const [learning, setLearning] = useState<AgentLearning | null>(null);
+  const [proposal, setProposal] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [nothing, setNothing] = useState(false);
+  // A proposal opens once its run is seen, so an earlier one doesn't reopen with Settings.
+  const waiting = useRef(false);
+  const load = useCallback(async () => {
+    const next = await rpc.call("getAgentLearning", null).catch(() => null);
+    if (!next) return;
+    setLearning(next);
+    const { suggestion } = next;
+    if (suggestion.state === "running") waiting.current = true;
+    else if (waiting.current) {
+      waiting.current = false;
+      if (suggestion.state === "ready" && suggestion.text) setProposal(suggestion.text);
+      if (suggestion.state === "ready" && !suggestion.text) setNothing(true);
+      if (suggestion.state === "failed") setError(suggestion.error ?? "The agent couldn’t suggest changes. Try again.");
+    }
+  }, [rpc]);
+  useEffect(() => { void load(); }, [load]);
+  useRealtime("learning", () => { void load(); });
+  async function suggest() {
+    setError(""); setProposal(null); setNothing(false);
+    const result = await rpc.call("suggestAssistantInstructions", null).catch(() => ({ ok: false, error: "Couldn’t ask the agent. Try again." }));
+    if (result.ok) waiting.current = true;
+    else setError(result.error ?? "Couldn’t ask the agent. Try again.");
+    await load();
+  }
+  if (!learning) return null;
+  const { total, kept, edited, removed } = learning;
+  const running = learning.suggestion.state === "running";
+  const combined = [instructions.trim(), proposal?.trim() ?? ""].filter(Boolean).join("\n");
+  const fits = combined.length <= ASSISTANT_INSTRUCTIONS_LIMIT;
+  return <div className="space-y-2">
+    <p className="text-sm font-medium">The agent’s comments</p>
+    <p className="text-sm text-muted-foreground">{total ? `Of the agent’s last ${total} comment${total === 1 ? "" : "s"} you kept ${kept} as written, edited ${edited}, removed ${removed}.` : "When you submit reviews, this counts the agent’s comments you kept as written, edited, and removed."}</p>
+    {learning.recentRemoved.length > 0 && <div className="space-y-1"><p className="text-xs text-muted-foreground">Recently removed</p><ul className="space-y-1 text-sm">
+      {learning.recentRemoved.map((comment, index) => <li key={index} className="flex min-w-0 items-baseline gap-2"><span className="shrink-0 font-mono text-xs text-muted-foreground">{comment.repo ? `${comment.repo} · ${comment.file}` : comment.file}</span><span className="min-w-0 truncate">{comment.line}</span></li>)}
+    </ul></div>}
+    <Button variant="outline" size="sm" disabled={!learning.canSuggest || running} onClick={() => void suggest()}><Icon name="Sparkles" className="size-4" aria-hidden />{running ? "Suggesting…" : "Suggest instruction changes"}</Button>
+    <span className="block text-xs text-muted-foreground">Sends your recently removed and edited comments to the assistant’s agent, which proposes up to five lines for your instructions. Nothing changes until you add them and save.</span>
+    {error && <p role="alert" className="text-xs text-destructive-text">{error}</p>}
+    {nothing && <p role="status" className="text-xs text-muted-foreground">The agent found nothing to add.</p>}
+    {proposal !== null && <div className="space-y-2 rounded-lg border border-border p-3">
+      <Textarea aria-label="Suggested instructions" rows={5} value={proposal} onChange={(event) => setProposal(event.target.value)} />
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" disabled={!proposal.trim() || !fits} onClick={() => { onAdd(proposal.trim()); setProposal(null); }}>Add to instructions</Button>
+        <Button variant="ghost" size="sm" onClick={() => setProposal(null)}>Discard</Button>
+        {!fits && <span className="text-xs text-muted-foreground">Too long to add. Shorten it or your instructions first.</span>}
+      </div>
+    </div>}
+  </div>;
 }
 
 function SectionHeading({ icon, tone = "primary", title, description }: { icon: IconName; tone?: Tone; title: string; description?: string }) {
@@ -158,6 +218,7 @@ export function ReviewSettings({ onBack }: { onBack?: () => void }) {
             <SectionHeading icon="Sparkles" tone="agent" title="Review assistant" description="Applies to your next message, including conversations already in progress." />
             <AgentSelection label="Review assistant agent" agent={record.preferences.assistantAgent} machines={machines} disabled={busy || updating} note="Used to start new conversations, which stay on the machine they started on. In a conversation, change the model and effort per message." onCustomize={() => void customize("assistantAgent")} onChange={(update) => setAgent("assistantAgent", update)} />
             <label className="block space-y-2"><span className="text-sm font-medium">Assistant instructions</span><Textarea aria-label="Assistant instructions" maxLength={ASSISTANT_INSTRUCTIONS_LIMIT} rows={5} value={record.preferences.assistantInstructions} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, assistantInstructions: event.target.value } }); }} placeholder="Prioritize correctness and security. Show a concrete failure case for suspected bugs. Keep suggestions actionable." /></label>
+            <AgentCommentLearning instructions={record.preferences.assistantInstructions} onAdd={(lines) => { setSaved(false); setRecord((current) => current && { ...current, preferences: { ...current.preferences, assistantInstructions: [current.preferences.assistantInstructions.trim(), lines].filter(Boolean).join("\n") } }); }} />
             <label className="block space-y-2"><span className="text-sm font-medium">Automatic review</span><Textarea aria-label="Automatic review" maxLength={12000} rows={4} value={record.preferences.automaticReview} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, automaticReview: event.target.value } }); }} /><span className="block text-xs text-muted-foreground">Sent to the assistant when a guide is ready and the review has no conversation yet. Its draft comments wait in Draft comments for you to edit and submit. Leave blank to turn the automatic review off.</span></label>
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">

@@ -62,6 +62,18 @@ export const rpcContract = defineRpcContract({
     input: z.null(),
     output: z.object({ machines: z.array(z.object({ hostId: z.string(), name: z.string(), connected: z.boolean(), server: z.boolean() })) }),
   },
+  // How the agent's draft comments fared in submitted reviews, and its proposal for the assistant's instructions (src/learning.ts).
+  getAgentLearning: {
+    input: z.null(),
+    output: z.object({
+      total: z.number().int(), kept: z.number().int(), edited: z.number().int(), removed: z.number().int(),
+      recentRemoved: z.array(z.object({ repo: z.string(), file: z.string(), line: z.string(), at: z.number() })),
+      canSuggest: z.boolean(),
+      suggestion: z.object({ state: z.enum(["idle", "running", "ready", "failed"]), at: z.number().optional(), text: z.string().optional(), error: z.string().optional() }),
+    }),
+  },
+  /** Ask the review assistant's agent to propose instruction lines; the proposal arrives through getAgentLearning. */
+  suggestAssistantInstructions: { input: z.null(), output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
   getReviewerNotes: { input: targetKey, output: z.object({ body: z.string(), revision: z.number().int() }) },
   saveReviewerNotes: {
     input: z.object({ targetKey: z.string(), body: z.string().max(100000), revision: z.number().int().min(0) }).strict(),

@@ -9,6 +9,7 @@ import type { FeedbackThread } from "./github/types";
 import { diffPositions, rangeProblem, type FilePositions } from "./review-positions";
 import { reanchor } from "./reanchor";
 import { renamedPaths } from "./patch";
+import { agentCommentStore, type AgentCommentStore } from "./learning";
 
 export interface ReviewLifecycle {
   prState?: "OPEN" | "CLOSED" | "MERGED";
@@ -123,7 +124,7 @@ export interface AgentMessage {
   createdAt: number;
 }
 
-export interface Store {
+export interface Store extends AgentCommentStore {
   getPreferences(): PreferencesRecord;
   savePreferences(preferences: ReviewPreferences, revision: number): PreferencesRecord;
   getReviewerNotes(targetKey: string): ReviewerNotesRecord;
@@ -318,6 +319,12 @@ export function createStore(bb: BbPluginApi): Store {
     `ALTER TABLE patches ADD COLUMN hash TEXT`,
     // A range comment's first line's text when it was drafted.
     `ALTER TABLE draft_comment_revisions ADD COLUMN start_code TEXT`,
+    // The reviewer's removals and edits of agents' draft comments (src/learning.ts), and their outcomes once submitted.
+    `CREATE TABLE IF NOT EXISTS agent_comment_changes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, target_key TEXT NOT NULL, file TEXT NOT NULL, line INTEGER NOT NULL, side TEXT NOT NULL,
+      kind TEXT NOT NULL, code TEXT, body TEXT NOT NULL, removed TEXT, at INTEGER NOT NULL, recorded INTEGER NOT NULL DEFAULT 0)`,
+    `CREATE TABLE IF NOT EXISTS agent_comment_outcomes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL, file TEXT NOT NULL, outcome TEXT NOT NULL, body TEXT NOT NULL, edited TEXT, at INTEGER NOT NULL)`,
   ]);
   const at = (k: string, { file, line, side }: CommentLocation) => [k, file, line, side] as const;
   const hasDiscussion = (k: string, location: CommentLocation) =>
@@ -380,6 +387,7 @@ export function createStore(bb: BbPluginApi): Store {
   });
 
   return {
+    ...agentCommentStore(db),
     getPreferences() {
       const row = db.prepare(`SELECT value,revision FROM review_preferences WHERE id=1`).get() as { value: string; revision: number } | undefined;
       const preferences = row ? readPreferences(JSON.parse(row.value)) : { ...defaultPreferences };
@@ -849,7 +857,7 @@ const REVIEW_TABLES = [
   "reviews", "patches", "guides", "drafts", "file_views", "agent_threads", "agent_messages",
   "generations", "draft_comment_revisions", "review_lifecycle", "reviewer_notes", "assistant_threads", "review_context",
   "discussion_entries", "discussion_waits", "review_snapshots", "feedback_threads", "feedback_fetches",
-  "assessment_items", "assessment_runs", "reply_drafts", "guide_backups",
+  "assessment_items", "assessment_runs", "reply_drafts", "guide_backups", "agent_comment_changes",
 ] as const;
 
 /**

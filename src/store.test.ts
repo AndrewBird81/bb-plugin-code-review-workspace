@@ -96,6 +96,7 @@ test("deleteReview clears every per-review table and leaves other reviews intact
     s.saveAssessmentRun(key, { headSha: "sha1", summary: "", suggestedVerdict: null, suggestedBody: "", assessedAt: 1 });
     s.setReplyDraft(key, "t1", "Thanks", "agent");
     s.backupGuide(key);
+    s.noteAgentCommentChange(key, { file: "a.ts", line: 1, side: "RIGHT", kind: "removed", code: "x", body: "Nit", removed: "Nit" });
   }
   s.deleteReview("pr-1");
 

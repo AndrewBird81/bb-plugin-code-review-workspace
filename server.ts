@@ -58,6 +58,7 @@ import { assess, changesSinceReview, describeFeedback, readFileAt, startVerifica
 import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
 import { threadSignals, turnOptions } from "./src/turn-signals";
+import { createInstructionSuggester, describeRemovals, learningStats, noteReviewerRemoval, noteReviewerSave, recordOutcomes, removalWarning } from "./src/learning";
 
 export { rpcContract } from "./src/rpc-contract";
 
@@ -72,6 +73,7 @@ export default async function plugin(bb: BbPluginApi) {
   for (const review of store.listReviews()) if (listAsks(review).length) clearAsks(store, review.targetKey);
   const submitReview = createReviewSubmitter(store, runGh);
   const notifications = completionNotifications(bb, store);
+  const suggester = createInstructionSuggester(bb, store, () => bb.realtime.publish("learning", {}));
   let personalProject: string | null = null;
   const reasons: Record<string, string> = {
     "re-requested": "the author re-requested the reviewer's review", handled: "every thread of the reviewer's feedback is resolved or answered",
@@ -337,6 +339,8 @@ export default async function plugin(bb: BbPluginApi) {
     async listMachines() {
       return { machines: await listMachines(bb) };
     },
+    getAgentLearning() { return { ...learningStats(store), canSuggest: suggester.possible(), suggestion: suggester.current() }; },
+    suggestAssistantInstructions() { return suggester.start(); },
     getReviewerNotes({ targetKey }) { return store.getReviewerNotes(targetKey); },
     saveReviewerNotes({ targetKey, body, revision }) { return store.saveReviewerNotes(targetKey, body, revision); },
     ping() {
@@ -511,9 +515,11 @@ export default async function plugin(bb: BbPluginApi) {
       if (range) throw new Error(range);
       // Your words now, and an ask on the comment is over.
       setAsk(store, targetKey, comment, null);
+      noteReviewerSave(store, targetKey, comment);
       return draftState(targetKey, store.upsertDraftComment(targetKey, comment));
     },
     removeDraftComment({ targetKey, file, line, side }) {
+      noteReviewerRemoval(store, targetKey, { file, line, side });
       // Already gone, for example deleted by an agent: the current draft shows that.
       const draft = store.deleteDraftComment(targetKey, { file, line, side }) ?? store.getDraft(targetKey);
       store.deleteDiscussion(targetKey, { file, line, side });
@@ -555,9 +561,12 @@ export default async function plugin(bb: BbPluginApi) {
     async submitReview({ targetKey, revision, account, comments, body, verdict }) {
       if (!account) return { ok: false, error: "Verify your GitHub account before submitting. Reload this review to check access." };
       try { requireReviewRevision(store, targetKey, revision); } catch (error) { return { ok: false, error: (error as Error).message }; }
+      // The draft the submitter reads, before anything awaits.
+      const submitted = store.getDraft(targetKey);
       const result = await submitReview(targetKey, revision, account, comments, body === undefined || verdict === undefined ? undefined : { body, verdict });
       // The discussions were about this draft. The assistant's conversation keeps them.
       if (result.ok) {
+        recordOutcomes(store, targetKey, submitted);
         store.clearDiscussions(targetKey);
         clearAsks(store, targetKey);
         bb.realtime.publish(`draft:${targetKey}`, {});
@@ -694,21 +703,24 @@ export default async function plugin(bb: BbPluginApi) {
   };
   bb.agents.registerTool({
     name: "list_draft_comments",
-    description: "Show the reviewer's local draft for this review: the review summary and who wrote it (an agent or the reviewer), the verdict the reviewer picked and the one suggested, then each comment's location, who added it, and text.",
+    description: "Show the reviewer's local draft for this review: the review summary and who wrote it (an agent or the reviewer), the verdict the reviewer picked and the one suggested, then each comment's location, who added it, and text, and the agents' comments the reviewer removed.",
     parameters: z.object({}),
-    execute: (_input, { threadId }) => assistantDraft(threadId, false, (targetKey) => ({ ok: true, text: describeDraft(store, targetKey) })),
+    execute: (_input, { threadId }) => assistantDraft(threadId, false, (targetKey) => ({ ok: true, text: describeDraft(store, targetKey) + describeRemovals(store, targetKey) })),
   });
   bb.agents.registerTool({
     name: "add_draft_comment",
     description: "Add an inline comment to the reviewer's local draft for this review, on a line of the current diff, or with startLine on lines startLine to line. Nothing reaches GitHub: the reviewer edits, removes, or submits it. Refuses a line that already has a draft comment.",
-    instructions: "During a review pass, or when the reviewer asks, add each verified issue with add_draft_comment on the line it concerns, or the lines (startLine to line). In ordinary chat, answer in chat. Put one issue in each comment. Start it with **Blocking:**, **Should fix:**, or **Question:**, then say concretely what fails and the fix. Prefer a ```suggestion block for a small, mechanical fix: it holds the exact replacement, indentation included, for exactly the commented lines, line alone or startLine to line, and the author applies it with one click. Give a range that covers every line the suggestion replaces, and no more. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment; edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit, remove, and submit it. Never post to GitHub yourself, for example with gh pr review, gh pr comment, gh api writes, or git push.",
+    instructions: "During a review pass, or when the reviewer asks, add each verified issue with add_draft_comment on the line it concerns, or the lines (startLine to line). In ordinary chat, answer in chat. Put one issue in each comment. Start it with **Blocking:**, **Should fix:**, or **Question:**, then say concretely what fails and the fix. Prefer a ```suggestion block for a small, mechanical fix: it holds the exact replacement, indentation included, for exactly the commented lines, line alone or startLine to line, and the author applies it with one click. Give a range that covers every line the suggestion replaces, and no more. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment, and the comments the reviewer removed: don't raise those again unless their code changed. edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit, remove, and submit it. Never post to GitHub yourself, for example with gh pr review, gh pr comment, gh api writes, or git push.",
     parameters: z.object({
       ...location,
       ...range,
       code: z.string().describe("The line's text, without the diff's leading +, -, or space. It must match the line. For a range, the lines' text, one per line: its first and last must match startLine and line."),
       body,
     }),
-    execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => addComment(store, targetKey, input)),
+    execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => {
+      const added = addComment(store, targetKey, input);
+      return added.ok ? { ok: true, text: added.text + removalWarning(store, targetKey, input) } : added;
+    }),
   });
   bb.agents.registerTool({
     name: "edit_draft_comment",
