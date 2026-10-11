@@ -559,7 +559,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
                 </Button>)}
               </div>
               {ownPr && <p id={ownPrId} className="text-xs text-muted-foreground">{OWN_PR}</p>}
-              {suggested && (suggested !== draft.verdict || !verdictPicked(draft)) && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />Agent suggests {VERDICT_LABEL[suggested]}</p>}
+              {suggested && (suggested !== draft.verdict || !verdictPicked(draft)) && !(ownPr && suggested !== "COMMENT") && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />Agent suggests {VERDICT_LABEL[suggested]}</p>}
               {confirming ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
                 <p>Submit {VERDICT_LABEL[draft.verdict]}{commentCount ? ` with ${commentCount} comment${commentCount === 1 ? "" : "s"}` : ""}? {doubts.join(" ")}</p>
                 <div className="flex flex-wrap gap-2">

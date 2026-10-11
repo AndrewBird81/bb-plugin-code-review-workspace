@@ -291,6 +291,8 @@ test("on your own PR, the panel offers Comment only, and picks it", async () => 
     expect(button.getAttribute("title")).toBe("This is your PR, so GitHub allows only a Comment review.");
   }
   expect(slot.getByText("This is your PR, so GitHub allows only a Comment review.")).toBeTruthy();
+  // A suggestion GitHub wouldn't take isn't shown.
+  expect(slot.queryByText(/Agent suggests/)).toBeNull();
   // The agent's other suggestion doesn't hold up Submit.
   fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
   await waitFor(() => expect(submitReview).toHaveBeenCalledWith(expect.objectContaining({ verdict: "COMMENT" })));
