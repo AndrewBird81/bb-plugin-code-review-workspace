@@ -4,7 +4,8 @@ import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
-import { commentsKey, isSummary, sameLocation, summaryChanges, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type CommentLocation, type Discussion, type Draft, type DraftComment, type Verdict } from "../src/draft";
+import { commentsKey, isSummary, linesOf, rangeOf, sameLocation, summaryChanges, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type CommentLocation, type Discussion, type Draft, type DraftComment, type Verdict } from "../src/draft";
+import { orderRange } from "../src/review-positions";
 import { Button, buttonVariants } from "./ui/button";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
@@ -24,10 +25,10 @@ import { FilePath } from "./ui/file-path";
 import { withLineBreaks } from "../src/line-breaks";
 
 /**
- * A request from the diff to comment on a line, or with `ask` to message the
- * agent about it; the box opens there. `startLine` is the other end of a selection.
+ * A request from the diff to comment on a line, or with `ask` to message the agent about it; the box
+ * opens there. `startLine` and `startSide` are the other end of a selection, in either order.
  */
-export interface CommentPrefill { file: string; line: number; side: "LEFT" | "RIGHT"; startLine?: number; ask?: boolean; nonce: number; }
+export interface CommentPrefill { file: string; line: number; side: "LEFT" | "RIGHT"; startLine?: number; startSide?: "LEFT" | "RIGHT"; ask?: boolean; nonce: number; }
 
 const OWN_PR = "This is your PR, so GitHub allows only a Comment review.";
 const RECEIPT_LABEL: Record<Verdict, string> = { APPROVE: "Approved", REQUEST_CHANGES: "Changes requested", COMMENT: "Commented" };
@@ -37,8 +38,10 @@ const VERDICTS = [
   ["REQUEST_CHANGES", "aria-pressed:bg-warning/15 aria-pressed:text-warning-text aria-pressed:ring-warning/30 aria-pressed:hover:bg-warning/20"],
 ] as const;
 
-export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, activeFiles, files = activeFiles, prefill, isLocal = false, review, onSubmitted, onShowComment, agent, reviewRevision, rebuilding = false, ownPr = false, account, showDraft, children }: {
+export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, activeFiles, files = activeFiles, prefill, isLocal = false, review, onSubmitted, onShowComment, agent, reviewRevision, rebuilding = false, ownPr = false, account, showDraft, patch = "", children }: {
   targetKey: string; activeChapterId: string; activeFiles: string[];
+  /** The review's diff, to order a selection's lines. */
+  patch?: string;
   /** The review's changed files, chapter by chapter. */
   files?: string[];
   prefill?: CommentPrefill; isLocal?: boolean; review?: ReviewItem; onSubmitted?: () => void; onShowComment?: (at: CommentLocation) => void;
@@ -70,9 +73,11 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const [editing, setEditing] = useState<DraftComment | null>(null);
   // Whether the open comment box is in the diff rather than this panel.
   const [inline, setInline] = useState(false);
-  // Whether the box's text is a message to the agent rather than a comment, and the other end of the lines it's about.
+  // Whether the box's text is a message to the agent rather than a comment, and the first of the lines it's about, when several.
   const [asking, setAsking] = useState(false);
   const [startLine, setStartLine] = useState<number | undefined>();
+  // The first line's side, when the lines start on the other side (DraftComment startSide).
+  const [startSide, setStartSide] = useState<"LEFT" | "RIGHT" | undefined>();
   // Why the server refused the comment in the box; it clears when you change the comment.
   const [composerError, setComposerError] = useState<string | null>(null);
   // The save was refused because the box's text was written against an older diff, such as before a rebuild finished.
@@ -135,8 +140,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
 
   useEffect(() => {
     if (!loaded) return;
-    updateDraftRecovery(targetKey, { composer: body ? { file, line, side, body, revision: composerRevision.current, inline, ...(asking ? { asking } : {}), ...(startLine ? { startLine } : {}), ...(summaryBox ? { summary: true } : {}) } : undefined });
-  }, [loaded, targetKey, file, line, side, body, inline, asking, startLine, summaryBox]);
+    updateDraftRecovery(targetKey, { composer: body ? { file, line, side, body, revision: composerRevision.current, inline, ...(asking ? { asking } : {}), ...(startLine ? { startLine } : {}), ...(startSide ? { startSide } : {}), ...(summaryBox ? { summary: true } : {}) } : undefined });
+  }, [loaded, targetKey, file, line, side, body, inline, asking, startLine, startSide, summaryBox]);
   useEffect(() => {
     const protect = (event: BeforeUnloadEvent) => { if (body.trim()) event.preventDefault(); };
     window.addEventListener("beforeunload", protect);
@@ -168,7 +173,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
         const comment = recovered.composer;
         composerRevision.current = comment.revision;
         setFile(comment.file); setLine(comment.line); setSide(comment.side); setBody(comment.body); setInline(comment.inline === true); setShowComposer(true);
-        setAsking(comment.asking === true); setStartLine(comment.startLine); setSummaryBox(comment.summary === true);
+        setAsking(comment.asking === true); setStartLine(comment.startLine); setStartSide(comment.startSide); setSummaryBox(comment.summary === true);
         summaryBase.current = comment.summary ? (result.draft as Draft).body : null;
         setEditing(comment.asking || comment.summary ? null : (result.draft as Draft).comments.find((c) => sameLocation(c, { file: comment.file, line: Number(comment.line), side: comment.side })) ?? null);
       }
@@ -207,19 +212,24 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
    * Open the comment box, in the diff or this panel, on a line's comment if it has one, or on the
    * summary (SUMMARY_AT); with `ask`, a box for a message to the agent. An unfinished comment or message is shown instead.
    */
-  function openComposer(at: (CommentLocation & { startLine?: number }) | null, inDiff: boolean, ask = false) {
+  function openComposer(selected: (CommentLocation & Pick<CommentPrefill, "startLine" | "startSide">) | null, inDiff: boolean, ask = false) {
     const writing = !!body.trim();
     if (writing) toast.info(asking ? "Send or cancel your message to the agent first." : onSummary ? "Save or cancel the summary you’re writing first." : "Finish or cancel the comment you’re writing first.");
     else {
       opener.current = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+      // Lines selected upward, or across sides, start at their first line in the diff; the box goes under the last.
+      const [first, at] = selected?.startLine === undefined ? [null, selected]
+        : orderRange(patch, selected.file, { line: selected.startLine, side: selected.startSide ?? selected.side }, selected).map((end) => ({ ...selected, ...end }));
       const summary = !!at && isSummary(at);
       const existing = !ask && at && !summary ? draft.comments.find((comment) => sameLocation(comment, at)) : undefined;
+      // A comment keeps its own lines.
+      const range = existing ? rangeOf(existing) : at && first ? rangeOf({ ...at, startLine: first.line, startSide: first.side }) : {};
       composerRevision.current = revisionRef.current;
       setEditing(existing ?? null);
       if (at) { setFile(at.file); setLine(String(at.line)); setSide(at.side); }
       // A new comment from the panel doesn't start where the summary's box was.
       else if (summaryBox) { setFile(firstFile); setLine("1"); setSide("RIGHT"); }
-      setStartLine(at?.startLine !== at?.line ? at?.startLine : undefined);
+      setStartLine(range.startLine); setStartSide(range.startSide);
       setAsking(ask);
       setSummaryBox(summary);
       summaryBase.current = summary ? draft.body : null;
@@ -240,7 +250,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     setBody(text);
   }
   function closeComposer() {
-    setEditing(null); setAsking(false); setStartLine(undefined);
+    setEditing(null); setAsking(false); setStartLine(undefined); setStartSide(undefined);
     const kept = legacySummary.current;
     if (kept) {
       // The box is free for the summary text kept from before this update.
@@ -344,7 +354,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   async function addComment() {
     if (!file.trim() || !body.trim() || !Number.isInteger(Number(line)) || Number(line) < 1) return;
     await mutate(async () => {
-      const result = await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(composerRevision.current ? { revision: composerRevision.current } : {}), comment: { file, line: Number(line), side, chapterId: editing?.chapterId ?? activeChapterId, body: body.trim() } }));
+      const result = await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(composerRevision.current ? { revision: composerRevision.current } : {}), comment: { file, line: Number(line), side, ...rangeOf({ line: Number(line), side, startLine, startSide }), chapterId: editing?.chapterId ?? activeChapterId, body: body.trim() } }));
       apply(result as { draft: Draft }); closeComposer();
       focusComment({ file, line: Number(line), side }, inline);
     }, (message) => {
@@ -364,10 +374,11 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     });
   }
   /** Put back a comment you removed, as it was, unless its line has another comment by now. */
-  async function restoreComment({ file, line, side, chapterId, author, body }: DraftComment) {
+  async function restoreComment(comment: DraftComment) {
+    const { file, line, side, chapterId, author, body } = comment;
     if (shownComments.current.some((c) => sameLocation(c, { file, line, side }))) { toast.info(`${file}:${line} has another comment now, so the removed one stays removed.`); return; }
     await mutate(async () => {
-      apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), comment: { file, line, side, ...(chapterId ? { chapterId } : {}), ...(author ? { author } : {}), body } })) as { draft: Draft });
+      apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), comment: { file, line, side, ...rangeOf(comment), ...(chapterId ? { chapterId } : {}), ...(author ? { author } : {}), body } })) as { draft: Draft });
     });
   }
   /** Save the summary as yours; an empty one removes it. */
@@ -397,6 +408,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   }
 
   const canAdd = !busy && !rebuilding && !!file.trim() && !!body.trim() && Number.isInteger(Number(line)) && Number(line) >= 1;
+  const boxLines = linesOf({ line: Number(line), side, startLine, startSide });
   const hasReview = draft.comments.length > 0 || draft.body.trim().length > 0 || draft.verdict === "APPROVE";
   // GitHub refuses Request changes without a summary.
   const needsSummary = draft.verdict === "REQUEST_CHANGES" && !draft.body.trim();
@@ -437,9 +449,9 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   const editingLine = showComposer && !summaryBox && !asking;
   const inlineDraft = useMemo<InlineDraft>(() => ({
     comments: draft.comments, stale, discussions: lineDiscussions, editable, busy, writing, open, ask, remove, dismiss, undo: undoAt, chat,
-    composer: composerInDiff ? { file, line: Number(line), side, editing: editing !== null, asking } : null,
+    composer: composerInDiff ? { file, line: Number(line), side, ...(startLine ? { startLine } : {}), editing: editing !== null, asking } : null,
     editingAt: editingLine ? { file, line: Number(line), side } : null,
-  }), [draft.comments, stale, lineDiscussions, editable, busy, writing, open, ask, remove, dismiss, undoAt, chat, composerInDiff, editingLine, file, line, side, editing, asking]);
+  }), [draft.comments, stale, lineDiscussions, editable, busy, writing, open, ask, remove, dismiss, undoAt, chat, composerInDiff, editingLine, file, line, side, startLine, editing, asking]);
   const inlineComposer = useMemo<InlineComposer | null>(() => composerInDiff ? {
     body, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
     change: (text) => latest.current.changeBody(text),
@@ -527,23 +539,24 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
               const discussion = discussions.find((d) => sameLocation(d, comment));
               const messages = discussion?.entries.filter((entry) => entry.kind === "message").length ?? 0;
               return <li key={`${comment.file}:${comment.line}:${comment.side}`} tabIndex={-1} data-comment-at={locationKey(comment)} className={cn("group/comment space-y-2 rounded-lg border border-border bg-card p-3 outline-none transition-colors hover:border-input focus-visible:ring-2 focus-visible:ring-ring/50", comment.author === "agent" ? "border-l-[3px] border-l-(--ansi-13)/60" : "border-l-[3px] border-l-primary/60")}>
-              <button type="button" aria-label={`${comment.file}:${comment.line}${comment.side === "LEFT" ? " · Old line" : ""}${comment.author === "agent" ? " · Added by agent" : ""}${isStale ? " · Older diff" : ""}${discussionLabel(discussion)}`} className="flex w-full min-w-0 flex-wrap items-center gap-1.5 rounded-sm text-left text-xs hover:[&_.gr-path]:underline" onClick={() => onShowComment?.(comment)}>
-                <span className="gr-path flex min-w-0 max-w-full items-center decoration-muted-foreground/50 underline-offset-2"><FilePath path={comment.file} className="min-w-0 text-[11px]" /><span className="shrink-0 font-mono text-[11px] text-primary">:{comment.line}</span></span>
+              <button type="button" aria-label={`${comment.file}:${linesOf(comment)}${comment.side === "LEFT" ? " · Old line" : ""}${comment.author === "agent" ? " · Added by agent" : ""}${isStale ? " · Older diff" : ""}${discussionLabel(discussion)}`} className="flex w-full min-w-0 flex-wrap items-center gap-1.5 rounded-sm text-left text-xs hover:[&_.gr-path]:underline" onClick={() => onShowComment?.(comment)}>
+                <span className="gr-path flex min-w-0 max-w-full items-center decoration-muted-foreground/50 underline-offset-2"><FilePath path={comment.file} className="min-w-0 text-[11px]" /><span className="shrink-0 font-mono text-[11px] text-primary">:{linesOf(comment)}</span></span>
                 {comment.side === "LEFT" && <Badge size="sm">Old line</Badge>}
                 {comment.author === "agent" && <Badge tone="agent" size="sm" icon={<Icon name="Sparkles" aria-hidden />}>Agent</Badge>}
                 {isStale && <Badge tone="warning" size="sm">Older diff</Badge>}
                 {discussion?.waiting ? <Badge tone="agent" dot pulse size="sm">Waiting for agent</Badge> : messages > 0 && <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><Icon name="MessageSquare" className="size-3" aria-hidden />{messages}</span>}
               </button>
               <Markdown content={withLineBreaks(comment.body)} className="text-sm leading-relaxed" />
-              <div className="-mb-1 -ml-2 flex gap-0.5"><Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" disabled={busy || !!body.trim()} aria-label={`Edit comment on ${comment.file}:${comment.line}`} onClick={() => openComposer(comment, false)}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button><Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive-text" disabled={busy} aria-label={`Remove comment on ${comment.file}:${comment.line}`} onClick={() => void removeComment(comment)}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove</Button></div>
+              <div className="-mb-1 -ml-2 flex gap-0.5"><Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" disabled={busy || !!body.trim()} aria-label={`Edit comment on ${comment.file}:${linesOf(comment)}`} onClick={() => openComposer(comment, false)}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button><Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive-text" disabled={busy} aria-label={`Remove comment on ${comment.file}:${linesOf(comment)}`} onClick={() => void removeComment(comment)}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove</Button></div>
             </li>; })}</ul> : !(showComposer && !onSummary) && <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-4 py-6 text-center"><Icon name="MessageSquarePlus" className="size-5 text-subtle-foreground" aria-hidden /><p className="text-sm leading-relaxed text-muted-foreground">Select a line in the diff or add a comment here.</p></div>}
             {showComposer && !onSummary && (inline ? <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
-              <span className="min-w-0 flex-1 break-words">{asking ? `Writing to the agent about ${file}:${line} in the diff.` : `Writing a comment on ${file}:${line} in the diff.`}</span>
+              <span className="min-w-0 flex-1 break-words">{asking ? `Writing to the agent about ${file}:${boxLines} in the diff.` : `Writing a comment on ${file}:${boxLines} in the diff.`}</span>
               <Button variant="ghost" size="sm" onClick={() => onShowComment?.({ file, line: Number(line), side })}>Show in diff</Button>
             </div> : <div className="space-y-3 border-t border-border pt-3">
               <label className="block space-y-1 text-xs text-muted-foreground">File<select aria-label="Comment file" disabled={busy || !!editing} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground" value={file} onChange={(event) => setFile(event.target.value)}>{(file && !files.includes(file) ? [file, ...files] : files).map((choice) => <option key={choice} value={choice}>{choice}</option>)}</select></label>
               <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-3">
-                <label className="space-y-1 text-xs text-muted-foreground">Line<Input aria-label="Comment line" disabled={busy || !!editing} type="number" min={1} value={line} onChange={(event) => setLine(event.target.value)} /></label>
+                {startLine ? <p className="space-y-1 text-xs text-muted-foreground">Lines<span className="flex h-9 items-center text-sm text-foreground tabular-nums">{boxLines}</span></p>
+                  : <label className="space-y-1 text-xs text-muted-foreground">Line<Input aria-label="Comment line" disabled={busy || !!editing} type="number" min={1} value={line} onChange={(event) => setLine(event.target.value)} /></label>}
                 <label className="space-y-1 text-xs text-muted-foreground">Side<select aria-label="Comment side" disabled={busy || !!editing} className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground" value={side} onChange={(event) => setSide(event.target.value as "LEFT" | "RIGHT")}><option value="RIGHT">New line</option><option value="LEFT">Old line</option></select></label>
               </div>
               <Textarea ref={bodyRef} aria-label="Draft comment" disabled={busy} value={body} onChange={(event) => changeBody(event.target.value)} onKeyDown={(event) => composerKeys(event, canAdd ? () => void addComment() : null, () => { if (!busy) cancelComposer(); })} placeholder="What should the author know?" />

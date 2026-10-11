@@ -552,7 +552,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (!lineSel) return;
     const { file, range } = lineSel;
     const side = (range.endSide ?? range.side) === "deletions" ? "LEFT" : "RIGHT";
-    setDraftPrefill({ file, line: range.end, side, startLine: range.start, ask, nonce: Date.now() });
+    setDraftPrefill({ file, line: range.end, side, startLine: range.start, ...(range.side ? { startSide: range.side === "deletions" ? "LEFT" : "RIGHT" } : {}), ask, nonce: Date.now() });
     setLineSel(null);
   }
 
@@ -723,7 +723,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       )}
       <div className="flex min-h-0 flex-1 flex-col @min-[1024px]/review:flex-row">
       {/* The draft panel owns the draft and shares it with the diff, which shows each comment under its line. */}
-      <DraftTray reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} agent={{ patch, injection, container: rootEl }} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
+      <DraftTray patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} agent={{ patch, injection, container: rootEl }} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col @min-[768px]/review:flex-row">
         {(compact ? mobileChapters : !sidebarCollapsed) && (
           <>

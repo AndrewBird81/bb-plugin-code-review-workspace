@@ -1,6 +1,6 @@
 import { createContext, memo, useContext, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
-import { sameLocation, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment } from "../src/draft";
+import { linesOf, sameLocation, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment } from "../src/draft";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
@@ -20,8 +20,8 @@ export interface InlineDraft {
   busy: boolean;
   /** A comment is being written, so no other can be opened for editing. */
   writing: boolean;
-  /** Where the diff shows the comment box, while it's open there. `asking` when it writes to the agent. */
-  composer: (CommentLocation & { editing: boolean; asking: boolean }) | null;
+  /** Where the diff shows the comment box, under its last line, while it's open there. `asking` when it writes to the agent. */
+  composer: (CommentLocation & { startLine?: number; editing: boolean; asking: boolean }) | null;
   /** The line whose comment the box is open on, in the diff or the panel. */
   editingAt: CommentLocation | null;
   /** Open the comment box at a line, on the line's comment if it has one. */
@@ -95,10 +95,11 @@ InlineLocation.displayName = "InlineLocation";
 function CommentView({ comment, draft }: { comment: DraftComment; draft: InlineDraft }) {
   const stale = draft.stale.some((at) => sameLocation(at, comment));
   return (
-    <article tabIndex={-1} aria-label={`Draft comment on ${comment.file}:${comment.line}`} className="outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50">
+    <article tabIndex={-1} aria-label={`Draft comment on ${comment.file}:${linesOf(comment)}`} className="outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50">
       <div className={bar}>
         <Icon name="MessageSquare" className="size-3.5 shrink-0 text-primary" aria-hidden />
         <span className="font-medium text-foreground">Draft</span>
+        {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
         {comment.author === "agent" && <Badge tone="agent" icon={<Icon name="Sparkles" aria-hidden />}>Added by agent</Badge>}
         {stale && (
           <Badge tone="warning" title="Drafted against an older diff. Edit and save it, or remove it, before submitting.">Older diff</Badge>
@@ -123,6 +124,7 @@ function DiscussionBar({ discussion, draft, boxOpen }: { discussion: Discussion;
     <div className={bar}>
       <Icon name={removed ? "Trash2" : "Sparkles"} className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />
       <span className="font-medium text-foreground">{removed ? "Removed by agent" : "Discussion with agent"}</span>
+      {discussion.startLine !== undefined && <span className="tabular-nums">Lines {discussionLines(discussion)}</span>}
       {draft.editable && !boxOpen && (
         <span className="ml-auto flex">
           <Button variant="ghost" size="sm" className={action} disabled={draft.busy || draft.writing} onClick={() => draft.ask(discussion)}>Ask agent</Button>
@@ -132,6 +134,9 @@ function DiscussionBar({ discussion, draft, boxOpen }: { discussion: Discussion;
     </div>
   );
 }
+
+/** A discussion's lines; its start may be either end of the lines the reviewer selected. */
+const discussionLines = ({ startLine, line }: Discussion) => startLine === undefined ? `${line}` : `${Math.min(startLine, line)}–${Math.max(startLine, line)}`;
 
 type Change = Exclude<DiscussionEntry["kind"], "message">;
 const changeIcons: Record<Change, "Sparkles" | "Edit" | "Trash2" | "ArrowTurnBackward"> = { added: "Sparkles", edited: "Edit", removed: "Trash2", restored: "ArrowTurnBackward" };
@@ -147,7 +152,7 @@ export function DiscussionView({ discussion, titled, chat, busy = false, onUndo,
   const unanswered = !discussion.waiting && last?.kind === "message" && last.author === "reviewer";
   const latestChange = discussion.entries.map((entry) => entry.kind !== "message").lastIndexOf(true);
   return (
-    <section aria-label={summary ? "Discussion with agent on the review summary" : `Discussion with agent on ${discussion.file}:${discussion.line}`} className={cn("space-y-3 bg-muted/20 px-3 py-2.5", titled && "border-t border-border")}>
+    <section aria-label={summary ? "Discussion with agent on the review summary" : `Discussion with agent on ${discussion.file}:${discussionLines(discussion)}`} className={cn("space-y-3 bg-muted/20 px-3 py-2.5", titled && "border-t border-border")}>
       {titled && <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">Discussion with agent</p>}
       {discussion.entries.map((entry, index) => entry.kind === "message"
         ? <div key={index} className="space-y-1">
@@ -192,7 +197,11 @@ function ComposerBox({ mode, divided = false }: { mode: "new" | "edit" | "ask"; 
   const draft = useContext(InlineDraftContext);
   const composer = useContext(InlineComposerContext);
   if (!draft?.composer || !composer) return null;
-  return <ComposerFields mode={mode} divided={divided} busy={draft.busy} composer={composer} />;
+  const { startLine, line } = draft.composer;
+  return <>
+    {startLine !== undefined && <p className={cn("px-2.5 pt-2.5 text-xs text-muted-foreground tabular-nums", divided && "border-t border-border")}>Lines {startLine}–{line}</p>}
+    <ComposerFields mode={mode} divided={divided && startLine === undefined} busy={draft.busy} composer={composer} />
+  </>;
 }
 
 /** The comment box itself: a line comment's, the summary's, or a message to the agent about either. */
