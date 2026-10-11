@@ -153,18 +153,19 @@ export default async function plugin(bb: BbPluginApi) {
   const decorate = (review: ReviewMeta | null, options?: TurnOptions, stacks = findStacks(store.listReviews())) => review && JSON.parse(JSON.stringify({
     ...review, turn: sync.turnOf(review, undefined, options), progress: feedbackProgress(review), stack: stacks.get(review.targetKey) ?? null,
   }));
-  /** Every review, decorated with one read of the settings, without the summaries only the assistant reads. */
-  const listed = () => {
+  // Whether you wrote the PR, before the sync has read it: GitHub allows only a Comment review on your own PR.
+  const ownPrUnread = (review: ReviewMeta) => review.kind === "pr" && !!review.author && typeof review.ownPr !== "boolean";
+  const ownPrOf = (review: ReviewMeta, login: string | null): ReviewMeta =>
+    ownPrUnread(review) ? { ...review, ownPr: !!login && login.toLowerCase() === review.author!.toLowerCase() } : review;
+  const withOwnPr = async (review: ReviewMeta | null) => review && ownPrUnread(review) ? ownPrOf(review, await sync.login()) : review;
+  /** Every review, decorated with one read of the settings and the sync's cached login, without the summaries only the assistant reads. */
+  const listed = async () => {
     const options = turnOptions(store.getPreferences().preferences);
-    const reviews = store.listReviews();
+    const all = store.listReviews();
+    const login = all.some(ownPrUnread) ? await sync.login() : null;
+    const reviews = all.map((review) => ownPrOf(review, login));
     const stacks = findStacks(reviews);
     return reviews.map(({ reviewBodies: _bodies, ...review }) => decorate(review, options, stacks));
-  };
-  // Whether you wrote the PR, before the sync has read it: GitHub allows only a Comment review on your own PR.
-  const withOwnPr = async (review: ReturnType<typeof decorate>) => {
-    if (!review || review.kind !== "pr" || !review.author || typeof review.ownPr === "boolean") return review;
-    const login = await sync.login();
-    return { ...review, ownPr: !!login && login.toLowerCase() === review.author.toLowerCase() };
   };
   const changed = (targetKey: string) => {
     bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
@@ -318,7 +319,7 @@ export default async function plugin(bb: BbPluginApi) {
     async getReviewBundle({ targetKey, knownRevision }) {
       const diffError = await rereadPrunedDiff(targetKey);
       const revision = reviewRevision(store, targetKey);
-      return { review: await withOwnPr(decorate(store.getReview(targetKey))), guide: store.getGuide(targetKey),
+      return { review: decorate(await withOwnPr(store.getReview(targetKey))), guide: store.getGuide(targetKey),
         patch: revision === knownRevision ? null : store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, revision,
         ...(diffError ? { diffError } : {}) };
     },
@@ -369,15 +370,15 @@ export default async function plugin(bb: BbPluginApi) {
     },
 
     // Task 10: read data plane
-    listReviews() {
+    async listReviews() {
       // ReviewMeta rows carry optional fields as literal `undefined` own
       // properties (store.ts's rowToMeta), which the rpc layer's strict JSON
       // output check rejects; round-trip through JSON to drop them.
-      return { reviews: listed(), sync: sync.health() };
+      return { reviews: await listed(), sync: sync.health() };
     },
     async refreshReviews(input) {
       await sync.all(input?.force ?? true);
-      return { reviews: listed(), sync: sync.health() };
+      return { reviews: await listed(), sync: sync.health() };
     },
     getReview({ targetKey }) {
       return { review: decorate(store.getReview(targetKey)) };

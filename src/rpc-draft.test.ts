@@ -105,6 +105,16 @@ test("the review bundle says whether the signed-in account wrote the PR", async 
   expect((await harness.behavior.callRpc("getReviewBundle", { targetKey: "theirs" }) as any).review.ownPr).toBe(false);
 });
 
+test("the list says Your PR for a PR the signed-in account wrote before the sync has read it", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "mine", kind: "pr", number: 5, repo: "acme/web", author: "Casey", headSha: "sha123", status: "ready", createdAt: 1 });
+  store.saveReview({ targetKey: "theirs", kind: "pr", number: 6, repo: "acme/web", author: "dana", headSha: "sha123", status: "ready", createdAt: 2 });
+  const { reviews } = await harness.behavior.callRpc("listReviews", null) as any;
+  expect(Object.fromEntries(reviews.map((r: any) => [r.targetKey, r.turn.label]))).toEqual({ mine: "Your PR", theirs: "Ready" });
+});
+
 test("saveDraftComment keeps an agent's comment the agent's when Undo puts it back", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
   await plugin(bb);
