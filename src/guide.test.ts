@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { validateGuide, checkCoverage } from "./guide";
+import { validateGuide, checkCoverage, placeUnplacedFiles } from "./guide";
 
 const good = {
   title: "T", intent: "I",
@@ -54,4 +54,22 @@ test("validateGuide defaults a missing unplacedFiles to none", () => {
   const { unplacedFiles: _, ...rest } = good;
   const r = validateGuide(rest);
   expect(r.ok && r.guide.unplacedFiles).toEqual([]);
+});
+
+test("placeUnplacedFiles sums up each unplaced file from the patch", () => {
+  const patch = [
+    "diff --git a/logo.png b/logo.png\nindex 1..2 100644\nBinary files a/logo.png and b/logo.png differ\n",
+    "diff --git a/bin/run b/bin/run\nold mode 100644\nnew mode 100755\n",
+    "diff --git a/src/old.ts b/src/new.ts\nsimilarity index 100%\nrename from src/old.ts\nrename to src/new.ts\n",
+    "diff --git a/.keep b/.keep\nnew file mode 100644\nindex 0000000..e69de29\n",
+  ].join("");
+  const guide = { ...good, sections: [], unplacedFiles: ["logo.png", "bin/run", "src/new.ts", ".keep"] };
+  const placed = placeUnplacedFiles(guide, patch);
+  expect(placed.unplacedFiles).toEqual([]);
+  expect(placed.sections.at(-1)!.diffs).toEqual([
+    { file: "logo.png", summary: "Binary file." },
+    { file: "bin/run", summary: "Made executable." },
+    { file: "src/new.ts", summary: "Renamed from `src/old.ts`." },
+    { file: ".keep", summary: "New empty file." },
+  ]);
 });

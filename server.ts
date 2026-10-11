@@ -872,14 +872,15 @@ export default async function plugin(bb: BbPluginApi) {
       const v = validateGuide(guide);
       if (!v.ok) return { content: [{ type: "text", text: "Invalid guide:\n" + v.errors.join("\n") }], isError: true };
       const total = store.readPatch(targetKey, 0, 0).total;
-      const files = changedFiles(store.readPatch(targetKey, 0, total).text);
+      const patch = store.readPatch(targetKey, 0, total).text;
+      const files = changedFiles(patch);
       const cov = checkCoverage(v.guide, files);
       if (!cov.ok) return { content: [{ type: "text", text: "Coverage errors:\n" + cov.errors.join("\n") }], isError: true };
       // Stamp the store's authoritative gitRef/base over whatever the agent
       // submitted — the guide must never carry a wrong or stale review ref.
       const meta = store.getReview(targetKey);
       if (meta?.gitRef) v.guide.review = { gitRef: meta.gitRef, ...(meta.base ? { base: meta.base } : {}) };
-      store.saveGuide(targetKey, placeUnplacedFiles(v.guide));
+      store.saveGuide(targetKey, placeUnplacedFiles(v.guide, patch));
       return "Guide accepted.";
     },
   });

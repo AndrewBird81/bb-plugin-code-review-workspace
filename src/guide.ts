@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { patchRows, splitPatchByFile, type PatchFile } from "./patch";
 
 export const DiffRefSchema = z.object({
   file: z.string().min(1).describe("The file's exact repo-relative path, as the diff shows it."),
@@ -57,9 +58,27 @@ export function checkCoverage(guide: Guide, files: string[]):
   return errors.length ? { ok: false, errors } : { ok: true };
 }
 
+/** What a file's diff does besides changing lines, for a file the guide left unplaced. */
+function unplacedSummary(file: PatchFile | undefined): string {
+  if (!file) return "Nothing to review in the diff.";
+  const rows = patchRows(file.text);
+  const header = (prefix: string) => rows.find((row) => row.kind === "header" && row.text.startsWith(prefix))?.text.slice(prefix.length).trim();
+  const [oldMode, newMode] = [header("old mode "), header("new mode ")];
+  const changed = rows.filter((row) => row.kind === "+" || row.kind === "-").length;
+  const parts = [
+    file.oldPath && `Renamed from \`${file.oldPath}\`.`,
+    rows.some((row) => /^Binary files |^GIT binary patch/.test(row.text)) && "Binary file.",
+    oldMode && newMode && (newMode === "100755" ? "Made executable." : oldMode === "100755" ? "No longer executable." : `Mode changed from ${oldMode} to ${newMode}.`),
+    changed > 0 && `${changed} changed line${changed === 1 ? "" : "s"}.`,
+  ].filter(Boolean);
+  if (parts.length) return parts.join(" ");
+  return header("new file mode") ? "New empty file." : header("deleted file mode") ? "Deleted empty file." : "No content changes.";
+}
+
 /** Unplaced files would show nowhere in the workspace, so they become a final chapter. */
-export function placeUnplacedFiles(guide: Guide): Guide {
+export function placeUnplacedFiles(guide: Guide, patch: string): Guide {
   if (!guide.unplacedFiles.length) return guide;
+  const files = new Map(splitPatchByFile(patch).map((file) => [file.path, file]));
   const ids = new Set(guide.sections.map((s) => s.id));
   let id = "other-files";
   for (let n = 2; ids.has(id); n++) id = `other-files-${n}`;
@@ -67,7 +86,7 @@ export function placeUnplacedFiles(guide: Guide): Guide {
     ...guide,
     sections: [...guide.sections, {
       id, title: "Other files", risk: "low", overview: "Files with nothing to review in the diff, such as binary files, mode changes, or pure renames.",
-      diffs: guide.unplacedFiles.map((file) => ({ file, summary: "Nothing to review in the diff." })),
+      diffs: guide.unplacedFiles.map((file) => ({ file, summary: unplacedSummary(files.get(file)) })),
     }],
     unplacedFiles: [],
   };
