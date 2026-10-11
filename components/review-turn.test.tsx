@@ -23,7 +23,7 @@ const guide = {
   title: "Guide", intent: "Parses rows.", unplacedFiles: [],
   sections: [{ id: "c1", title: "Parsing", overview: "", diffs: [{ file: "src/a.ts" }] }],
 };
-const turn = (over: Record<string, unknown>) => ({ group: "needs", reason: "re-requested", label: "Re-requested", action: "Review changes", signal: null, at: now, notify: true, blocking: false, updated: true, ...over });
+const turn = (over: Record<string, unknown>) => ({ group: "needs", reason: "re-requested", label: "Re-requested", action: "Review changes", signal: "re-requested:1", at: now, notify: true, blocking: false, updated: true, ...over });
 const feedback: FeedbackView = {
   baseline: { sha: "old", at: now - 3 * DAY, verdict: "REQUEST_CHANGES" }, head: "new", fetchedAt: now, suggestionInDraft: false,
   run: { headSha: "new", summary: "", suggestedVerdict: "APPROVE", suggestedBody: "Looks good now.", assessedAt: now, current: true },
@@ -58,52 +58,74 @@ async function renderWorkspace(review: Record<string, unknown>, rpc: Record<stri
   return { slot, rpc: handlers };
 }
 
-const viewButton = (slot: Awaited<ReturnType<typeof renderWorkspace>>["slot"], name: string) => slot.getByRole("button", { name, pressed: undefined }) as HTMLButtonElement;
+type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
+const panel = (slot: Slot) => within(slot.getByRole("complementary", { name: "Comments and agent" }));
+const tab = (slot: Slot, name: string) => panel(slot).getByRole("button", { name });
 
-test("opening a re-requested review marks it seen and starts on Feedback", async () => {
+test("a review that came back to you is marked seen and opens on its Overview, with Comments on your feedback", async () => {
   const { slot, rpc } = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({}) });
   await slot.findByText("Your feedback");
   expect(rpc.markSeen).toHaveBeenCalledTimes(1);
   expect(rpc.markSeen).toHaveBeenCalledWith({ targetKey: "pr-42" });
-  expect(viewButton(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
+  expect(slot.getByRole("heading", { name: "Parse rows" })).toBeTruthy();
+  expect(tab(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
   slot.lifecycle.unmount();
 });
 
-test("a view the reviewer chose wins over the turn", async () => {
-  patchReviewState("pr-42", { view: "diff" });
-  const { slot } = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({}) });
-  await slot.findByRole("heading", { name: "Parse rows" });
-  expect(viewButton(slot, "Diff").getAttribute("aria-pressed")).toBe("true");
+test("opened again in the same turn, a review goes back to where you were; back to you again, to its Overview", async () => {
+  const review = { submittedVerdict: "REQUEST_CHANGES", turn: turn({}) };
+  let { slot } = await renderWorkspace(review);
+  fireEvent.click(await slot.findByRole("button", { name: "Start reading: Parsing" }));
+  await slot.findByTestId("filediff");
+  fireEvent.click(panel(slot).getByRole("button", { name: "Close panel" }));
+  slot.lifecycle.unmount();
+  ({ slot } = await renderWorkspace(review));
+  await slot.findByTestId("filediff");
   expect(slot.queryByText("Your feedback")).toBeNull();
   slot.lifecycle.unmount();
-});
-
-test("a review you haven't given opens on Diff, even after you chose Feedback in it", async () => {
-  patchReviewState("pr-42", { view: "feedback" });
-  const { slot } = await renderWorkspace({ turn: turn({ reason: "requested", label: "Review requested" }) });
-  await slot.findByRole("heading", { name: "Parse rows" });
-  await waitFor(() => expect(viewButton(slot, "Diff").getAttribute("aria-pressed")).toBe("true"));
-  // Choosing it again still shows it.
-  fireEvent.click(viewButton(slot, "Feedback"));
-  expect(viewButton(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
+  ({ slot } = await renderWorkspace({ ...review, turn: turn({ reason: "question", label: "Question for you", signal: "reply:2" }) }));
+  await slot.findByText("Your feedback");
+  expect(slot.getByRole("heading", { name: "Parse rows" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
-test("a local review has no Feedback view", async () => {
+test("a review an older version left on Threads opens Comments there once, where it docks", async () => {
+  patchReviewState("pr-42", { activeId: "c1", view: "threads" });
+  const { slot } = await renderWorkspace({ submittedVerdict: "COMMENT", submittedAt: now - DAY, turn: turn({ group: "waiting", reason: "waiting", label: "Commented", signal: null }) }, {
+    getReviewThreads: () => ({ threads: [] }),
+  });
+  await slot.findByTestId("filediff");
+  await waitFor(() => expect(tab(slot, "Threads").getAttribute("aria-pressed")).toBe("true"));
+  expect(JSON.parse(localStorage.getItem("gr:panelstate")!).perReview["pr-42"].view).toBeUndefined();
+  slot.lifecycle.unmount();
+});
+
+test("a review you haven't given ignores the Feedback an older version left it on, and Comments still shows it when you pick it", async () => {
+  patchReviewState("pr-42", { view: "feedback" });
+  const { slot } = await renderWorkspace({ turn: turn({ reason: "requested", label: "Review requested", signal: "requested:1" }) });
+  await slot.findByRole("heading", { name: "Parse rows" });
+  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
+  fireEvent.click(tab(slot, "Feedback"));
+  expect(tab(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
+  slot.lifecycle.unmount();
+});
+
+test("a local review's Comments has only its draft", async () => {
   const { slot } = await renderWorkspace({ kind: "ref", gitRef: "main...x" });
   await slot.findByRole("heading", { name: "Parse rows" });
+  fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
+  expect(panel(slot).getByRole("region", { name: "Review draft" })).toBeTruthy();
   expect(slot.queryByRole("button", { name: "Feedback" })).toBeNull();
-  expect(viewButton(slot, "Diff").getAttribute("aria-pressed")).toBe("true");
   slot.lifecycle.unmount();
 });
 
 test("Follow up opens the comment box at the thread's line in the diff", async () => {
   const { slot } = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({}) });
   const card = await slot.findByRole("article", { name: "Handle the empty list" });
-  await slot.findByRole("region", { name: "Submitted review" });
+  await slot.findByRole("region", { name: "Submitted review", hidden: true });
   fireEvent.click(within(card).getByRole("button", { name: "Follow up" }));
-  await waitFor(() => expect(viewButton(slot, "Diff").getAttribute("aria-pressed")).toBe("true"));
-  const box = await within(slot.getByTestId("filediff")).findByRole("textbox", { name: "Draft comment" });
+  const box = await within(await slot.findByTestId("filediff")).findByRole("textbox", { name: "Draft comment" });
   expect(box.closest("[data-draft-at]")?.getAttribute("data-draft-at")).toContain("src/a.ts");
   slot.lifecycle.unmount();
 });
@@ -114,7 +136,7 @@ test("Use as draft opens the draft with the assistant's verdict and summary", as
     getDraft: vi.fn(() => ({ draft })),
     useSuggestedVerdict: vi.fn(() => { draft = { ...draft, verdict: "APPROVE", body: "Looks good now." }; return { ok: true }; }),
   });
-  await slot.findByRole("region", { name: "Submitted review" });
+  await slot.findByRole("region", { name: "Submitted review", hidden: true });
   fireEvent.click(await slot.findByRole("button", { name: "Use as draft" }));
   await waitFor(() => expect(rpc.useSuggestedVerdict).toHaveBeenCalledWith({ targetKey: "pr-42", mode: "suggested", revision: "r1" }));
   const summary = await slot.findByRole("region", { name: "Review summary" });
@@ -124,7 +146,7 @@ test("Use as draft opens the draft with the assistant's verdict and summary", as
   slot.lifecycle.unmount();
 });
 
-test("the header shows your review rounds, progress, Blocks merge, and Not yet", async () => {
+test("the Overview shows your review rounds, progress, Blocks merge, and Not yet", async () => {
   const { slot, rpc } = await renderWorkspace({
     submittedVerdict: "REQUEST_CHANGES",
     submittedAt: now - DAY,
@@ -140,11 +162,10 @@ test("the header shows your review rounds, progress, Blocks merge, and Not yet",
   expect(slot.getByText("Blocks merge")).toBeTruthy();
   fireEvent.click(slot.getByRole("button", { name: "Not yet" }));
   await waitFor(() => expect(rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: true }));
-  // The progress pill opens Feedback.
-  patchReviewState("pr-42", {});
-  fireEvent.click(viewButton(slot, "Diff"));
+  // The progress pill opens Comments on Feedback.
+  fireEvent.click(panel(slot).getByRole("button", { name: "Close panel" }));
   fireEvent.click(slot.getByText("2/5 addressed"));
-  expect(viewButton(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
+  expect(tab(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
   slot.lifecycle.unmount();
 });
 
@@ -160,7 +181,7 @@ test("a snoozed review offers Back to Needs review, and an unreviewed one no Not
   fresh.slot.lifecycle.unmount();
 });
 
-test("a new request can be snoozed until a time from the review's header", async () => {
+test("a new request can be snoozed until a time from the review's Overview", async () => {
   const { snoozeTimes } = await import("../lib/turn");
   const { slot, rpc } = await renderWorkspace({ turn: turn({ reason: "requested", label: "Review requested" }) });
   fireEvent.click(await slot.findByRole("button", { name: "Snooze" }));
@@ -205,21 +226,24 @@ test("a tracked review that can't start says why", async () => {
   slot.lifecycle.unmount();
 });
 
-test("Submit review in the top bar says what the draft would submit, and opens it at the summary", async () => {
-  patchReviewState("pr-42", { activeTool: "notes", toolsOpen: false });
+test("Submit review says what the draft would submit, and opens Finish review at the summary", async () => {
   const draft = { targetKey: "pr-42", verdict: "REQUEST_CHANGES", body: "Two asks.", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "Handle it." }] };
   const { slot } = await renderWorkspace({}, { getDraft: vi.fn(() => ({ draft })) });
-  const open = await slot.findByRole("button", { name: "Submit review · Request changes · 1 comment" });
-  expect(slot.getByRole("button", { name: "Draft review" }).getAttribute("aria-pressed")).toBe("false");
+  // In the band, where BB's title bar didn't take it.
+  const open = await slot.findByRole("button", { name: "Submit review: Request changes, 1 comment" });
+  expect(open.textContent).toBe("Submit· 1");
+  expect(open.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(open);
-  await waitFor(() => expect(slot.getByRole("button", { name: "Draft review" }).getAttribute("aria-pressed")).toBe("true"));
+  await slot.findByRole("heading", { name: "Finish review" });
+  expect(open.getAttribute("aria-pressed")).toBe("true");
   await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Review summary"));
   slot.lifecycle.unmount();
 });
 
 test("a merged review offers no Submit review", async () => {
   const { slot } = await renderWorkspace({ prState: "MERGED", archivedAt: 1 });
-  await slot.findByRole("region", { name: "Archived review" });
+  await slot.findByRole("region", { name: "Archived review", hidden: true });
+  await slot.findByRole("button", { name: "Comments" });
   expect(slot.queryByRole("button", { name: /^Submit review/ })).toBeNull();
   slot.lifecycle.unmount();
 });

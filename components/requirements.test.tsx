@@ -39,10 +39,9 @@ function renderWorkspace(sent: object) {
   } as any }));
 }
 
-test("the header tallies the PR's requirements, and expands to them, a covered one opening its line", async () => {
+test("the Overview tallies the PR's requirements, and expands to them, a covered one opening its line", async () => {
   const slot = await renderWorkspace(guide);
-  await slot.findByText("aa");
-  const toggle = slot.getByRole("button", { name: "Requirements: 1/2 covered" });
+  const toggle = await slot.findByRole("button", { name: "Requirements: 1/2 covered" });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   expect(slot.queryByText("Expire the cache hourly")).toBeNull();
   fireEvent.click(toggle);
@@ -61,7 +60,7 @@ test("the header tallies the PR's requirements, and expands to them, a covered o
 test("a guide without requirements shows no tally", async () => {
   const { requirements: _, ...old } = guide;
   const slot = await renderWorkspace(old);
-  await slot.findByText("aa");
+  await slot.findByRole("heading", { name: "Parse rows" });
   expect(slot.queryByText(/Requirements/)).toBeNull();
   slot.lifecycle.unmount();
 }, 15_000);

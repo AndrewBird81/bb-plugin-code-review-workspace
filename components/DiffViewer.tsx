@@ -294,6 +294,7 @@ export const DiffViewer = memo(function DiffViewer({
   generated = NONE,
   sinceWhat = "your review",
   owners,
+  foldAll,
 }: {
   diffLayout?: "split" | "unified";
   /** Wrap long lines instead of scrolling them sideways. */
@@ -331,6 +332,8 @@ export const DiffViewer = memo(function DiffViewer({
   sinceWhat?: string;
   /** Each file's CODEOWNERS owners, and whether you or a team you're on is one. */
   owners?: ReadonlyMap<string, FileOwners>;
+  /** A new value folds every file, or unfolds them all. */
+  foldAll?: { folded: boolean; nonce: number };
 }) {
   const theme = useTheme();
   const compact = useMediaQuery("(max-width: 767px)");
@@ -453,6 +456,13 @@ export const DiffViewer = memo(function DiffViewer({
   const noisy = useMemo(() => new Set(perFile.filter((f) => f.noisy).map((f) => f.path)), [perFile]);
   const isCollapsed = (file: string) => collapsed[file] ?? ((views.get(file)?.viewed ?? false) || noisy.has(file));
   const toggleCollapsed = (file: string) => setCollapsed((c) => ({ ...c, [file]: !isCollapsed(file) }));
+  // Only a request made while it shows: a diff drawn again later starts as it would.
+  const foldedAll = useRef(foldAll);
+  useEffect(() => {
+    if (!foldAll || foldAll === foldedAll.current) return;
+    foldedAll.current = foldAll;
+    setCollapsed((c) => ({ ...c, ...Object.fromEntries(perFile.map((f) => [f.path, foldAll.folded])) }));
+  }, [foldAll]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleToggleViewed(file: string, next: boolean) {
     onToggleViewed(file, next);

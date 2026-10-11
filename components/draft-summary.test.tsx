@@ -144,14 +144,10 @@ test("without a summary, you write it or ask the agent to, and Request changes w
   slot.lifecycle.unmount();
 });
 
-test("showDraft opens Draft review at the summary", async () => {
+test("showDraft focuses the draft's summary, which Finish review shows", async () => {
   const draft = draftOf({ verdict: "APPROVE", body: "Looks good now." });
-  localStorage.setItem("gr:panelstate", JSON.stringify({ perReview: { show: { activeTool: "notes", toolsOpen: false } } }));
   const slot = await renderTray("show", { getDraft: () => ({ draft }) });
-  const draftTool = slot.getByRole("button", { name: "Draft review" });
-  expect(draftTool.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(slot.getByRole("button", { name: "Show draft" }));
-  await waitFor(() => expect(draftTool.getAttribute("aria-pressed")).toBe("true"));
   expect(summary(slot).getByText("Looks good now.")).toBeTruthy();
   await waitFor(() => expect(document.activeElement).toBe(slot.getByRole("region", { name: "Review summary" })));
   slot.lifecycle.unmount();

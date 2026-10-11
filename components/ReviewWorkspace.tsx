@@ -4,55 +4,47 @@ import { toast } from "sonner";
 import type { SelectedLineRange } from "@pierre/diffs";
 import type { rpcContract } from "../src/rpc-contract";
 import type { AgentMessageContext } from "../src/store";
-import { VERDICT_LABEL, sameLocation, type CommentLocation } from "../src/draft";
+import { sameLocation, type CommentLocation } from "../src/draft";
 import type { FileInterdiff } from "../src/interdiff";
 import { baselineOf, computeTurn, type TurnReason } from "../lib/turn";
+import { notRunReason } from "../lib/trust";
 import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
-import { useMediaQuery } from "./ui/hooks/use-media-query";
-import { getHideWhitespace, getNavView, getReviewState, getWrapLines, patchReviewState, setHideWhitespace, setLastReview, setNavView, setWrapLines, type NavView } from "../lib/panel-state";
-import { WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
+import { getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setGithubThreadsInCode, setHideWhitespace, setLastReview, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView } from "../lib/panel-state";
+import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
+import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, useWorkspaceLayout } from "../lib/workspace-layout";
+import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { Button } from "./ui/button";
-import { Icon } from "./ui/icon";
-import { ReviewHeader, ReviewTitleLink } from "./ReviewHeader";
-import { ChapterNav } from "./ChapterNav";
-import { FindInReview } from "./FindInReview";
-import { ComparePicker } from "./ComparePicker";
 import type { FileOwners } from "../src/codeowners";
 import { ChapterIntro } from "./ChapterIntro";
 import { DiffViewer, type FileViewFlags } from "./DiffViewer";
 import { DraftProvider, type CommentPrefill } from "./DraftProvider";
-import { DraftPanel } from "./DraftPanel";
-import { RereviewBanner } from "./RereviewBanner";
-import { ThreadsPanel } from "./ThreadsPanel";
-import { FeedbackPanel } from "./FeedbackPanel";
 import { TrackedReview } from "./TrackedReview";
-import { NotRunBanner } from "./NotRunBanner";
-import type { DockInjection } from "./AgentDock";
+import { NotRunButton } from "./NotRunBanner";
+import { AgentDock, type DockInjection } from "./AgentDock";
 import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
-import { kindLook } from "./ReviewStatus";
-import { IconTile } from "./ui/icon-tile";
-import { InlineCode } from "./ui/inline-code";
-import { Hint } from "./ui/hint";
-import { ReviewActions } from "./ReviewActions";
 import { AccountBar } from "./AccountBar";
 import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
-import { useDraftStatus } from "../lib/draft-status";
 import { inDiffOrder, readingOrder, shortcutKey } from "../lib/review-shortcuts";
 import { InlineDraftContext } from "./InlineDraft";
 import { DiffThreadsContext, useDiffThreads } from "./LineThreads";
 import { CheckFailuresContext, useCheckFailures } from "./CheckFailures";
 import { ShortcutsHelp } from "./ShortcutsHelp";
-import { StartHere } from "./StartHere";
+import { Navigator } from "./Navigator";
+import { ReviewOverview } from "./ReviewOverview";
+import { ReaderBar } from "./reading/ReaderBar";
+import { ChapterFooter } from "./reading/ChapterFooter";
+import { CommentsView, type CommentsTab } from "./comments/CommentsView";
+import { NavigatorHost } from "./shell/NavigatorHost";
+import { returnFocus } from "./shell/side-parts";
+import { ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
+import { SelectionBar } from "./shell/SelectionBar";
+import { SidePanel } from "./shell/SidePanel";
+import { TopBand, navigatorId } from "./shell/TopBand";
+import { TOUCH_CONTROL } from "./touch";
 import { splitPatchByFile } from "../src/patch";
 import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunks";
 import { changedLines, readingLines } from "../lib/review-size";
-
-const SIDEBAR_MIN = 200;
-const SIDEBAR_MAX = 560;
-
-type View = "diff" | "feedback" | "threads";
-const VIEW_LOOK = { diff: { label: "Diff", icon: "FileDiff" }, feedback: { label: "Feedback", icon: "ChatFeedback" }, threads: { label: "Threads", icon: "MessageSquare" } } as const;
 
 /** The guide's chapters, then any changed files they don't list, such as an older guide's unplaced files. */
 function withOtherFiles(sections: any[], patch: string): any[] {
@@ -81,32 +73,11 @@ function DraftLines({ into }: { into: MutableRefObject<CommentLocation[]> }) {
 
 /** Turns where what matters first is whether the author addressed your feedback. */
 const FEEDBACK_FIRST = new Set<TurnReason>(["re-requested", "handled", "looks-ready", "question", "mentioned"]);
-function opensOnFeedback(review: any): boolean {
-  if (review?.kind !== "pr") return false;
-  const turn = review.turn ?? computeTurn(review);
-  return turn.group === "needs" && FEEDBACK_FIRST.has(turn.reason);
-}
-
-/** Where GitHub puts it: what your draft would submit, opening Draft review at its summary. */
-function SubmitReviewButton({ targetKey, onOpen }: { targetKey: string; onOpen: () => void }) {
-  const status = useDraftStatus(targetKey);
-  if (!status) return null;
-  const detail = [VERDICT_LABEL[status.verdict], status.comments ? `${status.comments} comment${status.comments === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ");
-  return (
-    <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={onOpen}>
-      <Icon name="Github" className="size-4" aria-hidden />Submit review
-      <span className="hidden text-xs text-subtle-foreground @min-[640px]/review:inline">· {detail}</span>
-    </Button>
-  );
-}
 
 export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { targetKey: string }) {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const codeTheme = experimental_useCodeTheme();
-  const compactViewport = useMediaQuery("(max-width: 767px)");
-  const shortViewport = useMediaQuery("(max-height: 499px)");
-  const [mobileChapters, setMobileChapters] = useState(false);
   const [preferences, setPreferences] = useState<{ preferences: ReviewPreferences; revision: number } | null>(null);
   const diffLayout = preferences?.preferences.diffLayout ?? defaultPreferences.diffLayout;
   const [loading, setLoading] = useState(true);
@@ -120,19 +91,17 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const shownGuide = useRef("");
   // The diff as last shown, which a reload with the same revision doesn't send again.
   const shownPatch = useRef<{ targetKey: string; revision: string; patch: string } | null>(null);
-  const resizeCleanup = useRef<(() => void) | null>(null);
   const persisted = useMemo(() => getReviewState(targetKey), [targetKey]);
 
   const [review, setReview] = useState<any>(null);
   const [guide, setGuide] = useState<any>(null);
   const [patch, setPatch] = useState("");
   const [checks, setChecks] = useState<{ bucket: string; checks: any[] } | null>(null);
-  // From the saved state, so persisting before the guide loads doesn't overwrite it.
-  const [activeId, setActiveId] = useState(persisted.activeId ?? "");
-  // The reviewer's choice persists; without one, the review's turn picks the first view once.
-  const [chosenView, setView] = useState<View | null>(persisted.view ?? null);
-  const [defaultView, setDefaultView] = useState<View | null>(null);
+  // A chapter's id or OVERVIEW, which the review's first load picks (the opening rules); until then it's empty.
+  const [activeId, setActiveId] = useState("");
   const opened = useRef(false);
+  // The saved scroll position, when the review opens where it was saved.
+  const restoreScroll = useRef<number | null>(null);
   const [revision, setRevision] = useState("");
   const [repoAccess, setRepoAccess] = useState<{ accessible: boolean; repo: string | null; account: string | null } | null>(null);
   const [views, setViews] = useState<Map<string, FileViewFlags>>(new Map());
@@ -155,11 +124,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const changeNavView = useCallback((next: NavView) => { setNavViewState(next); setNavView(next); }, []);
   const [snoozing, setSnoozing] = useState(false);
   const [reveal, setReveal] = useState<{ at: CommentLocation; nonce: number }>();
-
-  // Screen utilization: resizable/collapsible sidebar, collapsible header, fullscreen.
-  const [sidebarWidth, setSidebarWidth] = useState(persisted.sidebarWidth ?? 288);
-  const [chosenSidebarCollapsed, setSidebarCollapsed] = useState<boolean | null>(null);
-  const [chosenHeaderCollapsed, setHeaderCollapsed] = useState(persisted.headerCollapsed);
+  const [foldAll, setFoldAll] = useState<{ folded: boolean; nonce: number }>();
   const [isFullscreen, setIsFullscreen] = useState(false);
   // An iPhone can't make a page full screen, so there the workspace covers the window from the top layer instead.
   const [covering, setCovering] = useState(false);
@@ -169,41 +134,84 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const scrollBox = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
-  // Compact by the workspace's own width: a narrow BB pane on a wide screen is as tight as a phone.
-  // Short by its height, as on a phone held sideways. Only whether: the size changes every frame of a pane drag.
-  const [narrowRoot, setNarrowRoot] = useState<boolean | null>(null);
-  const [shortRoot, setShortRoot] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (!rootEl || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      setNarrowRoot(entry.contentRect.width < 768);
-      setShortRoot(entry.contentRect.height < 500);
-    });
-    observer.observe(rootEl);
-    return () => observer.disconnect();
-  }, [rootEl]);
-  const compact = narrowRoot ?? compactViewport;
-  const short = shortRoot ?? shortViewport;
-  // Without a choice of your own, a compact or short workspace collapses the header to give the diff the room,
-  // and a short one starts with the chapters hidden, so code shows on open.
-  const headerCollapsed = chosenHeaderCollapsed ?? (compact || short);
-  const sidebarCollapsed = chosenSidebarCollapsed ?? short;
-  // Likewise long lines wrap there, rather than scroll sideways.
+
+  // Where the navigator and the side panel go, from the workspace's own size (lib/workspace-layout.ts): what you want,
+  // which holds in every review, and the overlays you open where they can't dock, which don't.
+  const [navOpen, setNavOpenState] = useState(getNavOpen);
+  const [navOverlay, setNavOverlay] = useState(false);
+  const [navWidth, setNavWidth] = useState(getNavWidth);
+  const [panelWidth, setPanelWidth] = useState(getPanelWidth);
+  // The panel's view, which opens again only where it can dock.
+  const [panelView, setPanelView] = useState<PanelView | null>(persisted.panel ?? null);
+  const [panelOverlay, setPanelOverlay] = useState(false);
+  const [commentsTab, setCommentsTab] = useState<CommentsTab>("drafts");
+  const layout = useWorkspaceLayout(rootEl, { navWidth, panelWidth, navOpen, navOverlay, panelOpen: panelView !== null, panelOverlay });
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  // The panel's view as it shows, docked or over the code.
+  const shownPanel = layout.panel === "closed" ? null : panelView;
+  const shownPanelRef = useRef(shownPanel);
+  shownPanelRef.current = shownPanel;
+  const commentsTabRef = useRef(commentsTab);
+  commentsTabRef.current = commentsTab;
+  // Overlays don't come back by themselves: once a side docks, it was never opened over the code.
+  useEffect(() => { if (layout.nav === "docked") setNavOverlay(false); }, [layout.nav]);
+  useEffect(() => { if (layout.panel === "docked") setPanelOverlay(false); }, [layout.panel]);
+  useEffect(() => patchReviewState(targetKey, { panel: panelView }), [targetKey, panelView]);
+  // The navigator hidden with the focus in it, as when the panel docks over its room: the chapters toggle takes it.
+  // Before paint, while the hidden navigator still has the focus.
+  const shownNav = useRef(layout.nav);
+  useLayoutEffect(() => {
+    const was = shownNav.current;
+    shownNav.current = layout.nav;
+    if (was !== "docked" || layout.nav === "docked" || layout.nav === "overlay") return;
+    const host = document.getElementById(navigatorId(targetKey));
+    if (host?.contains(document.activeElement)) returnFocus(rootRef.current?.querySelector<HTMLElement>(`main [aria-controls="${navigatorId(targetKey)}"]`), host);
+  }, [layout.nav, targetKey]);
+
+  const changeNavOpen = useCallback((open: boolean) => { setNavOpenState(open); saveNavOpen(open); }, []);
+  /** Show the navigator: docked where it fits, else over the code. */
+  const showNav = useCallback(() => {
+    const { nav, navCanDock } = layoutRef.current;
+    if (nav === "docked" || nav === "overlay") return;
+    if (navCanDock) changeNavOpen(true);
+    else setNavOverlay(true);
+  }, [changeNavOpen]);
+  const toggleNav = useCallback(() => {
+    const { nav } = layoutRef.current;
+    if (nav === "docked") changeNavOpen(false);
+    else if (nav === "overlay") setNavOverlay(false);
+    else showNav();
+  }, [changeNavOpen, showNav]);
+  const findInReview = useCallback(() => {
+    showNav();
+    requestAnimationFrame(() => rootRef.current?.querySelector<HTMLInputElement>("[data-find-box]")?.focus());
+  }, [showNav]);
+  const openPanel = useCallback((view: PanelView) => {
+    setPanelView(view);
+    setPanelOverlay(!layoutRef.current.panelCanDock);
+  }, []);
+  const closePanel = useCallback(() => { setPanelView(null); setPanelOverlay(false); }, []);
+  const togglePanel = useCallback((view: PanelView) => shownPanelRef.current === view ? closePanel() : openPanel(view), [openPanel, closePanel]);
+  const openComments = useCallback((tab: CommentsTab) => { setCommentsTab(tab); openPanel("comments"); }, [openPanel]);
+  // The draft shows its box or chat: Comments, unless the draft is showing already, in Finish or Comments' Drafts.
+  const openDraftView = useCallback((view: PanelView) => {
+    const shown = shownPanelRef.current;
+    if (view !== "comments") openPanel(view);
+    else if (shown !== "finish" && !(shown === "comments" && commentsTabRef.current === "drafts")) openComments("drafts");
+  }, [openPanel, openComments]);
+  // A pick in an overlay, such as a chapter or a comment to show, closes it: what was picked shows.
+  const closeOverlays = useCallback(() => {
+    setNavOverlay(false);
+    if (layoutRef.current.panel === "overlay") closePanel();
+  }, [closePanel]);
+  const fullscreen = isFullscreen || covering;
+  // Without a choice of your own, long lines wrap where the code is narrow, rather than scroll sideways.
   const [chosenWrap, setChosenWrap] = useState(getWrapLines);
-  const wrapLines = chosenWrap ?? compact;
+  const wrapLines = chosenWrap ?? (layout.mode !== "tablet" || layout.narrowReader);
   const changeWrap = useCallback((wrap: boolean) => { setChosenWrap(wrap); setWrapLines(wrap); }, []);
-  const navOpen = compact ? mobileChapters : !sidebarCollapsed;
-  const toggleNav = useCallback(() => compact ? setMobileChapters((value) => !value) : setSidebarCollapsed(!sidebarCollapsed), [compact, sidebarCollapsed]);
-  // A short workspace's toolbar is compact too, so it keeps to one row above the code.
-  const compactToolbar = compact || short;
-  // Collapsed there, the header's title joins the top bar's row, which moves Ask agent and Settings into ⋯ as on a phone.
-  const headerInTopBar = short && headerCollapsed;
-  const toolsInMenu = compact || headerInTopBar;
-  // The toolbar's icons show labels only where its second row fits them all, beside the chapters and review panel.
-  const toolbarLabel = compactToolbar ? "hidden" : "hidden @min-[920px]/toolbar:inline";
   const [hideWhitespace, setHideWhitespaceState] = useState(getHideWhitespace);
   const changeHideWhitespace = useCallback((hide: boolean) => { setHideWhitespaceState(hide); setHideWhitespace(hide); }, []);
-  const didRestoreScroll = useRef(false);
   const reducedMotion =
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
@@ -229,9 +237,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       loadPreferences();
     }
   }, [rpc, preferences, unifiedOnly, loadPreferences]);
-  useEffect(() => patchReviewState(targetKey, { activeId, view: chosenView ?? undefined, sidebarWidth, headerCollapsed: chosenHeaderCollapsed }), [targetKey, activeId, chosenView, sidebarWidth, chosenHeaderCollapsed]);
+  // Saved once the first load has picked the page, so the saved chapter isn't lost before it's read.
+  useEffect(() => { if (activeId) patchReviewState(targetKey, { activeId }); }, [targetKey, activeId]);
   const isPr = review?.kind === "pr";
-  const view: View = chosenView && chosenView !== "diff" && review && !isPr ? "diff" : chosenView ?? defaultView ?? "diff";
 
   // Only the latest refresh applies: marks made while an older one was out would come undone.
   const loadViews = useCallback(async () => {
@@ -271,12 +279,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       shownPatch.current = { targetKey, revision, patch };
       setRevision(revision);
       setReview(review);
-      // A review you haven't given has no feedback yet, so it opens on the diff whatever you chose in it before.
-      if (review && !opened.current) {
-        opened.current = true;
-        if (baselineOf(review).at === null) setView((current) => current === "feedback" ? null : current);
-      }
-      if (review) setDefaultView((current) => current ?? (opensOnFeedback(review) ? "feedback" : "diff"));
       const guideJson = JSON.stringify(guide ?? null);
       if (guideJson !== shownGuide.current) {
         shownGuide.current = guideJson;
@@ -287,11 +289,31 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       if (viewsRes && viewsId === viewsRequest.current) setViews(viewMap(viewsRes.views));
       if (generatedRes) setGenerated((current) => current.size === generatedRes.files.length && generatedRes.files.every((file) => current.has(file)) ? current : new Set(generatedRes.files));
       const chapters = guide?.sections ? withOtherFiles(fitHunks(guide.sections, patch), patch) : [];
-      if (chapters.length) {
-        const saved = getReviewState(targetKey).activeId;
-        setActiveId((prev) => chapters.some((section) => section.id === prev)
-          ? prev : chapters.some((section) => section.id === saved) ? saved! : chapters[0].id);
+      if (!chapters.length) return;
+      if (!review || opened.current) {
+        // A reload keeps the page, unless its chapter went with the guide it was in.
+        setActiveId((prev) => prev === OVERVIEW || chapters.some((section) => section.id === prev) ? prev : OVERVIEW);
+        return;
       }
+      opened.current = true;
+      // The review opens where you left it, or on its Overview: the first time, when its chapter is gone, and when it
+      // came back to you since you last opened it, with Comments beside it where there's room.
+      const saved = getReviewState(targetKey);
+      const turn = review.turn ?? computeTurn(review);
+      const back = review.kind === "pr" && turn.group === "needs" && FEEDBACK_FIRST.has(turn.reason) && !!turn.signal && turn.signal !== saved.turnSignal;
+      const resumable = saved.activeId === OVERVIEW || chapters.some((section) => section.id === saved.activeId);
+      const start = !back && resumable ? saved.activeId! : OVERVIEW;
+      restoreScroll.current = start === saved.activeId ? saved.scrollTop ?? null : null;
+      setActiveId(start);
+      // Before 0.6.0 a review was left on Feedback or Threads, which Comments shows now: once, if it docks.
+      const left = saved.view === "feedback" || saved.view === "threads" ? saved.view : null;
+      const tab = back ? "feedback" : left && review.kind === "pr" && baselineOf(review).at !== null ? left : null;
+      if (tab && layoutRef.current.panelCanDock) {
+        setCommentsTab(tab);
+        setPanelView("comments");
+      }
+      // Undefined drops the key: the old view is used up.
+      patchReviewState(targetKey, { view: undefined, ...(turn.signal ? { turnSignal: turn.signal } : {}) });
     } catch (err) {
       if (id === request.current) setLoadError(err instanceof Error ? err.message : "Check the connection and try again.");
     } finally {
@@ -301,7 +323,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   useEffect(() => {
     void load();
-    return () => { request.current++; resizeCleanup.current?.(); };
+    return () => { request.current++; };
   }, [load]);
   useRealtime(`review:${targetKey}`, () => { void load(); });
   // The checks are read again when the sync sees the PR's head or CI state change, not on every reload.
@@ -389,6 +411,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       setLoadError(err instanceof Error ? err.message : "Couldn’t rebuild the guide.");
     } finally { setRebuilding(false); }
   }, [rebuilding, rpc, targetKey, load]);
+  const archived = !!review?.archivedAt;
+  const newCommits = useNewCommits(targetKey, isPr && !archived);
 
   const checkAccess = useMemo(
     () => async () => {
@@ -421,7 +445,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     else if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     else void rootRef.current?.requestFullscreen().catch(() => {});
   }, []);
-  const fullscreen = isFullscreen || covering;
   const canFullscreen = document.fullscreenEnabled || "showPopover" in HTMLElement.prototype;
   useLayoutEffect(() => {
     if (!covering || !rootEl) return;
@@ -435,18 +458,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       rootEl.removeAttribute("data-fullscreen-cover");
     };
   }, [covering, rootEl]);
-  // From the keyboard, the other chevron takes the focus; a tap or click leaves it, so no tooltip opens.
-  const toggleHeader = useCallback((collapsed: boolean, { detail }: { detail: number }) => {
-    setHeaderCollapsed(collapsed);
-    if (detail === 0) requestAnimationFrame(() => rootRef.current?.querySelector<HTMLElement>(`[aria-label="${collapsed ? "Expand" : "Collapse"} header"]`)?.focus());
-  }, []);
-  const collapseHeader = useMemo(() => (
-    <Hint label="Collapse header" container={rootEl}>
-      <Button variant="ghost" size="sm" aria-label="Collapse header" className="-mt-1.5 size-9 shrink-0 px-0 text-muted-foreground md:mt-0 md:size-7" onClick={(event) => toggleHeader(true, event)}>
-        <Icon name="ChevronUp" className="size-4" aria-hidden />
-      </Button>
-    </Hint>
-  ), [rootEl, toggleHeader]);
 
   const activeIndex = sections.findIndex((x: any) => x.id === activeId);
   const activeSection = activeIndex >= 0 ? sections[activeIndex] : undefined;
@@ -457,6 +468,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const alsoIn = sections.filter((s: any) => s !== activeSection && s.diffs.some((other: any) => other.file === d.file)).map((s: any) => s.title);
     return d.hunks && alsoIn.length ? [[d.file, { hunks: d.hunks, alsoIn }]] : [];
   }) ?? []), [sections, activeSection]);
+  // The chapter you were reading, which the Overview offers to continue.
+  const [lastChapter, setLastChapter] = useState<string | undefined>();
+  useEffect(() => { if (activeSection) setLastChapter(activeSection.id); }, [activeSection]);
 
   useEffect(() => {
     setCurrentFile((current) => current && activeFiles.includes(current) ? current : activeFiles[0]);
@@ -466,13 +480,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const unpin = useCallback(() => { pinned.current = false; }, []);
   const reviewFiles: string[] = useMemo(() => [...new Set<string>(sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)))], [sections]);
 
-  // Restore the saved scroll position once the diff has content to scroll.
+  // Restore the saved scroll position once the page it was saved on shows.
   useEffect(() => {
-    if (didRestoreScroll.current || !patch || view !== "diff" || !scrollBox.current) return;
-    const top = getReviewState(targetKey).scrollTop;
-    if (top) scrollBox.current.scrollTop = top;
-    didRestoreScroll.current = true;
-  }, [patch, view, targetKey]);
+    if (restoreScroll.current === null || !activeId || !scrollBox.current) return;
+    if (restoreScroll.current) scrollBox.current.scrollTop = restoreScroll.current;
+    restoreScroll.current = null;
+  }, [activeId, patch]);
 
   const toggleViewed = useCallback(
     (file: string, viewed: boolean) => {
@@ -503,6 +516,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       .then(() => loadViews())
       .catch(() => loadViews());
   }, [sections, views, rpc, targetKey, loadViews]);
+  const foldAllFiles = useCallback((folded: boolean) => setFoldAll({ folded, nonce: Date.now() }), []);
 
   // A new chapter opens at its top, unless you're jumping to a place in it.
   const jumping = useRef(false);
@@ -516,24 +530,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (!keep && scrollBox.current) scrollBox.current.scrollTop = 0;
   }, [activeId]);
 
-  // With no chapter of your own, a review back with changes opens on the first chapter that changed.
-  const pickChangedChapter = useRef(!persisted.activeId);
-  useEffect(() => {
-    if (!changedSince || !pickChangedChapter.current) return;
-    pickChangedChapter.current = false;
-    const changed = sections.find((section: any) => changedSince[section.id] > 0);
-    if (changed) setActiveId(changed.id);
-  }, [changedSince, sections]);
   // A chapter you choose opens on its intro, with its first file next, even a file you were on in the last chapter.
   const selectChapter = useCallback((id: string) => {
-    pickChangedChapter.current = false;
     if (id !== activeId) {
       pinned.current = false;
       setCurrentFile(sections.find((section: any) => section.id === id)?.diffs[0]?.file);
     }
     setActiveId(id);
-    setMobileChapters(false);
-  }, [activeId, sections]);
+    closeOverlays();
+  }, [activeId, sections, closeOverlays]);
 
   const registerFileEl = useCallback((file: string, el: HTMLElement | null) => {
     if (el) fileEls.current.set(file, el);
@@ -555,7 +560,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   const onSelectFile = useCallback(
     (chapterId: string, file: string) => {
-      pickChangedChapter.current = false;
       unhide(file);
       if (chapterId !== activeId) {
         pendingScroll.current = file;
@@ -565,25 +569,23 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       }
       pinned.current = true;
       setCurrentFile(file);
-      setMobileChapters(false);
+      closeOverlays();
     },
-    [activeId, scrollToFile, unhide],
+    [activeId, scrollToFile, unhide, closeOverlays],
   );
 
   // A comment chosen in the draft panel: show its line in the diff.
   const showComment = useCallback((at: CommentLocation) => {
     const chapter = chapterAt(sections, patch, at);
     if (!chapter) return;
-    setView("diff");
     unhide(at.file);
-    pickChangedChapter.current = false;
     if (chapter.id !== activeId) jumping.current = true;
     setActiveId(chapter.id);
-    setMobileChapters(false);
+    closeOverlays();
     pinned.current = true;
     setCurrentFile(at.file);
     setReveal({ at, nonce: Date.now() });
-  }, [sections, patch, activeId, unhide]);
+  }, [sections, patch, activeId, unhide, closeOverlays]);
   // A thread on a file the PR no longer changes has no diff here to show; its GitHub link can show it.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
@@ -600,30 +602,25 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [outsideGuide, showComment]);
   const openHotspot = useCallback((file: string, line: number) => showLocation(file, line, "RIGHT"), [showLocation]);
   // Find in review's results: a line, a chapter, or a file's summary, in the diff.
-  const openFoundChapter = useCallback((id: string) => { setView("diff"); selectChapter(id); }, [selectChapter]);
   const openFoundFile = useCallback((_chapterId: string, file: string) => showLocation(file, null, "RIGHT"), [showLocation]);
   const followUp = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
     if (outsideGuide(file, url)) return;
     showLocation(file, line, side);
     if (line != null) setDraftPrefill({ file, line, side, nonce: Date.now() });
   }, [outsideGuide, showLocation]);
-  const showDraftSummary = useCallback((replaced = false) => setShowDraft({ at: Date.now(), replaced }), []);
+  // Finish review shows the draft at its summary, which the draft focuses once it shows.
+  const showDraftSummary = useCallback((replaced = false) => { openPanel("finish"); setShowDraft({ at: Date.now(), replaced }); }, [openPanel]);
   // Read when you ask, so asking doesn't change with each scroll, nor the workspace's api with it.
   const currentFileRef = useRef(currentFile);
   currentFileRef.current = currentFile;
-  const askAgent = useCallback((context?: AgentMessageContext) => setInjection({ context: context ?? { file: currentFileRef.current, chapterId: activeId }, nonce: Date.now() }), [activeId]);
-  const openSettings = async () => {
-    if (document.fullscreenElement) await document.exitFullscreen();
-    navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` });
-  };
-  const showFeedback = useMemo(() => isPr ? () => setView("feedback") : undefined, [isPr]);
-  const snoozeFromHeader = useMemo(() => isPr ? (snoozed: boolean, until?: number) => void snooze(snoozed, until) : undefined, [isPr, snooze]);
-  const archived = !!review?.archivedAt;
-  const headerTrailing = useMemo(() => !archived && <RereviewBanner targetKey={targetKey} />, [archived, targetKey]);
-  // The diff remounts after Threads; it shouldn't jump back to an old comment.
-  useEffect(() => { if (view !== "diff") setReveal(undefined); }, [view]);
-  // A selection's actions go with the chapter and view it was made in.
-  useEffect(() => { setSel(null); setLineSel(null); }, [activeId, view]);
+  const chapterId = activeSection?.id as string | undefined;
+  const ask = useCallback((context: AgentMessageContext) => { setInjection({ context, nonce: Date.now() }); openPanel("agent"); }, [openPanel]);
+  const askAgent = useCallback((context?: AgentMessageContext) => ask(context ?? { file: currentFileRef.current, chapterId }), [ask, chapterId]);
+  const showFeedback = useMemo(() => isPr ? () => openComments("feedback") : undefined, [isPr, openComments]);
+  // The diff remounts after the Overview; it shouldn't jump back to an old comment.
+  useEffect(() => { if (activeId === OVERVIEW) setReveal(undefined); }, [activeId]);
+  // A selection's actions go with the chapter it was made in.
+  useEffect(() => { setSel(null); setLineSel(null); }, [activeId]);
 
   useEffect(() => {
     if (pendingScroll.current && activeFiles.includes(pendingScroll.current)) {
@@ -688,19 +685,21 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   function askAboutSelection() {
     if (!sel) return;
-    setInjection({ context: { file: sel.file, code: sel.code, chapterId: activeId }, nonce: Date.now() });
+    ask({ file: sel.file, code: sel.code, chapterId });
     setSel(null);
     window.getSelection()?.removeAllRanges();
   }
 
-  // Everyone's GitHub threads, under their lines in the diff unless hidden.
-  const diffThreads = useDiffThreads(targetKey, isPr && view === "diff");
-  const [showThreads, setShowThreads] = useState(true);
+  // Everyone's GitHub threads, under their lines in the diff unless hidden. Feedback and Threads change them: they're
+  // read again once those close.
+  const diffThreads = useDiffThreads(targetKey, isPr && !(shownPanel === "comments" && commentsTab !== "drafts"));
+  const [showThreads, setShowThreadsState] = useState(getGithubThreadsInCode);
+  const setShowThreads = useCallback((show: boolean) => { setShowThreadsState(show); setGithubThreadsInCode(show); }, []);
   // A GitHub thread's line, with the threads on so its card shows there.
   const showThread = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
     setShowThreads(true);
     showLocation(file, line, side, url);
-  }, [showLocation]);
+  }, [setShowThreads, showLocation]);
   const checkFailures = useCheckFailures(targetKey, isPr ? review?.headSha ?? null : null);
   const readContents = useCallback((file: string) => rpc.call("getFileContents", { targetKey, file }), [rpc, targetKey]);
 
@@ -724,15 +723,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (review?.prState !== "MERGED" && review?.prState !== "CLOSED") return commentOnLines(true);
     const { file, range } = lineSel;
     const side = (range.endSide ?? range.side) === "deletions" ? "deletions" : "additions";
-    setInjection({
-      context: { file, startLine: range.start, endLine: range.end, side, chapterId: activeId },
-      nonce: Date.now(),
-    });
+    ask({ file, startLine: range.start, endLine: range.end, side, chapterId });
     setLineSel(null);
   }
 
   // Keyboard shortcuts, anywhere in the workspace or with nothing focused, except while typing.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const showShortcuts = useCallback(() => setShortcutsOpen(true), []);
   const draftLines = useRef<CommentLocation[]>([]);
   const lastLine = useRef<CommentLocation | null>(null);
   const shortcut = useRef<(key: string) => boolean>(() => false);
@@ -747,10 +744,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     };
     const allFiles = readingOrder(sections);
     const placeOf = (file: string | undefined) => allFiles.findIndex((entry) => entry.chapter === activeId && entry.file === file);
-    const diffOnly = view === "diff";
+    // The Overview has no files to move between.
+    const inChapter = !!activeSection;
     switch (key) {
       case "j": case "k": {
-        if (!diffOnly) return false;
+        if (!inChapter) return false;
         // On a chapter's intro the first file is current but not reached yet: j goes to it first.
         const box = scrollBox.current;
         const header = currentFile ? fileEls.current.get(currentFile) : undefined;
@@ -760,13 +758,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         return true;
       }
       case "n": case "p": {
-        const next = sections[activeIndex + (key === "n" ? 1 : -1)];
-        if (diffOnly && next) selectChapter(next.id);
-        return diffOnly;
+        // The Overview comes before the first chapter.
+        const next = key === "n" ? sections[activeIndex + 1]?.id : activeIndex > 0 ? sections[activeIndex - 1].id : activeIndex === 0 ? OVERVIEW : undefined;
+        if (next) selectChapter(next);
+        return true;
       }
       case "v": {
         const file = shown[Math.max(at, 0)];
-        if (!diffOnly || !file) return diffOnly;
+        if (!inChapter || !file) return inChapter;
         toggleViewed(file, !views.get(file)?.viewed);
         const after = shown[shown.indexOf(file) + 1];
         requestAnimationFrame(() => goToFile(after));
@@ -777,7 +776,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         const rest = [...allFiles.slice(from + 1), ...allFiles.slice(0, from + 1)];
         const next = rest.find((entry) => !views.get(entry.file)?.viewed);
         if (!next) toast.info("Every file is viewed.");
-        else { setView("diff"); onSelectFile(next.chapter, next.file); }
+        else onSelectFile(next.chapter, next.file);
         return true;
       }
       case "]": case "[": {
@@ -794,15 +793,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         return true;
       }
       case "/": case "f": {
-        // The box is in the sidebar, which may be hidden.
         if (key === "f") {
           changeNavView("files");
           // The filter is under Find in review's results while it has a query.
           rootRef.current?.querySelector("[data-find]")?.dispatchEvent(new Event("clearfind"));
-        }
-        if (compact) setMobileChapters(true);
-        else setSidebarCollapsed(false);
-        requestAnimationFrame(() => rootRef.current?.querySelector<HTMLInputElement>(key === "/" ? "[data-find-box]" : "[data-filter-box]")?.focus());
+          showNav();
+          requestAnimationFrame(() => rootRef.current?.querySelector<HTMLInputElement>("[data-filter-box]")?.focus());
+        } else findInReview();
         return true;
       }
       case "a": askAgent(); return true;
@@ -824,38 +821,17 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // Sidebar resize drag.
-  function startSidebarResize(e: React.PointerEvent) {
-    e.preventDefault();
-    resizeCleanup.current?.();
-    const startX = e.clientX;
-    const startW = sidebarWidth;
-    function onMove(ev: PointerEvent) {
-      const w = Math.min(Math.max(startW + (ev.clientX - startX), SIDEBAR_MIN), SIDEBAR_MAX);
-      setSidebarWidth(w);
-    }
-    function onUp() {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      resizeCleanup.current = null;
-    }
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-    resizeCleanup.current = onUp;
-  }
-
   const api = useMemo((): WorkspaceApi | null => guide ? {
-    targetKey, review: review ?? { targetKey }, guide, sections, activeId, go: selectChapter,
-    nav: { open: navOpen, toggle: toggleNav, view: navView, setView: changeNavView },
-    files: { views, toggleViewed, markChapterViewed },
+    targetKey, review: review ?? { targetKey }, guide, sections, activeId, go: selectChapter, layout,
+    nav: { open: layout.nav === "docked" || layout.nav === "overlay", toggle: toggleNav, find: findInReview, view: navView, setView: changeNavView },
+    panel: { view: shownPanel, open: openPanel, toggle: togglePanel, close: closePanel },
+    files: { views, toggleViewed, markChapterViewed, foldAll: foldAllFiles },
     compare: { baseline: baselineSha, head: review?.headSha ?? null, from: compareFrom, pick: pickCompare, since, narrowed: sinceOnly, setNarrowed: setSinceOnly, error: sinceError, what: sinceWhat },
     display: { layout: diffLayout, toggleLayout, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads },
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen },
-    snooze, rebuild, reload: load,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, navOpen, toggleNav, navView, changeNavView, views, toggleViewed, markChapterViewed, baselineSha, compareFrom, pickCompare, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, snooze, rebuild, load]);
+    snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, foldAllFiles, baselineSha, compareFrom, pickCompare, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, snooze, newCommits, rebuild, load, preferences, showShortcuts]);
 
   if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");
@@ -867,244 +843,44 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     return <ReviewSkeleton />;
   }
 
-  const expandHeader = (
-    <Hint label="Expand header" container={rootEl}>
-      <Button variant="ghost" size="sm" aria-label="Expand header" className="size-9 shrink-0 px-0 text-muted-foreground md:size-7" onClick={(event) => toggleHeader(false, event)}>
-        <Icon name="ChevronDown" className="size-4" aria-hidden />
-      </Button>
-    </Hint>
-  );
-  const viewedCount = activeFiles.filter((f) => views.get(f)?.viewed).length;
-  const nextSection = activeIndex >= 0 ? sections[activeIndex + 1] : undefined;
+  const noticeButton = cn("h-7", TOUCH_CONTROL);
+  // The most pressing first: what went wrong, then what's under way, then what you might do.
+  const notices: Notice[] = [
+    ...(loadError ? [{ id: "load", tone: "danger", icon: "AlertCircle", role: "alert", text: loadError, action: <Button variant="outline" size="sm" className={noticeButton} onClick={() => void load()}>Try again</Button> }] as const : []),
+    ...(review?.status === "error" ? [{ id: "rebuild", tone: "danger", icon: "AlertTriangle", role: "alert", text: "Couldn’t update the guide. Showing the previous one.", action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Try again</Button> }] as const : []),
+    ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
+    ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here." }] as const : []),
+    ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review)}.`, action: <NotRunButton review={review} /> }] as const : []),
+    ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: "New commits since this guide was written.", action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),
+  ];
+  const paneWidth = rootEl?.clientWidth ?? 0;
 
   return (
     <WorkspaceProvider api={api}>
     {/* The draft's provider shares it with the diff, which shows each comment under its line, and with its panel. */}
-    <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} agent={{ patch, injection, container: rootEl }} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
+    <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
+    {/* Kit popovers open as bottom drawers where the workspace is phone-sized or short. */}
+    <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
     <div
       ref={(el) => {
         rootRef.current = el;
         setRootEl(el);
       }}
-      className={cn("@container/review flex h-full min-h-0 min-w-0 flex-col bg-background", covering && "fixed inset-0 m-0 h-auto w-auto overflow-hidden border-0 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] text-foreground")}
+      className={cn("@container/review relative flex h-full min-h-0 min-w-0 flex-col bg-background", covering && "fixed inset-0 m-0 h-auto w-auto overflow-hidden border-0 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] text-foreground")}
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
-      {loadError && <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden /><span className="min-w-0 flex-1">{loadError}</span><Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button></div>}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" aria-label="All reviews" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden />{/* The review's title there needs the room. */}{!headerInTopBar && " All reviews"}</Button><Hint label={navOpen ? "Hide chapters" : "Show chapters"} container={rootEl}><Button variant="ghost" size="sm" aria-label={navOpen ? "Hide chapters" : "Show chapters"} aria-pressed={navOpen} className="size-8 px-0 text-muted-foreground aria-pressed:text-primary" onClick={toggleNav}><Icon name={compact ? "ListView" : "PanelLeft"} className="size-4" aria-hidden /></Button></Hint>{headerInTopBar && <><span className="flex min-w-0 flex-1 text-sm font-medium text-foreground"><ReviewTitleLink url={review?.url}>{review?.title ?? guide.title ?? targetKey}</ReviewTitleLink></span>{expandHeader}</>}<div className="ml-auto flex flex-wrap items-center gap-1">{headerInTopBar && generatingReplacement && <p role="status" className="flex items-center gap-1.5 text-xs text-warning-text"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Regenerating the guide…</p>}{headerInTopBar && !review?.archivedAt && <RereviewBanner targetKey={targetKey} />}<SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} />{!toolsInMenu && <><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => askAgent()}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask agent</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={openSettings}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button></>}<ReviewActions review={review} className="size-8" pinnable={preferences?.preferences.threadListReviews === true} items={toolsInMenu ? [{ label: "Ask agent", icon: "Sparkles", onSelect: askAgent }, { label: "Settings", icon: "Settings", onSelect: openSettings }] : undefined} onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
-      {/* Header — full, or collapsed to its title: in the top bar when also short. */}
-      {headerInTopBar ? null : headerCollapsed ? (
-        <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-3 py-2">
-          <IconTile {...kindLook(review ?? { targetKey })} className="size-6 rounded-md" iconClassName="size-3.5" />
-          <span className="flex min-w-0 flex-1 text-sm font-medium text-foreground">
-            <ReviewTitleLink url={review?.url}>{review?.title ?? guide.title ?? targetKey}</ReviewTitleLink>
-          </span>
-          {generatingReplacement && <p role="status" className="flex items-center gap-1.5 text-xs text-warning-text"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Regenerating the guide. Your previous diff and unsaved edits remain visible.</p>}
-          {!review?.archivedAt && <RereviewBanner targetKey={targetKey} />}
-          {expandHeader}
-        </div>
-      ) : (
-        <div className="border-b border-border">
-          <div className="px-4 pb-3.5 pt-3">
-            <ReviewHeader review={review} checks={checks} intent={guide.intent} sinceReview={guide.sinceReview} requirements={guide.requirements} onOpenLine={openHotspot} onShowFeedback={showFeedback} onSnooze={snoozeFromHeader} snoozing={snoozing} readLines={readLines} trailing={headerTrailing} collapse={collapseHeader} />
-            {guide.hotspots?.length > 0 && <StartHere hotspots={guide.hotspots} onOpen={openHotspot} />}
-          </div>
-          {generatingReplacement && <p role="status" className="flex items-center gap-2 border-t border-warning/20 bg-warning/10 px-4 py-2 text-xs text-warning-text"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Regenerating the guide. Your previous diff and unsaved edits remain visible.</p>}
-        </div>
-      )}
-      {repoAccess && !repoAccess.accessible && (
-        <p className="flex items-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-1.5 text-xs text-destructive-text">
-          <Icon name="Lock" className="size-3.5 shrink-0" aria-hidden />
-          <span>Active GitHub account {repoAccess.account ? `@${repoAccess.account}` : ""} can’t access{" "}
-          {repoAccess.repo ?? "this repo"}. Switch account:</span>
-          <AccountBar />
-        </p>
-      )}
-      {review?.skippedRun && !review.archivedAt && <NotRunBanner review={review} />}
-      {review?.status === "error" && (
-        <p className="flex items-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-1.5 text-xs text-destructive-text">
-          <Icon name="AlertTriangle" className="size-3.5 shrink-0" aria-hidden />
-          <span className="min-w-0 flex-1">Re-review failed — showing the previous guide.</span>
-          <Button variant="outline" size="sm" className="h-7" disabled={rebuilding} onClick={() => void rebuild()}>Retry</Button>
-        </p>
-      )}
-      <div className="flex min-h-0 flex-1 flex-col @min-[1024px]/review:flex-row">
-      {/* On a phone the chapters and the review panel can both be open: the chapters give way and scroll, so they never draw over the panel. */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @min-[768px]/review:flex-row">
-        {navOpen && (
-          <>
-            <aside
-              className="max-h-[40vh] overflow-y-auto border-b border-border bg-surface-raised p-2 @min-[768px]/review:max-h-none @min-[768px]/review:shrink-0 @min-[768px]/review:border-b-0"
-              style={{ width: compact ? "100%" : sidebarWidth }}
-            >
-              <FindInReview patch={patch} sections={sections} onOpenLine={showLocation} onOpenChapter={openFoundChapter} onOpenFile={openFoundFile}>
-              <ChapterNav
-                sections={sections}
-                activeId={activeId}
-                onSelect={selectChapter}
-                views={views}
-                onSelectFile={onSelectFile}
-                currentFile={currentFile}
-                changedSince={changedSince}
-                lines={lines}
-                patch={patch}
-                generated={generated}
-                view={navView}
-                onViewChange={changeNavView}
-                since={since}
-                threads={diffThreads.threads}
-                owners={owners}
-                sinceWhat={sinceWhat}
-              />
-              </FindInReview>
-            </aside>
-            {!compact && <div
-              tabIndex={0}
-              aria-valuemin={SIDEBAR_MIN}
-              aria-valuemax={SIDEBAR_MAX}
-              aria-valuenow={sidebarWidth}
-              onKeyDown={(event) => {
-                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-                event.preventDefault();
-                setSidebarWidth((width) => event.key === "Home" ? SIDEBAR_MIN : event.key === "End" ? SIDEBAR_MAX : Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, width + (event.key === "ArrowRight" ? 20 : -20))));
-              }}
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize sidebar"
-              onPointerDown={startSidebarResize}
-              className="group/sep relative w-px shrink-0 cursor-col-resize bg-border before:absolute before:inset-y-0 before:-left-1 before:-right-1 before:content-[''] after:absolute after:inset-y-0 after:left-1/2 after:w-0.5 after:-translate-x-1/2 after:bg-primary/70 after:opacity-0 after:transition-opacity after:content-[''] hover:after:opacity-100 focus-visible:outline-none focus-visible:after:w-1 focus-visible:after:bg-primary focus-visible:after:opacity-100"
-            />}
-          </>
-        )}
-        {/* Keeps the toolbar's first row in view when the chapters fill the rest. */}
-        <main className="flex min-h-12 min-w-0 flex-1 flex-col overflow-y-auto @min-[768px]/review:min-h-0">
-          <div className="@container/toolbar flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
-            <div className="inline-flex items-center gap-0.5 rounded-lg bg-muted/40 p-0.5 ring-1 ring-inset ring-border">
-              {/* A local review has nothing on GitHub, so only its diff. */}
-              {(isPr ? (["diff", "feedback", "threads"] as const) : (["diff"] as const)).map((value) => (
-                <Button
-                  key={value}
-                  variant="ghost"
-                  size="sm"
-                  aria-pressed={view === value}
-                  className="h-9 gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground aria-pressed:shadow-xs md:h-7"
-                  onClick={() => setView(value)}
-                >
-                  <Icon name={VIEW_LOOK[value].icon} className="size-3.5" aria-hidden />
-                  {VIEW_LOOK[value].label}
-                </Button>
-              ))}
-            </div>
-            {view === "diff" && (since || isPr) && (
-              <ComparePicker
-                targetKey={targetKey}
-                baseline={baselineSha}
-                head={review?.headSha ?? null}
-                from={compareFrom}
-                onFrom={pickCompare}
-                available={!!since}
-                pickable={isPr}
-                pressed={sinceOnly}
-                onToggle={() => setSinceOnly((value) => !value)}
-              />
-            )}
-            {view === "diff" && sinceError && (
-              <span role="status" title={sinceError} className="flex items-center gap-1.5 text-xs text-destructive-text">
-                <Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden />
-                Couldn’t compare with {compareFrom ? compareFrom.slice(0, 7) : "your last review"}
-              </span>
-            )}
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground md:ml-auto">
-              {view === "diff" && activeFiles.length > 0 && (
-                <>
-                  {/* A compact toolbar keeps to the counts and icons. */}
-                  <span className={cn("tabular-nums", viewedCount === activeFiles.length && "text-diff-added")}>{viewedCount}/{activeFiles.length}{compactToolbar ? <span className="sr-only"> in this chapter</span> : " in this chapter"}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-9 px-2 text-xs md:h-7"
-                    disabled={viewedCount === activeFiles.length}
-                    onClick={() => markChapterViewed(activeId)}
-                  >
-                    <Icon name="CircleCheck" className="size-3.5" aria-hidden />
-                    <span className={cn(compactToolbar && "sr-only")}>Mark chapter viewed</span>
-                  </Button>
-                  <span className="h-4 w-px bg-border" />
-                </>
-              )}
-              {view === "diff" && isPr && diffThreads.threads.length > 0 && <Hint label="GitHub threads" container={rootEl}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label="GitHub threads"
-                  aria-pressed={showThreads}
-                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
-                  onClick={() => setShowThreads(!showThreads)}
-                >
-                  <Icon name="Github" className="size-3.5" aria-hidden />
-                  <span className={toolbarLabel}>Threads</span>
-                </Button>
-              </Hint>}
-              {/* A compact workspace always shows the diff unified. */}
-              {view === "diff" && !compact && <Hint label={unifiedOnly ? "Split view needs a wider pane" : "Split view"} container={rootEl}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Split view"
-                  aria-pressed={diffLayout === "split" && !unifiedOnly}
-                  aria-disabled={unifiedOnly}
-                  className="h-9 px-2 text-xs aria-pressed:text-primary aria-disabled:cursor-default aria-disabled:opacity-50 md:h-7"
-                  onClick={() => void toggleLayout()}
-                >
-                  <Icon name="Columns2" className="size-3.5" aria-hidden />
-                  <span className={toolbarLabel}>Split</span>
-                </Button>
-              </Hint>}
-              {view === "diff" && <Hint label="Wrap lines" container={rootEl}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Wrap lines"
-                  aria-pressed={wrapLines}
-                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
-                  onClick={() => changeWrap(!wrapLines)}
-                >
-                  <Icon name="TextWrap" className="size-3.5" aria-hidden />
-                  <span className={toolbarLabel}>Wrap</span>
-                </Button>
-              </Hint>}
-              {view === "diff" && <Hint label="Hide whitespace" container={rootEl}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Hide whitespace"
-                  aria-pressed={hideWhitespace}
-                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
-                  onClick={() => changeHideWhitespace(!hideWhitespace)}
-                >
-                  <Icon name="Space" className="size-3.5" aria-hidden />
-                  <span className={toolbarLabel}>Hide whitespace</span>
-                </Button>
-              </Hint>}
-              {canFullscreen && <Hint label={fullscreen ? "Exit full screen" : "Full screen"} container={rootEl}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={fullscreen ? "Exit full screen" : "Full screen"}
-                  aria-pressed={fullscreen}
-                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
-                  onClick={toggleFullscreen}
-                >
-                  <Icon name={fullscreen ? "Minimize2" : "Maximize2"} className="size-3.5" aria-hidden />
-                  <span className={toolbarLabel}>{fullscreen ? "Exit" : "Full screen"}</span>
-                </Button>
-              </Hint>}
-            </div>
-          </div>
+      <div className="relative flex min-h-0 flex-1">
+        <NavigatorHost targetKey={targetKey} placement={layout.nav} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelWidth : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
+          <Navigator leading={<TopBand />} patch={patch} currentFile={currentFile} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={owners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} />
+        </NavigatorHost>
+        <main aria-label="Review" className="flex min-w-0 flex-1 flex-col">
+          <ReaderBar threads={isPr && diffThreads.threads.length > 0} />
+          <ReviewNotices notices={notices} />
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
           <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
-            {view === "diff" ? (
+            {activeSection ? (
               <>
-              {activeSection && <ChapterIntro key={activeSection.id} collapsedByDefault={short} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} />}
+              <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} />
               <CheckFailuresContext.Provider value={checkFailures}>
               <DiffThreadsContext.Provider value={showThreads ? diffThreads : null}>
               <DiffViewer
@@ -1130,90 +906,28 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 generated={generated}
                 sinceWhat={sinceWhat}
                 owners={owners}
+                foldAll={foldAll}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>
-              {/* After the last chapter, what's next is the review itself. */}
-              {activeSection && (
-                <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
-                  {viewedCount < activeFiles.length && (
-                    <Button variant="outline" size="sm" onClick={() => { markChapterViewed(activeId); if (nextSection) selectChapter(nextSection.id); else showDraftSummary(); }}>
-                      <Icon name="CircleCheck" className="size-3.5" aria-hidden />
-                      {nextSection ? "Mark chapter viewed and continue" : "Mark chapter viewed and finish"}
-                    </Button>
-                  )}
-                  <Button variant={viewedCount < activeFiles.length ? "ghost" : "soft"} size="sm" className="min-w-0 max-w-full" onClick={() => nextSection ? selectChapter(nextSection.id) : showDraftSummary()}>
-                    <span className="truncate">{nextSection ? <>Next: <InlineCode text={nextSection.title} /></> : `Done: ${isPr ? "Submit review" : "open Draft review"}`}</span>
-                    <Icon name="ArrowRight" className="size-3.5" aria-hidden />
-                  </Button>
-                </div>
-              )}
+              <ChapterFooter />
               </>
-            ) : view === "feedback" ? (
-              <FeedbackPanel
-                targetKey={targetKey}
-                review={review}
-                revision={revision}
-                onShowLocation={showThread}
-                onFollowUp={followUp}
-                onDraftUpdated={showDraftSummary}
-              />
-            ) : (
-              <ThreadsPanel targetKey={targetKey} onShowInDiff={showThread} />
-            )}
+            ) : <ReviewOverview checks={checks} readLines={readLines} changedSince={changedSince} generated={generated} snoozing={snoozing} resume={lastChapter} onShowFeedback={showFeedback} onOpenLine={openHotspot} />}
           </div>
         </main>
+        <SidePanel targetKey={targetKey} placement={layout.panel} view={shownPanel} width={panelWidth} maxWidth={Math.min(PANEL_WIDTH.max, paneWidth - READER_MIN - (layout.nav === "docked" ? navWidth : 0))} onWidth={setPanelWidth} onWidthDone={savePanelWidth} onClose={closePanel} onBack={() => openPanel("comments")}>
+          <CommentsView shown={shownPanel === "comments" || shownPanel === "finish"} finish={shownPanel === "finish"} tab={commentsTab} onTab={setCommentsTab} revision={revision} onShowThread={showThread} />
+          <AgentDock targetKey={targetKey} patch={patch} injection={injection} container={rootEl} active={shownPanel === "agent"} onDock={() => openPanel("agent")} onCollapse={closePanel} />
+        </SidePanel>
+        {/* Over the code, a side dims the rest; a tap there closes it. */}
+        {(layout.nav === "overlay" || layout.panel === "overlay") && <div aria-hidden className="absolute inset-0 z-30 bg-black/40 animate-in fade-in duration-200 motion-reduce:animate-none" onClick={() => { setNavOverlay(false); if (layout.panel === "overlay") closePanel(); }} />}
       </div>
       <DraftLines into={draftLines} />
-      <DraftPanel />
-      </div>
 
-      {/* Line-selection action bar — GitHub-style: pick lines, then act. */}
-      {lineSel && (
-        <div className="fixed bottom-24 left-1/2 z-[62] flex w-max max-w-[calc(100vw-24px)] -translate-x-1/2 flex-wrap items-center gap-1.5 rounded-xl border border-border bg-popover px-2 py-1.5 text-xs shadow-2xl ring-1 ring-primary/10">
-          <span className="flex items-center gap-1.5 px-1 font-mono text-[11px] text-muted-foreground">
-            <Icon name="File" className="size-3.5" aria-hidden />
-            {lineSel.file.split("/").pop()}
-            <span className="rounded bg-primary/10 px-1 text-primary">
-              L{lineSel.range.start}
-              {lineSel.range.end !== lineSel.range.start ? `–${lineSel.range.end}` : ""}
-            </span>
-          </span>
-          <span className="h-4 w-px bg-border" />
-          <Button size="sm" variant="ghost" className="h-9 gap-1.5 px-2 text-xs md:h-7" onClick={() => commentOnLines()}>
-            <Icon name="MessageSquarePlus" className="size-3.5 text-primary" aria-hidden />
-            Add comment
-          </Button>
-          <Button size="sm" variant="ghost" className="h-9 gap-1.5 px-2 text-xs md:h-7" onClick={askAboutLines}>
-            <Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />
-            Ask agent
-          </Button>
-          <button
-            type="button"
-            aria-label="Clear selection"
-            onClick={() => setLineSel(null)}
-            className="rounded-md p-1 text-muted-foreground hover:bg-state-hover hover:text-foreground"
-          >
-            <Icon name="X" className="size-3.5" aria-hidden />
-          </button>
-        </div>
-      )}
-
+      <SelectionBar lines={lineSel} text={sel} onComment={() => commentOnLines()} onAskLines={askAboutLines} onClear={() => setLineSel(null)} onAskText={askAboutSelection} />
       <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
-
-      {sel && (
-        <button
-          type="button"
-          onClick={askAboutSelection}
-          className="fixed z-[62] flex -translate-x-1/2 -translate-y-full items-center gap-1.5 rounded-lg bg-(--ansi-13) px-2.5 py-1 text-xs font-semibold text-background shadow-lg hover:brightness-110"
-          style={{ left: sel.x, top: sel.y - 6 }}
-        >
-          <Icon name="Sparkles" className="size-3.5" aria-hidden />
-          Ask agent about this
-        </button>
-      )}
-
     </div>
+    </CompactViewportOverrideProvider>
     </DraftProvider>
     </WorkspaceProvider>
   );

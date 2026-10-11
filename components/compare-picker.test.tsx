@@ -4,6 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { interdiff } from "../src/interdiff";
+import { patchReviewState } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre>{fileDiff.additionLines.join("")}</pre> }));
@@ -23,6 +24,8 @@ const commits = [
 ];
 
 async function renderWorkspace(review: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
+  // Opened before, on its chapter: a first open shows the Overview.
+  patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   // What a new push and rebuild change.
   const pr = { headSha: "c3ccccc", commits, revision: "r1" };
@@ -46,7 +49,6 @@ async function renderWorkspace(review: Record<string, unknown>, overrides: Recor
     ...overrides,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("heading", { name: "Cache rows" });
   await slot.findByText("b2");
   /** A new commit is pushed, and the review rebuilt on it. */
   const push = async () => {

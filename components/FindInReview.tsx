@@ -32,15 +32,16 @@ function moveFocus(event: KeyboardEvent<HTMLElement>, box: HTMLInputElement | nu
 
 /**
  * Find in review: searches the whole change, not just the chapter shown — both sides of every line
- * of the diff, and the guide's chapters and file summaries. While there's a query its results take
- * the place of `children`.
+ * of the diff, and the guide's chapters and file summaries. Its box heads the navigator, after
+ * `leading`, and while there's a query its results take the place of `children`, which scroll below.
  */
-export const FindInReview = memo(function FindInReview({ patch, sections, onOpenLine, onOpenChapter, onOpenFile, children }: {
+export const FindInReview = memo(function FindInReview({ patch, sections, onOpenLine, onOpenChapter, onOpenFile, leading, children }: {
   patch: string;
   sections: readonly Section[];
   onOpenLine: (file: string, line: number, side: "LEFT" | "RIGHT") => void;
   onOpenChapter: (chapterId: string) => void;
   onOpenFile: (chapterId: string, file: string) => void;
+  leading?: ReactNode;
   children: ReactNode;
 }) {
   const [query, setQuery] = useState("");
@@ -67,9 +68,11 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
   };
 
   return (
-    <div ref={root} data-find className="space-y-3">
-      <div role="search" className="relative px-1">
-        <Icon name="Search" className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-subtle-foreground" aria-hidden />
+    <div ref={root} data-find className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-1.5">
+      {leading}
+      <div role="search" className="relative min-w-0 flex-1">
+        <Icon name="Search" className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle-foreground" aria-hidden />
         <Input
           ref={box}
           data-find-box
@@ -91,8 +94,10 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
           aria-label="Find in review"
           className="h-8 pl-7 pr-7 text-xs"
         />
-        {!query && <kbd aria-hidden className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1 font-mono text-[10px] leading-4 text-subtle-foreground">/</kbd>}
+        {!query && <kbd aria-hidden className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1 font-mono text-[10px] leading-4 text-subtle-foreground">/</kbd>}
       </div>
+      </div>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-2">
       {/* Hidden, not unmounted, so the chapters keep what's open and All files its filter. */}
       <div hidden={!!query.trim()}>{children}</div>
       {query.trim() && (
@@ -136,6 +141,7 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
           )}
         </div>
       )}
+      </div>
     </div>
   );
 });

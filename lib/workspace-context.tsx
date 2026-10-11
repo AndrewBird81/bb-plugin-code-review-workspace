@@ -6,9 +6,10 @@ import type { CommentLocation } from "../src/draft";
 import type { Guide } from "../src/guide";
 import type { FileInterdiff } from "../src/interdiff";
 import type { AgentMessageContext } from "../src/store";
-import type { NavView } from "./panel-state";
+import type { NavView, PanelView } from "./panel-state";
 import type { ReviewPreferences } from "./review-preferences";
 import type { ReviewItem } from "./review-state";
+import type { WorkspaceLayout } from "./workspace-layout";
 import { publishWorkspace } from "./workspace-store";
 
 /** A chapter as the workspace shows it: the guide's, or Other files, for changed files the guide doesn't place. */
@@ -24,17 +25,30 @@ export interface WorkspaceApi {
   guide: Guide;
   /** The guide's chapters, then Other files for changed files they don't list. */
   sections: Chapter[];
-  /** The chapter showing. */
+  /** The chapter showing, or OVERVIEW. */
   activeId: string;
-  /** Show a chapter, from its intro. */
+  /** Show a chapter, from its intro, or the Overview. */
   go(id: string): void;
-  /** The chapters and files beside the code. */
-  nav: { open: boolean; toggle(): void; view: NavView; setView(view: NavView): void };
+  /** Where the navigator and the side panel are, from the workspace's own size. */
+  layout: WorkspaceLayout;
+  /** The chapters and files beside the code. `open`: it shows, docked or over the code. */
+  nav: {
+    open: boolean;
+    toggle(): void;
+    /** Show it with Find in review's box focused. */
+    find(): void;
+    view: NavView;
+    setView(view: NavView): void;
+  };
+  /** The side panel. `view` is the one showing, docked or over the code; null while it's closed. */
+  panel: { view: PanelView | null; open(view: PanelView): void; toggle(view: PanelView): void; close(): void };
   files: {
     views: Map<string, FileViewFlags>;
     toggleViewed(file: string, viewed: boolean): void;
     /** Mark every file in a chapter viewed. */
     markChapterViewed(id: string): void;
+    /** Fold or unfold every file of the chapter in the diff. */
+    foldAll(folded: boolean): void;
   };
   /** Which pushes the diff shows: all of the PR, or what changed since your review or a commit you picked. */
   compare: {
@@ -77,13 +91,22 @@ export interface WorkspaceApi {
   askAgent(context?: AgentMessageContext): void;
   /** Open the draft at its summary. `replaced`: you agreed the agent's summary replaces the one you were writing. */
   openFinish(replaced?: boolean): void;
+  /** `toggle` must run inside the click: a browser goes full screen only from one. */
   fullscreen: { available: boolean; on: boolean; toggle(): void };
   snooze(snoozed: boolean, until?: number): Promise<void>;
+  /** The PR has commits the guide wasn't written for. */
+  newCommits: boolean;
   /** Write the guide again, as for new commits. */
   rebuild(): Promise<void>;
   /** Read the review, guide and diff again. */
   reload(): Promise<void>;
+  /** Reviews show in BB's thread list, so they can be pinned there. */
+  pinnable: boolean;
+  showShortcuts(): void;
 }
+
+/** The `activeId` of the review's Overview, which comes before its chapters. */
+export const OVERVIEW = "overview";
 
 const WorkspaceContext = createContext<WorkspaceApi | null>(null);
 

@@ -31,6 +31,41 @@ export function useWorkspaceFor(targetKey: string | null): WorkspaceApi | null {
   return useSyncExternalStore(subscribe, () => (targetKey === null ? null : workspaces.get(targetKey) ?? null));
 }
 
+// How many of BB's title bars show each review's controls. A host without headerContent mounts none, so the
+// workspace shows them in its own band instead.
+const titleBars = new Map<string, number>();
+
+/** BB's title bar is there for the review's controls; the returned function says it went. */
+export function mountTitleBar(targetKey: string): () => void {
+  titleBars.set(targetKey, (titleBars.get(targetKey) ?? 0) + 1);
+  notify();
+  return () => {
+    const left = (titleBars.get(targetKey) ?? 1) - 1;
+    if (left > 0) titleBars.set(targetKey, left);
+    else titleBars.delete(targetKey);
+    notify();
+  };
+}
+
+/** Whether a title bar of BB's is there for the review's controls. */
+export function useTitleBarMounted(targetKey: string): boolean {
+  return useSyncExternalStore(subscribe, () => titleBars.has(targetKey));
+}
+
+// How many of each review's comments need you, for the title bar's Comments badge; the comments list reports it.
+const needsYou = new Map<string, number>();
+
+export function setNeedsYou(targetKey: string, count: number) {
+  if ((needsYou.get(targetKey) ?? 0) === count) return;
+  if (count) needsYou.set(targetKey, count);
+  else needsYou.delete(targetKey);
+  notify();
+}
+
+export function useNeedsYou(targetKey: string | null): number {
+  return useSyncExternalStore(subscribe, () => (targetKey === null ? 0 : needsYou.get(targetKey) ?? 0));
+}
+
 /** What a Guided Review subPath shows, as ReviewPanel routes it: the list, Review settings, or a review. */
 export type PanelPage = { kind: "list" } | { kind: "settings"; returnTo: string } | { kind: "review"; targetKey: string };
 

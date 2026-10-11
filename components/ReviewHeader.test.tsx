@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { test, expect, afterEach, vi } from "vitest";
-import { cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 afterEach(() => { cleanup(); localStorage.clear(); });
@@ -30,16 +30,17 @@ function renderWorkspace(review: Record<string, unknown>, rpc: Record<string, (i
   } }));
 }
 
-test("a PR review's title opens the pull request on GitHub, including with the header collapsed", async () => {
+test("a PR review's title on its Overview opens the pull request on GitHub, and in a chapter the band's goes back to the Overview", async () => {
   const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url });
   const link = await slot.findByRole("link", { name: "Fix token refresh race" });
   expect(link.getAttribute("href")).toBe(url);
   fireEvent.click(link);
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "openUrl", url });
 
-  fireEvent.click(slot.getByRole("button", { name: "Collapse header" }));
-  expect(slot.queryByRole("heading", { name: "Fix token refresh race" })).toBeNull();
-  expect(slot.getByRole("link", { name: "Fix token refresh race" }).getAttribute("href")).toBe(url);
+  fireEvent.click(slot.getByRole("button", { name: "Start reading: Refresh" }));
+  await waitFor(() => expect(slot.queryByRole("heading", { name: "Fix token refresh race" })).toBeNull());
+  fireEvent.click(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "Fix token refresh race" }));
+  expect(await slot.findByRole("heading", { name: "Fix token refresh race" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import { getReviewState, patchReviewState } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre>{fileDiff.additionLines.join("\n")}</pre> }));
@@ -20,6 +21,8 @@ const guide = {
 };
 
 function renderWorkspace(sent: object) {
+  // Opened before, on its first chapter: a first open shows the Overview.
+  if (!getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   return loadPluginApp(() => import("../app")).then((app) => renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
     setReviewPresence: () => ({ ok: true }),
     getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: structuredClone(sent), patch, revision: "r1" }),

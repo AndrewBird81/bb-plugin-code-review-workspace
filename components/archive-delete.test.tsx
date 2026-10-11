@@ -143,7 +143,8 @@ test("deleting from the open review returns to the list", async () => {
     deleteReview: () => ({ ok: true }),
   } });
   await slot.findByText("Fix login");
-  fireEvent.click(slot.getByRole("button", { name: "Review actions" }));
+  // In the band, where BB's title bar didn't take the review's commands.
+  fireEvent.click(await slot.findByRole("button", { name: "Review actions" }));
   fireEvent.click(await slot.findByRole("button", { name: "Delete…" }));
   fireEvent.click(within(await slot.findByRole("dialog")).getByRole("button", { name: "Delete review" }));
   await waitFor(() => expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review" }));

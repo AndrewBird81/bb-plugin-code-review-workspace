@@ -105,23 +105,23 @@ test("commenting on selected lines opens the box at the last line, leaving the p
   await loadPluginApp(() => import("../app"));
   const DraftTray = await draftTray();
   const { DiffViewer } = await import("./DiffViewer");
+  const onOpenPanel = vi.fn();
   function Review() {
     const [nonce, setNonce] = useState(0);
     return <>
       <button onClick={() => setNonce((value) => value + 1)}>Comment on selected lines</button>
-      <DraftTray targetKey="request" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" prefill={nonce ? { file: "src/a.ts", line: 1, side: "RIGHT", nonce } : undefined}>
+      <DraftTray targetKey="request" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" onOpenPanel={onOpenPanel} prefill={nonce ? { file: "src/a.ts", line: 1, side: "RIGHT", nonce } : undefined}>
         <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} />
       </DraftTray>
     </>;
   }
   const slot = renderSlot({ component: Review }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: empty("request"), stale: [] }) } });
   await slot.findByText("Draft saved");
-  fireEvent.click(slot.getByRole("button", { name: "Reviewer notes" }));
   fireEvent.click(slot.getByRole("button", { name: "Comment on selected lines" }));
   const box = await within(slot.getByTestId("filediff")).findByRole("textbox", { name: "Draft comment" });
   expect(box.closest("[data-draft-at]")?.getAttribute("data-draft-at")).toBe("src/a.ts:1:RIGHT");
   await waitFor(() => expect(document.activeElement).toBe(box));
-  expect(slot.getByRole("button", { name: "Reviewer notes" }).getAttribute("aria-expanded")).toBe("true");
+  expect(onOpenPanel).not.toHaveBeenCalled();
   slot.lifecycle.unmount();
 });
 

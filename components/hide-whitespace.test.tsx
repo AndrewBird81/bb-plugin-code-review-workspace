@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/re
 import { installTestPluginRuntime, loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import type { FileInterdiff } from "../src/interdiff";
+import { getReviewState, patchReviewState } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Each file pierre draws: its hunks' kinds of lines, and the comments under them.
@@ -28,6 +29,8 @@ const guide = { title: "Guide", intent: "Reindents.", unplacedFiles: [] as strin
 const lastDrawn = (name: string) => drawn.filter((d) => d.name === name).at(-1)!;
 
 async function renderWorkspace() {
+  // Opened before, on its first chapter: a first open shows the Overview.
+  if (!getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
@@ -45,7 +48,7 @@ async function renderWorkspace() {
     getFileContents: vi.fn(() => ({ ok: true, old: "  one();\n  two();\n", new: "    one();\n    two();\n" })),
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("heading", { name: "Reindent" });
+  await slot.findByRole("main", { name: "Review" });
   await slot.findAllByTestId("filediff");
   return slot;
 }

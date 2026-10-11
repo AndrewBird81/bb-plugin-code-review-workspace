@@ -5,8 +5,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
 import { commentsKey, isSummary, linesOf, rangeOf, sameLocation, SEVERITIES, severityCounts, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { diffPositions, orderRange } from "../src/review-positions";
-import type { AgentDockProps } from "./AgentDock";
-import { getHideNits, getReviewState, patchReviewState, setHideNits } from "../lib/panel-state";
+import { getHideNits, setHideNits, type PanelView } from "../lib/panel-state";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
 import { setDraftStatus } from "../lib/draft-status";
 import { InlineComposerContext, InlineDraftContext, locationKey, type InlineComposer, type InlineDraft } from "./InlineDraft";
@@ -29,9 +28,10 @@ export interface DraftProviderProps {
   rebuilding?: boolean;
   /** The signed-in account wrote the PR, so GitHub allows only a Comment review. */
   ownPr?: boolean;
-  /** A new value opens Draft review at its summary. `replaced`: you agreed the assistant's suggestion replaces your summary. */
+  /** A new value focuses the summary, which Finish review shows. `replaced`: you agreed the assistant's suggestion replaces your summary. */
   showDraft?: { at: number; replaced?: boolean };
-  agent?: Omit<AgentDockProps, "targetKey" | "active" | "onDock" | "onCollapse">;
+  /** Show the side panel's view of the draft: its comments, its summary and Submit (`finish`), or the agent's chat. */
+  onOpenPanel?: (view: PanelView) => void;
   /** The workspace, whose diff shows the draft's comments under their lines and whose panel shows the draft. */
   children?: ReactNode;
 }
@@ -47,8 +47,8 @@ export function useDraft(): DraftState {
 }
 
 /**
- * Owns the review's draft: loading and saving it, the comment box and its recovery, Submit and its lock, and which
- * review tool shows. The diff shows the draft through InlineDraftContext and InlineComposerContext; the panel through useDraft.
+ * Owns the review's draft: loading and saving it, the comment box and its recovery, and Submit and its lock. The diff
+ * shows the draft through InlineDraftContext and InlineComposerContext; the side panel through useDraft.
  */
 export const DraftProvider = memo(function DraftProvider({ children, ...props }: DraftProviderProps) {
   const state = useDraftState(props);
@@ -58,7 +58,7 @@ export const DraftProvider = memo(function DraftProvider({ children, ...props }:
 });
 DraftProvider.displayName = "DraftProvider";
 
-function useDraftState({ targetKey, activeChapterId, activeFiles, files = activeFiles, prefill, isLocal = false, review, onSubmitted, onShowComment, agent, reviewRevision, rebuilding = false, ownPr = false, account, showDraft, patch = "" }: Omit<DraftProviderProps, "children">) {
+function useDraftState({ targetKey, activeChapterId, activeFiles, files = activeFiles, prefill, isLocal = false, review, onSubmitted, onShowComment, onOpenPanel, reviewRevision, rebuilding = false, ownPr = false, account, showDraft, patch = "" }: Omit<DraftProviderProps, "children">) {
   const rpc = useRpc<typeof rpcContract>();
   const [draft, setDraft] = useState<Draft>({ targetKey, verdict: "COMMENT", body: "", comments: [] });
   const [loaded, setLoaded] = useState(false);
@@ -103,15 +103,6 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   useEffect(() => setConfirming(false), [draftKey]);
   // The review this panel posted, on GitHub.
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
-  const [tab, setTab] = useState<"draft" | "notes" | "agent">(() => {
-    const saved = getReviewState(targetKey).activeTool;
-    return saved === "notes" || saved === "agent" && agent ? saved : "draft";
-  });
-  // On a narrow or short screen the open panel crowds out the diff, so it starts collapsed there, and that isn't saved.
-  const [narrow] = useState(() => ["(max-width: 767px)", "(max-height: 499px)"].some((query) => window.matchMedia?.(query).matches));
-  const [toolsOpen, setToolsOpen] = useState(() => !narrow && getReviewState(targetKey).toolsOpen !== false);
-  useEffect(() => { patchReviewState(targetKey, { activeTool: tab, ...(narrow ? {} : { toolsOpen }) }); }, [targetKey, tab, toolsOpen, narrow]);
-  useEffect(() => { if (agent?.injection) { setTab("agent"); setToolsOpen(true); } }, [agent?.injection]);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   // What had focus when the box opened, for focus to return to when it's cancelled.
   const opener = useRef<HTMLElement | null>(null);
@@ -196,7 +187,6 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   useRealtime(`draft:${targetKey}`, refresh);
   useEffect(() => {
     if (!showDraft) return;
-    setTab("draft"); setToolsOpen(true);
     // You agreed the suggestion replaces the summary you were writing.
     if (showDraft.replaced) latest.current.dropSummaryEdit();
     // Focusing the summary scrolls it into view.
@@ -235,7 +225,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       setInline(inDiff);
       setShowComposer(true);
     }
-    if (writing ? !inline : !inDiff) { setTab("draft"); setToolsOpen(true); }
+    // A box in the panel shows there: the summary's in Finish review, a line's in Comments.
+    if (writing ? !inline : !inDiff) onOpenPanel?.((writing ? onSummary : !!selected && isSummary(selected)) ? "finish" : "comments");
     requestAnimationFrame(() => {
       const box = bodyRef.current;
       // Typing goes after the text being edited, not before it.
@@ -257,7 +248,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       composerRevision.current = kept.revision;
       summaryBase.current = draft.body;
       setFile(SUMMARY_AT.file); setLine(String(SUMMARY_AT.line)); setSide(SUMMARY_AT.side); setInline(false); setSummaryBox(true); setBody(kept.body);
-      setTab("draft"); setToolsOpen(true);
+      onOpenPanel?.("finish");
       return;
     }
     setBody(""); setShowComposer(false);
@@ -488,13 +479,12 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const remove = useCallback((comment: DraftComment) => { void latest.current.removeComment(comment); }, []);
   const dismiss = useCallback((at: CommentLocation) => { void latest.current.dismissDiscussion(at); }, []);
   const undoAt = useCallback((at: CommentLocation) => { void latest.current.undo(at); }, []);
-  const showChat = useCallback(() => { setTab("agent"); setToolsOpen(true); }, []);
   const editable = loaded && !loadError && !closed;
   // On your own PR, Comment is the only verdict GitHub takes.
   useEffect(() => { if (ownPr && editable && !isLocal && draft.verdict !== "COMMENT" && !pendingVerdict.current) chooseVerdict("COMMENT"); }, [ownPr, editable, isLocal, draft.verdict]);
   const writing = !!body.trim();
   const composerInDiff = editable && showComposer && inline;
-  const chat = agent ? showChat : null;
+  const chat = useMemo(() => onOpenPanel ? () => onOpenPanel("agent") : null, [onOpenPanel]);
   const editingLine = showComposer && !summaryBox && !asking;
   const inlineDraft = useMemo<InlineDraft>(() => ({
     comments: draft.comments, stale, discussions: lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undo: undoAt, chat,
@@ -543,7 +533,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const counts = severityCounts(draft.comments);
   const nitCount = draft.comments.filter((comment) => comment.severity === "nit").length;
   return {
-    targetKey, agent, tab, setTab, toolsOpen, setToolsOpen, loadError, load, loaded, closed, review, draft, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
+    targetKey, loadError, load, loaded, closed, review, draft, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
     showComposer, inline, counts, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, onShowComment, body, removeComment,
     file, boxLines, line, side, files, setFile, editing, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,

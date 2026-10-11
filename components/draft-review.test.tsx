@@ -288,22 +288,6 @@ test("an out-of-date summary asks once more; a verdict matching the suggestion a
   slot.lifecycle.unmount();
 });
 
-test("below 768px wide the review panel starts collapsed, and doesn't forget it was open on a wider screen", async () => {
-  localStorage.setItem("gr:panelstate", JSON.stringify({ perReview: { narrow: { activeTool: "draft", toolsOpen: true } } }));
-  const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(max-width: 767px)", media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }) as MediaQueryList);
-  try {
-    await loadPluginApp(() => import("../app"));
-    const DraftTray = await draftTray();
-    const slot = renderSlot({ component: () => <DraftTray targetKey="narrow" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" /> }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }) } as any });
-    const tool = await slot.findByRole("button", { name: "Draft review" });
-    expect(tool.getAttribute("aria-expanded")).toBe("false");
-    expect(JSON.parse(localStorage.getItem("gr:panelstate")!).perReview.narrow.toolsOpen).toBe(true);
-    fireEvent.click(tool);
-    expect(tool.getAttribute("aria-expanded")).toBe("true");
-    slot.lifecycle.unmount();
-  } finally { matchMedia.mockRestore(); }
-});
-
 test("on your own PR, the panel offers Comment only, and picks it", async () => {
   let draft = draftOf({ verdict: "APPROVE", verdictChosen: true, body: "Notes.", suggestedVerdict: "APPROVE" });
   const setVerdict = vi.fn(({ verdict }: any) => { draft = { ...draft, verdict, verdictChosen: true }; return { draft }; });
@@ -369,20 +353,5 @@ test("Undo after removing keeps an agent's comment the agent's, and isn't offere
   const [, { action }] = vi.mocked(toast.info).mock.calls[1] as any;
   action.onClick();
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo-agent", revision: "r1", comment: agents }));
-  slot.lifecycle.unmount();
-});
-
-test("collapsing the panel puts focus on the rail without opening its tooltip over the toolbar", async () => {
-  const draft = draftOf({ comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "One." }] });
-  const slot = await renderTray("collapse-tip", { getDraft: () => ({ draft, stale: [], discussions: [] }) });
-  const [collapse] = slot.getAllByRole("button", { name: "Collapse review panel" }).slice(-1);
-  fireEvent.click(collapse);
-  const rail = within(slot.getByRole("group", { name: "Review tools" })).getByRole("button", { name: "Draft review" });
-  await waitFor(() => expect(document.activeElement).toBe(rail));
-  await new Promise((resolve) => setTimeout(resolve, 400));
-  expect(slot.queryByRole("tooltip")).toBeNull();
-  // Moving on along the rail still shows its tooltips.
-  within(slot.getByRole("group", { name: "Review tools" })).getByRole("button", { name: "Reviewer notes" }).focus();
-  expect((await slot.findByRole("tooltip")).textContent).toBe("Reviewer notes");
   slot.lifecycle.unmount();
 });

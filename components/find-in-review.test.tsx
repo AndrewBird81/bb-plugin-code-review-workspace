@@ -5,6 +5,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { searchIndex, searchReview } from "../lib/review-search";
+import { getReviewState, patchReviewState } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Like pierre, each file's rows are in a diffs-container's shadow root; its text shows outside for the tests.
@@ -82,6 +83,8 @@ test("searching a 30,000-line patch stays fast", () => {
 });
 
 async function renderWorkspace() {
+  // Opened before, on its first chapter: a first open shows the Overview.
+  if (!getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
@@ -97,7 +100,7 @@ async function renderWorkspace() {
     markSeen: () => ({ ok: true }),
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("heading", { name: "Retry more" });
+  await slot.findByRole("main", { name: "Review" });
   await slot.findByText(/const retries = 5;/);
   return slot;
 }

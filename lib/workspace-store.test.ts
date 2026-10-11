@@ -79,7 +79,8 @@ test("an open review publishes its workspace: it shows what the page shows, its 
   const store = renderHook(() => useWorkspaceFor("pr-42"));
   await waitFor(() => expect(store.result.current).not.toBeNull());
   const api = () => store.result.current!;
-  expect(api()).toMatchObject({ targetKey: "pr-42", activeId: "c1", review: { title: "Parse rows" }, guide: { title: "Guide" }, nav: { open: true, view: "chapters" } });
+  // A first open shows the Overview.
+  expect(api()).toMatchObject({ targetKey: "pr-42", activeId: "overview", review: { title: "Parse rows" }, guide: { title: "Guide" }, nav: { open: true, view: "chapters" }, panel: { view: null } });
   expect(api().sections.map((section) => section.id)).toEqual(["c1", "c2"]);
   act(() => api().go("c2"));
   expect(api().activeId).toBe("c2");
@@ -90,6 +91,11 @@ test("an open review publishes its workspace: it shows what the page shows, its 
   act(() => api().nav.toggle());
   expect(api().nav.open).toBe(false);
   expect(slot.queryByRole("button", { name: "Show chapters" })).not.toBeNull();
+  act(() => api().panel.open("comments"));
+  expect(api().panel.view).toBe("comments");
+  expect(slot.getByRole("complementary", { name: "Comments and agent" }).hidden).toBe(false);
+  act(() => api().panel.close());
+  expect(api().panel.view).toBeNull();
   slot.lifecycle.unmount();
   expect(store.result.current).toBeNull();
 });

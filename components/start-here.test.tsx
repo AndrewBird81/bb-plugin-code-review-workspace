@@ -20,7 +20,7 @@ const guide = {
   hotspots: [{ file: "src/b.ts", line: 2, why: "The cache key ignores `tenant`." }],
 };
 
-test("Start here in the header lists the guide's hotspots, each opening its line", async () => {
+test("Start here on the Overview lists the guide's hotspots, each opening its line", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
     setReviewPresence: () => ({ ok: true }),
@@ -35,8 +35,7 @@ test("Start here in the header lists the guide's hotspots, each opening its line
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
     markSeen: () => ({ ok: true }),
   } as any });
-  await slot.findByText("aa");
-  const start = within(slot.getByRole("region", { name: "Start here" }));
+  const start = within(await slot.findByRole("region", { name: "Start here" }));
   expect(start.getByText("tenant")).toBeTruthy();
   fireEvent.click(start.getByRole("button", { name: "src/b.ts:2" }));
   await slot.findByText(/bb/);

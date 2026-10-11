@@ -6,6 +6,7 @@ import { defaultPreferences } from "../src/preferences";
 import { interdiff } from "../src/interdiff";
 import type { FeedbackView } from "../lib/feedback";
 import type { Turn } from "../lib/turn";
+import { getReviewState, patchReviewState } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Count pierre's draws, and render its annotations (where the comment box opens).
@@ -39,6 +40,8 @@ const feedback: FeedbackView = {
 };
 
 async function renderWorkspace(review: () => Record<string, unknown>, rpc: Record<string, unknown> = {}) {
+  // Opened before, on its first chapter: a first open shows the Overview.
+  if (!getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
@@ -59,11 +62,10 @@ async function renderWorkspace(review: () => Record<string, unknown>, rpc: Recor
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("heading", { name: "Parse rows" });
+  await slot.findByRole("main", { name: "Review" });
   return { slot, rpc: handlers };
 }
-const viewButton = (slot: Awaited<ReturnType<typeof renderWorkspace>>["slot"], name: string) =>
-  within(slot.getByRole("main")).getByRole("button", { name });
+const panel = (slot: Awaited<ReturnType<typeof renderWorkspace>>["slot"]) => within(slot.getByRole("complementary", { name: "Comments and agent" }));
 
 test("a background reload with the same guide doesn't redraw the diff", async () => {
   const { slot, rpc } = await renderWorkspace(() => ({ submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, signals: { lastReviewSha: "new", ci: "pending" }, turn: turn() }));
@@ -122,12 +124,12 @@ test("a failed comparison with your last review says so", async () => {
 
 test("Follow up on a file outside every chapter says so and offers GitHub, without opening a comment box", async () => {
   const { toast } = await import("sonner");
-  const { slot } = await renderWorkspace(() => ({ submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, turn: turn({ group: "needs", reason: "handled", label: "Feedback handled" }) }));
+  const { slot } = await renderWorkspace(() => ({ submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, turn: turn({ group: "needs", reason: "handled", label: "Feedback handled", signal: "handled:1" }) }));
   const card = await slot.findByRole("article", { name: "Thread T1" });
   fireEvent.click(within(card).getByRole("button", { name: "Follow up" }));
   expect(toast.info).toHaveBeenCalledWith("src/gone.ts isn’t changed in this PR anymore.", expect.objectContaining({ action: expect.objectContaining({ label: "Open on GitHub" }) }));
-  expect(viewButton(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
-  fireEvent.click(viewButton(slot, "Diff"));
+  expect(panel(slot).getByRole("button", { name: "Feedback" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(slot.getByRole("button", { name: "Start reading: Parsing" }));
   await slot.findByTestId("filediff");
   expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull();
   (vi.mocked(toast.info).mock.calls[0][1] as any).action.onClick();
@@ -135,11 +137,12 @@ test("Follow up on a file outside every chapter says so and offers GitHub, witho
   slot.lifecycle.unmount();
 });
 
-test("a failed review offers no Not yet, in the header or the menu", async () => {
+test("a failed review offers no Not yet, in the Overview or the menu", async () => {
+  patchReviewState("pr-42", { activeId: "overview" });
   const { slot } = await renderWorkspace(() => ({ status: "error", submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, turn: turn({ group: "needs", reason: "re-requested", label: "Failed", action: "Retry review", failed: true }) }));
   await slot.findByText("Failed");
   expect(slot.queryByRole("button", { name: "Not yet" })).toBeNull();
-  fireEvent.click(slot.getByRole("button", { name: "Review actions" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Review actions" }));
   await slot.findByRole("button", { name: /Delete/ });
   expect(slot.queryByRole("button", { name: "Not yet" })).toBeNull();
   slot.lifecycle.unmount();

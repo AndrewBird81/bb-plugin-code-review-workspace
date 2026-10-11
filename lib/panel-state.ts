@@ -1,18 +1,23 @@
 // Per-review UI state persisted to localStorage so the Guided Review panel
-// survives tab switches / remounts: which review you were on, the chapter, the
-// scroll position, the side panel, the sidebar width, and whether the header is collapsed; and the
-// layout's widths and toggles, in every review. The floating agent dock
+// survives tab switches / remounts: which review you were on, the chapter or
+// Overview, the scroll position, the side panel, and the turn it last opened in;
+// and the layout's widths and toggles, in every review. The floating agent dock
 // persists its own geometry separately (see AgentDock).
 import { NAV_WIDTH, PANEL_WIDTH } from "./workspace-layout";
 
 export type PanelView = "comments" | "agent" | "finish";
 
 export interface ReviewUiState {
+  /** The chapter showing, or the Overview's id. */
   activeId?: string;
+  /** Before 0.6.0, the view the review showed; read once to open its comments, then removed. */
   view?: "diff" | "feedback" | "threads";
   scrollTop?: number;
   /** The side panel's view, open again where it can dock. */
   panel?: PanelView | null;
+  /** The turn the review last opened in, so it opens on its Overview only when it comes back to you. */
+  turnSignal?: string;
+  // Before 0.6.0; only migrateLayoutState reads them.
   sidebarWidth?: number;
   /** Not `focus`: before 0.5.0 every review opened saved Focus off, which kept phones on the full header. */
   headerCollapsed?: boolean;

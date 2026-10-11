@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
-import { patchReviewState } from "../lib/panel-state";
+import { getReviewState, patchReviewState } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Each file pierre draws, with the options it was given.
@@ -15,7 +15,7 @@ vi.mock("@pierre/diffs/react", () => ({
   },
 }));
 
-// The workspace's renders, by its Submit review button, which draws with it.
+// The workspace's renders, by its Submit review button, which draws with its band where BB's title bar didn't take it.
 let workspaceRenders = 0;
 vi.mock("../lib/draft-status", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/draft-status")>();
@@ -39,6 +39,8 @@ const guide = {
 };
 
 async function renderWorkspace({ rpc = {} }: { rpc?: Record<string, unknown> } = {}) {
+  // Opened before, on its first chapter: a first open shows the Overview.
+  if (!getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
@@ -57,8 +59,7 @@ async function renderWorkspace({ rpc = {} }: { rpc?: Record<string, unknown> } =
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  // A collapsed header shows the title without the full header's heading.
-  await slot.findAllByText("Parse rows");
+  await slot.findByRole("main", { name: "Review" });
   return { slot, rpc: handlers };
 }
 
@@ -136,6 +137,7 @@ test("dragging a wide pane's edge doesn't redraw the workspace on every frame", 
   const restore = fakeWidth(1400);
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
+  await slot.findByRole("button", { name: /^Submit review/ });
   await new Promise((resolve) => setTimeout(resolve, 20));
   const before = workspaceRenders;
   for (const width of [1390, 1380, 1370, 1360]) act(() => restore.resize(width));
@@ -144,17 +146,15 @@ test("dragging a wide pane's edge doesn't redraw the workspace on every frame", 
   restore();
 });
 
-test("a narrow workspace on a wide screen goes compact and starts with the header collapsed, until you expand it", async () => {
+test("a narrow workspace on a wide screen lays out by its own width: the chapters open over the code", async () => {
   const restore = fakeWidth(600);
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
-  fireEvent.click(await slot.findByRole("button", { name: "Expand header" }));
-  expect(slot.getByRole("button", { name: "Collapse header" })).toBeTruthy();
+  expect(slot.queryByRole("navigation", { name: "Chapters" })).toBeNull();
+  fireEvent.click(slot.getByRole("button", { name: "Show chapters" }));
+  const chapters = slot.getByRole("dialog", { name: "Chapters" });
+  expect(within(chapters).getByRole("navigation", { name: "Chapters" })).toBeTruthy();
   slot.lifecycle.unmount();
-  const again = await renderWorkspace();
-  await again.slot.findByText("aa");
-  expect(again.slot.getByRole("button", { name: "Collapse header" })).toBeTruthy();
-  again.slot.lifecycle.unmount();
   restore();
 });
 
@@ -203,6 +203,7 @@ test("Wrap lines wraps the diff's code and sticks in this browser, and starts on
   again.slot.lifecycle.unmount();
   localStorage.clear();
   const restore = fakeWidth(600);
+  patchReviewState("pr-42", { activeId: "c1" });
   const compact = await renderWorkspace();
   await compact.slot.findByText("aa");
   await waitFor(() => expect(drawn.at(-1)!.options.overflow).toBe("wrap"));

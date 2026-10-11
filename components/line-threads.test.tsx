@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import { getReviewState, patchReviewState } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // The lines pierre is asked to show something under, and what's shown there.
@@ -26,6 +27,8 @@ const threads = [
 ];
 
 async function renderWorkspace(rpc: Record<string, unknown> = {}) {
+  // Opened before, on its first chapter: a first open shows the Overview.
+  if (!getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
@@ -46,7 +49,7 @@ async function renderWorkspace(rpc: Record<string, unknown> = {}) {
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("heading", { name: "Parse rows" });
+  await slot.findByRole("main", { name: "Review" });
   await slot.findByTestId("filediff");
   return { slot, rpc: handlers, file: () => within(slot.container.querySelector<HTMLElement>('[data-file="src/a.ts"]')!) };
 }
@@ -88,25 +91,32 @@ test("Reply and Resolve on a thread in the diff go to GitHub, and the toolbar hi
   slot.lifecycle.unmount();
 });
 
-test("Show in diff in the Threads view opens the diff at the thread", async () => {
-  const { slot } = await renderWorkspace();
-  const main = within(slot.getByRole("main"));
-  fireEvent.click(main.getByRole("button", { name: "Threads" }));
-  await main.findByText("Why upper case?");
-  fireEvent.click(main.getAllByRole("button", { name: "Show in diff" })[0]);
-  await waitFor(() => expect(main.getByRole("button", { name: "Diff" }).getAttribute("aria-pressed")).toBe("true"));
-  expect(await main.findByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeTruthy();
+/** Comments' Threads, in the side panel, from the band's Comments where BB's title bar didn't take it. */
+async function openThreads(slot: Awaited<ReturnType<typeof renderWorkspace>>["slot"]) {
+  fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
+  const panel = within(slot.getByRole("complementary", { name: "Comments and agent" }));
+  fireEvent.click(panel.getByRole("button", { name: "Threads" }));
+  return panel;
+}
+
+test("Show in diff in Comments' Threads opens the diff at the thread, beside the list", async () => {
+  const { slot, file } = await renderWorkspace();
+  const panel = await openThreads(slot);
+  await panel.findByText("Why upper case?");
+  fireEvent.click(panel.getAllByRole("button", { name: "Show in diff" })[0]);
+  expect(await file().findByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeTruthy();
+  expect(panel.getByRole("button", { name: "Threads" }).getAttribute("aria-pressed")).toBe("true");
   slot.lifecycle.unmount();
 });
 
-test("Show in diff in the Threads view shows GitHub threads in the diff again if they were hidden", async () => {
+test("Show in diff in Comments' Threads shows GitHub threads in the diff again if they were hidden", async () => {
   const { slot, file } = await renderWorkspace();
   const main = within(slot.getByRole("main"));
   await file().findByRole("article", { name: "GitHub thread on src/a.ts:2" });
   fireEvent.click(main.getByRole("button", { name: "GitHub threads" }));
-  fireEvent.click(main.getByRole("button", { name: "Threads" }));
-  await main.findByText("Why upper case?");
-  fireEvent.click(main.getAllByRole("button", { name: "Show in diff" })[0]);
+  const panel = await openThreads(slot);
+  await panel.findByText("Why upper case?");
+  fireEvent.click(panel.getAllByRole("button", { name: "Show in diff" })[0]);
   expect(await file().findByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeTruthy();
   expect(main.getByRole("button", { name: "GitHub threads" }).getAttribute("aria-pressed")).toBe("true");
   slot.lifecycle.unmount();

@@ -5,7 +5,9 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import type { DraftProviderProps } from "./DraftProvider";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); localStorage.clear(); });
+// jsdom can't run pierre's diff element; the workspace's tests here are about its panel.
+vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => null }));
 
 /** The draft's provider with its panel after what it wraps, as the workspace places them. */
 async function draftTray() {
@@ -102,67 +104,86 @@ test("comparing conflicting notes preserves edits made while the saved version l
   slot.lifecycle.unmount();
 });
 
-test("the review activity rail collapses each tool without losing editor state", async () => {
-  await loadPluginApp(() => import("../app"));
-  const DraftTray = await draftTray();
-  const slot = renderSlot({ component: (props: any) => <DraftTray {...props} /> }, { targetKey: "sidebar-editors", activeChapterId: "c1", activeFiles: ["a.ts"], agent: {} }, { rpc: {
-    getDraft: () => ({ draft: { targetKey: "sidebar-editors", verdict: "COMMENT", body: "", comments: [] } }),
+/** A review open in its workspace, on its chapter, with the panel's views to switch between. */
+async function renderReview(targetKey: string) {
+  const { patchReviewState } = await import("../lib/panel-state");
+  patchReviewState(targetKey, { activeId: "c1" });
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: targetKey }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getReviewBundle: () => ({ review: { targetKey, kind: "pr", status: "ready", createdAt: 1, title: "Keep state", headSha: "h" }, guide: { title: "Guide", intent: "Keeps state.", unplacedFiles: [], sections: [{ id: "c1", title: "State", overview: "", diffs: [{ file: "a.ts" }] }] }, patch: "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n", revision: "r1" }),
+    getChecks: () => ({ bucket: "none", checks: [] }),
+    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getFileViews: () => ({ views: [] }),
+    checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
+    checkForUpdates: () => ({ hasNewCommits: false }),
+    getDraft: () => ({ draft: { targetKey, verdict: "COMMENT", body: "", comments: [] } }),
     getReviewerNotes: () => ({ body: "", revision: 0 }), saveReviewerNotes: ({ body }: any) => ({ body, revision: 1 }),
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
-  } });
-  fireEvent.click(await slot.findByRole("button", { name: "Add comment" }));
-  fireEvent.change(slot.getByRole("textbox", { name: "Draft comment" }), { target: { value: "Keep this unfinished comment" } });
-  fireEvent.click(slot.getByRole("button", { name: "Draft review" }));
+    markSeen: () => ({ ok: true }),
+  } as any });
+  // The commands sit in the band, where BB's title bar didn't take them.
+  await slot.findByRole("button", { name: "Comments" });
+  const panel = () => within(slot.getByRole("complementary", { name: "Comments and agent" }));
+  const close = () => fireEvent.click(panel().getByRole("button", { name: "Close panel" }));
+  return { slot, panel, close };
+}
+
+test("the side panel's views keep what you were writing as it closes and switches", async () => {
+  const { slot, panel, close } = await renderReview("panel-editors");
+  fireEvent.click(slot.getByRole("button", { name: "Comments" }));
+  fireEvent.click(await panel().findByRole("button", { name: "Add comment" }));
+  fireEvent.change(panel().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Keep this unfinished comment" } });
+  close();
   expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull();
-  for (const name of ["Draft review", "Reviewer notes", "Ask agent"]) {
-    expect(slot.getByRole("button", { name }).querySelector("svg")).toBeTruthy();
-  }
-  fireEvent.click(slot.getByRole("button", { name: "Reviewer notes" }));
-  fireEvent.change(await slot.findByRole("textbox", { name: "Private reviewer notes" }), { target: { value: "Keep my notes" } });
-  fireEvent.click(within(slot.getByRole("group", { name: "Review tools" })).getByRole("button", { name: "Collapse review panel" }));
-  expect(slot.queryByRole("textbox", { name: "Private reviewer notes" })).toBeNull();
   fireEvent.click(slot.getByRole("button", { name: "Ask agent" }));
-  fireEvent.change(await slot.findByRole("textbox", { name: "Ask the agent" }), { target: { value: "Keep this question" } });
-  fireEvent.click(slot.getByRole("button", { name: "Ask agent" }));
+  fireEvent.change(await panel().findByRole("textbox", { name: "Ask the agent" }), { target: { value: "Keep this question" } });
+  fireEvent.click(slot.getByRole("button", { name: /^Submit review/ }));
   expect(slot.queryByRole("textbox", { name: "Ask the agent" })).toBeNull();
+  fireEvent.click(panel().getByText("Private notes"));
+  fireEvent.change(await panel().findByRole("textbox", { name: "Private reviewer notes" }), { target: { value: "Keep my notes" } });
+  close();
   fireEvent.click(slot.getByRole("button", { name: "Ask agent" }));
-  expect((slot.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("Keep this question");
-  fireEvent.click(slot.getByRole("button", { name: "Reviewer notes" }));
-  expect((slot.getByRole("textbox", { name: "Private reviewer notes" }) as HTMLTextAreaElement).value).toBe("Keep my notes");
-  fireEvent.click(slot.getByRole("button", { name: "Draft review" }));
-  expect((slot.getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Keep this unfinished comment");
+  expect((panel().getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("Keep this question");
+  fireEvent.click(slot.getByRole("button", { name: /^Submit review/ }));
+  expect((panel().getByRole("textbox", { name: "Private reviewer notes" }) as HTMLTextAreaElement).value).toBe("Keep my notes");
+  fireEvent.click(panel().getByRole("button", { name: "Comments" }));
+  expect((panel().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Keep this unfinished comment");
   slot.lifecycle.unmount();
 });
 
-test("collapsed tool choice survives remount", async () => {
-  await loadPluginApp(() => import("../app"));
-  const DraftTray = await draftTray();
-  const props = { targetKey: "sidebar-restore", activeChapterId: "c1", activeFiles: ["a.ts"] };
-  const rpc = { getDraft: () => ({ draft: { targetKey: props.targetKey, verdict: "COMMENT", body: "", comments: [] } }), getReviewerNotes: () => ({ body: "", revision: 0 }) };
-  let slot = renderSlot({ component: (props: any) => <DraftTray {...props} /> }, props, { rpc });
-  fireEvent.click(await slot.findByRole("button", { name: "Reviewer notes" }));
-  fireEvent.click(within(slot.getByRole("group", { name: "Review tools" })).getByRole("button", { name: "Collapse review panel" }));
+test("a review opens with its panel as you left it: closed stays closed, and an open view opens again where it docks", async () => {
+  let { slot, close } = await renderReview("panel-restore");
+  fireEvent.click(slot.getByRole("button", { name: "Comments" }));
+  close();
   slot.lifecycle.unmount();
-  slot = renderSlot({ component: (props: any) => <DraftTray {...props} /> }, props, { rpc });
-  expect(slot.queryByRole("textbox", { name: "Private reviewer notes" })).toBeNull();
-  expect(slot.getByRole("button", { name: "Reviewer notes" }).getAttribute("aria-expanded")).toBe("false");
+  ({ slot } = await renderReview("panel-restore"));
+  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  fireEvent.click(slot.getByRole("button", { name: "Ask agent" }));
+  slot.lifecycle.unmount();
+  ({ slot } = await renderReview("panel-restore"));
+  expect(slot.getByRole("button", { name: "Ask agent" }).getAttribute("aria-pressed")).toBe("true");
+  expect(within(slot.getByRole("complementary", { name: "Comments and agent" })).getByRole("region", { name: "Review agent" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
 test("a new line-comment request reveals an unfinished comment without replacing it", async () => {
   await loadPluginApp(() => import("../app"));
   const DraftTray = await draftTray();
+  const onOpenPanel = vi.fn();
   function Workspace() {
     const [nonce, setNonce] = useState(0);
-    return <><button onClick={() => setNonce((value) => value + 1)}>Comment on selected line</button><DraftTray targetKey="unfinished-comment" activeChapterId="c1" activeFiles={["a.ts"]} prefill={nonce ? { file: "b.ts", line: 7, side: "RIGHT", nonce } : undefined} /></>;
+    return <><button onClick={() => setNonce((value) => value + 1)}>Comment on selected line</button><DraftTray targetKey="unfinished-comment" activeChapterId="c1" activeFiles={["a.ts"]} onOpenPanel={onOpenPanel} prefill={nonce ? { file: "b.ts", line: 7, side: "RIGHT", nonce } : undefined} /></>;
   }
   const slot = renderSlot({ component: Workspace }, {}, { rpc: {
     getDraft: () => ({ draft: { targetKey: "unfinished-comment", verdict: "COMMENT", body: "", comments: [] } }), getReviewerNotes: () => ({ body: "", revision: 0 }),
   } });
   fireEvent.click(await slot.findByRole("button", { name: "Add comment" }));
   fireEvent.change(slot.getByRole("textbox", { name: "Draft comment" }), { target: { value: "Keep this unfinished comment" } });
-  fireEvent.click(slot.getByRole("button", { name: "Draft review" }));
+  onOpenPanel.mockClear();
   fireEvent.click(slot.getByRole("button", { name: "Comment on selected line" }));
+  // The panel shows the comment it holds.
+  expect(onOpenPanel).toHaveBeenCalledWith("comments");
   const editor = await slot.findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
   expect(editor.value).toBe("Keep this unfinished comment");
   expect((slot.getByRole("combobox", { name: "Comment file" }) as HTMLSelectElement).value).toBe("a.ts");

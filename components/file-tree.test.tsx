@@ -5,7 +5,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { interdiff } from "../src/interdiff";
 import { fileTree, filterPaths, firstFile } from "../lib/file-tree";
-import { getNavView, setHideNits } from "../lib/panel-state";
+import { getNavView, getReviewState, patchReviewState, setHideNits } from "../lib/panel-state";
 import { render } from "@testing-library/react";
 import { ChapterNav } from "./ChapterNav";
 
@@ -80,6 +80,8 @@ const guide = {
 const at = (file: string, line: number) => ({ file, line, side: "RIGHT" as const });
 
 async function renderWorkspace() {
+  // Opened before, on its first chapter: a first open shows the Overview.
+  if (!getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
@@ -105,7 +107,7 @@ async function renderWorkspace() {
     markSeen: () => ({ ok: true }),
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("heading", { name: "Cache rows" });
+  await slot.findByRole("main", { name: "Review" });
   await slot.findAllByText(/ body/);
   return slot;
 }

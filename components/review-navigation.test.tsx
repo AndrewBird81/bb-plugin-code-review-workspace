@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
-import { patchReviewState, setHideNits } from "../lib/panel-state";
+import { getReviewState, patchReviewState, setHideNits } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Each diff's new lines, the lines pierre would highlight, and a pick of line 1 as pierre reports it.
@@ -20,6 +20,10 @@ vi.mock("@pierre/diffs/react", () => ({
 }));
 
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); });
+// A pane as wide as a desktop's, where the side panel docks beside the chapters.
+const windowWidth = window.innerWidth;
+beforeEach(() => { window.innerWidth = 1440; });
+afterEach(() => { window.innerWidth = windowWidth; });
 
 const file = (path: string, hunks: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${hunks}`;
 const patch = [
@@ -35,7 +39,9 @@ const guide = {
   ],
 };
 
-async function renderWorkspace({ review = {}, rpc = {}, bundle = {} }: { review?: Record<string, unknown>; rpc?: Record<string, unknown>; bundle?: Record<string, unknown> } = {}) {
+async function renderWorkspace({ review = {}, rpc = {}, bundle = {}, opened = true }: { review?: Record<string, unknown>; rpc?: Record<string, unknown>; bundle?: Record<string, unknown>; opened?: boolean } = {}) {
+  // Opened before, on its first chapter, unless `opened` is false: a first open shows the Overview.
+  if (opened && !getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
@@ -54,11 +60,14 @@ async function renderWorkspace({ review = {}, rpc = {}, bundle = {} }: { review?
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("heading", { name: "Parse rows" });
+  await slot.findByRole("main", { name: "Review" });
   return { slot, rpc: handlers };
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
 const chapters = (slot: Slot) => within(slot.getByRole("navigation", { name: "Chapters" }));
+/** Comments' Drafts, in the side panel, from the band's Comments where BB's title bar didn't take it. */
+const openDrafts = async (slot: Slot) => fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
+const finishing = (slot: Slot) => !!slot.queryByRole("heading", { name: "Finish review" });
 const currentChapter = (slot: Slot) => chapters(slot).getAllByRole("button").find((button) => button.getAttribute("aria-current") === "step");
 
 test("reopening a review returns to the chapter you were on", async () => {
@@ -103,20 +112,19 @@ test("after a chapter's last file, Next opens the next chapter at its top", asyn
   slot.lifecycle.unmount();
 });
 
-test("the last chapter ends on Done, which opens Draft review to submit, marking the chapter viewed if you ask", async () => {
+test("the last chapter ends on Done, which opens Finish review to submit, marking the chapter viewed if you ask", async () => {
   patchReviewState("pr-42", { activeId: "c2" });
   const { slot, rpc } = await renderWorkspace();
   await slot.findByText("bb");
   const main = within(slot.getByRole("main"));
-  const draftOpen = () => slot.getByRole("button", { name: "Draft review" }).getAttribute("aria-pressed") === "true";
-  if (draftOpen()) fireEvent.click(slot.getByRole("button", { name: "Draft review" }));
+  expect(finishing(slot)).toBe(false);
   fireEvent.click(main.getByRole("button", { name: "Mark chapter viewed and finish" }));
   expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts", "src/c.ts"] });
-  await waitFor(() => expect(draftOpen()).toBe(true));
-  fireEvent.click(slot.getByRole("button", { name: "Draft review" }));
-  await waitFor(() => expect(draftOpen()).toBe(false));
+  await waitFor(() => expect(finishing(slot)).toBe(true));
+  fireEvent.click(slot.getByRole("button", { name: "Close panel" }));
+  await waitFor(() => expect(finishing(slot)).toBe(false));
   fireEvent.click(main.getByRole("button", { name: "Done: Submit review" }));
-  await waitFor(() => expect(draftOpen()).toBe(true));
+  await waitFor(() => expect(finishing(slot)).toBe(true));
   slot.lifecycle.unmount();
 }, 15_000);
 
@@ -130,11 +138,12 @@ test("Mark chapter viewed and continue marks the chapter's files and opens the n
   slot.lifecycle.unmount();
 });
 
-test("a review back with changes opens on the first chapter that changed, unless you were reading one", async () => {
+test("a review back with changes opens on its Overview, which goes on to the first chapter that changed, unless you were reading one", async () => {
   const { interdiff } = await import("../src/interdiff");
   const reviewed = patch.replace("+bb", "+b0");
   const sinceReview = { review: { signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" }, rpc: { getSinceReview: () => ({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(reviewed, patch) }) } };
-  const { slot } = await renderWorkspace(sinceReview);
+  const { slot } = await renderWorkspace({ ...sinceReview, opened: false });
+  fireEvent.click(await slot.findByRole("button", { name: "Review changes: Caching" }));
   await slot.findByText("bb");
   expect(currentChapter(slot)?.textContent).toContain("Caching");
   slot.lifecycle.unmount();
@@ -164,8 +173,7 @@ test("under Since your review, opening a file unchanged since then turns the fil
   expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeTruthy();
   // A draft comment's Show in diff does the same.
   fireEvent.click(filter);
-  const draftTool = slot.getByRole("button", { name: "Draft review" });
-  if (draftTool.getAttribute("aria-pressed") !== "true") fireEvent.click(draftTool);
+  await openDrafts(slot);
   fireEvent.click(await slot.findByRole("button", { name: /^src\/a\.ts:1/ }));
   expect(filter.getAttribute("aria-pressed")).toBe("false");
   slot.lifecycle.unmount();
@@ -177,8 +185,7 @@ test("files no chapter lists show in a last Other files chapter, count toward vi
   const { slot } = await renderWorkspace({ bundle: { guide: placed }, rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [comment] } }) } });
   await slot.findByText("aa");
   expect(chapters(slot).getByText("0/3 files viewed")).toBeTruthy();
-  const draftTool = slot.getByRole("button", { name: "Draft review" });
-  if (draftTool.getAttribute("aria-pressed") !== "true") fireEvent.click(draftTool);
+  await openDrafts(slot);
   fireEvent.click(await slot.findByRole("button", { name: /^src\/c\.ts:1/ }));
   await slot.findByText("cc");
   expect(currentChapter(slot)?.textContent).toContain("Other files");
@@ -378,8 +385,7 @@ test("shortcuts wait while you type, and with Ctrl, Meta, or Alt held", async ()
   press("n", { ctrlKey: true });
   press("n", { metaKey: true });
   press("n", { altKey: true });
-  const draftTool = slot.getByRole("button", { name: "Draft review" });
-  if (draftTool.getAttribute("aria-pressed") !== "true") fireEvent.click(draftTool);
+  await openDrafts(slot);
   fireEvent.click(await slot.findByRole("button", { name: "Add comment" }));
   press("n", {}, slot.getByRole("textbox", { name: "Draft comment" }));
   expect(currentChapter(slot)?.textContent).toContain("Parsing");
@@ -438,8 +444,7 @@ test("] and [ go through draft comments and discussions in the guide's order", a
     getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments }, discussions }),
   } });
   await slot.findByText("aa");
-  const draftTool = slot.getByRole("button", { name: "Draft review" });
-  if (draftTool.getAttribute("aria-pressed") !== "true") fireEvent.click(draftTool);
+  await openDrafts(slot);
   await slot.findByRole("button", { name: /^src\/a\.ts:1/ });
   press("]");
   expect(currentChapter(slot)?.textContent).toContain("Parsing");
@@ -474,8 +479,7 @@ test("] and [ skip nits while Hide nits is on", async () => {
     getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments }, discussions }),
   } });
   await slot.findByText("aa");
-  const draftTool = slot.getByRole("button", { name: "Draft review" });
-  if (draftTool.getAttribute("aria-pressed") !== "true") fireEvent.click(draftTool);
+  await openDrafts(slot);
   await slot.findByRole("button", { name: /^src\/c\.ts:1/ });
   press("]");
   await slot.findByText("cc");
@@ -488,9 +492,9 @@ test("a asks the agent, s opens the draft to submit, and ? lists the shortcuts u
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
   press("a");
-  await waitFor(() => expect(slot.container.querySelector("[data-tool=\"agent\"]")!.getAttribute("aria-pressed")).toBe("true"));
+  expect(await slot.findByRole("textbox", { name: "Ask the agent" })).toBeTruthy();
   press("s");
-  await waitFor(() => expect(slot.getByRole("button", { name: "Draft review" }).getAttribute("aria-pressed")).toBe("true"));
+  await waitFor(() => expect(finishing(slot)).toBe(true));
   press("?");
   const help = await slot.findByRole("dialog", { name: "Keyboard shortcuts" });
   expect(within(help).getByText("Next unviewed file, in any chapter")).toBeTruthy();
@@ -504,31 +508,38 @@ test("the toolbar counts the chapter's viewed files as such, and marks the chapt
   await slot.findByText("aa");
   fireEvent.click(chapters(slot).getByText("Caching"));
   const main = within(slot.getByRole("main"));
-  await main.findByText("0/2 in this chapter");
+  await main.findByText("0 of 2 files viewed in this chapter");
   fireEvent.click(main.getByRole("button", { name: "Mark chapter viewed" }));
   expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts", "src/c.ts"] });
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("a failed re-review offers Retry, and an account without access offers the account switcher", async () => {
+test("a failed re-review offers Try again, and an account without access offers the account switcher", async () => {
   const rereview = vi.fn(() => ({ ok: true }));
   const { slot } = await renderWorkspace({ review: { status: "error" }, rpc: {
     rereview,
     checkRepoAccess: () => ({ accessible: false, repo: "acme/web", account: "me" }),
     getGhAccounts: () => ({ active: "me", accounts: [{ login: "me", active: true }, { login: "work", active: false }] }),
   } });
-  await slot.findByText(/Re-review failed/);
-  fireEvent.click(slot.getByRole("button", { name: "Retry" }));
+  const failed = await slot.findByRole("alert");
+  expect(failed.textContent).toContain("Couldn’t update the guide. Showing the previous one.");
+  fireEvent.click(within(failed).getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  // The first notice shows, and the rest under it.
+  fireEvent.click(slot.getByRole("button", { name: "1 more notice" }));
   await slot.findByText(/can’t access acme\/web/);
   expect(slot.getByRole("button", { name: "GitHub account: @me" })).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("a local review has no Threads view, and the agent goes by one name", async () => {
+test("a local review's Comments has no Feedback or Threads, and the agent goes by one name", async () => {
   const { slot } = await renderWorkspace({ review: { kind: "ref", targetKey: "pr-42" } });
   await slot.findByText("aa");
-  expect(within(slot.getByRole("main")).queryByRole("button", { name: "Threads" })).toBeNull();
+  await openDrafts(slot);
+  const panel = within(slot.getByRole("complementary", { name: "Comments and agent" }));
+  expect(panel.getByRole("region", { name: "Review draft" })).toBeTruthy();
+  expect(slot.queryByRole("button", { name: "Threads" })).toBeNull();
+  expect(slot.queryByRole("button", { name: "Feedback" })).toBeNull();
   expect(slot.queryByRole("button", { name: /assistant/i })).toBeNull();
   expect(slot.getAllByRole("button", { name: "Ask agent" }).length).toBeGreaterThan(0);
   slot.lifecycle.unmount();

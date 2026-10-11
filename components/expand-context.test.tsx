@@ -4,6 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { toast } from "sonner";
 import { defaultPreferences } from "../src/preferences";
+import { getReviewState, patchReviewState } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // What pierre is given: whether it has the whole file, and whether to show all of it. The gutter "+" picks a line.
@@ -30,6 +31,8 @@ const guide = { title: "Guide", intent: "Parses rows.", unplacedFiles: [] as str
 const contents = { ok: true, old: "one\ntwo\nthree\nfour\n", new: "one\ntwo\nTHREE\nfour\n" };
 
 async function renderWorkspace(rpc: Record<string, unknown> = {}, shown = { guide, patch }) {
+  // Opened before, on its first chapter: a first open shows the Overview.
+  if (!getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
@@ -47,7 +50,7 @@ async function renderWorkspace(rpc: Record<string, unknown> = {}, shown = { guid
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("heading", { name: "Parse rows" });
+  await slot.findByRole("main", { name: "Review" });
   await slot.findAllByTestId("filediff");
   return { slot, rpc: handlers, file: () => within(slot.container.querySelector<HTMLElement>('[data-file="src/a.ts"]')!) };
 }

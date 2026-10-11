@@ -4,6 +4,7 @@ import { render, screen, fireEvent, cleanup, within } from "@testing-library/rea
 import { installTestPluginRuntime, loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { interdiff } from "../src/interdiff";
 import { defaultPreferences } from "../src/preferences";
+import { getReviewState, patchReviewState } from "../lib/panel-state";
 
 // Render each diff's new-side text and its extra styles, not @pierre/diffs' internals.
 vi.mock("@pierre/diffs/react", () => ({
@@ -82,6 +83,8 @@ const guide = {
 };
 
 async function renderWorkspace(review: Record<string, unknown>, getSinceReview = vi.fn(() => ({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files }))) {
+  // Opened before, on its first chapter: a first open shows the Overview.
+  if (!getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
     setReviewPresence: () => ({ ok: true }),
@@ -97,7 +100,7 @@ async function renderWorkspace(review: Record<string, unknown>, getSinceReview =
     markSeen: () => ({ ok: true }),
     getSinceReview,
   } as any });
-  await slot.findByRole("heading", { name: "Parse rows" });
+  await slot.findByRole("main", { name: "Review" });
   return { slot, getSinceReview };
 }
 

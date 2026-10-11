@@ -5,6 +5,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { readDraftRecovery } from "../lib/draft-recovery";
 import type { DraftProviderProps } from "./DraftProvider";
+import { patchReviewState } from "../lib/panel-state";
 
 // Render the diff's annotations, not @pierre/diffs' internals, and a drag from line 4 up to line 2 as pierre reports it.
 vi.mock("@pierre/diffs/react", () => ({
@@ -109,6 +110,8 @@ test("a comment's suggestion shows as the code it would put in place", async () 
 });
 
 test("in the review, Add comment on lines dragged upward comments on them first to last", async () => {
+  // Opened before, on its chapter: a first open shows the Overview.
+  patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   let draft = draftOf();
   const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = draftOf([comment]); return { draft, stale: [], discussions: [] }; });
@@ -127,7 +130,6 @@ test("in the review, Add comment on lines dragged upward comments on them first 
     markSeen: () => ({ ok: true }),
     saveDraftComment,
   } as any });
-  await slot.findByRole("heading", { name: "Fold calls" });
   fireEvent.click(await slot.findByRole("button", { name: "Drag lines 4 to 2" }));
   fireEvent.click(within(slot.getByRole("button", { name: "Clear selection" }).parentElement!).getByRole("button", { name: "Add comment" }));
   const box = await within(slot.getByTestId("filediff")).findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;

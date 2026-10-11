@@ -6,6 +6,7 @@ import { defaultPreferences } from "../src/preferences";
 import { render } from "@testing-library/react";
 import { interdiff } from "../src/interdiff";
 import { DiffViewer } from "./DiffViewer";
+import { getReviewState, patchReviewState } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Each diff's new lines, and the lines it has comments under.
@@ -37,6 +38,8 @@ const guide = {
 };
 
 async function renderWorkspace({ bundle = {}, review = {}, rpc = {} }: { bundle?: Record<string, unknown>; review?: Record<string, unknown>; rpc?: Record<string, unknown> } = {}) {
+  // Opened before, on its first chapter: a first open shows the Overview.
+  if (!getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
@@ -58,7 +61,7 @@ async function renderWorkspace({ bundle = {}, review = {}, rpc = {} }: { bundle?
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("heading", { name: "Parse rows" });
+  await slot.findByRole("main", { name: "Review" });
   return slot;
 }
 
@@ -86,9 +89,9 @@ test("a file split across two chapters shows each chapter only its hunks and com
 });
 
 test("opening a line of a split file goes to the chapter holding its hunk", async () => {
+  patchReviewState("pr-42", { activeId: "overview" });
   const slot = await renderWorkspace();
-  await slot.findByText(/PARSE/);
-  fireEvent.click(within(slot.getByRole("region", { name: "Start here" })).getByRole("button", { name: "src/a.ts:20" }));
+  fireEvent.click(within(await slot.findByRole("region", { name: "Start here" })).getByRole("button", { name: "src/a.ts:20" }));
   await slot.findByText(/CACHE/);
   expect(slot.queryByText(/PARSE/)).toBeNull();
   slot.lifecycle.unmount();

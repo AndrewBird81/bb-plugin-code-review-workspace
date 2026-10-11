@@ -1,0 +1,90 @@
+// @vitest-environment jsdom
+import { afterEach, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import { defaultPreferences } from "../src/preferences";
+import { patchReviewState } from "../lib/panel-state";
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
+
+afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); });
+
+const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+aa\n";
+const guide = { title: "Guide", intent: "Parses rows.", unplacedFiles: [] as string[], sections: [{ id: "c1", title: "Parsing", overview: "", diffs: [{ file: "src/a.ts" }] }] };
+
+async function renderWorkspace(rpc: Record<string, unknown> = {}, bundle: () => Record<string, unknown> = () => ({})) {
+  patchReviewState("pr-42", { activeId: "c1" });
+  const app = await loadPluginApp(() => import("../app"));
+  const handlers = {
+    setReviewPresence: () => ({ ok: true }),
+    getReviewBundle: vi.fn(() => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: structuredClone(guide), patch, revision: "r1", ...bundle() })),
+    getChecks: () => ({ bucket: "none", checks: [] }),
+    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getFileViews: () => ({ views: [] }),
+    checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
+    checkForUpdates: vi.fn(() => ({ hasNewCommits: false })),
+    rereview: vi.fn(() => ({ ok: true })),
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }),
+    getReviewerNotes: () => ({ body: "", revision: 0 }),
+    getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
+    getGhAccounts: () => ({ active: "me", accounts: [{ login: "me", active: true }] }),
+    markSeen: () => ({ ok: true }),
+    ...rpc,
+  };
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
+  await slot.findByTestId("filediff");
+  return { slot, rpc: handlers };
+}
+const notice = (slot: Awaited<ReturnType<typeof renderWorkspace>>["slot"], text: string) => slot.getByText(text).closest<HTMLElement>("[role]")!;
+
+test("new commits show a notice with Update guide, which rebuilds it; once the guide catches up, the notice goes", async () => {
+  const checkForUpdates = vi.fn().mockReturnValueOnce({ hasNewCommits: true }).mockReturnValue({ hasNewCommits: false });
+  const { slot, rpc } = await renderWorkspace({ checkForUpdates });
+  await slot.findByText("New commits since this guide was written.");
+  fireEvent.click(within(notice(slot, "New commits since this guide was written.")).getByRole("button", { name: "Update guide" }));
+  await waitFor(() => expect(rpc.rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  // The rebuilt guide publishes the review's update, which checks again.
+  await slot.emitRealtime("review:pr-42", {});
+  await waitFor(() => expect(slot.queryByText("New commits since this guide was written.")).toBeNull());
+  slot.lifecycle.unmount();
+});
+
+test("one notice shows, the most pressing first, and +N shows the rest under it", async () => {
+  const { slot } = await renderWorkspace({
+    checkForUpdates: () => ({ hasNewCommits: true }),
+    checkRepoAccess: () => ({ accessible: false, repo: "acme/web", account: "me" }),
+  });
+  await slot.findByText("@me can’t access acme/web. Switch account:");
+  expect(slot.queryByText("New commits since this guide was written.")).toBeNull();
+  const more = await slot.findByRole("button", { name: "1 more notice" });
+  fireEvent.click(more);
+  expect(slot.getByText("New commits since this guide was written.")).toBeTruthy();
+  expect(more.getAttribute("aria-expanded")).toBe("true");
+  expect(slot.getByRole("button", { name: "GitHub account: @me" })).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: "Show fewer notices" }));
+  expect(slot.queryByText("New commits since this guide was written.")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("while the guide is updated, the notice says the view and unsaved edits stay; a failed update offers Try again", async () => {
+  let generating = false;
+  const { slot, rpc } = await renderWorkspace({}, () => generating ? { guide: null, review: { targetKey: "pr-42", kind: "pr", status: "generating", createdAt: 1, title: "Parse rows", headSha: "new" } } : {});
+  generating = true;
+  await slot.emitRealtime("review:pr-42", {});
+  const updating = await slot.findByText("Updating the guide for the new commits. Your current view and unsaved edits stay here.");
+  expect(updating.closest("[role]")!.getAttribute("role")).toBe("status");
+  expect(slot.getByTestId("filediff")).toBeTruthy();
+  // The new guide arrives.
+  generating = false;
+  await slot.emitRealtime("review:pr-42", {});
+  await waitFor(() => expect(slot.queryByText(/Updating the guide/)).toBeNull());
+  slot.lifecycle.unmount();
+  const broken = await renderWorkspace({}, () => ({ review: { targetKey: "pr-42", kind: "pr", status: "error", createdAt: 1, title: "Parse rows", headSha: "new" } }));
+  const alert = notice(broken.slot, "Couldn’t update the guide. Showing the previous one.");
+  expect(alert.getAttribute("role")).toBe("alert");
+  fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(broken.rpc.rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(rpc.rereview).not.toHaveBeenCalled();
+  broken.slot.lifecycle.unmount();
+});
