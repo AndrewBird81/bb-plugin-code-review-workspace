@@ -5,6 +5,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
 import type { FeedbackView } from "../lib/feedback";
+import { TOUCH_CONTROL } from "./touch";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Render the diff's annotations (where the comment box opens), not @pierre/diffs' internals.
@@ -108,6 +109,8 @@ test("a review you haven't given ignores the Feedback an older version left it o
   fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
   fireEvent.click(tab(slot, "Feedback"));
   expect(tab(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
+  // A 44px target on a coarse pointer.
+  expect(tab(slot, "Feedback").className.split(" ")).toEqual(expect.arrayContaining(TOUCH_CONTROL.split(" ")));
   slot.lifecycle.unmount();
 });
 

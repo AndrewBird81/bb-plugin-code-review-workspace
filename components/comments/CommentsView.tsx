@@ -1,5 +1,6 @@
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
+import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
 import { Icon } from "../ui/icon";
 import { DraftPanel } from "../DraftPanel";
@@ -38,7 +39,7 @@ export function CommentsView({ shown, finish, tab, onTab, revision, onShowThread
         <div role="group" aria-label="Comments" className="flex shrink-0 gap-0.5 border-b border-border px-3 py-2">
           <div className="inline-flex gap-0.5 rounded-lg bg-muted/40 p-0.5 ring-1 ring-inset ring-border">
             {TABS.map((item) => (
-              <Button key={item.id} variant="ghost" size="sm" aria-pressed={current === item.id} className="h-7 gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground aria-pressed:shadow-xs pointer-coarse:h-9" onClick={() => onTab(item.id)}>
+              <Button key={item.id} variant="ghost" size="sm" aria-pressed={current === item.id} className={cn("h-7 gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground aria-pressed:shadow-xs", TOUCH_CONTROL)} onClick={() => onTab(item.id)}>
                 <Icon name={item.icon} className="size-3.5" aria-hidden />{item.label}
               </Button>
             ))}

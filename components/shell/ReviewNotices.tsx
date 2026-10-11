@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../../src/rpc-contract";
 import { cn } from "../../lib/utils";
+import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
 import { Icon, type IconName } from "../ui/icon";
 
@@ -53,7 +54,7 @@ export function ReviewNotices({ notices }: { notices: Notice[] }) {
           <span className="min-w-0 flex-1">{notice.text}</span>
           {notice.action}
           {index === 0 && more > 0 && (
-            <Button variant="ghost" size="sm" aria-expanded={expanded} aria-label={expanded ? "Show fewer notices" : `${more} more notice${more === 1 ? "" : "s"}`} className="h-7 px-2 text-xs tabular-nums pointer-coarse:h-9" onClick={() => setExpanded(!expanded)}>
+            <Button variant="ghost" size="sm" aria-expanded={expanded} aria-label={expanded ? "Show fewer notices" : `${more} more notice${more === 1 ? "" : "s"}`} className={cn("h-7 px-2 text-xs tabular-nums", TOUCH_CONTROL)} onClick={() => setExpanded(!expanded)}>
               {expanded ? <Icon name="ChevronUp" aria-hidden /> : `+${more}`}
             </Button>
           )}

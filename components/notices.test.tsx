@@ -4,6 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
+import { TOUCH_CONTROL } from "./touch";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
@@ -58,6 +59,8 @@ test("one notice shows, the most pressing first, and +N shows the rest under it"
   await slot.findByText("@me can’t access acme/web. Switch account:");
   expect(slot.queryByText("New commits since this guide was written.")).toBeNull();
   const more = await slot.findByRole("button", { name: "1 more notice" });
+  // A 44px target on a coarse pointer.
+  expect(more.className.split(" ")).toEqual(expect.arrayContaining(TOUCH_CONTROL.split(" ")));
   fireEvent.click(more);
   expect(slot.getByText("New commits since this guide was written.")).toBeTruthy();
   expect(more.getAttribute("aria-expanded")).toBe("true");
