@@ -10,6 +10,8 @@ export interface Viewer {
   changed?(): Promise<boolean>;
   /** What gh said when the last read of each failed; null when it succeeded. */
   errors?(): { login: string | null; teams: string | null };
+  /** The login last read, without reading gh; null before the first read or after an account switch. */
+  cachedLogin?(): string | null;
 }
 
 /** Caches each read for ttlMs; after a failure returns null / an empty set until retryMs passes. */
@@ -41,10 +43,13 @@ export function createViewer(run: RunGh, options: { ttlMs?: number; retryMs?: nu
   const errors: { login: string | null; teams: string | null } = { login: null, teams: null };
   const failure = (out: { stderr: string; code: number }) => out.stderr.trim() || `gh exited ${out.code}`;
 
+  let lastLogin: string | null = null;
   const login = cached(async () => {
+    const started = generation;
     const out = await run(["api", "user", "--jq", ".login"]);
     const value = out.stdout.trim();
     errors.login = out.code === 0 && value ? null : failure(out);
+    if (!errors.login && started === generation) lastLogin = value;
     return errors.login ? null : value;
   }, null as string | null);
 
@@ -68,5 +73,5 @@ export function createViewer(run: RunGh, options: { ttlMs?: number; retryMs?: nu
   }
 
   // Forgetting the token too keeps a switch made here from being noticed again as one made outside.
-  return { login, teams, reset: () => { generation++; token = null; }, changed, errors: () => ({ ...errors }) };
+  return { login, teams, reset: () => { generation++; token = null; lastLogin = null; }, changed, errors: () => ({ ...errors }), cachedLogin: () => lastLogin };
 }

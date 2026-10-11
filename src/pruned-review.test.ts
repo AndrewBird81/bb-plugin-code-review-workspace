@@ -37,3 +37,10 @@ test("a pruned review opens with its guide and draft when GitHub can't be reache
   expect(bundle.diffError).toMatch(/^Couldn't read this review's diff from GitHub: error connecting to api\.github\.com\. The guide, your draft and notes are here; try again when GitHub can be reached\.$/);
   expect((await harness.behavior.callRpc("getDraft", { targetKey: "pr-1" }) as any).draft.body).toBe("LGTM");
 });
+
+test("a pruned review whose diff GitHub refuses says why, without suggesting a retry will reach it", async () => {
+  gh.mockImplementation(async () => ({ stdout: "", stderr: "HTTP 404: Not Found", code: 1 }));
+  const { harness } = await prunedReview();
+  const bundle = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" }) as any;
+  expect(bundle.diffError).toBe("Couldn't read this review's diff from GitHub: HTTP 404: Not Found. The guide, your draft and notes are here.");
+});

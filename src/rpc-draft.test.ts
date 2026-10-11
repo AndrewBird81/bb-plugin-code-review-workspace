@@ -111,6 +111,10 @@ test("the list says Your PR for a PR the signed-in account wrote before the sync
   const store = createStore(bb);
   store.saveReview({ targetKey: "mine", kind: "pr", number: 5, repo: "acme/web", author: "Casey", headSha: "sha123", status: "ready", createdAt: 1 });
   store.saveReview({ targetKey: "theirs", kind: "pr", number: 6, repo: "acme/web", author: "dana", headSha: "sha123", status: "ready", createdAt: 2 });
+  // Before anything has read who you are, the list doesn't wait on gh for it.
+  expect(Object.fromEntries(((await harness.behavior.callRpc("listReviews", null)) as any).reviews.map((r: any) => [r.targetKey, r.turn.label]))).toEqual({ mine: "Ready", theirs: "Ready" });
+  // Once it has (here, opening a review), the list knows.
+  await harness.behavior.callRpc("getReviewBundle", { targetKey: "theirs" });
   const { reviews } = await harness.behavior.callRpc("listReviews", null) as any;
   expect(Object.fromEntries(reviews.map((r: any) => [r.targetKey, r.turn.label]))).toEqual({ mine: "Your PR", theirs: "Ready" });
 });

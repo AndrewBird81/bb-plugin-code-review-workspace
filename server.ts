@@ -162,7 +162,8 @@ export default async function plugin(bb: BbPluginApi) {
   const listed = async () => {
     const options = turnOptions(store.getPreferences().preferences);
     const all = store.listReviews();
-    const login = all.some(ownPrUnread) ? await sync.login() : null;
+    // The sync reads who you are on its passes; a list load never waits on gh for it.
+    const login = all.some(ownPrUnread) ? sync.cachedLogin() : null;
     const reviews = all.map((review) => ownPrOf(review, login));
     const stacks = findStacks(reviews);
     return reviews.map(({ reviewBodies: _bodies, ...review }) => decorate(review, options, stacks));
@@ -192,7 +193,9 @@ export default async function plugin(bb: BbPluginApi) {
       patch = await diffAt(store, runGh, review, review.headSha);
     } catch (error) {
       bb.log.warn(`Could not read the diff of ${targetKey} again: ${String(error)}`);
-      return `Couldn't read this review's diff from GitHub: ${(error instanceof Error ? error.message : String(error)).replace(/\.$/, "")}. The guide, your draft and notes are here; try again when GitHub can be reached.`;
+      const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
+      const offline = /network|connect|resolve|timed? ?out|ENOTFOUND|ECONN|EAI_AGAIN|unreachable/i.test(reason);
+      return `Couldn't read this review's diff from GitHub: ${reason}. The guide, your draft and notes are here${offline ? "; try again when GitHub can be reached" : ""}.`;
     }
     store.savePatch(targetKey, patch);
     // The page's other reads ran without it. An empty diff changed nothing, and reloading would read it again.

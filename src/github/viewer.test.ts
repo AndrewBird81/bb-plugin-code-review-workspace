@@ -100,3 +100,14 @@ test("reset forgets the token too, so the next check records the new account wit
   viewer.reset();
   expect(await viewer.changed()).toBe(false);
 });
+
+test("cachedLogin gives the login last read without asking gh, and forgets it on reset", async () => {
+  const run = fakeGh();
+  const viewer = createViewer(run);
+  expect(viewer.cachedLogin?.()).toBeNull();
+  expect(run).not.toHaveBeenCalled();
+  await viewer.login();
+  expect(viewer.cachedLogin?.()).toBe("Octo-Cat");
+  viewer.reset();
+  expect(viewer.cachedLogin?.()).toBeNull();
+});
