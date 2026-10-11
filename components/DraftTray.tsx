@@ -540,6 +540,12 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     : "Drafts stay in BB until you submit.";
   const suggested = draft.suggestedVerdict;
   const changes = summaryChanges(draft);
+  // A longer hint grows the footer over the end of the draft: keep the buttons of the box you're typing in above it.
+  const composerControls = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const controls = composerControls.current;
+    if (controls?.parentElement?.contains(document.activeElement)) controls.scrollIntoView?.({ block: "nearest" });
+  }, [hint]);
   // Why Submit asks once more: the agent suggested another verdict, or its summary no longer fits.
   const doubts = [
     ...(suggested && suggested !== draft.verdict && !ownPr ? [`The agent suggested ${VERDICT_LABEL[suggested]}.`] : []),
@@ -638,7 +644,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
               </div>
               <Textarea ref={bodyRef} aria-label="Draft comment" disabled={busy} value={body} onChange={(event) => changeBody(event.target.value)} onKeyDown={(event) => composerKeys(event, canAdd ? () => void addComment() : null, () => { if (!busy) cancelComposer(); })} placeholder="What should the author know?" />
               <ComposerNotes error={composerError} rebuilding={rebuilding} keepOnCurrentDiff={olderDiff ? keepOnCurrentDiff : null} />
-              <div className="flex flex-wrap gap-2"><Button disabled={!canAdd} onClick={() => void addComment()}>{editing ? "Save comment" : "Add to draft"}</Button><Button variant="ghost" disabled={busy} onClick={cancelComposer}>Cancel</Button><span className="ml-auto flex flex-wrap gap-2"><SeveritySelect className="h-9 text-sm" value={severity} onChange={setSeverity} disabled={busy} />{suggestable && <Button variant="outline" disabled={busy} onClick={suggestChange}><Icon name="Edit" className="size-3.5" aria-hidden />Suggest change</Button>}</span></div>
+              <div ref={composerControls} data-composer-controls className="flex flex-wrap gap-2"><Button disabled={!canAdd} onClick={() => void addComment()}>{editing ? "Save comment" : "Add to draft"}</Button><Button variant="ghost" disabled={busy} onClick={cancelComposer}>Cancel</Button><span className="ml-auto flex flex-wrap gap-2"><SeveritySelect className="h-9 text-sm" value={severity} onChange={setSeverity} disabled={busy} />{suggestable && <Button variant="outline" disabled={busy} onClick={suggestChange}><Icon name="Edit" className="size-3.5" aria-hidden />Suggest change</Button>}</span></div>
             </div>)}
             {(isLocal || ownPr) && <FixHandoff targetKey={targetKey} comments={sortedComments} />}
           </div>

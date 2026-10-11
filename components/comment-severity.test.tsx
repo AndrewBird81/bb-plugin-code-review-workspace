@@ -96,6 +96,27 @@ test("the comment box sets a comment's severity, in the panel and the diff, and 
   slot.lifecycle.unmount();
 });
 
+test("typing in Draft review's comment box keeps its buttons in view as the footer's hint grows", async () => {
+  const scrolled = vi.fn();
+  const scrollIntoView = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (this: Element) { scrolled(this); };
+  try {
+    const { slot, panel } = await renderReview("composer-view", stored([blocking]));
+    fireEvent.click(panel().getByRole("button", { name: "Add comment" }));
+    const box = panel().getByRole("textbox", { name: "Draft comment" });
+    box.focus();
+    scrolled.mockClear();
+    fireEvent.change(box, { target: { value: "Why?" } });
+    expect(panel().getByText("Add the comment you’re writing to the draft before submitting.")).toBeTruthy();
+    const controls = panel().getByRole("combobox", { name: "Severity" }).closest("[data-composer-controls]");
+    expect(controls).toBeTruthy();
+    expect(scrolled).toHaveBeenCalledWith(controls);
+    slot.lifecycle.unmount();
+  } finally {
+    Element.prototype.scrollIntoView = scrollIntoView;
+  }
+});
+
 test("Hide nits hides nit cards in the diff and the panel, and from the file's count, and stays hidden in this browser", async () => {
   const rpc = stored([blocking, nit]);
   let { slot, diff, panel } = await renderReview("hide", rpc);
