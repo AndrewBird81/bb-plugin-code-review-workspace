@@ -173,7 +173,7 @@ So agents start on their own (an auto-started guide, the automatic review, the f
 
 **Let the review agent run the repo’s tests and linters**, off by default, lets the review agent run the commands the repository documents, in a temporary git worktree. **This runs the PR's code on the agent's machine**, with that machine's files and credentials in reach. It applies only to your own PRs and PRs from the authors you trust above; a click never allows it for others.
 
-Reviews merged, closed, or archived for 30 days drop their stored diff to save space; the guide, draft, and notes stay, and opening one reads the diff from GitHub again. Local reviews and drafts with comments keep theirs.
+Reviews of PRs merged or closed for 30 days drop their stored diff to save space; the guide, draft, and notes stay, and opening one reads the diff from GitHub again. Open PRs, local reviews, guides for an earlier head, and drafts with comments keep theirs.
 
 GitHub operations use the server’s `gh` credentials. No token needs to be pasted into the plugin. Grant only the repository access your team needs. A shared BB server uses shared server credentials and plugin storage; it is not a multi-tenant review service.
 

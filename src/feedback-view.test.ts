@@ -60,14 +60,17 @@ test("diffs of reviews out of play for a month are dropped, keeping the guide, t
   const old = now - 31 * DAY;
   const reviews: Array<Partial<ReviewMeta> & { targetKey: string }> = [
     { targetKey: "merged", prState: "MERGED", archivedAt: old, submittedAt: 1, submittedHeadSha: "sha0" },
-    { targetKey: "archived", userArchivedAt: old },
+    { targetKey: "closed", prState: "CLOSED", archivedAt: old },
+    // An open PR you archived can come back with a re-request, and agents read its diff before you open it.
+    { targetKey: "archived", prState: "OPEN", userArchivedAt: old },
     { targetKey: "recent", prState: "CLOSED", archivedAt: now - 29 * DAY },
     { targetKey: "open" },
     { targetKey: "commented", prState: "CLOSED", archivedAt: old },
     { targetKey: "rebuilding", prState: "CLOSED", archivedAt: old, status: "generating" },
     { targetKey: "local", kind: "ref", gitRef: "main...x", userArchivedAt: old },
-    // GitHub can't rebuild an earlier head's diff once the PR is merged into its base.
+    // GitHub can't rebuild an earlier head's diff once the PR is merged into its base, or its base branch is gone.
     { targetKey: "merged-later", prState: "MERGED", archivedAt: old, latestHeadSha: "sha9" },
+    { targetKey: "closed-later", prState: "CLOSED", archivedAt: old, latestHeadSha: "sha9" },
   ];
   for (const r of reviews) {
     store.saveReview({ kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha1", ...r } as ReviewMeta);
@@ -81,15 +84,15 @@ test("diffs of reviews out of play for a month are dropped, keeping the guide, t
     store.setVerdict(r.targetKey, "APPROVE", "LGTM");
   }
   store.upsertDraftComment("commented", { file: "a.ts", line: 1, side: "RIGHT", body: "x" });
-  expect(pruneOldDiffs(store, now)).toEqual(["merged", "archived"]);
+  expect(pruneOldDiffs(store, now)).toEqual(["merged", "closed"]);
   expect(store.readPatch("merged").total).toBe(0);
   expect(store.hasPatch("merged")).toBe(false);
   // Since your review compares with the diff you reviewed.
   expect(store.getSnapshot("merged", "sha0")).toBe("then");
   expect(store.getSnapshot("merged", "sha1")).toBeNull();
-  expect(store.getSnapshot("archived", "sha0")).toBeNull();
+  expect(store.getSnapshot("closed", "sha0")).toBeNull();
   expect(store.getGuide("merged")?.intent).toBe("i");
   expect(store.getDraft("merged").body).toBe("LGTM");
   expect(store.getReviewerNotes("merged").body).toBe("note");
-  for (const kept of ["recent", "open", "commented", "rebuilding", "local", "merged-later"]) expect(store.hasPatch(kept)).toBe(true);
+  for (const kept of ["recent", "open", "archived", "commented", "rebuilding", "local", "merged-later", "closed-later"]) expect(store.hasPatch(kept)).toBe(true);
 });

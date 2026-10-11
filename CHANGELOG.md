@@ -54,7 +54,7 @@
 
 - On phones the workspace has a one-row top bar and a compact toolbar, a short screen opens on the code, and list rows put the status under the title.
 - Large chapters draw files as they near the screen: a 300-file chapter shows code in under a second.
-- Saving a comment no longer re-reads the whole diff, an open review reloads without resending it, and old reviews' stored diffs are dropped after 30 days out of play.
+- Saving a comment no longer re-reads the whole diff, an open review reloads without resending it, and merged or closed PRs' stored diffs are dropped after 30 days.
 
 ### Fixes
 

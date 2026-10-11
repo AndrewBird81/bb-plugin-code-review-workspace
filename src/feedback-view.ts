@@ -63,18 +63,20 @@ export function pruneDiffs(store: Store, review: ReviewMeta) {
 const PRUNE_AFTER = 30 * 86_400_000;
 
 /**
- * Drop the stored diffs of PR reviews out of play for a month: the diff, its snapshots, and a kept guide's
- * backup. The guide, draft, notes, and GitHub state stay, and so does the diff you last reviewed, which
- * Since your review compares with. Opening such a review reads its diff again (diffAt). Left alone: drafts
- * with comments, which follow their lines into a new diff, and merged PRs whose guide is for an earlier
- * head, whose diff GitHub can't rebuild once the base has it. Returns the reviews pruned.
+ * Drop the stored diffs of merged and closed PRs' reviews out of play for a month: the diff, its snapshots,
+ * and a kept guide's backup. The guide, draft, notes, and GitHub state stay, and so does an earlier diff
+ * you last reviewed, which Since your review compares with. Opening such a review reads its diff again, at
+ * the PR's own head (diffAt). Left alone: open PRs, which can come back into play with agents reading the
+ * diff before you open it; reviews whose guide is for an earlier head, whose diff GitHub may not rebuild
+ * (the base has it, or the base branch is gone); and drafts with comments, which follow their lines into a
+ * new diff. Returns the reviews pruned.
  */
 export function pruneOldDiffs(store: Store, now: number): string[] {
   const pruned: string[] = [];
   for (const review of store.listReviews()) {
     const since = Math.min(review.archivedAt ?? Infinity, review.userArchivedAt ?? Infinity);
     if (review.kind !== "pr" || review.status !== "ready" || !review.headSha || now - since < PRUNE_AFTER) continue;
-    if (review.prState === "MERGED" && headOf(review) !== review.headSha) continue;
+    if (review.prState !== "MERGED" && review.prState !== "CLOSED" || headOf(review) !== review.headSha) continue;
     if (!store.hasPatch(review.targetKey) || store.getDraft(review.targetKey).comments.length) continue;
     const baseline = baselineOf(review).sha;
     store.dropPatch(review.targetKey);
