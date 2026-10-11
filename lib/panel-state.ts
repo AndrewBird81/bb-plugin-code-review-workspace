@@ -23,6 +23,8 @@ interface PanelState {
   hideNits?: boolean;
   /** The sidebar lists the chapters, or every file as a folder tree, in every review. */
   navView?: NavView;
+  /** The diff shows lines whose change is only whitespace as unchanged. */
+  hideWhitespace?: boolean;
   perReview: Record<string, ReviewUiState>;
 }
 
@@ -71,8 +73,8 @@ export function patchReviewState(targetKey: string, patch: Partial<ReviewUiState
   write(s);
 }
 
-export function getIntroCollapsed(): boolean {
-  return read().introCollapsed ?? false;
+export function getIntroCollapsed(): boolean | undefined {
+  return read().introCollapsed;
 }
 
 export function setIntroCollapsed(collapsed: boolean) {
@@ -108,5 +110,15 @@ export function getNavView(): NavView {
 export function setNavView(view: NavView) {
   const s = read();
   s.navView = view;
+  write(s);
+}
+
+export function getHideWhitespace(): boolean {
+  return read().hideWhitespace ?? false;
+}
+
+export function setHideWhitespace(hide: boolean) {
+  const s = read();
+  s.hideWhitespace = hide;
   write(s);
 }

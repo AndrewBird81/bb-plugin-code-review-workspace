@@ -5,6 +5,7 @@ import { FileDiff } from "@pierre/diffs/react";
 import type { AnnotationSide, DiffLineAnnotation, FileDiffMetadata, FileDiffOptions, SelectedLineRange } from "@pierre/diffs";
 import { patchRows, splitPatchByFile } from "../src/patch";
 import { droppedNear, filePart, hunksIn } from "../src/hunks";
+import { hideWhitespaceChanges } from "../src/whitespace";
 import type { FileInterdiff } from "../src/interdiff";
 import type { FileOwners } from "../src/codeowners";
 import { sameLocation, type CommentLocation } from "../src/draft";
@@ -70,11 +71,39 @@ function startsFolded(path: string, stats: { add: number; del: number }, declare
 
 const NONE = new Set<string>();
 
+/**
+ * A chapter showing more rows than this draws each file's code only once it nears the screen:
+ * highlighting 300 files at once held the page for over 40 seconds.
+ */
+const LAZY_ROWS = 3000;
+/** How far beyond the visible diff a file starts drawing. */
+const LAZY_MARGIN = "2000px 0px";
+
+/** The rows a file's hunks draw in a layout. */
+function rowsOf(fileDiff: FileDiffMetadata, style: "split" | "unified"): number {
+  return fileDiff.hunks.reduce((rows, hunk) => rows + (style === "split" ? hunk.splitLineCount : hunk.unifiedLineCount), 0);
+}
+
+/**
+ * The height pierre draws a file's diff at, held while it waits to draw so the files above it don't
+ * move when it does: 20px rows, 16px of padding, and a 48px bar for each run of lines it skips.
+ */
+function drawnHeight(fileDiff: FileDiffMetadata, style: "split" | "unified"): number {
+  return 16 + rowsOf(fileDiff, style) * 20 + fileDiff.hunks.filter((hunk) => hunk.collapsedBefore > 0).length * 48;
+}
+
 /** Below this width the diff shows one column, whatever the reading layout: each side of a split needs about 480px. */
 const UNIFIED_BELOW = 960;
 
 // A line's row is in pierre's shadow root, so the way out of it goes through its host.
 const outer = (el: Element): Element | null => el.parentElement ?? (el.getRootNode() as Partial<ShadowRoot>).host ?? null;
+
+/** The element the diff scrolls in. */
+function scrollParent(el: Element): Element | null {
+  let box = outer(el);
+  while (box && !/auto|scroll/.test(getComputedStyle(box).overflowY)) box = outer(box);
+  return box;
+}
 
 // Scrolls the review only vertically: scrollIntoView would also scroll the diff's code sideways.
 function scrollToCenter(el: HTMLElement, behavior: ScrollBehavior) {
@@ -251,6 +280,7 @@ export const DiffViewer = memo(function DiffViewer({
   themeMode,
   diffLayout = "split",
   wrapLines = false,
+  hideWhitespace = false,
   reveal,
   since,
   sinceOnly = false,
@@ -264,6 +294,8 @@ export const DiffViewer = memo(function DiffViewer({
   diffLayout?: "split" | "unified";
   /** Wrap long lines instead of scrolling them sideways. */
   wrapLines?: boolean;
+  /** Show lines whose change is only whitespace as unchanged. */
+  hideWhitespace?: boolean;
   themeMode?: "light" | "dark";
   patch: string;
   files: string[];
@@ -319,16 +351,20 @@ export const DiffViewer = memo(function DiffViewer({
       const dropped = split && change?.dropped ? droppedNear(change.dropped, f.text, split.hunks) : change?.dropped ?? "";
       // Filtered, a changed file shows only the hunks that changed since your review.
       const text = filtering && change?.status === "changed" ? (split ? hunksIn(change.patch, own) : change.patch) : own;
-      const fileDiff = text ? parseFileDiff(text) : null;
+      const shown = hideWhitespace ? hideWhitespaceChanges(text) : text;
+      const fileDiff = shown ? parseFileDiff(shown) : null;
       // A file whose only change since your review is removed hunks shows just those.
       if (!fileDiff && !(filtering && dropped)) return [];
       const stats = diffStats(text);
+      const shownStats = shown === text ? stats : diffStats(shown);
       return [{
         path: f.path,
         oldPath: f.oldPath,
         stats,
         noisy: startsFolded(f.path, stats, generated.has(f.path)),
         fileDiff,
+        shown,
+        whitespaceOnly: stats.add + stats.del > 0 && shownStats.add + shownStats.del === 0,
         // Only the PR's own diff can be shown in full, not changes since your review.
         source: text === f.text && fileDiff?.hunks.length ? f : null,
         change,
@@ -341,7 +377,7 @@ export const DiffViewer = memo(function DiffViewer({
       }];
     });
     return { perFile, unchanged: chapter.length - shown.length };
-  }, [patch, fileKey, since, filtering, generated, splitFiles]);
+  }, [patch, fileKey, since, filtering, generated, splitFiles, hideWhitespace]);
   // Files loaded in full, each with the diff it was read for, and those showing every line. A new diff starts over.
   const [contents, setContents] = useState<Record<string, { text: string; result: "loading" | FileContentsResult }>>({});
   const [wholeFile, setWholeFile] = useState<Record<string, boolean>>({});
@@ -357,13 +393,13 @@ export const DiffViewer = memo(function DiffViewer({
   const fullDiffs = useRef(new Map<string, FullDiff>());
   const expanded = useMemo(() => {
     const next = new Map<string, FullDiff>();
-    for (const { path, source } of perFile) {
+    for (const { path, source, shown } of perFile) {
       const loaded = contentsFor(path, source);
       if (!source || typeof loaded !== "object" || !loaded.ok) continue;
       const cached = fullDiffs.current.get(path);
-      if (cached?.text === source.text && cached.loaded === loaded) { next.set(path, cached); continue; }
-      const fileDiff = processFile(source.text, { oldFile: { name: source.oldPath ?? path, contents: loaded.old ?? "" }, newFile: { name: path, contents: loaded.new ?? "" } });
-      if (fileDiff) next.set(path, { text: source.text, loaded, fileDiff, commentable: diffLines(source.text) });
+      if (cached?.text === shown && cached.loaded === loaded) { next.set(path, cached); continue; }
+      const fileDiff = processFile(shown, { oldFile: { name: source.oldPath ?? path, contents: loaded.old ?? "" }, newFile: { name: path, contents: loaded.new ?? "" } });
+      if (fileDiff) next.set(path, { text: shown, loaded, fileDiff, commentable: diffLines(source.text) });
     }
     fullDiffs.current = next;
     return next;
@@ -382,6 +418,24 @@ export const DiffViewer = memo(function DiffViewer({
   }, [hasFiles]);
   const unifiedOnly = compact || narrow;
   useEffect(() => onUnifiedOnly?.(unifiedOnly), [unifiedOnly, onUnifiedOnly]);
+  const diffStyle = unifiedOnly ? "unified" : diffLayout;
+
+  // In a large chapter, the files that have come near the screen, or been revealed: only they draw their code.
+  // Large by the files that open unfolded: a big lockfile alone doesn't make a chapter slow.
+  const lazy = useMemo(() => typeof IntersectionObserver !== "undefined"
+    && perFile.reduce((rows, f) => rows + (f.fileDiff && !f.noisy ? rowsOf(f.fileDiff, "unified") : 0), 0) > LAZY_ROWS, [perFile]);
+  const [near, setNear] = useState<Set<string>>(NONE);
+  const draws = (path: string) => !lazy || near.has(path) || draft?.composer?.file === path;
+  useEffect(() => {
+    const el = root.current;
+    if (!lazy || !el) return;
+    const observer = new IntersectionObserver((entries) => {
+      const seen = entries.flatMap((entry) => entry.isIntersecting ? [(entry.target as HTMLElement).dataset.file!] : []);
+      if (seen.length) setNear((current) => seen.every((file) => current.has(file)) ? current : new Set([...current, ...seen]));
+    }, { root: scrollParent(el), rootMargin: LAZY_MARGIN });
+    el.querySelectorAll("[data-file]").forEach((card) => observer.observe(card));
+    return () => observer.disconnect();
+  }, [lazy, perFile]);
 
   // Explicit collapse overrides; when unset a file follows its "viewed" flag, and noise starts folded.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -456,8 +510,10 @@ export const DiffViewer = memo(function DiffViewer({
   useEffect(() => {
     if (!reveal) return;
     const { at } = reveal;
-    const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    // A large chapter jumps: scrolling smoothly would draw every file on the way.
+    const behavior = lazy || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
     setCollapsed((c) => ({ ...c, [at.file]: false }));
+    setNear((current) => current.has(at.file) ? current : new Set([...current, at.file]));
     const drawn = () => Array.from(root.current?.querySelectorAll("diffs-container") ?? []).every((el) => el.shadowRoot?.querySelector("[data-line]"));
     let tries = 0;
     let lastHeight = -1;
@@ -509,7 +565,7 @@ export const DiffViewer = memo(function DiffViewer({
 
   return (
     <div ref={root} className="space-y-4">
-      {perFile.map(({ path, oldPath, stats, fileDiff, source, change, css, split, first, dropped, inPart }) => {
+      {perFile.map(({ path, oldPath, stats, fileDiff, whitespaceOnly, source, change, css, split, first, dropped, inPart }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
@@ -594,12 +650,20 @@ export const DiffViewer = memo(function DiffViewer({
               </label>
             </div>
             {!folded && first && <OutdatedThreads threads={fromGitHub.get(path)?.outdated ?? []} />}
+            {!folded && whitespaceOnly && (
+              <p role="status" className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
+                <Icon name="Space" className="size-3.5 shrink-0" aria-hidden />Only whitespace changed.
+              </p>
+            )}
             {!folded && typeof loaded === "object" && !loaded.ok && (
               <p role="status" className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
                 <Icon name="Info" className="size-3.5 shrink-0" aria-hidden />{loaded.error}
               </p>
             )}
-            {!folded && fileDiff && (
+            {!folded && fileDiff && !draws(path) && (
+              <div data-pending-diff style={{ height: drawnHeight(full?.fileDiff ?? fileDiff, diffStyle) }} />
+            )}
+            {!folded && fileDiff && draws(path) && (
               <FileBody
                 path={path}
                 fileDiff={full?.fileDiff ?? fileDiff}
@@ -608,7 +672,7 @@ export const DiffViewer = memo(function DiffViewer({
                 darkTheme={theme?.dark}
                 lightTheme={theme?.light}
                 themeMode={themeMode}
-                diffStyle={unifiedOnly ? "unified" : diffLayout}
+                diffStyle={diffStyle}
                 wrap={wrapLines}
                 annotations={annotations.get(path)?.list ?? []}
                 selected={selectedLines?.file === path ? selectedLines.range : null}

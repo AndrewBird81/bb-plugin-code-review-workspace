@@ -5,7 +5,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 export function ShortcutsHelp({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* As tall as its list: in BB it opened full height, with an empty band above the list. */}
+      {/* As tall as its list. The dialog is portaled straight into <body>, so a page rule like
+          `body > div { height: 100vh }` (the harness's stand-in for BB's base styles has one) made it
+          full height, its grid rows spreading an empty band above the list. */}
       <DialogContent className="h-auto max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>

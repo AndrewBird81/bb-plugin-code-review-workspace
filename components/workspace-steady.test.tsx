@@ -125,7 +125,7 @@ test("Follow up on a file outside every chapter says so and offers GitHub, witho
   const { slot } = await renderWorkspace(() => ({ submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, turn: turn({ group: "needs", reason: "handled", label: "Feedback handled" }) }));
   const card = await slot.findByRole("article", { name: "Thread T1" });
   fireEvent.click(within(card).getByRole("button", { name: "Follow up" }));
-  expect(toast.info).toHaveBeenCalledWith("src/gone.ts isn’t in any chapter.", expect.objectContaining({ action: expect.objectContaining({ label: "Open on GitHub" }) }));
+  expect(toast.info).toHaveBeenCalledWith("src/gone.ts isn’t changed in this PR anymore.", expect.objectContaining({ action: expect.objectContaining({ label: "Open on GitHub" }) }));
   expect(viewButton(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
   fireEvent.click(viewButton(slot, "Diff"));
   await slot.findByTestId("filediff");

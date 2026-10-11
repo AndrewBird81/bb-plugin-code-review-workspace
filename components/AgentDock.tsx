@@ -161,7 +161,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
           <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-xl rounded-br-sm bg-primary/10 px-3 py-2 text-sm leading-relaxed ring-1 ring-inset ring-primary/20">{message.text}</p>
         </div>
       : <div key={message.id} className="space-y-1">
-          <span className="flex items-center gap-1.5 text-xs font-medium"><SpeakerMark agent />Assistant</span>
+          <span className="flex items-center gap-1.5 text-xs font-medium"><SpeakerMark agent />Agent</span>
           <div className="pl-6"><Markdown content={message.text} className="text-sm leading-relaxed" /></div>
         </div>)}
   </div> : undefined;

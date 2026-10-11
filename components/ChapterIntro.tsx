@@ -8,7 +8,7 @@ import { InlineCode } from "./ui/inline-code";
 import { RISK_LABEL, RISK_TONE } from "./ChapterNav";
 
 /** The open chapter's title, risk, full overview, and what to verify, above its diff. Hiding the overview sticks in this browser. */
-export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk, focus }: {
+export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk, focus, collapsedByDefault = false }: {
   index: number;
   total: number;
   title: string;
@@ -16,8 +16,11 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
   risk?: string;
   /** The guide's 1–3 "Check that…" items. */
   focus?: string[];
+  /** Hide the overview until you show it, unless you chose in this browser. */
+  collapsedByDefault?: boolean;
 }) {
-  const [collapsed, setCollapsed] = useState(getIntroCollapsed);
+  const [chosen, setCollapsed] = useState(getIntroCollapsed);
+  const collapsed = chosen ?? collapsedByDefault;
   const titleId = useId();
   function toggle() {
     setIntroCollapsed(!collapsed);
