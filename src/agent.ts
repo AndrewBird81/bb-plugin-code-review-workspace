@@ -142,8 +142,9 @@ export async function startAutomaticReview(bb: BbPluginApi, store: Store, target
   const context = store.getReviewContext(targetKey);
   const text = context ? `${prompt}\n\nContext from the thread that started this review:\n${context}` : prompt;
   const review = store.getReview(targetKey);
-  const login = review?.kind === "pr" && review.author ? await runGh(["api", "user", "--jq", ".login"]).then((r) => r.code === 0 ? r.stdout.trim() : "", () => "") : "";
-  const own = !!login && login.toLowerCase() === review?.author?.toLowerCase();
+  // The sync knows once it has read the PR; before that, ask gh who you are.
+  const login = review?.kind === "pr" && review.author && typeof review.ownPr !== "boolean" ? await runGh(["api", "user", "--jq", ".login"]).then((r) => r.code === 0 ? r.stdout.trim() : "", () => "") : "";
+  const own = review?.ownPr === true || (!!login && login.toLowerCase() === review?.author?.toLowerCase());
   // A conversation the reviewer is starting comes first.
   if (starting(bb, targetKey)) return;
   await startConversation(bb, store, { targetKey, text, agent: defaults, ...(own ? { context: SELF_REVIEW } : {}) });
