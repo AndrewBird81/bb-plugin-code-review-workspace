@@ -217,6 +217,9 @@ test("⇧F goes full screen and back, and leaving the review leaves full screen:
   fakeSize(1400, 900);
   fakeFullscreen();
   let { page, band } = await renderReview();
+  // Caps Lock's F, without Shift, is an f.
+  fireEvent.keyDown(document.body, { key: "F" });
+  expect(document.fullscreenElement).toBeNull();
   fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
   const root = page.getByRole("main").closest("[class*='@container/review']");
   expect(document.fullscreenElement).toBe(root);

@@ -32,6 +32,8 @@ export const TEXT_FIELD = `${TEXT_INPUT}, textarea, [role=textbox]`;
 /** The shortcut a key press asks for: none while typing, or with Ctrl, Meta, or Alt held. */
 export function shortcutKey(event: KeyboardEvent): string | null {
   if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || !KEYS.has(event.key)) return null;
+  // With Caps Lock on, v and f type V and F: only Shift makes them ⇧V and ⇧F.
+  if ((event.key === "V" || event.key === "F") && !event.shiftKey) return null;
   // The element typed in, even inside a shadow root. A checkbox or button keeps focus after a click, but takes no typing.
   const target = event.composedPath()[0];
   if (target instanceof HTMLElement && (target.isContentEditable || target.closest(`${TEXT_FIELD}, select, [role=dialog], [role=alertdialog]`))) return null;

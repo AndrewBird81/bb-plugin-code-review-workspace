@@ -578,6 +578,9 @@ test("⇧V marks the chapter's files viewed, and the toast's Undo unmarks the on
   await slot.findByText("aa");
   fireEvent.click(chapters(slot).getByText("Caching"));
   await waitFor(() => expect(currentChapter(slot)?.textContent).toContain("Caching"));
+  // Caps Lock's V, without Shift, is a v.
+  press("V");
+  expect(rpc.setFilesViewed).not.toHaveBeenCalled();
   press("V", { shiftKey: true });
   expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts"] });
   const box = slot.getByRole("checkbox", { name: "Viewed src/b.ts" }) as HTMLInputElement;
