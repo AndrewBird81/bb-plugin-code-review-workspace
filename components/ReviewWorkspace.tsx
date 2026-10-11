@@ -14,6 +14,7 @@ import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { ReviewHeader, ReviewTitleLink } from "./ReviewHeader";
 import { ChapterNav } from "./ChapterNav";
+import { ComparePicker } from "./ComparePicker";
 import { ChapterIntro } from "./ChapterIntro";
 import { DiffViewer, type FileViewFlags } from "./DiffViewer";
 import { DraftTray, type CommentPrefill } from "./DraftTray";
@@ -132,6 +133,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [since, setSince] = useState<Map<string, FileInterdiff> | null>(null);
   const [sinceError, setSinceError] = useState<string | null>(null);
   const [sinceOnly, setSinceOnly] = useState(false);
+  // A commit picked to compare from, instead of your last review.
+  const [compareFrom, setCompareFrom] = useState<string | null>(null);
+  const narrowOnLoad = useRef(false);
   const [snoozing, setSnoozing] = useState(false);
   const [reveal, setReveal] = useState<{ at: CommentLocation; nonce: number }>();
 
@@ -268,19 +272,31 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   // What changed since your last review, when the diff shown isn't the one you reviewed.
   const baselineSha = review ? baselineOf(review).sha : null;
-  const sinceKey = baselineSha && review?.headSha && baselineSha !== review.headSha ? `${baselineSha}..${review.headSha}` : null;
+  const fromSha = compareFrom ?? baselineSha;
+  const sinceKey = fromSha && review?.headSha && fromSha !== review.headSha ? `${fromSha}..${review.headSha}` : null;
   useEffect(() => {
     setSince(null);
     setSinceError(null);
     if (!sinceKey) return;
     let cancelled = false;
     const failed = (error?: string) => { if (!cancelled) setSinceError(error ?? "Couldn’t compare with your last review."); };
-    rpc.call("getSinceReview", { targetKey }).then((result) => {
+    rpc.call("getSinceReview", { targetKey, ...(compareFrom ? { from: compareFrom } : {}) }).then((result) => {
       if (result.error) failed(result.error);
-      else if (!cancelled && result.baseline) setSince(new Map((result.files as FileInterdiff[]).map((file) => [file.file, file])));
+      else if (!cancelled && result.baseline) {
+        setSince(new Map((result.files as FileInterdiff[]).map((file) => [file.file, file])));
+        // A commit you just picked shows its changes.
+        if (narrowOnLoad.current) setSinceOnly(true);
+        narrowOnLoad.current = false;
+      }
     }).catch((error) => failed(error instanceof Error ? error.message : undefined));
     return () => { cancelled = true; };
-  }, [rpc, targetKey, sinceKey]);
+  }, [rpc, targetKey, sinceKey, compareFrom]);
+  const pickCompare = useCallback((sha: string | null) => {
+    if (sha === compareFrom) return setSinceOnly(true);
+    narrowOnLoad.current = true;
+    setCompareFrom(sha);
+  }, [compareFrom]);
+  const sinceWhat = compareFrom ? compareFrom.slice(0, 7) : "your review";
   useEffect(() => { if (!since) setSinceOnly(false); }, [since]);
   const sections = useMemo(() => guide?.sections ? withOtherFiles(guide.sections, patch) : [], [guide, patch]);
   const lines = useMemo(() => changedLines(patch), [patch]);
@@ -791,6 +807,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 changedSince={changedSince}
                 lines={lines}
                 generated={generated}
+                sinceWhat={sinceWhat}
               />
             </aside>
             {!compact && <div
@@ -840,22 +857,23 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 </Button>
               ))}
             </div>
-            {view === "diff" && since && (
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-pressed={sinceOnly}
-                className="h-9 gap-1.5 px-2 text-xs text-muted-foreground aria-pressed:bg-primary/10 aria-pressed:text-primary aria-pressed:hover:bg-primary/15 md:h-7"
-                onClick={() => setSinceOnly((value) => !value)}
-              >
-                <Icon name="GitCommit" className="size-3.5" aria-hidden />
-                Since your review
-              </Button>
+            {view === "diff" && (since || isPr) && (
+              <ComparePicker
+                targetKey={targetKey}
+                baseline={baselineSha}
+                head={review?.headSha ?? null}
+                from={compareFrom}
+                onFrom={pickCompare}
+                available={!!since}
+                pickable={isPr}
+                pressed={sinceOnly}
+                onToggle={() => setSinceOnly((value) => !value)}
+              />
             )}
             {view === "diff" && sinceError && (
               <span role="status" title={sinceError} className="flex items-center gap-1.5 text-xs text-destructive-text">
                 <Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden />
-                Couldn’t compare with your last review
+                Couldn’t compare with {compareFrom ? compareFrom.slice(0, 7) : "your last review"}
               </span>
             )}
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground md:ml-auto">
@@ -969,6 +987,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 onUnifiedOnly={setUnifiedOnly}
                 readContents={readContents}
                 generated={generated}
+                sinceWhat={sinceWhat}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>

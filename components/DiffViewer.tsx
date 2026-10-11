@@ -255,6 +255,7 @@ export const DiffViewer = memo(function DiffViewer({
   onUnifiedOnly,
   readContents,
   generated = NONE,
+  sinceWhat = "your review",
 }: {
   diffLayout?: "split" | "unified";
   /** Wrap long lines instead of scrolling them sideways. */
@@ -284,6 +285,8 @@ export const DiffViewer = memo(function DiffViewer({
   readContents?: (file: string) => Promise<FileContentsResult>;
   /** Files the repo's .gitattributes marks generated or vendored. */
   generated?: Set<string>;
+  /** What `since` compares with, as "since …" says it: "your review", or a commit. */
+  sinceWhat?: string;
 }) {
   const theme = useTheme();
   const compact = useMediaQuery("(max-width: 767px)");
@@ -461,14 +464,14 @@ export const DiffViewer = memo(function DiffViewer({
     return () => cancelAnimationFrame(frame);
   }, [reveal]);
 
-  const unchangedNote = unchanged > 0 && <p className="text-center text-xs text-muted-foreground">{unchanged} file{unchanged === 1 ? "" : "s"} unchanged since your review</p>;
+  const unchangedNote = unchanged > 0 && <p className="text-center text-xs text-muted-foreground">{unchanged} file{unchanged === 1 ? "" : "s"} unchanged since {sinceWhat}</p>;
   const removedCards = removed.map((file) => (
     <section key={file.file} aria-label={`${file.file} removed`} className="overflow-clip rounded-lg border border-dashed border-border bg-card">
       <DiffDetails text={file.dropped} theme={theme} themeMode={themeMode} wrap={wrapLines} summary={
         <summary className="flex min-h-10 cursor-pointer items-center gap-2 px-2 py-1.5 text-xs">
           <Icon name="FileX2" className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
           <FilePath path={file.file} className="min-w-0 flex-1 line-through decoration-muted-foreground/50" />
-          <span className="shrink-0 text-muted-foreground">Removed from the PR since your review</span>
+          <span className="shrink-0 text-muted-foreground">Removed from the PR since {sinceWhat}</span>
         </summary>
       } />
     </section>
@@ -477,7 +480,7 @@ export const DiffViewer = memo(function DiffViewer({
   if (perFile.length === 0) {
     return (
       <div className="space-y-4">
-        <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">{filtering ? "No changes in this chapter since your review." : "No changes in this chapter."}</p>
+        <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">{filtering ? `No changes in this chapter since ${sinceWhat}.` : "No changes in this chapter."}</p>
         {removedCards}
         {unchangedNote}
       </div>
@@ -545,7 +548,7 @@ export const DiffViewer = memo(function DiffViewer({
                 <Badge tone="warning" size="sm" title="This file changed since you marked it viewed">changed</Badge>
               )}
               {(change?.status === "changed" || change?.status === "added") && (
-                <Badge tone="primary" size="sm" icon={<Icon name="GitCommit" aria-hidden />} title={change.status === "added" ? "Added to the PR since your review" : "Changed since your review"}>Changed since your review</Badge>
+                <Badge tone="primary" size="sm" icon={<Icon name="GitCommit" aria-hidden />} title={change.status === "added" ? `Added to the PR since ${sinceWhat}` : `Changed since ${sinceWhat}`}>Changed since {sinceWhat}</Badge>
               )}
               <DiffStat add={stats.add} del={stats.del} className="hidden @min-[700px]/review:inline-flex" />
               <label className={cn(
@@ -588,7 +591,7 @@ export const DiffViewer = memo(function DiffViewer({
             )}
             {!folded && filtering && change?.dropped && (
               <DiffDetails text={change.dropped} defaultOpen={!fileDiff} theme={theme} themeMode={themeMode} wrap={wrapLines} className={cn(fileDiff && "border-t border-border")}
-                summary={<summary className="cursor-pointer px-3 py-1.5 text-xs text-muted-foreground">Changes gone since your review</summary>} />
+                summary={<summary className="cursor-pointer px-3 py-1.5 text-xs text-muted-foreground">Changes gone since {sinceWhat}</summary>} />
             )}
           </div>
         );

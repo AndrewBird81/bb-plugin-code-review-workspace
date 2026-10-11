@@ -56,6 +56,7 @@ export const ChapterNav = memo(function ChapterNav({
   changedSince,
   lines,
   generated,
+  sinceWhat = "your review",
 }: {
   sections: Section[];
   activeId: string;
@@ -70,6 +71,8 @@ export const ChapterNav = memo(function ChapterNav({
   lines?: ReadonlyMap<string, number>;
   /** Files the repo's .gitattributes marks generated or vendored. */
   generated?: ReadonlySet<string>;
+  /** What changedSince compares with: "your review", or a commit. */
+  sinceWhat?: string;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const isExpanded = (id: string) => expanded[id] ?? id === activeId;
@@ -123,7 +126,7 @@ export const ChapterNav = memo(function ChapterNav({
                       </span>
                       {toRead > 0 && <span className="tabular-nums" title="Changed lines, without lockfiles and generated files">{toRead.toLocaleString()} {toRead === 1 ? "line" : "lines"}</span>}
                       {changed > 0 && (
-                        <Badge tone="primary" size="sm" title={`${changed} file${changed === 1 ? "" : "s"} changed since your review`}>
+                        <Badge tone="primary" size="sm" title={`${changed} file${changed === 1 ? "" : "s"} changed since ${sinceWhat}`}>
                           {changed} changed
                         </Badge>
                       )}
