@@ -35,6 +35,10 @@ export function assistantInstructions(targetKey: string, guide: Guide | null, pr
   return open + (body.length > room ? `${body.slice(0, room - 1)}…` : body) + close;
 }
 
+const waitsEnded = new WeakMap<BbPluginApi, (targetKey: string) => void>();
+/** Told when finding a review's conversation archived or deleted ended the feedback check waiting on it. */
+export function onAssistantWaitsEnded(bb: BbPluginApi, listener: (targetKey: string) => void) { waitsEnded.set(bb, listener); }
+
 /**
  * The review's assistant thread, if it can still take messages. Without one,
  * the reviewer starts a conversation from `defaults`, on `machine` when one is
@@ -56,7 +60,7 @@ export async function getConversation(bb: BbPluginApi, store: Store, targetKey: 
     }
     store.clearAssistantThread(targetKey);
     // A conversation archived or deleted won't answer, and its turn's end won't reach this review.
-    endAssistantWaits(bb, store, targetKey);
+    if (endAssistantWaits(bb, store, targetKey)) waitsEnded.get(bb)?.(targetKey);
   }
   const custom = store.getPreferences().preferences.assistantAgent;
   if (custom) return { threadId: null, legacy, defaults: choice(custom), machine: await machineStatus(bb, custom.hostId) };

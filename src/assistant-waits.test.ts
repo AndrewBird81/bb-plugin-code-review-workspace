@@ -57,3 +57,15 @@ test("a new conversation ends a feedback check waiting on the old one", async ()
   expect(stillWaiting()).toBe(false);
   expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null });
 });
+
+test("a conversation found archived when the review opens moves the review's turn on, as its turn's end would", async () => {
+  const thread: { status: "active" | "idle"; archivedAt?: number } = { status: "active" };
+  const { bb, harness, store, stillWaiting } = waiting(thread);
+  await plugin(bb);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  store.setLifecycle("pr-1", { turnGroup: null });
+  Object.assign(thread, { status: "idle", archivedAt: 5 });
+  await harness.behavior.callRpc("getConversation", { targetKey: "pr-1" });
+  expect(stillWaiting()).toBe(false);
+  await vi.waitFor(() => expect(store.getReview("pr-1")?.turnGroup).toEqual(expect.any(String)));
+});

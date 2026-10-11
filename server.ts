@@ -13,7 +13,7 @@ import { readPrContext } from "./src/pr-context";
 import { validateGuide, checkCoverage, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
-import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
+import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startConversation } from "./src/agent";
 import { listMachines } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
 import { commentsKey, SUMMARY_AT } from "./src/draft";
@@ -95,6 +95,7 @@ export default async function plugin(bb: BbPluginApi) {
     },
   } });
   onPrepared(bb, (targetKey) => { void sync.evaluate(targetKey); });
+  onAssistantWaitsEnded(bb, (targetKey) => { void sync.evaluate(targetKey); });
   // Guides a reload interrupted: their workers stop, and the rebuilds start again without alerting.
   void (async () => {
     for (const { targetKey, workerId } of interrupted) {
