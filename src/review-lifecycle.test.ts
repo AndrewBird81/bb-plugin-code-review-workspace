@@ -571,6 +571,20 @@ test("sync health: a token GitHub refuses reads as signed out, while the login i
   expect(s.sync.health().error).toMatchObject({ kind: "auth" });
 });
 
+test("sync health: with nothing to read, a good look on GitHub clears an earlier failure", async () => {
+  const s = setup();
+  s.store.deleteReview("pr-1");
+  let login: string | null = null;
+  s.github.viewer.login = async () => login;
+  s.github.viewer.errors = () => ({ login: login ? null : "To get started with GitHub CLI, please run:  gh auth login", teams: null });
+  await s.sync.all();
+  expect(s.sync.health().error).toMatchObject({ kind: "auth" });
+  login = "me";
+  s.at(0.1);
+  await s.sync.all(true);
+  expect(s.sync.health().error).toBeNull();
+});
+
 test("sync health: a rate limit backs off until it can read again", async () => {
   const s = setup();
   vi.mocked(s.github.facts).mockRejectedValueOnce(new Error("RATE_LIMITED: API rate limit exceeded for user ID 1."));

@@ -339,9 +339,10 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
 
   /**
    * Add PRs you're asked to review, or have reviewed, on GitHub. The first look for each account
-   * (and after tracking is turned back on) only fills the list; later requests alert.
+   * (and after tracking is turned back on) only fills the list; later requests alert. A failure
+   * recorded before `since` that a good look disproves is cleared.
    */
-  async function discover(): Promise<void> {
+  async function discover(since: number): Promise<void> {
     if (!actions) return;
     if (!store.getPreferences().preferences.trackGithubReviews) {
       await bb.storage.kv.delete(DISCOVERED);
@@ -350,6 +351,9 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     const login = await viewerLogin();
     if (!login) return;
     const found = await github.discover({ reviewed: true, teams: store.getPreferences().preferences.trackTeamRequests });
+    // With nothing to read, as in an empty list, only this look shows GitHub answers again. It says nothing of PRs or teams.
+    const error = health.error;
+    if (error && error.at < since && (error.kind === "auth" || error.kind === "rate-limit" || error.kind === "other")) health = { ...health, error: null };
     const projectId = await actions.projectId();
     if (!projectId || disposed) return;
     const first = (await bb.storage.kv.get<{ login: string }>(DISCOVERED))?.login !== login;
@@ -397,7 +401,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     for (const review of reviews) if (!disposed) await maintainThread(review.targetKey);
     if (!limited() && (force || now - lastDiscovery >= DISCOVER_EVERY)) {
       lastDiscovery = now;
-      discovering ??= discover().catch((error) => { readFailed(error); bb.log.warn(`Could not look for reviews on GitHub: ${String(error)}`); }).finally(() => { discovering = null; });
+      discovering ??= discover(now).catch((error) => { readFailed(error); bb.log.warn(`Could not look for reviews on GitHub: ${String(error)}`); }).finally(() => { discovering = null; });
       await discovering;
     }
     // Turns also change with time, such as a quiet period ending, and waiting alerts may be ready.
