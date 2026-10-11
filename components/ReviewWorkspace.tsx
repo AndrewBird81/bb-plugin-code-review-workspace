@@ -34,6 +34,7 @@ import { useDraftStatus } from "../lib/draft-status";
 import { inDiffOrder, shortcutKey } from "../lib/review-shortcuts";
 import { InlineDraftContext } from "./InlineDraft";
 import { DiffThreadsContext, useDiffThreads } from "./LineThreads";
+import { CheckFailuresContext, useCheckFailures } from "./CheckFailures";
 import { ShortcutsHelp } from "./ShortcutsHelp";
 import { StartHere } from "./StartHere";
 import { splitPatchByFile } from "../src/patch";
@@ -556,6 +557,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Everyone's GitHub threads, under their lines in the diff unless hidden.
   const diffThreads = useDiffThreads(targetKey, isPr && view === "diff");
   const [showThreads, setShowThreads] = useState(true);
+  const checkFailures = useCheckFailures(targetKey, isPr ? review?.headSha ?? null : null);
   const readContents = useCallback((file: string) => rpc.call("getFileContents", { targetKey, file }), [rpc, targetKey]);
 
   // GitHub-style line selection in the diff (via pierre) → comment / ask agent.
@@ -912,6 +914,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
             {view === "diff" ? (
               <>
               {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
+              <CheckFailuresContext.Provider value={checkFailures}>
               <DiffThreadsContext.Provider value={showThreads ? diffThreads : null}>
               <DiffViewer
                 diffLayout={diffLayout}
@@ -934,6 +937,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 generated={generated}
               />
               </DiffThreadsContext.Provider>
+              </CheckFailuresContext.Provider>
               {nextSection && (
                 <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
                   {viewedCount < activeFiles.length && (

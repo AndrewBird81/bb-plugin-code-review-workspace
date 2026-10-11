@@ -11,6 +11,7 @@ import { changedFiles, splitPatchByFile } from "./src/patch";
 import { describeReviewFiles, patchPage } from "./src/review-files";
 import { readPrContext } from "./src/pr-context";
 import { readFileContents, readGeneratedFiles } from "./src/file-contents";
+import { readCheckFailures } from "./src/check-annotations";
 import { validateGuide, checkCoverage, checkHotspots, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
@@ -371,6 +372,10 @@ export default async function plugin(bb: BbPluginApi) {
       const r = await runGh(ghPrChecksJsonArgs(m.number, m.repo));
       const parsed = parseChecks([0, 1, 8].includes(r.code) ? r.stdout : "");
       return { bucket: parsed.bucket, checks: parsed.checks };
+    },
+    async getCheckFailures({ targetKey }) {
+      const review = store.getReview(targetKey);
+      return { failures: review ? await readCheckFailures(runGh, review) : [] };
     },
     async getGeneratedFiles({ targetKey }) {
       const review = store.getReview(targetKey);
