@@ -23,6 +23,16 @@ test("settings persist across stores, reject stale edits, and validate input", a
   expect(buildGenerationPrompt("pr-1", "run-1", preferences)).not.toContain("Focus on security");
 });
 
+test("a page from before 0.5.1 saves settings without the thread-list setting, which keeps its saved value", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const off = await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, threadListReviews: false }, revision: 0 }) as any;
+  const { threadListReviews: _omitted, ...older } = { ...defaultPreferences, guideDetail: "detailed" as const };
+  const saved = await harness.behavior.callRpc("savePreferences", { preferences: older, revision: off.revision }) as any;
+  expect(saved.preferences).toMatchObject({ guideDetail: "detailed", threadListReviews: false });
+  expect(createStore(bb).getPreferences().preferences.threadListReviews).toBe(false);
+});
+
 test("an automatic review saved with the default from before the review summary reads as the current default; a custom one stays", async () => {
   const { bb } = createFakePluginHost({ pluginId: "guided-review" });
   await plugin(bb);

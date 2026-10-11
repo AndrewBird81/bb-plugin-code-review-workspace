@@ -57,7 +57,8 @@ export const rpcContract = defineRpcContract({
   },
   getPreferences: { input: z.null(), output: z.object({ preferences: preferencesSchema, revision: z.number().int() }) },
   savePreferences: {
-    input: z.object({ preferences: preferencesSchema, revision: z.number().int().min(0) }).strict(),
+    // Pages open from before 0.5.1 send settings without threadListReviews; the saved value stands.
+    input: z.object({ preferences: preferencesSchema.partial({ threadListReviews: true }), revision: z.number().int().min(0) }).strict(),
     output: z.object({ preferences: preferencesSchema, revision: z.number().int() }),
   },
   // Seeds a custom agent selection with the panel project's remembered defaults.
