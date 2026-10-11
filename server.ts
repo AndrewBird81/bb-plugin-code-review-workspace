@@ -13,6 +13,7 @@ import { readPrContext } from "./src/pr-context";
 import { readFileContents, readGeneratedFiles } from "./src/file-contents";
 import { readCheckFailures } from "./src/check-annotations";
 import { validateGuide, checkCoverage, checkHotspots, checkRequirements, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
+import { hunkCounts } from "./src/hunks";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startConversation } from "./src/agent";
@@ -950,7 +951,7 @@ export default async function plugin(bb: BbPluginApi) {
       const total = store.readPatch(targetKey, 0, 0).total;
       const patch = store.readPatch(targetKey, 0, total).text;
       const files = changedFiles(patch);
-      const cov = checkCoverage(v.guide, files);
+      const cov = checkCoverage(v.guide, files, hunkCounts(patch));
       if (!cov.ok) return { content: [{ type: "text", text: "Coverage errors:\n" + cov.errors.join("\n") }], isError: true };
       const spots = checkHotspots(v.guide, patch);
       if (!spots.ok) return { content: [{ type: "text", text: "Hotspot errors:\n" + spots.errors.join("\n") }], isError: true };

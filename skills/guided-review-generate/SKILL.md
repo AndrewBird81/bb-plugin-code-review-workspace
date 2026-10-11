@@ -26,6 +26,10 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat everythi
    `overview`, and its `diffs` — each `{ file, summary }` where `file` is the exact repo-relative path and `summary` is a 1–2
    sentence semantic description of that file's change. Give each section a short kebab-case `id`,
    unique in the guide, and at least one file.
+   Rarely, a file mixes unrelated changes that belong in different chapters. Only then, split it:
+   list it in each of those chapters with `hunks`, the hunks that chapter covers, numbered from 1
+   in the order of the file's `@@` headers in the patch, and a `summary` of just those hunks.
+   Otherwise leave `hunks` out: the entry covers the whole file.
    Assign each section a `risk` of exactly `low`, `medium`, or `high`: how closely the reviewer
    must read it. `high` means read every line: auth or permissions, data migrations or deletes,
    concurrency, money, a public API or wire format, or removed validation or error handling.
@@ -45,7 +49,8 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat everythi
    the files still fit, and write `sinceReview`: 2–4 sentences on what changed since the reviewer's
    last review, from `read_changes_since_review`. Leave `sinceReview` out otherwise.
 5. **Verify coverage.** Every changed file must appear in exactly one section's `diffs` OR in
-   `unplacedFiles` — never twice, never omitted. Use `unplacedFiles` only for files with nothing
+   `unplacedFiles` — never twice, never omitted. A split file's hunks must each be in exactly
+   one chapter. Use `unplacedFiles` only for files with nothing
    to review (binary, mode-only, or a pure rename); they're shown in a final "Other files" chapter.
 6. **Submit** by calling `generate_review_guide` with `{ targetKey, generationId, guide }`.
    Copy `targetKey` and `generationId` exactly from this worker’s task. Never invent an ID or

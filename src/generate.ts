@@ -7,6 +7,7 @@ import { agentPlacement, machineUnavailable } from "./machines";
 import { startVerification } from "./verification";
 import { baselineOf } from "./feedback-view";
 import type { Guide } from "./guide";
+import { fitHunks } from "./hunks";
 
 const preparedListeners = new WeakMap<BbPluginApi, (targetKey: string) => void>();
 /** Told when a guide's automatic follow-up (the review or the feedback check) has started or can't. */
@@ -32,7 +33,7 @@ export function guideWriterUnavailable(bb: BbPluginApi, store: Store): Promise<s
 }
 
 export function buildGenerationPrompt(targetKey: string, generationId?: string, preferences: ReviewPreferences = defaultPreferences, earlier?: { guide: Guide | null; reviewed: boolean }): string {
-  const chapters = earlier?.guide?.sections.map((s) => `- ${s.id}: ${s.title} (${s.diffs.map((d) => d.file).join(", ")})`) ?? [];
+  const chapters = earlier?.guide?.sections.map((s) => `- ${s.id}: ${s.title} (${s.diffs.map((d) => d.hunks ? `${d.file} hunks ${d.hunks.join(", ")}` : d.file).join(", ")})`) ?? [];
   return [
     "Author a Guided Review for this change.",
     "Follow the guided-review-generate skill exactly.",
@@ -64,7 +65,10 @@ export async function generateGuide(
   runs.add(controller);
   try {
     const review = store.getReview(targetKey);
-    const earlier = { guide: store.getGuide(targetKey), reviewed: !!(review && baselineOf(review).at) };
+    // The diff is already the new one: hunks of the earlier guide that no longer fit it show as whole files.
+    const kept = store.getGuide(targetKey);
+    const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
+    const earlier = { guide: kept && { ...kept, sections: fitHunks(kept.sections, patch) }, reviewed: !!(review && baselineOf(review).at) };
     generationId = store.beginGeneration(targetKey);
     threads = bb.sdk.threads;
     const preferences = store.getPreferences().preferences;

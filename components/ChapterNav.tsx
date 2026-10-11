@@ -73,7 +73,8 @@ export const ChapterNav = memo(function ChapterNav({
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const isExpanded = (id: string) => expanded[id] ?? id === activeId;
-  const allFiles = sections.flatMap((s) => s.diffs.map((d) => d.file));
+  // A file split across chapters counts once.
+  const allFiles = [...new Set(sections.flatMap((s) => s.diffs.map((d) => d.file)))];
   const viewedAll = allFiles.filter((f) => views.get(f)?.viewed).length;
 
   return (
