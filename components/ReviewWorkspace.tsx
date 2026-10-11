@@ -316,9 +316,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       const start = !back && resumable ? saved.activeId! : OVERVIEW;
       restoreScroll.current = start === saved.activeId ? saved.scrollTop ?? null : null;
       setActiveId(start);
-      // Before 0.6.0 a review was left on Feedback or Threads, which Comments shows now: once, if it docks.
+      // Before 0.6.0 a review was left on Feedback or Threads, which Comments shows now: once, if it docks. Feedback
+      // only once you've reviewed it, as 0.5 did.
       const left = saved.view === "feedback" || saved.view === "threads" ? saved.view : null;
-      const tab = back ? "feedback" : left && review.kind === "pr" && baselineOf(review).at !== null ? left : null;
+      const tab = back ? "feedback" : left && review.kind === "pr" && (left === "threads" || baselineOf(review).at !== null) ? left : null;
       if (tab && layoutRef.current.panelCanDock) {
         setCommentsTab(tab);
         setPanelView("comments");

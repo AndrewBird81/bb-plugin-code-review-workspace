@@ -114,6 +114,16 @@ test("a review you haven't given ignores the Feedback an older version left it o
   slot.lifecycle.unmount();
 });
 
+test("a review you haven't given still opens Comments on the Threads an older version left it on", async () => {
+  patchReviewState("pr-42", { activeId: "c1", view: "threads" });
+  const { slot } = await renderWorkspace({ turn: turn({ reason: "requested", label: "Review requested", signal: "requested:1" }) }, {
+    getReviewThreads: () => ({ threads: [] }),
+  });
+  await slot.findByTestId("filediff");
+  await waitFor(() => expect(tab(slot, "Threads").getAttribute("aria-pressed")).toBe("true"));
+  slot.lifecycle.unmount();
+});
+
 test("a local review's Comments has only its draft", async () => {
   const { slot } = await renderWorkspace({ kind: "ref", gitRef: "main...x" });
   await slot.findByRole("heading", { name: "Parse rows" });
