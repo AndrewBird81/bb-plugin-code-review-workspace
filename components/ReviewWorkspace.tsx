@@ -15,6 +15,7 @@ import { Icon } from "./ui/icon";
 import { ReviewHeader, ReviewTitleLink } from "./ReviewHeader";
 import { ChapterNav } from "./ChapterNav";
 import { ComparePicker } from "./ComparePicker";
+import type { FileOwners } from "../src/codeowners";
 import { ChapterIntro } from "./ChapterIntro";
 import { DiffViewer, type FileViewFlags } from "./DiffViewer";
 import { DraftTray, type CommentPrefill } from "./DraftTray";
@@ -136,6 +137,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // A commit picked to compare from, instead of your last review.
   const [compareFrom, setCompareFrom] = useState<string | null>(null);
   const narrowOnLoad = useRef(false);
+  const [owners, setOwners] = useState<Map<string, FileOwners>>(new Map());
   const [snoozing, setSnoozing] = useState(false);
   const [reveal, setReveal] = useState<{ at: CommentLocation; nonce: number }>();
 
@@ -297,6 +299,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setCompareFrom(sha);
   }, [compareFrom]);
   const sinceWhat = compareFrom ? compareFrom.slice(0, 7) : "your review";
+  // Who owns each file, by CODEOWNERS at the diff's new side.
+  useEffect(() => {
+    if (!revision) return;
+    let cancelled = false;
+    rpc.call("getCodeOwners", { targetKey }).then((result) => { if (!cancelled) setOwners(new Map(result.files.map((entry) => [entry.file, entry]))); }, () => {});
+    return () => { cancelled = true; };
+  }, [rpc, targetKey, revision]);
   useEffect(() => { if (!since) setSinceOnly(false); }, [since]);
   const sections = useMemo(() => guide?.sections ? withOtherFiles(guide.sections, patch) : [], [guide, patch]);
   const lines = useMemo(() => changedLines(patch), [patch]);
@@ -988,6 +997,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 readContents={readContents}
                 generated={generated}
                 sinceWhat={sinceWhat}
+                owners={owners}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>

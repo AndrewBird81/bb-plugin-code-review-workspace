@@ -5,6 +5,7 @@ import { FileDiff } from "@pierre/diffs/react";
 import type { AnnotationSide, DiffLineAnnotation, FileDiffMetadata, FileDiffOptions, SelectedLineRange } from "@pierre/diffs";
 import { patchRows, splitPatchByFile } from "../src/patch";
 import type { FileInterdiff } from "../src/interdiff";
+import type { FileOwners } from "../src/codeowners";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import { cn } from "../lib/utils";
 import { classifyFile } from "../src/classify";
@@ -256,6 +257,7 @@ export const DiffViewer = memo(function DiffViewer({
   readContents,
   generated = NONE,
   sinceWhat = "your review",
+  owners,
 }: {
   diffLayout?: "split" | "unified";
   /** Wrap long lines instead of scrolling them sideways. */
@@ -287,6 +289,8 @@ export const DiffViewer = memo(function DiffViewer({
   generated?: Set<string>;
   /** What `since` compares with, as "since …" says it: "your review", or a commit. */
   sinceWhat?: string;
+  /** Each file's CODEOWNERS owners, and whether you or a team you're on is one. */
+  owners?: ReadonlyMap<string, FileOwners>;
 }) {
   const theme = useTheme();
   const compact = useMediaQuery("(max-width: 767px)");
@@ -499,6 +503,7 @@ export const DiffViewer = memo(function DiffViewer({
         const loaded = contentsFor(path, source);
         const loading = loaded === "loading";
         const full = expanded.get(path);
+        const owned = owners?.get(path);
         return (
           <div
             key={path}
@@ -523,6 +528,12 @@ export const DiffViewer = memo(function DiffViewer({
                 <FilePath path={path} className="text-xs" nameClassName="font-medium" />
                 {oldPath && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">Renamed from <span className="font-mono">{oldPath}</span></p>}
                 {summaries?.get(path) && <p className="mt-0.5 text-xs leading-snug text-muted-foreground"><InlineCode text={summaries.get(path)!} /></p>}
+                {owned && (
+                  <p className={cn("mt-0.5 flex items-center gap-1 text-[11px]", owned.mine ? "text-primary" : "text-muted-foreground")} title="From the repo's CODEOWNERS">
+                    <Icon name="UserRound" className="size-3 shrink-0" aria-hidden />
+                    <span className="min-w-0 truncate">Owned by <span className="font-mono">{owned.owners.join(" ")}</span>{owned.mine && <span className="font-medium"> · yours</span>}</span>
+                  </p>
+                )}
               </div>
               <FileTag file={path} generated={generated.has(path)} />
               {folded && !viewed && noisy.has(path) && (
