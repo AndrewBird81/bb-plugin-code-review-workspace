@@ -574,6 +574,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Everyone's GitHub threads, under their lines in the diff unless hidden.
   const diffThreads = useDiffThreads(targetKey, isPr && view === "diff");
   const [showThreads, setShowThreads] = useState(true);
+  // A GitHub thread's line, with the threads on so its card shows there.
+  const showThread = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
+    setShowThreads(true);
+    showLocation(file, line, side, url);
+  }, [showLocation]);
   const checkFailures = useCheckFailures(targetKey, isPr ? review?.headSha ?? null : null);
   const readContents = useCallback((file: string) => rpc.call("getFileContents", { targetKey, file }), [rpc, targetKey]);
 
@@ -978,12 +983,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 targetKey={targetKey}
                 review={review}
                 revision={revision}
-                onShowLocation={showLocation}
+                onShowLocation={showThread}
                 onFollowUp={followUp}
                 onDraftUpdated={showDraftSummary}
               />
             ) : (
-              <ThreadsPanel targetKey={targetKey} onShowInDiff={showLocation} />
+              <ThreadsPanel targetKey={targetKey} onShowInDiff={showThread} />
             )}
           </div>
         </main>
