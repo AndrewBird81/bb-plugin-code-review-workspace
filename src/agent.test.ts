@@ -131,8 +131,16 @@ test("the assistant reads the guide's requirements, and puts a missing or partia
   ];
   const text = assistantInstructions("pr-1", { ...guide("Retries"), requirements } as any, defaultPreferences);
   expect(text).toMatch(/missing or partial requirement.*comment.*summary/);
-  expect(text).toContain("Requirements:\n- covered: Retry once — refresh() retries. (src/auth.ts:12)\n- missing: Log the retry — Nothing logs it.\nChapters:");
+  expect(text).toContain("- Retry: Retries once.\nRequirements:\n- covered: Retry once — refresh() retries. (src/auth.ts:12)\n- missing: Log the retry — Nothing logs it.\n</guide>");
   expect(assistantInstructions("pr-1", guide("Retries") as any, defaultPreferences)).not.toMatch(/requirement/i);
+});
+
+test("a long requirements list can't push the chapters out of the instructions", () => {
+  const requirements = Array.from({ length: 100 }, (_, i) => ({ text: `Requirement ${i}`, status: "covered", evidence: "x".repeat(80) }));
+  const text = assistantInstructions("pr-1", { ...guide("Retries"), requirements } as any, defaultPreferences);
+  expect(text.length).toBeLessThanOrEqual(4000);
+  expect(text).toContain("Chapters:\n- Retry: Retries once.");
+  expect(text).toMatch(/…\n<\/guide>$/);
 });
 
 function reviewAgentContext(pluginMetadata: Record<string, string>): PluginAgentConfigurationContext {
