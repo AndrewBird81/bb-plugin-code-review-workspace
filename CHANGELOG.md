@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.5.0 — 2026-10-11
+
+### Reviewing the diff
+
+- Each chapter opens on an intro with its overview, and medium- and high-risk chapters list **What to verify**. The end of a chapter offers the next one, and a review reopens on the chapter you were reading.
+- **Requirements: 3/4 covered** checks the PR against what its description and linked tickets ask for, with evidence and a link to each line.
+- **Start here** points at the guide's riskiest lines. The header shows the changed lines with a rough reading time; each chapter shows its own.
+- Guides can split a file that mixes unrelated changes across chapters, each showing only its hunks, with an "Also in" note. Files the guide leaves out go in a last **Other files** chapter.
+- **All files** shows every changed file as a folder tree with a filter, and **Find in review** searches every diff line and the guide.
+- The Since menu compares from any of the PR's commits, also on PRs you haven't reviewed.
+- Each file header shows its CODEOWNERS owners, from the PR's base branch, and marks the files that are **yours**.
+- **Split view**, **Wrap lines**, and **Hide whitespace** toggles in the diff toolbar. The diff goes unified below 960px of pane width.
+- **Expand** around a file's changes, or show the **Whole file**.
+- Everyone's GitHub review threads show under their lines, with Reply and Resolve; CI failures show on the lines they're about.
+- Lockfiles, generated files (also by `.gitattributes`), test snapshots, and huge diffs start folded. Viewed files fold at once.
+- Keyboard shortcuts: `j`/`k` files, `n`/`p` chapters, `v` viewed, `u` next unviewed, `]`/`[` comments, `/` find, `f` all files, `a` ask, `s` submit, `?` for the list.
+- Renamed files, odd file names, `--`/`++` lines, PRs over GitHub's diff limit, and personal git diff settings no longer break the diff or line numbers.
+
+### Comments and severity
+
+- Comment on a range of lines ("Lines 10–15"), posted to GitHub as a multi-line comment. **Suggest change** inserts a suggestion block.
+- Draft comments have a severity (**Blocking**, **Should fix**, **Question**, **Nit**), posted as the comment's label. Draft review counts them, with **Hide nits** and **Remove nits**.
+- Submit asks once more when you go against the agent's verdict, its summary is out of date, or you approve with blocking comments; it waits on comments marked Older diff and names them.
+- On your own PR only Comment is offered. **Fix in a new thread** hands chosen comments on your own PR or a local review to a BB coding thread.
+- **Undo** after removing a comment; Cmd/Ctrl+Enter saves and Esc cancels; the receipt links to the review on GitHub; comments list in the guide's order.
+- `bb review comment` takes ranges (`path:10-15`) and `--severity`.
+
+### The assistant
+
+- The automatic review is precision-first: at most 10 verified comments, labeled by severity, and a verdict by stated rules. On your own PR it's a self-review.
+- The assistant reads the PR's description, linked issues, commits, failing CI, others' threads, the repo's AGENTS.md, CLAUDE.md, and Copilot instructions, and which files you own, and treats all PR text as untrusted.
+- It can read files before the change and in local reviews, and re-checks its draft comments when new commits arrive.
+- It won't raise a comment you removed again unless the code changed. Settings shows how its comments fared, and **Suggest instruction changes** proposes instruction lines from them.
+- Agents can't change comments you wrote unless you ask on them, and you can Undo what they change.
+
+### Whose turn and the list
+
+- Threads starting with `nit:`, `FYI:`, `optional:`, or `non-blocking:` don't hold a review on the author; progress shows them apart (`2/2 handled +1 nit`).
+- **Snooze until** later today, tomorrow morning, next Monday, or a date.
+- Stacked PRs sit together in the list, bottom first, and link to each other.
+- **Your PR** for your own PRs; **No longer requested** and **Can't read on GitHub** move PRs to Archive.
+- Only the author's replies, or an @mention of you, bring a review back. Team requests after your review no longer count as re-requests. Mentions in reviews and line comments count.
+- **Find a review** in the list; rows show PR size, outdated threads, and a quiet author. The list says when GitHub was last read and why it can't be.
+- Checks that never report stop holding a review back after an hour.
+
+### Trust and safety
+
+- Agents start on their own only on PRs from members and collaborators (**Settings → Trust**). Other PRs say what didn't run and why, with one click to run it.
+- Opt-in: **Let the review agent run the repo’s tests and linters** on trusted authors' PRs, in a temporary worktree.
+
+### Phones and speed
+
+- On phones the workspace has a one-row top bar and a compact toolbar, a short screen opens on the code, and list rows put the status under the title.
+- Large chapters draw files as they near the screen: a 300-file chapter shows code in under a second.
+- Saving a comment no longer re-reads the whole diff, an open review reloads without resending it, and old reviews' stored diffs are dropped after 30 days out of play.
+
+### Fixes
+
+- Comments on neighbouring lines stay on their lines after a re-review, and comments, discussions, and Viewed marks follow renamed files.
+- "Waiting for agent" and unfinished feedback checks clear after a reload or a lost conversation; a guide interrupted by a reload restarts.
+- A guide whose worker fails ends at once; big PRs get longer to generate.
+- A `gh` account switch made in a terminal is noticed within a minute, and a rate limit pauses reading for 15 minutes.
+
 ## 0.4.0 — 2026-10-10
 
 - The review summary works like a draft comment. It sits at the top of **Draft review** (formerly Draft comments): the review assistant writes it, labeled **Added by agent**, with the verdict it suggests marked on the verdict buttons; **Edit** makes it yours; **Ask agent** discusses it with the assistant under it, and the assistant changes it there. Only you pick the verdict.
