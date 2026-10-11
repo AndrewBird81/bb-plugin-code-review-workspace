@@ -312,9 +312,10 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     if (actions && preferences.pushChecks !== "off" && turn.group === "waiting" && turn.updated && head && head !== review.watchedHead && review.status === "ready"
       && review.autoRunHead !== head && review.assessment?.headSha !== head && ciSettled(s, now) && now - (s.headSeenAt ?? now) >= PUSH_QUIET) {
       store.setLifecycle(key, { autoRunHead: head });
-      // An untrusted author's pushes wait for your click.
-      if (!mayRunUnattended(review, preferences, head)) store.setLifecycle(key, { skippedRun: { run: "check", head, at: now } });
-      else if (!await actions.checkPushes(key).catch(() => false) && store.getReview(key)) store.setLifecycle(key, { autoRunHead: review.autoRunHead ?? null });
+      // An untrusted author's pushes wait for your click, when the check is on.
+      if (!mayRunUnattended(review, preferences, head)) {
+        if (preferences.verificationPrompt.trim()) store.setLifecycle(key, { skippedRun: { run: "check", head, at: now } });
+      } else if (!await actions.checkPushes(key).catch(() => false) && store.getReview(key)) store.setLifecycle(key, { autoRunHead: review.autoRunHead ?? null });
     }
     if (review.turnGroup === "needs" && turn.group !== "needs") void notifications.dismiss(key);
     if (review.turnGroup !== turn.group && store.getReview(key)) store.setLifecycle(key, { turnGroup: turn.group });
@@ -338,7 +339,9 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     }
     // An untrusted author's text reaches agents only after your click; the review says what didn't run.
     if (!mayRunUnattended(review, preferences, head)) {
-      store.setLifecycle(key, { preparedSignal: turn.signal, skippedRun: { run: request ? "guide" : "check", head, at: clock() } });
+      // A check that's turned off wouldn't have run, unless the guide behind it needed rebuilding.
+      const skipped = request || review.status === "tracked" || review.headSha !== head || !!preferences.verificationPrompt.trim();
+      store.setLifecycle(key, { preparedSignal: turn.signal, ...(skipped ? { skippedRun: { run: request ? "guide" : "check", head, at: clock() } } : {}) });
       return false;
     }
     const previous = review.autoRunHead ?? null;
