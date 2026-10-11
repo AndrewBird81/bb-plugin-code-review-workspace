@@ -5,7 +5,7 @@ import { Icon, type IconName } from "./ui/icon";
 
 /** How a review's status reads: GitHub's verdict colors, amber for work in progress, chosen by whose turn it is and why. */
 export function statusLook(review: ReviewItem): { label: string; tone: Tone; icon?: IconName; busy?: boolean } {
-  const { label, reason, failed } = reviewState(review);
+  const { label, reason, failed, group } = reviewState(review);
   if (label === "Generating") return { label, tone: "warning", icon: "Loading", busy: true };
   // A failed guide keeps the reason underneath; the failure is what to show.
   if (failed || label === "Failed") return { label, tone: "danger", icon: "AlertTriangle" };
@@ -13,6 +13,10 @@ export function statusLook(review: ReviewItem): { label: string; tone: Tone; ico
     case "merged": return { label, tone: "merged", icon: "GitMerge" };
     case "closed": return { label, tone: "danger", icon: "GitPullRequestClosed" };
     case "archived": return { label, tone: "neutral", icon: "Archive" };
+    case "unrequested": return { label, tone: "neutral" };
+    case "unreachable": return { label, tone: "neutral", icon: "EyeOff" };
+    // Your own PR stands out only while it's yours to review.
+    case "own": return { label, tone: group === "needs" ? "primary" : "neutral", icon: "UserRound" };
     case "re-requested": return { label, tone: "primary", icon: "Repeat" };
     case "team-requested": return { label, tone: "neutral" };
     case "question": return { label, tone: "warning", icon: "MessageQuestion" };
