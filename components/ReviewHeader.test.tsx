@@ -76,3 +76,24 @@ test("a stack whose PR below you reviewed says nothing more", async () => {
   expect(slot.queryByText(/You haven’t reviewed/)).toBeNull();
   slot.lifecycle.unmount();
 });
+
+test("the header totals the changed lines worth reading, with a rough reading time", async () => {
+  const patch = ["diff --git a/src/auth.ts b/src/auth.ts", "--- a/src/auth.ts", "+++ b/src/auth.ts", "@@ -1 +1,100 @@", "-old", ...Array.from({ length: 99 }, (_, i) => `+line ${i}`), "",
+    "diff --git a/yarn.lock b/yarn.lock", "--- a/yarn.lock", "+++ b/yarn.lock", "@@ -1 +1 @@", "-a", "+b", ""].join("\n");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, kind: "pr", title: "Fix token refresh race" }, guide, patch, revision: "r1" }),
+    getChecks: () => ({ bucket: "none", checks: [] }),
+    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getFileViews: () => ({ views: [] }),
+    checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
+    checkForUpdates: () => ({ hasNewCommits: false }),
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] } }),
+    getReviewerNotes: () => ({ body: "", revision: 0 }),
+    getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
+  } });
+  const size = await slot.findByText("100 changed lines · about 15 min");
+  expect(size.getAttribute("title")).toBe("Without lockfiles and generated files. Reading time at about 400 changed lines an hour.");
+  slot.lifecycle.unmount();
+});

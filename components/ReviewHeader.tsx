@@ -3,6 +3,7 @@ import { Markdown, UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { StackMember, StackPlace } from "../lib/stacks";
+import { LINES_PER_HOUR, readingTime } from "../lib/review-size";
 import { reviewState } from "../lib/review-state";
 import { canSnooze, canSnoozeUntil, computeTurn, type ReviewRound, type Turn } from "../lib/turn";
 import { cn } from "../lib/utils";
@@ -117,6 +118,7 @@ export const ReviewHeader = memo(function ReviewHeader({
   onShowFeedback,
   onSnooze,
   snoozing = false,
+  readLines,
 }: {
   review: any;
   checks?: ChecksSummary;
@@ -130,6 +132,8 @@ export const ReviewHeader = memo(function ReviewHeader({
   /** "Not yet" (true), "Snooze until" (true, until), or "Back to Needs review" (false). */
   onSnooze?: (snoozed: boolean, until?: number) => void;
   snoozing?: boolean;
+  /** The changed lines worth reading (lib/review-size.ts readingLines). */
+  readLines?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
@@ -187,6 +191,7 @@ export const ReviewHeader = memo(function ReviewHeader({
           {review.base && review.head
             ? <span className="inline-flex min-w-0 items-center gap-1"><BranchChip>{review.base}</BranchChip><Icon name="ArrowRight" className="size-3 shrink-0 rotate-180 text-subtle-foreground" aria-hidden /><BranchChip>{review.head}</BranchChip></span>
             : review.gitRef && <BranchChip>{review.gitRef}</BranchChip>}
+          {!!readLines && <span className="tabular-nums" title={`Without lockfiles and generated files. Reading time at about ${LINES_PER_HOUR} changed lines an hour.`}>{readLines.toLocaleString()} changed {readLines === 1 ? "line" : "lines"} · {readingTime(readLines)}</span>}
           {rounds.length > 0 && <RoundTimeline rounds={rounds} />}
           {stack && <StackLinks stack={stack} />}
         </div>
