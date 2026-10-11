@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
-import { patchReviewState } from "../lib/panel-state";
+import { patchReviewState, setHideNits } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Each diff's new lines, the lines pierre would highlight, and a pick of line 1 as pierre reports it.
@@ -411,6 +411,28 @@ test("] and [ go through draft comments and discussions in the guide's order", a
   press("[");
   // Before the first, the last.
   await slot.findByText("cc");
+  expect(currentChapter(slot)?.textContent).toContain("Caching");
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("] and [ skip nits while Hide nits is on", async () => {
+  setHideNits(true);
+  const comments = [
+    { file: "src/a.ts", line: 1, side: "RIGHT", body: "Spacing.", author: "agent", severity: "nit" },
+    { file: "src/c.ts", line: 1, side: "RIGHT", body: "Evict it.", author: "reviewer" },
+  ];
+  // Its discussion hides with the nit.
+  const discussions = [{ file: "src/a.ts", line: 1, side: "RIGHT", waiting: false, undoable: false, entries: [{ author: "reviewer", kind: "message", body: "Why?", createdAt: 1 }] }];
+  const { slot } = await renderWorkspace({ rpc: {
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments }, discussions }),
+  } });
+  await slot.findByText("aa");
+  const draftTool = slot.getByRole("button", { name: "Draft review" });
+  if (draftTool.getAttribute("aria-pressed") !== "true") fireEvent.click(draftTool);
+  await slot.findByRole("button", { name: /^src\/c\.ts:1/ });
+  press("]");
+  await slot.findByText("cc");
+  press("]");
   expect(currentChapter(slot)?.textContent).toContain("Caching");
   slot.lifecycle.unmount();
 }, 15_000);

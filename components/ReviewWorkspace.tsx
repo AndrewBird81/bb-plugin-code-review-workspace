@@ -65,10 +65,14 @@ function viewMap(views: { file: string; viewed: boolean; stale: boolean }[]): Ma
   return new Map(views.map((v) => [v.file, { viewed: v.viewed, stale: v.stale }]));
 }
 
-/** Hands the workspace the lines with draft comments or discussions, which the draft panel provides. */
+/** Hands the workspace the lines with draft comments or discussions, which the draft panel provides, without the nits it hides. */
 function DraftLines({ into }: { into: MutableRefObject<CommentLocation[]> }) {
   const draft = useContext(InlineDraftContext);
-  useEffect(() => { into.current = [...(draft?.comments ?? []), ...(draft?.discussions ?? [])]; }, [draft, into]);
+  useEffect(() => {
+    // A hidden nit's line shows nothing, not even its discussion.
+    const nits = draft?.hideNits ? draft.comments.filter((c) => c.severity === "nit") : [];
+    into.current = [...(draft?.comments ?? []), ...(draft?.discussions ?? [])].filter((at) => !nits.some((nit) => sameLocation(nit, at)));
+  }, [draft, into]);
   return null;
 }
 
