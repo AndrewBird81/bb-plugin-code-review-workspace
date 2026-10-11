@@ -285,6 +285,14 @@ export const DiffViewer = memo(function DiffViewer({
     // Checking Viewed collapses the file; unchecking re-expands it.
     setCollapsed((c) => ({ ...c, [file]: next }));
   }
+  // Likewise when it's marked another way: v, or Mark chapter viewed.
+  const shownViews = useRef(views);
+  useEffect(() => {
+    const before = shownViews.current;
+    shownViews.current = views;
+    const flipped = [...new Set([...before.keys(), ...views.keys()])].filter((file) => (before.get(file)?.viewed ?? false) !== (views.get(file)?.viewed ?? false));
+    if (flipped.length) setCollapsed((c) => ({ ...c, ...Object.fromEntries(flipped.map((file) => [file, views.get(file)?.viewed ?? false])) }));
+  }, [views]);
 
   // The lines in each file with a draft comment, discussion, or the comment box.
   // A file keeps its list until those lines change; their content comes from context.

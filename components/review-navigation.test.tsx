@@ -258,6 +258,23 @@ test("shortcuts wait while you type, and with Ctrl, Meta, or Alt held", async ()
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("v and Mark chapter viewed fold or open a file the checkbox folded before", async () => {
+  const viewed = new Set<string>();
+  const { slot } = await renderWorkspace({ rpc: {
+    getFileViews: () => ({ views: [...viewed].map((file) => ({ file, viewed: true, stale: false })) }),
+    setFileViewed: ({ file, viewed: on }: { file: string; viewed: boolean }) => { if (on) viewed.add(file); else viewed.delete(file); return { ok: true }; },
+    setFilesViewed: ({ files }: { files: string[] }) => { files.forEach((file) => viewed.add(file)); return { ok: true }; },
+  } });
+  await slot.findByText("aa");
+  fireEvent.click(slot.getByRole("checkbox", { name: "Viewed src/a.ts" }));
+  await waitFor(() => expect(slot.queryByText("aa")).toBeNull());
+  press("v");
+  await slot.findByText("aa");
+  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Mark chapter viewed" }));
+  await waitFor(() => expect(slot.queryByText("aa")).toBeNull());
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("shortcuts still work after clicking a Viewed checkbox", async () => {
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
