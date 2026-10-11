@@ -40,7 +40,7 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: {
   }
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="flex h-full flex-col overflow-y-auto bg-background">
       <div className="border-b border-border px-2 py-1">
         <Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={onBack}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button>
       </div>

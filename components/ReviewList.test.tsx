@@ -285,3 +285,19 @@ test("the filter tabs fade at an edge with more tabs past it", async () => {
   expect(strip.dataset.fade).toBe("start");
   slot.lifecycle.unmount();
 });
+
+test("the page scrolls itself, since BB clips a plugin page to the window", async () => {
+  const { expect } = await import("vitest");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [{ targetKey: "a", title: "A change", status: "ready" }] }),
+  } });
+  const list = await slot.findByRole("region", { name: "Saved reviews" });
+  // The outer box takes the page's height and scrolls; the list inside grows with its rows.
+  const page = slot.container.firstElementChild as HTMLElement;
+  expect(page.contains(list)).toBe(true);
+  expect(page.className.split(" ")).toEqual(expect.arrayContaining(["h-full", "overflow-y-auto"]));
+  slot.lifecycle.unmount();
+});

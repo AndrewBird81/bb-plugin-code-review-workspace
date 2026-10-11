@@ -307,7 +307,9 @@ export const ReviewList = memo(function ReviewList() {
   ] as const;
 
   return (
-    <div className="@container/review-list flex min-h-full w-full min-w-0 flex-col gap-6 p-4 sm:p-6" style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
+    // BB clips a plugin page to the window, so the page scrolls itself.
+    <div className="h-full min-h-0 overflow-y-auto" style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
+    <div className="@container/review-list flex min-h-full w-full min-w-0 flex-col gap-6 p-4 sm:p-6">
       <section aria-label="Start a review" className="mx-auto w-full max-w-6xl space-y-5">
         <header className="flex min-w-0 items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -420,6 +422,7 @@ export const ReviewList = memo(function ReviewList() {
             <div className="divide-y divide-border border-t border-border">{rows(visible.slice(teamStart))}</div>
           </>}
       </section>
+    </div>
     </div>
   );
 });
