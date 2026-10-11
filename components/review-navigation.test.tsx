@@ -395,7 +395,7 @@ test("] and [ go through draft comments and discussions in the guide's order", a
   ];
   const discussions = [{ file: "src/b.ts", line: 1, side: "RIGHT", waiting: false, undoable: false, entries: [{ author: "reviewer", kind: "message", body: "Second?", createdAt: 1 }] }];
   const { slot } = await renderWorkspace({ rpc: {
-    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments, discussions } }),
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments }, discussions }),
   } });
   await slot.findByText("aa");
   const draftTool = slot.getByRole("button", { name: "Draft review" });
@@ -403,15 +403,22 @@ test("] and [ go through draft comments and discussions in the guide's order", a
   await slot.findByRole("button", { name: /^src\/a\.ts:1/ });
   press("]");
   expect(currentChapter(slot)?.textContent).toContain("Parsing");
+  // The discussion on b.ts comes between the two comments.
   press("]");
   await slot.findByText("bb");
   expect(currentChapter(slot)?.textContent).toContain("Caching");
+  await waitFor(() => expect(currentFile(slot)).toBe("b.ts"));
+  press("]");
+  await waitFor(() => expect(currentFile(slot)).toBe("c.ts"));
+  press("[");
+  await waitFor(() => expect(currentFile(slot)).toBe("b.ts"));
   press("[");
   await slot.findByText("aa");
   press("[");
   // Before the first, the last.
   await slot.findByText("cc");
   expect(currentChapter(slot)?.textContent).toContain("Caching");
+  await waitFor(() => expect(currentFile(slot)).toBe("c.ts"));
   slot.lifecycle.unmount();
 }, 15_000);
 
