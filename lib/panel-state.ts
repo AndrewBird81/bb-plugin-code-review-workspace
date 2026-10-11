@@ -19,6 +19,8 @@ interface PanelState {
   introCollapsed?: boolean;
   /** The diff wraps long lines instead of scrolling them; unset follows the workspace's width. */
   wrapLines?: boolean;
+  /** The diff shows lines whose change is only whitespace as unchanged. */
+  hideWhitespace?: boolean;
   perReview: Record<string, ReviewUiState>;
 }
 
@@ -82,5 +84,15 @@ export function getWrapLines(): boolean | undefined {
 export function setWrapLines(wrap: boolean) {
   const s = read();
   s.wrapLines = wrap;
+  write(s);
+}
+
+export function getHideWhitespace(): boolean {
+  return read().hideWhitespace ?? false;
+}
+
+export function setHideWhitespace(hide: boolean) {
+  const s = read();
+  s.hideWhitespace = hide;
   write(s);
 }

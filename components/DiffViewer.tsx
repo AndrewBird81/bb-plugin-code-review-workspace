@@ -4,6 +4,7 @@ import { areSelectionsEqual, parsePatchFiles, processFile } from "@pierre/diffs"
 import { FileDiff } from "@pierre/diffs/react";
 import type { AnnotationSide, DiffLineAnnotation, FileDiffMetadata, FileDiffOptions, SelectedLineRange } from "@pierre/diffs";
 import { patchRows, splitPatchByFile } from "../src/patch";
+import { hideWhitespaceChanges } from "../src/whitespace";
 import type { FileInterdiff } from "../src/interdiff";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import { cn } from "../lib/utils";
@@ -248,6 +249,7 @@ export const DiffViewer = memo(function DiffViewer({
   themeMode,
   diffLayout = "split",
   wrapLines = false,
+  hideWhitespace = false,
   reveal,
   since,
   sinceOnly = false,
@@ -259,6 +261,8 @@ export const DiffViewer = memo(function DiffViewer({
   diffLayout?: "split" | "unified";
   /** Wrap long lines instead of scrolling them sideways. */
   wrapLines?: boolean;
+  /** Show lines whose change is only whitespace as unchanged. */
+  hideWhitespace?: boolean;
   themeMode?: "light" | "dark";
   patch: string;
   files: string[];
@@ -303,16 +307,20 @@ export const DiffViewer = memo(function DiffViewer({
       const change = since?.get(f.path);
       // Filtered, a changed file shows only the hunks that changed since your review.
       const text = filtering && change?.status === "changed" ? change.patch : f.text;
-      const fileDiff = text ? parseFileDiff(text) : null;
+      const shown = hideWhitespace ? hideWhitespaceChanges(text) : text;
+      const fileDiff = shown ? parseFileDiff(shown) : null;
       // A file whose only change since your review is removed hunks shows just those.
       if (!fileDiff && !(filtering && change?.dropped)) return [];
       const stats = diffStats(text);
+      const shownStats = shown === text ? stats : diffStats(shown);
       return [{
         path: f.path,
         oldPath: f.oldPath,
         stats,
         noisy: startsFolded(f.path, stats, generated.has(f.path)),
         fileDiff,
+        shown,
+        whitespaceOnly: stats.add + stats.del > 0 && shownStats.add + shownStats.del === 0,
         // Only the PR's own diff can be shown in full, not changes since your review.
         source: text === f.text && fileDiff?.hunks.length ? f : null,
         change,
@@ -320,7 +328,7 @@ export const DiffViewer = memo(function DiffViewer({
       }];
     });
     return { perFile, unchanged: chapter.length - shown.length };
-  }, [patch, fileKey, since, filtering, generated]);
+  }, [patch, fileKey, since, filtering, generated, hideWhitespace]);
   // Files loaded in full, each with the diff it was read for, and those showing every line. A new diff starts over.
   const [contents, setContents] = useState<Record<string, { text: string; result: "loading" | FileContentsResult }>>({});
   const [wholeFile, setWholeFile] = useState<Record<string, boolean>>({});
@@ -336,13 +344,13 @@ export const DiffViewer = memo(function DiffViewer({
   const fullDiffs = useRef(new Map<string, FullDiff>());
   const expanded = useMemo(() => {
     const next = new Map<string, FullDiff>();
-    for (const { path, source } of perFile) {
+    for (const { path, source, shown } of perFile) {
       const loaded = contentsFor(path, source);
       if (!source || typeof loaded !== "object" || !loaded.ok) continue;
       const cached = fullDiffs.current.get(path);
-      if (cached?.text === source.text && cached.loaded === loaded) { next.set(path, cached); continue; }
-      const fileDiff = processFile(source.text, { oldFile: { name: source.oldPath ?? path, contents: loaded.old ?? "" }, newFile: { name: path, contents: loaded.new ?? "" } });
-      if (fileDiff) next.set(path, { text: source.text, loaded, fileDiff, commentable: diffLines(source.text) });
+      if (cached?.text === shown && cached.loaded === loaded) { next.set(path, cached); continue; }
+      const fileDiff = processFile(shown, { oldFile: { name: source.oldPath ?? path, contents: loaded.old ?? "" }, newFile: { name: path, contents: loaded.new ?? "" } });
+      if (fileDiff) next.set(path, { text: shown, loaded, fileDiff, commentable: diffLines(source.text) });
     }
     fullDiffs.current = next;
     return next;
@@ -486,7 +494,7 @@ export const DiffViewer = memo(function DiffViewer({
 
   return (
     <div ref={root} className="space-y-4">
-      {perFile.map(({ path, oldPath, stats, fileDiff, source, change, css }) => {
+      {perFile.map(({ path, oldPath, stats, fileDiff, whitespaceOnly, source, change, css }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
@@ -563,6 +571,11 @@ export const DiffViewer = memo(function DiffViewer({
               </label>
             </div>
             {!folded && <OutdatedThreads threads={fromGitHub.get(path)?.outdated ?? []} />}
+            {!folded && whitespaceOnly && (
+              <p role="status" className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
+                <Icon name="Space" className="size-3.5 shrink-0" aria-hidden />Only whitespace changed.
+              </p>
+            )}
             {!folded && typeof loaded === "object" && !loaded.ok && (
               <p role="status" className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
                 <Icon name="Info" className="size-3.5 shrink-0" aria-hidden />{loaded.error}

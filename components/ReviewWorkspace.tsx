@@ -9,7 +9,7 @@ import { baselineOf, computeTurn, type TurnReason } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
-import { getReviewState, getWrapLines, patchReviewState, setLastReview, setWrapLines } from "../lib/panel-state";
+import { getHideWhitespace, getReviewState, getWrapLines, patchReviewState, setHideWhitespace, setLastReview, setWrapLines } from "../lib/panel-state";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { ReviewHeader, ReviewTitleLink } from "./ReviewHeader";
@@ -161,6 +161,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Likewise long lines wrap there, rather than scroll sideways.
   const [chosenWrap, setChosenWrap] = useState(getWrapLines);
   const wrapLines = chosenWrap ?? compact;
+  const [hideWhitespace, setHideWhitespaceState] = useState(getHideWhitespace);
   const didRestoreScroll = useRef(false);
   const reducedMotion =
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -915,6 +916,19 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   <span className="hidden @min-[1280px]/review:inline">Wrap</span>
                 </Button>
               </Hint>}
+              {view === "diff" && <Hint label="Hide whitespace" container={rootEl}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Hide whitespace"
+                  aria-pressed={hideWhitespace}
+                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
+                  onClick={() => { setHideWhitespaceState(!hideWhitespace); setHideWhitespace(!hideWhitespace); }}
+                >
+                  <Icon name="Space" className="size-3.5" aria-hidden />
+                  <span className="hidden @min-[1280px]/review:inline">Hide whitespace</span>
+                </Button>
+              </Hint>}
               <Hint label="Focus mode" container={rootEl}>
                 <Button
                   variant="ghost"
@@ -953,6 +967,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               <DiffViewer
                 diffLayout={diffLayout}
                 wrapLines={wrapLines}
+                hideWhitespace={hideWhitespace}
                 themeMode={codeTheme.mode}
                 patch={patch}
                 files={activeFiles}
