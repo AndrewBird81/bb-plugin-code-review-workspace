@@ -68,6 +68,26 @@ test("the current file is marked for screen readers, and viewed files say so", (
   expect(screen.getByRole("button", { name: /^auth\.test\.ts/ }).textContent).toContain("viewed");
 });
 
+test("a file split across chapters counts in each only the lines of its hunks there", () => {
+  const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+aa\n@@ -20,2 +20,2 @@\n-b\n-c\n+bb\n+cc\n";
+  render(
+    <ChapterNav
+      sections={[
+        { id: "c1", title: "Parsing", overview: "", diffs: [{ file: "src/a.ts", hunks: [1] }] },
+        { id: "c2", title: "Caching", overview: "", diffs: [{ file: "src/a.ts", hunks: [2] }] },
+      ]}
+      activeId="c1"
+      onSelect={() => {}}
+      views={new Map<string, FileViewFlags>()}
+      onSelectFile={() => {}}
+      lines={new Map([["src/a.ts", 6]])}
+      patch={patch}
+    />,
+  );
+  expect(screen.getByText("2 lines")).toBeTruthy();
+  expect(screen.getByText("4 lines")).toBeTruthy();
+});
+
 test("each chapter shows the changed lines worth reading, without lockfiles", () => {
   render(
     <ChapterNav

@@ -860,6 +860,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 currentFile={currentFile}
                 changedSince={changedSince}
                 lines={lines}
+                patch={patch}
                 generated={generated}
                 view={navView}
                 onViewChange={changeNavView}

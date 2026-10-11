@@ -7,7 +7,9 @@ import { Progress } from "./ui/diff-stat";
 import { FileTag } from "./FileTag";
 import { InlineCode } from "./ui/inline-code";
 import type { FileViewFlags } from "./DiffViewer";
-import { readingLines } from "../lib/review-size";
+import { changedLines, readingLines } from "../lib/review-size";
+import { filePart } from "../src/hunks";
+import { splitPatchByFile } from "../src/patch";
 import { FileTree } from "./FileTree";
 import type { FileInterdiff } from "../src/interdiff";
 import type { ReviewThread } from "../src/threads";
@@ -18,7 +20,7 @@ interface Section {
   id: string;
   title: string;
   overview: string;
-  diffs: { file: string; summary?: string }[];
+  diffs: { file: string; summary?: string; hunks?: number[] }[];
   risk?: string;
 }
 
@@ -67,6 +69,7 @@ export const ChapterNav = memo(function ChapterNav({
   threads,
   owners,
   sinceWhat = "your review",
+  patch,
 }: {
   sections: Section[];
   activeId: string;
@@ -90,12 +93,19 @@ export const ChapterNav = memo(function ChapterNav({
   owners?: ReadonlyMap<string, FileOwners>;
   /** What changedSince and since compare with: "your review", or a commit. */
   sinceWhat?: string;
+  /** The diff, for the lines of a file split across chapters. */
+  patch?: string;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const isExpanded = (id: string) => expanded[id] ?? id === activeId;
   // A file split across chapters counts once.
   const allFiles = [...new Set(sections.flatMap((s) => s.diffs.map((d) => d.file)))];
   const viewedAll = allFiles.filter((f) => views.get(f)?.viewed).length;
+  // A split file's lines in each chapter: those of its hunks there.
+  const partLines = useMemo(() => {
+    const texts = new Map(splitPatchByFile(patch ?? "").map((f) => [f.path, f.text]));
+    return new Map(sections.map((s) => [s.id, new Map(s.diffs.flatMap((d) => d.hunks && texts.has(d.file) ? [[d.file, changedLines(filePart(texts.get(d.file)!, d.hunks)).get(d.file) ?? 0] as const] : []))]));
+  }, [sections, patch]);
   const chapterOf = useMemo(() => new Map(sections.flatMap((s) => s.diffs.map((d) => [d.file, s.id] as const))), [sections]);
 
   return (
@@ -132,7 +142,8 @@ export const ChapterNav = memo(function ChapterNav({
           const allSkippable = s.diffs.length > 0 && skippable === s.diffs.length;
           const viewed = s.diffs.filter((d) => views.get(d.file)?.viewed).length;
           const changed = changedSince?.[s.id] ?? 0;
-          const toRead = lines ? readingLines(s.diffs.map((d) => d.file), lines, generated) : 0;
+          const own = partLines.get(s.id);
+          const toRead = lines ? readingLines(s.diffs.map((d) => d.file), own?.size ? new Map([...lines, ...own]) : lines, generated) : 0;
           return (
             <li key={s.id} className="relative">
               {index < sections.length - 1 && <span aria-hidden className="absolute bottom-[-6px] left-[18px] top-7 w-px bg-border" />}
