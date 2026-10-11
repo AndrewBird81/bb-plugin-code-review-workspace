@@ -71,14 +71,22 @@ const NONE = new Set<string>();
 /** Below this width the diff shows one column, whatever the reading layout: each side of a split needs about 480px. */
 const UNIFIED_BELOW = 960;
 
+// A line's row is in pierre's shadow root, so the way out of it goes through its host.
+const outer = (el: Element): Element | null => el.parentElement ?? (el.getRootNode() as Partial<ShadowRoot>).host ?? null;
+
 // Scrolls the review only vertically: scrollIntoView would also scroll the diff's code sideways.
 function scrollToCenter(el: HTMLElement, behavior: ScrollBehavior) {
-  let box = el.parentElement;
-  while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+  let box = outer(el);
+  while (box && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = outer(box);
   if (!box) return;
   const target = el.getBoundingClientRect();
   const view = box.getBoundingClientRect();
   box.scrollBy({ top: target.top - view.top - (view.height - target.height) / 2, behavior });
+}
+
+/** Outlines where a reveal landed for a moment, so it's clear which line or comment it is. */
+function flash(el: HTMLElement) {
+  el.animate?.([{ outline: "2px solid var(--primary)", outlineOffset: "-2px" }, { outline: "2px solid transparent", outlineOffset: "-2px" }], { duration: 1600, easing: "ease-in" });
 }
 
 /**
@@ -417,18 +425,23 @@ export const DiffViewer = memo(function DiffViewer({
     let lastHeight = -1;
     let frame = requestAnimationFrame(function attempt() {
       const fileEl = Array.from(root.current?.querySelectorAll<HTMLElement>("[data-file]") ?? []).find((el) => el.dataset.file === at.file);
+      const landOn = (el: HTMLElement, center: boolean) => {
+        if (center) scrollToCenter(el, behavior);
+        else el.scrollIntoView({ behavior, block: "start" });
+        flash(el);
+      };
       // No line: just the file.
-      if (at.line < 1 && fileEl) return fileEl.scrollIntoView({ behavior, block: "start" });
+      if (at.line < 1 && fileEl) return landOn(fileEl, false);
       const target = Array.from(fileEl?.querySelectorAll<HTMLElement>("[data-draft-at]") ?? []).find((el) => el.dataset.draftAt === locationKey(at))
         ?? (fileEl ? lineRow(fileEl, at) : undefined);
       const shown = !!target?.getClientRects().length;
       const height = root.current?.offsetHeight ?? 0;
       const settled = height === lastHeight;
       lastHeight = height;
-      if (shown && drawn() && settled) scrollToCenter(target!, behavior);
+      if (shown && drawn() && settled) landOn(target!, true);
       else if (++tries < 90) frame = requestAnimationFrame(attempt);
-      else if (shown) scrollToCenter(target!, behavior);
-      else fileEl?.scrollIntoView({ behavior, block: "start" });
+      else if (shown) landOn(target!, true);
+      else if (fileEl) landOn(fileEl, false);
     });
     return () => cancelAnimationFrame(frame);
   }, [reveal]);
