@@ -15,8 +15,8 @@ const FRAGMENT = `fragment F on PullRequest{
     ... on ReviewRequestedEvent{createdAt actor{login} requestedReviewer{${REVIEWER}}}
     ... on ReviewRequestRemovedEvent{createdAt actor{login} requestedReviewer{${REVIEWER}}}
     ... on ReviewDismissedEvent{createdAt review{id}}}}
-  conversation:timelineItems(last:15,itemTypes:[ISSUE_COMMENT,PULL_REQUEST_REVIEW]){nodes{__typename
-    ... on IssueComment{author{__typename login} body createdAt}
+  conversation:timelineItems(last:15,itemTypes:[ISSUE_COMMENT]){nodes{... on IssueComment{author{__typename login} body createdAt}}}
+  reviewItems:timelineItems(last:15,itemTypes:[PULL_REQUEST_REVIEW]){nodes{__typename
     ... on PullRequestReview{author{__typename login} body submittedAt comments(first:10){nodes{body}}}}}
 }`;
 
@@ -147,8 +147,8 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
   const pending = (pr.reviewRequests?.nodes ?? []).map((n: any) => via(n?.requestedReviewer, viewer, teams)).filter(Boolean);
   const requestPending = pending.find((p: any) => p.via === "user") ?? pending[0] ?? null;
 
-  // Comments, and reviews with their summary and inline comments as one body.
-  const conversation: any[] = (pr.conversation?.nodes ?? []).filter((c: any) => c?.author).map((c: any) => c.__typename === "PullRequestReview"
+  // Comments, and reviews with their summary and inline comments as one body. Each has its own window: thread replies are reviews.
+  const conversation: any[] = [...pr.conversation?.nodes ?? [], ...pr.reviewItems?.nodes ?? []].filter((c: any) => c?.author).map((c: any) => c.__typename === "PullRequestReview"
     ? { author: c.author, createdAt: c.submittedAt, body: [c.body ?? "", ...(c.comments?.nodes ?? []).map((n: any) => n?.body ?? "")].join("\n") }
     : c);
   // Your own comment answers the mentions before it.

@@ -136,12 +136,19 @@ test("mention is the latest conversation comment by another person that mentions
 test("a mention in a review summary or inline comment counts, and your own review answers it", () => {
   const reviewNode = (author: unknown, body: string, submittedAt: string, comments: string[] = []) =>
     ({ __typename: "PullRequestReview", author, body, submittedAt, comments: { nodes: comments.map((c) => ({ body: c })) } });
-  expect(one(pr({ conversation: { nodes: [reviewNode(user("bob"), "Looks fine; @me should check the cache", "2026-10-02T00:00:00Z")] } })).mention)
+  expect(one(pr({ reviewItems: { nodes: [reviewNode(user("bob"), "Looks fine; @me should check the cache", "2026-10-02T00:00:00Z")] } })).mention)
     .toEqual({ at: Date.parse("2026-10-02T00:00:00Z"), by: "bob" });
-  expect(one(pr({ conversation: { nodes: [reviewNode(user("carol"), "", "2026-10-03T00:00:00Z", ["nit", "@me is this right?"])] } })).mention)
+  expect(one(pr({ reviewItems: { nodes: [reviewNode(user("carol"), "", "2026-10-03T00:00:00Z", ["nit", "@me is this right?"])] } })).mention)
     .toEqual({ at: Date.parse("2026-10-03T00:00:00Z"), by: "carol" });
-  expect(one(pr({ conversation: { nodes: [reviewNode(user("carol"), "@me thoughts?", "2026-10-03T00:00:00Z"), reviewNode(user("me"), "", "2026-10-04T00:00:00Z", ["Replied"])] } })).mention).toBeNull();
-  expect(prFactsQuery([ref(1)]).query).toContain("PULL_REQUEST_REVIEW]");
+  expect(one(pr({ reviewItems: { nodes: [reviewNode(user("carol"), "@me thoughts?", "2026-10-03T00:00:00Z"), reviewNode(user("me"), "", "2026-10-04T00:00:00Z", ["Replied"])] } })).mention).toBeNull();
+  // A comment's mention, answered by your review.
+  expect(one(pr({ conversation: { nodes: [{ author: user("carol"), body: "@me can you look?", createdAt: "2026-10-02T00:00:00Z" }] }, reviewItems: { nodes: [reviewNode(user("me"), "Done", "2026-10-03T00:00:00Z")] } })).mention).toBeNull();
+});
+
+test("reviews have their own window, so a busy PR's reviews don't push a comment's mention out", () => {
+  const query = prFactsQuery([ref(1)]).query;
+  expect(query).toContain("conversation:timelineItems(last:15,itemTypes:[ISSUE_COMMENT])");
+  expect(query).toContain("reviewItems:timelineItems(last:15,itemTypes:[PULL_REQUEST_REVIEW])");
 });
 
 test("mentions matches a whole handle only", () => {
