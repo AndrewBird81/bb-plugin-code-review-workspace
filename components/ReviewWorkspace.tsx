@@ -129,6 +129,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // The reviewer's choice persists; without one, the review's turn picks the first view once.
   const [chosenView, setView] = useState<View | null>(persisted.view ?? null);
   const [defaultView, setDefaultView] = useState<View | null>(null);
+  const opened = useRef(false);
   const [revision, setRevision] = useState("");
   const [repoAccess, setRepoAccess] = useState<{ accessible: boolean; repo: string | null; account: string | null } | null>(null);
   const [views, setViews] = useState<Map<string, FileViewFlags>>(new Map());
@@ -254,6 +255,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       shownPatch.current = { targetKey, revision, patch };
       setRevision(revision);
       setReview(review);
+      // A review you haven't given has no feedback yet, so it opens on the diff whatever you chose in it before.
+      if (review && !opened.current) {
+        opened.current = true;
+        if (baselineOf(review).at === null) setView((current) => current === "feedback" ? null : current);
+      }
       if (review) setDefaultView((current) => current ?? (opensOnFeedback(review) ? "feedback" : "diff"));
       const guideJson = JSON.stringify(guide ?? null);
       if (guideJson !== shownGuide.current) {
