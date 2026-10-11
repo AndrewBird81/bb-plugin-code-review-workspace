@@ -458,6 +458,14 @@ test("a direct request isn't demoted by a later team request", async () => {
   expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ reason: "requested", notify: true });
 });
 
+test("a pending direct request stays direct when only a team request's event is left in the timeline", async () => {
+  const s = setup({ preferences: { trackTeamRequests: false }, pr: { requestPending: { via: "user" }, requests: [{ at: T0 - HOUR, by: "bob", via: "team", team: "acme/core" }] } });
+  s.store.setStatus("pr-1", "tracked");
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.signals).toMatchObject({ requestedVia: "user" });
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs", reason: "requested" });
+});
+
 test("a question from someone other than the author names them in the alert", async () => {
   const s = setup({ reviewed: true, threads: [thread("t1", "open")] });
   await s.sync.all();

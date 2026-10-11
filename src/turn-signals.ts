@@ -48,7 +48,8 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
     rounds: facts.myReviews.slice(-10).map((r) => ({ state: r.state, at: r.submittedAt, sha: r.sha })),
     requestedAt: request?.at ?? null,
     requestedBy: request?.by ?? null,
-    requestedVia: request?.via ?? facts.requestPending?.via ?? null,
+    // What's pending says how you're asked now: a direct request's event can scroll out while a team one's stays.
+    requestedVia: facts.requestPending?.via ?? request?.via ?? null,
     requestPending: !!facts.requestPending,
     isDraft: facts.isDraft,
     headSeenAt: facts.headSha !== previous.latestHeadSha ? now : s.headSeenAt ?? now,
