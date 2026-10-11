@@ -219,3 +219,28 @@ test("the filter finds reviews by repository, author, title, or number, and the 
   expect(within(again.getByRole("group", { name: "Filter reviews" })).getByRole("button", { name: /^Reviewed/ }).getAttribute("aria-pressed")).toBe("true");
   again.lifecycle.unmount();
 });
+
+test("a stack's reviews sit together in the list, bottom first, each saying where it stands", async () => {
+  const { expect } = await import("vitest");
+  const { within } = await import("@testing-library/react");
+  const member = (n: number) => ({ targetKey: `pr-${n}`, number: n, title: `PR ${n}`, url: null, status: "ready", reviewed: false });
+  const members = [member(2645), member(2648), member(2654)];
+  const stack = (index: number) => ({ members, index, parent: members[index - 1] ?? null, children: members.slice(index + 1, index + 2) });
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [
+      { targetKey: "pr-2654", kind: "pr", repo: "acme/live-api", number: 2654, title: "Top change", status: "ready", createdAt: 3, stack: stack(2) },
+      { targetKey: "pr-7", kind: "pr", repo: "acme/web", number: 7, title: "Lone change", status: "ready", createdAt: 2 },
+      { targetKey: "pr-2645", kind: "pr", repo: "acme/live-api", number: 2645, title: "Bottom change", status: "ready", createdAt: 4, stack: stack(0) },
+      { targetKey: "pr-2648", kind: "pr", repo: "acme/live-api", number: 2648, title: "Middle change", status: "ready", createdAt: 1, stack: stack(1) },
+    ] }),
+  } });
+  await slot.findByText("Top change");
+  const group = slot.getByRole("group", { name: "Stack of 3 in acme/live-api" });
+  expect(within(group).getAllByText(/ change$/).map((el) => el.textContent)).toEqual(["Bottom change", "Middle change", "Top change"]);
+  expect(within(group).getByText("Stack · 2 of 3")).toBeTruthy();
+  expect(slot.getAllByText(/ change$/).map((el) => el.textContent)).toEqual(["Bottom change", "Middle change", "Top change", "Lone change"]);
+  slot.lifecycle.unmount();
+});

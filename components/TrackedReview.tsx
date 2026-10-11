@@ -10,10 +10,12 @@ import { Icon } from "./ui/icon";
 import { IconTile } from "./ui/icon-tile";
 import { InlineCode } from "./ui/inline-code";
 import { kindLook } from "./ReviewStatus";
+import { StackLinks, UnreviewedParent } from "./ReviewHeader";
+import type { StackPlace } from "../lib/stacks";
 
 /** A PR found on GitHub with no guide yet: why it's here, and Start review. */
 export const TrackedReview = memo(function TrackedReview({ review, onBack }: {
-  review: TurnInput & { targetKey: string; title?: string; repo?: string; number?: number; author?: string; url?: string; turn?: Turn };
+  review: TurnInput & { targetKey: string; title?: string; repo?: string; number?: number; author?: string; url?: string; turn?: Turn; stack?: StackPlace | null };
   onBack: () => void;
 }) {
   const rpc = useRpc<typeof rpcContract>();
@@ -52,6 +54,8 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: {
             <Badge tone={turn.group === "needs" ? "primary" : "neutral"}>{turn.label}</Badge>
             {requestedBy && <span>Requested by @{requestedBy}</span>}
           </p>
+          {review.stack && <p className="flex flex-wrap items-center justify-center text-xs text-muted-foreground"><StackLinks stack={review.stack} /></p>}
+          <UnreviewedParent stack={review.stack} className="justify-center" />
         </div>
         <p className="text-sm text-muted-foreground">No guide yet. Starting the review builds one.</p>
         <div className="flex flex-wrap justify-center gap-2">

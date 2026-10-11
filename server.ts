@@ -51,6 +51,7 @@ import { completionNotifications } from "./src/completion-notifications";
 import { createPluginUpdates } from "./src/plugin-updates";
 import { onPrepared } from "./src/generate";
 import { feedbackProgress, type TurnOptions } from "./lib/turn";
+import { findStacks } from "./lib/stacks";
 import { baselineOf, feedbackView, headOf, pruneDiffs, remainingBody, sinceReview } from "./src/feedback-view";
 import { assess, changesSinceReview, describeFeedback, readFileAt, startVerification } from "./src/verification";
 import { fetchMyThreads } from "./src/github/threads";
@@ -136,13 +137,17 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.log.info("guided-review loaded");
 
-  // Reviews leave the server with whose turn they are and how far your feedback got.
+  // Reviews leave the server with whose turn they are, how far your feedback got, and their place in a stack.
   // JSON round-trips drop the literal `undefined` fields rowToMeta leaves, which strict rpc output rejects.
-  const decorate = (review: ReviewMeta | null, options?: TurnOptions) => review && JSON.parse(JSON.stringify({ ...review, turn: sync.turnOf(review, undefined, options), progress: feedbackProgress(review) }));
+  const decorate = (review: ReviewMeta | null, options?: TurnOptions, stacks = findStacks(store.listReviews())) => review && JSON.parse(JSON.stringify({
+    ...review, turn: sync.turnOf(review, undefined, options), progress: feedbackProgress(review), stack: stacks.get(review.targetKey) ?? null,
+  }));
   /** Every review, decorated with one read of the settings, without the summaries only the assistant reads. */
   const listed = () => {
     const options = turnOptions(store.getPreferences().preferences);
-    return store.listReviews().map(({ reviewBodies: _bodies, ...review }) => decorate(review, options));
+    const reviews = store.listReviews();
+    const stacks = findStacks(reviews);
+    return reviews.map(({ reviewBodies: _bodies, ...review }) => decorate(review, options, stacks));
   };
   // Whether you wrote the PR, before the sync has read it: GitHub allows only a Comment review on your own PR.
   const withOwnPr = async (review: ReturnType<typeof decorate>) => {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { test, expect, afterEach } from "vitest";
-import { cleanup, fireEvent } from "@testing-library/react";
+import { cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 afterEach(() => { cleanup(); localStorage.clear(); });
@@ -11,8 +11,9 @@ const guide = {
   sections: [{ id: "c1", title: "Refresh", overview: "One in-flight refresh.", diffs: [{ file: "src/auth.ts", summary: "Lock" }] }],
 };
 
-function renderWorkspace(review: Record<string, unknown>) {
+function renderWorkspace(review: Record<string, unknown>, rpc: Record<string, (input: any) => unknown> = {}) {
   return loadPluginApp(() => import("../app")).then((app) => renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
+    ...rpc,
     setReviewPresence: () => ({ ok: true }),
     getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, ...review }, guide, patch: "", revision: "r1" }),
     getChecks: () => ({ bucket: "none", checks: [] }),
@@ -43,5 +44,35 @@ test("a local review's title stays plain text", async () => {
   const slot = await renderWorkspace({ kind: "ref", gitRef: "main...feature", title: "Local change" });
   await slot.findByRole("heading", { name: "Local change" });
   expect(slot.queryByRole("link", { name: "Local change" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("the header shows the PR's stack, opens or starts its neighbours, and says when the PR below wasn't reviewed", async () => {
+  const member = (number: number, extra: Record<string, unknown> = {}) => ({ targetKey: `pr-${number}`, number, title: `PR ${number}`, url: `https://github.com/acme/web/pull/${number}`, status: "ready", reviewed: false, ...extra });
+  const parent = member(41, { status: "tracked" });
+  const child = member(43, { targetKey: null, status: null });
+  const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url,
+    stack: { members: [parent, member(42), child], index: 1, parent, children: [child] } }, {
+    startTrackedReview: () => ({ ok: true }),
+    startReview: () => ({ ok: true, targetKey: "pr-43" }),
+  });
+  expect(await slot.findByText("Stack · 2 of 3")).toBeTruthy();
+  expect(slot.getByText("You haven’t reviewed #41, which this builds on.")).toBeTruthy();
+  const calls = (method: string) => slot.inspection.rpcCalls.filter((call) => call.method === method).map((call) => call.input);
+  fireEvent.click(slot.getByRole("button", { name: "Stacked on #41" }));
+  await waitFor(() => expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review", options: { subPath: "pr-41" } }));
+  expect(calls("startTrackedReview")).toEqual([{ targetKey: "pr-41" }]);
+  fireEvent.click(slot.getByRole("button", { name: "#43 builds on this" }));
+  await waitFor(() => expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review", options: { subPath: "pr-43" } }));
+  expect(calls("startReview")).toEqual([{ input: "https://github.com/acme/web/pull/43" }]);
+  slot.lifecycle.unmount();
+});
+
+test("a stack whose PR below you reviewed says nothing more", async () => {
+  const parent = { targetKey: "pr-41", number: 41, title: "PR 41", url: null, status: "ready", reviewed: true };
+  const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url,
+    stack: { members: [parent, { ...parent, targetKey: "pr-42", number: 42 }], index: 1, parent, children: [] } });
+  await slot.findByRole("button", { name: "Stacked on #41" });
+  expect(slot.queryByText(/You haven’t reviewed/)).toBeNull();
   slot.lifecycle.unmount();
 });

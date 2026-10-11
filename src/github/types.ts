@@ -43,6 +43,8 @@ export interface PrFacts {
   headRefName: string;
   headSha: string;
   updatedAt: number;
+  /** The open PR whose head is this PR's base branch: the PR this one is stacked on. Null for none, or a base that's the default branch. */
+  stackParent?: { number: number; title: string; url: string } | null;
   /** Lines added and deleted, and files changed. */
   size: { additions: number; deletions: number; files: number } | null;
   /** The head commit's combined status checks. */

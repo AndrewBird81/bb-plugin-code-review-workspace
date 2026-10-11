@@ -91,6 +91,20 @@ function waitingOrder(a: ReviewItem, b: ReviewItem): number {
   return activity(b) - activity(a);
 }
 
+/** The rows in order, with each stack's rows together where its first one was, bottom first. */
+function withStacks(rows: ReviewItem[]): ReviewItem[][] {
+  const placed = new Set<string>();
+  const groups: ReviewItem[][] = [];
+  for (const row of rows) {
+    if (placed.has(row.targetKey)) continue;
+    const order = row.stack?.members.map((member) => member.targetKey) ?? [];
+    const group = row.stack ? rows.filter((r) => order.includes(r.targetKey)).sort((a, b) => order.indexOf(a.targetKey) - order.indexOf(b.targetKey)) : [row];
+    for (const r of group) placed.add(r.targetKey);
+    groups.push(group);
+  }
+  return groups;
+}
+
 function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: () => void; onChanged: () => void }) {
   const state = reviewState(review);
   const kind = kindLook(review);
@@ -106,6 +120,7 @@ function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: 
           <span className="break-all font-mono text-[11px]">{review.repo ?? review.gitRef}{review.number ? <span className="text-subtle-foreground"> #{review.number}</span> : null}</span>
           {review.author && <span className="inline-flex items-center gap-1.5"><Avatar login={review.author} size={16} />@{review.author}</span>}
           {when && <span className="text-subtle-foreground">{when}</span>}
+          {review.stack && <span className="inline-flex items-center gap-1 tabular-nums" title={review.stack.parent ? `Stacked on #${review.stack.parent.number}` : undefined}><Icon name="Layers" className="size-3" aria-hidden />Stack · {review.stack.index + 1} of {review.stack.members.length}</span>}
           {review.prSize && <span className="tabular-nums">+{review.prSize.additions.toLocaleString()} −{review.prSize.deletions.toLocaleString()} · {review.prSize.files} {review.prSize.files === 1 ? "file" : "files"}</span>}
         </span>
         <TurnMeta review={review} turn={state} />
@@ -234,6 +249,8 @@ export const ReviewList = memo(function ReviewList() {
   if (filter === "waiting") visible.sort(waitingOrder);
   const teamStart = filter === "needs" ? visible.findIndex((review) => reviewState(review).reason === "team-requested") : -1;
   const row = (review: ReviewItem) => <ReviewRow key={review.targetKey} review={review} onOpen={() => open(review.targetKey)} onChanged={relist} />;
+  const rows = (reviews: ReviewItem[]) => withStacks(reviews).map((group) => group.length === 1 ? row(group[0]!)
+    : <div key={group[0]!.targetKey} role="group" aria-label={`Stack of ${group[0]!.stack!.members.length} in ${group[0]!.repo}`} className="divide-y divide-border border-l-2 border-primary/40">{group.map(row)}</div>);
 
   function open(targetKey: string) {
     navigate.toPluginPanel("review", { subPath: targetKey });
@@ -373,11 +390,11 @@ export const ReviewList = memo(function ReviewList() {
             : filter === "reviewed" ? <EmptyState icon="CircleCheck" tone="neutral" title="No submitted reviews yet">Your submitted verdicts appear here, ready to revisit.</EmptyState>
             : sorted.length ? <EmptyState icon="Check" tone="success" title="You’re all caught up">Paste a pull request URL above to start a review.</EmptyState>
             : <EmptyState icon="GitPullRequest" tone="neutral" title="No reviews yet">Paste a pull request URL above to start a review.</EmptyState>)
-          : teamStart < 0 ? <div className="divide-y divide-border">{visible.map(row)}</div>
+          : teamStart < 0 ? <div className="divide-y divide-border">{rows(visible)}</div>
           : <>
-            {teamStart > 0 && <div className="divide-y divide-border border-b border-border">{visible.slice(0, teamStart).map(row)}</div>}
+            {teamStart > 0 && <div className="divide-y divide-border border-b border-border">{rows(visible.slice(0, teamStart))}</div>}
             <h2 className="bg-muted/25 px-4 py-1.5 text-xs font-medium text-muted-foreground">Team requests</h2>
-            <div className="divide-y divide-border border-t border-border">{visible.slice(teamStart).map(row)}</div>
+            <div className="divide-y divide-border border-t border-border">{rows(visible.slice(teamStart))}</div>
           </>}
       </section>
     </div>

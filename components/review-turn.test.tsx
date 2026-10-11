@@ -173,6 +173,17 @@ test("a tracked review offers Start review instead of the guide", async () => {
   slot.lifecycle.unmount();
 });
 
+test("a tracked request stacked on a PR you haven't reviewed says so", async () => {
+  const parent = { targetKey: "pr-41", number: 41, title: "Add the queue", url: null, status: "ready", reviewed: false };
+  const { slot } = await renderWorkspace({
+    status: "tracked", repo: "acme/web", number: 42, turn: turn({ reason: "requested", label: "Review requested" }),
+    stack: { members: [parent, { ...parent, targetKey: "pr-42", number: 42 }], index: 1, parent, children: [] },
+  }, {}, null);
+  expect(await slot.findByText("You haven’t reviewed #41, which this builds on.")).toBeTruthy();
+  expect(slot.getByRole("button", { name: "Stacked on #41" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("a tracked review that can't start says why", async () => {
   const { toast } = await import("sonner");
   const { slot } = await renderWorkspace({ status: "tracked", turn: turn({ reason: "new", label: "Tracked" }) }, {

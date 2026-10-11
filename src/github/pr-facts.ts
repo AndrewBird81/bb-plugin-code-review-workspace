@@ -6,6 +6,7 @@ export const BATCH_SIZE = 10;
 const REVIEWER = "__typename ... on User{login} ... on Team{slug organization{login}}";
 const FRAGMENT = `fragment F on PullRequest{
   number state isDraft updatedAt title url baseRefName headRefName headRefOid author{login} additions deletions changedFiles
+  baseRef{associatedPullRequests(states:OPEN,first:1){nodes{number title url}}} baseRepository{defaultBranchRef{name}}
   commits(last:100){nodes{commit{oid}}}
   head:commits(last:1){nodes{commit{statusCheckRollup{state}}}}
   latestOpinionatedReviews(first:50){nodes{state author{__typename login}}}
@@ -162,11 +163,15 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
     .filter((r: any) => r?.author && !same(r.author.login, viewer) && !isBot(r.author) && (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED"))
     .map((r: any) => ({ login: r.author.login as string, state: r.state as "APPROVED" | "CHANGES_REQUESTED" }));
 
+  // Into the default branch is no stack, even when a PR (say, a deploy) has it as its head.
+  const parent = pr.baseRefName !== pr.baseRepository?.defaultBranchRef?.name ? pr.baseRef?.associatedPullRequests?.nodes?.[0] : null;
+
   return {
     targetKey: ref.targetKey, repo: ref.repo, number: pr.number ?? ref.number,
     state: pr.state, isDraft: !!pr.isDraft, title: pr.title ?? "", url: pr.url ?? "", author: pr.author?.login ?? null,
     baseRefName: pr.baseRefName ?? "", headRefName: pr.headRefName ?? "", headSha: pr.headRefOid ?? "",
     updatedAt: time(pr.updatedAt),
+    stackParent: parent?.number ? { number: parent.number, title: parent.title ?? "", url: parent.url ?? "" } : null,
     size: typeof pr.additions === "number" ? { additions: pr.additions, deletions: pr.deletions ?? 0, files: pr.changedFiles ?? 0 } : null,
     ci: CI[pr.head?.nodes?.[0]?.commit?.statusCheckRollup?.state] ?? "none",
     myReviews, otherOpinions, requests, requestPending,

@@ -1,5 +1,8 @@
 import { memo, useState, type ReactNode } from "react";
-import { Markdown, UrlLink } from "@get-bb/plugin-sdk/app";
+import { Markdown, UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
+import { toast } from "sonner";
+import type { rpcContract } from "../src/rpc-contract";
+import type { StackMember, StackPlace } from "../lib/stacks";
 import { reviewState } from "../lib/review-state";
 import { canSnooze, canSnoozeUntil, computeTurn, type ReviewRound, type Turn } from "../lib/turn";
 import { cn } from "../lib/utils";
@@ -65,6 +68,46 @@ function RoundTimeline({ rounds }: { rounds: ReviewRound[] }) {
   );
 }
 
+/** "Stack · 2 of 3", "Stacked on #2645", and "#2648 builds on this": each opens that review, starting a tracked one's guide, or a review of a PR not in your list. */
+export function StackLinks({ stack }: { stack: StackPlace }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const navigate = useBbNavigate();
+  const [busy, setBusy] = useState(false);
+  async function open(member: StackMember) {
+    setBusy(true);
+    try {
+      let targetKey = member.targetKey;
+      if (targetKey && member.status === "tracked") {
+        const result = await rpc.call("startTrackedReview", { targetKey });
+        if (!result.ok) { toast.error(result.error ?? "Couldn’t start the review."); return; }
+      } else if (!targetKey && member.url) {
+        const result = await rpc.call("startReview", { input: member.url });
+        if (!result.ok || !result.targetKey) { toast.error(result.error ?? "Couldn’t start the review."); return; }
+        targetKey = result.targetKey;
+      }
+      if (targetKey) navigate.toPluginPanel("review", { subPath: targetKey });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn’t start the review.");
+    } finally { setBusy(false); }
+  }
+  const link = (member: StackMember, label: string) => (
+    <button key={label} type="button" disabled={busy} title={member.title ?? undefined} onClick={() => void open(member)} className="rounded-sm text-foreground/90 underline decoration-border underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">{label}</button>
+  );
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="inline-flex items-center gap-1 tabular-nums"><Icon name="Layers" className="size-3" aria-hidden />Stack · {stack.index + 1} of {stack.members.length}</span>
+      {stack.parent && link(stack.parent, `Stacked on #${stack.parent.number}`)}
+      {stack.children.map((child) => link(child, `#${child.number} builds on this`))}
+    </span>
+  );
+}
+
+/** Says when the PR this one builds on hasn't had your review. */
+export function UnreviewedParent({ stack, className }: { stack: StackPlace | null | undefined; className?: string }) {
+  if (!stack?.parent || stack.parent.reviewed) return null;
+  return <p className={cn("flex items-center gap-1.5 text-xs text-warning-text", className)}><Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden />You haven’t reviewed #{stack.parent.number}, which this builds on.</p>;
+}
+
 export const ReviewHeader = memo(function ReviewHeader({
   review,
   checks,
@@ -97,6 +140,7 @@ export const ReviewHeader = memo(function ReviewHeader({
   const turn: Turn = review.turn ?? computeTurn(review);
   const rounds: ReviewRound[] = review.signals?.rounds ?? [];
   const progress: { done: number; total: number; source: "assistant" | "threads" } | null = review.progress ?? null;
+  const stack: StackPlace | null = review.stack ?? null;
 
   return (
     <header className="flex items-start gap-3">
@@ -144,7 +188,9 @@ export const ReviewHeader = memo(function ReviewHeader({
             ? <span className="inline-flex min-w-0 items-center gap-1"><BranchChip>{review.base}</BranchChip><Icon name="ArrowRight" className="size-3 shrink-0 rotate-180 text-subtle-foreground" aria-hidden /><BranchChip>{review.head}</BranchChip></span>
             : review.gitRef && <BranchChip>{review.gitRef}</BranchChip>}
           {rounds.length > 0 && <RoundTimeline rounds={rounds} />}
+          {stack && <StackLinks stack={stack} />}
         </div>
+        <UnreviewedParent stack={stack} />
         {intent && (
           <div className="max-w-[80ch] border-l-2 border-primary/40 pl-3">
             <div className={cn("relative text-foreground/90", !expanded && showIntentToggle && "max-h-[3.4rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_2.85rem,transparent)]")}>

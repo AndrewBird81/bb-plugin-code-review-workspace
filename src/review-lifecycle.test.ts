@@ -654,6 +654,12 @@ test("a pass that changes several reviews tells the list once", async () => {
   expect(reviewSignals()).toEqual(["review:pr-1", "review:pr-2"]);
 });
 
+test("the sync keeps the PR GitHub says this one is stacked on", async () => {
+  const s = setup({ pr: { stackParent: { number: 2645, title: "Add the queue", url: "https://github.com/acme/web/pull/2645" } } });
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.stackParent).toEqual({ number: 2645, title: "Add the queue", url: "https://github.com/acme/web/pull/2645" });
+});
+
 test("the sync keeps the PR's size", async () => {
   const s = setup({ pr: { size: { additions: 120, deletions: 30, files: 8 } } });
   await s.sync.all();

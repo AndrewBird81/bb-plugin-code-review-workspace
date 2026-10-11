@@ -157,6 +157,17 @@ test("mentions matches a whole handle only", () => {
   expect(mentions("thanks @octo-cat!", "octo-cat")).toBe(true);
 });
 
+test("the stack parent is the open PR whose head is this PR's base branch, unless the base is the default branch", () => {
+  const parent = { number: 2645, title: "Add the queue", url: "https://github.com/acme/web/pull/2645" };
+  const stacked = (baseRefName: string, nodes: unknown[]) => pr({ baseRefName, baseRef: { associatedPullRequests: { nodes } }, baseRepository: { defaultBranchRef: { name: "main" } } });
+  expect(one(stacked("feat-a", [parent])).stackParent).toEqual(parent);
+  // A deploy PR from main doesn't make every PR into main a stack.
+  expect(one(stacked("main", [parent])).stackParent).toBeNull();
+  expect(one(stacked("feat-a", [])).stackParent).toBeNull();
+  expect(one(pr()).stackParent).toBeNull();
+  expect(prFactsQuery([ref(1)]).query).toContain("baseRef{associatedPullRequests(states:OPEN,first:1){nodes{number title url}}} baseRepository{defaultBranchRef{name}}");
+});
+
 test("size reads the PR's additions, deletions, and changed files", () => {
   expect(one(pr({ additions: 120, deletions: 30, changedFiles: 8 })).size).toEqual({ additions: 120, deletions: 30, files: 8 });
   expect(one(pr()).size).toBeNull();
