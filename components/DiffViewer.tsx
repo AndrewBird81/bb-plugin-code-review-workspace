@@ -206,6 +206,7 @@ export const DiffViewer = memo(function DiffViewer({
   since,
   sinceOnly = false,
   showRemoved = true,
+  onUnifiedOnly,
 }: {
   diffLayout?: "split" | "unified";
   /** Wrap long lines instead of scrolling them sideways. */
@@ -229,6 +230,8 @@ export const DiffViewer = memo(function DiffViewer({
   sinceOnly?: boolean;
   /** Show files removed since your review here; they belong to no chapter, so the workspace shows them in the last one. */
   showRemoved?: boolean;
+  /** Told whether the diff is too narrow for split, so it shows unified whatever the layout. */
+  onUnifiedOnly?: (unifiedOnly: boolean) => void;
 }) {
   const theme = useTheme();
   const compact = useMediaQuery("(max-width: 767px)");
@@ -273,6 +276,8 @@ export const DiffViewer = memo(function DiffViewer({
     observer.observe(el);
     return () => observer.disconnect();
   }, [hasFiles]);
+  const unifiedOnly = compact || narrow;
+  useEffect(() => onUnifiedOnly?.(unifiedOnly), [unifiedOnly, onUnifiedOnly]);
 
   // Explicit collapse overrides; when unset a file follows its "viewed" flag, and noise starts folded.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -439,7 +444,7 @@ export const DiffViewer = memo(function DiffViewer({
                 darkTheme={theme?.dark}
                 lightTheme={theme?.light}
                 themeMode={themeMode}
-                diffStyle={compact || narrow ? "unified" : diffLayout}
+                diffStyle={unifiedOnly ? "unified" : diffLayout}
                 wrap={wrapLines}
                 annotations={annotations.get(path)?.list ?? []}
                 selected={selectedLines?.file === path ? selectedLines.range : null}

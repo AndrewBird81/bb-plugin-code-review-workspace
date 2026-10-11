@@ -140,6 +140,21 @@ test("the toolbar switches between split and unified, and saves the layout", asy
   slot.lifecycle.unmount();
 });
 
+test("in a pane too narrow for split, Split view shows unified and saves nothing", async () => {
+  const restore = fakeWidth(800);
+  const savePreferences = vi.fn(({ preferences }: any) => ({ preferences, revision: 1 }));
+  const { slot } = await renderWorkspace({ rpc: { savePreferences } });
+  await slot.findByText("aa");
+  expect(drawn.at(-1)!.options.diffStyle).toBe("unified");
+  const split = within(slot.getByRole("main")).getByRole("button", { name: "Split view" });
+  await waitFor(() => expect(split.getAttribute("aria-pressed")).toBe("false"));
+  expect(split.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(split);
+  expect(savePreferences).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+  restore();
+});
+
 test("Wrap lines wraps the diff's code and sticks in this browser, and starts on in a compact workspace", async () => {
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");

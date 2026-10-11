@@ -166,8 +166,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useEffect(loadPreferences, [loadPreferences]);
   useRealtime("preferences", loadPreferences);
   // The reading layout is a setting, saved for every review like the one in Settings.
+  // Below about 960px the diff shows unified whatever the layout, so the toggle can't apply there.
+  const [unifiedOnly, setUnifiedOnly] = useState(false);
   const toggleLayout = useCallback(async () => {
-    if (!preferences) return;
+    if (!preferences || unifiedOnly) return;
     const next = { ...preferences.preferences, diffLayout: preferences.preferences.diffLayout === "split" ? "unified" as const : "split" as const };
     setPreferences({ ...preferences, preferences: next });
     try {
@@ -176,7 +178,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       toast.error("Couldn’t save the layout.");
       loadPreferences();
     }
-  }, [rpc, preferences, loadPreferences]);
+  }, [rpc, preferences, unifiedOnly, loadPreferences]);
   useEffect(() => patchReviewState(targetKey, { activeId, view: chosenView ?? undefined, sidebarWidth, focus: chosenFocus }), [targetKey, activeId, chosenView, sidebarWidth, chosenFocus]);
   const isPr = review?.kind === "pr";
   const view: View = chosenView && chosenView !== "diff" && review && !isPr ? "diff" : chosenView ?? defaultView ?? "diff";
@@ -823,13 +825,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   <span className="h-4 w-px bg-border" />
                 </>
               )}
-              {view === "diff" && <Hint label="Split view" container={rootEl}>
+              {view === "diff" && <Hint label={unifiedOnly ? "Split view needs a wider pane" : "Split view"} container={rootEl}>
                 <Button
                   variant="ghost"
                   size="sm"
                   aria-label="Split view"
-                  aria-pressed={diffLayout === "split"}
-                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
+                  aria-pressed={diffLayout === "split" && !unifiedOnly}
+                  aria-disabled={unifiedOnly}
+                  className="h-9 px-2 text-xs aria-pressed:text-primary aria-disabled:cursor-default aria-disabled:opacity-50 md:h-7"
                   onClick={() => void toggleLayout()}
                 >
                   <Icon name="Columns2" className="size-3.5" aria-hidden />
@@ -898,6 +901,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 since={since}
                 sinceOnly={sinceOnly}
                 showRemoved={activeId === sections.at(-1)?.id}
+                onUnifiedOnly={setUnifiedOnly}
               />
               {nextSection && (
                 <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
