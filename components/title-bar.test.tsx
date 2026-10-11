@@ -178,6 +178,14 @@ test("Review actions offers Update guide for new commits, else Rebuild guide, th
   await waitFor(() => expect(rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
 });
 
+test("an archived review's actions don't offer to rebuild its guide, which the server would refuse", async () => {
+  fakeSize(1400, 900);
+  const { bar } = await renderReview({ review: { prState: "MERGED", archivedAt: 1 } });
+  fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+  await bar!.findByRole("button", { name: "Open on GitHub" });
+  expect(bar!.queryByRole("button", { name: /guide/ })).toBeNull();
+});
+
 test("Full screen goes from the title bar to the band's end and back; from the keyboard the focus goes along", async () => {
   fakeSize(1400, 900);
   fakeFullscreen();

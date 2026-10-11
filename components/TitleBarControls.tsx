@@ -106,12 +106,12 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
 
 /**
  * Review actions (⋯): the workspace's own first (Update or Rebuild guide, Open on GitHub, Keyboard shortcuts, Review
- * settings…), then the review's.
+ * settings…), then the review's. An archived review's guide isn't rebuilt.
  */
 export function ReviewMenu({ api, className }: { api: WorkspaceApi; className?: string }) {
   const navigate = useBbNavigate();
   const items: { label: string; icon: IconName; onSelect: () => void }[] = [
-    { label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() },
+    ...(api.review.archivedAt ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal" as const, onSelect: () => void api.rebuild() }]),
     ...(api.review.url ? [{ label: "Open on GitHub", icon: "Github" as const, onSelect: () => navigate.openUrl(api.review.url!) }] : []),
     { label: "Keyboard shortcuts", icon: "CircleQuestion", onSelect: api.showShortcuts },
     { label: "Review settings…", icon: "Settings", onSelect: () => void api.leave(`settings/${api.targetKey}`) },
