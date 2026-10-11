@@ -145,6 +145,26 @@ test("the Add comment form picks from the review's files, and says why the serve
   slot.lifecycle.unmount();
 });
 
+test("a refused save keeps focus in the box, with the reason and its buttons in view", async () => {
+  const saveDraftComment = vi.fn(async () => { throw new Error("src/a.ts:99 isn’t in the current diff. Choose a line the diff shows."); });
+  const scrollIntoView = vi.fn();
+  Element.prototype.scrollIntoView = scrollIntoView;
+  const slot = await renderTray("refused-focus", { getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), saveDraftComment });
+  writeComment(slot, "Out of range.");
+  fireEvent.change(slot.getByRole("spinbutton", { name: "Comment line" }), { target: { value: "99" } });
+  const box = slot.getByRole("textbox", { name: "Draft comment" });
+  await waitFor(() => expect(document.activeElement).toBe(box));
+  // Clicking the button focuses it, and saving disables it.
+  const add = slot.getByRole("button", { name: "Add to draft" });
+  add.focus();
+  fireEvent.click(add);
+  await within(box.parentElement!).findByRole("alert");
+  await waitFor(() => expect(document.activeElement).toBe(box));
+  expect(scrollIntoView.mock.contexts).toContain(box.parentElement);
+  delete (Element.prototype as Partial<Element>).scrollIntoView;
+  slot.lifecycle.unmount();
+});
+
 test("Submit waits while comments are on an older diff, and names them", async () => {
   const draft = draftOf({ body: "Summary.", comments: [{ file: "src/a.ts", line: 9, side: "RIGHT", body: "Old." }, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Current." }] });
   const slot = await renderTray("stale", { getDraft: () => ({ draft, stale: [{ file: "src/a.ts", line: 9, side: "RIGHT" }], discussions: [] }) });

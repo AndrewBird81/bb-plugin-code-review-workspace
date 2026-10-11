@@ -293,6 +293,15 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   }
 
   /** Run a change to the draft; its error goes to `onError` when given, rather than a toast, and the status line shows what that returns, or the error. */
+  // Saving disables the box, which drops its focus; a refused save puts it back, with the reason and buttons in view.
+  const refocusBox = useRef(false);
+  useEffect(() => {
+    if (busy || !refocusBox.current) return;
+    refocusBox.current = false;
+    const box = bodyRef.current;
+    box?.focus({ preventScroll: true });
+    box?.parentElement?.scrollIntoView?.({ block: "nearest" });
+  }, [busy]);
   async function mutate(operation: () => Promise<void>, onError?: (message: string) => string | void) {
     if (lock.current) return;
     lock.current = true; setBusy(true); setStatus({ saving: true });
@@ -359,6 +368,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
       focusComment({ file, line: Number(line), side }, inline);
     }, (message) => {
       if (!mounted.current) return;
+      refocusBox.current = true;
       if (!rebuilding && composerRevision.current !== revisionRef.current) { setOlderDiff(true); return "Not saved: it was written against an older diff."; }
       setComposerError(message);
     });
