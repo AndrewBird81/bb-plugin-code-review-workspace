@@ -10,7 +10,7 @@ import { Icon } from "./ui/icon";
 const RUN_LABEL = { guide: "Start review", review: "Run review", check: "Run check" } as const;
 
 /** What didn't run on its own because of the PR's author, why, and the click that runs it. */
-export function NotRunBanner({ review }: { review: Pick<ReviewMeta, "targetKey" | "author" | "repo"> & { skippedRun: NonNullable<ReviewMeta["skippedRun"]> } }) {
+export function NotRunBanner({ review }: { review: Pick<ReviewMeta, "targetKey" | "author" | "repo" | "authorAssociation"> & { skippedRun: NonNullable<ReviewMeta["skippedRun"]> } }) {
   const rpc = useRpc<typeof rpcContract>();
   const [busy, setBusy] = useState(false);
   async function run() {

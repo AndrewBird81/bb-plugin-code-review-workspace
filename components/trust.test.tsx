@@ -11,7 +11,7 @@ afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); });
 
 const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,2 @@\n one\n-two\n+TWO\n";
 const guide = { title: "Guide", intent: "Parses rows.", unplacedFiles: [] as string[], sections: [{ id: "c1", title: "Parsing", overview: "Reads rows.", diffs: [{ file: "src/a.ts", summary: "Reads a row." }] }] };
-const outsider = { targetKey: "pr-42", kind: "pr", repo: "acme/web", number: 42, author: "mallory", createdAt: 1, title: "Parse rows", headSha: "sha1" };
+const outsider = { targetKey: "pr-42", kind: "pr", repo: "acme/web", number: 42, author: "mallory", authorAssociation: "FIRST_TIME_CONTRIBUTOR", createdAt: 1, title: "Parse rows", headSha: "sha1" };
 
 function workspace(review: Record<string, unknown>, rpc: Record<string, unknown> = {}) {
   return { rpc: {

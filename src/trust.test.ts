@@ -47,6 +47,12 @@ test("the repo's checks run only when turned on, on a trusted author's PR; appro
 });
 
 test("the reason names the author and the repository's owner", () => {
-  expect(notRunReason(pr())).toBe("Not run automatically: @mallory isn’t a member of acme");
-  expect(notRunReason(pr({ author: undefined }))).toBe("Not run automatically: the author isn’t a member of acme");
+  expect(notRunReason(pr({ authorAssociation: "NONE" }))).toBe("Not run automatically: @mallory isn’t a member of acme");
+  expect(notRunReason(pr({ authorAssociation: null, author: undefined }))).toBe("Not run automatically: the author isn’t a member of acme");
+});
+
+test("before the sync read who wrote the PR, the reason says so, even once it reads a member", () => {
+  expect(notRunReason(pr())).toBe("Not run automatically: GitHub hadn’t said who wrote this PR yet");
+  expect(notRunReason(pr({ authorAssociation: "MEMBER" }))).toBe("Not run automatically: GitHub hadn’t said who wrote this PR yet");
+  expect(trustedAuthor(pr(), defaultPreferences)).toBe(false);
 });
