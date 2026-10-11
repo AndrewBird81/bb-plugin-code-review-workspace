@@ -15,6 +15,10 @@ export interface ReviewUiState {
 
 interface PanelState {
   lastTargetKey?: string;
+  /** The chapter intro's overview is hidden, in every review. */
+  introCollapsed?: boolean;
+  /** The diff wraps long lines instead of scrolling them; unset follows the workspace's width. */
+  wrapLines?: boolean;
   perReview: Record<string, ReviewUiState>;
 }
 
@@ -58,5 +62,25 @@ export function getReviewState(targetKey: string): ReviewUiState {
 export function patchReviewState(targetKey: string, patch: Partial<ReviewUiState>) {
   const s = read();
   s.perReview[targetKey] = { ...s.perReview[targetKey], ...patch };
+  write(s);
+}
+
+export function getIntroCollapsed(): boolean {
+  return read().introCollapsed ?? false;
+}
+
+export function setIntroCollapsed(collapsed: boolean) {
+  const s = read();
+  s.introCollapsed = collapsed;
+  write(s);
+}
+
+export function getWrapLines(): boolean | undefined {
+  return read().wrapLines;
+}
+
+export function setWrapLines(wrap: boolean) {
+  const s = read();
+  s.wrapLines = wrap;
   write(s);
 }

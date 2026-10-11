@@ -23,7 +23,7 @@ import { askAgent, settleDiscussions } from "./src/discussions";
 import { clearAsks, listAsks, setAsk } from "./src/asks";
 import { runCommentCommand } from "./src/comment-command";
 import { isMissingThread } from "./src/thread-errors";
-import { computeFileViewState, hashForFile } from "./src/file-views";
+import { computeFileViewState, fileHashes, hashForFile } from "./src/file-views";
 import {
   ghPrViewArgs,
   ghPrCommentsArgs,
@@ -551,6 +551,12 @@ export default async function plugin(bb: BbPluginApi) {
       if (!hash) return { ok: false };
       store.setFileViewed(targetKey, file, hash);
       return { ok: true };
+    },
+    setFilesViewed({ targetKey, files }) {
+      const total = store.readPatch(targetKey, 0, 0).total;
+      const hashes = fileHashes(store.readPatch(targetKey, 0, total).text, files);
+      for (const [file, hash] of hashes) store.setFileViewed(targetKey, file, hash);
+      return { ok: hashes.size === new Set(files).size };
     },
 
     // Review assistant: a hidden bb thread per review, shown with ThreadChat

@@ -1,6 +1,14 @@
-import { test, expect } from "vitest";
+import { test, expect, vi } from "vitest";
+import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import plugin from "../server";
+import { createStore } from "./store";
 import { computeFileViewState, hashForFile } from "./file-views";
-import { hashFileDiff } from "./diff-hash";
+import { hashFileDiff, normalizedFileHash } from "./diff-hash";
+
+vi.mock("./diff-hash", async (original) => {
+  const actual = await original<typeof import("./diff-hash")>();
+  return { ...actual, normalizedFileHash: vi.fn(actual.normalizedFileHash) };
+});
 
 const patch = "diff --git a/a.ts b/a.ts\n+one\n" + "diff --git a/b.ts b/b.ts\n+two\n";
 
@@ -17,6 +25,30 @@ test("a file whose diff changed since viewing reads as stale, not viewed", () =>
 
 test("hashForFile returns null for a file not in the patch", () => {
   expect(hashForFile(patch, "missing.ts")).toBeNull();
+});
+
+test("hashForFile hashes only the file asked for", () => {
+  vi.mocked(normalizedFileHash).mockClear();
+  hashForFile(patch, "b.ts");
+  expect(normalizedFileHash).toHaveBeenCalledTimes(1);
+});
+
+test("setFilesViewed marks a chapter's files in one call, hashing just those", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
+  store.savePatch("pr-1", patch + "diff --git a/c.ts b/c.ts\n+three\n");
+  vi.mocked(normalizedFileHash).mockClear();
+  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts"] })).toEqual({ ok: true });
+  expect(normalizedFileHash).toHaveBeenCalledTimes(2);
+  expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [
+    { file: "a.ts", viewed: true, stale: false },
+    { file: "b.ts", viewed: true, stale: false },
+  ] });
+  // A file gone from the patch can't be marked.
+  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["c.ts", "gone.ts"] })).toEqual({ ok: false });
+  expect(store.getFileViews("pr-1").map((view) => view.file).sort()).toEqual(["a.ts", "b.ts", "c.ts"]);
 });
 
 const appDiff = (index: string, at: string, context: string, added = "+  run(a, b);") =>

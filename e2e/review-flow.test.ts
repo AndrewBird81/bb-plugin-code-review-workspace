@@ -157,22 +157,22 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     expect(submission?.[1]?.stdin).not.toContain("Private:");
     expect(submission?.[1]?.stdin).toContain("Please test whitespace-only input too.");
     expect(submission?.[1]?.stdin).toContain("The validation looks good with this test follow-up.");
-    await page.getByRole("button", { name: "Ask the review agent", exact: true }).click();
-    const assistant = page.getByRole("region", { name: "Review assistant", exact: true });
+    await page.getByRole("button", { name: "Ask agent", exact: true }).first().click();
+    const assistant = page.getByRole("region", { name: "Review agent", exact: true });
     await assistant.waitFor();
     expect(await page.getByRole("dialog", { name: "Review agent", exact: true }).count()).toBe(0);
     await page.getByPlaceholder(/Ask the agent/).fill("Explain the validation guard");
-    await page.getByRole("button", { name: "Ask agent", exact: true }).click();
+    await reviewTools.getByRole("button", { name: "Ask agent", exact: true }).click();
     await assistant.waitFor({ state: "hidden" });
     expect(await reviewTools.evaluate((element) => element.getBoundingClientRect().width)).toBe(44);
     await page.keyboard.press("Tab");
-    await page.getByRole("button", { name: "Ask agent", exact: true }).focus();
+    await reviewTools.getByRole("button", { name: "Ask agent", exact: true }).focus();
     const assistantTooltip = page.getByRole("tooltip", { name: "Ask agent", exact: true });
     await assistantTooltip.waitFor();
     expect(await assistantTooltip.evaluate((element) => document.fullscreenElement?.contains(element))).toBe(true);
-    await page.getByRole("button", { name: "Ask agent", exact: true }).press("Enter");
+    await reviewTools.getByRole("button", { name: "Ask agent", exact: true }).press("Enter");
     expect(await page.getByRole("textbox", { name: "Ask the agent", exact: true }).inputValue()).toBe("Explain the validation guard");
-    await page.getByRole("button", { name: "Open assistant as widget", exact: true }).click();
+    await page.getByRole("button", { name: "Open agent as widget", exact: true }).click();
     const widget = page.getByRole("dialog", { name: "Review agent", exact: true });
     await widget.waitFor();
     expect(await widget.evaluate((element) => document.fullscreenElement?.contains(element))).toBe(true);
@@ -180,7 +180,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.screenshot({ animations: "disabled", path: `${dir}/assistant-widget.png` });
     await widget.getByRole("button", { name: "Dock in review panel", exact: true }).click();
     await page.getByRole("button", { name: "Reviewer notes", exact: true }).click();
-    await page.getByRole("button", { name: "Ask agent", exact: true }).click();
+    await reviewTools.getByRole("button", { name: "Ask agent", exact: true }).click();
     expect(await page.getByRole("textbox", { name: "Ask the agent", exact: true }).inputValue()).toBe("Explain the validation guard");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     // bb's ThreadChat takes over. The stubbed worker id has no thread in this bb.

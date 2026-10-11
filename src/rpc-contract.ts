@@ -166,6 +166,11 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), file: z.string(), viewed: z.boolean() }).strict(),
     output: z.object({ ok: z.boolean() }),
   },
+  // Marks a chapter's files viewed at once.
+  setFilesViewed: {
+    input: z.object({ targetKey: z.string(), files: z.array(z.string()) }).strict(),
+    output: z.object({ ok: z.boolean() }),
+  },
 
   // Review assistant: one hidden bb thread per review, shown with ThreadChat
   getConversation: {

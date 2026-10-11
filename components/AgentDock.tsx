@@ -125,7 +125,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
       const result = await rpc.call("startConversation", { targetKey, text: quote ? `${message}\n\n${quote}` : message, agent });
       if (mounted.current) { setConversation({ ...conversation, threadId: result.threadId }); setInput(""); setChip(null); }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "The assistant could not start");
+      toast.error(error instanceof Error ? error.message : "The agent couldn’t start");
     } finally {
       locked.current = false;
       if (mounted.current) setBusy(false);
@@ -195,9 +195,9 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
   const panel = <>
     <div className={cn("flex h-11 shrink-0 items-center gap-2 border-b border-border px-3", mode === "widget" && "cursor-move bg-surface-raised")} onPointerDown={mode === "widget" ? (event) => startGesture(event, "move") : undefined}>
       <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />
-      <span className="text-sm font-medium">Review assistant</span>
+      <span className="text-sm font-medium">Review agent</span>
       {(threadId || conversation?.legacy.length) ? <Button variant="ghost" size="icon" className="ml-auto size-7" aria-label="New conversation" onPointerDown={(event) => event.stopPropagation()} onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
-      <Button variant="ghost" size="sm" className={cn(!(threadId || conversation?.legacy.length) && "ml-auto")} aria-label={mode === "widget" ? "Dock in review panel" : "Open assistant as widget"} onPointerDown={(event) => event.stopPropagation()} onClick={mode === "widget" ? dock : () => setMode("widget")}>
+      <Button variant="ghost" size="sm" className={cn(!(threadId || conversation?.legacy.length) && "ml-auto")} aria-label={mode === "widget" ? "Dock in review panel" : "Open agent as widget"} onPointerDown={(event) => event.stopPropagation()} onClick={mode === "widget" ? dock : () => setMode("widget")}>
         <Icon name={mode === "widget" ? "Minimize2" : "Maximize2"} className="size-3.5" aria-hidden />{mode === "widget" ? "Dock" : "Pop out"}
       </Button>
       {mode === "panel" && onCollapse && <Button variant="ghost" size="icon" className="hidden size-7 text-muted-foreground @min-[1024px]/review:inline-flex" aria-label="Collapse review panel" onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}
@@ -212,14 +212,14 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
   // Below z-50, where bb's own popovers (such as ThreadChat's model picker) open.
   const widget = mode === "widget" && createPortal(<div role="dialog" aria-label="Review agent" {...scopeProps} className="fixed z-[49] flex flex-col overflow-hidden rounded-lg border border-border shadow-2xl" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
     {panel}
-    <div role="separator" tabIndex={0} aria-label="Resize assistant widget" aria-orientation="horizontal" onPointerDown={(event) => startGesture(event, "resize")} onKeyDown={(event) => {
+    <div role="separator" tabIndex={0} aria-label="Resize agent widget" aria-orientation="horizontal" onPointerDown={(event) => startGesture(event, "resize")} onKeyDown={(event) => {
       if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
       event.preventDefault(); setRect((rect) => clampRect({ ...rect, w: rect.w + (event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0), h: rect.h + (event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0) }, bounds()));
     }} className="absolute bottom-0 right-0 size-3 cursor-nwse-resize border-b-2 border-r-2 border-muted-foreground focus-visible:outline focus-visible:outline-ring" />
   </div>, container ?? document.body);
   return <>
-    <section aria-label="Review assistant" hidden={!active} className={cn("flex min-h-0 flex-1 flex-col", !active && "hidden")}>
-      {mode === "panel" ? panel : <><div className="hidden h-11 shrink-0 items-center border-b border-border px-3 @min-[1024px]/review:flex"><h2 className="flex-1 text-xs font-medium">Ask agent</h2>{onCollapse && <Button variant="ghost" size="icon" className="size-7 text-muted-foreground" aria-label="Collapse review panel" onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}</div><div className="space-y-3 p-3 text-sm"><p className="text-muted-foreground">The assistant is open as a widget.</p><Button variant="outline" size="sm" onClick={dock}>Dock in review panel</Button></div></>}
+    <section aria-label="Review agent" hidden={!active} className={cn("flex min-h-0 flex-1 flex-col", !active && "hidden")}>
+      {mode === "panel" ? panel : <><div className="hidden h-11 shrink-0 items-center border-b border-border px-3 @min-[1024px]/review:flex"><h2 className="flex-1 text-xs font-medium">Ask agent</h2>{onCollapse && <Button variant="ghost" size="icon" className="size-7 text-muted-foreground" aria-label="Collapse review panel" onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}</div><div className="space-y-3 p-3 text-sm"><p className="text-muted-foreground">The agent is open as a widget.</p><Button variant="outline" size="sm" onClick={dock}>Dock in review panel</Button></div></>}
     </section>
     {widget}
   </>;

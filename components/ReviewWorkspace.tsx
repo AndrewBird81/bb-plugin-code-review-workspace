@@ -1,19 +1,20 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useRpc, useRealtime, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { SelectedLineRange } from "@pierre/diffs";
 import type { rpcContract } from "../src/rpc-contract";
-import { VERDICT_LABEL, type CommentLocation } from "../src/draft";
+import { VERDICT_LABEL, sameLocation, type CommentLocation } from "../src/draft";
 import type { FileInterdiff } from "../src/interdiff";
 import { baselineOf, computeTurn, type TurnReason } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
-import { getReviewState, patchReviewState, setLastReview } from "../lib/panel-state";
+import { getReviewState, getWrapLines, patchReviewState, setLastReview, setWrapLines } from "../lib/panel-state";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { ReviewHeader, ReviewTitleLink } from "./ReviewHeader";
 import { ChapterNav } from "./ChapterNav";
+import { ChapterIntro } from "./ChapterIntro";
 import { DiffViewer, type FileViewFlags } from "./DiffViewer";
 import { DraftTray, type CommentPrefill } from "./DraftTray";
 import { RereviewBanner } from "./RereviewBanner";
@@ -24,16 +25,43 @@ import type { DockInjection } from "./AgentDock";
 import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { kindLook } from "./ReviewStatus";
 import { IconTile } from "./ui/icon-tile";
+import { InlineCode } from "./ui/inline-code";
 import { Hint } from "./ui/hint";
 import { ReviewActions } from "./ReviewActions";
-import { defaultPreferences } from "../lib/review-preferences";
+import { AccountBar } from "./AccountBar";
+import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
 import { useDraftStatus } from "../lib/draft-status";
+import { inDiffOrder, shortcutKey } from "../lib/review-shortcuts";
+import { InlineDraftContext } from "./InlineDraft";
+import { ShortcutsHelp } from "./ShortcutsHelp";
+import { splitPatchByFile } from "../src/patch";
 
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 560;
 
 type View = "diff" | "feedback" | "threads";
 const VIEW_LOOK = { diff: { label: "Diff", icon: "FileDiff" }, feedback: { label: "Feedback", icon: "ChatFeedback" }, threads: { label: "Threads", icon: "MessageSquare" } } as const;
+
+/** The guide's chapters, then any changed files they don't list, such as an older guide's unplaced files. */
+function withOtherFiles(sections: any[], patch: string): any[] {
+  const placed = new Set(sections.flatMap((section) => section.diffs.map((diff: any) => diff.file)));
+  const other = splitPatchByFile(patch).map((f) => f.path).filter((path) => !placed.has(path));
+  // A guide can have its own Other files chapter, for the files it left unplaced.
+  const id = sections.some((section) => section.id === OTHER_FILES) ? `${OTHER_FILES}-unlisted` : OTHER_FILES;
+  return other.length ? [...sections, { id, title: "Other files", overview: "Changed files the guide doesn’t place in a chapter.", diffs: other.map((file) => ({ file })) }] : sections;
+}
+const OTHER_FILES = "other-files";
+
+function viewMap(views: { file: string; viewed: boolean; stale: boolean }[]): Map<string, FileViewFlags> {
+  return new Map(views.map((v) => [v.file, { viewed: v.viewed, stale: v.stale }]));
+}
+
+/** Hands the workspace the lines with draft comments or discussions, which the draft panel provides. */
+function DraftLines({ into }: { into: MutableRefObject<CommentLocation[]> }) {
+  const draft = useContext(InlineDraftContext);
+  useEffect(() => { into.current = [...(draft?.comments ?? []), ...(draft?.discussions ?? [])]; }, [draft, into]);
+  return null;
+}
 
 /** Turns where what matters first is whether the author addressed your feedback. */
 const FEEDBACK_FIRST = new Set<TurnReason>(["re-requested", "handled", "looks-ready", "question", "mentioned"]);
@@ -60,15 +88,17 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const codeTheme = experimental_useCodeTheme();
-  const compact = useMediaQuery("(max-width: 767px)");
+  const compactViewport = useMediaQuery("(max-width: 767px)");
   const [mobileChapters, setMobileChapters] = useState(false);
-  const [diffLayout, setDiffLayout] = useState(defaultPreferences.diffLayout);
+  const [preferences, setPreferences] = useState<{ preferences: ReviewPreferences; revision: number } | null>(null);
+  const diffLayout = preferences?.preferences.diffLayout ?? defaultPreferences.diffLayout;
   const [loading, setLoading] = useState(true);
   const [generatingReplacement, setGeneratingReplacement] = useState(false);
   const hasDisplayedGuide = useRef(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rebuilding, setRebuilding] = useState(false);
   const request = useRef(0);
+  const viewsRequest = useRef(0);
   // The guide as last shown; a reload with the same guide keeps its object, so the diff doesn't redraw.
   const shownGuide = useRef("");
   const resizeCleanup = useRef<(() => void) | null>(null);
@@ -78,7 +108,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [guide, setGuide] = useState<any>(null);
   const [patch, setPatch] = useState("");
   const [checks, setChecks] = useState<{ bucket: string; checks: any[] } | null>(null);
-  const [activeId, setActiveId] = useState("");
+  // From the saved state, so persisting before the guide loads doesn't overwrite it.
+  const [activeId, setActiveId] = useState(persisted.activeId ?? "");
   // The reviewer's choice persists; without one, the review's turn picks the first view once.
   const [chosenView, setView] = useState<View | null>(persisted.view ?? null);
   const [defaultView, setDefaultView] = useState<View | null>(null);
@@ -100,7 +131,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Screen utilization: resizable/collapsible sidebar, focus mode, fullscreen.
   const [sidebarWidth, setSidebarWidth] = useState(persisted.sidebarWidth ?? 288);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [focus, setFocus] = useState(persisted.focus ?? false);
+  const [chosenFocus, setFocus] = useState(persisted.focus);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const fileEls = useRef<Map<string, HTMLElement>>(new Map());
@@ -108,6 +139,20 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const scrollBox = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
+  // Compact by the workspace's own width: a narrow BB pane on a wide screen is as tight as a phone.
+  const [rootWidth, setRootWidth] = useState<number | null>(null);
+  useEffect(() => {
+    if (!rootEl || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => setRootWidth(entry.contentRect.width));
+    observer.observe(rootEl);
+    return () => observer.disconnect();
+  }, [rootEl]);
+  const compact = rootWidth === null ? compactViewport : rootWidth < 768;
+  // Without a choice of your own, Focus gives a compact workspace's diff the room.
+  const focus = chosenFocus ?? compact;
+  // Likewise long lines wrap there, rather than scroll sideways.
+  const [chosenWrap, setChosenWrap] = useState(getWrapLines);
+  const wrapLines = chosenWrap ?? compact;
   const didRestoreScroll = useRef(false);
   const reducedMotion =
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -116,18 +161,32 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Opening the review clears its Needs You alert.
   useEffect(() => { void rpc.call("markSeen", { targetKey }).catch(() => {}); }, [rpc, targetKey]);
   const loadPreferences = useCallback(() => {
-    void rpc.call("getPreferences", null).then(({ preferences }) => setDiffLayout(preferences.diffLayout)).catch(() => {});
+    void rpc.call("getPreferences", null).then(setPreferences).catch(() => {});
   }, [rpc]);
   useEffect(loadPreferences, [loadPreferences]);
   useRealtime("preferences", loadPreferences);
-  useEffect(() => patchReviewState(targetKey, { activeId, view: chosenView ?? undefined, sidebarWidth, focus }), [targetKey, activeId, chosenView, sidebarWidth, focus]);
+  // The reading layout is a setting, saved for every review like the one in Settings.
+  const toggleLayout = useCallback(async () => {
+    if (!preferences) return;
+    const next = { ...preferences.preferences, diffLayout: preferences.preferences.diffLayout === "split" ? "unified" as const : "split" as const };
+    setPreferences({ ...preferences, preferences: next });
+    try {
+      setPreferences(await rpc.call("savePreferences", { preferences: next, revision: preferences.revision }));
+    } catch {
+      toast.error("Couldn’t save the layout.");
+      loadPreferences();
+    }
+  }, [rpc, preferences, loadPreferences]);
+  useEffect(() => patchReviewState(targetKey, { activeId, view: chosenView ?? undefined, sidebarWidth, focus: chosenFocus }), [targetKey, activeId, chosenView, sidebarWidth, chosenFocus]);
   const isPr = review?.kind === "pr";
-  const view: View = chosenView === "feedback" && review && !isPr ? "diff" : chosenView ?? defaultView ?? "diff";
+  const view: View = chosenView && chosenView !== "diff" && review && !isPr ? "diff" : chosenView ?? defaultView ?? "diff";
 
+  // Only the latest refresh applies: marks made while an older one was out would come undone.
   const loadViews = useCallback(async () => {
+    const id = ++viewsRequest.current;
     try {
       const { views } = await rpc.call("getFileViews", { targetKey });
-      setViews(new Map(views.map((v: any) => [v.file, { viewed: v.viewed, stale: v.stale }])));
+      if (id === viewsRequest.current) setViews(viewMap(views));
     } catch {
       // Non-fatal — the diff just won't show viewed state.
     }
@@ -135,11 +194,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   const load = useCallback(async () => {
     const id = ++request.current;
+    const viewsId = ++viewsRequest.current;
     setLoadError(null);
     try {
-      const [{ review, guide, patch, revision }, checksRes] = await Promise.all([
+      // Views come with the diff, so viewed files are folded before it first draws.
+      const [{ review, guide, patch, revision }, checksRes, viewsRes] = await Promise.all([
         rpc.call("getReviewBundle", { targetKey }),
         rpc.call("getChecks", { targetKey }).catch(() => null),
+        rpc.call("getFileViews", { targetKey }).catch(() => null),
       ]);
       if (id !== request.current) return;
       // A deleted review shows "Review not found" rather than a pending regeneration.
@@ -160,19 +222,20 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         setGuide(guide);
       }
       setPatch(patch);
+      if (viewsRes && viewsId === viewsRequest.current) setViews(viewMap(viewsRes.views));
       setChecks(checksRes);
-      if (guide?.sections?.length) {
+      const chapters = guide?.sections ? withOtherFiles(guide.sections, patch) : [];
+      if (chapters.length) {
         const saved = getReviewState(targetKey).activeId;
-        setActiveId((prev) => guide.sections.some((section: any) => section.id === prev)
-          ? prev : guide.sections.some((section: any) => section.id === saved) ? saved! : guide.sections[0].id);
+        setActiveId((prev) => chapters.some((section) => section.id === prev)
+          ? prev : chapters.some((section) => section.id === saved) ? saved! : chapters[0].id);
       }
-      void loadViews();
     } catch (err) {
       if (id === request.current) setLoadError(err instanceof Error ? err.message : "Check the connection and try again.");
     } finally {
       if (id === request.current) setLoading(false);
     }
-  }, [rpc, targetKey, loadViews]);
+  }, [rpc, targetKey]);
 
   useEffect(() => {
     void load();
@@ -196,13 +259,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     return () => { cancelled = true; };
   }, [rpc, targetKey, sinceKey]);
   useEffect(() => { if (!since) setSinceOnly(false); }, [since]);
+  const sections = useMemo(() => guide?.sections ? withOtherFiles(guide.sections, patch) : [], [guide, patch]);
   const changedSince = useMemo(() => {
-    if (!since || !guide?.sections) return undefined;
-    return Object.fromEntries(guide.sections.map((section: any) => [section.id, section.diffs.filter((diff: any) => {
+    if (!since || !sections.length) return undefined;
+    return Object.fromEntries(sections.map((section: any) => [section.id, section.diffs.filter((diff: any) => {
       const status = since.get(diff.file)?.status;
       return status === "changed" || status === "added";
     }).length]));
-  }, [since, guide]);
+  }, [since, sections]);
 
   const snooze = useCallback(async (snoozed: boolean) => {
     setSnoozing(true);
@@ -259,15 +323,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     else if (rootRef.current?.requestFullscreen) void rootRef.current.requestFullscreen().catch(() => {});
   }, []);
 
-  const activeFiles: string[] = useMemo(() => {
-    const s = guide?.sections?.find((x: any) => x.id === activeId);
-    return s ? s.diffs.map((d: any) => d.file) : [];
-  }, [guide, activeId]);
+  const activeIndex = sections.findIndex((x: any) => x.id === activeId);
+  const activeSection = activeIndex >= 0 ? sections[activeIndex] : undefined;
+  const activeFiles: string[] = useMemo(() => activeSection ? activeSection.diffs.map((d: any) => d.file) : [], [activeSection]);
+  const summaries = useMemo(() => new Map<string, string>(activeSection?.diffs.flatMap((d: any) => d.summary ? [[d.file, d.summary]] : []) ?? []), [activeSection]);
 
   useEffect(() => {
     setCurrentFile(activeFiles[0]);
   }, [activeFiles]);
-  const reviewFiles: string[] = useMemo(() => [...(guide?.sections ?? []).flatMap((s: any) => s.diffs.map((d: any) => d.file)), ...(guide?.unplacedFiles ?? [])], [guide]);
+  const reviewFiles: string[] = useMemo(() => sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)), [sections]);
 
   // Restore the saved scroll position once the diff has content to scroll.
   useEffect(() => {
@@ -294,8 +358,43 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   const markAllViewed = useCallback(() => {
     const todo = activeFiles.filter((f) => !views.get(f)?.viewed);
-    for (const f of todo) toggleViewed(f, true);
-  }, [activeFiles, views, toggleViewed]);
+    if (!todo.length) return;
+    setViews((prev) => {
+      const next = new Map(prev);
+      for (const f of todo) next.set(f, { viewed: true, stale: false });
+      return next;
+    });
+    rpc
+      .call("setFilesViewed", { targetKey, files: todo })
+      .then(() => loadViews())
+      .catch(() => loadViews());
+  }, [activeFiles, views, rpc, targetKey, loadViews]);
+
+  // A new chapter opens at its top, unless you're jumping to a place in it.
+  const jumping = useRef(false);
+  const shownChapter = useRef(activeId);
+  useEffect(() => {
+    if (shownChapter.current === activeId) return;
+    const opening = !shownChapter.current;
+    shownChapter.current = activeId;
+    const keep = opening || jumping.current || !!pendingScroll.current;
+    jumping.current = false;
+    if (!keep && scrollBox.current) scrollBox.current.scrollTop = 0;
+  }, [activeId]);
+
+  // With no chapter of your own, a review back with changes opens on the first chapter that changed.
+  const pickChangedChapter = useRef(!persisted.activeId);
+  useEffect(() => {
+    if (!changedSince || !pickChangedChapter.current) return;
+    pickChangedChapter.current = false;
+    const changed = sections.find((section: any) => changedSince[section.id] > 0);
+    if (changed) setActiveId(changed.id);
+  }, [changedSince, sections]);
+  const selectChapter = useCallback((id: string) => {
+    pickChangedChapter.current = false;
+    setActiveId(id);
+    setMobileChapters(false);
+  }, []);
 
   const registerFileEl = useCallback((file: string, el: HTMLElement | null) => {
     if (el) fileEls.current.set(file, el);
@@ -310,8 +409,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     [reducedMotion],
   );
 
+  // Since your review hides files unchanged since then; showing one turns the filter off.
+  const unhide = useCallback((file: string) => {
+    if (since?.get(file)?.status === "unchanged") setSinceOnly(false);
+  }, [since]);
+
   const onSelectFile = useCallback(
     (chapterId: string, file: string) => {
+      pickChangedChapter.current = false;
+      unhide(file);
       if (chapterId !== activeId) {
         pendingScroll.current = file;
         setActiveId(chapterId);
@@ -321,26 +427,29 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       setCurrentFile(file);
       setMobileChapters(false);
     },
-    [activeId, scrollToFile],
+    [activeId, scrollToFile, unhide],
   );
 
   // A comment chosen in the draft panel: show its line in the diff.
   const showComment = useCallback((at: CommentLocation) => {
-    const chapter = guide?.sections.find((section: any) => section.diffs.some((diff: any) => diff.file === at.file));
+    const chapter = sections.find((section: any) => section.diffs.some((diff: any) => diff.file === at.file));
     if (!chapter) return;
     setView("diff");
+    unhide(at.file);
+    pickChangedChapter.current = false;
+    if (chapter.id !== activeId) jumping.current = true;
     setActiveId(chapter.id);
     setMobileChapters(false);
     setReveal({ at, nonce: Date.now() });
-  }, [guide]);
+  }, [sections, activeId, unhide]);
   // A thread on a file outside every chapter can't be shown here; its GitHub link can.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   const outsideGuide = useCallback((file: string, url: string | null) => {
-    if (guide?.sections.some((section: any) => section.diffs.some((diff: any) => diff.file === file))) return false;
+    if (sections.some((section: any) => section.diffs.some((diff: any) => diff.file === file))) return false;
     toast.info(`${file} isn’t in any chapter.`, url ? { action: { label: "Open on GitHub", onClick: () => navigateRef.current.openUrl(url) } } : undefined);
     return true;
-  }, [guide]);
+  }, [sections]);
   // A line from the Feedback view: the whole diff, so the line is there. Without a line, the file.
   const showLocation = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
     if (outsideGuide(file, url)) return;
@@ -353,12 +462,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (line != null) setDraftPrefill({ file, line, side, nonce: Date.now() });
   }, [outsideGuide, showLocation]);
   const showDraftSummary = useCallback((replaced = false) => setShowDraft({ at: Date.now(), replaced }), []);
+  const askAgent = useCallback(() => setInjection({ context: { file: currentFile, chapterId: activeId }, nonce: Date.now() }), [currentFile, activeId]);
   const showFeedback = useMemo(() => isPr ? () => setView("feedback") : undefined, [isPr]);
   const snoozeFromHeader = useMemo(() => isPr ? (snoozed: boolean) => void snooze(snoozed) : undefined, [isPr, snooze]);
   const archived = !!review?.archivedAt;
   const headerTrailing = useMemo(() => !archived && <RereviewBanner targetKey={targetKey} />, [archived, targetKey]);
   // The diff remounts after Threads; it shouldn't jump back to an old comment.
   useEffect(() => { if (view !== "diff") setReveal(undefined); }, [view]);
+  // A selection's actions go with the chapter and view it was made in.
+  useEffect(() => { setSel(null); setLineSel(null); }, [activeId, view]);
 
   useEffect(() => {
     if (pendingScroll.current && activeFiles.includes(pendingScroll.current)) {
@@ -370,10 +482,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   // Persist scroll (debounced) and track the file nearest the viewport top.
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current); }, []);
-  const onScroll = useCallback(() => {
+  const scrollFrame = useRef(0);
+  useEffect(() => () => { if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current); cancelAnimationFrame(scrollFrame.current); }, []);
+  // The file whose header is at the top of the diff, if you've scrolled to one.
+  const fileAtTop = useCallback(() => {
     const box = scrollBox.current;
-    if (!box) return;
+    if (!box) return undefined;
     const top = box.getBoundingClientRect().top;
     let best: string | undefined;
     let bestTop = -Infinity;
@@ -384,11 +498,23 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         best = file;
       }
     }
-    if (best) setCurrentFile(best);
+    return best;
+  }, []);
+  const onScroll = useCallback(() => {
+    const box = scrollBox.current;
+    if (!box) return;
+    // Measuring every file is costly, so at most once a frame.
+    if (!scrollFrame.current) scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = 0;
+      const best = fileAtTop();
+      if (best) setCurrentFile(best);
+    });
+    // The popover sits where the text was.
+    setSel(null);
     if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current);
     const value = box.scrollTop;
     scrollSaveTimer.current = setTimeout(() => patchReviewState(targetKey, { scrollTop: value }), 200);
-  }, [targetKey]);
+  }, [targetKey, fileAtTop]);
 
   const onMouseUp = useCallback(() => {
     const s = window.getSelection();
@@ -444,6 +570,78 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setLineSel(null);
   }
 
+  // Keyboard shortcuts, anywhere in the workspace or with nothing focused, except while typing.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const draftLines = useRef<CommentLocation[]>([]);
+  const lastLine = useRef<CommentLocation | null>(null);
+  const shortcut = useRef<(key: string) => boolean>(() => false);
+  shortcut.current = (key) => {
+    const shown = Array.from(scrollBox.current?.querySelectorAll<HTMLElement>("[data-file]") ?? []).map((el) => el.dataset.file!);
+    const top = fileAtTop();
+    const at = top ? shown.indexOf(top) : -1;
+    const goToFile = (file: string | undefined) => {
+      if (!file) return;
+      setCurrentFile(file);
+      fileEls.current.get(file)?.scrollIntoView({ block: "start" });
+    };
+    const allFiles: string[] = sections.flatMap((section: any) => section.diffs.map((diff: any) => diff.file));
+    const diffOnly = view === "diff";
+    switch (key) {
+      case "j": case "k":
+        if (diffOnly) goToFile(shown[key === "j" ? at + 1 : Math.max(at - 1, 0)]);
+        return diffOnly;
+      case "n": case "p": {
+        const next = sections[activeIndex + (key === "n" ? 1 : -1)];
+        if (diffOnly && next) selectChapter(next.id);
+        return diffOnly;
+      }
+      case "v": {
+        const file = shown[Math.max(at, 0)];
+        if (!diffOnly || !file) return diffOnly;
+        toggleViewed(file, !views.get(file)?.viewed);
+        const after = shown[shown.indexOf(file) + 1];
+        requestAnimationFrame(() => goToFile(after));
+        return true;
+      }
+      case "u": {
+        const from = Math.max(top ? allFiles.indexOf(top) : allFiles.indexOf(activeFiles[0]) - 1, -1);
+        const rest = [...allFiles.slice(from + 1), ...allFiles.slice(0, from + 1)];
+        const file = rest.find((f) => !views.get(f)?.viewed);
+        const chapter = file && sections.find((section: any) => section.diffs.some((diff: any) => diff.file === file));
+        if (!file || !chapter) toast.info("Every file is viewed.");
+        else { setView("diff"); onSelectFile(chapter.id, file); }
+        return true;
+      }
+      case "]": case "[": {
+        const lines = inDiffOrder(draftLines.current, allFiles);
+        if (!lines.length) return true;
+        // From the line you last went to, or else from the current file.
+        const last = lastLine.current ? lines.findIndex((line) => sameLocation(line, lastLine.current!)) : -1;
+        const here = allFiles.indexOf(top ?? activeFiles[0]);
+        const after = lines.findIndex((line) => allFiles.indexOf(line.file) >= here);
+        const index = last >= 0 ? last + (key === "]" ? 1 : -1) : key === "]" ? Math.max(after, 0) : (after > 0 ? after : lines.length) - 1;
+        const next = lines[(index + lines.length) % lines.length];
+        lastLine.current = next;
+        showComment(next);
+        return true;
+      }
+      case "a": askAgent(); return true;
+      case "s": showDraftSummary(); return true;
+      case "?": setShortcutsOpen(true); return true;
+    }
+    return false;
+  };
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const key = shortcutKey(event);
+      const root = rootRef.current;
+      if (!key || !root || (event.target !== document.body && !root.contains(event.target as Node))) return;
+      if (shortcut.current(key)) event.preventDefault();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   // Sidebar resize drag.
   function startSidebarResize(e: React.PointerEvent) {
     e.preventDefault();
@@ -477,6 +675,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }
 
   const viewedCount = activeFiles.filter((f) => views.get(f)?.viewed).length;
+  const nextSection = activeIndex >= 0 ? sections[activeIndex + 1] : undefined;
 
   return (
     <div
@@ -488,7 +687,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
       {loadError && <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden /><span className="min-w-0 flex-1">{loadError}</span><Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button></div>}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} /><Button variant="ghost" size="sm" aria-label="Ask the review agent" className="text-muted-foreground" onClick={() => setInjection({ context: { file: currentFile, chapterId: activeId }, nonce: Date.now() })}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask assistant</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={async () => { if (document.fullscreenElement) await document.exitFullscreen(); navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` }); }}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button><ReviewActions review={review} className="size-8" onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1"><Button variant="ghost" size="sm" className="gap-1.5 px-2 text-muted-foreground" onClick={() => navigate.toPluginPanel("review")}><Icon name="ChevronLeft" className="size-4" aria-hidden /> All reviews</Button><div className="ml-auto flex flex-wrap items-center gap-1"><SubmitReviewButton targetKey={targetKey} onOpen={() => showDraftSummary()} /><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={askAgent}><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /> Ask agent</Button><Button variant="ghost" size="sm" className="text-muted-foreground" onClick={async () => { if (document.fullscreenElement) await document.exitFullscreen(); navigate.toPluginPanel("review", { subPath: `settings/${targetKey}` }); }}><Icon name="Settings" className="size-4" aria-hidden /> Settings</Button><ReviewActions review={review} className="size-8" onChanged={() => void load()} onDeleted={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); navigate.toPluginPanel("review"); }} /></div></div>
       {/* Header — full when reviewing normally, slim in focus mode. */}
       {focus ? (
         <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-3 py-2">
@@ -510,30 +709,32 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       {repoAccess && !repoAccess.accessible && (
         <p className="flex items-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-1.5 text-xs text-destructive-text">
           <Icon name="Lock" className="size-3.5 shrink-0" aria-hidden />
-          <span>Active GitHub account {repoAccess.account ? `@${repoAccess.account}` : ""} can't access{" "}
-          {repoAccess.repo ?? "this repo"} — switch account in the review list.</span>
+          <span>Active GitHub account {repoAccess.account ? `@${repoAccess.account}` : ""} can’t access{" "}
+          {repoAccess.repo ?? "this repo"}. Switch account:</span>
+          <AccountBar />
         </p>
       )}
       {review?.status === "error" && (
         <p className="flex items-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-1.5 text-xs text-destructive-text">
           <Icon name="AlertTriangle" className="size-3.5 shrink-0" aria-hidden />
-          Re-review failed — showing the previous guide. Try again.
+          <span className="min-w-0 flex-1">Re-review failed — showing the previous guide.</span>
+          <Button variant="outline" size="sm" className="h-7" disabled={rebuilding} onClick={() => void rebuild()}>Retry</Button>
         </p>
       )}
       <div className="flex min-h-0 flex-1 flex-col @min-[1024px]/review:flex-row">
       {/* The draft panel owns the draft and shares it with the diff, which shows each comment under its line. */}
       <DraftTray reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} agent={{ patch, injection, container: rootEl }} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col @min-[768px]/review:flex-row">
         {(compact ? mobileChapters : !sidebarCollapsed) && (
           <>
             <aside
-              className="max-h-[40vh] shrink-0 overflow-y-auto border-b border-border bg-surface-raised p-2 md:max-h-none md:border-b-0"
+              className="max-h-[40vh] shrink-0 overflow-y-auto border-b border-border bg-surface-raised p-2 @min-[768px]/review:max-h-none @min-[768px]/review:border-b-0"
               style={{ width: compact ? "100%" : sidebarWidth }}
             >
               <ChapterNav
-                sections={guide.sections}
+                sections={sections}
                 activeId={activeId}
-                onSelect={(id) => { setActiveId(id); setMobileChapters(false); }}
+                onSelect={selectChapter}
                 views={views}
                 onSelectFile={onSelectFile}
                 currentFile={currentFile}
@@ -572,7 +773,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               {compact && "Chapters"}
             </Button>
             <div className="inline-flex items-center gap-0.5 rounded-lg bg-muted/40 p-0.5 ring-1 ring-inset ring-border">
-              {(isPr ? (["diff", "feedback", "threads"] as const) : (["diff", "threads"] as const)).map((value) => (
+              {/* A local review has nothing on GitHub, so only its diff. */}
+              {(isPr ? (["diff", "feedback", "threads"] as const) : (["diff"] as const)).map((value) => (
                 <Button
                   key={value}
                   variant="ghost"
@@ -607,7 +809,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground md:ml-auto">
               {view === "diff" && activeFiles.length > 0 && (
                 <>
-                  <span className={cn("tabular-nums", viewedCount === activeFiles.length && "text-diff-added")}>{viewedCount} / {activeFiles.length} viewed</span>
+                  <span className={cn("tabular-nums", viewedCount === activeFiles.length && "text-diff-added")}>{viewedCount}/{activeFiles.length} in this chapter</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -616,11 +818,37 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                     onClick={markAllViewed}
                   >
                     <Icon name="CircleCheck" className="size-3.5" aria-hidden />
-                    Mark all
+                    Mark chapter viewed
                   </Button>
                   <span className="h-4 w-px bg-border" />
                 </>
               )}
+              {view === "diff" && <Hint label="Split view" container={rootEl}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Split view"
+                  aria-pressed={diffLayout === "split"}
+                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
+                  onClick={() => void toggleLayout()}
+                >
+                  <Icon name="Columns2" className="size-3.5" aria-hidden />
+                  <span className="hidden @min-[1280px]/review:inline">Split</span>
+                </Button>
+              </Hint>}
+              {view === "diff" && <Hint label="Wrap lines" container={rootEl}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Wrap lines"
+                  aria-pressed={wrapLines}
+                  className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
+                  onClick={() => { setChosenWrap(!wrapLines); setWrapLines(!wrapLines); }}
+                >
+                  <Icon name="TextWrap" className="size-3.5" aria-hidden />
+                  <span className="hidden @min-[1280px]/review:inline">Wrap</span>
+                </Button>
+              </Hint>}
               <Hint label="Focus mode" container={rootEl}>
                 <Button
                   variant="ghost"
@@ -628,7 +856,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                   aria-label="Focus mode"
                   aria-pressed={focus}
                   className="h-9 px-2 text-xs aria-pressed:text-primary md:h-7"
-                  onClick={() => setFocus((f) => !f)}
+                  onClick={() => setFocus(!focus)}
                 >
                   <Icon name="Minimize2" className="size-3.5" aria-hidden />
                   <span className="hidden @min-[1280px]/review:inline">Focus</span>
@@ -649,22 +877,43 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               </Hint>
             </div>
           </div>
-          <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-4">
+          {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
+          <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
             {view === "diff" ? (
+              <>
+              {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
               <DiffViewer
                 diffLayout={diffLayout}
+                wrapLines={wrapLines}
                 themeMode={codeTheme.mode}
                 patch={patch}
                 files={activeFiles}
+                summaries={summaries}
                 views={views}
                 onToggleViewed={toggleViewed}
                 registerFileEl={registerFileEl}
                 onLineSelected={onLineSelected}
+                selectedLines={lineSel}
                 reveal={reveal}
                 since={since}
                 sinceOnly={sinceOnly}
-                showRemoved={activeId === guide.sections.at(-1)?.id}
+                showRemoved={activeId === sections.at(-1)?.id}
               />
+              {nextSection && (
+                <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+                  {viewedCount < activeFiles.length && (
+                    <Button variant="outline" size="sm" onClick={() => { markAllViewed(); selectChapter(nextSection.id); }}>
+                      <Icon name="CircleCheck" className="size-3.5" aria-hidden />
+                      Mark chapter viewed and continue
+                    </Button>
+                  )}
+                  <Button variant={viewedCount < activeFiles.length ? "ghost" : "soft"} size="sm" className="min-w-0 max-w-full" onClick={() => selectChapter(nextSection.id)}>
+                    <span className="truncate">Next: <InlineCode text={nextSection.title} /></span>
+                    <Icon name="ArrowRight" className="size-3.5" aria-hidden />
+                  </Button>
+                </div>
+              )}
+              </>
             ) : view === "feedback" ? (
               <FeedbackPanel
                 targetKey={targetKey}
@@ -680,6 +929,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           </div>
         </main>
       </div>
+      <DraftLines into={draftLines} />
       </DraftTray>
       </div>
 
@@ -713,6 +963,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           </button>
         </div>
       )}
+
+      <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
 
       {sel && (
         <button

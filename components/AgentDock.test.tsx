@@ -30,9 +30,9 @@ async function renderDock(props: Record<string, unknown>, rpc: Record<string, an
 test("the assistant starts in the review panel, with an optional widget", async () => {
   await renderDock({}, { getConversation: unstarted });
   await screen.findByText("Ask about this change.");
-  expect(screen.getByRole("region", { name: "Review assistant" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Review agent" })).toBeTruthy();
   expect(screen.queryByRole("dialog")).toBeNull();
-  expect(screen.getByRole("button", { name: "Open assistant as widget" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Open agent as widget" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "New conversation" })).toBeNull();
 });
 
@@ -81,7 +81,7 @@ test("a draft question and selection survive popping out and docking, including 
   await screen.findByText("Ask about this change.");
   inject({ file: "src/a.ts", chapterId: "c1" });
   fireEvent.change(screen.getByRole("textbox", { name: "Ask the agent" }), { target: { value: "Is this safe?" } });
-  fireEvent.click(screen.getByRole("button", { name: "Open assistant as widget" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open agent as widget" }));
   const widget = await screen.findByRole("dialog", { name: "Review agent" });
   expect(container.contains(widget)).toBe(true);
   expect((screen.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("Is this safe?");
