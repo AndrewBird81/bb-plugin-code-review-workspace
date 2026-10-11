@@ -10,11 +10,14 @@ import { createStore } from "./store";
 const ok = (stdout: string) => ({ stdout, stderr: "", code: 0 });
 const patch = ["src/api/a.ts", "src/b.ts", "README.md"].map((f) => `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n@@ -1 +1 @@\n-a\n+b\n`).join("");
 
-/** GitHub: CODEOWNERS at the head, the PR's context, you, and your teams. */
+/** GitHub: CODEOWNERS at the base branch, the PR's context, you, and your teams. */
 function github(codeowners: string | null) {
   return vi.fn(async (args: string[]) => {
-    if (args[1] === "graphql" && args.some((arg) => arg.endsWith(":.github/CODEOWNERS"))) {
-      return ok(JSON.stringify({ data: { repository: { a: codeowners === null ? null : { text: codeowners }, b: null, c: null } } }));
+    if (args[1] === "graphql" && args.some((arg) => arg.includes("CODEOWNERS"))) {
+      // GitHub says each place without one isn't found, and gh fails.
+      const a = codeowners === null ? null : { object: { text: codeowners } };
+      const errors = (codeowners === null ? ["a", "b", "c"] : ["b", "c"]).map((alias) => ({ type: "NOT_FOUND", path: ["repository", "pullRequest", "baseRef", "target", alias] }));
+      return { stdout: JSON.stringify({ data: { repository: { pullRequest: { baseRef: { target: { a, b: null, c: null } } } } }, errors }), stderr: "", code: 1 };
     }
     if (args[1] === "graphql") return ok(JSON.stringify({ data: { viewer: { login: "me" }, repository: { pullRequest: { title: "Retry", body: "", author: { login: "alice" }, baseRefName: "main", headRefName: "retry" } } } }));
     if (args.includes("user/teams")) return ok("acme/web-team\n");
