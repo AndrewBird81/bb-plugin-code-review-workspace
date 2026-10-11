@@ -474,12 +474,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setCurrentFile(at.file);
     setReveal({ at, nonce: Date.now() });
   }, [sections, activeId, unhide]);
-  // A thread on a file outside every chapter can't be shown here; its GitHub link can.
+  // A thread on a file the PR no longer changes has no diff here to show; its GitHub link can show it.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   const outsideGuide = useCallback((file: string, url: string | null) => {
     if (sections.some((section: any) => section.diffs.some((diff: any) => diff.file === file))) return false;
-    toast.info(`${file} isn’t in any chapter.`, url ? { action: { label: "Open on GitHub", onClick: () => navigateRef.current.openUrl(url) } } : undefined);
+    toast.info(`${file} isn’t changed in this PR anymore.`, url ? { action: { label: "Open on GitHub", onClick: () => navigateRef.current.openUrl(url) } } : undefined);
     return true;
   }, [sections]);
   // A line from the Feedback view: the whole diff, so the line is there. Without a line, the file.

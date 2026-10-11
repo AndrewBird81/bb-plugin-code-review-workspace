@@ -94,11 +94,14 @@ test("a draft question and selection survive popping out and docking, including 
 });
 
 test("an earlier conversation stays visible, and New conversation starts over after confirming", async () => {
-  const earlier = { threadId: "th-1", legacy: [{ id: 1, role: "user", text: "Earlier question", context: null, createdAt: 1 }], defaults: null };
+  const earlier = { threadId: "th-1", legacy: [{ id: 1, role: "user", text: "Earlier question", context: null, createdAt: 1 }, { id: 2, role: "assistant", text: "Earlier answer", context: null, createdAt: 2 }], defaults: null };
   const getConversation = vi.fn().mockResolvedValueOnce(earlier).mockResolvedValue(unstarted());
   const newConversation = vi.fn(async () => ({ ok: true }));
   await renderDock({}, { getConversation, newConversation });
-  expect(within(await screen.findByTestId("bb-thread-chat-leading-content")).getByText("Earlier question")).toBeTruthy();
+  const leading = within(await screen.findByTestId("bb-thread-chat-leading-content"));
+  expect(leading.getByText("Earlier question")).toBeTruthy();
+  // Named like the agent everywhere else in the review.
+  expect(leading.getByText("Earlier answer").closest("div.space-y-1")!.textContent).toMatch(/^Agent/);
   fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
   fireEvent.click(within(screen.getByRole("alertdialog", { name: "Start a new conversation" })).getByRole("button", { name: "Cancel" }));
   expect(newConversation).not.toHaveBeenCalled();
