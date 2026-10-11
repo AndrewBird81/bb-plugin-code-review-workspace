@@ -5,6 +5,8 @@ import { generateGuide, guideWriterUnavailable } from "./generate";
 import { gitDiffArgs } from "./gh";
 import { readPrSnapshot } from "./pr-snapshot";
 import { pruneDiffs } from "./feedback-view";
+import { skipRun } from "./agent";
+import { mayRunUnattended } from "../lib/trust";
 
 interface Deps {
   bb: BbPluginApi; store: Store;
@@ -37,6 +39,11 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
   if (m.kind === "pr" && m.number && m.repo) {
     try {
       const snapshot = await readPrSnapshot(deps.gh.runGh, m.number, m.repo);
+      // Unattended, the head read now reaches the guide writer only from a trusted author, or one you started agents on.
+      if (options.unattended && !mayRunUnattended(m, deps.store.getPreferences().preferences, snapshot.pr.headRefOid)) {
+        skipRun(deps.bb, deps.store, targetKey, "guide", snapshot.pr.headRefOid);
+        return { ok: false, error: "The PR's author isn't trusted to start agents on its new commits; it waits for your click." };
+      }
       patch = snapshot.patch;
       m.headSha = snapshot.pr.headRefOid;
       m.base = snapshot.pr.baseRefName;

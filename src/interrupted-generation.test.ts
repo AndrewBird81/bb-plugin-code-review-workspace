@@ -15,12 +15,13 @@ vi.mock("./gh", async (original) => ({
 const guide = { title: "Kept", intent: "I", sections: [], unplacedFiles: [] };
 
 /** A plugin that stopped while a guide worker was writing a rebuild of pr-1's guide. */
-async function interrupted(sdk: Record<string, unknown> = {}) {
+async function interrupted(sdk: Record<string, unknown> = {}, lifecycle: Record<string, unknown> = {}) {
   const first = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
     spawn: async () => ({ id: "old-worker" }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
   const store = createStore(first.bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  store.setLifecycle("pr-1", { authorAssociation: "MEMBER", ...lifecycle });
   store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+a2\n");
   store.saveGuide("pr-1", guide);
   store.backupGuide("pr-1");
@@ -52,6 +53,17 @@ test("after a reload with the guide writer's machine offline, the old guide stay
   await plugin(bb);
   await vi.waitFor(() => expect(stop).toHaveBeenCalledWith({ threadId: "old-worker" }));
   await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
+  expect(store.getGuide("pr-1")?.title).toBe("Kept");
+  expect(store.getReview("pr-1")).toMatchObject({ status: "error", headSha: "sha1" });
+});
+
+test("after a reload, an outside author's guide restarts only at the head you started it on", async () => {
+  // You started the guide at sha1; the author has pushed sha2 since.
+  const { bb, harness, store, stop } = await interrupted({}, { authorAssociation: "CONTRIBUTOR", approvedHead: "sha1" });
+  await plugin(bb);
+  await vi.waitFor(() => expect(stop).toHaveBeenCalledWith({ threadId: "old-worker" }));
+  await vi.waitFor(() => expect(store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "guide", head: "sha2" }));
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
   expect(store.getGuide("pr-1")?.title).toBe("Kept");
   expect(store.getReview("pr-1")).toMatchObject({ status: "error", headSha: "sha1" });
