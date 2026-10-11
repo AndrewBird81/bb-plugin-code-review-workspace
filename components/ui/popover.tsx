@@ -166,6 +166,9 @@ const PopoverContent = React.forwardRef<
             className={cn(
               "overflow-y-auto px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]",
               className,
+              // The drawer spans the full viewport width; ignore a desktop
+              // width a caller passes so content fills the drawer.
+              "w-auto max-w-none",
             )}
             {...domProps}
           >
