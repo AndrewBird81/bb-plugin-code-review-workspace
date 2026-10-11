@@ -5,6 +5,7 @@
 import { isSummary, linesOf, sameLocation, SEVERITIES, severityCounts, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { threadLabel } from "../src/github/threads";
 import { chapterAt } from "../src/hunks";
+import { splitPatchByFile } from "../src/patch";
 import type { ReviewThread } from "../src/threads";
 import type { AssessmentVerdict, FeedbackItem, FeedbackView, ReplyDraft } from "./feedback";
 
@@ -189,7 +190,13 @@ function checkOf(feedback: FeedbackItem | null): CommentCheck | null {
 export function buildItems(sources: CommentSources): CommentItem[] {
   const { draft, threads, feedback, sections, patch, closed = false } = sources;
   const order = sections.flatMap((section) => section.diffs.map((diff) => `${section.id}\0${diff.file}`));
-  const chapterOf = (file: string, line: number | null, side: Side) => chapterAt(sections, patch, { file, line: line ?? 0, side })?.id ?? null;
+  // For a file in more than one chapter, chapterAt splits the patch it's given: split it once here, and give it just that file's diff.
+  let texts: Map<string, string> | undefined;
+  const chapterOf = (file: string, line: number | null, side: Side) => {
+    const split = sections.filter((section) => section.diffs.some((diff) => diff.file === file)).length > 1;
+    const text = split ? (texts ??= new Map(splitPatchByFile(patch).map((f) => [f.path, f.text]))).get(file) ?? "" : "";
+    return chapterAt(sections, text, { file, line: line ?? 0, side })?.id ?? null;
+  };
   const needing = (needs: NeedReason | null, home: GroupId) => closed || !needs ? { needs: null, group: home } : { needs, group: "needs-you" as const };
   const placed: Array<{ item: CommentItem; place: number; line: number }> = [];
   const add = (item: CommentItem, line = item.at?.line ?? 0) => placed.push({

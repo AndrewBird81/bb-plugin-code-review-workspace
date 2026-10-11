@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { SUMMARY_AT, type Discussion, type DiscussionEntry, type Draft, type DraftComment } from "../src/draft";
 import type { FeedbackThread } from "../src/github/types";
 import type { ReviewThread, ThreadComment } from "../src/threads";
@@ -7,6 +7,13 @@ import {
   buildItems, checkTally, commentStops, fileCounts, groups, needsYou, toSend, CHECK_LABEL, FILTER_LABEL, GROUP_TITLE, REPLY_DRAFT_LABEL, STATE_LABEL, SUMMARY_LABEL, THREAD_FLAG_LABEL,
   type CommentItem, type CommentSources, type ThreadItem,
 } from "./comments";
+
+// Every patch split into files, to count how often a build reads the whole patch.
+const splits: string[] = [];
+vi.mock("../src/patch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/patch")>();
+  return { ...actual, splitPatchByFile: (patch: string) => { splits.push(patch); return actual.splitPatchByFile(patch); } };
+});
 
 const NOW = Date.parse("2026-10-11T12:00:00Z");
 const ago = (hours: number) => NOW - hours * 3_600_000;
@@ -320,6 +327,17 @@ test("a file no chapter shows, such as one gone from the PR, comes last, by name
   const gone = [comment("src/zeta.ts", 1, undefined, "Gone"), comment("src/alpha.ts", 9, undefined, "Gone too")];
   const items = buildItems({ ...sources, draft: { draft: { ...draft, comments: [...gone, ...draft.comments] }, stale: [], discussions: [] }, threads: [], feedback: null });
   expect(items.map((item) => [item.id, item.chapterId]).slice(-2)).toEqual([["draft:src/alpha.ts:9:RIGHT", null], ["draft:src/zeta.ts:1:RIGHT", null]]);
+});
+
+test("a file split across chapters puts each item in the chapter with its hunk, reading the patch once", () => {
+  // Another file's diff too, so the patch isn't src/server.ts's alone.
+  const wide = `${patch}diff --git a/src/cache.ts b/src/cache.ts\n--- a/src/cache.ts\n+++ b/src/cache.ts\n@@ -16 +16 @@\n-  return expiresAt < now;\n+  return expiresAt <= now;\n`;
+  splits.length = 0;
+  const items = buildItems({ ...sources, patch: wide });
+  expect(items.filter((item) => item.at?.file === "src/server.ts").map((item) => [item.id, item.chapterId])).toEqual([
+    ["draft:src/server.ts:38:RIGHT", "cache"], ["private:src/server.ts:39:RIGHT", "cache"], ["T4", "api"],
+  ]);
+  expect(splits.filter((text) => text === wide)).toHaveLength(1);
 });
 
 test("the words for every state, thread flag, check, reply draft and summary", () => {
