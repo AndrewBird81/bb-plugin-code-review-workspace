@@ -165,3 +165,9 @@ test("undoing the agent's removal of a range comment puts the range back", async
   await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", file: "a.ts", line: 4, side: "RIGHT" });
   expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 2, author: "agent", body: "Merge these." }]);
 });
+
+test("a range whose two ends are one row of the diff isn't one GitHub takes", () => {
+  expect(rangeProblem(patch, at(4, 4))).toBe("Lines 4 and 4 of a.ts are one line of the diff. Comment on the line alone.");
+  // A context line is on both sides.
+  expect(rangeProblem(patch, at(4, 3, "RIGHT", "LEFT"))).toBe("Lines 3 and 4 of a.ts are one line of the diff. Comment on the line alone.");
+});

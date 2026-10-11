@@ -76,6 +76,7 @@ export function rangeProblem(patch: string, c: Pick<DraftComment, "file" | "line
   if (!start) return `${c.file}:${c.startLine} isn’t in the current diff.`;
   if (!end) return `${c.file}:${c.line} isn’t in the current diff.`;
   if (start.hunk !== end.hunk) return `Lines ${c.startLine} and ${c.line} of ${c.file} are in different hunks of the diff. GitHub takes a range within one hunk.`;
+  if (start.row === end.row) return `Lines ${c.startLine} and ${c.line} of ${c.file} are one line of the diff. Comment on the line alone.`;
   if (start.row > end.row) return `Line ${c.startLine} comes after line ${c.line} in the diff. Give the range's first line as its start.`;
   return null;
 }
