@@ -61,7 +61,7 @@ export const ChapterNav = memo(function ChapterNav({
   onSelect: (id: string) => void;
   views: Map<string, FileViewFlags>;
   onSelectFile: (chapterId: string, file: string) => void;
-  /** The file nearest the top of the diff, marked in the open chapter's list. */
+  /** The file you're on, which a key or click went to or the diff is scrolled to, marked in the open chapter's list. */
   currentFile?: string;
   /** Per chapter id, how many of its files changed since your review. */
   changedSince?: Record<string, number>;

@@ -353,8 +353,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const summaries = useMemo(() => new Map<string, string>(activeSection?.diffs.flatMap((d: any) => d.summary ? [[d.file, d.summary]] : []) ?? []), [activeSection]);
 
   useEffect(() => {
-    setCurrentFile(activeFiles[0]);
+    setCurrentFile((current) => current && activeFiles.includes(current) ? current : activeFiles[0]);
   }, [activeFiles]);
+  // A file a key or click went to stays current until you scroll yourself: it may not reach the top.
+  const pinned = useRef(false);
+  const unpin = useCallback(() => { pinned.current = false; }, []);
   const reviewFiles: string[] = useMemo(() => sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)), [sections]);
 
   // Restore the saved scroll position once the diff has content to scroll.
@@ -448,6 +451,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       } else {
         scrollToFile(file);
       }
+      pinned.current = true;
       setCurrentFile(file);
       setMobileChapters(false);
     },
@@ -464,6 +468,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (chapter.id !== activeId) jumping.current = true;
     setActiveId(chapter.id);
     setMobileChapters(false);
+    pinned.current = true;
+    setCurrentFile(at.file);
     setReveal({ at, nonce: Date.now() });
   }, [sections, activeId, unhide]);
   // A thread on a file outside every chapter can't be shown here; its GitHub link can.
@@ -509,21 +515,18 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const scrollSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollFrame = useRef(0);
   useEffect(() => () => { if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current); cancelAnimationFrame(scrollFrame.current); }, []);
-  // The file whose header is at the top of the diff, if you've scrolled to one.
+  // The file whose card spans the top of the diff, or else the first one below it.
   const fileAtTop = useCallback(() => {
     const box = scrollBox.current;
     if (!box) return undefined;
-    const top = box.getBoundingClientRect().top;
-    let best: string | undefined;
-    let bestTop = -Infinity;
+    const top = box.getBoundingClientRect().top + 1;
+    let below: { file: string; top: number } | undefined;
     for (const [file, el] of fileEls.current) {
-      const t = el.getBoundingClientRect().top - top;
-      if (t <= 80 && t > bestTop) {
-        bestTop = t;
-        best = file;
-      }
+      const rect = el.getBoundingClientRect();
+      if (rect.top <= top && rect.bottom > top) return file;
+      if (rect.top > top && (!below || rect.top < below.top)) below = { file, top: rect.top };
     }
-    return best;
+    return below?.file;
   }, []);
   const onScroll = useCallback(() => {
     const box = scrollBox.current;
@@ -531,7 +534,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     // Measuring every file is costly, so at most once a frame.
     if (!scrollFrame.current) scrollFrame.current = requestAnimationFrame(() => {
       scrollFrame.current = 0;
-      const best = fileAtTop();
+      const best = pinned.current ? undefined : fileAtTop();
       if (best) setCurrentFile(best);
     });
     // The popover sits where the text was.
@@ -608,10 +611,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const shortcut = useRef<(key: string) => boolean>(() => false);
   shortcut.current = (key) => {
     const shown = Array.from(scrollBox.current?.querySelectorAll<HTMLElement>("[data-file]") ?? []).map((el) => el.dataset.file!);
-    const top = fileAtTop();
-    const at = top ? shown.indexOf(top) : -1;
+    const at = currentFile ? shown.indexOf(currentFile) : -1;
     const goToFile = (file: string | undefined) => {
       if (!file) return;
+      pinned.current = true;
       setCurrentFile(file);
       fileEls.current.get(file)?.scrollIntoView({ block: "start" });
     };
@@ -635,7 +638,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         return true;
       }
       case "u": {
-        const from = Math.max(top ? allFiles.indexOf(top) : allFiles.indexOf(activeFiles[0]) - 1, -1);
+        const from = Math.max(currentFile ? allFiles.indexOf(currentFile) : allFiles.indexOf(activeFiles[0]) - 1, -1);
         const rest = [...allFiles.slice(from + 1), ...allFiles.slice(0, from + 1)];
         const file = rest.find((f) => !views.get(f)?.viewed);
         const chapter = file && sections.find((section: any) => section.diffs.some((diff: any) => diff.file === file));
@@ -648,7 +651,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         if (!lines.length) return true;
         // From the line you last went to, or else from the current file.
         const last = lastLine.current ? lines.findIndex((line) => sameLocation(line, lastLine.current!)) : -1;
-        const here = allFiles.indexOf(top ?? activeFiles[0]);
+        const here = allFiles.indexOf(currentFile ?? activeFiles[0]);
         const after = lines.findIndex((line) => allFiles.indexOf(line.file) >= here);
         const index = last >= 0 ? last + (key === "]" ? 1 : -1) : key === "]" ? Math.max(after, 0) : (after > 0 ? after : lines.length) - 1;
         const next = lines[(index + lines.length) % lines.length];
@@ -666,8 +669,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     function onKeyDown(event: KeyboardEvent) {
       const key = shortcutKey(event);
       const root = rootRef.current;
-      if (!key || !root || (event.target !== document.body && !root.contains(event.target as Node))) return;
-      if (shortcut.current(key)) event.preventDefault();
+      if (!root || (event.target !== document.body && !root.contains(event.target as Node))) return;
+      // Other keys may scroll the diff, which then says which file you're on.
+      if (!key) pinned.current = false;
+      else if (shortcut.current(key)) event.preventDefault();
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -925,7 +930,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
             </div>
           </div>
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
-          <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
+          <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
             {view === "diff" ? (
               <>
               {activeSection && <ChapterIntro key={activeSection.id} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} />}
