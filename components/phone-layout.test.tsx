@@ -80,6 +80,15 @@ test("on a phone the toolbar keeps to counts and icons, without Split, which can
   slot.lifecycle.unmount();
 });
 
+test("a phone held sideways keeps the toolbar to counts and icons, so it fits one row", async () => {
+  fakeSize(844, 390);
+  const slot = await renderWorkspace();
+  const main = within(slot.getByRole("main"));
+  expect(within(main.getByRole("button", { name: "Mark chapter viewed" })).getByText("Mark chapter viewed").className).toContain("sr-only");
+  expect(main.getByText("in this chapter", { exact: false }).className).toContain("sr-only");
+  slot.lifecycle.unmount();
+});
+
 test("on a wide screen the top bar and toolbar keep their labels", async () => {
   fakeSize(1400, 900);
   const slot = await renderWorkspace();

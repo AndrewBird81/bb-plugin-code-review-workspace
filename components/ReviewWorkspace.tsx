@@ -186,6 +186,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Likewise long lines wrap there, rather than scroll sideways.
   const [chosenWrap, setChosenWrap] = useState(getWrapLines);
   const wrapLines = chosenWrap ?? compact;
+  // A short workspace's toolbar is compact too, so it keeps to one row above the code.
+  const compactToolbar = compact || short;
   const [hideWhitespace, setHideWhitespaceState] = useState(getHideWhitespace);
   const didRestoreScroll = useRef(false);
   const reducedMotion =
@@ -959,7 +961,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               {view === "diff" && activeFiles.length > 0 && (
                 <>
                   {/* A compact toolbar keeps to the counts and icons. */}
-                  <span className={cn("tabular-nums", viewedCount === activeFiles.length && "text-diff-added")}>{viewedCount}/{activeFiles.length}{compact ? <span className="sr-only"> in this chapter</span> : " in this chapter"}</span>
+                  <span className={cn("tabular-nums", viewedCount === activeFiles.length && "text-diff-added")}>{viewedCount}/{activeFiles.length}{compactToolbar ? <span className="sr-only"> in this chapter</span> : " in this chapter"}</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -968,7 +970,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                     onClick={markAllViewed}
                   >
                     <Icon name="CircleCheck" className="size-3.5" aria-hidden />
-                    <span className={cn(compact && "sr-only")}>Mark chapter viewed</span>
+                    <span className={cn(compactToolbar && "sr-only")}>Mark chapter viewed</span>
                   </Button>
                   <span className="h-4 w-px bg-border" />
                 </>
