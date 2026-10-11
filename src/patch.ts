@@ -99,7 +99,10 @@ function unquote(name: string): string {
   const bytes: number[] = [];
   for (let i = 1; i < name.length && name[i] !== '"'; i++) {
     if (name[i] !== "\\") {
-      bytes.push(...new TextEncoder().encode(name[i]));
+      // By code point: half of a surrogate pair would encode as U+FFFD.
+      const char = String.fromCodePoint(name.codePointAt(i)!);
+      bytes.push(...new TextEncoder().encode(char));
+      i += char.length - 1;
       continue;
     }
     const next = name[++i];

@@ -111,3 +111,8 @@ test("an empty line inside a hunk's counts is a blank context line", () => {
     [" ", 1], [" ", 2], ["-", 3], ["+", 3], ["other", null],
   ]);
 });
+
+test("a quoted name keeps characters outside the BMP", () => {
+  const patch = ['diff --git "a/say \\"hi\\" 👋.md" "b/say \\"hi\\" 👋.md"', '--- "a/say \\"hi\\" 👋.md"', '+++ "b/say \\"hi\\" 👋.md"', "@@ -1 +1 @@", "-x", "+y", ""].join("\n");
+  expect(changedFiles(patch)).toEqual(['say "hi" 👋.md']);
+});
