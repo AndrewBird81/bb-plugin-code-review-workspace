@@ -185,6 +185,11 @@ export const rpcContract = defineRpcContract({
     output: z.object({ threadId: z.string() }),
   },
   newConversation: { input: targetKey, output: z.object({ ok: z.boolean() }) },
+  // A visible coding thread that fixes draft comments on your own PR or a local review; the draft stays.
+  startFixThread: {
+    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1) }).strict(),
+    output: z.object({ threadId: z.string(), title: z.string() }),
+  },
 
   // GitHub account indicator + switcher
   getGhAccounts: {

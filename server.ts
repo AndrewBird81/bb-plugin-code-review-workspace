@@ -14,6 +14,7 @@ import { validateGuide, checkCoverage, GuideInputSchema, placeUnplacedFiles } fr
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, refreshAssistants, startConversation } from "./src/agent";
+import { startFixThread } from "./src/fix-handoff";
 import { listMachines } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
 import { commentsKey, SUMMARY_AT } from "./src/draft";
@@ -572,6 +573,9 @@ export default async function plugin(bb: BbPluginApi) {
       // The archived conversation won't answer discussions or a feedback check waiting for it.
       if (endAssistantWaits(bb, store, targetKey)) await sync.evaluate(targetKey);
       return { ok: true };
+    },
+    startFixThread({ targetKey, comments }) {
+      return startFixThread(bb, store, targetKey, comments);
     },
     // GitHub account indicator + switcher
     async getGhAccounts() {
