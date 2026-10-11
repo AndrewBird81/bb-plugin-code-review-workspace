@@ -7,6 +7,7 @@ import { Progress } from "./ui/diff-stat";
 import { FileTag } from "./FileTag";
 import { InlineCode } from "./ui/inline-code";
 import type { FileViewFlags } from "./DiffViewer";
+import { readingLines } from "../lib/review-size";
 
 interface Section {
   id: string;
@@ -53,6 +54,7 @@ export const ChapterNav = memo(function ChapterNav({
   onSelectFile,
   currentFile,
   changedSince,
+  lines,
 }: {
   sections: Section[];
   activeId: string;
@@ -63,6 +65,8 @@ export const ChapterNav = memo(function ChapterNav({
   currentFile?: string;
   /** Per chapter id, how many of its files changed since your review. */
   changedSince?: Record<string, number>;
+  /** Each file's changed lines (lib/review-size.ts). */
+  lines?: ReadonlyMap<string, number>;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const isExpanded = (id: string) => expanded[id] ?? id === activeId;
@@ -86,6 +90,7 @@ export const ChapterNav = memo(function ChapterNav({
           const allSkippable = s.diffs.length > 0 && skippable === s.diffs.length;
           const viewed = s.diffs.filter((d) => views.get(d.file)?.viewed).length;
           const changed = changedSince?.[s.id] ?? 0;
+          const toRead = lines ? readingLines(s.diffs.map((d) => d.file), lines) : 0;
           return (
             <li key={s.id} className="relative">
               {index < sections.length - 1 && <span aria-hidden className="absolute bottom-[-6px] left-[18px] top-7 w-px bg-border" />}
@@ -113,6 +118,7 @@ export const ChapterNav = memo(function ChapterNav({
                       <span className="tabular-nums">
                         {viewed > 0 ? `${viewed}/` : ""}{s.diffs.length} file{s.diffs.length === 1 ? "" : "s"}{viewed > 0 ? " viewed" : ""}
                       </span>
+                      {toRead > 0 && <span className="tabular-nums" title="Changed lines, without lockfiles and generated files">{toRead.toLocaleString()} {toRead === 1 ? "line" : "lines"}</span>}
                       {changed > 0 && (
                         <Badge tone="primary" size="sm" title={`${changed} file${changed === 1 ? "" : "s"} changed since your review`}>
                           {changed} changed

@@ -67,3 +67,20 @@ test("the current file is marked for screen readers, and viewed files say so", (
   expect(screen.getByRole("button", { name: /^auth\.test\.ts/ }).getAttribute("aria-current")).toBeNull();
   expect(screen.getByRole("button", { name: /^auth\.test\.ts/ }).textContent).toContain("viewed");
 });
+
+test("each chapter shows the changed lines worth reading, without lockfiles", () => {
+  render(
+    <ChapterNav
+      sections={sections}
+      activeId="c1"
+      onSelect={() => {}}
+      views={new Map<string, FileViewFlags>()}
+      onSelectFile={() => {}}
+      lines={new Map([["src/auth.ts", 1200], ["src/auth.test.ts", 40], ["README.md", 1], ["package-lock.json", 5000]])}
+    />,
+  );
+  expect(screen.getByText("1,240 lines")).toBeTruthy();
+  expect(screen.getByText("1 line")).toBeTruthy();
+  expect(screen.queryByText(/5,000/)).toBeNull();
+  expect(screen.getAllByText(/ lines?$/)).toHaveLength(2);
+});

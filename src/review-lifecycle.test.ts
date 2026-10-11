@@ -472,6 +472,14 @@ test("a direct request isn't demoted by a later team request", async () => {
   expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ reason: "requested", notify: true });
 });
 
+test("a pending direct request stays direct when only a team request's event is left in the timeline", async () => {
+  const s = setup({ preferences: { trackTeamRequests: false }, pr: { requestPending: { via: "user" }, requests: [{ at: T0 - HOUR, by: "bob", via: "team", team: "acme/core" }] } });
+  s.store.setStatus("pr-1", "tracked");
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.signals).toMatchObject({ requestedVia: "user" });
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs", reason: "requested" });
+});
+
 test("a question from someone other than the author names them in the alert", async () => {
   const s = setup({ reviewed: true, threads: [thread("t1", "open")] });
   await s.sync.all();
@@ -561,6 +569,19 @@ test("a gh account switched outside the plugin is noticed on the next pass", asy
   expect(s.harness.inspection.realtimeSignals.some((signal) => signal.channel === "gh-account")).toBe(true);
 });
 
+test("a review snoozed until a time comes back to Needs review then, and the list hears", async () => {
+  const s = setup({ pr: { requestPending: { via: "user" }, requests: [{ at: T0 - HOUR, by: "alice", via: "user" }] } });
+  s.store.setLifecycle("pr-1", { snoozedAt: T0, snoozedUntil: T0 + 0.5 * HOUR });
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.turnGroup).toBe("waiting");
+  const lists = () => s.harness.inspection.realtimeSignals.filter((signal) => signal.channel === "reviews").length;
+  const before = lists();
+  s.at(0.6);
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.turnGroup).toBe("needs");
+  expect(lists()).toBe(before + 1);
+});
+
 test("sync health: an expired gh login, then a good read", async () => {
   const s = setup();
   let login: string | null = null;
@@ -572,6 +593,41 @@ test("sync health: an expired gh login, then a good read", async () => {
   s.at(0.1);
   await s.sync.all(true);
   expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.1 * HOUR, error: null });
+});
+
+test("sync health: a token GitHub refuses reads as signed out, while the login is still cached", async () => {
+  const s = setup();
+  vi.mocked(s.github.facts).mockRejectedValueOnce(new Error("Bad credentials: gh: Bad credentials (HTTP 401)"));
+  await s.sync.all();
+  expect(s.sync.health().error).toMatchObject({ kind: "auth" });
+  vi.mocked(s.github.discover).mockRejectedValueOnce(new Error("Could not search pull requests: To get started with GitHub CLI, please run:  gh auth login"));
+  s.at(0.1);
+  await s.sync.all(true);
+  expect(s.sync.health().error).toMatchObject({ kind: "auth" });
+});
+
+test("sync health: with nothing to read, a good look on GitHub clears an earlier failure", async () => {
+  const s = setup();
+  s.store.deleteReview("pr-1");
+  let login: string | null = null;
+  s.github.viewer.login = async () => login;
+  s.github.viewer.errors = () => ({ login: login ? null : "To get started with GitHub CLI, please run:  gh auth login", teams: null });
+  await s.sync.all();
+  expect(s.sync.health().error).toMatchObject({ kind: "auth" });
+  login = "me";
+  s.at(0.1);
+  await s.sync.all(true);
+  expect(s.sync.health().error).toBeNull();
+});
+
+test("a notification about a PR in a renamed repository reads its review, found by URL", async () => {
+  // GitHub follows the rename; the row keeps its old repository name.
+  const s = setup({ pr: { url: "https://github.com/acme/site/pull/1" } });
+  await s.sync.all();
+  s.github.gate.poll = async () => ({ kind: "changed", prs: [{ repo: "acme/site", number: 1, reason: "comment", updatedAt: T0 }] });
+  s.at(0.01);
+  await s.sync.all();
+  expect(s.github.facts).toHaveBeenCalledTimes(2);
 });
 
 test("sync health: a rate limit backs off until it can read again", async () => {
@@ -610,6 +666,12 @@ test("a pass that changes several reviews tells the list once", async () => {
   const reviewSignals = () => s.harness.inspection.realtimeSignals.filter((signal) => signal.channel.startsWith("review:")).map((signal) => signal.channel).sort();
   expect(lists()).toBe(1);
   expect(reviewSignals()).toEqual(["review:pr-1", "review:pr-2"]);
+});
+
+test("the sync keeps the PR GitHub says this one is stacked on", async () => {
+  const s = setup({ pr: { stackParent: { number: 2645, title: "Add the queue", url: "https://github.com/acme/web/pull/2645" } } });
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.stackParent).toEqual({ number: 2645, title: "Add the queue", url: "https://github.com/acme/web/pull/2645" });
 });
 
 test("the sync keeps the PR's size", async () => {

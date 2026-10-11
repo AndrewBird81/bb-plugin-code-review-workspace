@@ -73,6 +73,8 @@ const THREADS_EVERY = 10 * MINUTE;
 const RETRY_PREPARE = 10 * MINUTE;
 /** How long reading waits after GitHub's rate limit. */
 const RATE_LIMIT_WAIT = 15 * MINUTE;
+/** What gh or GitHub says when gh isn't signed in or its token was refused. */
+const AUTH_FAILED = /gh auth login|HTTP 401|Bad credentials/i;
 /** Turns that prepare their re-review ahead of time. */
 const PREPARE = new Set<TurnReason>(["re-requested", "handled", "looks-ready", "dismissed"]);
 
@@ -96,6 +98,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
   };
   /** Record a failed read; a rate limit stops reading for a while. */
   const readFailed = (error: unknown) => {
+    // The login stays cached for an hour, so a revoked token shows first in the reads.
+    if (AUTH_FAILED.test(String(error))) return failed("auth");
     if (!/rate.?limit/i.test(String(error))) return failed("other");
     waitUntil = clock() + RATE_LIMIT_WAIT;
     failed("rate-limit", { retryAt: waitUntil });
@@ -104,7 +108,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
   /** Who you are on GitHub; null, recording why, when gh can't say. */
   async function viewerLogin(): Promise<string | null> {
     const login = await github.viewer.login();
-    if (!login) failed(/gh auth login|HTTP 401|Bad credentials/i.test(github.viewer.errors?.().login ?? "") ? "auth" : "other");
+    if (!login) failed(AUTH_FAILED.test(github.viewer.errors?.().login ?? "") ? "auth" : "other");
     return login;
   }
   bb.onDispose(() => { disposed = true; });
@@ -339,9 +343,10 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
 
   /**
    * Add PRs you're asked to review, or have reviewed, on GitHub. The first look for each account
-   * (and after tracking is turned back on) only fills the list; later requests alert.
+   * (and after tracking is turned back on) only fills the list; later requests alert. A failure
+   * recorded before `since` that a good look disproves is cleared.
    */
-  async function discover(): Promise<void> {
+  async function discover(since: number): Promise<void> {
     if (!actions) return;
     if (!store.getPreferences().preferences.trackGithubReviews) {
       await bb.storage.kv.delete(DISCOVERED);
@@ -350,6 +355,9 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     const login = await viewerLogin();
     if (!login) return;
     const found = await github.discover({ reviewed: true, teams: store.getPreferences().preferences.trackTeamRequests });
+    // With nothing to read, as in an empty list, only this look shows GitHub answers again. It says nothing of PRs or teams.
+    const error = health.error;
+    if (error && error.at < since && (error.kind === "auth" || error.kind === "rate-limit" || error.kind === "other")) health = { ...health, error: null };
     const projectId = await actions.projectId();
     if (!projectId || disposed) return;
     const first = (await bb.storage.kv.get<{ login: string }>(DISCOVERED))?.login !== login;
@@ -391,13 +399,15 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     // Without notifications, reviews in progress are read every minute instead.
     const interval = (group: Turn["group"]) => gate.kind === "unsupported" && (group === "needs" || group === "waiting") ? MINUTE : INTERVAL[group];
     const reviews = store.listReviews();
-    const due = reviews.filter(readable).filter((r) => force || changed.has(`${r.repo.toLowerCase()}#${r.number}`)
+    // A renamed repository's PRs keep their old name here; their URL has the new one.
+    const fromUrl = (url?: string) => /\/([^/]+\/[^/]+)\/pull\/(\d+)$/.exec(url ?? "")?.slice(1).join("#").toLowerCase();
+    const due = reviews.filter(readable).filter((r) => force || changed.has(`${r.repo.toLowerCase()}#${r.number}`) || changed.has(fromUrl(r.url) ?? "")
       || now - (checked.get(r.targetKey) ?? 0) >= interval(turnOf(r, now).group));
     await read(due.map((r) => r.targetKey));
     for (const review of reviews) if (!disposed) await maintainThread(review.targetKey);
     if (!limited() && (force || now - lastDiscovery >= DISCOVER_EVERY)) {
       lastDiscovery = now;
-      discovering ??= discover().catch((error) => { readFailed(error); bb.log.warn(`Could not look for reviews on GitHub: ${String(error)}`); }).finally(() => { discovering = null; });
+      discovering ??= discover(now).catch((error) => { readFailed(error); bb.log.warn(`Could not look for reviews on GitHub: ${String(error)}`); }).finally(() => { discovering = null; });
       await discovering;
     }
     // Turns also change with time, such as a quiet period ending, and waiting alerts may be ready.

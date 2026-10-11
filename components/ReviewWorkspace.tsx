@@ -35,6 +35,7 @@ import { inDiffOrder, shortcutKey } from "../lib/review-shortcuts";
 import { InlineDraftContext } from "./InlineDraft";
 import { ShortcutsHelp } from "./ShortcutsHelp";
 import { splitPatchByFile } from "../src/patch";
+import { changedLines, readingLines } from "../lib/review-size";
 
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 560;
@@ -271,6 +272,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [rpc, targetKey, sinceKey]);
   useEffect(() => { if (!since) setSinceOnly(false); }, [since]);
   const sections = useMemo(() => guide?.sections ? withOtherFiles(guide.sections, patch) : [], [guide, patch]);
+  const lines = useMemo(() => changedLines(patch), [patch]);
+  const readLines = useMemo(() => readingLines([...lines.keys()], lines), [lines]);
   const changedSince = useMemo(() => {
     if (!since || !sections.length) return undefined;
     return Object.fromEntries(sections.map((section: any) => [section.id, section.diffs.filter((diff: any) => {
@@ -279,10 +282,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     }).length]));
   }, [since, sections]);
 
-  const snooze = useCallback(async (snoozed: boolean) => {
+  const snooze = useCallback(async (snoozed: boolean, until?: number) => {
     setSnoozing(true);
     try {
-      const result = await rpc.call("snoozeReview", { targetKey, snoozed });
+      const result = await rpc.call("snoozeReview", { targetKey, snoozed, ...(until ? { until } : {}) });
       if (!result.ok) toast.error(result.error ?? "Couldn’t update the review.");
       else void load();
     } catch (err) {
@@ -475,7 +478,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const showDraftSummary = useCallback((replaced = false) => setShowDraft({ at: Date.now(), replaced }), []);
   const askAgent = useCallback(() => setInjection({ context: { file: currentFile, chapterId: activeId }, nonce: Date.now() }), [currentFile, activeId]);
   const showFeedback = useMemo(() => isPr ? () => setView("feedback") : undefined, [isPr]);
-  const snoozeFromHeader = useMemo(() => isPr ? (snoozed: boolean) => void snooze(snoozed) : undefined, [isPr, snooze]);
+  const snoozeFromHeader = useMemo(() => isPr ? (snoozed: boolean, until?: number) => void snooze(snoozed, until) : undefined, [isPr, snooze]);
   const archived = !!review?.archivedAt;
   const headerTrailing = useMemo(() => !archived && <RereviewBanner targetKey={targetKey} />, [archived, targetKey]);
   // The diff remounts after Threads; it shouldn't jump back to an old comment.
@@ -712,7 +715,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       ) : (
         <div className="border-b border-border">
           <div className="px-4 pb-3.5 pt-3">
-            <ReviewHeader review={review} checks={checks} intent={guide.intent} sinceReview={guide.sinceReview} onShowFeedback={showFeedback} onSnooze={snoozeFromHeader} snoozing={snoozing} trailing={headerTrailing} />
+            <ReviewHeader review={review} checks={checks} intent={guide.intent} sinceReview={guide.sinceReview} onShowFeedback={showFeedback} onSnooze={snoozeFromHeader} snoozing={snoozing} readLines={readLines} trailing={headerTrailing} />
           </div>
           {generatingReplacement && <p role="status" className="flex items-center gap-2 border-t border-warning/20 bg-warning/10 px-4 py-2 text-xs text-warning-text"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Regenerating the guide. Your previous diff and unsaved edits remain visible.</p>}
         </div>
@@ -750,6 +753,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 onSelectFile={onSelectFile}
                 currentFile={currentFile}
                 changedSince={changedSince}
+                lines={lines}
               />
             </aside>
             {!compact && <div

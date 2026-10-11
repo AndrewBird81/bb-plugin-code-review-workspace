@@ -17,3 +17,16 @@ test("the list carries each review's lifecycle and turn, without its review summ
   // A single review still has them, for the assistant's tools.
   expect(store.getReview("pr-1")?.reviewBodies).toHaveLength(1);
 });
+
+test("reviews leave the server with their place in a stack, in the list and alone", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", base: "main", head: "feat-a", status: "ready", createdAt: 1 });
+  store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, repo: "acme/web", base: "feat-a", head: "feat-b", status: "tracked", createdAt: 2 });
+  const { reviews } = await harness.behavior.callRpc("listReviews", null) as any;
+  expect(reviews.find((r: any) => r.targetKey === "pr-2").stack).toMatchObject({ index: 1, parent: { number: 1, targetKey: "pr-1" } });
+  const { review } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" }) as any;
+  expect(review.stack).toMatchObject({ index: 0, children: [{ number: 2, targetKey: "pr-2", status: "tracked" }] });
+  expect((await harness.behavior.callRpc("getReview", { targetKey: "pr-1" }) as any).review.stack.members).toHaveLength(2);
+});

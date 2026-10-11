@@ -3,12 +3,13 @@ import { useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import { reviewState, type ReviewItem } from "../lib/review-state";
-import { canSnooze } from "../lib/turn";
+import { canSnooze, canSnoozeUntil, snoozeLabel } from "../lib/turn";
 import { updateDraftRecovery } from "../lib/draft-recovery";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { SnoozeChoices } from "./SnoozeChoices";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
 /** Start a tracked review, set it aside ("Not yet"), archive, unarchive, or permanently delete one saved review. */
@@ -32,6 +33,7 @@ export function ReviewActions({ review, onChanged, onDeleted, describedBy, class
   const turn = reviewState(review);
   // Only a review you've already given can wait for the author.
   const snoozable = canSnooze(review, turn);
+  const snoozableUntil = canSnoozeUntil(review, turn);
 
   async function run(call: () => Promise<{ ok: boolean; error?: string }>, success: string) {
     setBusy(true);
@@ -54,9 +56,10 @@ export function ReviewActions({ review, onChanged, onDeleted, describedBy, class
     if (ok) onChanged?.();
   }
 
-  async function setSnoozed(snoozed: boolean) {
+  async function setSnoozed(snoozed: boolean, until?: number) {
     setMenuOpen(false);
-    const ok = await run(() => rpc.call("snoozeReview", { targetKey: review.targetKey, snoozed }), snoozed ? "Moved to Waiting on author" : "Moved to Needs review");
+    const ok = await run(() => rpc.call("snoozeReview", { targetKey: review.targetKey, snoozed, ...(until ? { until } : {}) }),
+      until ? snoozeLabel(until) : snoozed ? "Moved to Waiting on author" : "Moved to Needs review");
     if (ok) onChanged?.();
   }
 
@@ -91,6 +94,7 @@ export function ReviewActions({ review, onChanged, onDeleted, describedBy, class
           </Button>
           <p id={snoozeHintId} className="px-3 pb-2 text-xs text-muted-foreground">Hides it until the author re-requests, answers, or asks you</p>
         </>}
+        {snoozableUntil && <SnoozeChoices disabled={busy} onPick={(until) => void setSnoozed(true, until)} />}
         {turn.reason === "snoozed" && <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground hover:text-foreground" onClick={() => void setSnoozed(false)}>
           <Icon name="ArrowTurnBackward" aria-hidden />Back to Needs review
         </Button>}

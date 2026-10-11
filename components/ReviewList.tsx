@@ -91,6 +91,20 @@ function waitingOrder(a: ReviewItem, b: ReviewItem): number {
   return activity(b) - activity(a);
 }
 
+/** The rows in order, with each stack's rows together where its first one was, bottom first. */
+function withStacks(rows: ReviewItem[]): ReviewItem[][] {
+  const placed = new Set<string>();
+  const groups: ReviewItem[][] = [];
+  for (const row of rows) {
+    if (placed.has(row.targetKey)) continue;
+    const order = row.stack?.members.map((member) => member.targetKey) ?? [];
+    const group = row.stack ? rows.filter((r) => order.includes(r.targetKey)).sort((a, b) => order.indexOf(a.targetKey) - order.indexOf(b.targetKey)) : [row];
+    for (const r of group) placed.add(r.targetKey);
+    groups.push(group);
+  }
+  return groups;
+}
+
 function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: () => void; onChanged: () => void }) {
   const state = reviewState(review);
   const kind = kindLook(review);
@@ -106,6 +120,7 @@ function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: 
           <span className="break-all font-mono text-[11px]">{review.repo ?? review.gitRef}{review.number ? <span className="text-subtle-foreground"> #{review.number}</span> : null}</span>
           {review.author && <span className="inline-flex items-center gap-1.5"><Avatar login={review.author} size={16} />@{review.author}</span>}
           {when && <span className="text-subtle-foreground">{when}</span>}
+          {review.stack && <span className="inline-flex items-center gap-1 tabular-nums" title={review.stack.parent ? `Stacked on #${review.stack.parent.number}` : undefined}><Icon name="Layers" className="size-3" aria-hidden />Stack · {review.stack.index + 1} of {review.stack.members.length}</span>}
           {review.prSize && <span className="tabular-nums">+{review.prSize.additions.toLocaleString()} −{review.prSize.deletions.toLocaleString()} · {review.prSize.files} {review.prSize.files === 1 ? "file" : "files"}</span>}
         </span>
         <TurnMeta review={review} turn={state} />
@@ -133,6 +148,21 @@ function syncProblem(health: SyncHealth | undefined): string | null {
   return `${read ? `GitHub last read ${read}` : "GitHub hasn’t been read yet"}: ${detail}`;
 }
 
+/** Whether the review matches every word of the filter, in its title, repository, @author, or #number. */
+function matchesFilter(review: ReviewItem, query: string): boolean {
+  const text = [review.title, review.repo, review.gitRef, review.author && `@${review.author}`, review.number && `#${review.number}`].filter(Boolean).join(" ").toLowerCase();
+  return query.toLowerCase().split(/\s+/).filter(Boolean).every((word) => text.includes(word));
+}
+
+/** The tab and filter, kept for coming back to the list from a review. */
+const VIEW_KEY = "gr:review-list";
+function savedView(): { tab: TurnGroup; query: string } {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(VIEW_KEY) ?? "{}") as { tab?: TurnGroup; query?: string };
+    return { tab: saved.tab ?? "needs", query: saved.query ?? "" };
+  } catch { return { tab: "needs", query: "" }; }
+}
+
 /** Shown in an empty list: an icon in a soft disc, a heading, and a line of help. */
 function EmptyState({ icon, tone, title, children }: { icon: Parameters<typeof Icon>[0]["name"]; tone: "success" | "neutral"; title: string; children: React.ReactNode }) {
   return (
@@ -156,7 +186,11 @@ export const ReviewList = memo(function ReviewList() {
   const [loadError, setLoadError] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
-  const [filter, setFilter] = useState<TurnGroup>("needs");
+  const [filter, setFilter] = useState<TurnGroup>(() => savedView().tab);
+  const [query, setQuery] = useState(() => savedView().query);
+  useEffect(() => {
+    try { sessionStorage.setItem(VIEW_KEY, JSON.stringify({ tab: filter, query })); } catch { /* best-effort */ }
+  }, [filter, query]);
   const [refreshing, setRefreshing] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [health, setHealth] = useState<SyncHealth>();
@@ -208,12 +242,15 @@ export const ReviewList = memo(function ReviewList() {
     () => [...reviews].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
     [reviews],
   );
+  const found = query.trim() ? sorted.filter((review) => matchesFilter(review, query)) : sorted;
 
-  const visible = sorted.filter((review) => reviewState(review).group === filter);
+  const visible = found.filter((review) => reviewState(review).group === filter);
   if (filter === "needs") visible.sort(needsOrder);
   if (filter === "waiting") visible.sort(waitingOrder);
   const teamStart = filter === "needs" ? visible.findIndex((review) => reviewState(review).reason === "team-requested") : -1;
   const row = (review: ReviewItem) => <ReviewRow key={review.targetKey} review={review} onOpen={() => open(review.targetKey)} onChanged={relist} />;
+  const rows = (reviews: ReviewItem[]) => withStacks(reviews).map((group) => group.length === 1 ? row(group[0]!)
+    : <div key={group[0]!.targetKey} role="group" aria-label={`Stack of ${group[0]!.stack!.members.length} in ${group[0]!.repo}`} className="divide-y divide-border border-l-2 border-primary/40">{group.map(row)}</div>);
 
   function open(targetKey: string) {
     navigate.toPluginPanel("review", { subPath: targetKey });
@@ -332,9 +369,14 @@ export const ReviewList = memo(function ReviewList() {
             {tabs.map(({ value, label, icon }) => (
               <Button key={value} variant="ghost" size="sm" aria-pressed={filter === value} onClick={() => setFilter(value)} className="group/tab shrink-0 gap-2 px-2 text-muted-foreground @min-[520px]/review-list:px-2.5">
                 <Icon name={icon} className="hidden size-3.5 group-aria-pressed/tab:text-primary @min-[520px]/review-list:block" aria-hidden />
-                {label}<span className="min-w-5 rounded-full bg-muted px-1.5 text-center text-[11px] leading-[18px] tabular-nums text-muted-foreground group-aria-pressed/tab:bg-primary/20 group-aria-pressed/tab:text-primary">{sorted.filter((r) => reviewState(r).group === value).length}</span>
+                {label}<span className="min-w-5 rounded-full bg-muted px-1.5 text-center text-[11px] leading-[18px] tabular-nums text-muted-foreground group-aria-pressed/tab:bg-primary/20 group-aria-pressed/tab:text-primary">{found.filter((r) => reviewState(r).group === value).length}</span>
               </Button>
             ))}
+          </div>
+          <div className="relative ml-auto w-40 min-w-0 shrink @min-[640px]/review-list:w-56">
+            <Icon name="Search" className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && query) { e.stopPropagation(); setQuery(""); } }}
+              aria-label="Find a review" placeholder="Repo, author, title, #" className="h-8 rounded-md pl-8 text-sm" />
           </div>
           <Button variant="ghost" size="sm" aria-label={refreshing ? "Refreshing…" : "Refresh"} className="shrink-0 px-2 text-muted-foreground" disabled={refreshing} onClick={() => void refresh()}><Icon name="ArrowReloadHorizontal" className={cn("size-3.5", refreshing && "animate-spin motion-reduce:animate-none")} aria-hidden /><span className="hidden @min-[520px]/review-list:inline">{refreshing ? "Refreshing…" : "Refresh"}</span></Button>
         </div>
@@ -342,16 +384,17 @@ export const ReviewList = memo(function ReviewList() {
         {syncError && <p role="alert" className="flex items-center gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-2.5 text-sm text-destructive-text"><Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden />Couldn’t refresh GitHub status. Saved reviews are still available; try Refresh again.</p>}
         {loading ? <div role="status" aria-busy="true" className="divide-y divide-border"><span className="sr-only">Loading reviews…</span>{Array.from({ length: 4 }).map((_, i) => <div key={i} className="flex items-center gap-3.5 px-4 py-3.5"><Skeleton className="size-8 shrink-0 rounded-lg" /><div className="flex-1 space-y-2"><Skeleton className="h-3.5" style={{ width: `${62 - i * 7}%` }} /><Skeleton className="h-3 w-48" /></div><Skeleton className="h-5 w-16 rounded-full" /></div>)}</div>
           : loadError ? <div role="alert" className="px-4 py-10 text-center"><h2 className="font-medium">Couldn’t load your reviews</h2><p className="mt-2 text-sm text-muted-foreground">Your saved reviews haven’t been removed. Check the connection and try again.</p><Button variant="outline" className="mt-4" onClick={() => setReload((n) => n + 1)}>Try again</Button></div>
-          : visible.length === 0 ? (filter === "archive" ? <EmptyState icon="Archive" tone="neutral" title="No archived reviews">Merged and closed pull requests move here automatically, along with reviews you archive.</EmptyState>
+          : visible.length === 0 ? (query.trim() && sorted.some((r) => reviewState(r).group === filter) ? <EmptyState icon="Search" tone="neutral" title={`No reviews match “${query.trim()}”`}>Try fewer words, or clear the filter.</EmptyState>
+            : filter === "archive" ? <EmptyState icon="Archive" tone="neutral" title="No archived reviews">Merged and closed pull requests move here automatically, along with reviews you archive.</EmptyState>
             : filter === "waiting" ? <EmptyState icon="TimeSchedule" tone="neutral" title="Nothing waiting on authors">Reviews where you requested changes wait here until the author re-requests your review, answers your feedback, or asks you something.</EmptyState>
             : filter === "reviewed" ? <EmptyState icon="CircleCheck" tone="neutral" title="No submitted reviews yet">Your submitted verdicts appear here, ready to revisit.</EmptyState>
             : sorted.length ? <EmptyState icon="Check" tone="success" title="You’re all caught up">Paste a pull request URL above to start a review.</EmptyState>
             : <EmptyState icon="GitPullRequest" tone="neutral" title="No reviews yet">Paste a pull request URL above to start a review.</EmptyState>)
-          : teamStart < 0 ? <div className="divide-y divide-border">{visible.map(row)}</div>
+          : teamStart < 0 ? <div className="divide-y divide-border">{rows(visible)}</div>
           : <>
-            {teamStart > 0 && <div className="divide-y divide-border border-b border-border">{visible.slice(0, teamStart).map(row)}</div>}
+            {teamStart > 0 && <div className="divide-y divide-border border-b border-border">{rows(visible.slice(0, teamStart))}</div>}
             <h2 className="bg-muted/25 px-4 py-1.5 text-xs font-medium text-muted-foreground">Team requests</h2>
-            <div className="divide-y divide-border border-t border-border">{visible.slice(teamStart).map(row)}</div>
+            <div className="divide-y divide-border border-t border-border">{rows(visible.slice(teamStart))}</div>
           </>}
       </section>
     </div>

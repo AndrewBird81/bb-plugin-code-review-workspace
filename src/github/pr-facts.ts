@@ -6,6 +6,7 @@ export const BATCH_SIZE = 10;
 const REVIEWER = "__typename ... on User{login} ... on Team{slug organization{login}}";
 const FRAGMENT = `fragment F on PullRequest{
   number state isDraft updatedAt title url baseRefName headRefName headRefOid author{login} additions deletions changedFiles
+  baseRef{associatedPullRequests(states:OPEN,first:1){nodes{number title url}}} baseRepository{defaultBranchRef{name}}
   commits(last:100){nodes{commit{oid}}}
   head:commits(last:1){nodes{commit{statusCheckRollup{state}}}}
   latestOpinionatedReviews(first:50){nodes{state author{__typename login}}}
@@ -15,8 +16,8 @@ const FRAGMENT = `fragment F on PullRequest{
     ... on ReviewRequestedEvent{createdAt actor{login} requestedReviewer{${REVIEWER}}}
     ... on ReviewRequestRemovedEvent{createdAt actor{login} requestedReviewer{${REVIEWER}}}
     ... on ReviewDismissedEvent{createdAt review{id}}}}
-  conversation:timelineItems(last:15,itemTypes:[ISSUE_COMMENT,PULL_REQUEST_REVIEW]){nodes{__typename
-    ... on IssueComment{author{__typename login} body createdAt}
+  conversation:timelineItems(last:15,itemTypes:[ISSUE_COMMENT]){nodes{... on IssueComment{author{__typename login} body createdAt}}}
+  reviewItems:timelineItems(last:15,itemTypes:[PULL_REQUEST_REVIEW]){nodes{__typename
     ... on PullRequestReview{author{__typename login} body submittedAt comments(first:10){nodes{body}}}}}
 }`;
 
@@ -37,11 +38,12 @@ export function prFactsQuery(refs: PrRef[]): { query: string; variables: Record<
  * one it refuses (FORBIDDEN: permissions, SSO) to "forbidden"; one whose alias failed for another reason is left out of the map.
  */
 export function parsePrFacts(json: unknown, refs: PrRef[], viewer: string, teams: ReadonlySet<string>): Map<string, PrRead> {
-  const root = json as { data?: Record<string, any> | null; errors?: Array<{ type?: string; message?: string; path?: unknown[] }> } | null;
+  const root = json as { data?: Record<string, any> | null; errors?: Array<{ type?: string; message?: string; path?: unknown[] }>; message?: string } | null;
   if (!root || typeof root !== "object" || !root.data || typeof root.data !== "object") {
     // Say why, such as RATE_LIMITED, so the sync can back off.
     const why = (root?.errors ?? []).map((e) => [e.type, e.message].filter(Boolean).join(": ")).filter(Boolean).join("; ");
-    throw new Error(why || "GitHub returned no PR data");
+    // A refused token answers with only a message, such as "Bad credentials".
+    throw new Error(why || root?.message || "GitHub returned no PR data");
   }
   const failed = new Map((root.errors ?? []).filter((e) => e.type !== "NOT_FOUND").map((e) => [String(e.path?.[0] ?? ""), e.type]));
   const result = new Map<string, PrRead>();
@@ -72,7 +74,9 @@ export async function fetchPrFacts(run: RunGh, refs: PrRef[], viewer: string, te
       const out = await run(args);
       let json: unknown;
       try { json = JSON.parse(out.stdout); } catch { throw new Error(`Could not read PR facts: ${out.stderr.trim() || `gh exited ${out.code}`}`); }
-      for (const [key, facts] of parsePrFacts(json, batch, viewer, teams)) result.set(key, facts);
+      let facts: Map<string, PrRead>;
+      try { facts = parsePrFacts(json, batch, viewer, teams); } catch (error) { throw new Error([(error as Error).message, out.stderr.trim()].filter(Boolean).join(": ")); }
+      for (const [key, read] of facts) result.set(key, read);
       read++;
     } catch (error) {
       failure = error instanceof Error ? error : new Error(String(error));
@@ -144,8 +148,8 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
   const pending = (pr.reviewRequests?.nodes ?? []).map((n: any) => via(n?.requestedReviewer, viewer, teams)).filter(Boolean);
   const requestPending = pending.find((p: any) => p.via === "user") ?? pending[0] ?? null;
 
-  // Comments, and reviews with their summary and inline comments as one body.
-  const conversation: any[] = (pr.conversation?.nodes ?? []).filter((c: any) => c?.author).map((c: any) => c.__typename === "PullRequestReview"
+  // Comments, and reviews with their summary and inline comments as one body. Each has its own window: thread replies are reviews.
+  const conversation: any[] = [...pr.conversation?.nodes ?? [], ...pr.reviewItems?.nodes ?? []].filter((c: any) => c?.author).map((c: any) => c.__typename === "PullRequestReview"
     ? { author: c.author, createdAt: c.submittedAt, body: [c.body ?? "", ...(c.comments?.nodes ?? []).map((n: any) => n?.body ?? "")].join("\n") }
     : c);
   // Your own comment answers the mentions before it.
@@ -159,11 +163,15 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
     .filter((r: any) => r?.author && !same(r.author.login, viewer) && !isBot(r.author) && (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED"))
     .map((r: any) => ({ login: r.author.login as string, state: r.state as "APPROVED" | "CHANGES_REQUESTED" }));
 
+  // Into the default branch is no stack, even when a PR (say, a deploy) has it as its head.
+  const parent = pr.baseRefName !== pr.baseRepository?.defaultBranchRef?.name ? pr.baseRef?.associatedPullRequests?.nodes?.[0] : null;
+
   return {
     targetKey: ref.targetKey, repo: ref.repo, number: pr.number ?? ref.number,
     state: pr.state, isDraft: !!pr.isDraft, title: pr.title ?? "", url: pr.url ?? "", author: pr.author?.login ?? null,
     baseRefName: pr.baseRefName ?? "", headRefName: pr.headRefName ?? "", headSha: pr.headRefOid ?? "",
     updatedAt: time(pr.updatedAt),
+    stackParent: parent?.number ? { number: parent.number, title: parent.title ?? "", url: parent.url ?? "" } : null,
     size: typeof pr.additions === "number" ? { additions: pr.additions, deletions: pr.deletions ?? 0, files: pr.changedFiles ?? 0 } : null,
     ci: CI[pr.head?.nodes?.[0]?.commit?.statusCheckRollup?.state] ?? "none",
     myReviews, otherOpinions, requests, requestPending,

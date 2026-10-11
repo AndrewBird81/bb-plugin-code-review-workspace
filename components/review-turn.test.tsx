@@ -149,6 +149,16 @@ test("a snoozed review offers Back to Needs review, and an unreviewed one no Not
   fresh.slot.lifecycle.unmount();
 });
 
+test("a new request can be snoozed until a time from the review's header", async () => {
+  const { snoozeTimes } = await import("../lib/turn");
+  const { slot, rpc } = await renderWorkspace({ turn: turn({ reason: "requested", label: "Review requested" }) });
+  fireEvent.click(await slot.findByRole("button", { name: "Snooze" }));
+  const nextMonday = snoozeTimes().nextMonday;
+  fireEvent.click(await slot.findByRole("button", { name: /^Next Monday/ }));
+  await waitFor(() => expect(rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: true, until: nextMonday }));
+  slot.lifecycle.unmount();
+});
+
 test("a tracked review offers Start review instead of the guide", async () => {
   const { slot, rpc } = await renderWorkspace({
     status: "tracked", repo: "acme/web", number: 42, author: "octo", url: "https://github.com/acme/web/pull/42",
@@ -160,6 +170,17 @@ test("a tracked review offers Start review instead of the guide", async () => {
   expect(slot.getByRole("link", { name: "Open on GitHub" }).getAttribute("href")).toBe("https://github.com/acme/web/pull/42");
   fireEvent.click(slot.getByRole("button", { name: "Start review" }));
   await waitFor(() => expect(rpc.startTrackedReview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  slot.lifecycle.unmount();
+});
+
+test("a tracked request stacked on a PR you haven't reviewed says so", async () => {
+  const parent = { targetKey: "pr-41", number: 41, title: "Add the queue", url: null, status: "ready", reviewed: false };
+  const { slot } = await renderWorkspace({
+    status: "tracked", repo: "acme/web", number: 42, turn: turn({ reason: "requested", label: "Review requested" }),
+    stack: { members: [parent, { ...parent, targetKey: "pr-42", number: 42 }], index: 1, parent, children: [] },
+  }, {}, null);
+  expect(await slot.findByText("You haven’t reviewed #41, which this builds on.")).toBeTruthy();
+  expect(slot.getByRole("button", { name: "Stacked on #41" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

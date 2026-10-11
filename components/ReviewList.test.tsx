@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { test, afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
-afterEach(cleanup);
+afterEach(() => { cleanup(); sessionStorage.clear(); });
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 
 test("review list renders a card with title and status from rpc", async () => {
@@ -177,5 +177,70 @@ test("a row shows the PR's size", async () => {
   await slot.findByText("Sized change");
   expect(slot.getByText("+1,200 −30 · 8 files")).toBeTruthy();
   expect(slot.getByText("+2 −0 · 1 file")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("the filter finds reviews by repository, author, title, or number, and the list keeps it and the tab", async () => {
+  const { expect } = await import("vitest");
+  const { fireEvent, within } = await import("@testing-library/react");
+  const rpc = {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [
+      { targetKey: "a", kind: "pr", repo: "acme/live-api", number: 2648, author: "alice", title: "Stream retries", status: "ready" },
+      { targetKey: "b", kind: "pr", repo: "acme/web", number: 12, author: "bob", title: "Cache headers", status: "ready" },
+      { targetKey: "c", kind: "pr", repo: "acme/live-api", number: 2651, author: "bob", title: "Older retries", status: "ready", submittedVerdict: "APPROVE" },
+    ] }),
+  };
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc });
+  await slot.findByText("Stream retries");
+  const find = slot.getByRole("searchbox", { name: "Find a review" });
+  const titles = () => slot.queryAllByText(/retries|headers/).map((el) => el.textContent);
+  fireEvent.change(find, { target: { value: "live-api" } });
+  expect(titles()).toEqual(["Stream retries"]);
+  fireEvent.change(find, { target: { value: "@bob" } });
+  expect(titles()).toEqual(["Cache headers"]);
+  fireEvent.change(find, { target: { value: "#2648" } });
+  expect(titles()).toEqual(["Stream retries"]);
+  fireEvent.change(find, { target: { value: "nothing like it" } });
+  expect(slot.getByText("No reviews match “nothing like it”")).toBeTruthy();
+  fireEvent.change(find, { target: { value: "retries" } });
+  // Counts follow the filter.
+  const tabs = slot.getByRole("group", { name: "Filter reviews" });
+  expect(within(tabs).getByRole("button", { name: /^Reviewed/ }).textContent).toBe("Reviewed1");
+  fireEvent.click(within(tabs).getByRole("button", { name: /^Reviewed/ }));
+  expect(titles()).toEqual(["Older retries"]);
+  slot.lifecycle.unmount();
+
+  const again = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc });
+  await again.findByText("Older retries");
+  expect((again.getByRole("searchbox", { name: "Find a review" }) as HTMLInputElement).value).toBe("retries");
+  expect(within(again.getByRole("group", { name: "Filter reviews" })).getByRole("button", { name: /^Reviewed/ }).getAttribute("aria-pressed")).toBe("true");
+  again.lifecycle.unmount();
+});
+
+test("a stack's reviews sit together in the list, bottom first, each saying where it stands", async () => {
+  const { expect } = await import("vitest");
+  const { within } = await import("@testing-library/react");
+  const member = (n: number) => ({ targetKey: `pr-${n}`, number: n, title: `PR ${n}`, url: null, status: "ready", reviewed: false });
+  const members = [member(2645), member(2648), member(2654)];
+  const stack = (index: number) => ({ members, index, parent: members[index - 1] ?? null, children: members.slice(index + 1, index + 2) });
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [
+      { targetKey: "pr-2654", kind: "pr", repo: "acme/live-api", number: 2654, title: "Top change", status: "ready", createdAt: 3, stack: stack(2) },
+      { targetKey: "pr-7", kind: "pr", repo: "acme/web", number: 7, title: "Lone change", status: "ready", createdAt: 2 },
+      { targetKey: "pr-2645", kind: "pr", repo: "acme/live-api", number: 2645, title: "Bottom change", status: "ready", createdAt: 4, stack: stack(0) },
+      { targetKey: "pr-2648", kind: "pr", repo: "acme/live-api", number: 2648, title: "Middle change", status: "ready", createdAt: 1, stack: stack(1) },
+    ] }),
+  } });
+  await slot.findByText("Top change");
+  const group = slot.getByRole("group", { name: "Stack of 3 in acme/live-api" });
+  expect(within(group).getAllByText(/ change$/).map((el) => el.textContent)).toEqual(["Bottom change", "Middle change", "Top change"]);
+  expect(within(group).getByText("Stack · 2 of 3")).toBeTruthy();
+  expect(slot.getAllByText(/ change$/).map((el) => el.textContent)).toEqual(["Bottom change", "Middle change", "Top change", "Lone change"]);
   slot.lifecycle.unmount();
 });

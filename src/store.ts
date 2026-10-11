@@ -24,6 +24,8 @@ export interface ReviewLifecycle {
   signals?: TurnSignals | null;
   /** "Not yet": hidden from Needs review until a newer signal. */
   snoozedAt?: number | null;
+  /** Snooze until: hidden from Needs review until this time, or a newer signal. */
+  snoozedUntil?: number | null;
   /** The assistant's latest check of your feedback. */
   assessment?: AssessmentSummary | null;
   /** The signal that last alerted Needs You, so one event alerts once. */
@@ -71,6 +73,8 @@ export interface ReviewLifecycle {
   prSize?: { additions: number; deletions: number; files: number } | null;
   /** GitHub can't find the PR, or refuses access, since this time. */
   unreachable?: { since: number; reason: "not-found" | "forbidden" } | null;
+  /** The open PR whose head is this PR's base branch, as GitHub last said; null for none. Unset until read. */
+  stackParent?: { number: number; title: string; url: string } | null;
 }
 
 /** The turn of the reviewer's ask on the summary or a draft comment (src/asks.ts). */

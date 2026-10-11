@@ -4,7 +4,8 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import type { Turn } from "../lib/turn";
-afterEach(cleanup);
+// The list keeps its tab and filter for the session.
+afterEach(() => { cleanup(); sessionStorage.clear(); });
 
 const DAY = 86_400_000;
 const now = Date.now();
@@ -139,6 +140,36 @@ test("a review you gave can wait with Not yet, come back to Needs review, and a 
   slot.lifecycle.unmount();
 });
 
+test("a new request can be snoozed until a time from its menu, and the row says when it wakes", async () => {
+  const { snoozeTimes, snoozeLabel } = await import("../lib/turn");
+  const until = now + 3 * DAY;
+  const { slot, tab, calls } = await list([
+    { targetKey: "fresh", kind: "pr", title: "Change Fresh", status: "tracked", turn: turn("needs", "requested", "Review requested") },
+    { targetKey: "later", kind: "pr", title: "Change Later", status: "tracked", snoozedUntil: until, turn: turn("waiting", "snoozed", "Snoozed") },
+  ], { snoozeReview: () => ({ ok: true }) });
+  const row = (await slot.findByText("Change Fresh")).closest(".group\\/row") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Review actions" }));
+  expect(slot.queryByRole("button", { name: "Not yet" })).toBeNull();
+  const tomorrow = snoozeTimes().tomorrow;
+  fireEvent.click(await slot.findByRole("button", { name: /^Tomorrow morning/ }));
+  await waitFor(() => expect(calls("snoozeReview")).toEqual([{ targetKey: "fresh", snoozed: true, until: tomorrow }]));
+  await tab(/^Waiting on author/);
+  expect(await slot.findByText(snoozeLabel(until))).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("a date picked in the snooze menu wakes the review that morning", async () => {
+  const { slot, calls } = await list([
+    { targetKey: "fresh", kind: "pr", title: "Change Fresh", status: "tracked", turn: turn("needs", "requested", "Review requested") },
+  ], { snoozeReview: () => ({ ok: true }) });
+  const row = (await slot.findByText("Change Fresh")).closest(".group\\/row") as HTMLElement;
+  fireEvent.click(within(row).getByRole("button", { name: "Review actions" }));
+  fireEvent.change(await slot.findByLabelText("Snooze until a date"), { target: { value: "2099-03-02" } });
+  fireEvent.click(slot.getByRole("button", { name: "Snooze" }));
+  await waitFor(() => expect(calls("snoozeReview")).toEqual([{ targetKey: "fresh", snoozed: true, until: new Date(2099, 2, 2, 9).getTime() }]));
+  slot.lifecycle.unmount();
+});
+
 test("status badges take their tone from why it's your turn", async () => {
   await loadPluginApp(() => import("../app"));
   const { statusLook } = await import("./ReviewStatus");
@@ -153,6 +184,10 @@ test("status badges take their tone from why it's your turn", async () => {
   expect(look(turn("waiting", "snoozed", "Not yet"))).toEqual(["neutral", "Clock"]);
   expect(look(turn("reviewed", "approved", "Approved · updated"))).toEqual(["success", "Check"]);
   expect(look(turn("needs", "new", "Tracked"))).toEqual(["primary", undefined]);
+  expect(look(turn("needs", "own", "Your PR"))).toEqual(["primary", "UserRound"]);
+  expect(look(turn("reviewed", "own", "Your PR · updated"))).toEqual(["neutral", "UserRound"]);
+  expect(look(turn("archive", "unrequested", "No longer requested"))).toEqual(["neutral", undefined]);
+  expect(look(turn("archive", "unreachable", "Can’t read on GitHub"))).toEqual(["neutral", "EyeOff"]);
   expect(look(turn("needs", "question", "Generating"))).toEqual(["warning", "Loading"]);
   // A failed guide keeps the reason underneath; the badge shows the failure.
   expect(look(turn("needs", "re-requested", "Failed", { failed: true }))).toEqual(["danger", "AlertTriangle"]);
