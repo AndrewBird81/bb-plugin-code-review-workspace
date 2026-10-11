@@ -55,3 +55,15 @@ test("other diff failures still fail with GitHub's message", async () => {
   await expect(readPrSnapshot(run, 7, "acme/web")).rejects.toThrow("Not Found");
   expect(run).toHaveBeenCalledTimes(2);
 });
+
+test("a pure rename rebuilt from the PR's files has no note about a missing diff", async () => {
+  const renamed = [{ filename: "src/b.ts", previous_filename: "src/a.ts", status: "renamed", changes: 0 }];
+  const run = vi.fn(async (args: string[]) => {
+    if (args[1] === "diff") return tooLarge;
+    if (args[0] === "api") return { code: 0, stdout: renamed.map((f) => JSON.stringify(f)).join("\n") + "\n", stderr: "" };
+    return { code: 0, stdout: JSON.stringify(pr), stderr: "" };
+  });
+  const [file] = splitPatchByFile((await readPrSnapshot(run, 7, "acme/web")).patch);
+  expect(file).toMatchObject({ path: "src/b.ts", oldPath: "src/a.ts" });
+  expect(file.text).not.toContain("GitHub didn't send");
+});

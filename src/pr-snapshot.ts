@@ -32,7 +32,7 @@ export async function readPrDiff(run: typeof runGh, number: number, repo: string
   return readFilesPatch(run, ["api", "--paginate", `repos/${repo}/pulls/${number}/files?per_page=100`, "--jq", ".[] | @json"], cwd);
 }
 
-interface GithubFile { filename: string; previous_filename?: string; status: string; patch?: string }
+interface GithubFile { filename: string; previous_filename?: string; status: string; patch?: string; changes?: number }
 
 /** Read GitHub's file list (one JSON file per line) as a patch. */
 export async function readFilesPatch(run: typeof runGh, args: string[], cwd?: string): Promise<string> {
@@ -56,7 +56,8 @@ function patchFromFiles(files: GithubFile[]): string {
     const lines = [`diff --git ${a} ${b}`];
     if (f.status === "renamed") lines.push(`rename from ${quoted(from)}`, `rename to ${quoted(f.filename)}`);
     if (f.patch) lines.push(`--- ${f.status === "added" ? "/dev/null" : a}`, `+++ ${f.status === "removed" ? "/dev/null" : b}`, f.patch.replace(/\n$/, ""));
-    else lines.push("GitHub didn't send this file's diff: it's too large or binary.");
+    // A pure rename has no diff to send.
+    else if (f.status !== "renamed" || f.changes) lines.push("GitHub didn't send this file's diff: it's too large or binary.");
     return lines.join("\n") + "\n";
   }).join("");
 }
