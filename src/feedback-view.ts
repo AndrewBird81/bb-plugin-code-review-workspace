@@ -4,7 +4,7 @@ import type { Store, ReviewMeta } from "./store";
 import type { runGh } from "./gh";
 import { ghErrorMessage } from "./gh";
 import { diffTooLarge, readFilesPatch, readPrDiff } from "./pr-snapshot";
-import { ensureGitHeaders } from "./patch";
+import { ensureGitHeaders, splitPatchByFile } from "./patch";
 import { interdiff, type FileInterdiff } from "./interdiff";
 import { firstLine, type AssessmentItem, type FeedbackItem, type FeedbackView } from "../lib/feedback";
 import { baselineOf, type AssessmentSummary } from "../lib/turn";
@@ -13,6 +13,8 @@ import type { Verdict } from "./draft";
 type Run = typeof runGh;
 
 export { baselineOf } from "../lib/turn";
+/** The most files GitHub's compare endpoint lists. */
+const COMPARE_FILES = 300;
 export const headOf = (review: ReviewMeta) => review.latestHeadSha ?? review.headSha ?? null;
 
 /**
@@ -40,6 +42,10 @@ export async function diffAt(store: Store, run: Run, review: ReviewMeta, sha: st
       // Too large for a diff: rebuild it from the comparison's files.
       patch = await readFilesPatch(run, ["api", compare, "--jq", ".files[] | @json"])
         .catch((error: Error) => { throw new Error(`Couldn't read the PR as of ${sha.slice(0, 7)}: ${error.message}`); });
+      // The comparison lists at most 300 files; a diff missing the rest would show them as added since.
+      if (splitPatchByFile(patch).length >= COMPARE_FILES) {
+        throw new Error(`Couldn't read the PR as of ${sha.slice(0, 7)}: GitHub's comparison lists at most ${COMPARE_FILES} files, and the PR may have had more than ${COMPARE_FILES} files then.`);
+      }
     }
   }
   patch = ensureGitHeaders(patch);

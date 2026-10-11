@@ -28,3 +28,11 @@ test("an earlier commit's diff, too big for GitHub's diff, is rebuilt from the c
   expect(changedFiles(await diffAt(store, run, review, "sha0"))).toEqual(["then.ts"]);
   expect(run.mock.calls[1][0]).toEqual(["api", "repos/acme/web/compare/main...sha0", "--jq", ".files[] | @json"]);
 });
+
+test("an earlier commit's diff that hits the comparison's 300-file limit fails, and isn't kept", async () => {
+  const { store, review } = setup();
+  const files = Array.from({ length: 300 }, (_, i) => file(`f${i}.ts`)).join("\n") + "\n";
+  const run = vi.fn(async (args: string[]) => (args.includes("Accept: application/vnd.github.diff") ? tooLarge : { code: 0, stdout: files, stderr: "" }));
+  await expect(diffAt(store, run, review, "sha0")).rejects.toThrow("more than 300 files");
+  expect(store.getSnapshot("pr-1", "sha0")).toBeNull();
+});
