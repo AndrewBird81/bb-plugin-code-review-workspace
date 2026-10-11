@@ -107,3 +107,32 @@ test("a review deleted while its PR loads isn't brought back", async () => {
   expect(result).toEqual({ ok: false, error: "This review was deleted." });
   expect(store.getReview("pr-9")).toBeNull();
 });
+
+const fileDiff = (lines: string[]) => ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", `@@ -0,0 +1,${lines.length} @@`, ...lines.map((l) => `+${l}`), ""].join("\n");
+const prGh = (patch: string) => vi.fn(async (args: string[]) => args[1] === "diff" ? { code: 0, stderr: "", stdout: patch }
+  : { code: 0, stderr: "", stdout: JSON.stringify({ title: "T", baseRefName: "main", headRefName: "h", url: "u", headRefOid: "sha2" }) });
+
+test("comments on neighbouring lines all follow their lines into the new diff", async () => {
+  const { bb } = host();
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  store.savePatch("pr-1", fileDiff(["a", "b", "c"]));
+  store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "on a" });
+  store.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "on b" });
+  const runGh = prGh(fileDiff(["import x;", "a", "b", "c"]));
+  expect(await rerunReview({ bb, store, gh: { runGh: runGh as any, runGit: vi.fn() as any } }, "pr-1")).toEqual({ ok: true });
+  expect(store.getDraft("pr-1").comments.map((c) => [c.body, c.line])).toEqual([["on a", 2], ["on b", 3]]);
+  expect(store.staleDraftComments("pr-1")).toEqual([]);
+});
+
+test("Re-review asked twice at once starts one guide writer", async () => {
+  const { bb, harness } = host();
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  store.savePatch("pr-1", fileDiff(["a"]));
+  const runGh = prGh(fileDiff(["b"]));
+  const deps = { bb, store, gh: { runGh: runGh as any, runGit: vi.fn() as any } };
+  expect(await Promise.all([rerunReview(deps, "pr-1"), rerunReview(deps, "pr-1")])).toEqual([{ ok: true }, { ok: true }]);
+  await vi.waitFor(() => expect(store.getReview("pr-1")?.status).not.toBe("generating"));
+  expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1);
+});

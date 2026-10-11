@@ -3,6 +3,7 @@
 import type { PreviousState, ReviewMeta, Store } from "./store";
 import { isSummary, sameLocation, type CommentLocation, type DraftComment } from "./draft";
 import { diffPositions } from "./review-positions";
+import { asked } from "./asks";
 
 /** A comment's location as callers give it; side defaults to RIGHT. */
 export interface LocationInput { file: string; line: number; side?: "LEFT" | "RIGHT" }
@@ -77,23 +78,34 @@ export function addComment(store: Store, targetKey: string, input: NewComment): 
 
 const before = (comment: DraftComment): PreviousState => ({ body: comment.body, ...(comment.author ? { author: comment.author } : {}), ...(comment.chapterId ? { chapterId: comment.chapterId } : {}) });
 
-/** Replace a comment's text. Its location, author, and the diff it was drafted against stay. */
-export function editComment(store: Store, targetKey: string, input: LocationInput & { body: string }): DraftResult {
+const REVIEWERS = "The reviewer wrote this comment. Suggest the change in chat; they can ask on the comment to have you apply it. Nothing was changed.";
+
+/**
+ * Replace a comment's text. Its location, author, and the diff it was drafted against stay. An agent's
+ * comment changes freely; the reviewer's only in the turn on `threadId` that carries their ask on it.
+ */
+export function editComment(store: Store, targetKey: string, input: LocationInput & { body: string }, threadId?: string): DraftResult {
   const refused = unchangeable(store.getReview(targetKey));
   if (refused) return { ok: false, error: refused };
   const at = located(input);
   const comment = store.getDraft(targetKey).comments.find((c) => sameLocation(c, at));
-  if (!comment || !store.editDraftComment(targetKey, at, input.body.trim())) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
+  if (!comment) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
+  const reviewers = comment.author !== "agent";
+  if (reviewers && !asked(store, targetKey, at, threadId)) return { ok: false, error: REVIEWERS };
+  if (!store.editDraftComment(targetKey, at, input.body.trim())) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
   store.noteDiscussionChange(targetKey, at, "edited", { body: input.body.trim(), previous: before(comment) });
-  return { ok: true, text: `Updated the draft comment on ${where(at)}.` };
+  return { ok: true, text: reviewers ? `Updated the reviewer's draft comment on ${where(at)}, as they asked.` : `Updated the draft comment on ${where(at)}.` };
 }
 
-export function deleteComment(store: Store, targetKey: string, input: LocationInput): DraftResult {
+/** Delete a comment: an agent's freely, the reviewer's only in the turn on `threadId` that carries their ask on it. */
+export function deleteComment(store: Store, targetKey: string, input: LocationInput, threadId?: string): DraftResult {
   const refused = unchangeable(store.getReview(targetKey));
   if (refused) return { ok: false, error: refused };
   const at = located(input);
   const comment = store.getDraft(targetKey).comments.find((c) => sameLocation(c, at));
-  if (!comment || !store.deleteDraftComment(targetKey, at)) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
+  if (!comment) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
+  if (comment.author !== "agent" && !asked(store, targetKey, at, threadId)) return { ok: false, error: REVIEWERS };
+  if (!store.deleteDraftComment(targetKey, at)) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
   store.noteDiscussionChange(targetKey, at, "removed", { body: "", previous: before(comment) });
   return { ok: true, text: `Deleted the draft comment on ${where(at)}.` };
 }

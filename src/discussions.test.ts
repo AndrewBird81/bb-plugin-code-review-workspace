@@ -239,3 +239,41 @@ test("an ask on the summary follows the conversation it starts when the old one 
   // The archived conversation's thread is no longer this review's assistant.
   expect((await tool("set_review_summary", { body: "From the old thread." })).isError).toBe(true);
 });
+
+test("the reviewer's own comment changes only in the turn that carries their ask on it, and Undo puts it back", async () => {
+  const { store, ask, tool, harness } = await host();
+  const refused = "The reviewer wrote this comment. Suggest the change in chat; they can ask on the comment to have you apply it. Nothing was changed.";
+  const idle = () => harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: "Done" });
+  store.upsertDraftComment("pr-1", { ...at, body: "Mine." });
+  expect((await tool("edit_draft_comment", { ...at, body: "Theirs." })).content[0].text).toBe(refused);
+  expect((await tool("delete_draft_comment", at)).content[0].text).toBe(refused);
+  // An ask elsewhere doesn't open it.
+  await ask({ file: "a.ts", line: 2, side: "LEFT", body: "Why?" });
+  expect((await tool("edit_draft_comment", { ...at, body: "Theirs." })).isError).toBe(true);
+  await idle();
+  // Queued behind other work, the ask opens it once its message dispatches.
+  const row = makeQueueEntry({ id: "q-ask", threadId: "assistant" });
+  harness.inspection.sdk.stub("threads.send", async () => ({ ok: true, delivery: "queued", queuedMessage: row }));
+  await ask({ body: "Shorter?" });
+  expect((await tool("edit_draft_comment", { ...at, body: "Theirs." })).isError).toBe(true);
+  await harness.behavior.emitThreadEvent("message.dispatched", { entry: row });
+  expect(await tool("edit_draft_comment", { ...at, body: "Short." })).toBe("Updated the reviewer's draft comment on a.ts:3, as they asked.");
+  expect(store.getDraft("pr-1").comments).toEqual([{ ...at, body: "Short." }]);
+  expect(await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", ...at })).toMatchObject({ draft: { comments: [{ ...at, body: "Mine." }] } });
+  // Once the turn ends, it's the reviewer's again.
+  await idle();
+  expect((await tool("delete_draft_comment", at)).isError).toBe(true);
+  expect(store.getDraft("pr-1").comments).toEqual([{ ...at, body: "Mine." }]);
+  // Dismissing the discussion, or saving the comment yourself, withdraws an ask.
+  harness.inspection.sdk.stub("threads.send", async () => ({ ok: true, delivery: "sent" }));
+  await ask({ body: "Drop it?" });
+  await harness.behavior.callRpc("dismissDiscussion", { targetKey: "pr-1", ...at });
+  expect((await tool("delete_draft_comment", at)).isError).toBe(true);
+  await ask({ body: "Drop it?" });
+  const { reviewRevision } = await import("./review-revision");
+  await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", comment: { ...at, body: "Mine, edited." }, revision: reviewRevision(store, "pr-1") });
+  expect((await tool("delete_draft_comment", at)).isError).toBe(true);
+  // An agent's comment stays free to change.
+  await tool("add_draft_comment", { file: "a.ts", line: 2, side: "LEFT", code: "const b = 2;", body: "Why?" });
+  expect((await tool("edit_draft_comment", { file: "a.ts", line: 2, side: "LEFT", body: "Why change b?" })).isError).toBeFalsy();
+});

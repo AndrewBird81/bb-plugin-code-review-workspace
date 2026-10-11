@@ -1,10 +1,9 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { Store } from "./store";
+import { reanchorAll, type ReviewMeta, type Store } from "./store";
 import { ensureGitHeaders } from "./patch";
 import { generateGuide, guideWriterUnavailable } from "./generate";
 import { gitDiffArgs } from "./gh";
 import { readPrSnapshot } from "./pr-snapshot";
-import { reanchor } from "./reanchor";
 import { pruneDiffs } from "./feedback-view";
 
 interface Deps {
@@ -12,8 +11,23 @@ interface Deps {
   gh: { runGh: typeof import("./gh").runGh; runGit: typeof import("./gh").runGit };
 }
 
+const rerunning = new WeakMap<BbPluginApi, Set<string>>();
+
 /** Re-read the target and regenerate its guide. `notify: false` leaves alerts to the turn that asked for it. */
 export async function rerunReview(deps: Deps, targetKey: string, options: { notify?: boolean } = {}): Promise<{ ok: boolean; error?: string }> {
+  // A re-review already reading the target starts the guide for both callers.
+  const running = rerunning.get(deps.bb) ?? new Set<string>();
+  rerunning.set(deps.bb, running);
+  if (running.has(targetKey)) return { ok: true };
+  running.add(targetKey);
+  try {
+    return await rerun(deps, targetKey, options);
+  } finally {
+    running.delete(targetKey);
+  }
+}
+
+async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean }): Promise<{ ok: boolean; error?: string }> {
   const m = deps.store.getReview(targetKey);
   if (!m || !m.projectId) return { ok: false, error: "Unknown review or missing project." };
   const unavailable = await guideWriterUnavailable(deps.bb, deps.store);
@@ -42,7 +56,13 @@ export async function rerunReview(deps: Deps, targetKey: string, options: { noti
   if (!patch.trim()) return { ok: false, error: "No changes found." };
   // The review may have been deleted while GitHub answered; don't bring it back.
   if (!deps.store.getReview(targetKey)) return { ok: false, error: "This review was deleted." };
+  rebuildReview(deps, { ...m, projectId: m.projectId }, patch, options);
+  return { ok: true };
+}
 
+/** Rebuild an existing review's guide for a new diff, keeping the current guide in case it fails and moving the draft comments. */
+export function rebuildReview(deps: Pick<Deps, "bb" | "store">, m: ReviewMeta & { projectId: string }, patch: string, options: { notify?: boolean } = {}) {
+  const targetKey = m.targetKey;
   const previous = deps.store.readPatch(targetKey, 0, deps.store.readPatch(targetKey, 0, 0).total).text;
   // If the new guide fails, the current one comes back.
   deps.store.backupGuide(targetKey);
@@ -51,11 +71,13 @@ export async function rerunReview(deps: Deps, targetKey: string, options: { noti
   deps.store.saveReview({ ...m, status: "generating" });
   if (m.headSha) deps.store.saveSnapshot(targetKey, m.headSha, next);
   // Unsent draft comments follow their lines into the new diff; ones whose lines are gone stay flagged.
-  for (const comment of deps.store.getDraft(targetKey).comments) {
-    const placed = reanchor({ ...comment, code: deps.store.draftCommentCode(targetKey, comment) }, previous, next);
-    if (placed.status !== "lost") deps.store.rebaseDraftComment(targetKey, comment, placed.status === "moved" ? placed.line : comment.line);
-  }
+  deps.store.rebaseDraftComments(targetKey, reanchorAll(deps.store, targetKey, previous, next));
   pruneDiffs(deps.store, deps.store.getReview(targetKey)!);
   void generateGuide(deps.bb, deps.store, targetKey, m.projectId, options);
-  return { ok: true };
+}
+
+/** Whether a review already shows this diff: its guide is ready, at the same head, for the same patch. */
+export function upToDate(store: Store, m: ReviewMeta, headSha: string | undefined, patch: string): boolean {
+  return m.status === "ready" && !!store.getGuide(m.targetKey) && m.headSha === headSha
+    && store.readPatch(m.targetKey, 0, store.readPatch(m.targetKey, 0, 0).total).text === ensureGitHeaders(patch);
 }

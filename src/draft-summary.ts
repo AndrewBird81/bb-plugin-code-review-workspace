@@ -3,9 +3,7 @@
 import type { Store } from "./store";
 import { commentsKey, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "./draft";
 import { describeComments, unchangeable, type DraftResult } from "./draft-comments";
-
-/** An ask on the summary whose turn's end bb never reported gives way after this. */
-export const ASK_LIFETIME = 30 * 60_000;
+import { asked } from "./asks";
 
 /**
  * Write the summary as an agent, and suggest a verdict. An agent writes an empty summary or
@@ -18,9 +16,7 @@ export function writeSummary(store: Store, targetKey: string, input: { body: str
   const body = input.body.trim();
   const reviewers = !draft.bodyAuthor && !!draft.body.trim();
   // Asking on the summary opens it to the turn that carries the ask, replies and all, on that conversation.
-  const ask = store.getReview(targetKey)?.summaryAsk;
-  const asked = !!threadId && ask?.state === "running" && ask.threadId === threadId && Date.now() - ask.at < ASK_LIFETIME;
-  if (reviewers && !asked) {
+  if (reviewers && !asked(store, targetKey, SUMMARY_AT, threadId)) {
     return { ok: false, error: "The reviewer wrote the review summary, so it stays as they wrote it. Put your suggested summary in your reply instead; the reviewer can ask on the summary (Ask agent on the review summary, in Draft review) to apply it. Nothing was changed." };
   }
   const suggested = input.verdict ? { suggestedVerdict: input.verdict } : {};

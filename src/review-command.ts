@@ -4,6 +4,7 @@ import { parseTarget, targetKey } from "./targets";
 import { ensureGitHeaders } from "./patch";
 import { generateGuide, guideWriterUnavailable } from "./generate";
 import { readPrSnapshot } from "./pr-snapshot";
+import { rebuildReview, upToDate } from "./rereview";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
 import {
@@ -103,20 +104,32 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx) {
 
   if (!patch.trim()) return { exitCode: 1, stderr: "No changes found for that target." };
 
-  deps.store.saveReview(meta);
-  deps.store.savePatch(key, ensureGitHeaders(patch));
-  deps.store.unignoreDiscovery(key);
-
   if (context !== undefined) deps.store.setReviewContext(key, context.trim() || null);
 
-  // Fire-and-forget generation; the panel refetches on the realtime signal.
-  void generateGuide(deps.bb, deps.store, key, ctx.projectId);
+  // A review already building, or showing this diff, just opens; another existing one rebuilds as Re-review does.
+  const existing = deps.store.getReview(key);
+  const building = existing?.status === "generating";
+  const current = !!existing && !building && upToDate(deps.store, existing, meta.headSha, patch);
+  if (building || current) {
+    if (existing!.userArchivedAt) deps.store.setLifecycle(key, { userArchivedAt: null });
+  } else if (existing) {
+    rebuildReview(deps, meta, patch);
+  } else {
+    deps.store.saveReview(meta);
+    deps.store.savePatch(key, ensureGitHeaders(patch));
+    deps.store.unignoreDiscovery(key);
+    // Fire-and-forget generation; the panel refetches on the realtime signal.
+    void generateGuide(deps.bb, deps.store, key, ctx.projectId);
+  }
 
-  const lines = [`Guided Review started for ${key}. Open the Guided Review panel to watch it build and review.`];
+  const lines = [current ? `Guided Review for ${key} is up to date. Open the Guided Review panel to review it.`
+    : building ? `Guided Review for ${key} is already building. Open the Guided Review panel to watch it build and review.`
+    : `Guided Review started for ${key}. Open the Guided Review panel to watch it build and review.`];
   if (context !== undefined && !context.trim()) lines.push("Removed the review's context.");
   else if (context !== undefined) lines.push(
     !deps.store.getPreferences().preferences.automaticReview.trim() ? "Automatic review is off in Review settings, so no assistant gets this context."
     : deps.store.getAssistantThread(key) ? "This review already has an assistant conversation, so the automatic review won't run and won't see this context. Paste it into Ask agent instead."
+    : current ? "The guide is current, so the automatic review won't run again. Paste the context into Ask agent instead."
     : "The assistant's automatic review will include this context.");
   return { exitCode: 0, stdout: lines.join("\n") };
 }

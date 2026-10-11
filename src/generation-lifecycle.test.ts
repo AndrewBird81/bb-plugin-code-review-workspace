@@ -74,3 +74,69 @@ test("disposal aborts a pending worker wait and releases the worker", async () =
   expect(stop).toHaveBeenCalledWith({ threadId: "worker" });
   expect(store.getReview("target")?.status).toBe("error");
 });
+
+test("a guide worker that fails ends its generation at once", async () => {
+  const { makeThreadResponse } = await import("@get-bb/plugin-sdk/testing");
+  let waiting = false;
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}),
+    wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+      waiting = true;
+      signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }),
+    queuedMessages: { list: async () => [] },
+  } } as any });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  const run = generateGuide(bb, store, "target", "p1");
+  await vi.waitFor(() => expect(waiting).toBe(true));
+  await harness.behavior.emitThreadEvent("thread.failed", { thread: makeThreadResponse({ id: "someone-else" }), error: null });
+  expect(store.getReview("target")?.status).toBe("generating");
+  await harness.behavior.emitThreadEvent("thread.failed", { thread: makeThreadResponse({ id: "worker" }), error: "Provider crashed" });
+  await run;
+  expect(store.getReview("target")?.status).toBe("error");
+});
+
+test("a guide worker still working when the wait times out is waited for longer", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  const waits: number[] = [];
+  let store!: ReturnType<typeof createStore>;
+  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}),
+    get: async () => ({ id: "worker", status: "active", archivedAt: null, deletedAt: null }),
+    wait: async ({ timeoutMs }: { timeoutMs: number }) => {
+      waits.push(timeoutMs);
+      if (waits.length === 1) {
+        vi.setSystemTime(Date.now() + timeoutMs);
+        throw new Error("Timed out waiting for thread worker");
+      }
+      store.saveGuide("target", guide);
+      return { matched: true };
+    },
+  } } as any });
+  store = createStore(bb);
+  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  // A 50 KB diff gets five more minutes.
+  store.savePatch("target", "x".repeat(50_000));
+  try {
+    await generateGuide(bb, store, "target", "p1");
+  } finally {
+    vi.useRealTimers();
+  }
+  expect(waits).toEqual([600_000, 300_000]);
+  expect(store.getReview("target")?.status).toBe("ready");
+});
+
+test("a wait that fails before its time ends the generation, even while the worker looks active", async () => {
+  const wait = vi.fn(async () => { throw new Error("bb unreachable"); });
+  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}), wait,
+    get: async () => ({ id: "worker", status: "active", archivedAt: null, deletedAt: null }),
+  } } as any });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  await generateGuide(bb, store, "target", "p1");
+  expect(wait).toHaveBeenCalledTimes(1);
+  expect(store.getReview("target")?.status).toBe("error");
+});

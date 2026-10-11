@@ -46,7 +46,9 @@ export interface ReviewLifecycle {
    * "queued" while the message waits in the thread's queue as `queuedMessageId`, "running" once its
    * turn is under way, since `at`.
    */
-  summaryAsk?: { threadId: string | null; state: "sending" | "queued" | "running"; queuedMessageId?: string; at: number } | null;
+  summaryAsk?: Ask | null;
+  /** The reviewer asked on draft comments: each opens the reviewer's comment there as summaryAsk opens the summary. */
+  commentAsks?: Array<CommentLocation & { ask: Ask }>;
   /** When bb first read the PR's state. Earlier events don't alert or start work. */
   watchingSince?: number | null;
   /** Found on GitHub with a request for your review that you haven't been told about. */
@@ -64,6 +66,9 @@ export interface ReviewLifecycle {
   /** When preparing a re-review was last tried, to retry a failed start now and then. */
   prepareTriedAt?: number | null;
 }
+
+/** The turn of the reviewer's ask on the summary or a draft comment (src/asks.ts). */
+export type Ask = { threadId: string | null; state: "sending" | "queued" | "running"; queuedMessageId?: string; at: number };
 
 export interface ReviewMeta extends ReviewLifecycle {
   targetKey: string;
@@ -135,7 +140,10 @@ export interface Store {
   restoreGuide(targetKey: string): boolean;
   dropGuideBackup(targetKey: string): void;
   isCurrentGeneration(targetKey: string, generationId: string): boolean;
-  interruptGenerations(): void;
+  /** Record the hidden thread writing a generation's guide, to stop it if the plugin reloads first. */
+  setGenerationWorker(targetKey: string, generationId: string, workerId: string): void;
+  /** End the generations a reload interrupted, putting back their previous guides. Returns them, with their workers. */
+  interruptGenerations(): Array<{ targetKey: string; workerId: string | null }>;
   getDraft(targetKey: string): Draft;
   upsertDraftComment(targetKey: string, c: DraftComment): Draft;
   /** Change only a comment's text, keeping who added it and the diff it was drafted against. Null when there's no comment there. */
@@ -207,8 +215,11 @@ export interface Store {
   isDiscoveryIgnored(targetKey: string): boolean;
   /** The text a draft comment's line had when it was drafted. */
   draftCommentCode(targetKey: string, at: CommentLocation): string | undefined;
-  /** Mark a draft comment as drafted against the current diff, at a possibly new line. */
-  rebaseDraftComment(targetKey: string, at: CommentLocation, line: number): void;
+  /**
+   * Mark draft comments as drafted against the current diff, each at a possibly new line, all at once.
+   * A comment whose new place another comment ends up on stays where it was, drafted against the older diff.
+   */
+  rebaseDraftComments(targetKey: string, placements: ReadonlyArray<{ at: CommentLocation; line: number }>): void;
 }
 
 /** A summary change: any of these fields, where undefined clears it. */
@@ -282,6 +293,7 @@ export function createStore(bb: BbPluginApi): Store {
     `ALTER TABLE drafts ADD COLUMN meta TEXT`,
     // Before an agent's change, the comment or summary it replaced, as JSON.
     `ALTER TABLE discussion_entries ADD COLUMN previous TEXT`,
+    `ALTER TABLE generations ADD COLUMN worker_id TEXT`,
   ]);
   const at = (k: string, { file, line, side }: CommentLocation) => [k, file, line, side] as const;
   const hasDiscussion = (k: string, location: CommentLocation) =>
@@ -411,7 +423,7 @@ export function createStore(bb: BbPluginApi): Store {
     beginGeneration(k) {
       const id = randomUUID();
       db.transaction(() => {
-        db.prepare(`INSERT INTO generations VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET generation_id=excluded.generation_id`).run(k, id);
+        db.prepare(`INSERT INTO generations (target_key,generation_id) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET generation_id=excluded.generation_id, worker_id=NULL`).run(k, id);
         db.prepare(`DELETE FROM guides WHERE target_key=?`).run(k);
         db.prepare(`UPDATE reviews SET status='generating' WHERE target_key=?`).run(k);
         // Restarting a review (new PR link, `bb review`, Re-review) takes it out of the reviewer's archive.
@@ -422,15 +434,21 @@ export function createStore(bb: BbPluginApi): Store {
     isCurrentGeneration(k, id) {
       return (db.prepare(`SELECT generation_id FROM generations WHERE target_key=?`).get(k) as any)?.generation_id === id;
     },
+    setGenerationWorker(k, id, workerId) {
+      db.prepare(`UPDATE generations SET worker_id=? WHERE target_key=? AND generation_id=?`).run(workerId, k, id);
+    },
     interruptGenerations() {
+      const interrupted = (db.prepare(`SELECT r.target_key, g.worker_id FROM reviews r LEFT JOIN generations g ON g.target_key=r.target_key WHERE r.status='generating'`).all() as Array<{ target_key: string; worker_id: string | null }>)
+        .map((row) => ({ targetKey: row.target_key, workerId: row.worker_id ?? null }));
       db.transaction(() => {
         // An interrupted rebuild gets its previous guide back.
-        for (const { target_key } of db.prepare(`SELECT target_key FROM reviews WHERE status='generating'`).all() as Array<{ target_key: string }>) this.restoreGuide(target_key);
+        for (const { targetKey } of interrupted) this.restoreGuide(targetKey);
         // Completed identities are also durable notification receipts. Only
         // workers interrupted by this reload lose the right to finalize.
         db.prepare(`DELETE FROM generations WHERE target_key IN (SELECT target_key FROM reviews WHERE status='generating')`).run();
         db.prepare(`UPDATE reviews SET status='error' WHERE status='generating'`).run();
       })();
+      return interrupted;
     },
     backupGuide(k) {
       const guide = this.getGuide(k);
@@ -456,10 +474,7 @@ export function createStore(bb: BbPluginApi): Store {
         db.prepare(`UPDATE reviews SET head_sha=?, base=?, head=?, git_ref=? WHERE target_key=?`).run(kept.headSha, kept.base, kept.head, kept.gitRef, k);
         db.prepare(`DELETE FROM guide_backups WHERE target_key=?`).run(k);
         // Unsent comments moved to the replaced diff move back with it.
-        for (const comment of this.getDraft(k).comments) {
-          const placed = reanchor({ ...comment, code: this.draftCommentCode(k, comment) }, replaced, kept.patch);
-          if (placed.status !== "lost") this.rebaseDraftComment(k, comment, placed.status === "moved" ? placed.line : comment.line);
-        }
+        this.rebaseDraftComments(k, reanchorAll(this, k, replaced, kept.patch));
       })();
       return true;
     },
@@ -713,21 +728,37 @@ export function createStore(bb: BbPluginApi): Store {
     draftCommentCode(k, { file, line, side }) {
       return (db.prepare(`SELECT code FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).get(k, file, line, side) as any)?.code ?? undefined;
     },
-    rebaseDraftComment(k, at, line) {
+    rebaseDraftComments(k, placements) {
       const patch = this.readPatch(k, 0, this.readPatch(k, 0, 0).total).text;
+      const positions = diffPositions(patch);
       db.transaction(() => {
-        if (line !== at.line) {
-          const d = this.getDraft(k);
+        const d = this.getDraft(k);
+        const moves = new Map<DraftComment, number>();
+        for (const { at, line } of placements) {
           const comment = d.comments.find((c) => sameLocation(c, at));
-          if (!comment || d.comments.some((c) => sameLocation(c, { ...at, line }))) return;
-          comment.line = line;
-          writeDraft(db, d);
-          db.prepare(`DELETE FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).run(k, at.file, at.line, at.side);
+          if (comment) moves.set(comment, line);
         }
-        const code = diffPositions(patch).get(at.file)?.[at.side === "LEFT" ? "left" : "right"].get(line) ?? null;
-        db.prepare(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code) VALUES (?,?,?,?,?,?)
-          ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code`)
-          .run(k, at.file, line, at.side, patchHash(patch), code);
+        // Collisions count only among final places; a comment that would share one keeps its old place.
+        for (let clash = true; clash;) {
+          clash = false;
+          const places = new Map<string, DraftComment[]>();
+          for (const c of d.comments) {
+            const place = JSON.stringify([c.file, moves.get(c) ?? c.line, c.side]);
+            places.set(place, [...(places.get(place) ?? []), c]);
+          }
+          for (const group of places.values()) {
+            if (group.length > 1) for (const c of group) if (moves.has(c) && moves.get(c) !== c.line) { moves.delete(c); clash = true; }
+          }
+        }
+        for (const c of moves.keys()) db.prepare(`DELETE FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).run(k, c.file, c.line, c.side);
+        for (const [c, line] of moves) {
+          c.line = line;
+          const code = positions.get(c.file)?.[c.side === "LEFT" ? "left" : "right"].get(line) ?? null;
+          db.prepare(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code) VALUES (?,?,?,?,?,?)
+            ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code`)
+            .run(k, c.file, line, c.side, patchHash(patch), code);
+        }
+        writeDraft(db, d);
       })();
     },
   };
@@ -740,6 +771,14 @@ const REVIEW_TABLES = [
   "discussion_entries", "discussion_waits", "review_snapshots", "feedback_threads", "feedback_fetches",
   "assessment_items", "assessment_runs", "reply_drafts", "guide_backups",
 ] as const;
+
+/** Where each unsent comment's line is in `next`, for rebaseDraftComments; comments whose lines are gone are left out. */
+export function reanchorAll(store: Store, k: string, previous: string, next: string): Array<{ at: CommentLocation; line: number }> {
+  return store.getDraft(k).comments.flatMap((comment) => {
+    const placed = reanchor({ ...comment, code: store.draftCommentCode(k, comment) }, previous, next);
+    return placed.status === "lost" ? [] : [{ at: comment, line: placed.status === "moved" ? placed.line : comment.line }];
+  });
+}
 
 function patchHash(patch: string) { return createHash("sha256").update(patch).digest("hex"); }
 

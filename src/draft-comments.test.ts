@@ -65,7 +65,8 @@ test("adding never replaces a comment; editing and deleting change only the one 
 
   // An edit keeps the location, who added it, and the diff it was drafted against.
   store.savePatch("pr-1", patch.replace("export { a };", "export { a, b };"));
-  expect(await call("edit_draft_comment", { file: "a.ts", line: 3, body: "Mine, reworded" })).toBe("Updated the draft comment on a.ts:3.");
+  store.setLifecycle("pr-1", { commentAsks: [{ file: "a.ts", line: 3, side: "RIGHT", ask: { threadId: "assistant", state: "running", at: Date.now() } }] });
+  expect(await call("edit_draft_comment", { file: "a.ts", line: 3, body: "Mine, reworded" })).toBe("Updated the reviewer's draft comment on a.ts:3, as they asked.");
   expect(store.getDraft("pr-1").comments[0]).toEqual({ file: "a.ts", line: 3, side: "RIGHT", chapterId: "c1", body: "Mine, reworded" });
   expect(store.staleDraftComments("pr-1")).toHaveLength(2);
   expect(await call("list_draft_comments", {})).toContain("added by the reviewer · drafted against an older diff, so submitting refuses it\n  Mine, reworded");
