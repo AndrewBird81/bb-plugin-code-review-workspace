@@ -52,6 +52,8 @@ export interface InlineComposer {
   rebuilding?: boolean;
   /** The save was refused because the text was written against an older diff: keep it on the current one. */
   keepOnCurrentDiff?: (() => void) | null;
+  /** Add a suggested change for the box's lines, when they're new-file lines. */
+  suggest?: (() => void) | null;
 }
 
 export const InlineDraftContext = createContext<InlineDraft | null>(null);
@@ -112,9 +114,23 @@ function CommentView({ comment, draft }: { comment: DraftComment; draft: InlineD
           </span>
         )}
       </div>
-      <div className="px-3 py-2.5"><Markdown content={withLineBreaks(comment.body)} className="text-sm leading-relaxed" /></div>
+      <div className="px-3 py-2.5"><CommentBody body={comment.body} /></div>
     </article>
   );
+}
+
+// A ```suggestion block: the lines it would put in place of the comment's.
+const SUGGESTION = /^```suggestion[ \t]*\n([\s\S]*?)^```[ \t]*$/m;
+
+/** A comment's text, with each ```suggestion block shown as the code it would put in place of the comment's lines. */
+export function CommentBody({ body }: { body: string }) {
+  const parts = body.split(new RegExp(SUGGESTION, "gm"));
+  return <div className="space-y-2">{parts.map((part, index) => index % 2
+    ? <figure key={index} aria-label="Suggested change" className="overflow-hidden rounded-md border border-border">
+        <figcaption className="border-b border-border bg-muted/25 px-2 py-1 text-xs text-muted-foreground">Suggested change</figcaption>
+        <pre className="overflow-x-auto bg-success/10 px-2 py-1.5 font-mono text-xs leading-relaxed"><code>{part.replace(/\n$/, "")}</code></pre>
+      </figure>
+    : part.trim() && <Markdown key={index} content={withLineBreaks(part.trim())} className="text-sm leading-relaxed" />)}</div>;
 }
 
 /** Heads a discussion with no comment: a question about the line, or one whose comment the agent removed. */
@@ -227,6 +243,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
       {mode !== "ask" && <ComposerNotes error={composer.error} rebuilding={composer.rebuilding} keepOnCurrentDiff={composer.keepOnCurrentDiff} />}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {mode === "ask" && <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Goes to the agent, not GitHub.</span>}
+        {mode !== "ask" && composer.suggest && <Button variant="outline" size="sm" className="mr-auto" disabled={busy} onClick={composer.suggest}><Icon name="Edit" className="size-3.5" aria-hidden />Suggest change</Button>}
         <Button variant="ghost" size="sm" disabled={busy} onClick={composer.cancel}>Cancel</Button>
         {mode === "new" && <Button variant="outline" size="sm" disabled={busy || empty} onClick={composer.askAgent}><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Ask agent</Button>}
         <Button size="sm" disabled={held} onClick={primary}>

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
 import { commentsKey, isSummary, linesOf, rangeOf, sameLocation, summaryChanges, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type CommentLocation, type Discussion, type Draft, type DraftComment, type Verdict } from "../src/draft";
-import { orderRange } from "../src/review-positions";
+import { diffPositions, orderRange } from "../src/review-positions";
 import { Button, buttonVariants } from "./ui/button";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
@@ -17,12 +17,11 @@ import { getReviewState, patchReviewState } from "../lib/panel-state";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
 import { setDraftStatus } from "../lib/draft-status";
 import { usePortalScopeProps } from "../lib/portal-scope";
-import { ComposerNotes, composerKeys, InlineComposerContext, InlineDraftContext, locationKey, type InlineComposer, type InlineDraft } from "./InlineDraft";
+import { CommentBody, ComposerNotes, composerKeys, InlineComposerContext, InlineDraftContext, locationKey, type InlineComposer, type InlineDraft } from "./InlineDraft";
 import { SummaryCard } from "./SummaryCard";
-import { Markdown, UrlLink } from "@get-bb/plugin-sdk/app";
+import { UrlLink } from "@get-bb/plugin-sdk/app";
 import { Badge } from "./ui/badge";
 import { FilePath } from "./ui/file-path";
-import { withLineBreaks } from "../src/line-breaks";
 
 /**
  * A request from the diff to comment on a line, or with `ask` to message the agent about it; the box
@@ -40,7 +39,7 @@ const VERDICTS = [
 
 export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, activeFiles, files = activeFiles, prefill, isLocal = false, review, onSubmitted, onShowComment, agent, reviewRevision, rebuilding = false, ownPr = false, account, showDraft, patch = "", children }: {
   targetKey: string; activeChapterId: string; activeFiles: string[];
-  /** The review's diff, to order a selection's lines. */
+  /** The review's diff, to order a selection's lines and fill in a suggested change. */
   patch?: string;
   /** The review's changed files, chapter by chapter. */
   files?: string[];
@@ -363,6 +362,17 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
       setComposerError(message);
     });
   }
+  /** Add a ```suggestion block holding the box's lines as they read now, for the reviewer to edit in place. */
+  function suggestChange() {
+    if (!suggestable) return;
+    const next = `${body.trimEnd() ? `${body.trimEnd()}\n\n` : ""}\`\`\`suggestion\n${suggestable.join("\n")}\n\`\`\``;
+    changeBody(next);
+    requestAnimationFrame(() => {
+      const box = bodyRef.current;
+      // Typing goes at the end of the lines, before the closing fence.
+      box?.focus(); box?.setSelectionRange(next.length - 4, next.length - 4);
+    });
+  }
   async function removeComment(comment: DraftComment) {
     const { file, line, side } = comment;
     // Putting back a comment on an older diff would bind it to the current one unchecked.
@@ -408,6 +418,19 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   }
 
   const canAdd = !busy && !rebuilding && !!file.trim() && !!body.trim() && Number.isInteger(Number(line)) && Number(line) >= 1;
+  const positions = useMemo(() => diffPositions(patch), [patch]);
+  // The new-file lines a comment's box is on, as they read now, for Suggest change; null on old-file lines.
+  const suggestable = useMemo(() => {
+    if (!showComposer || summaryBox || asking || side !== "RIGHT" || startSide) return null;
+    const lines = positions.get(file)?.right;
+    const texts: string[] = [];
+    for (let n = startLine ?? Number(line); n <= Number(line); n++) {
+      const text = lines?.get(n);
+      if (text === undefined) return null;
+      texts.push(text);
+    }
+    return texts.length ? texts : null;
+  }, [positions, showComposer, summaryBox, asking, file, line, side, startLine, startSide]);
   const boxLines = linesOf({ line: Number(line), side, startLine, startSide });
   const hasReview = draft.comments.length > 0 || draft.body.trim().length > 0 || draft.verdict === "APPROVE";
   // GitHub refuses Request changes without a summary.
@@ -431,8 +454,8 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
   }, [targetKey, submittable, draft.verdict, draft.comments.length]);
   useEffect(() => () => setDraftStatus(targetKey, null), [targetKey]);
   // The diff shows the draft's comments and discussions, and the comment box while it's open there.
-  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComment, cancelComposer });
-  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComment, cancelComposer };
+  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComment, cancelComposer, suggestChange });
+  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComment, cancelComposer, suggestChange };
   const open = useCallback((at: CommentLocation) => latest.current.openComposer(at, true), []);
   const ask = useCallback((at: CommentLocation) => latest.current.openComposer(at, true, true), []);
   const remove = useCallback((comment: DraftComment) => { void latest.current.removeComment(comment); }, []);
@@ -452,13 +475,15 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
     composer: composerInDiff ? { file, line: Number(line), side, ...(startLine ? { startLine } : {}), editing: editing !== null, asking } : null,
     editingAt: editingLine ? { file, line: Number(line), side } : null,
   }), [draft.comments, stale, lineDiscussions, editable, busy, writing, open, ask, remove, dismiss, undoAt, chat, composerInDiff, editingLine, file, line, side, startLine, editing, asking]);
+  const canSuggest = !!suggestable;
   const inlineComposer = useMemo<InlineComposer | null>(() => composerInDiff ? {
     body, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
     change: (text) => latest.current.changeBody(text),
     save: () => { void latest.current.addComment(); },
     askAgent: () => { void latest.current.askAgent(); },
     cancel: () => latest.current.cancelComposer(),
-  } : null, [composerInDiff, body, composerError, rebuilding, olderDiff]);
+    suggest: canSuggest ? () => latest.current.suggestChange() : null,
+  } : null, [composerInDiff, body, composerError, rebuilding, olderDiff, canSuggest]);
   const summaryComposer = editable && onSummary ? {
     mode: asking ? "ask" as const : "edit" as const, body, textareaRef: bodyRef,
     change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: () => { closeComposer(); focusSummary(); },
@@ -546,7 +571,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
                 {isStale && <Badge tone="warning" size="sm">Older diff</Badge>}
                 {discussion?.waiting ? <Badge tone="agent" dot pulse size="sm">Waiting for agent</Badge> : messages > 0 && <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><Icon name="MessageSquare" className="size-3" aria-hidden />{messages}</span>}
               </button>
-              <Markdown content={withLineBreaks(comment.body)} className="text-sm leading-relaxed" />
+              <CommentBody body={comment.body} />
               <div className="-mb-1 -ml-2 flex gap-0.5"><Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" disabled={busy || !!body.trim()} aria-label={`Edit comment on ${comment.file}:${linesOf(comment)}`} onClick={() => openComposer(comment, false)}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button><Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive-text" disabled={busy} aria-label={`Remove comment on ${comment.file}:${linesOf(comment)}`} onClick={() => void removeComment(comment)}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove</Button></div>
             </li>; })}</ul> : !(showComposer && !onSummary) && <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-4 py-6 text-center"><Icon name="MessageSquarePlus" className="size-5 text-subtle-foreground" aria-hidden /><p className="text-sm leading-relaxed text-muted-foreground">Select a line in the diff or add a comment here.</p></div>}
             {showComposer && !onSummary && (inline ? <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
@@ -561,7 +586,7 @@ export const DraftTray = memo(function DraftTray({ targetKey, activeChapterId, a
               </div>
               <Textarea ref={bodyRef} aria-label="Draft comment" disabled={busy} value={body} onChange={(event) => changeBody(event.target.value)} onKeyDown={(event) => composerKeys(event, canAdd ? () => void addComment() : null, () => { if (!busy) cancelComposer(); })} placeholder="What should the author know?" />
               <ComposerNotes error={composerError} rebuilding={rebuilding} keepOnCurrentDiff={olderDiff ? keepOnCurrentDiff : null} />
-              <div className="flex flex-wrap gap-2"><Button disabled={!canAdd} onClick={() => void addComment()}>{editing ? "Save comment" : "Add to draft"}</Button><Button variant="ghost" disabled={busy} onClick={cancelComposer}>Cancel</Button></div>
+              <div className="flex flex-wrap gap-2"><Button disabled={!canAdd} onClick={() => void addComment()}>{editing ? "Save comment" : "Add to draft"}</Button><Button variant="ghost" disabled={busy} onClick={cancelComposer}>Cancel</Button>{suggestable && <Button variant="outline" className="ml-auto" disabled={busy} onClick={suggestChange}><Icon name="Edit" className="size-3.5" aria-hidden />Suggest change</Button>}</div>
             </div>)}
           </div>
           <footer className="shrink-0 space-y-2.5 border-t border-border p-3">

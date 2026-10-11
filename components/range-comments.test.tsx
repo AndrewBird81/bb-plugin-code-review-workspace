@@ -67,6 +67,39 @@ test("lines selected upward in the diff make a comment on the range, shown under
   slot.lifecycle.unmount();
 });
 
+test("Suggest change fills the box with the selected lines' current text, indentation and all", async () => {
+  const { slot, diff } = await renderReview({ getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }) },
+    { file: "src/a.ts", line: 4, side: "RIGHT", startLine: 3, startSide: "RIGHT", nonce: 1 });
+  const box = await diff().findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: "Shorter:" } });
+  fireEvent.click(diff().getByRole("button", { name: "Suggest change" }));
+  expect(box.value).toBe("Shorter:\n\n```suggestion\n  three();\n    four;\n```");
+  // The cursor waits at the end of the lines to edit.
+  await waitFor(() => expect([document.activeElement, box.selectionStart]).toEqual([box, box.value.length - 4]));
+  slot.lifecycle.unmount();
+});
+
+test("Suggest change isn't offered on removed lines", async () => {
+  const { slot, diff } = await renderReview({ getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }) },
+    { file: "src/a.ts", line: 2, side: "LEFT", nonce: 1 });
+  await diff().findByRole("textbox", { name: "Draft comment" });
+  expect(diff().queryByRole("button", { name: "Suggest change" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("a comment's suggestion shows as the code it would put in place", async () => {
+  const comment = { file: "src/a.ts", line: 4, side: "RIGHT", startLine: 3, body: "Shorter:\n\n```suggestion\n  three(); four;\n```\nThanks." };
+  const { slot, diff, panel } = await renderReview({ getDraft: () => ({ draft: draftOf([comment]), stale: [], discussions: [] }) });
+  const card = await diff().findByRole("article", { name: "Draft comment on src/a.ts:3–4" });
+  for (const where of [within(card), panel()]) {
+    const suggestion = where.getByRole("figure", { name: "Suggested change" });
+    expect(suggestion.querySelector("pre code")?.textContent).toBe("  three(); four;");
+    expect(where.getByText("Shorter:")).toBeTruthy();
+    expect(where.getByText("Thanks.")).toBeTruthy();
+  }
+  slot.lifecycle.unmount();
+});
+
 test("in the review, Add comment on lines dragged upward comments on them first to last", async () => {
   const app = await loadPluginApp(() => import("../app"));
   let draft = draftOf();
@@ -90,7 +123,8 @@ test("in the review, Add comment on lines dragged upward comments on them first 
   fireEvent.click(await slot.findByRole("button", { name: "Drag lines 4 to 2" }));
   fireEvent.click(within(slot.getByRole("button", { name: "Clear selection" }).parentElement!).getByRole("button", { name: "Add comment" }));
   const box = await within(slot.getByTestId("filediff")).findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
-  fireEvent.change(box, { target: { value: "Fold these." } });
+  fireEvent.click(within(slot.getByTestId("filediff")).getByRole("button", { name: "Suggest change" }));
+  expect(box.value).toBe("```suggestion\ntwo();\n  three();\n    four;\n```");
   fireEvent.click(within(slot.getByTestId("filediff")).getByRole("button", { name: "Add to draft" }));
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ file: "src/a.ts", line: 4, side: "RIGHT", startLine: 2 }) })));
   slot.lifecycle.unmount();
