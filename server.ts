@@ -186,13 +186,15 @@ export default async function plugin(bb: BbPluginApi) {
   async function rereadPrunedDiff(targetKey: string) {
     const review = store.getReview(targetKey);
     if (review?.kind !== "pr" || review.status !== "ready" || !review.headSha || store.hasPatch(targetKey)) return;
+    let patch: string;
     try {
-      store.savePatch(targetKey, await diffAt(store, runGh, review, review.headSha));
+      patch = await diffAt(store, runGh, review, review.headSha);
     } catch (error) {
       throw new Error(`Couldn't read this review's diff again: ${error instanceof Error ? error.message : String(error)}`);
     }
-    // The page's other reads ran without it.
-    bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
+    store.savePatch(targetKey, patch);
+    // The page's other reads ran without it. An empty diff changed nothing, and reloading would read it again.
+    if (patch) bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
   }
   const view = (targetKey: string) => {
     const review = store.getReview(targetKey);
