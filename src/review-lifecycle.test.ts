@@ -216,6 +216,20 @@ test("feedback handled: every thread resolved or answered alerts once the author
   expect(s.published[0].body).toContain("Every thread of your feedback is resolved or answered");
 });
 
+test("an active review's threads are read again every 10 minutes only while one of yours is unresolved", async () => {
+  for (const [status, reads] of [["resolved", 1], ["open", 2]] as const) {
+    const s = setup({ reviewed: true, threads: [thread("t1", status)] });
+    await s.sync.all();
+    s.at(0.5);
+    await s.sync.all(true);
+    expect(s.github.threads).toHaveBeenCalledTimes(reads);
+    // A change to the PR reads them again either way.
+    s.pr({ updatedAt: 2 });
+    await s.sync.all(true);
+    expect(s.github.threads).toHaveBeenCalledTimes(reads + 1);
+  }
+});
+
 test("a question on your thread alerts without preparing a re-review", async () => {
   const s = setup({ reviewed: true, threads: [thread("t1", "open")] });
   await s.sync.all();

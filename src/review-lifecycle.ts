@@ -64,7 +64,10 @@ const PUSH_QUIET = 15 * MINUTE;
 const DISCOVER_EVERY = 5 * MINUTE;
 /** The account discovery last ran for; its first run only fills the list. */
 const DISCOVERED = "discovery:account";
-/** Threads are re-read when the PR changes, and at least this often while it's active. */
+/**
+ * Threads are re-read when the PR changes, and at least this often while it's active and one of yours is
+ * unresolved: resolving a thread may not change the PR's updatedAt. Each read costs about 2 GraphQL points.
+ */
 const THREADS_EVERY = 10 * MINUTE;
 /** How often a re-review that couldn't start is tried again. */
 const RETRY_PREPARE = 10 * MINUTE;
@@ -201,7 +204,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     if (updated.signals?.lastReviewAt) {
       const fetched = store.feedbackFetched(key);
       const active = turnOf(updated).group === "needs" || turnOf(updated).group === "waiting";
-      if (!fetched || fetched.prUpdatedAt !== facts.updatedAt || active && clock() - fetched.fetchedAt >= THREADS_EVERY) {
+      const unresolved = active && store.listFeedbackThreads(key).some((t) => !t.isResolved);
+      if (!fetched || fetched.prUpdatedAt !== facts.updatedAt || unresolved && clock() - fetched.fetchedAt >= THREADS_EVERY) {
         try {
           const threads = await github.threads(facts.repo, facts.number, login, facts.author);
           // The review may have been deleted while GitHub answered.
