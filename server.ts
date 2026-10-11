@@ -182,15 +182,16 @@ export default async function plugin(bb: BbPluginApi) {
     store.setLifecycle(review.targetKey, { signals: { ...store.getReview(review.targetKey)!.signals, ...threadSignals(store.listFeedbackThreads(review.targetKey)) } });
     bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
   }
-  /** A review whose diff pruneOldDiffs dropped reads it again when it's opened. */
-  async function rereadPrunedDiff(targetKey: string) {
+  /** A review whose diff pruneOldDiffs dropped reads it again when it's opened; returns why it couldn't. */
+  async function rereadPrunedDiff(targetKey: string): Promise<string | undefined> {
     const review = store.getReview(targetKey);
     if (review?.kind !== "pr" || review.status !== "ready" || !review.headSha || store.hasPatch(targetKey)) return;
     let patch: string;
     try {
       patch = await diffAt(store, runGh, review, review.headSha);
     } catch (error) {
-      throw new Error(`Couldn't read this review's diff again: ${error instanceof Error ? error.message : String(error)}`);
+      bb.log.warn(`Could not read the diff of ${targetKey} again: ${String(error)}`);
+      return `Couldn't read this review's diff from GitHub: ${(error instanceof Error ? error.message : String(error)).replace(/\.$/, "")}. The guide, your draft and notes are here; try again when GitHub can be reached.`;
     }
     store.savePatch(targetKey, patch);
     // The page's other reads ran without it. An empty diff changed nothing, and reloading would read it again.
@@ -315,10 +316,11 @@ export default async function plugin(bb: BbPluginApi) {
       return { githubCli: cli.code === 0, account: user.code === 0 ? user.stdout.trim() || null : null, agentAvailable: providers ? providers.some(p => p.available) : null, projectAvailable: projects ? projects.length > 0 : null };
     },
     async getReviewBundle({ targetKey, knownRevision }) {
-      await rereadPrunedDiff(targetKey);
+      const diffError = await rereadPrunedDiff(targetKey);
       const revision = reviewRevision(store, targetKey);
       return { review: await withOwnPr(decorate(store.getReview(targetKey))), guide: store.getGuide(targetKey),
-        patch: revision === knownRevision ? null : store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, revision };
+        patch: revision === knownRevision ? null : store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, revision,
+        ...(diffError ? { diffError } : {}) };
     },
     getPreferences() { return store.getPreferences(); },
     savePreferences({ preferences, revision }) {

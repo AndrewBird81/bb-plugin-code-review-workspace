@@ -24,5 +24,16 @@ test("a pruned review whose diff reads back empty doesn't ask the page to reload
   const before = opened();
   const bundle = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" }) as any;
   expect(bundle.patch).toBe("");
+  expect(bundle.diffError).toBeUndefined();
   expect(opened()).toBe(before);
+});
+
+test("a pruned review opens with its guide and draft when GitHub can't be reached, saying why the diff is missing", async () => {
+  gh.mockImplementation(async () => ({ stdout: "", stderr: "error connecting to api.github.com.", code: 1 }));
+  const { harness } = await prunedReview();
+  const bundle = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" }) as any;
+  expect(bundle.guide.intent).toBe("i");
+  expect(bundle.patch).toBe("");
+  expect(bundle.diffError).toMatch(/^Couldn't read this review's diff from GitHub: error connecting to api\.github\.com\. The guide, your draft and notes are here; try again when GitHub can be reached\.$/);
+  expect((await harness.behavior.callRpc("getDraft", { targetKey: "pr-1" }) as any).draft.body).toBe("LGTM");
 });

@@ -209,7 +209,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     try {
       // Views come with the diff, so viewed files are folded before it first draws.
       const known = shownPatch.current?.targetKey === targetKey ? shownPatch.current : null;
-      const [{ review, guide, patch: sent, revision }, viewsRes, generatedRes] = await Promise.all([
+      const [{ review, guide, patch: sent, revision, diffError }, viewsRes, generatedRes] = await Promise.all([
         rpc.call("getReviewBundle", { targetKey, ...(known ? { knownRevision: known.revision } : {}) }),
         rpc.call("getFileViews", { targetKey }).catch(() => null),
         // Like views, so files the repo marks generated are folded before the diff draws.
@@ -236,6 +236,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         setGuide(guide);
       }
       setPatch(patch);
+      if (diffError) setLoadError(diffError);
       if (viewsRes && viewsId === viewsRequest.current) setViews(viewMap(viewsRes.views));
       if (generatedRes) setGenerated((current) => current.size === generatedRes.files.length && generatedRes.files.every((file) => current.has(file)) ? current : new Set(generatedRes.files));
       const chapters = guide?.sections ? withOtherFiles(guide.sections, patch) : [];
