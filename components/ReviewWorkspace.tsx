@@ -14,6 +14,7 @@ import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { ReviewHeader, ReviewTitleLink } from "./ReviewHeader";
 import { ChapterNav } from "./ChapterNav";
+import { FindInReview } from "./FindInReview";
 import { ComparePicker } from "./ComparePicker";
 import type { FileOwners } from "../src/codeowners";
 import { ChapterIntro } from "./ChapterIntro";
@@ -516,6 +517,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     showComment({ file, line: line ?? 0, side });
   }, [outsideGuide, showComment]);
   const openHotspot = useCallback((file: string, line: number) => showLocation(file, line, "RIGHT"), [showLocation]);
+  // Find in review's results: a line, a chapter, or a file's summary, in the diff.
+  const openFoundChapter = useCallback((id: string) => { setView("diff"); selectChapter(id); }, [selectChapter]);
+  const openFoundFile = useCallback((_chapterId: string, file: string) => showLocation(file, null, "RIGHT"), [showLocation]);
   const followUp = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
     if (outsideGuide(file, url)) return;
     showLocation(file, line, side);
@@ -700,12 +704,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         showComment(next);
         return true;
       }
-      case "f": {
-        // The filter is in the sidebar, which may be hidden.
-        changeNavView("files");
+      case "/": case "f": {
+        // The box is in the sidebar, which may be hidden.
+        if (key === "f") changeNavView("files");
         if (compact) setMobileChapters(true);
         else setSidebarCollapsed(false);
-        requestAnimationFrame(() => rootRef.current?.querySelector<HTMLInputElement>("[data-filter-box]")?.focus());
+        requestAnimationFrame(() => rootRef.current?.querySelector<HTMLInputElement>(key === "/" ? "[data-find-box]" : "[data-filter-box]")?.focus());
         return true;
       }
       case "a": askAgent(); return true;
@@ -817,6 +821,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               className="max-h-[40vh] shrink-0 overflow-y-auto border-b border-border bg-surface-raised p-2 @min-[768px]/review:max-h-none @min-[768px]/review:border-b-0"
               style={{ width: compact ? "100%" : sidebarWidth }}
             >
+              <FindInReview patch={patch} sections={sections} onOpenLine={showLocation} onOpenChapter={openFoundChapter} onOpenFile={openFoundFile}>
               <ChapterNav
                 sections={sections}
                 activeId={activeId}
@@ -834,6 +839,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 owners={owners}
                 sinceWhat={sinceWhat}
               />
+              </FindInReview>
             </aside>
             {!compact && <div
               tabIndex={0}
