@@ -65,9 +65,10 @@ export function ReaderBar({ threads }: { threads: boolean }) {
           </>}
         </nav>
       </div>
-      {/* A phone held sideways has room for one of the diff's buttons: its options are behind it. */}
-      {chapter && layout.mode === "short" && <DiffOptions threads={threads} className={icon} />}
-      {chapter && layout.mode === "tablet" && <div className="flex shrink-0 items-center gap-0.5">
+      {/* A phone held sideways has room for one of the diff's buttons, and so has a band under 1000px that ends with the
+          review's commands: the diff's options are behind it. */}
+      {chapter && (layout.mode === "short" || commands) && <DiffOptions threads={threads} className={cn(icon, layout.mode === "tablet" && "@min-[1000px]/band:hidden")} />}
+      {chapter && layout.mode === "tablet" && <div className={cn("flex shrink-0 items-center gap-0.5", commands && "hidden @min-[1000px]/band:flex")}>
         {(compare.since || isPr) && <ComparePicker targetKey={targetKey} baseline={compare.baseline} head={compare.head} from={compare.from} onFrom={compare.pick} available={!!compare.since} pickable={isPr} pressed={compare.narrowed} onToggle={() => compare.setNarrowed(!compare.narrowed)} />}
         {compare.error && (
           <span role="status" title={compare.error} className="flex items-center gap-1 px-1 text-xs text-destructive-text">

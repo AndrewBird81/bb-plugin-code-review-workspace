@@ -187,6 +187,9 @@ test("Full screen goes from the title bar to the band's end and back; from the k
   fireEvent.click(enter, { detail: 0 });
   expect(document.fullscreenElement).toBe(band().getByRole("button", { name: "Exit full screen" }).closest("[class*='@container/review']"));
   expect(bar!.container.innerHTML).toBe("");
+  // With the commands at its end, a band under 1000px puts the diff's controls behind Diff options.
+  expect(band().getByRole("button", { name: "Diff options" }).className).toContain("@min-[1000px]/band:hidden");
+  expect(band().getByRole("button", { name: "Wrap lines" }).parentElement!.className).toContain("hidden @min-[1000px]/band:flex");
   const exit = await band().findByRole("button", { name: "Exit full screen" });
   await waitFor(() => expect(document.activeElement).toBe(exit));
   fireEvent.click(exit, { detail: 0 });
