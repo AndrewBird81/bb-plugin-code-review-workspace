@@ -2,7 +2,7 @@
 // They live beside the draft comments, in this bb only; nothing here reaches GitHub.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store } from "./store";
-import { isSummary, sameLocation, type CommentLocation, type DiscussionEntry } from "./draft";
+import { isSummary, postedBody, sameLocation, type CommentLocation, type DiscussionEntry } from "./draft";
 import { extractSelectedLines } from "./assistant-context";
 import { messageAssistant } from "./agent";
 import { assistantReview, describeComments, unchangeable } from "./draft-comments";
@@ -48,7 +48,7 @@ export function discussionMessage(store: Store, targetKey: string, input: AskInp
     `If a reply is warranted, answer with reply_in_discussion on file ${JSON.stringify(at.file)}, line ${at.line}, side ${at.side}. ${comment
       ? "If they ask you to change or drop the draft comment there, do it with edit_draft_comment or delete_draft_comment."
       : "If they ask for a draft comment there, add it with add_draft_comment."} Keep your reply in this chat to one short line.`,
-    comment ? `The draft comment there, ${comment.author === "agent" ? "added by an agent" : "written by the reviewer"}:\n${comment.body}` : "There is no draft comment there.",
+    comment ? `The draft comment there, ${comment.author === "agent" ? "added by an agent" : "written by the reviewer"}:\n${postedBody(comment)}` : "There is no draft comment there.",
     code ? `The lines:\n\`\`\`diff\n${code}\n\`\`\`` : "",
     history ? `Earlier in this discussion:\n${history}` : "",
   ].filter(Boolean).join("\n\n");

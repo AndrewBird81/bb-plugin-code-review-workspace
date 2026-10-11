@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { ReviewMeta, Store } from "./store";
-import { linesOf, sameLocation, type CommentLocation, type DraftComment } from "./draft";
+import { linesOf, postedBody, sameLocation, type CommentLocation, type DraftComment } from "./draft";
 import { runGh } from "./gh";
 import { patchRows, splitPatchByFile } from "./patch";
 import { spawnExecution } from "./preferences";
@@ -8,7 +8,7 @@ import { spawnExecution } from "./preferences";
 const MAX_CODE_LINES = 40;
 
 /** A comment as the fix thread reads it; a range comment also has its first line. */
-type FixComment = Pick<DraftComment, "file" | "line" | "side" | "body"> & { startLine?: number; startSide?: "LEFT" | "RIGHT" };
+type FixComment = Pick<DraftComment, "file" | "line" | "side" | "severity" | "body"> & { startLine?: number; startSide?: "LEFT" | "RIGHT" };
 
 /** Whether you may hand this review's comments to a coding thread: a local review, or your own PR. */
 async function isOwnChange(review: ReviewMeta): Promise<boolean> {
@@ -58,9 +58,9 @@ export function fixMessage(review: ReviewMeta, comments: readonly FixComment[], 
   const items = comments.map((comment) => {
     const cross = comment.startLine !== undefined && (comment.startSide ?? comment.side) !== comment.side;
     const at = `\`${comment.file}:${linesOf(comment)}\`${cross ? ` (old line ${comment.startLine} to new line ${comment.line})` : comment.side === "LEFT" ? " (old line)" : ""}`;
-    if (stale.some((s) => sameLocation(s, comment))) return `${at}, written against an older diff, so the line may have moved:\n${comment.body}`;
+    if (stale.some((s) => sameLocation(s, comment))) return `${at}, written against an older diff, so the line may have moved:\n${postedBody(comment)}`;
     const code = codeAt(patch, comment);
-    return code ? `${at}\n${fenced(code, "diff")}\n${comment.body}` : `${at}\n${comment.body}`;
+    return code ? `${at}\n${fenced(code, "diff")}\n${postedBody(comment)}` : `${at}\n${postedBody(comment)}`;
   });
   return [where(review), ...items, "Don't push, open or update a PR, or change anything on GitHub unless I ask in this thread."].join("\n\n");
 }

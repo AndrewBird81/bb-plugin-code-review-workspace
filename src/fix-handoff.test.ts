@@ -102,3 +102,13 @@ test("says why the thread couldn't start", async () => {
   await expect(startFixThread(noAgent.bb, noAgent.store, "pr-1", [{ file: "src/a.ts", line: 3, side: "RIGHT" }])).rejects.toThrow("bb has no default agent for the review's project.");
   expect(noAgent.spawns()).toHaveLength(0);
 });
+
+test("each comment keeps its severity, a block below the label", () => {
+  const review = { targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 12, head: "retry-uploads", status: "ready", createdAt: 1 } as const;
+  const text = fixMessage(review, [
+    { file: "src/a.ts", line: 3, side: "RIGHT", severity: "blocking", body: "Name this better." },
+    { file: "src/a.ts", line: 4, side: "RIGHT", severity: "nit", body: "```suggestion\nconst d = 1;\n```" },
+  ], PATCH, [{ file: "src/a.ts", line: 4, side: "RIGHT" }]);
+  expect(text).toContain("````\n**Blocking:** Name this better.");
+  expect(text).toContain("may have moved:\n**Nit:**\n\n```suggestion");
+});

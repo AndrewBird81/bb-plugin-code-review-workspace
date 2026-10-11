@@ -216,6 +216,21 @@ test("feedback handled: every thread resolved or answered alerts once the author
   expect(s.published[0].body).toContain("Every thread of your feedback is resolved or answered");
 });
 
+test("feedback handled while a nit is still open says the nits are left out", async () => {
+  const nit = { ...thread("t3", "open"), body: "**Nit:** Rename it" };
+  const s = setup({ reviewed: true, threads: [thread("t1", "open"), nit] });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], updatedAt: 2 });
+  s.threads([thread("t1", "resolved"), nit]);
+  vi.mocked(s.actions.prepare).mockResolvedValue(false);
+  s.at(0.15);
+  await s.sync.all(true);
+  s.at(0.5);
+  await s.sync.all();
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  expect(s.published[0].body).toMatch(/^Every thread of your feedback is resolved or answered, apart from nits · /);
+});
+
 test("an active review's threads are read again every 10 minutes only while one of yours is unresolved", async () => {
   for (const [status, reads] of [["resolved", 1], ["open", 2]] as const) {
     const s = setup({ reviewed: true, threads: [thread("t1", status)] });
@@ -735,6 +750,33 @@ test("an outside author's re-request doesn't start the feedback check, unless yo
   await s.sync.all(true);
   expect(s.actions.prepare).not.toHaveBeenCalled();
   expect(s.store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "check", head: "sha2" });
+});
+
+test("with the re-review check off, an outside author's re-request records no skipped check, unless the guide is behind", async () => {
+  const s = setup({ reviewed: true, preferences: { verificationPrompt: " " }, pr: { authorAssociation: "CONTRIBUTOR" } });
+  await s.sync.all();
+  s.pr({ requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.actions.prepare).not.toHaveBeenCalled();
+  expect(s.store.getReview("pr-1")?.skippedRun).toBeUndefined();
+  // A push leaves the guide behind, and rebuilding it is a run of its own.
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 + 0.3 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.4);
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "check", head: "sha2" });
+});
+
+test("with the re-review check off, an outside author's settled pushes record no skipped check", async () => {
+  const s = setup({ reviewed: true, preferences: { pushChecks: "progress", verificationPrompt: "" }, pr: { authorAssociation: "NONE" } });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"] });
+  s.at(0.1);
+  await s.sync.all(true);
+  s.at(0.5);
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")).toMatchObject({ autoRunHead: "sha2" });
+  expect(s.store.getReview("pr-1")?.skippedRun).toBeUndefined();
 });
 
 test("an outside author's settled pushes aren't checked on their own; the review says so once", async () => {

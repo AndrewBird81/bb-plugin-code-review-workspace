@@ -167,7 +167,8 @@ export async function startAutomaticReview(bb: BbPluginApi, store: Store, target
   if (review && !own && !mayRunUnattended(review, preferences, review.headSha)) return skipRun(bb, store, targetKey, "review", review.headSha ?? null);
   // A conversation the reviewer is starting comes first.
   if (starting(bb, targetKey)) return;
-  const notes = [own && SELF_REVIEW, review && mayRunChecks({ ...review, ownPr: own }, preferences) && RUN_CHECKS].filter(Boolean).join("\n");
+  // The instructions describe the checks from the stored review, so asking for them goes by it too.
+  const notes = [own && SELF_REVIEW, review && mayRunChecks(review, preferences) && RUN_CHECKS].filter(Boolean).join("\n");
   await startConversation(bb, store, { targetKey, text, agent: defaults, ...(notes ? { context: notes } : {}) });
 }
 

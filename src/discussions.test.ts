@@ -277,3 +277,20 @@ test("the reviewer's own comment changes only in the turn that carries their ask
   await tool("add_draft_comment", { file: "a.ts", line: 2, side: "LEFT", code: "const b = 2;", body: "Why?" });
   expect((await tool("edit_draft_comment", { file: "a.ts", line: 2, side: "LEFT", body: "Why change b?" })).isError).toBeFalsy();
 });
+
+test("a severity the reviewer changed after the agent's edit makes Undo refuse, like changed text", async () => {
+  const { store, ask, tool, harness } = await host();
+  await tool("add_draft_comment", { ...at, code: "const c = b * 2;", body: "Can this overflow?" });
+  await ask({ body: "Is it blocking?" });
+  await tool("edit_draft_comment", { ...at, body: "**Blocking:** It can overflow." });
+  store.editDraftComment("pr-1", at, "It can overflow.", "nit");
+  await expect(harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", ...at })).rejects.toThrow("It changed since the agent's edit");
+  expect(store.getDraft("pr-1").comments).toEqual([{ ...at, author: "agent", severity: "nit", body: "It can overflow." }]);
+});
+
+test("asking about a comment sends it with its severity", async () => {
+  const { ask, tool, sent } = await host();
+  await tool("add_draft_comment", { ...at, code: "const c = b * 2;", body: "**Nit:** Name it double." });
+  await ask({ body: "Why?" });
+  expect(sent()[0].input[1].text).toContain("added by an agent:\n**Nit:** Name it double.");
+});

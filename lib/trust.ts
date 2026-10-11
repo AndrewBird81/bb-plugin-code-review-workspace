@@ -22,7 +22,8 @@ export function mayRunChecks(review: Trust, preferences: Pick<ReviewPreferences,
   return preferences.runRepoChecks && review.kind === "pr" && trustedAuthor(review, preferences);
 }
 
-/** Why a run didn't start on its own. */
-export function notRunReason(review: Pick<ReviewMeta, "author" | "repo">): string {
+/** Why a run didn't start on its own. A member's run skipped before the sync read the association was skipped for that. */
+export function notRunReason(review: Pick<ReviewMeta, "author" | "repo" | "authorAssociation">): string {
+  if (review.authorAssociation === undefined || MEMBERS.has(review.authorAssociation ?? "")) return "Not run automatically: GitHub hadn’t said who wrote this PR yet";
   return `Not run automatically: ${review.author ? `@${review.author}` : "the author"} isn’t a member of ${review.repo?.split("/")[0] ?? "the repository"}`;
 }
