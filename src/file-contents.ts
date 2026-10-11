@@ -123,6 +123,8 @@ export async function readFileContents(gh: { runGh: typeof runGh; runGit: typeof
 
 /** Generated or not, by the repo's .gitattributes at a PR's head: kept per commit. */
 const generatedCache = new Map<string, string>();
+/** What each PR's diff at a head has generated: every path is tried on every rule of a file the PR controls, so once. */
+const declaredCache = new Map<string, string[]>();
 
 /** The changed files the repo's root .gitattributes, at the diff's new side, marks generated or vendored. */
 export async function readGeneratedFiles(gh: { runGh: typeof runGh; runGit: typeof runGit }, review: ReviewMeta, paths: string[]): Promise<string[]> {
@@ -137,7 +139,12 @@ export async function readGeneratedFiles(gh: { runGh: typeof runGh; runGit: type
       generatedCache.set(key, "text" in read ? read.text : "");
       if (generatedCache.size > CACHE_SIZE) generatedCache.delete(generatedCache.keys().next().value!);
     }
-    attributes = { text: generatedCache.get(key)! };
+    const declared = `${review.targetKey}\0${review.headSha}`;
+    if (!declaredCache.has(declared)) {
+      declaredCache.set(declared, declaredGenerated(generatedCache.get(key)!, paths));
+      if (declaredCache.size > CACHE_SIZE) declaredCache.delete(declaredCache.keys().next().value!);
+    }
+    return declaredCache.get(declared)!;
   } else {
     if (!review.cwd || !review.gitRef) return [];
     const revs = await localRevs(gh.runGit, review);
