@@ -634,7 +634,7 @@ export const DiffViewer = memo(function DiffViewer({
                 <Badge tone="warning" size="sm" title="This file changed since you marked it viewed">changed</Badge>
               )}
               {changedHere && (
-                <Badge tone="primary" size="sm" icon={<Icon name="GitCommit" aria-hidden />} title={change!.status === "added" ? `Added to the PR since ${sinceWhat}` : `Changed since ${sinceWhat}`}>Changed since {sinceWhat}</Badge>
+                <Badge tone="primary" size="sm" icon={<Icon name="GitCommit" aria-hidden />} title={change!.status === "added" ? `Added to the PR since ${sinceWhat}` : `Changed since ${sinceWhat}`}>{change!.status === "added" ? "Added" : "Changed"} since {sinceWhat}</Badge>
               )}
               <DiffStat add={stats.add} del={stats.del} className="hidden @min-[700px]/review:inline-flex" />
               <label className={cn(
