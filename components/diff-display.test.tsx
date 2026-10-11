@@ -81,7 +81,7 @@ test("files the repo's .gitattributes marks generated start folded and tagged, w
   expect(drawn.map((d) => d.name)).not.toContain("src/b.ts");
   const header = within(slot.container.querySelector<HTMLElement>('[data-file="src/b.ts"]')!);
   expect(header.getByText("generated · skip")).toBeTruthy();
-  expect(header.getByRole("button", { name: "Show diff" })).toBeTruthy();
+  expect(header.getByRole("button", { name: "Show diff of src/b.ts" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

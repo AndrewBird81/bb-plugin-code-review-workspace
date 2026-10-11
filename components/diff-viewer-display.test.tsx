@@ -29,11 +29,18 @@ test("lockfiles, generated files, and huge diffs start folded, with Show diff in
   const patch = file("package-lock.json", ["{}"]) + file("dist/app.js", ["x"]) + file("src/huge.ts", huge) + file("src/a.ts", ["a"]);
   show(patch, ["package-lock.json", "dist/app.js", "src/huge.ts", "src/a.ts"]);
   expect(drawn.map((d) => d.name)).toEqual(["src/a.ts"]);
-  expect(header("src/a.ts").queryByRole("button", { name: "Show diff" })).toBeNull();
-  fireEvent.click(header("src/huge.ts").getByRole("button", { name: "Show diff" }));
+  expect(header("src/a.ts").queryByRole("button", { name: /^Show diff/ })).toBeNull();
+  fireEvent.click(header("src/huge.ts").getByRole("button", { name: "Show diff of src/huge.ts" }));
   expect(drawn.map((d) => d.name)).toContain("src/huge.ts");
-  expect(header("src/huge.ts").queryByRole("button", { name: "Show diff" })).toBeNull();
-  expect(screen.getAllByRole("button", { name: "Show diff" })).toHaveLength(2);
+  expect(header("src/huge.ts").queryByRole("button", { name: /^Show diff/ })).toBeNull();
+  expect(screen.getAllByRole("button", { name: /^Show diff of / }).map((button) => button.getAttribute("aria-label"))).toEqual(["Show diff of package-lock.json", "Show diff of dist/app.js"]);
+});
+
+test("a renamed file's header says what it was renamed from", () => {
+  const renamed = "diff --git a/src/util/time.ts b/src/util/clock-time.ts\nsimilarity index 90%\nrename from src/util/time.ts\nrename to src/util/clock-time.ts\n--- a/src/util/time.ts\n+++ b/src/util/clock-time.ts\n@@ -1 +1 @@\n-a\n+b\n";
+  show(renamed + file("src/a.ts", ["a"]), ["src/util/clock-time.ts", "src/a.ts"]);
+  expect(header("src/util/clock-time.ts").getByText("src/util/time.ts").parentElement!.textContent).toBe("Renamed from src/util/time.ts");
+  expect(header("src/a.ts").queryByText(/Renamed from/)).toBeNull();
 });
 
 test("a file stops highlighting well before a huge diff would freeze the page", () => {

@@ -309,6 +309,7 @@ export const DiffViewer = memo(function DiffViewer({
       const stats = diffStats(text);
       return [{
         path: f.path,
+        oldPath: f.oldPath,
         stats,
         noisy: startsFolded(f.path, stats, generated.has(f.path)),
         fileDiff,
@@ -485,7 +486,7 @@ export const DiffViewer = memo(function DiffViewer({
 
   return (
     <div ref={root} className="space-y-4">
-      {perFile.map(({ path, stats, fileDiff, source, change, css }) => {
+      {perFile.map(({ path, oldPath, stats, fileDiff, source, change, css }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
@@ -517,11 +518,12 @@ export const DiffViewer = memo(function DiffViewer({
               </button>
               <div className="min-w-0 flex-1">
                 <FilePath path={path} className="text-xs" nameClassName="font-medium" />
+                {oldPath && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">Renamed from <span className="font-mono">{oldPath}</span></p>}
                 {summaries?.get(path) && <p className="mt-0.5 text-xs leading-snug text-muted-foreground"><InlineCode text={summaries.get(path)!} /></p>}
               </div>
               <FileTag file={path} generated={generated.has(path)} />
               {folded && !viewed && noisy.has(path) && (
-                <Button variant="ghost" size="sm" className="h-6 shrink-0 px-2 text-[11px]" onClick={() => toggleCollapsed(path)}>Show diff</Button>
+                <Button variant="ghost" size="sm" aria-label={`Show diff of ${path}`} className="h-6 shrink-0 px-2 text-[11px]" onClick={() => toggleCollapsed(path)}>Show diff</Button>
               )}
               {readContents && source && !folded && (full ? (
                 <Button variant="ghost" size="sm" aria-label={`Whole file ${path}`} aria-pressed={!!wholeFile[path]} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground aria-pressed:text-primary" onClick={() => setWholeFile((w) => ({ ...w, [path]: !w[path] }))}>
