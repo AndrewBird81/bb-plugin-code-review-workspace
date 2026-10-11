@@ -614,7 +614,9 @@ export default async function plugin(bb: BbPluginApi) {
     }),
     async execute({ targetKey, file, offset, limit }) {
       if (file !== undefined) {
-        const diff = splitPatchByFile(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text).find((f) => f.path === file);
+        const files = splitPatchByFile(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text);
+        // A renamed file is keyed by its new path; its old one finds it too.
+        const diff = files.find((f) => f.path === file) ?? files.find((f) => f.oldPath === file);
         if (!diff) return { content: [{ type: "text", text: `This review has no diff for ${file}.` }], isError: true };
         const text = diff.text.slice(offset ?? 0, (offset ?? 0) + (limit ?? 200_000));
         const end = (offset ?? 0) + text.length;

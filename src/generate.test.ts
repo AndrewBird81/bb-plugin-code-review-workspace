@@ -39,6 +39,14 @@ test("read_review_patch reads one file's diff on request", async () => {
   expect(missing.isError).toBe(true);
 });
 
+test("read_review_patch finds a renamed file by its old path too", async () => {
+  const { harness, store } = await host();
+  store.savePatch("pr-1", "diff --git a/src/old.ts b/src/new.ts\nsimilarity index 90%\nrename from src/old.ts\nrename to src/new.ts\n--- a/src/old.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-a\n+b\n");
+  const out = await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", file: "src/old.ts" });
+  expect(out.isError).toBeFalsy();
+  expect(String(out.content?.[0]?.text ?? out)).toContain("rename to src/new.ts");
+});
+
 test("generate_review_guide rejects incomplete coverage then accepts a full guide", async () => {
   const { harness, generationId } = await host();
   const bad = await harness.behavior.callAgentTool("generate_review_guide", {
