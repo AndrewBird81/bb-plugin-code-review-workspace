@@ -7,3 +7,10 @@ export type ReviewItem = Pick<ReviewMeta, "targetKey"> & Partial<ReviewMeta> & {
 export function reviewState(review: ReviewItem): Turn {
   return review.turn ?? computeTurn(review);
 }
+/** Needs review: blocking first, then direct requests before team requests, then longest waiting. */
+export function needsOrder(a: ReviewItem, b: ReviewItem): number {
+  const ta = reviewState(a), tb = reviewState(b);
+  return Number(tb.blocking) - Number(ta.blocking)
+    || Number(ta.reason === "team-requested") - Number(tb.reason === "team-requested")
+    || (ta.at ?? a.createdAt ?? 0) - (tb.at ?? b.createdAt ?? 0);
+}

@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRpc, useBbNavigate, useRealtime } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
-import { reviewState, type ReviewItem } from "../lib/review-state";
+import { needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -78,14 +78,6 @@ function TurnMeta({ review, turn }: { review: ReviewItem; turn: Turn }) {
       {quiet && <span className="text-subtle-foreground">author quiet {quiet}</span>}
     </span>
   );
-}
-
-/** Needs review: blocking first, then direct requests before team requests, then longest waiting. */
-function needsOrder(a: ReviewItem, b: ReviewItem): number {
-  const ta = reviewState(a), tb = reviewState(b);
-  return Number(tb.blocking) - Number(ta.blocking)
-    || Number(ta.reason === "team-requested") - Number(tb.reason === "team-requested")
-    || (ta.at ?? a.createdAt ?? 0) - (tb.at ?? b.createdAt ?? 0);
 }
 
 /** Waiting on author: most recent activity first. */
