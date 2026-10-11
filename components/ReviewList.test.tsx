@@ -244,3 +244,44 @@ test("a stack's reviews sit together in the list, bottom first, each saying wher
   expect(slot.getAllByText(/ change$/).map((el) => el.textContent)).toEqual(["Bottom change", "Middle change", "Top change", "Lone change"]);
   slot.lifecycle.unmount();
 });
+
+test("a row's status follows its title, so a narrow list can put it under the title", async () => {
+  const { expect } = await import("vitest");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [{ targetKey: "a", repo: "acme/app", title: "A long title that needs the row's width", status: "ready" }] }),
+  } });
+  const title = await slot.findByText("A long title that needs the row's width");
+  const row = title.closest("button")!;
+  // The grid's narrow layout has two columns, the tile's and the text's; a wider one adds the status's.
+  expect(row.className).toContain("grid-cols-[auto_minmax(0,1fr)]");
+  expect(row.className).toContain("@min-[520px]/review-list:grid-cols-[auto_minmax(0,1fr)_auto]");
+  const status = title.closest("button > span > span")!.nextElementSibling!;
+  expect(status.textContent).toContain("Ready");
+  expect(status.className).toContain("@min-[520px]/review-list:col-start-3");
+  slot.lifecycle.unmount();
+});
+
+test("the filter tabs fade at an edge with more tabs past it", async () => {
+  const { expect } = await import("vitest");
+  const { fireEvent } = await import("@testing-library/react");
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }),
+    listReviews: () => ({ reviews: [] }),
+  } });
+  const strip = await slot.findByRole("group", { name: "Filter reviews" });
+  expect(strip.dataset.fade).toBeUndefined();
+  Object.defineProperties(strip, { scrollWidth: { value: 467 }, clientWidth: { value: 300 } });
+  const scrollTo = (left: number) => { strip.scrollLeft = left; fireEvent.scroll(strip); };
+  scrollTo(0);
+  expect(strip.dataset.fade).toBe("end");
+  scrollTo(80);
+  expect(strip.dataset.fade).toBe("both");
+  scrollTo(167);
+  expect(strip.dataset.fade).toBe("start");
+  slot.lifecycle.unmount();
+});

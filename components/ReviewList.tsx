@@ -112,10 +112,15 @@ function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: 
   const when = timeAgo(review.submittedAt ?? review.createdAt);
   return (
     <div className="group/row relative flex min-w-0 items-center pr-1 hover:bg-state-hover sm:pr-2">
-    <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-3 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:gap-3.5 sm:pl-4">
-      <IconTile tone={kind.tone} icon={kind.icon} />
-      <span className="min-w-0 flex-1">
+    {/* A grid, so a narrow list puts the status under the title instead of beside it, leaving the title the row's width. */}
+    <button type="button" onClick={onOpen} className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 py-3 pl-3 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:gap-x-3.5 sm:pl-4 @min-[520px]/review-list:grid-cols-[auto_minmax(0,1fr)_auto]">
+      <IconTile tone={kind.tone} icon={kind.icon} className="row-span-4" />
+      <span className="contents">
         <span id={titleId} className="block text-sm font-medium leading-snug text-foreground"><InlineCode text={review.title ?? review.gitRef ?? review.targetKey} /></span>
+        <span className="col-start-2 mt-1.5 flex items-center gap-3 justify-self-start @min-[520px]/review-list:col-start-3 @min-[520px]/review-list:row-span-3 @min-[520px]/review-list:row-start-1 @min-[520px]/review-list:mt-0 @min-[520px]/review-list:justify-self-end">
+          <span className="hidden items-center gap-0.5 text-xs text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/row:text-foreground group-hover/row:opacity-100 group-focus-within/row:opacity-100 @min-[640px]/review-list:inline-flex">{state.action}<Icon name="ChevronRight" className="size-3.5" aria-hidden /></span>
+          <StatusBadge review={review} />
+        </span>
         <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           <span className="break-all font-mono text-[11px]">{review.repo ?? review.gitRef}{review.number ? <span className="text-subtle-foreground"> #{review.number}</span> : null}</span>
           {review.author && <span className="inline-flex items-center gap-1.5"><Avatar login={review.author} size={16} />@{review.author}</span>}
@@ -124,10 +129,6 @@ function ReviewRow({ review, onOpen, onChanged }: { review: ReviewItem; onOpen: 
           {review.prSize && <span className="tabular-nums">+{review.prSize.additions.toLocaleString()} −{review.prSize.deletions.toLocaleString()} · {review.prSize.files} {review.prSize.files === 1 ? "file" : "files"}</span>}
         </span>
         <TurnMeta review={review} turn={state} />
-      </span>
-      <span className="flex shrink-0 items-center gap-3">
-        <span className="hidden items-center gap-0.5 text-xs text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/row:text-foreground group-hover/row:opacity-100 group-focus-within/row:opacity-100 @min-[640px]/review-list:inline-flex">{state.action}<Icon name="ChevronRight" className="size-3.5" aria-hidden /></span>
-        <StatusBadge review={review} />
       </span>
     </button>
     <ReviewActions review={review} onChanged={onChanged} onDeleted={onChanged} describedBy={titleId} />
@@ -191,6 +192,25 @@ export const ReviewList = memo(function ReviewList() {
   useEffect(() => {
     try { sessionStorage.setItem(VIEW_KEY, JSON.stringify({ tab: filter, query })); } catch { /* best-effort */ }
   }, [filter, query]);
+  // The filter tabs scroll sideways when the list is narrow; a faded edge says there's more.
+  const tabStrip = useRef<HTMLDivElement>(null);
+  const [tabFade, setTabFade] = useState<"start" | "end" | "both">();
+  const updateTabFade = useCallback(() => {
+    const el = tabStrip.current;
+    if (!el) return;
+    const start = el.scrollLeft > 0;
+    const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+    setTabFade(start && end ? "both" : start ? "start" : end ? "end" : undefined);
+  }, []);
+  useEffect(() => {
+    const el = tabStrip.current;
+    updateTabFade();
+    if (!el || typeof ResizeObserver === "undefined") return;
+    // The strip when the list resizes, and its tabs when their counts change.
+    const observer = new ResizeObserver(updateTabFade);
+    for (const box of [el, ...Array.from(el.children)]) observer.observe(box);
+    return () => observer.disconnect();
+  }, [updateTabFade]);
   const [refreshing, setRefreshing] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [health, setHealth] = useState<SyncHealth>();
@@ -365,7 +385,7 @@ export const ReviewList = memo(function ReviewList() {
       {!loading && !loadError && sorted.length === 0 && <div className="mx-auto w-full max-w-6xl"><SetupReadiness /></div>}
       <section aria-label="Saved reviews" className="mx-auto w-full min-w-0 max-w-6xl overflow-hidden rounded-xl border border-border bg-card shadow-xs">
         <div className="flex min-w-0 items-center justify-between gap-2 border-b border-border bg-muted/25 px-2 py-1.5">
-          <div role="group" aria-label="Filter reviews" className="flex min-w-0 items-center gap-1 overflow-x-auto">
+          <div ref={tabStrip} role="group" aria-label="Filter reviews" data-fade={tabFade} onScroll={updateTabFade} className="flex min-w-0 items-center gap-1 overflow-x-auto data-[fade=both]:[mask-image:linear-gradient(to_right,transparent,black_1.5rem,black_calc(100%-1.5rem),transparent)] data-[fade=end]:[mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] data-[fade=start]:[mask-image:linear-gradient(to_left,black_calc(100%-1.5rem),transparent)]">
             {tabs.map(({ value, label, icon }) => (
               <Button key={value} variant="ghost" size="sm" aria-pressed={filter === value} onClick={() => setFilter(value)} className="group/tab shrink-0 gap-2 px-2 text-muted-foreground @min-[520px]/review-list:px-2.5">
                 <Icon name={icon} className="hidden size-3.5 group-aria-pressed/tab:text-primary @min-[520px]/review-list:block" aria-hidden />
