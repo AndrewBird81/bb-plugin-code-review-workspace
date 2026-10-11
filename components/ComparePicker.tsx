@@ -68,6 +68,8 @@ export function ComparePicker({ targetKey, baseline, head, from, onFrom, availab
   useEffect(() => { if ((from || open) && !commits) load(); }, [from, head]); // eslint-disable-line react-hooks/exhaustive-deps
   const pick = (sha: string | null) => { setOpen(false); onFrom(sha === baseline ? null : sha); };
   const choices = commits?.filter((commit) => commit.sha !== head) ?? [];
+  // Your last review at the head has nothing to compare with; then, or without one, the way back is no comparison.
+  const lastReview = baseline && baseline !== head ? baseline : null;
   const item = "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-state-hover focus-visible:bg-state-hover focus-visible:outline-none";
 
   return (
@@ -94,12 +96,10 @@ export function ComparePicker({ targetKey, baseline, head, from, onFrom, availab
         <PopoverContent align="start" mobileTitle="Compare from a commit" className="w-80 max-w-[calc(100vw-24px)] p-1">
           <p className="px-2 pb-1 pt-1.5 text-xs text-muted-foreground">Show what changed since</p>
           <div data-commits role="list" aria-label="Commits" className="max-h-80 overflow-y-auto">
-            {baseline && (
-              <button type="button" data-commit role="listitem" aria-current={!from ? "true" : undefined} onKeyDown={moveFocus} className={item} onClick={() => pick(null)}>
-                <Icon name={!from ? "Check" : "GitCommit"} className={cn("mt-px size-3.5 shrink-0", !from ? "text-primary" : "text-subtle-foreground")} aria-hidden />
-                <span className="min-w-0 flex-1">Your last review <span className="font-mono text-subtle-foreground">{short(baseline)}</span></span>
-              </button>
-            )}
+            <button type="button" data-commit role="listitem" aria-current={!from ? "true" : undefined} onKeyDown={moveFocus} className={item} onClick={() => pick(null)}>
+              <Icon name={!from ? "Check" : "GitCommit"} className={cn("mt-px size-3.5 shrink-0", !from ? "text-primary" : "text-subtle-foreground")} aria-hidden />
+              <span className="min-w-0 flex-1">{lastReview ? <>Your last review <span className="font-mono text-subtle-foreground">{short(lastReview)}</span></> : "No comparison"}</span>
+            </button>
             {!commits && !error && <p role="status" className="px-2 py-1.5 text-xs text-muted-foreground">Loading commits…</p>}
             {error && <p role="alert" className="px-2 py-1.5 text-xs text-destructive-text">{error}</p>}
             {commits && !choices.length && <p className="px-2 py-1.5 text-xs text-muted-foreground">The diff shown is the PR’s only commit.</p>}

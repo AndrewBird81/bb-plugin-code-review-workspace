@@ -95,7 +95,8 @@ test("a PR you haven't reviewed can be compared from one of its commits, from th
   fireEvent.click(trigger);
   const list = within(await slot.findByRole("list", { name: "Commits" }));
   await list.findByText("Add cache");
-  const [newer, older] = list.getAllByRole("listitem");
+  // After the way back to no comparison.
+  const [, newer, older] = list.getAllByRole("listitem");
   newer.focus();
   fireEvent.keyDown(newer, { key: "ArrowDown" });
   expect(document.activeElement).toBe(older);
@@ -124,5 +125,43 @@ test("after a new push and rebuild, the commit list and how many commits ago are
   expect(rpc.getPrCommits).toHaveBeenCalledTimes(2);
   fireEvent.click(slot.getByRole("button", { name: "Compare from a commit" }));
   expect(await within(await slot.findByRole("list", { name: "Commits" })).findByText("Rename key")).toBeTruthy();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("with your last review at the head there's nothing to compare it with, so it isn't offered and nothing narrows later", async () => {
+  const { slot, push } = await renderWorkspace({ signals: { lastReviewSha: "c3ccccc" }, submittedVerdict: "COMMENT" });
+  fireEvent.click(slot.getByRole("button", { name: "Compare from a commit" }));
+  const list = within(await slot.findByRole("list", { name: "Commits" }));
+  await list.findByText("Add cache");
+  expect(list.queryByText("Your last review")).toBeNull();
+  // With nothing picked, choosing no comparison turns nothing on.
+  fireEvent.click(list.getByText("No comparison"));
+  fireEvent.click(slot.getByRole("button", { name: "Compare from a commit" }));
+  fireEvent.click(await within(await slot.findByRole("list", { name: "Commits" })).findByText("Invalidate on write"));
+  await slot.findByRole("button", { name: "Since c2bbbbb, 1 commit ago" });
+  fireEvent.click(slot.getByRole("button", { name: "Compare from a commit" }));
+  fireEvent.click(within(await slot.findByRole("list", { name: "Commits" })).getByText("No comparison"));
+  await waitFor(() => expect(slot.queryByRole("button", { name: /^Since / })).toBeNull());
+  // A later push gives your review something to compare with; the diff isn't narrowed to it unasked.
+  await push();
+  const toggle = await slot.findByRole("button", { name: "Since your review" });
+  expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("on a PR you haven't reviewed, a picked commit can be cleared", async () => {
+  const { slot, rpc } = await renderWorkspace({});
+  fireEvent.click(slot.getByRole("button", { name: "Compare from a commit" }));
+  fireEvent.click(await within(await slot.findByRole("list", { name: "Commits" })).findByText("Add cache"));
+  await slot.findByRole("button", { name: "Since c1aaaaa, 2 commits ago" });
+  await slot.findAllByText("Changed since c1aaaaa");
+  fireEvent.click(slot.getByRole("button", { name: "Compare from a commit" }));
+  const list = within(await slot.findByRole("list", { name: "Commits" }));
+  expect(list.getAllByRole("listitem")[0].textContent).toBe("No comparison");
+  fireEvent.click(list.getByText("No comparison"));
+  await waitFor(() => expect(slot.queryAllByText("Changed since c1aaaaa")).toEqual([]));
+  expect(slot.queryByRole("button", { name: /^Since / })).toBeNull();
+  expect(rpc.getSinceReview).toHaveBeenCalledTimes(1);
   slot.lifecycle.unmount();
 }, 15_000);
