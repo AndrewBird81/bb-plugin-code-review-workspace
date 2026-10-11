@@ -1,7 +1,7 @@
 // Draft comments as agents and `bb review comment` change them. Everything
 // here edits this bb's local draft; only the reviewer submits it to GitHub.
 import type { PreviousState, ReviewMeta, Store } from "./store";
-import { isSummary, linesOf, rangeOf, sameLocation, severityOf, type CommentLocation, type DraftComment, type Severity } from "./draft";
+import { isSummary, linesOf, postedBody, rangeOf, sameLocation, severityOf, type CommentLocation, type DraftComment, type Severity } from "./draft";
 import { diffPositions, rangeProblem } from "./review-positions";
 import { asked } from "./asks";
 
@@ -96,7 +96,7 @@ export function addComment(store: Store, targetKey: string, input: NewComment): 
   if (existing) return { ok: false, error: `${where(at)} already has a draft comment: "${existing.body.slice(0, 300)}". Edit it instead, or make your point elsewhere. Nothing was added.` };
   const { body, severity } = severityOf(input.body.trim(), input.severity);
   store.upsertDraftComment(targetKey, { ...at, ...range, author: "agent", ...(severity ? { severity } : {}), body });
-  store.noteDiscussionChange(targetKey, at, "added", { body, previous: null });
+  store.noteDiscussionChange(targetKey, at, "added", { body: postedBody({ body, severity }), previous: null });
   return { ok: true, text: `Added a draft comment on ${where({ ...at, ...range })}. It stays in bb until the reviewer submits the review.` };
 }
 
@@ -130,7 +130,7 @@ export function editComment(store: Store, targetKey: string, input: LocationInpu
     store.upsertDraftComment(targetKey, { ...comment, startLine: undefined, startSide: undefined, severity, ...range, body });
   } else if (!store.editDraftComment(targetKey, at, body, severity ?? null)) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
   // Undo puts old lines back only when this edit set new ones; a re-review may move them on its own.
-  store.noteDiscussionChange(targetKey, at, "edited", { body, previous: previous && input.startLine !== undefined ? { ...previous, relined: true } : previous });
+  store.noteDiscussionChange(targetKey, at, "edited", { body: postedBody({ body, severity }), previous: previous && input.startLine !== undefined ? { ...previous, relined: true } : previous });
   const lines = where({ ...at, ...range });
   return { ok: true, text: reviewers ? `Updated the reviewer's draft comment on ${lines}, as they asked.` : `Updated the draft comment on ${lines}.` };
 }
@@ -148,11 +148,12 @@ export function deleteComment(store: Store, targetKey: string, input: LocationIn
   return { ok: true, text: `Deleted the draft comment on ${where({ ...at, ...rangeOf(comment) })}.` };
 }
 
-/** The comment's text at a location, or the summary's; null when there's none. */
+/** The comment's text at a location as GitHub would get it, so with its severity, or the summary's; null when there's none. */
 function textAt(store: Store, targetKey: string, at: CommentLocation): string | null {
   const draft = store.getDraft(targetKey);
   if (isSummary(at)) return draft.body.trim() ? draft.body : null;
-  return draft.comments.find((c) => sameLocation(c, at))?.body ?? null;
+  const comment = draft.comments.find((c) => sameLocation(c, at));
+  return comment ? postedBody(comment) : null;
 }
 
 type Positions = () => ReturnType<typeof diffPositions>;
