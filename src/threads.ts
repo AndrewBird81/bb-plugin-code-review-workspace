@@ -14,12 +14,25 @@ export function parseChecks(raw: string): ChecksSummary {
   return { bucket, checks };
 }
 
-export interface ThreadComment { id: string; databaseId: number; author: string; body: string }
+// The optional fields are left out when the response lacks them, such as one to an older query.
+export interface ThreadComment {
+  id: string; databaseId: number; author: string; body: string;
+  /** When it was written, in epoch ms. */
+  createdAt?: number | null;
+  bot?: boolean;
+}
 export interface ReviewThread {
   id: string; isResolved: boolean; isOutdated: boolean; path: string | null; line: number | null;
   /** Which side of the diff its line is on: the old file's (LEFT) or the new file's. */
   side: "LEFT" | "RIGHT";
   comments: ThreadComment[];
+  /** Its line when it was written, which an outdated thread keeps. */
+  originalLine?: number | null;
+  /** A range's first line. */
+  startLine?: number | null;
+  /** FILE: on the whole file, not a line. */
+  subjectType?: "LINE" | "FILE";
+  resolvedBy?: string | null;
 }
 export function parseReviewThreads(raw: string): { threads: ReviewThread[] } {
   let root: any;
@@ -30,7 +43,14 @@ export function parseReviewThreads(raw: string): { threads: ReviewThread[] } {
     side: t.diffSide === "LEFT" ? "LEFT" : "RIGHT",
     comments: (t.comments?.nodes ?? []).map((c: any) => ({
       id: c.id, databaseId: c.databaseId, author: c.author?.login ?? "unknown", body: c.body ?? "",
+      ...("createdAt" in c ? { createdAt: Date.parse(c.createdAt) || null } : {}),
+      // As src/github/threads.ts tells bots; a deleted account has no author.
+      ...(c.author && "__typename" in c.author ? { bot: c.author.__typename === "Bot" || !!c.author.login?.toLowerCase().endsWith("[bot]") } : {}),
     })),
+    ...("originalLine" in t ? { originalLine: t.originalLine ?? null } : {}),
+    ...("startLine" in t ? { startLine: t.startLine ?? null } : {}),
+    ...("subjectType" in t ? { subjectType: t.subjectType === "FILE" ? "FILE" : "LINE" } : {}),
+    ...("resolvedBy" in t ? { resolvedBy: t.resolvedBy?.login ?? null } : {}),
   }));
   return { threads };
 }

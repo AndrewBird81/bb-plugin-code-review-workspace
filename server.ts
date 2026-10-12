@@ -297,6 +297,9 @@ export default async function plugin(bb: BbPluginApi) {
         bb.realtime.publish(`feedback:${targetKey}`, { ts: Date.now() });
         return { ok: true };
       },
+      getReplyDrafts({ targetKey }: { targetKey: string }) {
+        return { drafts: [...store.listReplyDrafts(targetKey)].map(([threadId, draft]) => ({ threadId, ...draft })) };
+      },
       useSuggestedVerdict({ targetKey, revision, mode }: { targetKey: string; revision?: string; mode: "suggested" | "remaining" }) {
         try { requireReviewRevision(store, targetKey, revision); } catch (error) { return { ok: false, error: (error as Error).message }; }
         const feedback = view(targetKey);
@@ -493,11 +496,17 @@ export default async function plugin(bb: BbPluginApi) {
       }
       return { threads };
     },
-    async replyToThread({ targetKey, inReplyTo, body }) {
+    async replyToThread({ targetKey, inReplyTo, body, threadId }) {
       const m = store.getReview(targetKey);
       if (!m || m.kind !== "pr" || !m.number || !m.repo) return { ok: false, error: "Not a PR." };
       const r = await runGh(ghReplyThreadArgs(m.repo, m.number, inReplyTo), { stdin: JSON.stringify({ body }), timeoutMs: 0 });
-      return r.code === 0 ? { ok: true } : { ok: false, error: ghErrorMessage(r) };
+      if (r.code !== 0) return { ok: false, error: ghErrorMessage(r) };
+      // The thread's drafted reply went out as this one.
+      if (threadId) {
+        store.deleteReplyDraft(targetKey, threadId);
+        bb.realtime.publish(`feedback:${targetKey}`, { ts: Date.now() });
+      }
+      return { ok: true };
     },
     async resolveThread({ threadId }) {
       const r = await runGh(ghResolveThreadArgs(threadId), { timeoutMs: 0 });
@@ -660,7 +669,11 @@ export default async function plugin(bb: BbPluginApi) {
       store.setFileViewed(targetKey, file, hash);
       return { ok: true };
     },
-    setFilesViewed({ targetKey, files }) {
+    setFilesViewed({ targetKey, files, viewed = true }) {
+      if (!viewed) {
+        for (const file of files) store.unsetFileViewed(targetKey, file);
+        return { ok: true };
+      }
       const total = store.readPatch(targetKey, 0, 0).total;
       const hashes = fileHashes(store.readPatch(targetKey, 0, total).text, files);
       for (const [file, hash] of hashes) store.setFileViewed(targetKey, file, hash);

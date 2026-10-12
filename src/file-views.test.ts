@@ -51,6 +51,17 @@ test("setFilesViewed marks a chapter's files in one call, hashing just those", a
   expect(store.getFileViews("pr-1").map((view) => view.file).sort()).toEqual(["a.ts", "b.ts", "c.ts"]);
 });
 
+test("setFilesViewed with viewed false unmarks a chapter's files at once, for Undo", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
+  store.savePatch("pr-1", patch + "diff --git a/c.ts b/c.ts\n+three\n");
+  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts", "c.ts"], viewed: true })).toEqual({ ok: true });
+  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts", "gone.ts"], viewed: false })).toEqual({ ok: true });
+  expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [{ file: "c.ts", viewed: true, stale: false }] });
+});
+
 const appDiff = (index: string, at: string, context: string, added = "+  run(a, b);") =>
   [
     "diff --git a/src/app.ts b/src/app.ts",

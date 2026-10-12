@@ -125,8 +125,9 @@ export const rpcContract = defineRpcContract({
   // Phase 2: review threads, reply/resolve, staleness, re-review
   /** error: GitHub couldn't be read, or not every page; threads holds what was. */
   getReviewThreads: { input: targetKey, output: z.object({ threads: z.array(z.any()), error: z.string().optional() }) },
+  /** With threadId, a posted reply also clears that thread's drafted reply. */
   replyToThread: {
-    input: z.object({ targetKey: z.string(), inReplyTo: z.number().int(), body: z.string().min(1) }).strict(),
+    input: z.object({ targetKey: z.string(), inReplyTo: z.number().int(), body: z.string().min(1), threadId: z.string().optional() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   resolveThread: {
@@ -215,9 +216,9 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), file: z.string(), viewed: z.boolean() }).strict(),
     output: z.object({ ok: z.boolean() }),
   },
-  // Marks a chapter's files viewed at once.
+  // Marks a chapter's files viewed at once, or with viewed: false (Undo) not viewed.
   setFilesViewed: {
-    input: z.object({ targetKey: z.string(), files: z.array(z.string()) }).strict(),
+    input: z.object({ targetKey: z.string(), files: z.array(z.string()), viewed: z.boolean().optional() }).strict(),
     output: z.object({ ok: z.boolean() }),
   },
 
@@ -286,6 +287,11 @@ export const rpcContract = defineRpcContract({
     output: z.object({ ok: z.boolean() }),
   },
   discardReplyDraft: { input: z.object({ targetKey: z.string(), threadId: z.string() }).strict(), output: z.object({ ok: z.boolean() }) },
+  /** The drafted replies on any of the PR's threads, yours or the assistant's. */
+  getReplyDrafts: {
+    input: targetKey,
+    output: z.object({ drafts: z.array(z.object({ threadId: z.string(), body: z.string(), author: z.enum(["agent", "reviewer"]), updatedAt: z.number() })) }),
+  },
   /**
    * Put the assistant's suggested verdict and summary in the draft ("suggested"), or a
    * Request changes listing the feedback that isn't addressed yet ("remaining").

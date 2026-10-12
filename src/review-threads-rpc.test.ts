@@ -38,6 +38,47 @@ test("getReviewThreads says when GitHub couldn't be read, keeping the pages it g
   expect(partial.error).toBe("gh timed out after 120s");
 });
 
+const at = (day: number) => `2026-10-0${day}T00:00:00Z`;
+
+test("getReviewThreads reads where each thread was, who resolved it, and who wrote each comment when", async () => {
+  const call = await setup();
+  const nodes = [
+    { id: "t1", isResolved: true, isOutdated: true, path: "a.ts", line: null, diffSide: "LEFT", originalLine: 7, startLine: null, subjectType: "LINE", resolvedBy: { login: "alice" },
+      comments: { nodes: [
+        { id: "c1", databaseId: 1, author: { __typename: "User", login: "me" }, body: "Why?", createdAt: at(1) },
+        { id: "c2", databaseId: 2, author: { __typename: "Bot", login: "ci" }, body: "Build passed", createdAt: at(2) },
+        { id: "c3", databaseId: 3, author: { __typename: "User", login: "dependabot[bot]" }, body: "Bumped", createdAt: at(3) },
+      ] } },
+    { id: "t2", isResolved: false, isOutdated: false, path: "b.ts", line: 9, diffSide: "RIGHT", originalLine: 9, startLine: 4, subjectType: "LINE", resolvedBy: null,
+      comments: { nodes: [{ id: "c4", databaseId: 4, author: null, body: "These lines", createdAt: at(4) }] } },
+    { id: "t3", isResolved: false, isOutdated: false, path: "c.ts", line: null, diffSide: "RIGHT", originalLine: null, startLine: null, subjectType: "FILE", resolvedBy: null,
+      comments: { nodes: [{ id: "c5", databaseId: 5, author: { __typename: "User", login: "bob" }, body: "The whole file", createdAt: at(5) }] } },
+  ];
+  runGh.mockResolvedValueOnce({ code: 0, stderr: "", stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } } }) });
+  expect((await call({ targetKey: "pr-1" })).threads).toEqual([
+    { id: "t1", isResolved: true, isOutdated: true, path: "a.ts", line: null, side: "LEFT", originalLine: 7, startLine: null, subjectType: "LINE", resolvedBy: "alice", comments: [
+      { id: "c1", databaseId: 1, author: "me", body: "Why?", createdAt: Date.parse(at(1)), bot: false },
+      { id: "c2", databaseId: 2, author: "ci", body: "Build passed", createdAt: Date.parse(at(2)), bot: true },
+      { id: "c3", databaseId: 3, author: "dependabot[bot]", body: "Bumped", createdAt: Date.parse(at(3)), bot: true },
+    ] },
+    // A deleted account wrote it: GitHub sends no author.
+    { id: "t2", isResolved: false, isOutdated: false, path: "b.ts", line: 9, side: "RIGHT", originalLine: 9, startLine: 4, subjectType: "LINE", resolvedBy: null, comments: [
+      { id: "c4", databaseId: 4, author: "unknown", body: "These lines", createdAt: Date.parse(at(4)) },
+    ] },
+    { id: "t3", isResolved: false, isOutdated: false, path: "c.ts", line: null, side: "RIGHT", originalLine: null, startLine: null, subjectType: "FILE", resolvedBy: null, comments: [
+      { id: "c5", databaseId: 5, author: "bob", body: "The whole file", createdAt: Date.parse(at(5)), bot: false },
+    ] },
+  ]);
+});
+
+test("getReviewThreads still reads a response without those fields, as before", async () => {
+  const call = await setup();
+  runGh.mockResolvedValueOnce(page(["t1"], null));
+  expect(await call({ targetKey: "pr-1" })).toEqual({ threads: [
+    { id: "t1", isResolved: false, isOutdated: false, path: "a.ts", line: 1, side: "RIGHT", comments: [{ id: "t1-c", databaseId: 1, author: "alice", body: "t1" }] },
+  ] });
+});
+
 test("re-reading your threads writes nothing for a review deleted while GitHub answered", async () => {
   runGh.mockReset();
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
