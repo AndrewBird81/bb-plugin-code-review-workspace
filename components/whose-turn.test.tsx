@@ -181,30 +181,6 @@ test("a date picked in the snooze menu wakes the review that morning", async () 
   slot.lifecycle.unmount();
 });
 
-test("status badges take their tone from why it's your turn", async () => {
-  await loadPluginApp(() => import("../app"));
-  const { statusLook } = await import("./ReviewStatus");
-  const look = (t: Turn, extra = {}) => { const { tone, icon } = statusLook({ targetKey: "k", turn: t, ...extra }); return [tone, icon]; };
-  expect(look(turn("needs", "re-requested", "Re-requested"))).toEqual(["primary", "Repeat"]);
-  expect(look(turn("needs", "team-requested", "Team review requested"))).toEqual(["neutral", undefined]);
-  expect(look(turn("needs", "question", "Question for you"))).toEqual(["warning", "MessageQuestion"]);
-  expect(look(turn("needs", "handled", "Feedback handled"))).toEqual(["success", "CircleCheck"]);
-  expect(look(turn("needs", "looks-ready", "Looks ready"))).toEqual(["agent", "Sparkles"]);
-  expect(look(turn("waiting", "waiting", "Changes requested"))).toEqual(["warning", "FileDiff"]);
-  expect(look(turn("waiting", "waiting", "Commented"))).toEqual(["neutral", "MessageSquare"]);
-  expect(look(turn("waiting", "snoozed", "Snoozed until the author responds"))).toEqual(["neutral", "Clock"]);
-  expect(look(turn("reviewed", "approved", "Approved · updated"))).toEqual(["success", "Check"]);
-  expect(look(turn("needs", "new", "Tracked"))).toEqual(["primary", undefined]);
-  expect(look(turn("needs", "own", "Your PR"))).toEqual(["primary", "UserRound"]);
-  expect(look(turn("reviewed", "own", "Your PR · updated"))).toEqual(["neutral", "UserRound"]);
-  expect(look(turn("archive", "unrequested", "No longer requested"))).toEqual(["neutral", undefined]);
-  expect(look(turn("archive", "unreachable", "Can’t read on GitHub"))).toEqual(["neutral", "EyeOff"]);
-  // The agent's work, in the agent's tone.
-  expect(look(turn("needs", "question", "Generating"))).toEqual(["agent", "Loading"]);
-  // A failed guide keeps the reason underneath; the badge shows the failure.
-  expect(look(turn("needs", "re-requested", "Failed", { failed: true }))).toEqual(["danger", "AlertTriangle"]);
-});
-
 test("whose-turn settings save into preferences, with one repository pattern per line", async () => {
   await loadPluginApp(() => import("../app"));
   const { ReviewSettings } = await import("./ReviewSettings");

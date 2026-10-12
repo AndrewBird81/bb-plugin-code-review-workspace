@@ -1,41 +1,9 @@
 import { Fragment, type ReactNode } from "react";
-import { reviewState, type ReviewItem } from "../lib/review-state";
+import type { ReviewItem } from "../lib/review-state";
 import type { StatusPart, StatusTone } from "../lib/status-line";
-import { snoozeLabel } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { TONE_TEXT, type Tone } from "./ui/badge";
 import { Icon, type IconName } from "./ui/icon";
-
-/** How a review's status reads: GitHub's verdict colors, the agent's for its work, chosen by whose turn it is and why. */
-export function statusLook(review: ReviewItem): { label: string; tone: Tone; icon?: IconName; busy?: boolean } {
-  const { label, reason, failed, group } = reviewState(review);
-  if (label === "Generating") return { label, tone: "agent", icon: "Loading", busy: true };
-  // A failed guide keeps the reason underneath; the failure is what to show.
-  if (failed || label === "Failed") return { label, tone: "danger", icon: "AlertTriangle" };
-  switch (reason) {
-    case "merged": return { label, tone: "merged", icon: "GitMerge" };
-    case "closed": return { label, tone: "danger", icon: "GitPullRequestClosed" };
-    case "archived": return { label, tone: "neutral", icon: "Archive" };
-    case "unrequested": return { label, tone: "neutral" };
-    case "unreachable": return { label, tone: "neutral", icon: "EyeOff" };
-    // Your own PR stands out only while it's yours to review.
-    case "own": return { label, tone: group === "needs" ? "primary" : "neutral", icon: "UserRound" };
-    case "re-requested": return { label, tone: "primary", icon: "Repeat" };
-    case "team-requested": return { label, tone: "neutral" };
-    case "question": return { label, tone: "warning", icon: "MessageQuestion" };
-    case "mentioned": return { label, tone: "primary", icon: "MessageSquare" };
-    case "handled": return { label, tone: "success", icon: "CircleCheck" };
-    case "looks-ready": return { label, tone: "agent", icon: "Sparkles" };
-    case "dismissed": return { label, tone: "warning", icon: "AlertCircle" };
-    case "waiting": return label === "Changes requested" ? { label, tone: "warning", icon: "FileDiff" } : { label, tone: "neutral", icon: "MessageSquare" };
-    // The wake time reads in your time zone, not the server's.
-    case "snoozed": return { label: label === "Snoozed" && review.snoozedUntil ? snoozeLabel(review.snoozedUntil) : "Snoozed", tone: "neutral", icon: "Clock" };
-    case "draft": return { label, tone: "neutral", icon: "GitPullRequestDraft" };
-    case "approved": return { label, tone: "success", icon: "Check" };
-    case "commented": return { label, tone: "neutral", icon: "MessageSquare" };
-    default: return { label, tone: "primary" };
-  }
-}
 
 /** The pull request (or local change) itself, colored like GitHub: open, merged, closed. */
 export function kindLook(review: ReviewItem): { tone: Tone; icon: IconName } {

@@ -66,12 +66,16 @@ const chip = (slot: Slot, name: string) => panel(slot).getByRole("radio", { name
 const chosen = (slot: Slot, name: string) => waitFor(() => expect(chip(slot, name).getAttribute("aria-checked")).toBe("true"));
 
 test("a review that came back to you is marked seen and opens on its Overview, with Comments on what needs you", async () => {
-  const { slot, rpc } = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({}) });
+  const { slot, rpc } = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", signals: { requestedBy: "alice" }, turn: turn({}) });
   await slot.findByRole("region", { name: "Comments" });
   expect(rpc.markSeen).toHaveBeenCalledTimes(1);
   expect(rpc.markSeen).toHaveBeenCalledWith({ targetKey: "pr-42" });
   expect(slot.getByRole("heading", { name: "Parse rows" })).toBeTruthy();
   await chosen(slot, "Needs you");
+  // Without Comments beside them, the chapters dock; their Overview row says why in All reviews' words.
+  fireEvent.click(panel(slot).getByRole("button", { name: "Close panel" }));
+  const row = within(await slot.findByRole("navigation", { name: "Chapters" })).getByRole("button", { name: /^Overview/ });
+  expect(row.textContent).toBe("Overview · Re-requested by @alice");
   slot.lifecycle.unmount();
 });
 
@@ -213,9 +217,9 @@ test("the Overview shows your review rounds, progress, Blocks merge, and snoozes
 
 test("a snoozed review offers Back to Needs review, and an unreviewed one can't wait for the author", async () => {
   const snoozed = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({ group: "waiting", reason: "snoozed", label: "Snoozed until the author responds" }) });
-  // "Not yet" is gone from the words: the chapters' Overview row says Snoozed, the status line why.
+  // "Not yet" is gone from the words: the chapters' Overview row says it as All reviews and the status line do.
   const row = within(await snoozed.slot.findByRole("navigation", { name: "Chapters" })).getByRole("button", { name: /^Overview/ });
-  expect(row.textContent).toBe("Overview · Snoozed");
+  expect(row.textContent).toBe("Overview · Snoozed until the author responds");
   expect(snoozed.slot.getByText("Snoozed until the author responds")).toBeTruthy();
   fireEvent.click(await snoozed.slot.findByRole("button", { name: "Back to Needs review" }));
   await waitFor(() => expect(snoozed.rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: false }));

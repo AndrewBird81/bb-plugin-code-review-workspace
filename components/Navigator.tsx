@@ -1,11 +1,12 @@
 import { memo, type ReactNode } from "react";
 import type { FileOwners } from "../src/codeowners";
 import type { ReviewThread } from "../src/threads";
+import { reviewState } from "../lib/review-state";
+import { statusWhy } from "../lib/status-line";
 import { cn } from "../lib/utils";
 import { OVERVIEW, useWorkspace } from "../lib/workspace-context";
 import { ChapterNav } from "./ChapterNav";
 import { FindInReview } from "./FindInReview";
-import { statusLook } from "./ReviewStatus";
 import { Icon } from "./ui/icon";
 
 /**
@@ -31,7 +32,8 @@ export const Navigator = memo(function Navigator({ leading, patch, currentFile, 
 }) {
   const { review, sections, activeId, files, nav, compare } = useWorkspace();
   const current = activeId === OVERVIEW;
-  const status = statusLook(review).label;
+  // Where the review stands, in All reviews' words; a ready guide that's nobody's news says nothing.
+  const status = reviewState(review).label === "Ready" ? null : statusWhy(review)?.text;
   return (
     <FindInReview leading={leading} patch={patch} sections={sections} onOpenLine={onOpenLine} onOpenChapter={onSelect} onOpenFile={onOpenFile}>
       <ChapterNav
@@ -63,7 +65,7 @@ export const Navigator = memo(function Navigator({ leading, patch, currentFile, 
             <Icon name="AlignLeft" className={cn("size-4 shrink-0", current ? "text-primary" : "text-subtle-foreground")} aria-hidden />
             <span className="min-w-0 flex-1 truncate">
               <span className="font-medium text-foreground">Overview</span>
-              {status !== "Ready" && <span className="text-muted-foreground"> · {status}</span>}
+              {status && <span className="text-muted-foreground"> · {status}</span>}
             </span>
           </button>
         }
