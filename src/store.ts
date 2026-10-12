@@ -207,7 +207,8 @@ export interface Store extends AgentCommentStore {
   stopWaiting(targetKey: string): boolean;
   // Per-file "Viewed" state (Feature 1).
   getFileViews(targetKey: string): FileView[];
-  setFileViewed(targetKey: string, file: string, hash: string): void;
+  /** `viewedAt`, when Undo puts back a view as it was; otherwise now. */
+  setFileViewed(targetKey: string, file: string, hash: string, viewedAt?: number): void;
   unsetFileViewed(targetKey: string, file: string): void;
   // Legacy review-agent worker and plugin-stored chat log, read-only since
   // conversations moved into bb threads.
@@ -698,11 +699,11 @@ export function createStore(bb: BbPluginApi): Store {
         .all(k)
         .map((r: any) => ({ file: r.file, hash: r.hash, viewedAt: r.viewed_at }));
     },
-    setFileViewed(k, file, hash) {
+    setFileViewed(k, file, hash, viewedAt = Date.now()) {
       db.prepare(
         `INSERT INTO file_views (target_key,file,hash,viewed_at) VALUES (?,?,?,?)
          ON CONFLICT(target_key,file) DO UPDATE SET hash=excluded.hash, viewed_at=excluded.viewed_at`,
-      ).run(k, file, hash, Date.now());
+      ).run(k, file, hash, viewedAt);
     },
     unsetFileViewed(k, file) {
       db.prepare(`DELETE FROM file_views WHERE target_key=? AND file=?`).run(k, file);

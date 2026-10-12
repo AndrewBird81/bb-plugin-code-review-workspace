@@ -39,6 +39,9 @@ const discussion = z.object({
   undoable: z.boolean().optional(),
 });
 
+// A file's viewed mark as stored: the hash of its diff when you viewed it (src/store.ts FileView).
+const fileView = z.object({ file: z.string(), hash: z.string(), viewedAt: z.number() });
+
 // A draft, where its comments were drafted against an older diff, and the discussions at its lines.
 const draftOutput = z.object({
   draft: z.any(),
@@ -216,10 +219,11 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), file: z.string(), viewed: z.boolean() }).strict(),
     output: z.object({ ok: z.boolean() }),
   },
-  // Marks a chapter's files viewed at once, or with viewed: false (Undo) not viewed.
+  // Marks a chapter's files viewed at once, returning the views it replaced. With viewed: false (Undo), puts back
+  // `previous`, such as a file viewed at an older version, and unmarks the rest.
   setFilesViewed: {
-    input: z.object({ targetKey: z.string(), files: z.array(z.string()), viewed: z.boolean().optional() }).strict(),
-    output: z.object({ ok: z.boolean() }),
+    input: z.object({ targetKey: z.string(), files: z.array(z.string()), viewed: z.boolean().optional(), previous: z.array(fileView).optional() }).strict(),
+    output: z.object({ ok: z.boolean(), previous: z.array(fileView).optional() }),
   },
 
   // Review assistant: one hidden bb thread per review, shown with ThreadChat

@@ -539,24 +539,28 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     [rpc, targetKey, loadViews],
   );
 
-  // A chapter's files not viewed yet, marked at once, which Undo unmarks again.
+  // A chapter's files not viewed yet, marked at once. Undo puts each back as it was, changed since you viewed it too.
   const markChapterViewed = useCallback((id: string) => {
     const files: string[] = sections.find((section: any) => section.id === id)?.diffs.map((d: any) => d.file) ?? [];
     const todo = files.filter((f) => !views.get(f)?.viewed);
     if (!todo.length) return;
-    const mark = (viewed: boolean) => setViews((prev) => {
+    const before = new Map(todo.map((f) => [f, views.get(f)]));
+    setViews((prev) => {
       const next = new Map(prev);
-      for (const f of todo) next.set(f, { viewed, stale: false });
+      for (const f of todo) next.set(f, { viewed: true, stale: false });
       return next;
     });
-    mark(true);
     const marked = rpc.call("setFilesViewed", { targetKey, files: todo });
     marked.then(() => loadViews()).catch(() => loadViews());
     const undo = () => {
-      mark(false);
-      // After the marking, so the server ends where the screen does.
-      void marked.catch(() => {})
-        .then(() => Promise.all(todo.map((file) => rpc.call("setFileViewed", { targetKey, file, viewed: false }))))
+      setViews((prev) => {
+        const next = new Map(prev);
+        for (const [f, flags] of before) if (flags) next.set(f, flags); else next.delete(f);
+        return next;
+      });
+      // After the marking, with the views it replaced, so the server ends where the screen does.
+      void marked
+        .then(({ previous }) => rpc.call("setFilesViewed", { targetKey, files: todo, viewed: false, previous }))
         .then(() => loadViews()).catch(() => loadViews());
     };
     toast.success(`Marked ${todo.length} file${todo.length === 1 ? "" : "s"} viewed`, { action: { label: "Undo", onClick: undo } });

@@ -40,14 +40,14 @@ test("setFilesViewed marks a chapter's files in one call, hashing just those", a
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
   store.savePatch("pr-1", patch + "diff --git a/c.ts b/c.ts\n+three\n");
   vi.mocked(normalizedFileHash).mockClear();
-  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts"] })).toEqual({ ok: true });
+  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts"] })).toEqual({ ok: true, previous: [] });
   expect(normalizedFileHash).toHaveBeenCalledTimes(2);
   expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [
     { file: "a.ts", viewed: true, stale: false },
     { file: "b.ts", viewed: true, stale: false },
   ] });
   // A file gone from the patch can't be marked.
-  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["c.ts", "gone.ts"] })).toEqual({ ok: false });
+  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["c.ts", "gone.ts"] })).toEqual({ ok: false, previous: [] });
   expect(store.getFileViews("pr-1").map((view) => view.file).sort()).toEqual(["a.ts", "b.ts", "c.ts"]);
 });
 
@@ -57,9 +57,29 @@ test("setFilesViewed with viewed false unmarks a chapter's files at once, for Un
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
   store.savePatch("pr-1", patch + "diff --git a/c.ts b/c.ts\n+three\n");
-  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts", "c.ts"], viewed: true })).toEqual({ ok: true });
+  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts", "c.ts"], viewed: true })).toEqual({ ok: true, previous: [] });
   expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts", "gone.ts"], viewed: false })).toEqual({ ok: true });
   expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [{ file: "c.ts", viewed: true, stale: false }] });
+});
+
+test("setFilesViewed returns the views it replaced, and Undo with them puts a file viewed at an older version back as changed since", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
+  store.savePatch("pr-1", patch);
+  // a.ts was viewed before its diff last changed.
+  store.setFileViewed("pr-1", "a.ts", "old-hash", 1);
+  const before = { file: "a.ts", hash: "old-hash", viewedAt: 1 };
+  const marked = await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts"] });
+  expect(marked).toEqual({ ok: true, previous: [before] });
+  expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [
+    { file: "a.ts", viewed: true, stale: false },
+    { file: "b.ts", viewed: true, stale: false },
+  ] });
+  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts"], viewed: false, previous: marked.previous })).toEqual({ ok: true });
+  expect(store.getFileViews("pr-1")).toEqual([before]);
+  expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [{ file: "a.ts", viewed: false, stale: true }] });
 });
 
 const appDiff = (index: string, at: string, context: string, added = "+  run(a, b);") =>

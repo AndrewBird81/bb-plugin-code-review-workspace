@@ -669,15 +669,21 @@ export default async function plugin(bb: BbPluginApi) {
       store.setFileViewed(targetKey, file, hash);
       return { ok: true };
     },
-    setFilesViewed({ targetKey, files, viewed = true }) {
+    setFilesViewed({ targetKey, files, viewed = true, previous = [] }) {
       if (!viewed) {
-        for (const file of files) store.unsetFileViewed(targetKey, file);
+        const before = new Map(previous.map((view) => [view.file, view]));
+        for (const file of files) {
+          const view = before.get(file);
+          if (view) store.setFileViewed(targetKey, file, view.hash, view.viewedAt);
+          else store.unsetFileViewed(targetKey, file);
+        }
         return { ok: true };
       }
       const total = store.readPatch(targetKey, 0, 0).total;
       const hashes = fileHashes(store.readPatch(targetKey, 0, total).text, files);
+      const replaced = store.getFileViews(targetKey).filter((view) => hashes.has(view.file));
       for (const [file, hash] of hashes) store.setFileViewed(targetKey, file, hash);
-      return { ok: hashes.size === new Set(files).size };
+      return { ok: hashes.size === new Set(files).size, previous: replaced };
     },
 
     // Review assistant: a hidden bb thread per review, shown with ThreadChat

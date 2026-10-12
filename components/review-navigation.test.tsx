@@ -568,16 +568,27 @@ test("t shows and hides the chapters, c Comments, and i folds comments in code, 
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("⇧V marks the chapter's files viewed, and the toast's Undo unmarks the ones it marked", async () => {
-  const viewed = new Set<string>(["src/c.ts"]);
+test("⇧V marks the chapter's files viewed, and the toast's Undo puts each back as it was in one call, changed since you viewed it included", async () => {
+  // The diff each file was viewed at: src/c.ts at today's, src/b.ts at an older one.
+  const stored = new Map([["src/b.ts", "old"], ["src/c.ts", "now"]]);
+  type View = { file: string; hash: string; viewedAt: number };
   const { slot, rpc } = await renderWorkspace({ rpc: {
-    getFileViews: vi.fn(() => ({ views: [...viewed].map((file) => ({ file, viewed: true, stale: false })) })),
-    setFileViewed: vi.fn(({ file, viewed: on }: { file: string; viewed: boolean }) => { if (on) viewed.add(file); else viewed.delete(file); return { ok: true }; }),
-    setFilesViewed: vi.fn(({ files }: { files: string[] }) => { files.forEach((file) => viewed.add(file)); return { ok: true }; }),
+    getFileViews: vi.fn(() => ({ views: [...stored].map(([file, hash]) => ({ file, viewed: hash === "now", stale: hash !== "now" })) })),
+    setFilesViewed: vi.fn(({ files, viewed = true, previous = [] }: { files: string[]; viewed?: boolean; previous?: View[] }) => {
+      if (!viewed) {
+        for (const file of files) { const view = previous.find((p) => p.file === file); if (view) stored.set(file, view.hash); else stored.delete(file); }
+        return { ok: true };
+      }
+      const replaced = files.filter((file) => stored.has(file)).map((file) => ({ file, hash: stored.get(file)!, viewedAt: 1 }));
+      files.forEach((file) => stored.set(file, "now"));
+      return { ok: true, previous: replaced };
+    }),
   } });
   await slot.findByText("aa");
   fireEvent.click(chapters(slot).getByText("Caching"));
   await waitFor(() => expect(currentChapter(slot)?.textContent).toContain("Caching"));
+  const changed = () => within(slot.container.querySelector<HTMLElement>('[data-file="src/b.ts"] [data-file-header]')!).queryByText("changed");
+  await waitFor(() => expect(changed()).toBeTruthy());
   // Caps Lock's V, without Shift, is a v.
   press("V");
   expect(rpc.setFilesViewed).not.toHaveBeenCalled();
@@ -585,20 +596,27 @@ test("⇧V marks the chapter's files viewed, and the toast's Undo unmarks the on
   expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts"] });
   const box = slot.getByRole("checkbox", { name: "Viewed src/b.ts" }) as HTMLInputElement;
   await waitFor(() => expect(box.checked).toBe(true));
+  expect(changed()).toBeNull();
   const [message, options] = vi.mocked(toast.success).mock.calls.at(-1)!;
   expect(message).toBe("Marked 1 file viewed");
   const undo = (options as { action: { label: string; onClick: () => void } }).action;
   expect(undo.label).toBe("Undo");
   act(() => undo.onClick());
   expect(box.checked).toBe(false);
-  await waitFor(() => expect(rpc.setFileViewed).toHaveBeenCalledWith({ targetKey: "pr-42", file: "src/b.ts", viewed: false }));
-  // src/c.ts was viewed before: Undo leaves it so.
-  expect(rpc.setFileViewed).toHaveBeenCalledTimes(1);
-  await waitFor(() => expect(viewed).toEqual(new Set(["src/c.ts"])));
+  expect(changed()).toBeTruthy();
+  // src/b.ts gets back the older diff it was viewed at; src/c.ts, viewed before, isn't touched.
+  await waitFor(() => expect(rpc.setFilesViewed).toHaveBeenLastCalledWith({ targetKey: "pr-42", files: ["src/b.ts"], viewed: false, previous: [{ file: "src/b.ts", hash: "old", viewedAt: 1 }] }));
+  expect(rpc.setFileViewed).not.toHaveBeenCalled();
+  await waitFor(() => expect(stored).toEqual(new Map([["src/b.ts", "old"], ["src/c.ts", "now"]])));
+  // And the views read back after it agree.
+  await waitFor(() => expect(rpc.getFileViews.mock.invocationCallOrder.at(-1)).toBeGreaterThan(rpc.setFilesViewed.mock.invocationCallOrder.at(-1)!));
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  expect(changed()).toBeTruthy();
+  expect(box.checked).toBe(false);
   // On the Overview there's no chapter to mark.
   press("p");
   press("p");
   press("V", { shiftKey: true });
-  expect(rpc.setFilesViewed).toHaveBeenCalledTimes(1);
+  expect(rpc.setFilesViewed).toHaveBeenCalledTimes(2);
   slot.lifecycle.unmount();
 }, 15_000);
