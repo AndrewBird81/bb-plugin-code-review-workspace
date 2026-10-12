@@ -499,7 +499,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const reviewFiles: string[] = useMemo(() => [...new Set<string>(sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)))], [sections]);
 
   // Restore the saved scroll position once the page it was saved on shows. The diff draws its files a moment later, so
-  // it follows them down until it gets there, for a few seconds, or until you scroll yourself.
+  // it follows them down until it gets there, for a few seconds, or until you scroll yourself. Meanwhile the browser's
+  // scroll anchoring is off: when a diff above the place draws, it would keep what shows on screen, off the place.
   useEffect(() => {
     const box = scrollBox.current;
     const top = restoreScroll.current;
@@ -512,7 +513,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       box.scrollTop = top;
       if (box.scrollTop < top - 1 && Date.now() < until) frame = requestAnimationFrame(follow);
     };
-    const stop = () => cancelAnimationFrame(frame);
+    box.style.overflowAnchor = "none";
+    const stop = () => { cancelAnimationFrame(frame); clearTimeout(timer); box.style.overflowAnchor = ""; };
+    const timer = setTimeout(stop, until - Date.now());
     const inputs = ["wheel", "touchstart", "pointerdown"] as const;
     inputs.forEach((type) => box.addEventListener(type, stop, { once: true }));
     window.addEventListener("keydown", stop, { once: true });

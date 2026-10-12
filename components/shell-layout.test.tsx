@@ -270,16 +270,21 @@ test("a saved scroll position the diff can't reach yet is reached as its files d
   restores.push(() => Object.defineProperty(Element.prototype, "scrollTop", scrollTop));
   localStorage.setItem("gr:panelstate", JSON.stringify({ layoutVersion: 2, perReview: { "pr-42": { activeId: "c2", scrollTop: 500 } } }));
   let { slot } = await renderWorkspace({ opened: false });
+  const code = () => slot.getByRole("main").querySelector<HTMLElement>(".overflow-y-auto")!;
   await slot.findByText("bb");
   expect(top).toBe(100);
+  // The browser's scroll anchoring, which would move the code off its place as the diff above it draws, waits.
+  expect(code().style.overflowAnchor).toBe("none");
   room = 1000;
   await waitFor(() => expect(top).toBe(500));
+  expect(code().style.overflowAnchor).toBe("none");
   slot.lifecycle.unmount();
   room = 100; top = 0;
   localStorage.setItem("gr:panelstate", JSON.stringify({ layoutVersion: 2, perReview: { "pr-42": { activeId: "c2", scrollTop: 500 } } }));
   ({ slot } = await renderWorkspace({ opened: false }));
   await slot.findByText("bb");
-  fireEvent.wheel(slot.getByRole("main").querySelector(".overflow-y-auto")!);
+  fireEvent.wheel(code());
+  expect(code().style.overflowAnchor).toBe("");
   room = 1000;
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(top).toBe(100);
