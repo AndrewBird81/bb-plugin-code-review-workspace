@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode 
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
-import { CompareMenu, compareLabel, compareProblem, lastReviewed, showAllChanges, useCommits } from "../ComparePicker";
+import { CompareMenu, compareLabel, compareProblem, lastReviewed, useCommits } from "../ComparePicker";
 import { TOUCH_COMPACT, TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
@@ -134,7 +134,7 @@ export function DiffOptions({ threads, compareInBand = false, foldInBand = false
           {comparing && <div className="border-b border-border pb-1">
             <div className={cn(row, "hover:bg-transparent")}>
               Show changes
-              <Segmented label="Show changes" value={compare.narrowed ? "since" : "all"} onChange={(value) => value === "all" ? showAllChanges(compare) : compare.pick(compare.from)}
+              <Segmented label="Show changes" value={compare.narrowed ? "since" : "all"} onChange={(value) => value === "all" ? compare.setNarrowed(false) : compare.pick(compare.from)}
                 options={[{ value: "all", label: "All" }, { value: "since", label: compareLabel(true, compare.from) }]} />
             </div>
             {compare.error && <p role="status" className="flex items-center gap-1.5 px-2 pb-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden />{compareProblem(compare)}</p>}

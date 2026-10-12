@@ -175,6 +175,20 @@ test("with your last review at the head there's nothing to compare it with, so i
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("on a re-review, All changes lets a picked commit go: the files' badges say what changed since your review again", async () => {
+  const { slot, rpc } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" });
+  fireEvent.click(await (await bandMenu(slot)).findByText("Invalidate on write"));
+  await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
+  await waitFor(() => expect(slot.queryAllByTitle("Changed since c2bbbbb")).not.toEqual([]));
+  fireEvent.click((await bandMenu(slot)).getByRole("menuitemradio", { name: "All changes in this PR" }));
+  await waitFor(() => expect(slot.queryAllByTitle("Changed since your review")).toHaveLength(2));
+  expect(rpc.getSinceReview).toHaveBeenLastCalledWith({ targetKey: "pr-42" });
+  // Your review's comparison, arriving, doesn't narrow the diff.
+  expect(slot.getByRole("button", { name: "Show changes: All changes" })).toBeTruthy();
+  expect(slot.queryAllByTitle("Changed since c2bbbbb")).toEqual([]);
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("a comparison that fails says why in the compare menu, not only in the select's tooltip", async () => {
   const { slot } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" }, {
     getSinceReview: () => ({ baseline: null, files: [], error: "gh: not found" }),

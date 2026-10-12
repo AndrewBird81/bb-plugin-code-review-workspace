@@ -41,15 +41,6 @@ export function lastReviewed(compare: WorkspaceApi["compare"]): string | null {
   return compare.baseline && compare.baseline !== compare.head ? compare.baseline : null;
 }
 
-/**
- * Shows the whole PR. A commit picked on a PR you haven't reviewed is let go, so its badges go with it; after your
- * review, they stay what they were.
- */
-export function showAllChanges(compare: WorkspaceApi["compare"]) {
-  if (compare.from && !lastReviewed(compare)) compare.pick(null);
-  else compare.setNarrowed(false);
-}
-
 /** The PR's commits, read while `wanted`, and again once a push moves the diff's head. */
 export function useCommits(wanted: boolean): { commits: PrCommit[] | null; error: string | null } {
   const { targetKey, compare } = useWorkspace();
@@ -113,7 +104,7 @@ export function CompareMenu({ commits, error, onPicked }: { commits: PrCommit[] 
   return (
     <div role="menu" aria-label="Show changes" className="flex flex-col">
       <p aria-hidden className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground">Show changes</p>
-      <Choice checked={!compare.narrowed} label="All changes in this PR" onSelect={choose(() => showAllChanges(compare))} />
+      <Choice checked={!compare.narrowed} label="All changes in this PR" onSelect={choose(() => compare.setNarrowed(false))} />
       {lastReview && <Choice checked={compare.narrowed && !compare.from} label="Since your review" detail={[short(lastReview), reviewedAt].filter(Boolean).join(" · ")} onSelect={choose(() => compare.pick(null))} />}
       {problem && <p role="status" className="flex items-start gap-2 px-2 py-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-px size-3.5 shrink-0" aria-hidden />{problem}</p>}
       {pickable && (

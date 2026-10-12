@@ -380,6 +380,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     narrowOnLoad.current = !!from && from !== review?.headSha;
     setCompareFrom(sha);
   }, [compareFrom, since, sinceKey, baselineSha, review?.headSha]);
+  // All changes lets a picked commit go, and a comparison still loading doesn't narrow the diff when it arrives.
+  const narrow = useCallback((narrowed: boolean) => {
+    if (!narrowed) { narrowOnLoad.current = false; setCompareFrom(null); }
+    setSinceOnly(narrowed);
+  }, []);
   const sinceWhat = compareFrom ? compareFrom.slice(0, 7) : "your review";
   // Who owns each file, by CODEOWNERS on a PR's base branch, or a local review's new side.
   useEffect(() => {
@@ -883,12 +888,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     nav: { open: layout.nav === "docked" || layout.nav === "overlay", toggle: toggleNav, find: findInReview, view: navView, setView: changeNavView },
     panel: { view: shownPanel, open: openPanel, toggle: togglePanel, close: closePanel },
     files: { views, toggleViewed, markChapterViewed, foldAll: foldAllFiles },
-    compare: { baseline: baselineSha, head: review?.headSha ?? null, from: compareFrom, pick: pickCompare, since, narrowed: sinceOnly, setNarrowed: setSinceOnly, error: sinceError, what: sinceWhat },
+    compare: { baseline: baselineSha, head: review?.headSha ?? null, from: compareFrom, pick: pickCompare, since, narrowed: sinceOnly, setNarrowed: narrow, error: sinceError, what: sinceWhat },
     display: { layout: diffLayout, toggleLayout, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads, commentsFolded, setCommentsFolded: changeCommentsFolded },
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, foldAllFiles, baselineSha, compareFrom, pickCompare, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts]);
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, foldAllFiles, baselineSha, compareFrom, pickCompare, narrow, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts]);
 
   if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");
@@ -969,7 +974,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 sinceWhat={sinceWhat}
                 owners={owners}
                 foldAll={foldAll}
-                onSinceOnly={sheet ? setSinceOnly : undefined}
+                onSinceOnly={sheet ? narrow : undefined}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>
