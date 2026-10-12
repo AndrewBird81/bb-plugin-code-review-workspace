@@ -41,7 +41,7 @@ A new review workspace, built so the code owns the screen on a desktop, an iPad,
 - After you submit, the panel reads **Review submitted**, with where it posted, **View on GitHub**, and the next review in Needs review.
 - Reviewer notes are no longer a tool. Notes you have are under Finish review → Stays in BB → **Private notes**, still never sent.
 - A merged or closed PR's Comments ends with "Merged · Archived" and **Open**, its archived review with the unsubmitted draft and notes.
-- When a review comes back to you and Comments can't open beside the code in BB's pane, a "3 need you" pill offers it until you scroll.
+- When a review comes back to you and Comments can't open beside the code in BB's pane, a "3 need you" pill offers it until you scroll or start a comment.
 
 ### Phone and iPad
 
@@ -53,7 +53,7 @@ A new review workspace, built so the code owns the screen on a desktop, an iPad,
 - iPhone 14 Pro Max and iPhone Duo, held either way, and the Duo folded or unfolded: folding, unfolding, or turning keeps the line you were reading, what's open (a docked panel becomes the sheet and back), half-typed text with its cursor, Find's text, the lines selected, and the focus. That holds in BB too, which mounts the review anew as its own layout switches at a 768px window.
 - The unfolded Duo held sideways beside BB's thread list (631px) gets the tablet layout: the phone layout is for panes under 600px wide.
 - On the unfolded iPhone Duo held sideways in Safari, Comments docks beside the code at 391px instead of covering it.
-- Typing keeps the box above the on-screen keyboard, its buttons too wherever they fit; when the keyboard leaves a phone little room, the band, the file's sticky row, and Comments' Finish bar step aside. Folded and held sideways, the Duo has room for the text box alone, and its buttons show once the keyboard goes away. Where BB shrinks its pane above the keyboard, a phone stays a phone while you type. An iPad keeps its band.
+- Typing keeps the box above the on-screen keyboard, its buttons too wherever they fit; when the keyboard leaves a phone little room, the band, the file's sticky row, and Comments' Finish bar step aside. Where it leaves room for the text box alone (the Duo folded and held sideways, and in BB folded or in Split View), the whole box comes into view once the keyboard goes away. Where BB shrinks its pane above the keyboard, a phone stays a phone while you type and as the keyboard goes. An iPad keeps its band.
 - In a home-screen app the review, its dock, sheets, and menus keep clear of the notch, the Duo's side rail, and the home indicator, sideways too.
 - On the Duo's inner screen, the band's controls, the selection and step bars, menus, and Comments over the code keep off the fold. Safari doesn't report the fold by default, so its place is estimated there.
 - Menus, Diff options, and Snooze open as drawers from the bottom on a phone, and on one held sideways.
