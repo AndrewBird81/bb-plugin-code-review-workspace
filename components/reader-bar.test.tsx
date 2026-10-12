@@ -36,13 +36,25 @@ test("narrower, the compare select shortens its label, then moves into Diff opti
 });
 
 test("short of room, Fold comments moves into Diff options before the chapter's title or the compare select gives way", () => {
-  // Full screen on a phone held sideways, 594px, its commands beside it.
+  // A short band with a mouse, its commands beside it, as in full screen.
   expect(bandFit(310, 5, 36, select)).toEqual({ back: false, title: false, compare: null, fold: false });
   expect(bandFit(512, 5, 36, select).fold).toBe(true);
-  // Full screen on an unfolded foldable held sideways: the chapters docked, the commands beside the band.
+  // With the chapters docked, three buttons.
   expect(bandFit(330, 3, 44, select)).toEqual({ back: false, title: false, compare: "brief", fold: false });
   // Without a comparison, Fold stays while the chapter's title has room.
   expect(bandFit(330, 3, 44, null).fold).toBe(true);
+});
+
+test("on touch, a band with under 600px of room ends with Diff options alone, off an unfolded iPhone Duo's fold", () => {
+  const alone = { back: false, title: false, compare: null, fold: false };
+  // Beside Comments docked at 391 on the Duo held sideways: 547px of room.
+  expect(bandFit(547, 5, 44, select, true)).toEqual(alone);
+  // In full screen there, the chapters docked, before the review's commands: 391px; a first review's too.
+  expect(bandFit(391, 3, 44, select, true)).toEqual(alone);
+  expect(bandFit(391, 3, 44, null, true)).toEqual(alone);
+  // From 600px, as with a mouse, which keeps them under 600 too.
+  expect(bandFit(600, 5, 44, select, true)).toMatchObject({ compare: "full", fold: true });
+  expect(bandFit(547, 5, 32, select)).toMatchObject({ compare: "full", fold: true });
 });
 
 /** Every ResizeObserver reports this size: the workspace's pane, and the band's room in it unless `room` says. */
@@ -138,6 +150,20 @@ test("where the band has no room for the compare select, Diff options shows the 
   expect(slot.getByRole("button", { name: "Since a commit…" })).toBeTruthy();
   // Fold comments is here too, where the band can leave it for the chapter's title.
   expect(slot.getByRole("switch", { name: "Fold comments in code" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("on touch, the band beside Comments docked on an unfolded iPhone Duo held sideways leaves the compare select and Fold comments to Diff options", async () => {
+  fakePane(951, 541, 547);
+  const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(pointer: coarse)", media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }) as MediaQueryList);
+  restores.push(() => matchMedia.mockRestore());
+  const slot = await renderWorkspace(rereview);
+  const controls = band(slot).getAllByRole("button").filter((button) => !button.closest("[data-review-commands]")).map((button) => button.getAttribute("aria-label"));
+  expect(controls.at(-1)).toBe("Diff options");
+  expect(controls.filter((label) => /^Show changes|comments in code$/.test(label ?? ""))).toEqual([]);
+  fireEvent.click(band(slot).getByRole("button", { name: "Diff options" }));
+  expect(await slot.findByRole("switch", { name: "Fold comments in code" })).toBeTruthy();
+  expect(slot.getByRole("radiogroup", { name: "Show changes" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
