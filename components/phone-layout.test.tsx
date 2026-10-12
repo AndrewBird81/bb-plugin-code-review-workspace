@@ -81,7 +81,7 @@ test("on a phone the diff's options are behind the chapters sheet's Diff options
   const wrap = await slot.findByRole("switch", { name: "Wrap long lines" });
   expect(wrap.getAttribute("aria-checked")).toBe("true");
   expect(slot.getByRole("switch", { name: "Hide whitespace changes" }).getAttribute("aria-checked")).toBe("false");
-  expect(slot.queryByRole("button", { name: "Split view" })).toBeNull();
+  expect(slot.queryByRole("radiogroup", { name: "Layout" })).toBeNull();
   fireEvent.click(wrap);
   expect(wrap.getAttribute("aria-checked")).toBe("false");
   slot.lifecycle.unmount();
@@ -124,9 +124,10 @@ test("a phone held sideways keeps its band to 40px: All reviews and the chapter,
   // With 720px of room, ‹ says where it goes.
   expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("All reviews");
   expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
-  const main = within(slot.getByRole("main"));
-  expect(main.queryByRole("button", { name: "Wrap lines" })).toBeNull();
-  fireEvent.click(main.getByRole("button", { name: "Diff options" }));
+  // Of the diff's settings only Fold comments, folded here to start with, has its own button.
+  const options = within(slot.getByRole("main")).getByRole("button", { name: "Diff options" });
+  expect(within(options.parentElement!).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Unfold comments in code", "Diff options"]);
+  fireEvent.click(options);
   expect(await slot.findByRole("switch", { name: "Wrap long lines" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
