@@ -183,6 +183,18 @@ test("the panel docks narrower, down to 320, rather than squeeze the code under 
   expect(reader(880, 800, panelOnly)).toBe(560);
 });
 
+// Where §3.1 opens a panel saved wider than its room over the code, it docks narrower: code at 560 beats an overlay.
+test.each([
+  { pane: "iPad landscape, BB's thread list open", width: 1056, height: 984, panelWidth: 640, docked: 496 },
+  { pane: "desktop 1440, BB's thread list open", width: 1120, height: 852, panelWidth: 640, docked: 560 },
+  { pane: "iPad portrait, thread list collapsed", width: 978, height: 1328, panelWidth: 640, docked: 418 },
+])("$pane ($width) with a panel saved at $panelWidth: it docks at $docked beside 560px of code, the chapters suppressed", ({ width, height, panelWidth, docked }) => {
+  const state = { ...both, panelWidth };
+  expect(workspaceLayout(width, height, state)).toMatchObject({ mode: "tablet", nav: "suppressed", panel: "docked" });
+  expect(panelDockWidth(width, panelWidth)).toBe(docked);
+  expect(reader(width, height, state)).toBe(560);
+});
+
 test("a docked side stays docked until the code is 16px under 560, and docks again at 560", () => {
   const docked = workspaceLayout(960, 800, panelOnly);
   expect(docked.panel).toBe("docked");
