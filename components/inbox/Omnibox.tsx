@@ -15,9 +15,11 @@ import { Input } from "../ui/input";
  * offers to open it when it's listed and to review it when it isn't, which Enter takes. Focused and empty, it says
  * how to review a local branch.
  */
-export function Omnibox({ query, onQuery, reviews, onOpen, placeholder, onCancel, inputRef, trailing, className }: {
+export function Omnibox({ query, onQuery, reviews, onOpen, placeholder, onCancel, onFocusChange, inputRef, trailing, className }: {
   query: string;
   onQuery(query: string): void;
+  /** The box has the focus, or lost it. */
+  onFocusChange?: (focused: boolean) => void;
   /** Every review, to tell a PR that's listed from one that isn't. */
   reviews: ReviewItem[];
   onOpen(targetKey: string): void;
@@ -80,8 +82,8 @@ export function Omnibox({ query, onQuery, reviews, onOpen, placeholder, onCancel
               if (query) onQuery("");
               else onCancel?.();
             }}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
+            onFocus={() => { setFocused(true); onFocusChange?.(true); }}
+            onBlur={() => { setFocused(false); onFocusChange?.(false); }}
             className="h-10 rounded-lg border-border bg-surface-raised pl-9 pr-9 shadow-xs hover:border-input focus-visible:border-primary/60 focus-visible:ring-[3px] focus-visible:ring-primary/20 aria-invalid:border-destructive/60 pointer-coarse:h-11 max-md:pointer-coarse:h-11"
           />
           {!query && !focused && <kbd aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded border border-border px-1.5 font-sans text-[11px] leading-4 text-subtle-foreground pointer-fine:block">/</kbd>}

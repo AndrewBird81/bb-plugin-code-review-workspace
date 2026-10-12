@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 
@@ -8,16 +8,19 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 const restores: (() => void)[] = [];
 afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); restores.splice(0).forEach((restore) => restore()); });
 
-/** Every ResizeObserver reports this size, as the page measures itself. */
+/** Every ResizeObserver reports this size, as the page measures itself; `resize` reports another, as a fold does. */
 function fakeSize(width: number, height: number) {
   const original = globalThis.ResizeObserver;
+  const observed: Array<{ notify: ResizeObserverCallback; target: Element; observer: ResizeObserver }> = [];
+  const report = ({ notify, target, observer }: (typeof observed)[number]) => notify([{ target, contentRect: { width, height } } as unknown as ResizeObserverEntry], observer);
   globalThis.ResizeObserver = class {
     constructor(private notify: ResizeObserverCallback) {}
-    observe(target: Element) { this.notify([{ target, contentRect: { width, height } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver); }
+    observe(target: Element) { const entry = { notify: this.notify, target, observer: this as unknown as ResizeObserver }; observed.push(entry); report(entry); }
     unobserve() {}
     disconnect() {}
   } as unknown as typeof ResizeObserver;
   restores.push(() => { globalThis.ResizeObserver = original; });
+  return { resize(w: number, h: number) { width = w; height = h; act(() => observed.forEach(report)); } };
 }
 
 const reviews = [{ targetKey: "pr-7", kind: "pr", repo: "acme/web", number: 7, title: "Change Seven", status: "ready" }];
@@ -97,4 +100,22 @@ test("without BB's title bar the page shows the list's controls itself, after a 
   expect(commands.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Refresh", "Settings"]);
   // Full-size targets on the page.
   for (const button of commands.getAllByRole("button")) expect(button.className).toContain("pointer-coarse:h-11");
+});
+
+test("folding and unfolding a Duo keeps the find box, what's typed in it, and its focus", async () => {
+  const size = fakeSize(951, 541);
+  const { bar, page } = await renderList();
+  const box = page.getByRole("searchbox", { name: "Find a review, or paste a PR link" }) as HTMLInputElement;
+  box.focus();
+  fireEvent.change(box, { target: { value: "seven" } });
+  // Folded: the box opens at the top of the page, as from the title bar's Find, the same box.
+  size.resize(382, 550);
+  expect(page.getByRole("searchbox", { name: "Find a review, or paste a PR link" })).toBe(box);
+  expect(document.activeElement).toBe(box);
+  expect(box.value).toBe("seven");
+  expect(within(bar!.container).getByRole("button", { name: "Find a review" })).toBeTruthy();
+  size.resize(951, 541);
+  expect(page.getByRole("searchbox", { name: "Find a review, or paste a PR link" })).toBe(box);
+  expect(document.activeElement).toBe(box);
+  expect(within(bar!.container).queryByRole("button", { name: "Find a review" })).toBeNull();
 });

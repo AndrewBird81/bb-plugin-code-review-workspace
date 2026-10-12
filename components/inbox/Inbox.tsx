@@ -130,6 +130,7 @@ export function Inbox() {
   const [syncError, setSyncError] = useState(false);
   const [health, setHealth] = useState<SyncHealth>();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [boxFocused, setBoxFocused] = useState(false);
   const [pageEl, setPageEl] = useState<HTMLDivElement | null>(null);
   const findBox = useRef<HTMLInputElement>(null);
   const size = useSize(pageEl);
@@ -182,7 +183,12 @@ export function Inbox() {
     flushSync(() => setSearchOpen(true));
     findBox.current?.focus();
   }, []);
-  const closeSearch = useCallback(() => { setSearchOpen(false); setQuery(""); }, []);
+  const closeSearch = useCallback(() => {
+    findBox.current?.blur();
+    setSearchOpen(false);
+    setBoxFocused(false);
+    setQuery("");
+  }, []);
   useEffect(() => publishInboxBar({ refreshing, health, searchInline, searchOpen: searchOpen || !!query, refresh: () => void refresh(), openSearch }),
     [refreshing, health, searchInline, searchOpen, query, refresh, openSearch]);
   // Without BB's title bar (an older BB), the page shows the list's controls itself.
@@ -230,9 +236,9 @@ export function Inbox() {
   const row = (review: ReviewItem) => <InboxRow key={review.targetKey} review={review} pinnable={pinnable} short={short} onOpen={() => open(review.targetKey)} onChanged={relist} />;
   const rows = (list: ReviewItem[]) => withStacks(list).map((group) => group.length === 1 ? row(group[0]!)
     : <div key={group[0]!.targetKey} role="group" aria-label={`Stack of ${group[0]!.stack!.members.length} in ${group[0]!.repo}`} className="ml-3 border-l border-border">{group.map(row)}</div>);
-  // A phone's box sticks above the sections' headers while it's open.
-  const phoneBox = !searchInline && (searchOpen || !!query);
-  const omnibox = <Omnibox query={query} onQuery={setQuery} reviews={reviews} onOpen={open} inputRef={findBox}
+  // A phone's box sticks above the sections' headers while it's open; folding a Duo with the focus in it keeps it open.
+  const phoneBox = !searchInline && (searchOpen || !!query || boxFocused);
+  const omnibox = <Omnibox query={query} onQuery={setQuery} reviews={reviews} onOpen={open} inputRef={findBox} onFocusChange={setBoxFocused}
     placeholder={firstRun ? "Paste a GitHub PR link to review it" : compact ? "Find or paste a PR link" : "Find a review, or paste a PR link"}
     onCancel={phoneBox ? closeSearch : undefined} trailing={searchInline && ownControls ? <ListTitleBar placement="page" /> : undefined} />;
   const problem = syncProblem(health);
@@ -243,9 +249,10 @@ export function Inbox() {
     {/* BB clips a plugin page to the window, so the page scrolls itself. */}
     <div ref={setPageEl} className="@container/inbox h-full min-h-0 overflow-y-auto" style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
       <div className="mx-auto flex w-full min-w-0 max-w-5xl flex-col px-1.5 pb-8 @min-[640px]/inbox:px-6">
-        {!firstRun && (searchInline ? <div className="px-1.5 pb-2 pt-4">{omnibox}</div>
-          : phoneBox ? <div className="sticky top-0 z-20 bg-background px-1.5 py-2">{omnibox}</div>
-          : ownControls && <div className="flex justify-end py-1"><ListTitleBar placement="page" /></div>)}
+        {/* One element whether it's on the page or opened over it, so folding or unfolding a Duo keeps the box, its
+            text and its focus. */}
+        {!firstRun && (searchInline || phoneBox) && <div className={searchInline ? "px-1.5 pb-2 pt-4" : "sticky top-0 z-20 bg-background px-1.5 py-2"}>{omnibox}</div>}
+        {!firstRun && !searchInline && !phoneBox && ownControls && <div className="flex justify-end py-1"><ListTitleBar placement="page" /></div>}
         {!syncError && problem && <p role="status" className={cn("mx-1.5 mb-2 flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning-text", firstRun && "mt-4")}><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />{problem}</p>}
         {syncError && <p role="alert" className={cn("mx-1.5 mb-2 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text", firstRun && "mt-4")}><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />Couldn’t refresh GitHub status. Saved reviews are still available; try Refresh again.</p>}
         {firstRun ? <div className="px-2.5 pt-6"><FirstRun omnibox={omnibox} syncing={!health?.lastReadAt && !health?.error} /></div> : <>
