@@ -26,7 +26,8 @@ export function PageBar({ back = "All reviews", onBack, backDisabled = false, ti
         </Button>
         {title && <>
           <span aria-hidden className="text-subtle-foreground">/</span>
-          <h1 className="min-w-0 truncate font-medium text-foreground">{title}</h1>
+          {/* Two lines fit the bar's 44px, so a phone shows more of a long title than its first words. */}
+          <h1 className="line-clamp-2 min-w-0 break-words font-medium leading-4.5 text-foreground">{title}</h1>
         </>}
       </nav>
       {children}
