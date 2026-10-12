@@ -15,8 +15,9 @@ const line = (r: ReviewItem, passingChecks = false) => statusLine(r, { now, pass
 test("why it's yours says who asked, in words, with an icon and a tone only where it changes your next move", () => {
   const signals = { requestedBy: "alice", questionBy: "bob", mentionBy: "carol", author: "alice" };
   expect(said(review(turn("needs", "re-requested"), { signals }))).toEqual(["Re-requested by @alice", "foreground", "Repeat"]);
-  expect(said(review(turn("needs", "requested"), { signals }))).toEqual(["Requested by @alice", "foreground", "UserRoundPlus"]);
-  expect(said(review(turn("needs", "requested")))).toEqual(["Review requested", "foreground", "UserRoundPlus"]);
+  // A first review is the usual case, so it's said quietly; what came back to you stands out.
+  expect(said(review(turn("needs", "requested"), { signals }))).toEqual(["Requested by @alice", "neutral", "UserRoundPlus"]);
+  expect(said(review(turn("needs", "requested")))).toEqual(["Review requested", "neutral", "UserRoundPlus"]);
   expect(said(review(turn("needs", "team-requested"), { signals: { requestedBy: "carol" } }))).toEqual(["Team request from @carol", "neutral", "UserRoundPlus"]);
   expect(said(review(turn("needs", "question", "Question for you"), { signals }))).toEqual(["Question from @bob", "warning", "MessageQuestion"]);
   expect(said(review(turn("needs", "question", "Author replied"), { signals }))).toEqual(["@alice replied", "foreground", "MessageSquare"]);
@@ -24,11 +25,10 @@ test("why it's yours says who asked, in words, with an icon and a tone only wher
   expect(said(review(turn("needs", "handled")))).toEqual(["Feedback handled", "success", "CircleCheck"]);
   expect(said(review(turn("needs", "looks-ready")))).toEqual(["Agent: all feedback addressed", "agent", "Sparkles"]);
   expect(said(review(turn("needs", "dismissed")))).toEqual(["Your review was dismissed", "warning", "AlertCircle"]);
-  expect(said(review(turn("needs", "own")))).toEqual(["Your PR", "foreground", "UserRound"]);
-  expect(said(review(turn("reviewed", "own")))).toEqual(["Your PR", "neutral", "UserRound"]);
+  expect(said(review(turn("needs", "own")))).toEqual(["Your PR", "neutral", "UserRound"]);
   expect(said(review(turn("needs", "new"), { status: "tracked" }))).toEqual(["No guide yet", "neutral", undefined]);
-  expect(said(review(turn("needs", "new")))).toEqual(["Guide ready", "foreground", undefined]);
-  expect(said(review(turn("needs", "new"), { kind: "ref" }))).toEqual(["Local review", "foreground", "GitBranch"]);
+  expect(said(review(turn("needs", "new")))).toEqual(["Guide ready", "neutral", undefined]);
+  expect(said(review(turn("needs", "new"), { kind: "ref" }))).toEqual(["Local review", "neutral", "GitBranch"]);
 });
 
 test("the author's turn and settled reviews say what you did and when; archived ones how they ended", () => {

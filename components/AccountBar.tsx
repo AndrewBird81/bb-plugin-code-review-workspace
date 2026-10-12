@@ -7,7 +7,8 @@ import { Icon } from "./ui/icon";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Avatar } from "./ui/avatar";
 
-export const AccountBar = memo(function AccountBar() {
+/** The BB server's GitHub account, and a menu to switch it. `showLabel`: the account's name beside its avatar. */
+export const AccountBar = memo(function AccountBar({ showLabel = false }: { showLabel?: boolean }) {
   const rpc = useRpc<typeof rpcContract>();
   const [active, setActive] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<{ login: string; active: boolean }[]>([]);
@@ -58,7 +59,7 @@ export const AccountBar = memo(function AccountBar() {
       <PopoverTrigger asChild>
         <Button variant="ghost" size="sm" className="shrink-0 gap-1.5" aria-label={`GitHub account: ${label}`}>
           {active && !loading && !failed ? <Avatar login={active} size={18} /> : <Icon name="Github" className="size-4" aria-hidden />}
-          <span className="hidden max-w-40 truncate @min-[520px]/review-list:inline">{label}</span>
+          {showLabel && <span className="max-w-40 truncate">{label}</span>}
           <Icon name="ChevronDown" className="size-3" aria-hidden />
         </Button>
       </PopoverTrigger>

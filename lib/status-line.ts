@@ -8,7 +8,7 @@ import { reviewState, type ReviewItem } from "./review-state";
 import { notRunReason } from "./trust";
 import { baselineOf, progressText, snoozeLabel } from "./turn";
 
-/** foreground: plain text that leads; the tones color only what changes your next move. */
+/** foreground: plain text that stands out, for what came back to you; the tones color only what changes your next move. */
 export type StatusTone = Tone | "foreground";
 
 export type StatusKind = "blocking" | "why" | "not-run" | "unreachable" | "progress" | "commits" | "checks" | "size" | "stack" | "stack-unreviewed";
@@ -37,7 +37,7 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
   if (review.verifyingSince && turn.group !== "archive") return why("Checking your feedback…", "agent", "Loading", { busy: true });
   switch (turn.reason) {
     case "re-requested": return why(by("Re-requested by", s.requestedBy, "Re-requested"), "foreground", "Repeat");
-    case "requested": return why(by("Requested by", s.requestedBy, "Review requested"), "foreground", "UserRoundPlus");
+    case "requested": return why(by("Requested by", s.requestedBy, "Review requested"), "neutral", "UserRoundPlus");
     case "team-requested": return why(by("Team request from", s.requestedBy, "Team review requested"), "neutral", "UserRoundPlus");
     case "question": {
       // "Any reply" brings a review back for an answer that isn't a question too.
@@ -50,9 +50,9 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
     case "handled": return why("Feedback handled", "success", "CircleCheck");
     case "looks-ready": return why("Agent: all feedback addressed", "agent", "Sparkles");
     case "dismissed": return why("Your review was dismissed", "warning", "AlertCircle");
-    case "own": return why("Your PR", turn.group === "needs" ? "foreground" : "neutral", "UserRound");
-    case "new": return review.kind === "ref" ? why("Local review", "foreground", "GitBranch")
-      : review.status === "tracked" ? why("No guide yet", "neutral") : why("Guide ready", "foreground");
+    case "own": return why("Your PR", "neutral", "UserRound");
+    case "new": return review.kind === "ref" ? why("Local review", "neutral", "GitBranch")
+      : review.status === "tracked" ? why("No guide yet", "neutral") : why("Guide ready", "neutral");
     case "waiting": return review.submittedVerdict === "COMMENT" ? why(`You commented${ago(turn.at)}`, "neutral", "MessageSquare")
       : why(`You requested changes${ago(turn.at)}`, "neutral", "FileDiff");
     case "snoozed": return why(review.snoozedUntil && turn.label === "Snoozed" ? snoozeLabel(review.snoozedUntil, now) : "Snoozed until the author responds", "neutral", "Clock");
@@ -66,6 +66,13 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
     case "unreachable": return why("Can’t read on GitHub", "neutral", "EyeOff");
     default: return null;
   }
+}
+
+/** When anything last happened on the review: you reviewed it, the author pushed or replied, its turn changed, it was archived. */
+export function lastActivity(review: ReviewItem): number | null {
+  const s = review.signals ?? {};
+  const at = Math.max(reviewState(review).at ?? 0, s.lastReviewAt ?? 0, s.headSeenAt ?? 0, s.replyAt ?? 0, review.submittedAt ?? 0, review.userArchivedAt ?? 0, review.archivedAt ?? 0);
+  return at || review.createdAt || null;
 }
 
 const CHECKS: Record<"pass" | "fail" | "pending" | "expected", Pick<StatusPart, "text" | "tone" | "icon">> = {

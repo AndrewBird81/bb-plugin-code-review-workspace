@@ -10,6 +10,7 @@ import { Button } from "./ui/button";
 import { Hint } from "./ui/hint";
 import { Icon } from "./ui/icon";
 import { ReviewActions, type ReviewMenuItem } from "./ReviewActions";
+import { ListTitleBar } from "./inbox/ListTitleBar";
 import { sidePanelId } from "./shell/SidePanel";
 import { TOUCH_COMPACT, TOUCH_CONTROL } from "./touch";
 
@@ -21,9 +22,9 @@ export type TitleBarPlacement = "title" | "band";
 let focusToggle: { to: TitleBarPlacement; until: number } | null = null;
 
 /**
- * The review's commands: Comments, Ask agent, Submit review, Review actions (⋯) and Full screen. BB renders it in its
- * title bar (navPanel headerContent) with the page's subPath, apart from the page, so it reads the workspace from the
- * store. A plain function, not memo: the SDK takes only a function as a slot's component.
+ * The review's commands: Comments, Ask agent, Submit review, Review actions (⋯) and Full screen; on All reviews, the
+ * list's. BB renders it in its title bar (navPanel headerContent) with the page's subPath, apart from the page, so it
+ * reads the workspace from the store. A plain function, not memo: the SDK takes only a function as a slot's component.
  */
 export function TitleBarControls({ subPath, placement = "title" }: { subPath: string; placement?: TitleBarPlacement }) {
   const page = panelPage(subPath);
@@ -31,6 +32,8 @@ export function TitleBarControls({ subPath, placement = "title" }: { subPath: st
   // Told even while it shows nothing, so the workspace knows not to show them itself.
   useEffect(() => placement === "title" && targetKey ? mountTitleBar(targetKey) : undefined, [placement, targetKey]);
   const api = useWorkspaceFor(targetKey);
+  // All reviews' own: Find on a phone, Refresh and Settings.
+  if (page.kind === "list") return placement === "title" ? <ListTitleBar /> : null;
   if (!api) return null;
   // A phone's controls are the workspace's own; in full screen BB's bar is hidden, and the band has them.
   if (placement === "title" && (api.layout.mode === "phone" || api.fullscreen.on)) return null;

@@ -76,13 +76,13 @@ async function renderReview({ review, rpc, titleBar = true }: { review?: Record<
   return { page, bar, band };
 }
 
-test("BB's title bar shows an open review's commands, and none on the list or Settings", async () => {
+test("BB's title bar shows an open review's commands, and none on Settings (the list's are in list-title-bar.test)", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const { TitleBarControls } = await import("./TitleBarControls");
   expect(app.navPanels[0]!.headerContent).toBe(TitleBarControls);
   // A plain function: the SDK takes no memo object as a slot's component.
   expect(typeof TitleBarControls).toBe("function");
-  for (const subPath of ["", "settings", "settings/pr-42"]) {
+  for (const subPath of ["settings", "settings/pr-42"]) {
     const slot = renderSlot({ component: TitleBarControls }, { subPath }, { rpc: handlers() as any });
     expect(slot.container.innerHTML).toBe("");
     slot.lifecycle.unmount();

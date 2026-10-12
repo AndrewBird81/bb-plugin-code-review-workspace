@@ -23,29 +23,34 @@ async function list(initial: any[], overrides: Record<string, (input: any) => un
     deleteReview: ({ targetKey }: any) => { reviews = reviews.filter((r) => r.targetKey !== targetKey); return { ok: true }; },
     ...overrides,
   } });
-  const tab = async (name: RegExp) => fireEvent.click(within(await slot.findByRole("group", { name: "Filter reviews" })).getByRole("button", { name }));
-  const menu = () => fireEvent.click(slot.getByRole("button", { name: "Review actions" }));
-  return { slot, tab, menu, calls: (method: string) => slot.inspection.rpcCalls.filter((call) => call.method === method).map((call) => call.input) };
+  /** Open a section, such as Archive, which starts closed. */
+  const open = async (name: RegExp) => {
+    const header = within(await slot.findByRole("heading", { name })).getByRole("button");
+    if (header.getAttribute("aria-expanded") === "false") fireEvent.click(header);
+  };
+  /** The review's menu, open. */
+  const menu = async () => {
+    fireEvent.click(slot.getByRole("button", { name: "Review actions" }));
+    return within(await slot.findByRole("dialog"));
+  };
+  return { slot, open, menu, calls: (method: string) => slot.inspection.rpcCalls.filter((call) => call.method === method).map((call) => call.input) };
 }
 
 test("archiving an unfinished review moves it to Archive until it is unarchived", async () => {
-  const { slot, tab, menu, calls } = await list([{ targetKey: "a", title: "Abandoned change", status: "ready", prState: "OPEN" }]);
+  const { slot, open, menu, calls } = await list([{ targetKey: "a", title: "Abandoned change", status: "ready", prState: "OPEN" }]);
   await slot.findByText("Abandoned change");
   expect(slot.getByRole("button", { name: "Review actions" }).getAttribute("aria-describedby")).toBe(slot.getByText("Abandoned change").id);
-  menu();
-  fireEvent.click(await slot.findByRole("button", { name: "Archive" }));
-  await slot.findByText("You’re all caught up");
+  fireEvent.click((await menu()).getByRole("button", { name: "Archive" }));
+  await slot.findByText(/^Nothing needs you right now/);
   expect(calls("archiveReview")).toEqual([{ targetKey: "a", archived: true }]);
 
-  await tab(/^Archive/);
+  await open(/^Archive/);
   await slot.findByText("Abandoned change");
-  expect(slot.getByText("Archived")).toBeTruthy();
-  menu();
-  fireEvent.click(await slot.findByRole("button", { name: "Unarchive" }));
-  await slot.findByText("No archived reviews");
+  expect(slot.getByText("Archived by you")).toBeTruthy();
+  fireEvent.click((await menu()).getByRole("button", { name: "Unarchive" }));
+  await waitFor(() => expect(slot.queryByRole("heading", { name: /^Archive/ })).toBeNull());
   expect(calls("archiveReview")).toEqual([{ targetKey: "a", archived: true }, { targetKey: "a", archived: false }]);
-  await tab(/^Needs review/);
-  await slot.findByText("Abandoned change");
+  expect(within(slot.getByRole("region", { name: "Needs review" })).getByText("Abandoned change")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -53,11 +58,11 @@ test("Pin puts a review with your pinned threads and marks it in the list; Unpin
   const { slot, menu, calls } = await list([{ targetKey: "a", title: "Important change", status: "ready", prState: "OPEN" }]);
   await slot.findByText("Important change");
   expect(slot.queryByLabelText("Pinned")).toBeNull();
-  menu();
-  fireEvent.click(await slot.findByRole("button", { name: "Pin" }));
+  // Settings loads after the list: Pin waits for it.
+  await waitFor(() => expect(slot.getAllByRole("button", { name: "Pin" })).toHaveLength(1));
+  fireEvent.click((await menu()).getByRole("button", { name: "Pin" }));
   expect(await slot.findByLabelText("Pinned")).toBeTruthy();
-  menu();
-  fireEvent.click(await slot.findByRole("button", { name: "Unpin" }));
+  fireEvent.click((await menu()).getByRole("button", { name: "Unpin" }));
   await waitFor(() => expect(slot.queryByLabelText("Pinned")).toBeNull());
   expect(calls("pinReview")).toEqual([{ targetKey: "a", pinned: true }, { targetKey: "a", pinned: false }]);
   slot.lifecycle.unmount();
@@ -67,8 +72,9 @@ test("with reviews kept out of the thread list in Settings, there's no Pin, and 
   const { slot, menu } = await list([{ targetKey: "a", title: "Important change", status: "ready", prState: "OPEN", pinnedAt: 5 }], { getPreferences: () => ({ preferences: { ...defaultPreferences, threadListReviews: false }, revision: 0 }) });
   await slot.findByText("Important change");
   await waitFor(() => expect(slot.inspection.rpcCalls.some((call) => call.method === "getPreferences")).toBe(true));
-  menu();
-  await slot.findByRole("button", { name: "Archive" });
+  const actions = await menu();
+  actions.getByRole("button", { name: "Archive" });
+  // Neither in the menu nor on the row.
   expect(slot.queryByRole("button", { name: "Pin" })).toBeNull();
   expect(slot.queryByRole("button", { name: "Unpin" })).toBeNull();
   expect(slot.queryByLabelText("Pinned")).toBeNull();
@@ -76,12 +82,13 @@ test("with reviews kept out of the thread list in Settings, there's no Pin, and 
 });
 
 test("merged reviews can be deleted but not unarchived", async () => {
-  const { slot, tab, menu } = await list([{ targetKey: "m", title: "Shipped change", status: "ready", prState: "MERGED", archivedAt: 1, userArchivedAt: 1 }]);
-  await tab(/^Archive/);
+  const { slot, open, menu } = await list([{ targetKey: "m", title: "Shipped change", status: "ready", prState: "MERGED", archivedAt: 1, userArchivedAt: 1 }]);
+  await open(/^Archive/);
   await slot.findByText("Shipped change");
   expect(slot.getByText("Merged")).toBeTruthy();
-  menu();
+  await menu();
   await slot.findByRole("button", { name: "Delete…" });
+  // Neither in the menu nor on the row.
   expect(slot.queryByRole("button", { name: "Unarchive" })).toBeNull();
   expect(slot.queryByRole("button", { name: "Archive" })).toBeNull();
   // Archive takes a review out of Pinned, so there's nothing to pin it to.
@@ -93,18 +100,16 @@ test("deleting asks for confirmation first, then removes the review and its unsa
   updateDraftRecovery("d", { composer: { file: "", line: "0", side: "RIGHT", body: "Unsaved thoughts" } });
   const { slot, menu, calls } = await list([{ targetKey: "d", title: "Unwanted change", status: "error" }]);
   await slot.findByText("Unwanted change");
-  menu();
-  fireEvent.click(await slot.findByRole("button", { name: "Delete…" }));
+  fireEvent.click((await menu()).getByRole("button", { name: "Delete…" }));
   const dialog = await slot.findByRole("dialog", { name: "Delete this review?" });
   expect(within(dialog).getByText(/“Unwanted change” will be permanently removed/)).toBeTruthy();
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(slot.queryByRole("dialog")).toBeNull());
   expect(calls("deleteReview")).toEqual([]);
 
-  menu();
-  fireEvent.click(await slot.findByRole("button", { name: "Delete…" }));
-  fireEvent.click(within(await slot.findByRole("dialog")).getByRole("button", { name: "Delete review" }));
-  await slot.findByText("No reviews yet");
+  fireEvent.click((await menu()).getByRole("button", { name: "Delete…" }));
+  fireEvent.click(within(await slot.findByRole("dialog", { name: "Delete this review?" })).getByRole("button", { name: "Delete review" }));
+  await slot.findByRole("region", { name: "Review your first pull request" });
   expect(calls("deleteReview")).toEqual([{ targetKey: "d" }]);
   expect(readDraftRecovery("d")).toEqual({});
   slot.lifecycle.unmount();
@@ -115,9 +120,8 @@ test("a refused delete keeps the review and the confirmation open", async () => 
     deleteReview: () => ({ ok: false, error: "Wait for the assistant to finish answering, then delete the review." }),
   });
   await slot.findByText("Busy change");
-  menu();
-  fireEvent.click(await slot.findByRole("button", { name: "Delete…" }));
-  fireEvent.click(within(await slot.findByRole("dialog")).getByRole("button", { name: "Delete review" }));
+  fireEvent.click((await menu()).getByRole("button", { name: "Delete…" }));
+  fireEvent.click(within(await slot.findByRole("dialog", { name: "Delete this review?" })).getByRole("button", { name: "Delete review" }));
   await waitFor(() => expect(within(slot.getByRole("dialog")).getByRole("button", { name: "Delete review" }).hasAttribute("disabled")).toBe(false));
   expect(slot.getByText("Busy change")).toBeTruthy();
   slot.lifecycle.unmount();
@@ -126,10 +130,10 @@ test("a refused delete keeps the review and the confirmation open", async () => 
 test("a generating review can be archived but not deleted", async () => {
   const { slot, menu } = await list([{ targetKey: "g", title: "Fresh change", status: "generating" }]);
   await slot.findByText("Fresh change");
-  menu();
-  expect((await slot.findByRole("button", { name: "Delete…" })).hasAttribute("disabled")).toBe(true);
-  expect(slot.getByText("You can delete this review once its guide finishes generating.")).toBeTruthy();
-  expect(slot.getByRole("button", { name: "Archive" }).hasAttribute("disabled")).toBe(false);
+  const actions = await menu();
+  expect(actions.getByRole("button", { name: "Delete…" }).hasAttribute("disabled")).toBe(true);
+  expect(actions.getByText("You can delete this review once its guide finishes generating.")).toBeTruthy();
+  expect(actions.getByRole("button", { name: "Archive" }).hasAttribute("disabled")).toBe(false);
   slot.lifecycle.unmount();
 });
 

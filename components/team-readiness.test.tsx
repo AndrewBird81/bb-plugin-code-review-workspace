@@ -22,7 +22,8 @@ test("list load failure is distinct from an empty account and can recover", asyn
     listReviews: () => { if (offline) throw new Error("offline"); return { reviews: [{ targetKey: "repo-pr-7", title: "Preserved review", status: "ready" }] }; },
   } });
   await slot.findByText("Couldn’t load your reviews");
-  expect(slot.queryByText("No reviews yet")).toBeNull();
+  // Not the first run's panel, which is for having no reviews.
+  expect(slot.queryByRole("region", { name: "Review your first pull request" })).toBeNull();
   offline = false;
   fireEvent.click(slot.getByRole("button", { name: "Try again" }));
   await slot.findByText("Preserved review");
