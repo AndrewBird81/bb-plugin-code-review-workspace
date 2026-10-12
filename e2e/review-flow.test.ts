@@ -107,7 +107,8 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.reload();
     await page.getByRole("article", { name: "Draft comment on src/input.ts:1", exact: true }).waitFor();
     expect(await side.isVisible()).toBe(false);
-    // The title bar's tooltips name the keys.
+    // The title bar's tooltips name the keys, on keyboard focus.
+    await page.keyboard.press("Tab");
     await commands.getByRole("button", { name: "Comments", exact: true }).focus();
     await page.getByRole("tooltip", { name: "Comments (c)", exact: true }).waitFor();
     // Finish review: the summary, the verdict, and what goes to GitHub.
@@ -134,7 +135,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
     await commands.getByRole("button", { name: /^Comments, 1 not submitted/ }).click();
-    await page.getByRole("complementary", { name: "Comments", exact: true }).getByRole("button", { name: "Finish review", exact: true }).click();
+    await page.getByRole("dialog", { name: "Comments", exact: true }).getByRole("button", { name: "Finish review", exact: true }).click();
     await verdicts.waitFor();
     await verdicts.getByRole("button", { name: "Approve", exact: true }).scrollIntoViewIfNeeded();
     expect(await verdicts.evaluate((element) => element.getBoundingClientRect().right <= innerWidth)).toBe(true);
@@ -143,7 +144,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     const submit = await page.getByRole("button", { name: /^Submit to GitHub/ }).boundingBox();
     expect(submit && submit.y >= 0 && submit.y + submit.height <= 844).toBe(true);
     await page.screenshot({ animations: "disabled", path: `${dir}/review-mobile.png` });
-    await page.getByRole("complementary", { name: "Finish review", exact: true }).getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("dialog", { name: "Finish review", exact: true }).getByRole("button", { name: "Close", exact: true }).click();
     await verdicts.waitFor({ state: "hidden" });
     // Closed, the sheet leaves the dock: one 52px bar under the code.
     expect(await commands.isVisible()).toBe(true);
@@ -180,6 +181,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.getByPlaceholder(/Ask the agent/).fill("Explain the validation guard");
     await askAgent.click();
     await assistant.waitFor({ state: "hidden" });
+    await page.keyboard.press("Tab");
     await askAgent.focus();
     const assistantTooltip = page.getByRole("tooltip", { name: "Ask agent (a)", exact: true });
     await assistantTooltip.waitFor();
@@ -252,7 +254,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await assistant.getByText("This thread is no longer available.").waitFor();
     expect(await assistant.evaluate((element) => element.getBoundingClientRect().right <= innerWidth)).toBe(true);
     await page.screenshot({ animations: "disabled", path: `${dir}/assistant-mobile.png` });
-    await page.getByRole("complementary", { name: "Review agent", exact: true }).getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("dialog", { name: "Review agent", exact: true }).getByRole("button", { name: "Close", exact: true }).click();
     await commands.getByRole("button", { name: "All reviews", exact: true }).click();
     await page.reload();
     await archiveHeader.waitFor();
