@@ -32,6 +32,9 @@ export function threadLocation(thread: ReviewThread): CommentLocation | null {
 const byPlace = (a: ReviewThread, b: ReviewThread) => (a.path ?? "").localeCompare(b.path ?? "") || (a.line ?? a.originalLine ?? 0) - (b.line ?? b.originalLine ?? 0);
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const REPLY_KEY = (targetKey: string) => `gr:thread-reply:${targetKey}:`;
+const forgetTabReply = (targetKey: string, threadId: string) => {
+  try { sessionStorage.removeItem(REPLY_KEY(targetKey) + threadId); } catch { /* best effort */ }
+};
 
 /**
  * The review's threads on GitHub, your feedback on them and their drafted replies: read once here for the code's
@@ -89,23 +92,25 @@ export function useDiffThreads(targetKey: string, enabled: boolean): DiffThreads
     try {
       const { drafts } = await rpc.call("getReplyDrafts", { targetKey });
       if (id !== requests.current.drafts) return;
-      // Replies a 0.5 tab was writing in Threads, kept in the tab: to the server once, unless it has one there.
+      // Replies a 0.5 tab was writing in Threads, kept in the tab: to the server once, over the agent's draft but not
+      // over one of yours. The tab keeps each until it's saved.
       const prefix = REPLY_KEY(targetKey);
       const kept: Array<[string, string]> = [];
       try {
         for (let i = 0; i < sessionStorage.length; i++) {
           const key = sessionStorage.key(i);
-          if (key?.startsWith(prefix)) kept.push([key, sessionStorage.getItem(key) ?? ""]);
+          if (key?.startsWith(prefix)) kept.push([key.slice(prefix.length), sessionStorage.getItem(key) ?? ""]);
         }
       } catch { /* best effort */ }
-      const moved = kept.flatMap(([key, body]) => {
-        try { sessionStorage.removeItem(key); } catch { /* best effort */ }
-        const threadId = key.slice(prefix.length);
-        if (!body.trim() || drafts.some((draft) => draft.threadId === threadId)) return [];
-        void rpc.call("saveReplyDraft", { targetKey, threadId, body }).catch(() => {});
+      const moved = kept.flatMap(([threadId, body]) => {
+        if (!body.trim() || drafts.some((draft) => draft.threadId === threadId && draft.author !== "agent")) {
+          forgetTabReply(targetKey, threadId);
+          return [];
+        }
+        rpc.call("saveReplyDraft", { targetKey, threadId, body }).then(({ ok }) => { if (ok) forgetTabReply(targetKey, threadId); }, () => {});
         return [{ threadId, body, author: "reviewer" as const, updatedAt: Date.now() }];
       });
-      const next = [...drafts, ...moved];
+      const next = [...drafts.filter((draft) => !moved.some((reply) => reply.threadId === draft.threadId)), ...moved];
       updateComments(targetKey, { replyDrafts: same(commentsOf(targetKey).replyDrafts, next) ? commentsOf(targetKey).replyDrafts : next });
     } catch {
       // Without them, your threads' drafted replies come with your feedback.
@@ -129,6 +134,8 @@ export function useDiffThreads(targetKey: string, enabled: boolean): DiffThreads
   const actions = useMemo((): CommentActions => {
     const mine = (threadId: string) => !!commentsOf(targetKey).feedback?.items.some((item) => item.kind === "thread" && item.id === threadId);
     const setDraft = (threadId: string, draft: ReplyDraft | null) => {
+      // What you do with the reply now replaces what a 0.5 tab kept of it.
+      forgetTabReply(targetKey, threadId);
       const current = commentsOf(targetKey).replyDrafts ?? [];
       updateComments(targetKey, { replyDrafts: [...current.filter((entry) => entry.threadId !== threadId), ...(draft ? [{ threadId, ...draft }] : [])] });
     };

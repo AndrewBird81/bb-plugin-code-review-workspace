@@ -162,18 +162,33 @@ test("Send reply hands the focus back to Reply", async () => {
   slot.lifecycle.unmount();
 });
 
-test("a reply a 0.5 tab was writing in Threads moves to the server once and leaves the tab, unless the server has one", async () => {
+test("a reply a 0.5 tab was writing in Threads moves to the server once, over the agent's draft, and leaves the tab once saved", async () => {
   sessionStorage.setItem("gr:thread-reply:pr-42:t2", "Half a thought from before");
-  sessionStorage.setItem("gr:thread-reply:pr-42:t1", "Older than the agent's");
+  sessionStorage.setItem("gr:thread-reply:pr-42:t1", "Mine, over the agent's");
   sessionStorage.setItem("gr:thread-reply:pr-7:t9", "Another review's");
-  const { slot, rpc } = await renderWorkspace();
-  const bobs = await card(slot, 3);
+  // Bob's doesn't save: it stays in the tab for the next try.
+  let { slot, rpc } = await renderWorkspace({ saveReplyDraft: vi.fn(({ threadId }: { threadId: string }) => { if (threadId === "t2") throw new Error("offline"); return { ok: true }; }) });
+  await waitFor(() => expect(rpc.saveReplyDraft).toHaveBeenCalledTimes(2));
+  expect(rpc.saveReplyDraft).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t1", body: "Mine, over the agent's" });
+  const yours = await card(slot, 2);
+  expect(within(yours).getByRole("group", { name: "Reply draft · not sent on src/a.ts:2" })).toBeTruthy();
+  expect(within(yours).getByText("Mine, over the agent's")).toBeTruthy();
+  expect(within(await card(slot, 3)).getByRole("group", { name: "Reply draft · not sent on src/a.ts:3" })).toBeTruthy();
+  await waitFor(() => expect(sessionStorage.getItem("gr:thread-reply:pr-42:t1")).toBeNull());
+  expect(sessionStorage.getItem("gr:thread-reply:pr-42:t2")).toBe("Half a thought from before");
+  expect(sessionStorage.getItem("gr:thread-reply:pr-7:t9")).toBe("Another review's");
+  // What you do with the reply replaces what the tab kept, so it doesn't come back.
+  fireEvent.click(within(await card(slot, 3)).getByRole("button", { name: "Discard" }));
+  await waitFor(() => expect(sessionStorage.getItem("gr:thread-reply:pr-42:t2")).toBeNull());
+  slot.lifecycle.unmount();
+  // Next time it saves, and leaves the tab. A draft of yours on the server is newer than the tab's, and stays.
+  sessionStorage.setItem("gr:thread-reply:pr-42:t2", "Half a thought from before");
+  sessionStorage.setItem("gr:thread-reply:pr-42:t1", "Older than mine");
+  ({ slot, rpc } = await renderWorkspace({}, [{ threadId: "t1", body: "Mine, from the server", author: "reviewer", updatedAt: now }]));
   await waitFor(() => expect(rpc.saveReplyDraft).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t2", body: "Half a thought from before" }));
   expect(rpc.saveReplyDraft).toHaveBeenCalledTimes(1);
-  expect(within(bobs).getByRole("group", { name: "Reply draft · not sent on src/a.ts:3" })).toBeTruthy();
-  expect(within(await card(slot, 2)).getByText("Thanks, will check.")).toBeTruthy();
-  expect(sessionStorage.getItem("gr:thread-reply:pr-42:t2")).toBeNull();
+  expect(within(await card(slot, 2)).getByText("Mine, from the server")).toBeTruthy();
+  await waitFor(() => expect(sessionStorage.getItem("gr:thread-reply:pr-42:t2")).toBeNull());
   expect(sessionStorage.getItem("gr:thread-reply:pr-42:t1")).toBeNull();
-  expect(sessionStorage.getItem("gr:thread-reply:pr-7:t9")).toBe("Another review's");
   slot.lifecycle.unmount();
 });
