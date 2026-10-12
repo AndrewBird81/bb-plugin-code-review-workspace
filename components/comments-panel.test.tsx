@@ -295,6 +295,38 @@ test("⋯ Comment options: hide nits, show resolved threads, add a comment by li
   slot.lifecycle.unmount();
 });
 
+test("Hide nits never hides a nit that needs you, and Not submitted keeps its heading saying how many it hides", async () => {
+  const draftOf = (nits: Array<Record<string, unknown>>, stale: Array<Record<string, unknown>> = []) => () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: nits }, stale, discussions: [] });
+  let { slot } = await renderWorkspace({ rpc: { getDraft: draftOf([
+    { file: "src/a.ts", line: 2, side: "RIGHT", severity: "nit", body: "Name it." },
+    { file: "src/b.ts", line: 1, side: "RIGHT", author: "agent", severity: "nit", body: "Spacing." },
+  ]) } });
+  let list = await openComments(slot);
+  fireEvent.click(slot.getByRole("button", { name: "Comment options" }));
+  fireEvent.click(within(await slot.findByRole("dialog")).getByRole("switch", { name: "Hide nits" }));
+  await waitFor(() => expect(list.queryByRole("button", { name: /src\/b\.ts:1/ })).toBeNull());
+  expect(headings(list)).toContainEqual(expect.stringMatching(/^Not submitted/));
+  expect(list.getByText("2 nits · 2 hidden")).toBeTruthy();
+  fireEvent.click(chip(list, "Not submitted"));
+  expect(list.queryByText("No comments to submit yet.")).toBeNull();
+  expect(list.getByText("2 nits · 2 hidden")).toBeTruthy();
+  slot.lifecycle.unmount();
+  // A nit on an older diff holds Submit, so it stays: in Needs you, and in the code.
+  ({ slot } = await renderWorkspace({ rpc: {
+    getDraft: draftOf([{ file: "src/a.ts", line: 1, side: "RIGHT", severity: "nit", body: "Drafted before the last push." }], [{ file: "src/a.ts", line: 1, side: "RIGHT" }]),
+    getFeedback: () => ({ feedback: feedbackOf([]) }),
+    getReplyDrafts: () => ({ drafts: [] }),
+  } }));
+  list = await openComments(slot);
+  expect(chip(list, "Needs you").getAttribute("aria-label")).toBe("Needs you, 1");
+  fireEvent.click(chip(list, "Needs you"));
+  expect(list.queryByText("Nothing needs you.")).toBeNull();
+  expect(rows(list)).toEqual([expect.stringMatching(/^Older diff · not submitted · src\/a\.ts:1/)]);
+  expect(code(slot, "src/a.ts").getByText("Drafted before the last push.")).toBeTruthy();
+  expect(list.queryByText(/hidden/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("empty states: no comments yet; nothing needs you, with Show all; a local review's comments stay in BB", async () => {
   const none = { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }), getReviewThreads: () => ({ threads: [] }), getFeedback: () => ({ feedback: feedbackOf([], null) }), getReplyDrafts: () => ({ drafts: [] }) };
   let { slot } = await renderWorkspace({ rpc: none });

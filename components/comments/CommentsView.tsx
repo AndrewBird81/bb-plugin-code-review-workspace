@@ -76,8 +76,9 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   }), [draft.loaded, draft.draft, draft.stale, draft.discussions, isPr, threads, feedback, replyDrafts, sections, draft.patch, draft.account, review.url, closed]);
   const items = useMemo(() => buildItems(sources), [sources]);
   const sending = useMemo(() => toSend(sources), [sources]);
-  // Hidden nits leave the list and the code, not what Submit sends.
-  const listItems = useMemo(() => draft.hideNits ? items.filter((item) => !(item.kind === "draft" && item.comment.severity === "nit")) : items, [items, draft.hideNits]);
+  // Hidden nits leave the list and the code, not what Submit sends; one that needs you stays.
+  const listItems = useMemo(() => draft.hideNits ? items.filter((item) => !(item.kind === "draft" && item.comment.severity === "nit" && !item.needs)) : items, [items, draft.hideNits]);
+  const hidden = items.length - listItems.length;
   const counted = useMemo(() => groups(items), [items]);
   const listed = useMemo(() => groups(listItems), [listItems]);
   const stops = useMemo(() => shownItems(listItems, filter, showFolded), [listItems, filter, showFolded]);
@@ -167,7 +168,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const row = (item: CommentItem) => <CommentRow key={item.id} targetKey={targetKey} item={item} expanded={expanded === item.id} current={current === item.id} onShow={item.at ? show : null} onExpand={expand} />;
   const groupBody = (group: CommentGroup, rows: CommentItem[], countedGroup: CommentGroup) => (
     <section key={group.id} aria-labelledby={`gr-group-${group.id}`} className="space-y-1.5">
-      <GroupHead id={`gr-group-${group.id}`} title={group.title} count={countedGroup.count} summary={[countedGroup.summary, group.id === "not-submitted" && draft.hideNits && draft.nitCount ? `${draft.nitCount} hidden` : null].filter(Boolean).join(" · ") || null} />
+      <GroupHead id={`gr-group-${group.id}`} title={group.title} count={countedGroup.count} summary={[countedGroup.summary, group.id === "not-submitted" && hidden ? `${hidden} hidden` : null].filter(Boolean).join(" · ") || null} />
       {rows.length > 0 && <ul className="space-y-1.5">{rows.map(row)}</ul>}
       {filter === "all" && group.id === "not-submitted" && countedGroup.elsewhere > 0 && (
         <p className="px-1 text-xs text-muted-foreground">+{countedGroup.elsewhere} on an older diff, in Needs you</p>
@@ -180,7 +181,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
       </>}
     </section>
   );
-  const shownGroups = filter === "all" ? listed.filter((group) => group.items.length || group.folded || (group.id === "not-submitted" && counted[1].elsewhere)) : listed.filter((group) => group.id === filter);
+  const shownGroups = filter === "all" ? listed.filter((group) => group.items.length || group.folded || (group.id === "not-submitted" && (counted[1].elsewhere || hidden))) : listed.filter((group) => group.id === filter);
   // ↻ and ⋯, in the panel's header; in the list's own top row where there's none.
   const headerActions = <>
     {isPr && actions && <Hint label={feedback?.fetchedAt ? `Refresh comments · GitHub read ${timeAgo(feedback.fetchedAt)}` : "Refresh comments"} container={container}>
@@ -191,7 +192,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
     <CommentOptions isPr={isPr} url={review.url ?? null} folded={!!folded} showFolded={showFolded} onShowFolded={setShowFolded} onOpenUrl={(url) => navigate.openUrl(url)} />
   </>;
   const empty = ready && !items.length;
-  const filterEmpty = ready && !empty && filter !== "all" && !stops.length && !(filter === "on-github" && folded);
+  const filterEmpty = ready && !empty && filter !== "all" && !stops.length && !(filter === "on-github" && folded) && !(filter === "not-submitted" && hidden);
 
   return (
     <div hidden={!visible} className={cn("flex min-h-0 flex-1 flex-col", !visible && "hidden")}>

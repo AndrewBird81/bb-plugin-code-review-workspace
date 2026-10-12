@@ -102,7 +102,8 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
   const composer = draft.composer && sameLocation(draft.composer, at) ? draft.composer : null;
   const box = composer && (composer.editing ? "edit" : composer.asking ? "ask" : "new");
   if (!comment && !discussion && !box) return null;
-  if (draft.hideNits && comment?.severity === "nit" && !box) return null;
+  // Hide nits keeps a nit on an older diff: it holds Submit until it's edited or removed.
+  if (draft.hideNits && comment?.severity === "nit" && !box && draftState(comment, draft.stale) !== "older-diff") return null;
   const edge = comment ? draftEdge(comment, draft.stale) : box === "ask" ? "agent" : "yours";
   const where = comment ? `${comment.file}:${linesOf(comment)}` : `${at.file}:${discussionLines(discussion ?? { ...at, entries: [], waiting: false })}`;
   const key = draft.targetKey;
