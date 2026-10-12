@@ -17,7 +17,7 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       if (!m || m.kind !== "pr" || !m.number || !m.repo) return { ok: false, error: "Submitting requires a GitHub PR target." };
       if (m.prState === "MERGED" || m.prState === "CLOSED") return { ok: false, error: `This PR is ${m.prState.toLowerCase()}. Your draft has been kept.` };
       if (m.status === "generating") return { ok: false, error: "Wait for the review to finish generating before submitting." };
-      if (!m.headSha) return { ok: false, error: "Re-review this PR before submitting so the reviewed revision can be verified." };
+      if (!m.headSha) return { ok: false, error: "Rebuild the guide before submitting so the reviewed revision can be verified." };
       const draft = store.getDraft(targetKey);
       if (shown && !sameComments(draft.comments, shown)) return { ok: false, error: "Your draft comments changed since this page showed them, possibly from the assistant. Check them, then submit again." };
       if (summary && (draft.body !== summary.body || draft.verdict !== summary.verdict)) return { ok: false, error: "Your review summary or verdict changed since this page showed it, possibly from the assistant or another window. Check them, then submit again." };
@@ -43,7 +43,7 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
         }
       } catch { /* reject below */ }
       if (typeof current !== "string" || !current) return { ok: false, error: "Could not verify the PR revision. Your draft has been kept." };
-      if (current !== m.headSha) return { ok: false, error: "The PR has new commits. Re-review the latest changes before submitting. Your draft has been kept." };
+      if (current !== m.headSha) return { ok: false, error: "The PR has new commits. Update the guide for them before submitting. Your draft has been kept." };
       if (store.getReview(targetKey)?.status === "generating" || store.getReview(targetKey)?.headSha !== m.headSha) return { ok: false, error: "The review changed during submission. Wait for generation and review the draft again." };
       if (revision) requireReviewRevision(store, targetKey, revision);
       const result = await authenticatedRun(ghSubmitReviewArgs(m.repo, m.number), {

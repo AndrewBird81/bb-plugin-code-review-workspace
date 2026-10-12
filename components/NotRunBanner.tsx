@@ -7,9 +7,10 @@ import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { TOUCH_CONTROL } from "./touch";
 
-// The workspace's review has a guide already, so a guide that didn't run is a rebuild; a tracked PR's page has Start review.
-const RUN_LABEL = { guide: "Re-review", review: "Run review", check: "Run check" } as const;
-const STARTED = { guide: "Re-review started", review: "Review started", check: "Check started" } as const;
+// The workspace's review has a guide already, so a guide that didn't run is its update for new commits; a tracked PR's
+// page has Start review.
+const RUN_LABEL = { guide: "Update guide", review: "Run review", check: "Run check" } as const;
+const STARTED = { guide: "Guide update started", review: "Review started", check: "Check started" } as const;
 
 /** The click that runs what didn't run on its own because of the PR's author; its notice says why (lib/trust.ts notRunReason). */
 export function NotRunButton({ review }: { review: Pick<ReviewMeta, "targetKey"> & { skippedRun: NonNullable<ReviewMeta["skippedRun"]> } }) {

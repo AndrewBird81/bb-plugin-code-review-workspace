@@ -68,11 +68,11 @@ test("a check that didn't run offers Run check; nothing shows once everything ra
   }
 }, 15_000);
 
-test("a guide rebuild that didn't run offers Re-review, which is what it starts", async () => {
+test("a guide update that didn't run offers Update guide, which is what it starts", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, workspace({ ...outsider, status: "ready", skippedRun: { run: "guide", head: "sha2", at: 1 } }));
   const banner = await slot.findByRole("status", { name: "Not run automatically" });
-  expect(within(banner).getByRole("button", { name: "Re-review" })).toBeTruthy();
+  expect(within(banner).getByRole("button", { name: "Update guide" })).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
 
