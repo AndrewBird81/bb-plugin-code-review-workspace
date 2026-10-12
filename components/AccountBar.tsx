@@ -69,10 +69,10 @@ export const AccountBar = memo(function AccountBar() {
           <p className="text-xs leading-relaxed text-muted-foreground">Reviews are submitted using this BB server’s active account.</p>
         </div>
         <p role="status" className="flex items-center gap-2 rounded-lg border border-border bg-muted/25 px-2.5 py-2 text-sm">{active && !loading && !failed ? <Avatar login={active} size={24} /> : <Icon name="Github" className="size-4 text-muted-foreground" aria-hidden />}{loading ? "Checking account…" : failed ? "Account check unavailable" : active ? `Signed in as @${active}` : "No account connected"}</p>
-        {!loading && (failed || !active) && <Button variant="outline" size="sm" onClick={refetch}>Check again</Button>}
+        {!loading && (failed || !active) && <Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={refetch}>Check again</Button>}
         {!loading && !active && <p className="text-xs leading-relaxed text-muted-foreground">Run <code className="font-mono">gh auth login</code> on the BB server to connect GitHub. Local git reviews work without GitHub.</p>}
         {accounts.some((account) => !account.active) && <div className="space-y-1 border-t border-border pt-2">
-          {accounts.map((account) => <Button key={account.login} variant="ghost" size="sm" className="w-full justify-between" disabled={switching !== null || account.active} aria-label={account.active ? `Current account @${account.login}` : `Use @${account.login} on this BB server`} onClick={() => void switchTo(account.login)}>
+          {accounts.map((account) => <Button key={account.login} variant="ghost" size="sm" className={`w-full justify-between ${TOUCH_CONTROL}`} disabled={switching !== null || account.active} aria-label={account.active ? `Current account @${account.login}` : `Use @${account.login} on this BB server`} onClick={() => void switchTo(account.login)}>
             <span className="flex min-w-0 items-center gap-2"><Avatar login={account.login} size={18} /><span className="truncate">{switching === account.login ? "Switching…" : `@${account.login}`}</span></span>
             {account.active && <Icon name="Check" className="size-4 text-primary" aria-hidden />}
           </Button>)}

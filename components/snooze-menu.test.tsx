@@ -67,7 +67,8 @@ test("a new request snoozes until a time, not until its author responds; Back re
   const { slot, calls } = await menu(fresh);
   fireEvent.click(await slot.findByRole("button", { name: "Snooze" }));
   const choices = within(await slot.findByRole("group", { name: "Snooze" }));
-  expect(choices.getAllByRole("button").map((button) => button.textContent)).toEqual(["Later today1:00 PM", "Tomorrow9:00 AM", "Monday9:00 AM", "Pick a date…"]);
+  // Each time apart from its name, for a screen reader too.
+  expect(choices.getAllByRole("button").map((button) => button.textContent)).toEqual(["Later today, 1:00 PM", "Tomorrow, 9:00 AM", "Monday, 9:00 AM", "Pick a date…"]);
   fireEvent.click(slot.getByRole("button", { name: "Back to review actions" }));
   await waitFor(() => expect(document.activeElement).toBe(slot.getByRole("button", { name: "Snooze" })));
   fireEvent.click(slot.getByRole("button", { name: "Snooze" }));

@@ -4,6 +4,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import { Textarea } from "./ui/textarea";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
+import { TOUCH_CONTROL } from "./touch";
 import { cn } from "../lib/utils";
 import type { ReviewerNotesRecord } from "../src/preferences";
 
@@ -81,17 +82,17 @@ export function ReviewerNotes({ targetKey }: { targetKey: string }) {
       pending.current = setTimeout(() => { void flush().catch(() => {}); }, 500);
     }} onBlur={() => void flush().catch(() => {})} />
     <p role={error ? "alert" : "status"} className={cn("flex items-center gap-1.5 text-xs", error ? "text-destructive-text" : "text-muted-foreground")}><Icon name={error ? "AlertCircle" : saving || status.startsWith("Saving") ? "Loading" : status === "Notes saved" ? "CircleCheck" : "Info"} className={cn("size-3.5", !error && status === "Notes saved" && "text-diff-added", (saving || status.startsWith("Saving")) && "animate-spin motion-reduce:animate-none")} aria-hidden />{status}</p>
-    {(error || state.current.dirty) && <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" disabled={!loaded || saving} onClick={() => void flush().catch(() => {})}>Save notes</Button>{error && <Button variant="ghost" size="sm" disabled={saving} onClick={() => loaded ? void compareSaved() : void load()}>{loaded ? "Compare saved notes" : "Retry notes"}</Button>}</div>}
+    {(error || state.current.dirty) && <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={!loaded || saving} onClick={() => void flush().catch(() => {})}>Save notes</Button>{error && <Button variant="ghost" size="sm" disabled={saving} onClick={() => loaded ? void compareSaved() : void load()}>{loaded ? "Compare saved notes" : "Retry notes"}</Button>}</div>}
     {comparison && <div className="space-y-3 border-t border-border pt-3">
       <p className="text-xs text-muted-foreground">Saved version below. Your edits are still in the editor above.</p>
       <Textarea aria-label="Saved private notes" rows={5} value={comparison.body} readOnly />
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" disabled={saving} onClick={() => {
+        <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={saving} onClick={() => {
           state.current.revision = comparison.revision; state.current.dirty = true;
           try { localStorage.setItem(backupKey, JSON.stringify({ body: state.current.body, revision: comparison.revision })); } catch { /* best effort */ }
           setComparison(null); void flush().catch(() => {});
         }}>Save my version</Button>
-        <Button variant="ghost" size="sm" disabled={saving} onClick={() => {
+        <Button variant="ghost" size="sm" className={TOUCH_CONTROL} disabled={saving} onClick={() => {
           if (pending.current) clearTimeout(pending.current);
           state.current = { ...comparison, dirty: false }; setBody(comparison.body);
           try { localStorage.removeItem(backupKey); } catch { /* best effort */ }

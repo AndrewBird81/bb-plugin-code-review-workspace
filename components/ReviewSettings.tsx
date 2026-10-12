@@ -205,7 +205,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
     catch (error) { setError(error instanceof Error ? error.message : "Couldn’t save settings. Your edits are still here."); }
     finally { setBusy(false); }
   }
-  if (!session.ready) return <div className="space-y-3 p-6"><p role={session.error ? "alert" : "status"}>{session.error || "Opening settings…"}</p>{session.error && <Button onClick={session.retry}>Try again</Button>}</div>;
+  if (!session.ready) return <div className="space-y-3 p-6"><p role={session.error ? "alert" : "status"}>{session.error || "Opening settings…"}</p>{session.error && <Button className={TOUCH_CONTROL} onClick={session.retry}>Try again</Button>}</div>;
   return <div className="flex h-full min-h-0 min-w-0 flex-col" style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
     {/* Back waits for your edits to be saved or discarded. */}
     {onBack && <PageBar back={back} onBack={onBack} backDisabled={dirty || busy || updating} title="Settings" />}

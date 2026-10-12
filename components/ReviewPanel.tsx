@@ -1,5 +1,6 @@
 import { useReviewSession } from "../lib/review-session";
 import { Button } from "./ui/button";
+import { TOUCH_CONTROL } from "./touch";
 import { Inbox } from "./inbox/Inbox";
 import { ReviewSettingsPage } from "./ReviewSettings";
 import { ReviewWorkspace } from "./ReviewWorkspace";
@@ -17,6 +18,6 @@ ReviewPanel.displayName = "ReviewPanel";
 
 function ReviewSession({ targetKey }: { targetKey: string }) {
   const session = useReviewSession();
-  if (!session.ready) return <div className="space-y-3 p-6"><p role={session.error ? "alert" : "status"}>{session.error || "Opening review…"}</p>{session.error && <Button onClick={session.retry}>Try again</Button>}</div>;
+  if (!session.ready) return <div className="space-y-3 p-6"><p role={session.error ? "alert" : "status"}>{session.error || "Opening review…"}</p>{session.error && <Button className={TOUCH_CONTROL} onClick={session.retry}>Try again</Button>}</div>;
   return targetKey ? <ReviewWorkspace targetKey={targetKey} /> : <Inbox />;
 }

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import { linesOf, type DraftComment } from "../src/draft";
-import { TOUCH_TARGET } from "./touch";
+import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { locationKey } from "./InlineDraft";
@@ -35,16 +35,16 @@ export function FixHandoff({ targetKey, comments }: { targetKey: string; comment
       <legend className="mb-2 text-xs font-medium">Comments to fix</legend>
       {comments.map((comment) => {
         const key = locationKey(comment);
-        return <label key={key} className="flex items-start gap-2.5 text-xs">
+        return <label key={key} className="flex items-start gap-2.5 text-xs pointer-coarse:min-h-11 pointer-coarse:items-center">
           <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" disabled={busy} checked={!left.includes(key)} onChange={(event) => setLeft(event.target.checked ? left.filter((k) => k !== key) : [...left, key])} />
           <span className="min-w-0"><span className="font-mono text-[11px]">{comment.file}:{linesOf(comment)}</span> <span className="line-clamp-1 break-words text-muted-foreground">{comment.body}</span></span>
         </label>;
       })}
       <p className="text-xs text-muted-foreground">Starts a BB thread in this project to fix them. Your draft stays as it is.</p>
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" disabled={busy || !chosen.length} onClick={() => void start()}>{busy && <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />}Start thread</Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => setChoosing(false)}>Cancel</Button>
+        <Button size="sm" className={TOUCH_CONTROL} disabled={busy || !chosen.length} onClick={() => void start()}>{busy && <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />}Start thread</Button>
+        <Button size="sm" variant="ghost" className={TOUCH_CONTROL} disabled={busy} onClick={() => setChoosing(false)}>Cancel</Button>
       </div>
-    </fieldset> : comments.length > 0 && <Button variant="outline" size="sm" onClick={() => { setChoosing(true); setLeft([]); setError(null); }}><Icon name="Code" className="size-4" aria-hidden />Fix in a new thread</Button>}
+    </fieldset> : comments.length > 0 && <Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={() => { setChoosing(true); setLeft([]); setError(null); }}><Icon name="Code" className="size-4" aria-hidden />Fix in a new thread</Button>}
   </section>;
 }

@@ -19,6 +19,7 @@ import { InboxRow } from "./InboxRow";
 import { InboxPart, InboxSection } from "./InboxSection";
 import { ListTitleBar } from "./ListTitleBar";
 import { Omnibox } from "./Omnibox";
+import { TOUCH_CONTROL } from "../touch";
 import { publishInboxBar, useListTitleBarMounted } from "./inbox-store";
 
 const SECTIONS: Array<{ group: TurnGroup; title: string }> = [
@@ -261,7 +262,7 @@ export function Inbox() {
           {loading ? <div role="status" aria-busy="true" className="space-y-1 pt-2"><span className="sr-only">Loading reviews…</span>
             {Array.from({ length: 6 }).map((_, i) => <div key={i} className="space-y-2 px-3 py-3"><Skeleton className="h-3.5" style={{ width: `${62 - i * 6}%` }} /><Skeleton className="h-3 w-48" /></div>)}
           </div>
-            : loadError ? <div role="alert" className="px-4 py-10 text-center"><h2 className="font-medium">Couldn’t load your reviews</h2><p className="mt-2 text-sm text-muted-foreground">Your saved reviews haven’t been removed. Check the connection and try again.</p><Button variant="outline" className="mt-4" onClick={() => setReload((n) => n + 1)}>Try again</Button></div>
+            : loadError ? <div role="alert" className="px-4 py-10 text-center"><h2 className="font-medium">Couldn’t load your reviews</h2><p className="mt-2 text-sm text-muted-foreground">Your saved reviews haven’t been removed. Check the connection and try again.</p><Button variant="outline" className={cn("mt-4", TOUCH_CONTROL)} onClick={() => setReload((n) => n + 1)}>Try again</Button></div>
             : searching && SECTIONS.every(({ group }) => !sections[group].length) ? (link ? null : <div className="px-4 py-10 text-center">
               <h2 className="text-sm font-medium text-foreground">No reviews match “{query.trim()}”</h2>
               <p className="mt-1 text-sm text-muted-foreground">Try fewer words, or paste a PR link to review it.</p>

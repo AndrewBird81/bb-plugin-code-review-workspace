@@ -220,7 +220,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
           {threads.length ? `Couldn’t load every thread: ${threadsError}` : <>Couldn’t load review threads.{threadsError && <span className="mt-0.5 block break-words text-xs">{threadsError}</span>}</>}
         </Notice>}
         {isPr && feedbackError && <Notice tone="danger" action={actions && <Button variant="outline" size="sm" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} onClick={() => void actions.refresh()}>Try again</Button>}>Couldn’t load your feedback.</Notice>}
-        {draft.loadError ? <div role="alert" className="space-y-3 text-sm"><p>Couldn’t load your draft. Editing is paused to protect it.</p><Button variant="outline" onClick={() => void draft.load()}>Retry draft</Button></div>
+        {draft.loadError ? <div role="alert" className="space-y-3 text-sm"><p>Couldn’t load your draft. Editing is paused to protect it.</p><Button variant="outline" className={TOUCH_CONTROL} onClick={() => void draft.load()}>Retry draft</Button></div>
           : !draft.loaded ? <p role="status" className="text-sm text-muted-foreground">Loading comments…</p> : <>
           {box && !boxItem && draft.editable && <NewComment composer={composer} />}
           {isPr && !githubRead && <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Reading GitHub…</p>}

@@ -75,7 +75,7 @@ export function FinishView({ shown, revision }: {
   useEffect(() => updateComments(targetKey, { finishTitle: title }), [targetKey, title]);
   return (
     <div hidden={!shown} className={cn("flex min-h-0 flex-1 flex-col", !shown && "hidden")}>
-      {d.loadError ? <div role="alert" className="space-y-3 p-3 text-sm"><p>Couldn’t load your draft. Editing is paused to protect it.</p><Button variant="outline" onClick={() => void d.load()}>Retry draft</Button></div>
+      {d.loadError ? <div role="alert" className="space-y-3 p-3 text-sm"><p>Couldn’t load your draft. Editing is paused to protect it.</p><Button variant="outline" className={TOUCH_CONTROL} onClick={() => void d.load()}>Retry draft</Button></div>
         : !d.loaded ? <p role="status" className="p-3 text-sm text-muted-foreground">Loading draft…</p>
         : body ? <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">{body}{notes.show && <PrivateNotes targetKey={targetKey} />}</div>
         : <section aria-label="Review draft" className="flex min-h-0 flex-1 flex-col [@media(max-height:640px)]:overflow-y-auto">
@@ -182,8 +182,8 @@ function Verdicts({ revision }: { revision: string }) {
             <DialogDescription>The agent’s draft replaces the review summary you wrote.</DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:space-x-0">
-            <Button variant="outline" onClick={() => setConfirming(null)}>Keep mine</Button>
-            <Button onClick={replace}>Replace summary</Button>
+            <Button variant="outline" className={TOUCH_CONTROL} onClick={() => setConfirming(null)}>Keep mine</Button>
+            <Button className={TOUCH_CONTROL} onClick={replace}>Replace summary</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

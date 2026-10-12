@@ -46,7 +46,7 @@ export function SnoozeChoices({ onUntilAuthor, onPick, disabled, className }: { 
       </Button>}
       {choices.map((choice) => (
         <Button key={choice.label} variant="ghost" size="sm" disabled={disabled} className={MENU_ITEM} onClick={() => onPick?.(choice.until)}>
-          {choice.label}<span className="ml-auto text-xs font-normal text-subtle-foreground">{choice.hint}</span>
+          {choice.label}<span className="sr-only">, </span><span className="ml-auto text-xs font-normal text-subtle-foreground">{choice.hint}</span>
         </Button>
       ))}
       {onPick && (picking

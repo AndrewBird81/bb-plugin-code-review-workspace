@@ -171,7 +171,7 @@ export function SeverityBadge({ severity, size }: { severity: Severity; size?: "
 export function SeveritySelect({ value, onChange, disabled, className }: { value?: Severity; onChange: (severity: Severity | undefined) => void; disabled: boolean; className?: string }) {
   return (
     <select aria-label="Severity" disabled={disabled} value={value ?? "none"} onChange={(event) => onChange(event.target.value === "none" ? undefined : event.target.value as Severity)}
-      className={cn("h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground", className)}>
+      className={cn("h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground", TOUCH_CONTROL, className)}>
       <option value="none">No severity</option>
       {SEVERITIES.map((severity) => <option key={severity} value={severity}>{SEVERITY_LABEL[severity]}</option>)}
     </select>
@@ -309,11 +309,11 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
         {mode === "ask" && <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Goes to the agent, not GitHub.</span>}
         {mode !== "ask" && (composer.changeSeverity || composer.suggest) && <span className="mr-auto flex flex-wrap gap-2">
           {composer.changeSeverity && <SeveritySelect value={composer.severity} onChange={composer.changeSeverity} disabled={busy} />}
-          {composer.suggest && <Button variant="outline" size="sm" disabled={busy} onClick={composer.suggest}><Icon name="Edit" className="size-3.5" aria-hidden />Suggest change</Button>}
+          {composer.suggest && <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={composer.suggest}><Icon name="Edit" className="size-3.5" aria-hidden />Suggest change</Button>}
         </span>}
-        <Button variant="ghost" size="sm" disabled={busy} onClick={composer.cancel}>Cancel</Button>
-        {mode === "new" && <Button variant="outline" size="sm" disabled={busy || empty} onClick={composer.askAgent}><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Ask agent</Button>}
-        <Button size="sm" disabled={held} onClick={primary}>
+        <Button variant="ghost" size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={composer.cancel}>Cancel</Button>
+        {mode === "new" && <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy || empty} onClick={composer.askAgent}><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Ask agent</Button>}
+        <Button size="sm" className={TOUCH_CONTROL} disabled={held} onClick={primary}>
           {mode === "ask" ? "Send to agent" : summary ? "Save summary" : mode === "edit" ? "Save comment" : "Add to draft"}
         </Button>
       </div>

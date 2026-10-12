@@ -373,6 +373,11 @@ test("⋯ Comment options: hide nits, show resolved threads, add a comment by li
   const form = within(list.getByRole("region", { name: "New comment" }));
   expect((form.getByRole("combobox", { name: "Comment file" }) as HTMLSelectElement).value).toBe("src/a.ts");
   expect(form.getByRole("textbox", { name: "Draft comment" })).toBeTruthy();
+  // The box's controls are 44px on any touch screen, an iPad's included.
+  const touch = expect.arrayContaining(TOUCH_CONTROL.split(" "));
+  for (const control of [form.getByRole("combobox", { name: "Severity" }), form.getByRole("button", { name: "Cancel" }), form.getByRole("button", { name: "Ask agent" }), form.getByRole("button", { name: "Add to draft" })]) {
+    expect(control.className.split(" ")).toEqual(touch);
+  }
   slot.lifecycle.unmount();
 });
 

@@ -10,6 +10,7 @@ import { Button } from "./ui/button";
 import { Icon, type IconName } from "./ui/icon";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { MENU_ITEM, SnoozeChoices } from "./SnoozeChoices";
+import { TOUCH_CONTROL } from "./touch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
 /** An item a page adds to a review's menu. `keys`: its key, shown at its right where there's a keyboard. */
@@ -167,8 +168,8 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
           <DialogDescription>“{title}” will be permanently removed from Guided Review, with its guide, draft comments, private notes, and assistant conversation. Nothing changes on GitHub.</DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-2 sm:space-x-0">
-          <Button variant="outline" disabled={actions.busy} onClick={() => setConfirming(false)}>Cancel</Button>
-          <Button variant="destructive" disabled={actions.busy} onClick={() => void remove()}>{actions.busy ? "Deleting…" : "Delete review"}</Button>
+          <Button variant="outline" className={TOUCH_CONTROL} disabled={actions.busy} onClick={() => setConfirming(false)}>Cancel</Button>
+          <Button variant="destructive" className={TOUCH_CONTROL} disabled={actions.busy} onClick={() => void remove()}>{actions.busy ? "Deleting…" : "Delete review"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

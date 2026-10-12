@@ -12,6 +12,7 @@ import { clampRect, defaultRect, type Rect } from "../lib/dock-geometry";
 import { Icon } from "./ui/icon";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
+import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { Badge, SpeakerMark } from "./ui/badge";
 
@@ -181,19 +182,19 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
       {legacy}
     </div>
     <div className="shrink-0 space-y-2 border-t border-border bg-surface-raised p-3">
-      {chip && <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"><span className="shrink-0">Context</span><Badge tone="primary" className="min-w-0 font-mono" icon={<Icon name="File" aria-hidden />}><span className="truncate">{contextLabel(chip)}</span></Badge><Button variant="ghost" size="sm" className="h-6 px-1" aria-label="Clear selection context" onClick={() => setChip(null)}><Icon name="X" className="size-3" aria-hidden /></Button></div>}
+      {chip && <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"><span className="shrink-0">Context</span><Badge tone="primary" className="min-w-0 font-mono" icon={<Icon name="File" aria-hidden />}><span className="truncate">{contextLabel(chip)}</span></Badge><Button variant="ghost" size="sm" className={cn("relative h-6 px-1", TOUCH_TARGET)} aria-label="Clear selection context" onClick={() => setChip(null)}><Icon name="X" className="size-3" aria-hidden /></Button></div>}
       <Textarea ref={composerRef} aria-label="Ask the agent" disabled={busy} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => {
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void start(); }
       }} placeholder="Ask the agent…" className="max-h-32 min-h-20 resize-none rounded-lg bg-background text-sm focus-visible:border-(--ansi-13)/50 focus-visible:ring-[3px] focus-visible:ring-(--ansi-13)/15" />
       <div className="flex min-w-0 items-center gap-2">
         <ProviderModelPicker value={agent} onChange={(next) => setAgent({ ...(hostId ? { hostId } : {}), ...next })} routing={hostId ? { kind: "host", hostId } : undefined} disabled={busy} className="min-w-0" />
         {conversation?.machine && <span className="min-w-0 truncate text-xs text-muted-foreground">{conversation.machine.connected ? `on ${conversation.machine.name}` : `${conversation.machine.name} is offline`}</span>}
-        <Button size="sm" className="ml-auto size-8 rounded-lg p-0" disabled={busy || !input.trim() || !agent.providerId || !agent.model} onClick={() => void start()} aria-label="Send"><Icon name={busy ? "Loading" : "ArrowUp"} className={cn("size-4", busy && "animate-spin motion-reduce:animate-none")} aria-hidden /></Button>
+        <Button size="sm" className="ml-auto size-8 rounded-lg p-0 pointer-coarse:size-11" disabled={busy || !input.trim() || !agent.providerId || !agent.model} onClick={() => void start()} aria-label="Send"><Icon name={busy ? "Loading" : "ArrowUp"} className={cn("size-4", busy && "animate-spin motion-reduce:animate-none")} aria-hidden /></Button>
       </div>
     </div>
   </>;
   const body = loadError
-    ? <div role="alert" className="m-3 space-y-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive-text"><p>Couldn’t load the conversation.</p><Button variant="outline" size="sm" onClick={() => void load()}>Retry conversation</Button></div>
+    ? <div role="alert" className="m-3 space-y-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive-text"><p>Couldn’t load the conversation.</p><Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={() => void load()}>Retry conversation</Button></div>
     : !conversation ? <p role="status" className="p-3 text-sm text-muted-foreground">Loading conversation…</p>
     : threadId ? <ThreadChat threadId={threadId} variant="compact" className="min-h-0 flex-1" leadingContent={legacy} />
     : firstMessage;
@@ -210,8 +211,8 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
     </div>
     {confirmingReset && <div role="alertdialog" aria-label="Start a new conversation" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-warning/20 bg-warning/10 px-3 py-2 text-xs">
       <span className="min-w-0 flex-1">Archive this conversation and start a new one?</span>
-      <Button variant="outline" size="sm" onClick={() => void reset()}>Start new</Button>
-      <Button variant="ghost" size="sm" onClick={() => setConfirmingReset(false)}>Cancel</Button>
+      <Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={() => void reset()}>Start new</Button>
+      <Button variant="ghost" size="sm" className={TOUCH_CONTROL} onClick={() => setConfirmingReset(false)}>Cancel</Button>
     </div>}
     {body}
   </>;
