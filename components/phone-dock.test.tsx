@@ -159,7 +159,7 @@ test("a pick in the sheet closes it to show what was picked: a chapter, or a com
   expect(slot.queryByRole("dialog")).toBeNull();
   expect(await dock.findByRole("button", { name: "Chapters: Chapter 2 of 2, Caching, 1 of 1 files viewed" })).toBeTruthy();
   fireEvent.click(dock.getByRole("button", { name: /^Comments/ }));
-  fireEvent.click(within(slot.getByRole("dialog", { name: "Comments" })).getByRole("button", { name: /^src\/a\.ts:1/ }));
+  fireEvent.click(within(slot.getByRole("dialog", { name: "Comments" })).getByRole("button", { name: /^Draft · not submitted · src\/a\.ts:1/ }));
   expect(slot.queryByRole("dialog")).toBeNull();
   expect(await dock.findByRole("button", { name: /^Chapters: Chapter 1 of 2/ })).toBeTruthy();
   slot.lifecycle.unmount();

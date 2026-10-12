@@ -8,10 +8,15 @@ import type { DraftProviderProps } from "./DraftProvider";
 
 afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); });
 
-/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+/** The draft's provider with Comments and Finish review after what it wraps, as the side panel shows them. */
 async function draftTray() {
-  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
-  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+  const { DraftTray } = await import("./draft-tray.test-support");
+  return DraftTray;
+}
+/** Comments' ⋯ Add comment by line…: the form to write a comment at a file and line. */
+async function addComment(slot: { getByRole: (role: string, options: { name: string }) => HTMLElement; findByRole: (role: string, options: { name: string }) => Promise<HTMLElement> }) {
+  fireEvent.click(slot.getByRole("button", { name: "Comment options" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Add comment by line…" }));
 }
 
 async function renderTray(targetKey: string, rpc: Record<string, unknown>, props: Record<string, unknown> = {}) {
@@ -40,7 +45,7 @@ test("the draft's verdict and summary reload when they change elsewhere", async 
   draft = { ...draft, verdict: "REQUEST_CHANGES", body: "Two asks remain.", bodyAuthor: "agent" };
   await slot.emitRealtime("draft:sum", {});
   await summary(slot).findByText("Two asks remain.");
-  expect(summary(slot).getByText("Added by agent")).toBeTruthy();
+  expect(summary(slot).getByText("Agent summary · not submitted")).toBeTruthy();
   expect(pressed(slot, "Request changes")).toBe("true");
   slot.lifecycle.unmount();
 });
@@ -56,7 +61,8 @@ test("editing the agent's summary saves it as yours", async () => {
   fireEvent.click(summary(slot).getByRole("button", { name: "Save summary" }));
   await waitFor(() => expect(saveSummary).toHaveBeenCalledWith({ targetKey: "edit", body: "My words", revision: "r1" }));
   await summary(slot).findByText("My words");
-  expect(summary(slot).queryByText("Added by agent")).toBeNull();
+  expect(summary(slot).getByText("Summary · not submitted")).toBeTruthy();
+  expect(summary(slot).queryByText("Agent summary · not submitted")).toBeNull();
   expect(summary(slot).queryByRole("textbox")).toBeNull();
   slot.lifecycle.unmount();
 });
@@ -140,7 +146,7 @@ test("without a summary, you write it or ask the agent to, and Request changes w
   await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "empty", ...SUMMARY_AT, body: "Write the review summary." }));
   fireEvent.click(verdict(slot, "Request changes"));
   await slot.findByText("Requesting changes needs a summary: say what has to change.");
-  expect(slot.getByRole("button", { name: "Submit to GitHub" }).hasAttribute("disabled")).toBe(true);
+  expect(slot.getByRole("button", { name: /^Submit to GitHub/ }).hasAttribute("disabled")).toBe(true);
   slot.lifecycle.unmount();
 });
 
@@ -166,14 +172,16 @@ test("a line comment after the summary's box starts on a real line", async () =>
   const slot = await renderTray("after", { getDraft: () => ({ draft }) });
   fireEvent.click(summary(slot).getByRole("button", { name: "Edit review summary" }));
   fireEvent.click(summary(slot).getByRole("button", { name: "Cancel" }));
-  fireEvent.click(slot.getByRole("button", { name: "Add comment" }));
+  await addComment(slot);
   expect((slot.getByRole("combobox", { name: "Comment file" }) as HTMLSelectElement).value).toBe("src/a.ts");
   expect((slot.getByRole("spinbutton", { name: "Comment line" }) as HTMLInputElement).value).toBe("1");
   // With the summary's box open but empty, Add comment opens the panel's box instead.
   fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
   fireEvent.click(summary(slot).getByRole("button", { name: "Edit review summary" }));
+  // Once the summary's box has the focus, as it does a moment after it opens.
+  await waitFor(() => expect(document.activeElement).toBe(summary(slot).getByRole("textbox", { name: "Review summary" })));
   fireEvent.change(summary(slot).getByRole("textbox", { name: "Review summary" }), { target: { value: "" } });
-  fireEvent.click(slot.getByRole("button", { name: "Add comment" }));
+  await addComment(slot);
   expect(slot.getByRole("textbox", { name: "Draft comment" })).toBeTruthy();
   expect(summary(slot).queryByRole("textbox")).toBeNull();
   slot.lifecycle.unmount();
@@ -184,7 +192,7 @@ test("a line comment's box never turns into the summary's, even with its locatio
   const DraftTray = await draftTray();
   const slot = renderSlot({ component: () => <DraftTray targetKey="clear" activeChapterId="c1" activeFiles={[]} reviewRevision="r1" /> }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getDraft: () => ({ draft: draftOf() }) } as any });
   await slot.findByText("Draft saved");
-  fireEvent.click(slot.getByRole("button", { name: "Add comment" }));
+  await addComment(slot);
   fireEvent.change(slot.getByRole("textbox", { name: "Draft comment" }), { target: { value: "A line comment" } });
   fireEvent.change(slot.getByRole("spinbutton", { name: "Comment line" }), { target: { value: "" } });
   expect((slot.getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("A line comment");

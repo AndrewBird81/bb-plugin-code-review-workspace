@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from "react";
+import { createContext, useRef, useState, type ReactNode } from "react";
 import type { PanelView } from "../../lib/panel-state";
 import { cn } from "../../lib/utils";
 import { PANEL_WIDTH, type PanelPlacement } from "../../lib/workspace-layout";
@@ -12,6 +12,9 @@ import { OPAQUE, Resizer, useSide } from "./side-parts";
 export const sidePanelId = (targetKey: string) => `gr-side-panel-${targetKey}`;
 
 const TITLE: Record<PanelView, string> = { comments: "Comments", finish: "Finish review", agent: "Review agent" };
+
+/** Where a view puts its own actions in the panel's header, before ✕: Comments' ↻ and ⋯. */
+export const PanelActionsContext = createContext<HTMLElement | null>(null);
 
 /**
  * The conversation and finishing, at the code's right: docked at its width, over the code (`overlay`), or closed. On a
@@ -40,6 +43,7 @@ export function SidePanel({ targetKey, placement, sheet, view, width, maxWidth, 
   const shown = placement !== "closed" && view !== null;
   const inSheet = sheet && overlay;
   const dialog = useSide(ref, { shown, overlay, modal: !sheet, onClose });
+  const [actions, setActions] = useState<HTMLElement | null>(null);
   const button = cn("size-8 shrink-0 px-0 text-muted-foreground", TOUCH_CONTROL);
   return (
     <>
@@ -66,10 +70,11 @@ export function SidePanel({ targetKey, placement, sheet, view, width, maxWidth, 
               ? <Button variant="ghost" size="sm" className={cn("h-8 gap-1 px-2 text-muted-foreground", TOUCH_CONTROL)} onClick={onBack}><Icon name="ChevronLeft" aria-hidden />Comments</Button>
               : <Icon name="MessageSquare" className="ml-1.5 size-4 shrink-0 text-primary" aria-hidden />}
             <h2 className={cn("min-w-0 flex-1 truncate text-sm font-medium", view === "comments" && "ml-1")}>{TITLE[view]}</h2>
+            <span ref={setActions} className="flex shrink-0 items-center gap-1" />
             <Button variant="ghost" size="sm" aria-label={inSheet ? "Close" : "Close panel"} className={button} onClick={onClose}><Icon name="X" aria-hidden /></Button>
           </div>
         )}
-        {children}
+        <PanelActionsContext.Provider value={actions}>{children}</PanelActionsContext.Provider>
       </aside>
     </>
   );

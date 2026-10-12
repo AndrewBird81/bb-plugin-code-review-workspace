@@ -9,10 +9,10 @@ const { toast } = await import("sonner");
 
 afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); });
 
-/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+/** The draft's provider with Comments and Finish review after what it wraps, as the side panel shows them. */
 async function draftTray() {
-  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
-  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+  const { DraftTray } = await import("./draft-tray.test-support");
+  return DraftTray;
 }
 
 async function renderTray(targetKey: string, rpc: Record<string, unknown>, props: Record<string, unknown> = {}) {
@@ -27,11 +27,20 @@ type Slot = Awaited<ReturnType<typeof renderTray>>;
 const draftOf = (over: Record<string, unknown> = {}): Record<string, any> => ({ targetKey: "k", verdict: "COMMENT", body: "", comments: [] as any[], ...over });
 const status = (slot: Slot) => within(slot.getByRole("region", { name: "Review draft" })).getAllByRole("status")[0];
 
-/** Write a comment in the panel's Add comment form. */
-function writeComment(slot: Slot, text: string) {
-  fireEvent.click(slot.getByRole("button", { name: "Add comment" }));
+/** Comments' ⋯ Add comment by line…: the form to write a comment at a file and line. */
+async function addComment(slot: Slot) {
+  fireEvent.click(slot.getByRole("button", { name: "Comment options" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Add comment by line…" }));
+}
+/** Write a comment in Comments' Add comment by line form. */
+async function writeComment(slot: Slot, text: string) {
+  await addComment(slot);
   fireEvent.change(slot.getByRole("textbox", { name: "Draft comment" }), { target: { value: text } });
 }
+/** A comment's row in Comments, which opens as its card to edit or remove it. */
+const row = (where: string) => `Draft · not submitted · ${where}`;
+const expand = (slot: Slot, where: string) => fireEvent.click(slot.getByRole("button", { name: `Expand Draft comment on ${where}` }));
+const submit = (slot: Slot) => slot.getByRole("button", { name: /^Submit to GitHub/ });
 
 test("the status line follows saves: a failed submit's error clears when a later save works, and a failed save says so", async () => {
   let draft = draftOf({ body: "Summary." });
@@ -43,13 +52,13 @@ test("the status line follows saves: a failed submit's error clears when a later
   });
   const submitReview = vi.fn(async () => ({ ok: false, error: "GitHub said no." }));
   const slot = await renderTray("status", { getDraft: () => ({ draft, stale: [], discussions: [] }), saveDraftComment, submitReview });
-  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  fireEvent.click(submit(slot));
   await waitFor(() => expect(status(slot).textContent).toBe("GitHub said no."));
-  writeComment(slot, "One.");
+  await writeComment(slot, "One.");
   fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
   await waitFor(() => expect(status(slot).textContent).toBe("Draft saved"));
   fail = true;
-  writeComment(slot, "Two.");
+  await writeComment(slot, "Two.");
   fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
   await waitFor(() => expect(status(slot).textContent).toBe("Couldn’t reach the server."));
   slot.lifecycle.unmount();
@@ -58,6 +67,7 @@ test("the status line follows saves: a failed submit's error clears when a later
 test("Edit puts the cursor at the end of the comment, and of the summary", async () => {
   const draft = draftOf({ body: "The summary.", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "The comment." }] });
   const slot = await renderTray("cursor", { getDraft: () => ({ draft, stale: [], discussions: [] }) });
+  expand(slot, "src/a.ts:2");
   fireEvent.click(slot.getByRole("button", { name: "Edit comment on src/a.ts:2" }));
   const box = slot.getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
   await waitFor(() => expect(document.activeElement).toBe(box));
@@ -79,7 +89,7 @@ test("Cmd/Ctrl+Enter runs a box's primary action when it has text, and Esc cance
   const pageEscape = vi.fn();
   document.addEventListener("keydown", pageEscape);
   // The panel's Add comment form: empty, Ctrl+Enter does nothing; with text, it saves.
-  fireEvent.click(slot.getByRole("button", { name: "Add comment" }));
+  await addComment(slot);
   fireEvent.keyDown(slot.getByRole("textbox", { name: "Draft comment" }), { key: "Enter", ctrlKey: true });
   expect(saveDraftComment).not.toHaveBeenCalled();
   fireEvent.change(slot.getByRole("textbox", { name: "Draft comment" }), { target: { value: "Saved by keyboard." } });
@@ -87,7 +97,7 @@ test("Cmd/Ctrl+Enter runs a box's primary action when it has text, and Esc cance
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ body: "Saved by keyboard." }) })));
   await waitFor(() => expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull());
   // Esc cancels the form.
-  writeComment(slot, "Never mind.");
+  await writeComment(slot, "Never mind.");
   fireEvent.keyDown(slot.getByRole("textbox", { name: "Draft comment" }), { key: "Escape" });
   expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull();
   // The summary's editor.
@@ -113,11 +123,11 @@ test("Cmd/Ctrl+Enter runs a box's primary action when it has text, and Esc cance
 test("only old-side comments carry a side badge, and the form's sides are New and Old", async () => {
   const draft = draftOf({ comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "New side." }, { file: "src/a.ts", line: 1, side: "LEFT", body: "Old side." }] });
   const slot = await renderTray("side", { getDraft: () => ({ draft, stale: [], discussions: [] }) });
-  expect(slot.getByRole("button", { name: "src/a.ts:2" })).toBeTruthy();
-  expect(slot.getByRole("button", { name: "src/a.ts:1 · Old line" })).toBeTruthy();
+  expect(slot.getByRole("button", { name: row("src/a.ts:2") })).toBeTruthy();
+  expect(slot.getByRole("button", { name: row("src/a.ts:1 (old line)") })).toBeTruthy();
   expect(slot.queryByText("Changed")).toBeNull();
   expect(slot.getAllByText("Old line")).toHaveLength(1);
-  fireEvent.click(slot.getByRole("button", { name: "Add comment" }));
+  await addComment(slot);
   const side = slot.getByRole("combobox", { name: "Comment side" });
   expect(within(side).getAllByRole("option").map((option) => option.textContent)).toEqual(["New line", "Old line"]);
   slot.lifecycle.unmount();
@@ -128,15 +138,15 @@ test("line comments list in the review's order: chapter by chapter, then file, l
   const draft = draftOf({ comments: [at("src/z.ts", 1), at("src/a.ts", 3), at("src/b.ts", 5), at("src/a.ts", 1), at("src/b.ts", 2), at("src/a.ts", 1, "LEFT")] });
   // src/b.ts is in the first chapter, src/a.ts in the second; src/z.ts in none.
   const slot = await renderTray("order", { getDraft: () => ({ draft, stale: [], discussions: [] }) }, { files: ["src/b.ts", "src/a.ts"] });
-  const list = slot.getAllByRole("button", { name: /^src\/.\.ts:\d/ }).map((button) => button.getAttribute("aria-label"));
-  expect(list).toEqual(["src/b.ts:2", "src/b.ts:5", "src/a.ts:1 · Old line", "src/a.ts:1", "src/a.ts:3", "src/z.ts:1"]);
+  const list = slot.getAllByRole("button", { name: /^Draft · not submitted · src\// }).map((button) => button.getAttribute("aria-label"));
+  expect(list).toEqual(["src/b.ts:2", "src/b.ts:5", "src/a.ts:1 (old line)", "src/a.ts:1", "src/a.ts:3", "src/z.ts:1"].map(row));
   slot.lifecycle.unmount();
 });
 
 test("the Add comment form picks from the review's files, and says why the server refused a line", async () => {
   const saveDraftComment = vi.fn(async () => { throw new Error("src/b.ts:99 isn’t in the current diff. Choose a line the diff shows."); });
   const slot = await renderTray("outside", { getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), saveDraftComment }, { files: ["src/a.ts", "src/b.ts"] });
-  writeComment(slot, "Out of range.");
+  await writeComment(slot, "Out of range.");
   const file = slot.getByRole("combobox", { name: "Comment file" }) as HTMLSelectElement;
   expect(within(file).getAllByRole("option").map((option) => option.textContent)).toEqual(["src/a.ts", "src/b.ts"]);
   expect(file.value).toBe("src/a.ts");
@@ -157,7 +167,7 @@ test("a refused save keeps focus in the box, with the reason and its buttons in 
   const scrollIntoView = vi.fn();
   Element.prototype.scrollIntoView = scrollIntoView;
   const slot = await renderTray("refused-focus", { getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), saveDraftComment });
-  writeComment(slot, "Out of range.");
+  await writeComment(slot, "Out of range.");
   fireEvent.change(slot.getByRole("spinbutton", { name: "Comment line" }), { target: { value: "99" } });
   const box = slot.getByRole("textbox", { name: "Draft comment" });
   await waitFor(() => expect(document.activeElement).toBe(box));
@@ -175,7 +185,7 @@ test("a refused save keeps focus in the box, with the reason and its buttons in 
 test("Submit waits while comments are on an older diff, and names them", async () => {
   const draft = draftOf({ body: "Summary.", comments: [{ file: "src/a.ts", line: 9, side: "RIGHT", body: "Old." }, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Current." }] });
   const slot = await renderTray("stale", { getDraft: () => ({ draft, stale: [{ file: "src/a.ts", line: 9, side: "RIGHT" }], discussions: [] }) });
-  expect(slot.getByRole("button", { name: "Submit to GitHub" }).hasAttribute("disabled")).toBe(true);
+  expect(submit(slot).hasAttribute("disabled")).toBe(true);
   expect(slot.getByText("The diff changed after these comments were drafted. Edit and save, or remove: src/a.ts:9")).toBeTruthy();
   slot.lifecycle.unmount();
 });
@@ -196,8 +206,8 @@ test("while the guide rebuilds, comment saves and Submit wait; a comment from be
   };
   const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft, stale: [], discussions: [] }), saveDraftComment } as any });
   await slot.findByText("Draft saved");
-  expect(slot.getByRole("button", { name: "Submit to GitHub" }).hasAttribute("disabled")).toBe(true);
-  writeComment(slot, "Written during the rebuild.");
+  expect(submit(slot).hasAttribute("disabled")).toBe(true);
+  await writeComment(slot, "Written during the rebuild.");
   expect(slot.getByRole("button", { name: "Add to draft" }).hasAttribute("disabled")).toBe(true);
   expect(slot.getByText("The guide is rebuilding for new commits; your text is kept. Save when it’s ready.")).toBeTruthy();
   fireEvent.click(slot.getByRole("button", { name: "Rebuilt" }));
@@ -216,13 +226,14 @@ test("removing a comment offers Undo, which puts it back", async () => {
   const removeDraftComment = vi.fn(async () => { draft = { ...draft, comments: [] }; return { draft, stale: [], discussions: [] }; });
   const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = { ...draft, comments: [comment] }; return { draft, stale: [], discussions: [] }; });
   const slot = await renderTray("undo", { getDraft: () => ({ draft, stale: [], discussions: [] }), removeDraftComment, saveDraftComment });
+  expand(slot, "src/a.ts:2");
   fireEvent.click(slot.getByRole("button", { name: "Remove comment on src/a.ts:2" }));
   await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Comment removed", expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) })));
-  await waitFor(() => expect(slot.queryByRole("button", { name: "src/a.ts:2" })).toBeNull());
+  await waitFor(() => expect(slot.queryByRole("button", { name: row("src/a.ts:2") })).toBeNull());
   const [, { action }] = vi.mocked(toast.info).mock.calls[0] as any;
   action.onClick();
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo", revision: "r1", comment: mine }));
-  await slot.findByRole("button", { name: "src/a.ts:2" });
+  await slot.findByRole("button", { name: row("src/a.ts:2") });
   slot.lifecycle.unmount();
 });
 
@@ -230,7 +241,7 @@ test("the receipt after submitting links to the review on GitHub", async () => {
   let draft = draftOf({ body: "Looks good." });
   const submitReview = vi.fn(async () => { draft = draftOf(); return { ok: true, url: "https://github.com/acme/web/pull/7#pullrequestreview-12" }; });
   const slot = await renderTray("receipt", { getDraft: () => ({ draft, stale: [], discussions: [] }), submitReview });
-  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  fireEvent.click(submit(slot));
   const receipt = await slot.findByRole("region", { name: "Submitted review" });
   expect(within(receipt).getByRole("link", { name: "View on GitHub" }).getAttribute("href")).toBe("https://github.com/acme/web/pull/7#pullrequestreview-12");
   slot.lifecycle.unmount();
@@ -240,12 +251,11 @@ test("after saving, focus goes to the saved comment; after cancelling, back to w
   let draft = draftOf();
   const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = { ...draft, comments: [comment] }; return { draft, stale: [], discussions: [] }; });
   const slot = await renderTray("focus", { getDraft: () => ({ draft, stale: [], discussions: [] }), saveDraftComment });
-  const add = slot.getByRole("button", { name: "Add comment" });
-  add.focus();
-  writeComment(slot, "Never mind.");
+  const options = slot.getByRole("button", { name: "Comment options" });
+  await writeComment(slot, "Never mind.");
   fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
-  await waitFor(() => expect(document.activeElement).toBe(add));
-  writeComment(slot, "Saved.");
+  await waitFor(() => expect(document.activeElement).toBe(options));
+  await writeComment(slot, "Saved.");
   fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
   await waitFor(() => expect(document.activeElement?.getAttribute("data-comment-at")).toBe("src/a.ts:1:RIGHT"));
   slot.lifecycle.unmount();
@@ -256,15 +266,15 @@ test("Submit asks once more when the verdict isn't the agent's suggestion or the
   let draft = draftOf({ verdict: "APPROVE", verdictChosen: true, suggestedVerdict: "REQUEST_CHANGES", body: "One blocker.", comments });
   const submitReview = vi.fn(async () => ({ ok: true }));
   const slot = await renderTray("confirm", { getDraft: () => ({ draft, stale: [], discussions: [] }), submitReview });
-  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  fireEvent.click(submit(slot));
   const ask = await slot.findByRole("alert");
   expect(ask.textContent).toContain("Submit Approve with 3 comments? The agent suggested Request changes.");
   expect(submitReview).not.toHaveBeenCalled();
   await waitFor(() => expect(document.activeElement).toBe(within(ask).getByRole("button", { name: "Cancel" })));
   fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
   expect(slot.queryByRole("alert")).toBeNull();
-  await waitFor(() => expect(document.activeElement).toBe(slot.getByRole("button", { name: "Submit to GitHub" })));
-  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  await waitFor(() => expect(document.activeElement).toBe(submit(slot)));
+  fireEvent.click(submit(slot));
   fireEvent.click(within(await slot.findByRole("alert")).getByRole("button", { name: "Submit anyway" }));
   await waitFor(() => expect(submitReview).toHaveBeenCalledTimes(1));
   slot.lifecycle.unmount();
@@ -275,7 +285,7 @@ test("an out-of-date summary asks once more; a verdict matching the suggestion a
   let draft = draftOf({ suggestedVerdict: "COMMENT", body: "All fine.", bodyAuthor: "agent", written: { verdict: null, comments: "0:0" }, comments });
   const submitReview = vi.fn(async () => ({ ok: false, error: "Not now." }));
   const slot = await renderTray("outdated", { getDraft: () => ({ draft, stale: [], discussions: [] }), submitReview });
-  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  fireEvent.click(submit(slot));
   expect((await slot.findByRole("alert")).textContent).toContain("Submit Comment with 1 comment? Your comments changed since the agent wrote the summary.");
   expect(submitReview).not.toHaveBeenCalled();
   fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
@@ -283,7 +293,7 @@ test("an out-of-date summary asks once more; a verdict matching the suggestion a
   draft = draftOf({ suggestedVerdict: "COMMENT", body: "All fine.", comments });
   await slot.emitRealtime("draft:outdated", {});
   await waitFor(() => expect(slot.queryByText("Your comments changed since the agent wrote this.")).toBeNull());
-  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  fireEvent.click(submit(slot));
   await waitFor(() => expect(submitReview).toHaveBeenCalledTimes(1));
   slot.lifecycle.unmount();
 });
@@ -305,7 +315,7 @@ test("on your own PR, the panel offers Comment only, and picks it", async () => 
   // A suggestion GitHub wouldn't take isn't shown.
   expect(slot.queryByText(/Agent suggests/)).toBeNull();
   // The agent's other suggestion doesn't hold up Submit.
-  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub" }));
+  fireEvent.click(submit(slot));
   await waitFor(() => expect(submitReview).toHaveBeenCalledWith(expect.objectContaining({ verdict: "COMMENT" })));
   slot.lifecycle.unmount();
 });
@@ -313,7 +323,7 @@ test("on your own PR, the panel offers Comment only, and picks it", async () => 
 test("on a chapter with no files, the Add comment form starts on the review's first file", async () => {
   const saveDraftComment = vi.fn(async ({ comment }: any) => ({ draft: draftOf({ comments: [comment] }), stale: [], discussions: [] }));
   const slot = await renderTray("nofiles", { getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), saveDraftComment }, { activeFiles: [], files: ["src/a.ts", "src/b.ts"] });
-  writeComment(slot, "On the first file.");
+  await writeComment(slot, "On the first file.");
   expect((slot.getByRole("combobox", { name: "Comment file" }) as HTMLSelectElement).value).toBe("src/a.ts");
   fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ file: "src/a.ts" }) })));
@@ -331,7 +341,7 @@ test("a comment refused for an older diff says so in the status line too, not th
   };
   const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), saveDraftComment } as any });
   await slot.findByText("Draft saved");
-  writeComment(slot, "Written on r1.");
+  await writeComment(slot, "Written on r1.");
   fireEvent.click(slot.getByRole("button", { name: "New diff" }));
   fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
   await slot.findByRole("button", { name: "Keep on current diff" });
@@ -346,8 +356,10 @@ test("Undo after removing keeps an agent's comment the agent's, and isn't offere
   const removeDraftComment = vi.fn(async ({ line }: any) => { draft = { ...draft, comments: draft.comments.filter((c: any) => c.line !== line) }; return { draft, stale: [], discussions: [] }; });
   const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = { ...draft, comments: [...draft.comments, comment] }; return { draft, stale: [], discussions: [] }; });
   const slot = await renderTray("undo-agent", { getDraft: () => ({ draft, stale: [{ file: "src/a.ts", line: 9, side: "RIGHT" }], discussions: [] }), removeDraftComment, saveDraftComment });
+  expand(slot, "src/a.ts:9");
   fireEvent.click(slot.getByRole("button", { name: "Remove comment on src/a.ts:9" }));
   await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Comment removed"));
+  expand(slot, "src/a.ts:2");
   fireEvent.click(slot.getByRole("button", { name: "Remove comment on src/a.ts:2" }));
   await waitFor(() => expect(toast.info).toHaveBeenCalledTimes(2));
   const [, { action }] = vi.mocked(toast.info).mock.calls[1] as any;

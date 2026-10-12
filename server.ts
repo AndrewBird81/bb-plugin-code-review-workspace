@@ -857,7 +857,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "list_feedback",
     description: "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries.",
-    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review, then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in the Feedback view. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or \"Fixed in abc123, thanks.\" The reviewer posts replies and resolves threads; you never do.",
+    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review, then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or \"Fixed in abc123, thanks.\" The reviewer posts replies and resolves threads; you never do.",
     parameters: z.object({}),
     async execute(_input, { threadId }) {
       const review = await assistantReviewOf(threadId);
@@ -916,7 +916,7 @@ export default async function plugin(bb: BbPluginApi) {
   });
   bb.agents.registerTool({
     name: "assess_feedback",
-    description: "Record whether each piece of the reviewer's feedback was addressed at the PR's current head. Items are thread ids from list_feedback, or \"summary:<n>\" (with a title) for asks in a review summary. Optionally add an overall summary, the verdict you'd suggest, and a review summary for the reviewer's draft. The reviewer sees it in the Feedback view and their draft; nothing reaches GitHub.",
+    description: "Record whether each piece of the reviewer's feedback was addressed at the PR's current head. Items are thread ids from list_feedback, or \"summary:<n>\" (with a title) for asks in a review summary. Optionally add an overall summary, the verdict you'd suggest, and a review summary for the reviewer's draft. The reviewer sees it in Comments and in Finish review; nothing reaches GitHub.",
     parameters: z.object({
       items: z.array(z.object({
         id: z.string().min(1),
@@ -935,12 +935,12 @@ export default async function plugin(bb: BbPluginApi) {
       if (typeof review === "string") return failed(review);
       const result = assess(store, review, input);
       if (!result.ok) return failed(result.error);
-      // The suggestion fills the draft's summary when the rules allow; over the reviewer's own, it waits in the Feedback view for Use as draft.
+      // The suggestion fills the draft's summary when the rules allow; over the reviewer's own, it waits in Finish review for Use as draft.
       let note = "";
       if (input.suggestedBody?.trim()) {
         const written = writeSummary(store, review.targetKey, { body: input.suggestedBody, verdict: input.suggestedVerdict }, threadId);
         const refused = !written.ok && unchangeable(store.getReview(review.targetKey));
-        note = written.ok ? " Your suggested summary is in the reviewer's draft." : refused ? "" : " The reviewer wrote the draft's summary, so yours waits in the Feedback view.";
+        note = written.ok ? " Your suggested summary is in the reviewer's draft." : refused ? "" : " The reviewer wrote the draft's summary, so yours waits in Finish review.";
         // Over the reviewer's summary, the suggested verdict is still marked.
         if (!written.ok && !refused && input.suggestedVerdict) store.updateSummary(review.targetKey, { suggestedVerdict: input.suggestedVerdict });
         if (!refused) bb.realtime.publish(`draft:${review.targetKey}`, {});
@@ -956,7 +956,7 @@ export default async function plugin(bb: BbPluginApi) {
   });
   bb.agents.registerTool({
     name: "draft_thread_reply",
-    description: "Draft a reply on one of the reviewer's review threads. It waits in the Feedback view; only the reviewer sends it to GitHub.",
+    description: "Draft a reply on one of the reviewer's review threads. It waits on the thread in Comments; only the reviewer sends it to GitHub.",
     parameters: z.object({ threadId: z.string().min(1).describe("The thread id from list_feedback."), body: z.string().trim().min(1).describe("The reply, in GitHub Markdown.") }),
     async execute({ threadId: thread, body }, { threadId }) {
       const review = await assistantReviewOf(threadId);
@@ -964,7 +964,7 @@ export default async function plugin(bb: BbPluginApi) {
       if (!store.listFeedbackThreads(review.targetKey).some((t) => t.id === thread)) return failed(`There's no thread ${thread} from the reviewer. Use an id from list_feedback.`);
       store.setReplyDraft(review.targetKey, thread, body, "agent");
       bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
-      return "Drafted. The reviewer can edit and send it from the Feedback view.";
+      return "Drafted. The reviewer can edit and send it from Comments.";
     },
   });
   /** The review a guide-writing worker is generating, from its title. */

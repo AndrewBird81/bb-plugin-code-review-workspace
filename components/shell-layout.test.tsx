@@ -41,7 +41,7 @@ const guide = { title: "Guide", intent: "Parses rows.", unplacedFiles: [] as str
   { id: "c2", title: "Caching", overview: "Keeps rows.", diffs: [{ file: "src/b.ts" }] },
 ] };
 
-async function renderWorkspace({ opened = true }: { opened?: boolean } = {}) {
+async function renderWorkspace({ opened = true, notes = "" }: { opened?: boolean; notes?: string } = {}) {
   if (opened && !localStorage.getItem("gr:panelstate")) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
@@ -53,7 +53,7 @@ async function renderWorkspace({ opened = true }: { opened?: boolean } = {}) {
     checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
     checkForUpdates: () => ({ hasNewCommits: false }),
     getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [{ file: "src/b.ts", line: 1, side: "RIGHT", body: "Cache it." }] }, stale: [] }),
-    getReviewerNotes: () => ({ body: "", revision: 0 }),
+    getReviewerNotes: () => ({ body: notes, revision: 0 }),
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
     markSeen: () => ({ ok: true }),
   } as any });
@@ -106,30 +106,31 @@ test("over the code, the panel closes on Esc or a tap on the dimmed code, and a 
   fireEvent.click(slot.container.querySelector<HTMLElement>(".bg-black\\/40")!);
   expect(slot.queryByRole("dialog")).toBeNull();
   fireEvent.click(comments);
-  fireEvent.click(within(slot.getByRole("dialog", { name: "Comments" })).getByRole("button", { name: /^src\/b\.ts:1/ }));
+  fireEvent.click(within(slot.getByRole("dialog", { name: "Comments" })).getByRole("button", { name: /^Draft · not submitted · src\/b\.ts:1/ }));
   expect(slot.queryByRole("dialog")).toBeNull();
   await slot.findByText("bb");
   slot.lifecycle.unmount();
 });
 
-test("over the code, Tab in Finish review stops at Private notes, and goes past its notes while they're closed, to the verdict and Submit", async () => {
+test("over the code, Tab in Finish review stops at Private notes, and goes past its notes while they're closed, to Submit", async () => {
   fakePane(900);
-  const { slot } = await renderWorkspace();
+  // Notes from before notes were retired, which Finish review keeps.
+  const { slot } = await renderWorkspace({ notes: "Check the TTL." });
   fireEvent.keyDown(document.body, { key: "s" });
   const finish = within(await slot.findByRole("dialog", { name: "Finish review" }));
-  const remove = await finish.findByRole("button", { name: "Remove comment on src/b.ts:1" });
-  const notes = finish.getByText("Private notes").closest("summary")!;
-  const approve = within(finish.getByRole("group", { name: "Review verdict" })).getByRole("button", { name: "Approve" });
+  const before = await finish.findByRole("button", { name: "Show the comments to send" });
+  const notes = (await finish.findByText("Private notes")).closest("summary")!;
+  const submit = finish.getByRole("button", { name: /^Submit to GitHub/ });
   const box = finish.getByRole("textbox", { name: "Private reviewer notes" }) as HTMLTextAreaElement;
   await waitFor(() => expect(box.disabled).toBe(false));
   // After the summary takes the focus as Finish opens.
   await new Promise((resolve) => setTimeout(resolve, 50));
   const tab = (from: HTMLElement, shiftKey = false) => { from.focus(); fireEvent.keyDown(from, { key: "Tab", shiftKey }); return document.activeElement; };
-  expect(tab(remove)).toBe(notes);
+  expect(tab(before)).toBe(notes);
   // jsdom draws a closed <details>' content, which a browser doesn't, and can't focus.
-  expect(tab(notes)).toBe(approve);
-  expect(tab(approve, true)).toBe(notes);
-  expect(tab(notes, true)).toBe(remove);
+  expect(tab(notes)).toBe(submit);
+  expect(tab(submit, true)).toBe(notes);
+  expect(tab(notes, true)).toBe(before);
   (notes.parentElement as HTMLDetailsElement).open = true;
   expect(tab(notes)).toBe(box);
   slot.lifecycle.unmount();

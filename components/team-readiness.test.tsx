@@ -6,10 +6,10 @@ import type { DraftProviderProps } from "./DraftProvider";
 
 afterEach(cleanup);
 
-/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+/** The draft's provider with Comments and Finish review after what it wraps, as the side panel shows them. */
 async function draftTray() {
-  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
-  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+  const { DraftTray } = await import("./draft-tray.test-support");
+  return DraftTray;
 }
 const account = () => ({ active: "reviewer", accounts: [{ login: "reviewer", active: true }] });
 
@@ -59,15 +59,15 @@ test("a saved summary persists; submit is explicit and locked", async () => {
   fireEvent.click(slot.getByRole("button", { name: "Write summary" }));
   fireEvent.change(slot.getByRole("textbox", { name: "Review summary" }), { target: { value: "A considered review" } });
   // Unsaved text holds the submission back.
-  expect(slot.getByRole("button", { name: "Submit to GitHub" }).hasAttribute("disabled")).toBe(true);
+  expect(slot.getByRole("button", { name: /^Submit to GitHub/ }).hasAttribute("disabled")).toBe(true);
   fireEvent.click(slot.getByRole("button", { name: "Save summary" }));
   await waitFor(() => expect(stored.body).toBe("A considered review"));
   await slot.findByText("A considered review");
-  const submit = slot.getByRole("button", { name: "Submit to GitHub" });
+  const submit = slot.getByRole("button", { name: /^Submit to GitHub/ });
   fireEvent.click(submit); fireEvent.click(submit);
   await waitFor(() => expect(submitReview).toHaveBeenCalledTimes(1));
   release({ ok: false });
-  await slot.findByRole("button", { name: "Submit to GitHub" });
+  await slot.findByRole("button", { name: /^Submit to GitHub/ });
   expect(stored.body).toBe("A considered review");
   slot.lifecycle.unmount();
 });
@@ -80,7 +80,7 @@ test("local review keeps draft notes but never offers GitHub submission", async 
     getDraft: () => ({ draft: { targetKey: "ref-local", verdict: "COMMENT", body: "", comments: [] } }),
   } });
   await slot.findByText("Local review. Comments and notes stay in this BB installation.");
-  expect(slot.queryByRole("button", { name: "Submit to GitHub" })).toBeNull();
+  expect(slot.queryByRole("button", { name: /^Submit to GitHub/ })).toBeNull();
   slot.lifecycle.unmount();
 });
 
@@ -92,8 +92,9 @@ test("failed draft loading blocks edits and preserves the stored draft", async (
     setReviewPresence: () => ({ ok: true }),
     getDraft: () => { throw new Error("offline"); }, setVerdict,
   } });
-  await slot.findByRole("button", { name: "Retry draft" });
-  expect(slot.queryByRole("button", { name: "Submit to GitHub" })).toBeNull();
+  // Comments and Finish review both say so.
+  expect((await slot.findAllByRole("button", { name: "Retry draft" })).length).toBeGreaterThan(0);
+  expect(slot.queryByRole("button", { name: /^Submit to GitHub/ })).toBeNull();
   expect(setVerdict).not.toHaveBeenCalled();
   slot.lifecycle.unmount();
 });
@@ -114,9 +115,9 @@ test("a later dismissed approval replaces the local success receipt", async () =
     getDraft: () => ({ draft }),
     submitReview: () => { draft = { ...draft, verdict: "COMMENT" }; return { ok: true }; },
   } });
-  fireEvent.click(await slot.findByRole("button", { name: "Submit to GitHub" }));
+  fireEvent.click(await slot.findByRole("button", { name: /^Submit to GitHub/ }));
   await slot.findByRole("region", { name: "Submitted review" });
   act(() => updateReview({ targetKey: "pr-7", status: "ready", submittedVerdict: null }));
   expect(slot.queryByRole("region", { name: "Submitted review" })).toBeNull();
-  expect(slot.getByRole("button", { name: "Submit to GitHub" })).toBeTruthy();
+  expect(slot.getByRole("button", { name: /^Submit to GitHub/ })).toBeTruthy();
 });

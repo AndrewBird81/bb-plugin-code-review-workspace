@@ -8,10 +8,10 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 
 afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); });
 
-/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+/** The draft's provider with Comments and Finish review after what it wraps, as the side panel shows them. */
 async function draftTray() {
-  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
-  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+  const { DraftTray } = await import("./draft-tray.test-support");
+  return DraftTray;
 }
 
 const comments = [
@@ -42,7 +42,8 @@ test("on your own PR, Fix in a new thread starts a thread with the comments you 
   expect(started.textContent).toBe("Started a thread: Fix review comments: #12 Retry · Open");
   fireEvent.click(within(started).getByRole("button", { name: "Open" }));
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "t9" });
-  expect(slot.getAllByRole("listitem")).toHaveLength(2);
+  // The draft is as it was.
+  expect(slot.getAllByRole("button", { name: /^Draft · not submitted/ })).toHaveLength(2);
   // Opening it again starts from every comment, not the ones left out last time.
   fireEvent.click(slot.getByRole("button", { name: "Fix in a new thread" }));
   expect(within(slot.getByRole("group", { name: "Comments to fix" })).getByRole("checkbox", { name: /src\/b\.ts:9/ })).toHaveProperty("checked", true);

@@ -148,7 +148,7 @@ test("a check's suggested summary goes into the draft, but never over the review
 
   await call("saveSummary", { targetKey: "pr-1", body: "My own words.", revision: reviewRevision(store, "pr-1") });
   expect(drafts()).toBe(3);
-  expect(await tool("assess_feedback", { items: [item], suggestedVerdict: "APPROVE", suggestedBody: "All done." })).toContain("The reviewer wrote the draft's summary, so yours waits in the Feedback view.");
+  expect(await tool("assess_feedback", { items: [item], suggestedVerdict: "APPROVE", suggestedBody: "All done." })).toContain("The reviewer wrote the draft's summary, so yours waits in Finish review.");
   // The reviewer's words stay; the check's verdict is still marked for them.
   expect(store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "My own words.", comments: [], suggestedVerdict: "APPROVE" });
   const { feedback } = await call("getFeedback", { targetKey: "pr-1" });

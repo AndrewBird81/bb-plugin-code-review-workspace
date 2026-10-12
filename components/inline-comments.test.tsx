@@ -20,10 +20,10 @@ vi.mock("@pierre/diffs/react", () => ({
 
 afterEach(() => { cleanup(); sessionStorage.clear(); });
 
-/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+/** The draft's provider with Comments and Finish review after what it wraps, as the side panel shows them. */
 async function draftTray() {
-  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
-  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+  const { DraftTray } = await import("./draft-tray.test-support");
+  return DraftTray;
 }
 
 const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1,2 @@\n-old\n+new\n+more\n";
@@ -40,7 +40,7 @@ async function renderReview(targetKey: string, rpc: Record<string, unknown>, onS
   );
   const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), ...rpc } });
   await slot.findByText("Draft saved");
-  return { slot, diff: () => within(slot.getByTestId("filediff")), panel: () => within(slot.getByRole("region", { name: "Review draft" })) };
+  return { slot, diff: () => within(slot.getByTestId("filediff")), panel: () => within(slot.getByRole("region", { name: "Comments" })) };
 }
 
 test("a comment written at a line in the diff joins the draft, and shows there and in the panel", async () => {
@@ -50,16 +50,16 @@ test("a comment written at a line in the diff joins the draft, and shows there a
   fireEvent.click(diff().getByRole("button", { name: "Gutter +" }));
   const box = diff().getByRole("textbox", { name: "Draft comment" });
   await waitFor(() => expect(document.activeElement).toBe(box));
-  expect(panel().getByText("Writing a comment on src/a.ts:2 in the diff.")).toBeTruthy();
+  expect(panel().getByText("Writing a comment on src/a.ts:2")).toBeTruthy();
   fireEvent.change(box, { target: { value: "Cover the empty case." } });
-  expect((slot.getByRole("button", { name: "Submit to GitHub" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((slot.getByRole("button", { name: /^Submit to GitHub/ }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(diff().getByRole("button", { name: "Add to draft" }));
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "write", revision: "r1", comment: { file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c1", body: "Cover the empty case." } }));
   const shown = await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" });
   expect(within(shown).getByText("Cover the empty case.")).toBeTruthy();
   expect(diff().queryByRole("textbox")).toBeNull();
-  expect(panel().getByRole("button", { name: "src/a.ts:2" })).toBeTruthy();
-  expect(panel().queryByText(/in the diff\./)).toBeNull();
+  expect(panel().getByRole("button", { name: "Draft · not submitted · src/a.ts:2" })).toBeTruthy();
+  expect(panel().queryByText(/^Writing a comment/)).toBeNull();
   slot.lifecycle.unmount();
 });
 
@@ -83,7 +83,8 @@ test("editing an agent's comment in the diff saves it in place, while its new co
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "edit", revision: "r1", comment: { file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c1", body: "Please add a test for the empty case." } }));
   const saved = await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" });
   expect(within(saved).getByText("Please add a test for the empty case.")).toBeTruthy();
-  expect(within(saved).queryByText("Added by agent")).toBeNull();
+  // Yours now.
+  expect(within(saved).getByText("Draft · not submitted")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -140,8 +141,8 @@ test("choosing a comment, or the comment being written, in the panel shows it in
   const mine = { file: "src/a.ts", line: 1, side: "RIGHT", body: "My comment" };
   const onShowComment = vi.fn();
   const { slot, diff, panel } = await renderReview("show", { getDraft: () => ({ draft: { ...empty("show"), comments: [mine] }, stale: [{ file: "src/a.ts", line: 1, side: "RIGHT" }] }) }, onShowComment);
-  fireEvent.click(panel().getByRole("button", { name: "src/a.ts:1 · Older diff" }));
-  expect(onShowComment).toHaveBeenLastCalledWith(mine);
+  fireEvent.click(panel().getByRole("button", { name: "Older diff · not submitted · src/a.ts:1" }));
+  expect(onShowComment).toHaveBeenLastCalledWith({ file: "src/a.ts", line: 1, side: "RIGHT" });
   fireEvent.click(diff().getByRole("button", { name: "Gutter +" }));
   fireEvent.click(panel().getByRole("button", { name: "Show in diff" }));
   expect(onShowComment).toHaveBeenLastCalledWith({ file: "src/a.ts", line: 2, side: "RIGHT" });
@@ -164,7 +165,7 @@ test("asking the agent about its comment opens a box under it, and the agent ans
   await waitFor(() => expect(document.activeElement).toBe(box));
   // The box sits under the comment, which stays.
   expect(box.closest("[data-draft-at]")).toBe(diff().getByRole("article", { name: "Draft comment on src/a.ts:2" }).closest("[data-draft-at]"));
-  expect(panel().getByText("Writing to the agent about src/a.ts:2 in the diff.")).toBeTruthy();
+  expect(panel().getByText("Writing to the agent about src/a.ts:2")).toBeTruthy();
   fireEvent.change(box, { target: { value: "It is, in a.test.ts." } });
   fireEvent.click(diff().getByRole("button", { name: "Send to agent" }));
   await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "ask", file: "src/a.ts", line: 2, side: "RIGHT", body: "It is, in a.test.ts." }));
@@ -172,7 +173,7 @@ test("asking the agent about its comment opens a box under it, and the agent ans
   expect(within(discussion).getByText("It is, in a.test.ts.")).toBeTruthy();
   expect(within(discussion).getByRole("status").textContent).toBe("Waiting for agent…");
   expect(diff().queryByRole("textbox")).toBeNull();
-  expect(panel().getByRole("button", { name: "src/a.ts:2 · Added by agent · 1 message · Waiting for agent" })).toBeTruthy();
+  expect(panel().getByRole("button", { name: "Agent draft · not submitted · src/a.ts:2 · 1 message with the agent · Waiting for agent" })).toBeTruthy();
 
   discussions = [{ ...discussions[0], waiting: false, entries: [...discussions[0].entries, { author: "agent", kind: "message", body: "Then I'll drop it.", createdAt: 2 }, { author: "agent", kind: "removed", body: "", createdAt: 3 }] }];
   await slot.emitRealtime("draft:ask", {});
@@ -196,7 +197,7 @@ test("the comment box can send its text to the agent instead, which starts a dis
   await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "question", file: "src/a.ts", line: 2, side: "RIGHT", body: "Why two lines?" }));
   expect(saveDraftComment).not.toHaveBeenCalled();
   const discussion = await diff().findByRole("region", { name: "Discussion with agent on src/a.ts:2" });
-  expect(diff().getByText("Discussion with agent")).toBeTruthy();
+  expect(diff().getByText("Private · with the agent")).toBeTruthy();
   expect(within(discussion).getByText("Why two lines?")).toBeTruthy();
   // The agent finished without answering here.
   expect(within(discussion).getByText("The agent didn’t reply here.")).toBeTruthy();
