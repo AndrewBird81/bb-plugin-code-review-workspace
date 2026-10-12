@@ -97,6 +97,7 @@ test("opened again in the same turn, a review goes back to where you were; back 
   let { slot } = await renderWorkspace(review);
   fireEvent.click(await slot.findByRole("button", { name: "Start reading: Parsing" }));
   await slot.findByTestId("filediff");
+  await slot.findByRole("complementary", { name: "Comments and agent" });
   fireEvent.click(panel(slot).getByRole("button", { name: "Close panel" }));
   slot.lifecycle.unmount();
   ({ slot } = await renderWorkspace(review));
@@ -157,6 +158,7 @@ test("a local review's Comments has only its draft", async () => {
 test("Follow up opens the comment box at the thread's line in the diff", async () => {
   const { slot } = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({}) });
   await slot.findByRole("region", { name: "Submitted review", hidden: true });
+  await slot.findByRole("complementary", { name: "Comments and agent" });
   // Your thread waits on its author: it's on GitHub, not in Needs you.
   fireEvent.click(await panel(slot).findByRole("radio", { name: /^On GitHub,/ }));
   fireEvent.click(await panel(slot).findByRole("button", { name: "Expand GitHub thread on src/a.ts:2" }));
@@ -210,7 +212,7 @@ test("the Overview shows your review rounds, progress, Blocks merge, and snoozes
   fireEvent.click(responds);
   await waitFor(() => expect(rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: true }));
   // Your feedback's progress opens Comments on what needs you.
-  fireEvent.click(panel(slot).getByRole("button", { name: "Close panel" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Close panel" }));
   fireEvent.click(slot.getByText("2/5 addressed"));
   await chosen(slot, "Needs you");
   slot.lifecycle.unmount();
