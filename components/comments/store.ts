@@ -1,10 +1,10 @@
 // A review's comments, for the cards in the code and the Comments list, which show at once: one copy of what GitHub
 // and your feedback say (useDiffThreads reads it), the items the list builds from it and the draft, and what the list
 // shows. Module state keyed by review, since the cards sit inside the diff, apart from the list's tree.
-import { useMemo, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import type { ReviewThread } from "../../src/threads";
 import type { FeedbackView, ReplyDraft } from "../../lib/feedback";
-import { fileCounts, type CommentFilter, type CommentItem } from "../../lib/comments";
+import type { CommentFilter, CommentItem } from "../../lib/comments";
 
 /** What changes the review's threads on GitHub and their drafted replies; each reads them again after. */
 export interface CommentActions {
@@ -80,10 +80,4 @@ export function dropComments(targetKey: string) {
 /** One of a review's kept values, re-rendering only when it changes. Without a review, the empty one's. */
 export function useComments<K extends keyof CommentsEntry>(targetKey: string | null | undefined, key: K): CommentsEntry[K] {
   return useSyncExternalStore(subscribe, () => (targetKey ? commentsOf(targetKey) : EMPTY)[key]);
-}
-
-/** Each file's ▤ n, for its header in the diff: its draft comments, and its threads on GitHub that aren't resolved. */
-export function useFileCounts(targetKey: string | null | undefined): Map<string, { notSubmitted: number; onGitHub: number }> {
-  const items = useComments(targetKey, "items");
-  return useMemo(() => fileCounts(items), [items]);
 }

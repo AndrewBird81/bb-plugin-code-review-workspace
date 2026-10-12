@@ -29,7 +29,7 @@ function nameOf(item: CommentItem): string {
 }
 
 /** What the row's card is called: "Draft comment on src/a.ts:2". */
-export function cardName(item: CommentItem): string {
+function cardName(item: CommentItem): string {
   if (item.kind === "draft") return `Draft comment on ${whereOf(item)}`;
   if (item.kind === "thread") return `GitHub thread on ${whereOf(item)}`;
   if (item.kind === "private") return `Private discussion on ${whereOf(item)}`;

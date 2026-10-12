@@ -19,10 +19,10 @@ import { ReplyBox } from "./ReplyBox";
 import { useComments } from "./store";
 
 /** In the code: inside pierre's code view, so it sets its own text style rather than inheriting the code's. */
-export const INLINE_CARD = "mx-2 my-2 max-w-3xl overflow-hidden rounded-lg bg-card [contain:inline-size] font-sans text-sm leading-normal whitespace-normal text-foreground shadow-md";
+const INLINE_CARD = "mx-2 my-2 max-w-3xl overflow-hidden rounded-lg bg-card [contain:inline-size] font-sans text-sm leading-normal whitespace-normal text-foreground shadow-md";
 /** A card's head, and the small actions in it. */
 export const HEAD = "flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-xs text-muted-foreground";
-export const ACTION = cn("h-7 px-2 text-xs text-muted-foreground", TOUCH_CONTROL);
+const ACTION = cn("h-7 px-2 text-xs text-muted-foreground", TOUCH_CONTROL);
 
 /** "src/a.ts:2", "src/a.ts:2 (old line)", the file alone, or the PR: a card's name says where it is. */
 export function whereOf(item: CommentItem): string {
