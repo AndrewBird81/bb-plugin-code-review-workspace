@@ -115,7 +115,7 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
   return (
     <article aria-label={`GitHub thread on ${where}`} className={cn(inline ? INLINE_CARD : "overflow-hidden rounded-lg bg-card pt-2.5 text-sm", frameOf(item))}>
       {inline && <div className={cn(HEAD, !open && "pb-1")}>
-        <Icon name="Github" className="size-3.5 shrink-0" aria-hidden />
+        <span className="flex shrink-0 items-center gap-1.5"><Icon name="Github" className="size-3.5 shrink-0" aria-hidden />On GitHub<span aria-hidden className="text-subtle-foreground">·</span></span>
         {first ? <Speaker message={first} /> : <span className="font-medium text-foreground">{item.who}</span>}
         {item.tag && <Badge tone={TAG_TONE[item.tag] ?? "neutral"} size="sm">{item.tag}</Badge>}
         <ThreadState item={item} />

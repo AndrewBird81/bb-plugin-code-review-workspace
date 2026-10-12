@@ -194,6 +194,8 @@ test("GitHub threads show at their lines with every message; a resolved one fold
   const { slot } = await renderWorkspace();
   const open = await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" });
   expect(open.closest("[data-annotation]")!.getAttribute("data-annotation")).toBe("additions:2");
+  // Where it is, in words as well as GitHub's mark, as every draft card says "not submitted".
+  expect(within(open).getByText("On GitHub")).toBeTruthy();
   expect(within(open).getByText("It's a constant.")).toBeTruthy();
   expect(within(open).getByText("@alice")).toBeTruthy();
   expect(within(open).getByText("Author replied")).toBeTruthy();
