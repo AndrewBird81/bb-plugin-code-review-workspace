@@ -20,6 +20,9 @@ vi.mock("@pierre/diffs/react", () => ({
 }));
 
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); });
+// jsdom has no scrollIntoView. A reveal waits for the code to draw, then lands on the file with it: under a loaded
+// machine that can happen after a test's own checks, as an uncaught error.
+Element.prototype.scrollIntoView ??= () => {};
 
 const now = Date.now();
 const HOUR = 3_600_000;
