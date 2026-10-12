@@ -7,6 +7,7 @@ import { Badge, TONE_TEXT, type Tone } from "./ui/badge";
 import { Icon, type IconName } from "./ui/icon";
 import { IconTile } from "./ui/icon-tile";
 import { cn } from "../lib/utils";
+import { TOUCH_CONTROL } from "./touch";
 
 const descriptions: Record<ReleaseStatus["outcome"], string> = {
   unchecked: "Check for a compatible release.",
@@ -52,8 +53,8 @@ export function ReleaseSettings({ clientId, disabled, onUpdatingChange }: { clie
     <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-3"><IconTile tone="primary" icon="PackageReceive" /><h2 className="text-sm font-semibold">Plugin updates</h2></div>{status && <Badge className="font-mono">v{status.installedVersion}</Badge>}</div>
     {status && <p className={cn("flex max-w-[75ch] items-start gap-2 text-sm", TONE_TEXT[outcomeLook[status.outcome].tone])}><Icon name={outcomeLook[status.outcome].icon} className="mt-0.5 size-4 shrink-0" aria-hidden /><span>{descriptions[status.outcome]}{status.latestVersion ? ` Latest: ${status.latestVersion}.` : ""}</span></p>}
     <div className="flex flex-wrap gap-2">
-      <Button variant="outline" size="sm" disabled={!!busy} onClick={() => void perform("check")}>{busy === "check" ? "Checking…" : "Check for updates"}</Button>
-      {status?.outcome === "update-available" && <Button size="sm" disabled={!!busy || disabled} onClick={() => void perform("update")}>{busy === "update" ? "Updating…" : "Update now"}</Button>}
+      <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={!!busy} onClick={() => void perform("check")}>{busy === "check" ? "Checking…" : "Check for updates"}</Button>
+      {status?.outcome === "update-available" && <Button size="sm" className={TOUCH_CONTROL} disabled={!!busy || disabled} onClick={() => void perform("update")}>{busy === "update" ? "Updating…" : "Update now"}</Button>}
       <a className="self-center text-xs text-muted-foreground underline underline-offset-4" href="https://github.com/notpritam/bb-plugin-guided-review/releases" target="_blank" rel="noreferrer">Release notes</a>
     </div>
     {disabled && <p className="text-xs text-muted-foreground">Save or discard your settings edits before updating.</p>}
@@ -83,7 +84,7 @@ export function SetupReadiness({ account }: { account?: ReactNode }) {
   }
   useEffect(() => { void check(); }, [rpc]);
   return <section aria-label="Setup" className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs">
-    <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><IconTile tone="primary" icon="BadgeCheck" /><h2 className="text-sm font-semibold">Ready to review</h2></div><Button variant="ghost" size="sm" disabled={busy} onClick={() => void check()}>{busy ? "Checking…" : "Check setup"}</Button></div>
+    <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><IconTile tone="primary" icon="BadgeCheck" /><h2 className="text-sm font-semibold">Ready to review</h2></div><Button variant="ghost" size="sm" className={TOUCH_CONTROL} disabled={busy} onClick={() => void check()}>{busy ? "Checking…" : "Check setup"}</Button></div>
     <p className="max-w-[75ch] text-sm text-muted-foreground">Connect GitHub on the machine running BB, then paste a PR link. Guides use your BB agent and its normal usage allowance.</p>
     {setup && <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border text-sm">
       <ReadinessRow ok={setup.githubCli}>{setup.githubCli ? "GitHub CLI installed" : "Install GitHub CLI on the BB server."}</ReadinessRow>

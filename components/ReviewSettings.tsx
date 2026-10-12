@@ -14,6 +14,10 @@ import { IconTile } from "./ui/icon-tile";
 import type { Tone } from "./ui/badge";
 import { AccountBar } from "./AccountBar";
 import { PageBar } from "./PageBar";
+import { TOUCH_CONTROL } from "./touch";
+
+/** One of a setting's choices, pressed when it's chosen: a long one wraps on a narrow screen, and it's 44px on touch. */
+const CHOICE = `h-auto min-h-8 whitespace-normal py-1.5 text-left aria-pressed:border-primary/50 aria-pressed:bg-primary/10 aria-pressed:text-primary pointer-coarse:min-h-11`;
 
 type AgentUpdate = (agent: AgentExecution | null) => AgentExecution | null;
 /** undefined while loading; null when they couldn't be loaded. */
@@ -28,7 +32,7 @@ function MachineSelect({ hostId, machines, disabled, onChange }: {
   const value = hostId && hostId !== server?.hostId ? hostId : "";
   return <label className="flex min-w-0 items-center gap-2 text-sm">
     <span className="text-muted-foreground">Machine</span>
-    <select aria-label="Machine" disabled={disabled} value={value} onChange={(event) => onChange(event.target.value || undefined)} className="h-8 min-w-0 rounded-md border border-border bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+    <select aria-label="Machine" disabled={disabled} value={value} onChange={(event) => onChange(event.target.value || undefined)} className="h-8 min-w-0 rounded-md border border-border bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:h-11">
       <option value="">{server ? `${server.name} (server)` : "bb server"}</option>
       {others.map((machine) => <option key={machine.hostId} value={machine.hostId}>{machine.connected ? machine.name : `${machine.name} (offline)`}</option>)}
       {value && !others.some((machine) => machine.hostId === value) && <option value={value}>{machines ? "Removed machine" : value}</option>}
@@ -45,8 +49,8 @@ function AgentSelection({ label, agent, machines, disabled, note, onCustomize, o
   return <div className="space-y-2">
     <p className="text-sm font-medium">Agent</p>
     <div role="group" aria-label={label} className="flex flex-wrap gap-2">
-      <Button variant="outline" size="sm" className="aria-pressed:border-primary/50 aria-pressed:bg-primary/10 aria-pressed:text-primary" aria-pressed={!agent} onClick={() => onChange(() => null)}>Project defaults</Button>
-      <Button variant="outline" size="sm" className="aria-pressed:border-primary/50 aria-pressed:bg-primary/10 aria-pressed:text-primary" aria-pressed={!!agent} onClick={() => { if (!agent) onCustomize(); }}>Custom</Button>
+      <Button variant="outline" size="sm" className={CHOICE} aria-pressed={!agent} onClick={() => onChange(() => null)}>Project defaults</Button>
+      <Button variant="outline" size="sm" className={CHOICE} aria-pressed={!!agent} onClick={() => { if (!agent) onCustomize(); }}>Custom</Button>
     </div>
     {agent ? <div className="flex flex-wrap items-center gap-2">
       <MachineSelect hostId={agent.hostId} machines={machines} disabled={disabled} onChange={(hostId) => onChange((current) => {
@@ -129,15 +133,15 @@ function AgentCommentLearning({ instructions, onAdd }: { instructions: string; o
     {learning.recentRemoved.length > 0 && <div className="space-y-1"><p className="text-xs text-muted-foreground">Recently removed</p><ul className="space-y-1 text-sm">
       {learning.recentRemoved.map((comment, index) => <li key={index} className="flex min-w-0 items-baseline gap-2"><span className="shrink-0 font-mono text-xs text-muted-foreground">{comment.repo ? `${comment.repo} · ${comment.file}` : comment.file}</span><span className="min-w-0 truncate">{comment.line}</span></li>)}
     </ul></div>}
-    <Button variant="outline" size="sm" disabled={!learning.canSuggest || running} onClick={() => void suggest()}><Icon name="Sparkles" className="size-4" aria-hidden />{running ? "Suggesting…" : "Suggest instruction changes"}</Button>
+    <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={!learning.canSuggest || running} onClick={() => void suggest()}><Icon name="Sparkles" className="size-4" aria-hidden />{running ? "Suggesting…" : "Suggest instruction changes"}</Button>
     <span className="block text-xs text-muted-foreground">Sends your recently removed and edited comments to the assistant’s agent, which proposes up to five lines for your instructions. Nothing changes until you add them and save.</span>
     {error && <p role="alert" className="text-xs text-destructive-text">{error}</p>}
     {nothing && <p role="status" className="text-xs text-muted-foreground">The agent found nothing to add.</p>}
     {proposal !== null && <div className="space-y-2 rounded-lg border border-border p-3">
       <Textarea aria-label="Suggested instructions" rows={5} value={proposal} onChange={(event) => setProposal(event.target.value)} />
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" disabled={!proposal.trim() || !fits} onClick={() => { onAdd(proposal.trim()); settle(); }}>Add to instructions</Button>
-        <Button variant="ghost" size="sm" onClick={settle}>Discard</Button>
+        <Button size="sm" className={TOUCH_CONTROL} disabled={!proposal.trim() || !fits} onClick={() => { onAdd(proposal.trim()); settle(); }}>Add to instructions</Button>
+        <Button variant="ghost" size="sm" className={TOUCH_CONTROL} onClick={settle}>Discard</Button>
         {!fits && <span className="text-xs text-muted-foreground">Too long to add. Shorten it or your instructions first.</span>}
       </div>
     </div>}
@@ -215,14 +219,15 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
         <p className="max-w-[75ch] text-sm text-muted-foreground">Needs You can alert you when a guide is ready or generation fails, and when a review becomes your turn: re-requested, a question for you, or your feedback handled. Each alert links back to the review and clears when you open it. Install or update Needs You to 0.2.0-beta.3 or later, then enable Extension activity in its Settings. Telegram is optional.</p>
         <a className="inline-block text-sm text-primary underline underline-offset-4" href="/plugins/inbox/inbox/settings" target="_blank" rel="noreferrer">Open Needs You settings</a>
       </section>
-      {error && <div role="alert" className="space-y-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><p className="flex items-start gap-2"><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />{error}</p><Button variant="outline" size="sm" disabled={busy || updating} onClick={() => void load()}>Reload saved settings</Button></div>}
+      {error && <div role="alert" className="space-y-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><p className="flex items-start gap-2"><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />{error}</p><Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy || updating} onClick={() => void load()}>Reload saved settings</Button></div>}
       {!record ? !error && <p role="status">Loading settings…</p> : <>
-        <fieldset disabled={busy || updating} className="space-y-4">
+        {/* min-w-0: a fieldset is otherwise as wide as its widest line, past a phone's edge. */}
+        <fieldset disabled={busy || updating} className="min-w-0 space-y-4">
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="Route" title="Guide generation" description="Used to build a guide, and to update or rebuild one. Existing guides stay as written." />
             <AgentSelection label="Guide writer agent" agent={record.preferences.guideAgent} machines={machines} disabled={busy || updating} onCustomize={() => void customize("guideAgent")} onChange={(update) => setAgent("guideAgent", update)} />
             <div className="space-y-2"><p id="guide-detail-label" className="text-sm font-medium">Detail level</p><div role="group" aria-labelledby="guide-detail-label" className="flex flex-wrap gap-2">
-              {(["concise", "standard", "detailed"] as const).map((value) => <Button key={value} variant="outline" size="sm" className="aria-pressed:border-primary/50 aria-pressed:bg-primary/10 aria-pressed:text-primary" aria-pressed={record.preferences.guideDetail === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, guideDetail: value } }); }}>{value[0].toUpperCase() + value.slice(1)}</Button>)}
+              {(["concise", "standard", "detailed"] as const).map((value) => <Button key={value} variant="outline" size="sm" className={CHOICE} aria-pressed={record.preferences.guideDetail === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, guideDetail: value } }); }}>{value[0].toUpperCase() + value.slice(1)}</Button>)}
             </div></div>
             <label className="block space-y-2"><span className="text-sm font-medium">Guide instructions</span><Textarea aria-label="Guide instructions" maxLength={12000} rows={6} value={record.preferences.guideInstructions} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, guideInstructions: event.target.value } }); }} placeholder="Explain data migrations and compatibility. Keep tests with the behavior they cover. Write for engineers new to this repository." /><span className="block text-xs text-muted-foreground">Add review priorities, language, and team conventions. These extend the built-in guide skill.</span></label>
             <details className="text-sm"><summary className="w-fit cursor-pointer rounded-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">About the guide skill</summary><div className="mt-3 space-y-2 text-muted-foreground"><p>The bundled skill reads the complete diff, organizes chapters by meaning, and covers every changed file exactly once. Custom instructions shape its explanations while the required output format stays validated.</p><p>Based on the chaptered walkthrough approach from <a className="underline underline-offset-4" href="https://github.com/plannotator/guides/blob/main/skills/plannotator-guide/SKILL.md" target="_blank" rel="noreferrer">Plannotator’s guide skill</a>, adapted for BB. Guides run through the agent selected above.</p></div></details>
@@ -237,10 +242,10 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="ListTodo" title="Whose turn" description="What brings a review back to Needs review, and which reviews to follow." />
             <div className="space-y-2"><p id="wake-on-replies-label" className="text-sm font-medium">When the author replies</p><div role="group" aria-labelledby="wake-on-replies-label" className="flex flex-wrap gap-2">
-              {([ ["questions", "Questions for you"], ["any", "Any reply"] ] as const).map(([value, label]) => <Button key={value} variant="outline" size="sm" className="aria-pressed:border-primary/50 aria-pressed:bg-primary/10 aria-pressed:text-primary" aria-pressed={record.preferences.wakeOnReplies === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, wakeOnReplies: value } }); }}>{label}</Button>)}
+              {([ ["questions", "Questions for you"], ["any", "Any reply"] ] as const).map(([value, label]) => <Button key={value} variant="outline" size="sm" className={CHOICE} aria-pressed={record.preferences.wakeOnReplies === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, wakeOnReplies: value } }); }}>{label}</Button>)}
             </div></div>
             <div className="space-y-2"><p id="push-checks-label" className="text-sm font-medium">After the author pushes</p><div role="group" aria-labelledby="push-checks-label" aria-describedby="push-checks-help" className="flex flex-wrap gap-2">
-              {([ ["off", "Do nothing"], ["progress", "Check my feedback"], ["ready", "Check, and bring it back when everything’s addressed"] ] as const).map(([value, label]) => <Button key={value} variant="outline" size="sm" className="aria-pressed:border-primary/50 aria-pressed:bg-primary/10 aria-pressed:text-primary" aria-pressed={record.preferences.pushChecks === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, pushChecks: value } }); }}>{label}</Button>)}
+              {([ ["off", "Do nothing"], ["progress", "Check my feedback"], ["ready", "Check, and bring it back when everything’s addressed"] ] as const).map(([value, label]) => <Button key={value} variant="outline" size="sm" className={CHOICE} aria-pressed={record.preferences.pushChecks === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, pushChecks: value } }); }}>{label}</Button>)}
             </div><p id="push-checks-help" className="text-xs text-muted-foreground">The review assistant checks once the author’s pushes settle, using the Review assistant agent.</p></div>
             <label className="flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 accent-primary" checked={record.preferences.trackGithubReviews} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, trackGithubReviews: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Track reviews from GitHub</span><span className="block text-xs text-muted-foreground">Show PRs you’re asked to review or have reviewed on GitHub, not only reviews started here.</span></span></label>
             <label className="ml-6 flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 accent-primary" disabled={!record.preferences.trackGithubReviews} checked={record.preferences.trackTeamRequests} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, trackTeamRequests: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Include team requests</span><span className="block text-xs text-muted-foreground">Also show PRs that ask a team you’re on for review. Teams can be asked for many reviews.</span></span></label>
@@ -254,16 +259,16 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="Lock" title="Trust" description="A PR’s description, comments, and code can try to steer an agent that reads them. Choose what runs without your click." />
             <div className="space-y-2"><p id="unattended-authors-label" className="text-sm font-medium">Run agents on their own for PRs from</p><div role="group" aria-labelledby="unattended-authors-label" aria-describedby="unattended-authors-help" className="flex flex-wrap gap-2">
-              {([ ["members", "Members and collaborators"], ["anyone", "Anyone"] ] as const).map(([value, label]) => <Button key={value} variant="outline" size="sm" className="aria-pressed:border-primary/50 aria-pressed:bg-primary/10 aria-pressed:text-primary" aria-pressed={record.preferences.unattendedAuthors === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, unattendedAuthors: value } }); }}>{label}</Button>)}
+              {([ ["members", "Members and collaborators"], ["anyone", "Anyone"] ] as const).map(([value, label]) => <Button key={value} variant="outline" size="sm" className={CHOICE} aria-pressed={record.preferences.unattendedAuthors === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, unattendedAuthors: value } }); }}>{label}</Button>)}
             </div><p id="unattended-authors-help" className="text-xs text-muted-foreground">For other authors, no guide, automatic review, or feedback check starts by itself: the review says why, with a button to run it. Your own PRs and local reviews always run.</p></div>
             <label className="flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 accent-primary" checked={record.preferences.runRepoChecks} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, runRepoChecks: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Let the review agent run the repo’s tests and linters</span><span className="block text-xs text-muted-foreground">This runs the PR’s code on the agent’s machine, in a temporary git worktree, with the check commands the repo documents. Only on your own PRs and PRs from the authors above.</span></span></label>
           </section>
         </fieldset>
         <div className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-border bg-background/90 py-2.5 backdrop-blur">
-          <Button disabled={!dirty || incomplete || busy || updating} onClick={() => void save()}>{busy ? "Saving…" : "Save settings"}</Button>
-          {dirty && <Button variant="ghost" disabled={busy || updating} onClick={() => { setRecord({ ...record, preferences: JSON.parse(baseline) }); setError(""); }}>Discard edits</Button>}
+          <Button className={TOUCH_CONTROL} disabled={!dirty || incomplete || busy || updating} onClick={() => void save()}>{busy ? "Saving…" : "Save settings"}</Button>
+          {dirty && <Button variant="ghost" className={TOUCH_CONTROL} disabled={busy || updating} onClick={() => { setRecord({ ...record, preferences: JSON.parse(baseline) }); setError(""); }}>Discard edits</Button>}
           <span role="status" className="text-xs text-muted-foreground">{saved ? "Settings saved" : dirty ? "Unsaved changes" : ""}</span>
-          <Button variant="ghost" size="sm" className="ml-auto" disabled={busy || updating} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...defaultPreferences } }); }}>Restore defaults</Button>
+          <Button variant="ghost" size="sm" className={`ml-auto ${TOUCH_CONTROL}`} disabled={busy || updating} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...defaultPreferences } }); }}>Restore defaults</Button>
         </div>
       </>}
     </div>

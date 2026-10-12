@@ -65,7 +65,8 @@ const STATUS_TEXT: Record<StatusTone, string> = { ...TONE_TEXT, foreground: "tex
 export function StatusLine({ parts, after, className }: { parts: StatusPart[]; after?: { content: ReactNode; className?: string }; className?: string }) {
   const dot = <><span aria-hidden className="text-subtle-foreground"> · </span><span className="sr-only">, </span></>;
   return (
-    <span className={cn("block min-w-0 truncate", className)}>
+    // Relative, so the screen reader's commas, placed absolutely, are clipped with the rest.
+    <span className={cn("relative block min-w-0 truncate", className)}>
       {parts.map((part, index) => <Fragment key={`${part.kind}-${index}`}>
         {index > 0 && dot}
         <span title={part.detail} className={STATUS_TEXT[part.tone]}>
