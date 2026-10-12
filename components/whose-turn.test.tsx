@@ -101,7 +101,7 @@ test("a row says why it's your turn, how the feedback stands, new commits, CI, a
   slot.lifecycle.unmount();
 });
 
-test("a review you gave can wait with Not yet, come back to Needs review, and a tracked review can start its guide", async () => {
+test("a review you gave can wait until its author responds, come back to Needs review, and a tracked review can build its guide", async () => {
   const reviews = [
     { targetKey: "given", title: "Change Given", status: "ready", submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, turn: turn("needs", "question", "Question for you") },
     { targetKey: "fresh", title: "Change Fresh", status: "ready", turn: turn("needs", "requested", "Review requested") },
@@ -117,25 +117,27 @@ test("a review you gave can wait with Not yet, come back to Needs review, and a 
     fireEvent.click(within(row).getByRole("button", { name: "Review actions" }));
   };
   await menu("Change Given");
-  expect(slot.getByText("Hides it until the author re-requests, answers, or asks you")).toBeTruthy();
-  expect(slot.queryByRole("button", { name: "Start review" })).toBeNull();
-  fireEvent.click(slot.getByRole("button", { name: "Not yet" }));
+  expect(slot.queryByRole("button", { name: "Build the guide" })).toBeNull();
+  fireEvent.click(await slot.findByRole("button", { name: "Snooze" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Until the author responds" }));
   await waitFor(() => expect(calls("snoozeReview")).toEqual([{ targetKey: "given", snoozed: true }]));
   // onChanged relists.
   await waitFor(() => expect(calls("listReviews").length).toBeGreaterThan(1));
 
   await menu("Change Fresh");
-  expect(slot.queryByRole("button", { name: "Not yet" })).toBeNull();
+  fireEvent.click(await slot.findByRole("button", { name: "Snooze" }));
+  await slot.findByRole("button", { name: /^Tomorrow/ });
+  expect(slot.queryByRole("button", { name: "Until the author responds" })).toBeNull();
   fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
 
   await menu("Change Tracked");
-  fireEvent.click(await slot.findByRole("button", { name: "Start review" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Build the guide" }));
   await waitFor(() => expect(calls("startTrackedReview")).toEqual([{ targetKey: "tracked" }]));
 
   await tab(/^Waiting on author/);
   await menu("Change Snoozed");
-  expect(slot.queryByRole("button", { name: "Not yet" })).toBeNull();
-  fireEvent.click(slot.getByRole("button", { name: "Back to Needs review" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Back to Needs review" }));
+  expect(slot.queryByRole("button", { name: "Snooze" })).toBeNull();
   await waitFor(() => expect(calls("snoozeReview")).toEqual([{ targetKey: "given", snoozed: true }, { targetKey: "snoozed", snoozed: false }]));
   slot.lifecycle.unmount();
 });
@@ -149,9 +151,9 @@ test("a new request can be snoozed until a time from its menu, and the row says 
   ], { snoozeReview: () => ({ ok: true }) });
   const row = (await slot.findByText("Change Fresh")).closest(".group\\/row") as HTMLElement;
   fireEvent.click(within(row).getByRole("button", { name: "Review actions" }));
-  expect(slot.queryByRole("button", { name: "Not yet" })).toBeNull();
+  fireEvent.click(await slot.findByRole("button", { name: "Snooze" }));
   const tomorrow = snoozeTimes().tomorrow;
-  fireEvent.click(await slot.findByRole("button", { name: /^Tomorrow morning/ }));
+  fireEvent.click(await slot.findByRole("button", { name: /^Tomorrow/ }));
   await waitFor(() => expect(calls("snoozeReview")).toEqual([{ targetKey: "fresh", snoozed: true, until: tomorrow }]));
   await tab(/^Waiting on author/);
   expect(await slot.findByText(snoozeLabel(until))).toBeTruthy();
@@ -164,6 +166,8 @@ test("a date picked in the snooze menu wakes the review that morning", async () 
   ], { snoozeReview: () => ({ ok: true }) });
   const row = (await slot.findByText("Change Fresh")).closest(".group\\/row") as HTMLElement;
   fireEvent.click(within(row).getByRole("button", { name: "Review actions" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Snooze" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Pick a date…" }));
   fireEvent.change(await slot.findByLabelText("Snooze until a date"), { target: { value: "2099-03-02" } });
   fireEvent.click(slot.getByRole("button", { name: "Snooze" }));
   await waitFor(() => expect(calls("snoozeReview")).toEqual([{ targetKey: "fresh", snoozed: true, until: new Date(2099, 2, 2, 9).getTime() }]));

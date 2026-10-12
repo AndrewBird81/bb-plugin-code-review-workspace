@@ -1,5 +1,4 @@
 import { useCallback, useEffect } from "react";
-import { useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { VERDICT_LABEL } from "../src/draft";
 import { useDraftStatus } from "../lib/draft-status";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
@@ -9,8 +8,8 @@ import type { WorkspaceApi } from "../lib/workspace-context";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { Button } from "./ui/button";
 import { Hint } from "./ui/hint";
-import { Icon, type IconName } from "./ui/icon";
-import { ReviewActions } from "./ReviewActions";
+import { Icon } from "./ui/icon";
+import { ReviewActions, type ReviewMenuItem } from "./ReviewActions";
 import { sidePanelId } from "./shell/SidePanel";
 import { TOUCH_COMPACT, TOUCH_CONTROL } from "./touch";
 
@@ -105,16 +104,14 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
 }
 
 /**
- * Review actions (⋯): the workspace's own first (Update or Rebuild guide, Open on GitHub, Keyboard shortcuts, Review
- * settings…), then the review's. An archived review's guide isn't rebuilt.
+ * Review actions (⋯): the workspace's Update or Rebuild guide first, then the review's own, with the workspace's Keyboard
+ * shortcuts and Review settings… after Open on GitHub. An archived review's guide isn't rebuilt.
  */
 export function ReviewMenu({ api, className }: { api: WorkspaceApi; className?: string }) {
-  const navigate = useBbNavigate();
-  const items: { label: string; icon: IconName; onSelect: () => void }[] = [
-    ...(api.review.archivedAt ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal" as const, onSelect: () => void api.rebuild() }]),
-    ...(api.review.url ? [{ label: "Open on GitHub", icon: "Github" as const, onSelect: () => navigate.openUrl(api.review.url!) }] : []),
-    { label: "Keyboard shortcuts", icon: "CircleQuestion", onSelect: api.showShortcuts },
+  const items: ReviewMenuItem[] = api.review.archivedAt ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() }];
+  const trailing: ReviewMenuItem[] = [
+    { label: "Keyboard shortcuts", icon: "CircleQuestion", keys: "?", onSelect: api.showShortcuts },
     { label: "Review settings…", icon: "Settings", onSelect: () => void api.leave(`settings/${api.targetKey}`) },
   ];
-  return <ReviewActions review={api.review} className={className} pinnable={api.pinnable} items={items} onChanged={() => void api.reload()} onDeleted={() => void api.leave()} />;
+  return <ReviewActions review={api.review} className={className} pinnable={api.pinnable} items={items} trailing={trailing} onChanged={() => void api.reload()} onDeleted={() => void api.leave()} />;
 }

@@ -180,7 +180,8 @@ test("Review actions offers Update guide for new commits, else Rebuild guide, th
   let { bar, page } = await renderReview({ rpc: { rereview } });
   fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
   const items = (await bar!.findAllByRole("button", { name: /guide|GitHub|shortcuts|settings/ })).map((item) => item.textContent);
-  expect(items.slice(0, 4)).toEqual(["Rebuild guide", "Open on GitHub", "Keyboard shortcuts", "Review settings…"]);
+  // Snooze, Pin and Archive come between the guide and GitHub; the shortcuts show their key.
+  expect(items.slice(0, 4)).toEqual(["Rebuild guide", "Open on GitHub", "Keyboard shortcuts?", "Review settings…"]);
   fireEvent.click(bar!.getByRole("button", { name: "Keyboard shortcuts" }));
   expect(await page.findByRole("dialog", { name: "Keyboard shortcuts" })).toBeTruthy();
   page.lifecycle.unmount(); bar!.lifecycle.unmount();

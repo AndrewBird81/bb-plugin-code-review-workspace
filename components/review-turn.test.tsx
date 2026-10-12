@@ -198,9 +198,10 @@ test("a new request can be snoozed until a time from the review's Overview", asy
   const { snoozeTimes } = await import("../lib/turn");
   const { slot, rpc } = await renderWorkspace({ turn: turn({ reason: "requested", label: "Review requested" }) });
   fireEvent.click(await slot.findByRole("button", { name: "Snooze" }));
-  const nextMonday = snoozeTimes().nextMonday;
-  fireEvent.click(await slot.findByRole("button", { name: /^Next Monday/ }));
-  await waitFor(() => expect(rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: true, until: nextMonday }));
+  const tomorrow = snoozeTimes().tomorrow;
+  // Tomorrow is always offered; on a Sunday it's Monday too.
+  fireEvent.click(await slot.findByRole("button", { name: /^Tomorrow/ }));
+  await waitFor(() => expect(rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: true, until: tomorrow }));
   slot.lifecycle.unmount();
 });
 
