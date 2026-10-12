@@ -101,6 +101,27 @@ test("an open comment box never folds", async () => {
   slot.lifecycle.unmount();
 });
 
+test("a thread card you're writing a reply in stays open when comments fold, with your text and the focus", async () => {
+  const { slot, diff } = await renderWorkspace();
+  const card = within(await diff().findByRole("article", { name: "GitHub thread on src/a.ts:2" }));
+  fireEvent.click(card.getByRole("button", { name: "Show" }));
+  fireEvent.click(card.getByRole("button", { name: "Reply" }));
+  const box = card.getByRole("textbox", { name: "Reply on src/a.ts:2" }) as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: "Half a thought" } });
+  press("i");
+  expect(diff().getByRole("group", { name: "Draft comment on src/a.ts:2, folded" })).toBeTruthy();
+  expect(diff().queryByRole("group", { name: "GitHub thread on src/a.ts:2, folded" })).toBeNull();
+  expect(document.activeElement).toBe(box);
+  expect(box.value).toBe("Half a thought");
+  // Done with the reply, the card folds with the next fold.
+  fireEvent.change(box, { target: { value: "" } });
+  fireEvent.keyDown(box, { key: "Escape" });
+  press("i");
+  press("i");
+  await waitFor(() => expect(diff().getByRole("group", { name: "GitHub thread on src/a.ts:2, folded" })).toBeTruthy());
+  slot.lifecycle.unmount();
+});
+
 test("going to a comment from the list opens its pill", async () => {
   const { slot, diff } = await renderWorkspace();
   press("i");

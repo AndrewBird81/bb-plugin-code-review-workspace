@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FocusEvent, type RefObject } from "react";
 import type { ThreadItem } from "../../lib/comments";
 import { REPLY_DRAFT_LABEL } from "../../lib/comments";
+import { setReplyWriting } from "../../lib/comments-fold";
 import { cn } from "../../lib/utils";
 import { CommentBody, composerKeys } from "../InlineDraft";
 import { TOUCH_CONTROL } from "../touch";
@@ -44,6 +45,12 @@ export function ReplyBox({ targetKey, item, where, actions, busy, writing, onClo
     saved.current = draft;
   }, [draft, key]);
   useEffect(() => { if (writing) setEditing(true); }, [writing]);
+  // While you write, folding comments leaves the card open.
+  useEffect(() => {
+    if (!editing) return;
+    setReplyWriting(targetKey, item.id, true);
+    return () => setReplyWriting(targetKey, item.id, false);
+  }, [editing, targetKey, item.id]);
   const box = useRef<HTMLTextAreaElement>(null);
   const card = useRef<HTMLDivElement>(null);
   const focusBox = useRef(writing);

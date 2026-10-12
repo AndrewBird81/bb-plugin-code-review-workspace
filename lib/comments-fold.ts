@@ -3,6 +3,8 @@
 import { useSyncExternalStore } from "react";
 
 const opened = new Map<string, ReadonlySet<string>>();
+// The reply boxes open in each card, by review: folding them all leaves those cards open, with their text and focus.
+const writing = new Map<string, Map<string, number>>();
 const revealed = new Map<string, { id: string; nonce: number }>();
 const listeners = new Set<() => void>();
 const NONE: ReadonlySet<string> = new Set();
@@ -26,11 +28,26 @@ export function setCommentOpen(targetKey: string, id: string, open: boolean) {
   notify();
 }
 
-/** Folding or unfolding them all starts over. */
+/** Folding or unfolding them all starts over, except for the cards you're writing a reply in. */
 export function clearOpenComments(targetKey: string) {
-  if (!opened.get(targetKey)?.size) return;
-  opened.delete(targetKey);
+  const current = opened.get(targetKey);
+  if (!current?.size) return;
+  const kept = [...current].filter((id) => writing.get(targetKey)?.has(id));
+  if (kept.length === current.size) return;
+  if (kept.length) opened.set(targetKey, new Set(kept));
+  else opened.delete(targetKey);
   notify();
+}
+
+/** A reply box opened (`open`) or closed in a comment's card. The card opens with it, and stays open once it closes. */
+export function setReplyWriting(targetKey: string, id: string, open: boolean) {
+  const boxes = writing.get(targetKey) ?? new Map<string, number>();
+  const count = (boxes.get(id) ?? 0) + (open ? 1 : -1);
+  if (count > 0) boxes.set(id, count);
+  else boxes.delete(id);
+  if (boxes.size) writing.set(targetKey, boxes);
+  else writing.delete(targetKey);
+  if (open) setCommentOpen(targetKey, id, true);
 }
 
 /** Went to a comment, from the list or with ] and [: it opens, and shows where it is. */
