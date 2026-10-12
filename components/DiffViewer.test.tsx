@@ -60,7 +60,7 @@ test("checking Viewed reports up and collapses the diff body", () => {
   expect(screen.queryByTestId("filediff")).toBeNull(); // collapsed
 });
 
-test("a stale file shows a 'changed' pill", () => {
+test("a file that changed since you viewed it says so", () => {
   render(
     <DiffViewer
       patch={patch}
@@ -69,7 +69,7 @@ test("a stale file shows a 'changed' pill", () => {
       onToggleViewed={() => {}}
     />,
   );
-  expect(screen.getByText("changed")).toBeTruthy();
+  expect(screen.getByText("Changed since you viewed it")).toBeTruthy();
 });
 
 test("the file header counts hunk lines that look like file headers", () => {
@@ -93,13 +93,13 @@ function renderWithDraft(draft: Partial<InlineDraft>, props: Partial<Parameters<
   return value;
 }
 
-test("draft comments show under their lines with who added them, and the file header counts them", () => {
+test("draft comments show under their lines with who added them, and the file's row counts them", () => {
   renderWithDraft({ comments: [comment], stale: [{ file: "src/a.ts", line: 2, side: "RIGHT" }] });
   const shown = screen.getByRole("article", { name: "Draft comment on src/a.ts:2" });
   expect(within(shown).getByText("Is the empty case tested?")).toBeTruthy();
   expect(within(shown).getByText("Older diff · not submitted")).toBeTruthy();
   expect(within(shown).getByText("Agent")).toBeTruthy();
-  expect(screen.getByText("1 draft comment")).toBeTruthy();
+  expect(screen.getByText("1 not submitted")).toBeTruthy();
 });
 
 test("a comment's Edit and Remove act on it, and a collapsed file still counts it", () => {
@@ -111,7 +111,24 @@ test("a comment's Edit and Remove act on it, and a collapsed file still counts i
   expect(draft.remove).toHaveBeenCalledWith(comment);
   fireEvent.click(screen.getByRole("checkbox"));
   expect(screen.queryByRole("article")).toBeNull();
-  expect(screen.getByText("1 draft comment")).toBeTruthy();
+  expect(screen.getByText("1 not submitted")).toBeTruthy();
+});
+
+test("a file's ▤ counts its drafts and its GitHub threads that aren't resolved, as the comments list does", async () => {
+  const { DiffThreadsContext } = await import("./LineThreads");
+  const thread = (id: string, line: number, isResolved = false) => ({ id, isResolved, isOutdated: false, path: "src/a.ts", line, side: "RIGHT" as const, comments: [{ id: `${id}c`, databaseId: 1, author: "bob", body: "Why?" }] });
+  const threads = { targetKey: "pr-42", threads: [thread("T1", 1), thread("T2", 2, true), { ...thread("T3", 9), isOutdated: true }] };
+  render(
+    <DiffThreadsContext.Provider value={threads}>
+      <InlineDraftContext.Provider value={{ comments: [comment, { ...comment, line: 1, author: undefined, body: "Name it." }], stale: [], discussions: [], editable: true, busy: false, writing: false, composer: null, open: vi.fn(), ask: vi.fn(), remove: vi.fn(), dismiss: vi.fn(), undo: vi.fn(), chat: null, editingAt: null }}>
+        <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} />
+      </InlineDraftContext.Provider>
+    </DiffThreadsContext.Provider>,
+  );
+  const header = within(document.querySelector<HTMLElement>("[data-file-header]")!);
+  // The resolved thread doesn't count; the outdated one, shown in the file's fold, does.
+  const count = header.getByText("2 not submitted · 2 on GitHub");
+  expect(count.parentElement!.textContent).toBe("42 not submitted · 2 on GitHub");
 });
 
 test("the gutter + opens a comment box at its line instead of offering the selection's actions", async () => {

@@ -459,12 +459,17 @@ test("an ask from your review summary has no place in the code: its row opens it
 test("GitHub threads in code off hides them there; showing one from the list turns them on again", async () => {
   const { slot } = await renderWorkspace();
   await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" });
-  const toggle = within(slot.getByRole("main")).getByRole("button", { name: "GitHub threads" });
-  fireEvent.click(toggle);
+  // Diff options' switch, from the band.
+  const threadsInCode = async () => {
+    fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+    return slot.findByRole("switch", { name: "GitHub threads in code" });
+  };
+  fireEvent.click(await threadsInCode());
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   await waitFor(() => expect(code(slot, "src/a.ts").queryByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeNull());
   const list = await openComments(slot);
   fireEvent.click(list.getByRole("button", { name: /^You · Author replied · src\/a\.ts:2/ }));
   expect(await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeTruthy();
-  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  expect((await threadsInCode()).getAttribute("aria-checked")).toBe("true");
   slot.lifecycle.unmount();
 });

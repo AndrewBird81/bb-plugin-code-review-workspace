@@ -115,13 +115,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [generated, setGenerated] = useState<Set<string>>(new Set());
   const [injection, setInjection] = useState<DockInjection | undefined>();
   const [currentFile, setCurrentFile] = useState<string | undefined>();
-  const [sel, setSel] = useState<{ x: number; y: number; file: string; code: string } | null>(null);
   const [lineSel, setLineSel] = useState<{ file: string; range: SelectedLineRange } | null>(null);
   const [draftPrefill, setDraftPrefill] = useState<CommentPrefill | undefined>();
   const [showDraft, setShowDraft] = useState<{ at: number; replaced?: boolean } | undefined>();
   const [since, setSince] = useState<Map<string, FileInterdiff> | null>(null);
   const [sinceError, setSinceError] = useState<string | null>(null);
   const [sinceOnly, setSinceOnly] = useState(false);
+  // Whether the band has room for the compare select: where it hasn't, the diff says it's narrowed.
+  const [compareShown, setCompareShown] = useState(true);
   // A commit picked to compare from, instead of your last review.
   const [compareFrom, setCompareFrom] = useState<string | null>(null);
   const narrowOnLoad = useRef(false);
@@ -381,6 +382,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     narrowOnLoad.current = !!from && from !== review?.headSha;
     setCompareFrom(sha);
   }, [compareFrom, since, sinceKey, baselineSha, review?.headSha]);
+  // All changes lets a picked commit go, and a comparison still loading doesn't narrow the diff when it arrives.
+  const narrow = useCallback((narrowed: boolean) => {
+    if (!narrowed) { narrowOnLoad.current = false; setCompareFrom(null); }
+    setSinceOnly(narrowed);
+  }, []);
   const sinceWhat = compareFrom ? compareFrom.slice(0, 7) : "your review";
   // Who owns each file, by CODEOWNERS on a PR's base branch, or a local review's new side.
   useEffect(() => {
@@ -692,7 +698,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // The diff remounts after the Overview; it shouldn't jump back to an old comment.
   useEffect(() => { if (activeId === OVERVIEW) setReveal(undefined); }, [activeId]);
   // A selection's actions go with the chapter it was made in.
-  useEffect(() => { setSel(null); setLineSel(null); }, [activeId]);
+  useEffect(() => { setLineSel(null); }, [activeId]);
 
   useEffect(() => {
     if (pendingScroll.current && activeFiles.includes(pendingScroll.current)) {
@@ -728,39 +734,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       const best = pinned.current ? undefined : fileAtTop();
       if (best) setCurrentFile(best);
     });
-    // The popover sits where the text was.
-    setSel(null);
     if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current);
     const value = box.scrollTop;
     scrollSaveTimer.current = setTimeout(() => patchReviewState(targetKey, { scrollTop: value }), 200);
   }, [targetKey, fileAtTop]);
-
-  const onMouseUp = useCallback(() => {
-    const s = window.getSelection();
-    const text = s?.toString() ?? "";
-    if (!text.trim() || !s || s.rangeCount === 0) {
-      setSel(null);
-      return;
-    }
-    const range = s.getRangeAt(0);
-    const node = range.commonAncestorContainer;
-    const el = node.nodeType === 3 ? node.parentElement : (node as HTMLElement);
-    const fileEl = el?.closest("[data-file]") as HTMLElement | null;
-    // Text in a draft comment or the comment box isn't code to ask about.
-    if (!fileEl || el?.closest("[data-draft-at]")) {
-      setSel(null);
-      return;
-    }
-    const r = range.getBoundingClientRect();
-    setSel({ x: r.left + r.width / 2, y: r.top, file: fileEl.dataset.file!, code: text.slice(0, 4000) });
-  }, []);
-
-  function askAboutSelection() {
-    if (!sel) return;
-    ask({ file: sel.file, code: sel.code, chapterId });
-    setSel(null);
-    window.getSelection()?.removeAllRanges();
-  }
 
   // Everyone's GitHub threads, under their lines in the diff unless hidden. Feedback and Threads change them: they're
   // read again once those close.
@@ -917,12 +894,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     nav: { open: layout.nav === "docked" || layout.nav === "overlay", toggle: toggleNav, find: findInReview, view: navView, setView: changeNavView },
     panel: { view: shownPanel, open: openPanel, toggle: togglePanel, close: closePanel },
     files: { views, toggleViewed, markChapterViewed, nextUnviewed, foldAll: foldAllFiles },
-    compare: { baseline: baselineSha, head: review?.headSha ?? null, from: compareFrom, pick: pickCompare, since, narrowed: sinceOnly, setNarrowed: setSinceOnly, error: sinceError, what: sinceWhat },
+    compare: { baseline: baselineSha, head: review?.headSha ?? null, from: compareFrom, pick: pickCompare, since, narrowed: sinceOnly, setNarrowed: narrow, error: sinceError, what: sinceWhat },
     display: { layout: diffLayout, toggleLayout, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads, commentsFolded, setCommentsFolded: changeCommentsFolded },
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts]);
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, narrow, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts]);
 
   if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");
@@ -970,10 +947,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <Navigator leading={<TopBand />} patch={patch} currentFile={currentFile} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={owners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} />
         </NavigatorHost>
         <main aria-label="Review" inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
-          <ReaderBar threads={isPr && diffThreads.threads.length > 0} />
+          <ReaderBar threads={isPr && diffThreads.threads.length > 0} onCompareShown={setCompareShown} />
           <ReviewNotices notices={notices} />
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
-          <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
+          <div ref={scrollBox} onScroll={onScroll} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
             {activeSection ? (
               <>
               <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} />
@@ -1003,6 +980,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 sinceWhat={sinceWhat}
                 owners={owners}
                 foldAll={foldAll}
+                onSinceOnly={sheet || !compareShown ? narrow : undefined}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>
@@ -1023,7 +1001,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       <DraftLines into={draftLines} />
 
       <StepBar hidden={!!lineSel} pill={pill} />
-      <SelectionBar lines={lineSel} text={sel} phone={sheet} onComment={() => commentOnLines()} onAskLines={askAboutLines} onClear={() => setLineSel(null)} onAskText={askAboutSelection} />
+      <SelectionBar lines={lineSel} phone={sheet} onComment={() => commentOnLines()} onAskLines={askAboutLines} onClear={() => setLineSel(null)} />
       <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
     </CompactViewportOverrideProvider>

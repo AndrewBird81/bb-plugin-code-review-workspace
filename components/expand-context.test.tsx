@@ -58,6 +58,9 @@ async function renderWorkspace(rpc: Record<string, unknown> = {}, shown = { guid
 test("Expand loads the whole file into the diff, keeping its comments, and Whole file shows all of it", async () => {
   const { slot, rpc, file } = await renderWorkspace();
   expect(file().getByTestId("filediff").dataset.partial).toBe("true");
+  // Under the file's row, which scrolls away, not on the row that sticks.
+  const row = within(slot.container.querySelector<HTMLElement>('[data-file="src/a.ts"] [data-file-header]')!);
+  expect(row.queryByRole("button", { name: "Expand src/a.ts around its changes" })).toBeNull();
   fireEvent.click(file().getByRole("button", { name: "Expand src/a.ts around its changes" }));
   await waitFor(() => expect(file().getByTestId("filediff").dataset.partial).toBe("false"));
   expect(rpc.getFileContents).toHaveBeenCalledWith({ targetKey: "pr-42", file: "src/a.ts" });

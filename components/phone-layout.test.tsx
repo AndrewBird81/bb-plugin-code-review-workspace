@@ -81,7 +81,7 @@ test("on a phone the diff's options are behind the chapters sheet's Diff options
   const wrap = await slot.findByRole("switch", { name: "Wrap long lines" });
   expect(wrap.getAttribute("aria-checked")).toBe("true");
   expect(slot.getByRole("switch", { name: "Hide whitespace changes" }).getAttribute("aria-checked")).toBe("false");
-  expect(slot.queryByRole("button", { name: "Split view" })).toBeNull();
+  expect(slot.queryByRole("radiogroup", { name: "Layout" })).toBeNull();
   fireEvent.click(wrap);
   expect(wrap.getAttribute("aria-checked")).toBe("false");
   slot.lifecycle.unmount();
@@ -121,16 +121,18 @@ test("a phone held sideways keeps its band to 40px: All reviews and the chapter,
   const slot = await renderWorkspace();
   expect(band(slot).className.split(" ")).toContain("h-10");
   const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
-  expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("");
+  // With 720px of room, ‹ says where it goes.
+  expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("All reviews");
   expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
-  const main = within(slot.getByRole("main"));
-  expect(main.queryByRole("button", { name: "Wrap lines" })).toBeNull();
-  fireEvent.click(main.getByRole("button", { name: "Diff options" }));
+  // Of the diff's settings only Fold comments, folded here to start with, has its own button.
+  const options = within(slot.getByRole("main")).getByRole("button", { name: "Diff options" });
+  expect(within(options.parentElement!).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Unfold comments in code", "Diff options"]);
+  fireEvent.click(options);
   expect(await slot.findByRole("switch", { name: "Wrap long lines" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
-test("on a wide screen the band shows the review's title beside the chapter, and the toolbar's controls", async () => {
+test("on a wide screen the band shows the review's title beside the chapter, then Fold comments and Diff options", async () => {
   // The code keeps 912px between the chapters and the panel.
   fakeSize(1600, 900);
   const slot = await renderWorkspace();
@@ -138,10 +140,10 @@ test("on a wide screen the band shows the review's title beside the chapter, and
   expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("All reviews");
   expect(crumbs.getByRole("button", { name: "Parse rows" })).toBeTruthy();
   expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
-  const main = within(slot.getByRole("main"));
-  expect(main.getByRole("button", { name: "Split view" })).toBeTruthy();
-  expect(main.getByText("0 of 1 files viewed in this chapter")).toBeTruthy();
-  expect(main.getByRole("button", { name: "Mark chapter viewed" })).toBeTruthy();
+  // The diff's settings are behind Diff options; the chapter's end and the chapters mark it viewed.
+  const controls = within(band(slot)).getAllByRole("button").map((button) => button.getAttribute("aria-label"));
+  expect(controls.slice(-2)).toEqual(["Fold comments in code", "Diff options"]);
+  expect(within(band(slot)).queryByRole("button", { name: "Mark chapter viewed" })).toBeNull();
   // Not short: the chapters, the chapter's overview, and the saved open panel show.
   expect(slot.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
   expect(slot.getByRole("button", { name: "Hide chapter overview" })).toBeTruthy();

@@ -10,6 +10,7 @@ import type { FileInterdiff } from "../src/interdiff";
 import type { FileOwners } from "../src/codeowners";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import { cn } from "../lib/utils";
+import { buildItems, fileCounts } from "../lib/comments";
 import { classifyFile } from "../src/classify";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
@@ -18,7 +19,8 @@ import { DiffStat } from "./ui/diff-stat";
 import { FilePath } from "./ui/file-path";
 import { InlineCode } from "./ui/inline-code";
 import { FileTag } from "./FileTag";
-import { useMediaQuery } from "./ui/hooks/use-media-query";
+import { useIsCompactViewport } from "./ui/hooks/use-compact-viewport";
+import { TOUCH_COMPACT } from "./touch";
 import { InlineDraftContext, InlineLocation, locationKey } from "./InlineDraft";
 import { DiffThreadsContext, LineThreads, OutdatedThreads, threadLocation } from "./LineThreads";
 import { CheckFailuresContext, LineChecks, failureLocation } from "./CheckFailures";
@@ -196,6 +198,23 @@ function renderAnnotation({ metadata }: DiffLineAnnotation<Annotation>) {
   return <><LineChecks at={metadata} /><LineThreads at={metadata} /><InlineLocation at={metadata} /></>;
 }
 
+// Pierre's styles for how a file's lines take a pointer. The gutter's "+" shows only where there's a fine pointer to aim
+// it, and a code line keeps its text cursor: it takes a tap, which pierre marks with a pointer cursor, not a click.
+const POINTER_CSS = `@media not (any-pointer: fine) { [data-gutter-utility-slot] { display: none; } }
+@media (hover: hover) and (pointer: fine) { [data-interactive-lines] [data-line] { cursor: auto; } }
+`;
+
+/**
+ * Where a tap on a line takes the lines picked in its file: a first tap picks the line, a later one moves the end of the
+ * range there, and one on the first line again clears it.
+ */
+function tapLines(picked: SelectedLineRange | null, line: number, side: AnnotationSide): SelectedLineRange | null {
+  if (!picked) return { start: line, end: line, side };
+  const anchor = picked.side ?? side;
+  if (picked.start === line && anchor === side) return null;
+  return { start: picked.start, end: line, side: anchor, ...(side !== anchor ? { endSide: side } : {}) };
+}
+
 // One file's diff. Pierre redraws a file whenever its options or annotations
 // are new objects, which also takes focus from an open comment box, so both
 // stay the same until something in them changes.
@@ -226,7 +245,13 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
   const shown = dragging !== undefined ? dragging : selected;
   const shownRef = useRef(shown);
   shownRef.current = shown;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   const ended = useRef(false);
+  // What last pressed on the file. A finger or pen picks lines by tapping them (onLineClick); pierre would take a tap on
+  // a line's number as a pick of that line alone, so its picks count only when they're a drag over several lines.
+  const pointer = useRef("mouse");
+  const tapping = () => pointer.current !== "mouse";
   // Lines shown around the diff take no comment: GitHub would refuse it.
   const inDiff = (range: SelectedLineRange) => {
     if (!commentable || commentable(lineEnd(path, range))) return true;
@@ -241,19 +266,26 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
     disableFileHeader: true,
     tokenizeMaxLength: TOKENIZE_MAX_LENGTH,
     overflow: wrap ? "wrap" : "scroll",
-    ...(unsafeCSS ? { unsafeCSS } : {}),
+    unsafeCSS: POINTER_CSS + (unsafeCSS ?? ""),
     expandUnchanged: wholeFile,
     // GitHub-style line picking: drag to select a range to comment on or ask
     // about, or use the gutter "+" to open a comment box at a line.
     enableLineSelection: true,
     enableGutterUtility: true,
-    onLineSelectionStart: (range) => setDragging(range),
+    onLineSelectionStart: (range) => { if (!tapping()) setDragging(range); },
     onLineSelectionChange: (range) => setDragging(range),
     onLineSelectionEnd: () => { ended.current = true; setDragging(undefined); },
     onLineSelected: (range) => {
       const picked = ended.current || !areSelectionsEqual(range ?? undefined, shownRef.current ?? undefined);
       ended.current = false;
-      if (picked && !fromGutter.current && (!range || inDiff(range))) onLineSelected?.(path, range);
+      const tap = tapping() && (!range || range.start === range.end && (range.endSide ?? range.side) === range.side);
+      if (picked && !tap && !fromGutter.current && (!range || inDiff(range))) onLineSelected?.(path, range);
+    },
+    // Touch: tap a line, or its number, to pick it; tap another to make a range.
+    onLineClick: ({ lineNumber, annotationSide }) => {
+      if (!tapping()) return;
+      const range = tapLines(selectedRef.current, lineNumber, annotationSide);
+      if (!range || inDiff(range)) onLineSelected?.(path, range);
     },
     onGutterUtilityClick: (range) => {
       if (!inDiff(range)) return;
@@ -264,8 +296,9 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
       onComment(lineEnd(path, range));
     },
   }), [darkTheme, lightTheme, themeMode, diffStyle, wrap, path, onLineSelected, onComment, unsafeCSS, wholeFile, commentable]);
+  // A drag the browser takes over as a scroll ends pierre's pick without onLineSelectionEnd: the lines go back.
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" onPointerDownCapture={(event) => { pointer.current = event.pointerType || "mouse"; }} onPointerCancelCapture={() => setDragging(undefined)}>
       <FileDiff fileDiff={fileDiff} options={options} lineAnnotations={annotations} selectedLines={shown} renderAnnotation={renderAnnotation} />
     </div>
   );
@@ -295,6 +328,7 @@ export const DiffViewer = memo(function DiffViewer({
   sinceWhat = "your review",
   owners,
   foldAll,
+  onSinceOnly,
 }: {
   diffLayout?: "split" | "unified";
   /** Wrap long lines instead of scrolling them sideways. */
@@ -334,9 +368,12 @@ export const DiffViewer = memo(function DiffViewer({
   owners?: ReadonlyMap<string, FileOwners>;
   /** A new value folds every file, or unfolds them all. */
   foldAll?: { folded: boolean; nonce: number };
+  /** Narrows the diff to what changed since, or shows it all. Given, a narrowed diff says so at its top, with Show all. */
+  onSinceOnly?: (sinceOnly: boolean) => void;
 }) {
   const theme = useTheme();
-  const compact = useMediaQuery("(max-width: 767px)");
+  // A phone's, or one held sideways: the workspace's layout says, not the window's width.
+  const compact = useIsCompactViewport();
   const draft = useContext(InlineDraftContext);
   const github = useContext(DiffThreadsContext);
   const failures = useContext(CheckFailuresContext);
@@ -562,6 +599,29 @@ export const DiffViewer = memo(function DiffViewer({
     return () => cancelAnimationFrame(frame);
   }, [reveal]);
 
+  // Each file's ▤ n, counted as the comments list counts: its drafts and its threads on GitHub that aren't resolved. In a
+  // split file, those in this chapter's part; without the nits Hide nits hides.
+  const counts = useMemo(() => {
+    const parts = new Map(perFile.map((f) => [f.path, f]));
+    const items = buildItems({
+      draft: draft ? { draft: { targetKey: "", verdict: "COMMENT", body: "", comments: draft.comments }, stale: draft.stale } : null,
+      threads: github?.threads ?? [], feedback: null, sections: [], patch: "",
+    });
+    return fileCounts(items.filter((item) => {
+      const part = item.at && parts.get(item.at.file);
+      if (!item.at || !part || item.kind === "draft" && draft?.hideNits && item.comment.severity === "nit") return false;
+      return item.at.line === null ? part.first : part.inPart?.({ file: item.at.file, line: item.at.line, side: item.at.side }) ?? true;
+    }));
+  }, [draft?.comments, draft?.stale, draft?.hideNits, github?.threads, perFile]);
+
+  // Where nothing else says the diff is narrowed, as on a phone, it says so above its files.
+  const narrowedNote = filtering && onSinceOnly && (
+    <p role="status" className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-lg border border-primary/25 bg-primary/10 py-1 pl-3 pr-1 text-xs text-primary">
+      <Icon name="GitCommit" className="size-3.5 shrink-0" aria-hidden />
+      <span className="min-w-0 flex-1">Showing changes since {sinceWhat} · <span className="whitespace-nowrap">{perFile.length} of {perFile.length + unchanged} file{perFile.length + unchanged === 1 ? "" : "s"}</span></span>
+      <Button variant="ghost" size="sm" className={cn("h-7 px-2 text-xs font-medium text-primary hover:text-primary", TOUCH_COMPACT)} onClick={() => onSinceOnly(false)}>Show all</Button>
+    </p>
+  );
   const unchangedNote = unchanged > 0 && <p className="text-center text-xs text-muted-foreground">{unchanged} file{unchanged === 1 ? "" : "s"} unchanged since {sinceWhat}</p>;
   const removedCards = removed.map((file) => (
     <section key={file.file} aria-label={`${file.file} removed`} className="overflow-clip rounded-lg border border-dashed border-border bg-card">
@@ -578,6 +638,7 @@ export const DiffViewer = memo(function DiffViewer({
   if (perFile.length === 0) {
     return (
       <div className="space-y-4">
+        {narrowedNote}
         <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">{filtering ? `No changes in this chapter since ${sinceWhat}.` : "No changes in this chapter."}</p>
         {removedCards}
         {unchangedNote}
@@ -587,17 +648,27 @@ export const DiffViewer = memo(function DiffViewer({
 
   return (
     <div ref={root} className="space-y-4">
-      {perFile.map(({ path, oldPath, stats, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, inPart }) => {
+      {narrowedNote}
+      {perFile.map(({ path, oldPath, stats, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, noisy: noise }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
         const folded = isCollapsed(path);
-        const commentCount = draft?.comments.filter((c) => c.file === path && (inPart?.(c) ?? true) && !(draft.hideNits && c.severity === "nit")).length ?? 0;
-        const commentLabel = `${commentCount} draft comment${commentCount === 1 ? "" : "s"}`;
+        const count = counts.get(path);
+        const comments = (count?.notSubmitted ?? 0) + (count?.onGitHub ?? 0);
+        const commentLabel = [count?.notSubmitted && `${count.notSubmitted} not submitted`, count?.onGitHub && `${count.onGitHub} on GitHub`].filter(Boolean).join(" · ");
         const loaded = contentsFor(path, source);
         const loading = loaded === "loading";
         const full = expanded.get(path);
         const owned = owners?.get(path);
+        const summary = summaries?.get(path);
+        const added = change?.status === "added";
+        const since = `${added ? "Added to the PR" : "Changed"} since ${sinceWhat}`;
+        // Noise folded unseen shows what it is and how to see it; any other folded file is its row alone.
+        const showDiff = folded && !viewed && noise;
+        const detailed = !folded || showDiff;
+        const tagged = classifyFile(path, generated.has(path)).category !== "code";
+        const details = detailed && (summary || oldPath || split || owned || stale || tagged || showDiff || readContents && source && !folded);
         return (
           <div
             key={path}
@@ -609,71 +680,78 @@ export const DiffViewer = memo(function DiffViewer({
               viewed && folded && "opacity-75 focus-within:opacity-100 hover:opacity-100",
             )}
           >
-            <div data-file-header className={cn("sticky top-0 z-10 flex min-h-10 flex-wrap items-center gap-2 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] px-2 py-1.5", !folded && "border-b border-border")}>
+            {/* The file's row, which sticks while its code scrolls: what it is, how it changed, its comments, Viewed. */}
+            <div data-file-header className={cn("sticky top-0 z-10 flex h-9 items-center gap-1.5 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] pl-1 pr-1.5 pointer-coarse:h-11", (details || !folded) && "border-b border-border")}>
               <button
                 type="button"
                 aria-label={`${folded ? "Expand" : "Collapse"} ${path}`}
-                className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-state-hover hover:text-foreground"
+                className={cn("flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-state-hover hover:text-foreground", TOUCH_COMPACT)}
                 onClick={() => toggleCollapsed(path)}
               >
                 <Icon name="ChevronDown" className={cn("size-3.5 transition-transform duration-150", folded && "-rotate-90")} aria-hidden />
               </button>
-              <div className="min-w-0 flex-1 basis-40">
-                <FilePath path={path} className="text-xs" nameClassName="font-medium" />
-                {oldPath && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">Renamed from <span className="font-mono">{oldPath}</span></p>}
-                {summaries?.get(path) && <p className="mt-0.5 text-xs leading-snug text-muted-foreground"><InlineCode text={summaries.get(path)!} /></p>}
-                {split && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">Also in <InlineCode text={split.alsoIn.join(", ")} /></p>}
-                {owned && (
-                  <p className={cn("mt-0.5 flex items-center gap-1 text-[11px]", owned.mine ? "text-primary" : "text-muted-foreground")} title="From the repo's CODEOWNERS">
-                    <Icon name="UserRound" className="size-3 shrink-0" aria-hidden />
-                    <span className="min-w-0 truncate">Owned by <span className="font-mono">{owned.owners.join(" ")}</span>{owned.mine && <span className="font-medium"> · yours</span>}</span>
-                  </p>
-                )}
-              </div>
-              {/* On a narrow screen these wrap under the file's name rather than squeeze it. */}
-              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-                <FileTag file={path} generated={generated.has(path)} />
-                {folded && !viewed && noisy.has(path) && (
-                  <Button variant="ghost" size="sm" aria-label={`Show diff of ${path}`} className="h-6 shrink-0 px-2 text-[11px]" onClick={() => toggleCollapsed(path)}>Show diff</Button>
-                )}
-                {readContents && source && !folded && (full ? (
-                  <Button variant="ghost" size="sm" aria-label={`Whole file ${path}`} aria-pressed={!!wholeFile[path]} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground aria-pressed:text-primary" onClick={() => setWholeFile((w) => ({ ...w, [path]: !w[path] }))}>
-                    <Icon name="FileText" className="size-3" aria-hidden />Whole file
-                  </Button>
-                ) : (
-                  <Button variant="ghost" size="sm" aria-label={`Expand ${path} around its changes`} disabled={loading} className="h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground" onClick={() => void expand(path, source.text)}>
-                    <Icon name={loading ? "Loading" : "ArrowUpDown"} className={cn("size-3", loading && "animate-spin motion-reduce:animate-none")} aria-hidden />Expand
-                  </Button>
-                ))}
-                {commentCount > 0 && (
-                  <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 text-[11px] leading-5 text-primary" title={commentLabel}>
-                    <Icon name="MessageSquare" className="size-3" aria-hidden />
-                    <span aria-hidden>{commentCount}</span>
-                    <span className="sr-only">{commentLabel}</span>
-                  </span>
-                )}
-                {stale && (
-                  <Badge tone="warning" size="sm" title="This file changed since you marked it viewed">changed</Badge>
-                )}
-                {changedHere && (
-                  <Badge tone="primary" size="sm" icon={<Icon name="GitCommit" aria-hidden />} title={change!.status === "added" ? `Added to the PR since ${sinceWhat}` : `Changed since ${sinceWhat}`}>{change!.status === "added" ? "Added" : "Changed"} since {sinceWhat}</Badge>
-                )}
-                <DiffStat add={stats.add} del={stats.del} className="hidden @min-[700px]/review:inline-flex" />
-                <label className={cn(
-                  "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors",
-                  viewed ? "border-success/30 bg-success/10 text-diff-added" : "border-border text-muted-foreground hover:border-input hover:text-foreground",
-                )}>
-                  <input
-                    type="checkbox"
-                    className="size-3.5 accent-(--success)"
-                    checked={viewed}
-                    aria-label={`Viewed ${path}`}
-                    onChange={(e) => handleToggleViewed(path, e.target.checked)}
-                  />
-                  Viewed
-                </label>
-              </div>
+              <FilePath path={path} className="min-w-0 flex-1 text-xs" nameClassName="min-w-0 shrink-[0.01] truncate font-medium" />
+              {changedHere && (
+                <Badge tone="primary" size="sm" icon={<Icon name="GitCommit" aria-hidden />} title={since} className="text-[11px]">
+                  {added ? "Added" : "Changed"}<span className="sr-only"> since {sinceWhat}</span>
+                </Badge>
+              )}
+              {comments > 0 && (
+                <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 text-[11px] leading-5 text-primary" title={commentLabel}>
+                  <Icon name="MessageSquare" className="size-3" aria-hidden />
+                  <span aria-hidden>{comments}</span>
+                  <span className="sr-only">{commentLabel}</span>
+                </span>
+              )}
+              <DiffStat add={stats.add} del={stats.del} className="hidden @min-[700px]/review:inline-flex" />
+              <label className={cn(
+                "flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors",
+                TOUCH_COMPACT,
+                viewed ? "border-success/30 bg-success/10 text-diff-added" : "border-border text-muted-foreground hover:border-input hover:text-foreground",
+              )}>
+                <input
+                  type="checkbox"
+                  className="size-3.5 accent-(--success)"
+                  checked={viewed}
+                  aria-label={`Viewed ${path}`}
+                  onChange={(e) => handleToggleViewed(path, e.target.checked)}
+                />
+                Viewed
+              </label>
             </div>
+            {/* What the guide says of it, and what else there is to do with it, which scroll away. The actions end the row
+                where they fit, and start a line of their own where they don't. */}
+            {details && (
+              <div className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] px-3 py-1.5", !folded && "border-b border-border")}>
+                <div className="min-w-0 flex-1 basis-60 space-y-0.5 empty:hidden">
+                  {summary && <p className="text-xs leading-snug text-muted-foreground"><InlineCode text={summary} /></p>}
+                  {oldPath && <p className="truncate text-[11px] text-muted-foreground">Renamed from <span className="font-mono">{oldPath}</span></p>}
+                  {split && <p className="truncate text-[11px] text-muted-foreground">Also in <InlineCode text={split.alsoIn.join(", ")} /></p>}
+                  {owned && (
+                    <p className={cn("flex items-center gap-1 text-[11px]", owned.mine ? "text-primary" : "text-muted-foreground")} title="From the repo's CODEOWNERS">
+                      <Icon name="UserRound" className="size-3 shrink-0" aria-hidden />
+                      <span className="min-w-0 truncate">Owned by <span className="font-mono">{owned.owners.join(" ")}</span>{owned.mine && <span className="font-medium"> · yours</span>}</span>
+                    </p>
+                  )}
+                  {stale && <p className="flex items-center gap-1 text-[11px] font-medium text-warning-text"><Icon name="AlertTriangle" className="size-3 shrink-0" aria-hidden />Changed since you viewed it</p>}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <FileTag file={path} generated={generated.has(path)} className="text-[11px]" />
+                  {showDiff && (
+                    <Button variant="ghost" size="sm" aria-label={`Show diff of ${path}`} className={cn("h-6 shrink-0 px-2 text-[11px]", TOUCH_COMPACT)} onClick={() => toggleCollapsed(path)}>Show diff</Button>
+                  )}
+                  {readContents && source && !folded && (full ? (
+                    <Button variant="ghost" size="sm" aria-label={`Whole file ${path}`} aria-pressed={!!wholeFile[path]} className={cn("h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground aria-pressed:text-primary", TOUCH_COMPACT)} onClick={() => setWholeFile((w) => ({ ...w, [path]: !w[path] }))}>
+                      <Icon name="FileText" className="size-3" aria-hidden />Whole file
+                    </Button>
+                  ) : (
+                    <Button variant="ghost" size="sm" aria-label={`Expand ${path} around its changes`} disabled={loading} className={cn("h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground", TOUCH_COMPACT)} onClick={() => void expand(path, source.text)}>
+                      <Icon name={loading ? "Loading" : "ArrowUpDown"} className={cn("size-3", loading && "animate-spin motion-reduce:animate-none")} aria-hidden />Expand
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
             {!folded && first && <OutdatedThreads threads={fromGitHub.get(path)?.outdated ?? []} />}
             {!folded && whitespaceOnly && (
               <p role="status" className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">

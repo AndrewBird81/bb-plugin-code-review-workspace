@@ -24,11 +24,12 @@ const show = (patch: string, files: string[], views = new Map<string, FileViewFl
   render(<DiffViewer patch={patch} files={files} views={views} onToggleViewed={() => {}} />);
 const header = (path: string) => within(document.querySelector<HTMLElement>(`[data-file="${path}"]`)!);
 
-test("lockfiles, generated files, and huge diffs start folded, with Show diff in their header", () => {
+test("lockfiles, generated files, and huge diffs start folded, keeping their tag and Show diff under their row", () => {
   const huge = Array.from({ length: 1600 }, (_, i) => `const x${i} = ${i};`);
   const patch = file("package-lock.json", ["{}"]) + file("dist/app.js", ["x"]) + file("src/huge.ts", huge) + file("src/a.ts", ["a"]);
   show(patch, ["package-lock.json", "dist/app.js", "src/huge.ts", "src/a.ts"]);
   expect(drawn.map((d) => d.name)).toEqual(["src/a.ts"]);
+  expect(header("package-lock.json").getByText("lockfile · skip")).toBeTruthy();
   expect(header("src/a.ts").queryByRole("button", { name: /^Show diff/ })).toBeNull();
   fireEvent.click(header("src/huge.ts").getByRole("button", { name: "Show diff of src/huge.ts" }));
   expect(drawn.map((d) => d.name)).toContain("src/huge.ts");
@@ -36,11 +37,26 @@ test("lockfiles, generated files, and huge diffs start folded, with Show diff in
   expect(screen.getAllByRole("button", { name: /^Show diff of / }).map((button) => button.getAttribute("aria-label"))).toEqual(["Show diff of package-lock.json", "Show diff of dist/app.js"]);
 });
 
-test("a renamed file's header says what it was renamed from", () => {
+test("a file's row sticks and names the file; what else there is about it scrolls away under it, Renamed from included", () => {
   const renamed = "diff --git a/src/util/time.ts b/src/util/clock-time.ts\nsimilarity index 90%\nrename from src/util/time.ts\nrename to src/util/clock-time.ts\n--- a/src/util/time.ts\n+++ b/src/util/clock-time.ts\n@@ -1 +1 @@\n-a\n+b\n";
   show(renamed + file("src/a.ts", ["a"]), ["src/util/clock-time.ts", "src/a.ts"]);
   expect(header("src/util/clock-time.ts").getByText("src/util/time.ts").parentElement!.textContent).toBe("Renamed from src/util/time.ts");
   expect(header("src/a.ts").queryByText(/Renamed from/)).toBeNull();
+  const row = document.querySelector<HTMLElement>('[data-file="src/util/clock-time.ts"] [data-file-header]')!;
+  expect(row.className.split(" ")).toEqual(expect.arrayContaining(["sticky", "top-0", "h-9", "pointer-coarse:h-11"]));
+  expect(within(row).getByTitle("src/util/clock-time.ts")).toBeTruthy();
+  expect(within(row).queryByText(/Renamed from/)).toBeNull();
+});
+
+test("a viewed file folds to its row alone, without the guide's summary of it", () => {
+  render(<DiffViewer patch={file("src/a.ts", ["a"])} files={["src/a.ts"]} summaries={new Map([["src/a.ts", "Reads a row."]])} views={new Map([["src/a.ts", { viewed: true, stale: false }]])} onToggleViewed={() => {}} />);
+  expect(drawn).toEqual([]);
+  const card = document.querySelector<HTMLElement>('[data-file="src/a.ts"]')!;
+  expect(card.children).toHaveLength(1);
+  expect(within(card).queryByText("Reads a row.")).toBeNull();
+  // Opened, it shows the summary under its row.
+  fireEvent.click(within(card).getByRole("button", { name: "Expand src/a.ts" }));
+  expect(within(card).getByText("Reads a row.")).toBeTruthy();
 });
 
 test("a file stops highlighting well before a huge diff would freeze the page", () => {

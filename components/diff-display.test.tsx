@@ -103,12 +103,12 @@ test("an older viewed-state refresh landing last doesn't undo a newer mark", asy
   slot.lifecycle.unmount();
 });
 
-test("Mark chapter viewed marks every file in one call, then refreshes once", async () => {
+test("Mark chapter viewed (⇧V) marks every file in one call, then refreshes once", async () => {
   patchReviewState("pr-42", { activeId: "c2" });
   const { slot, rpc } = await renderWorkspace();
   await slot.findByText("cc");
   await waitFor(() => expect(rpc.getFileViews).toHaveBeenCalledTimes(1));
-  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Mark chapter viewed" }));
+  fireEvent.keyDown(document.body, { key: "V", shiftKey: true });
   expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts", "src/c.ts"] });
   expect(rpc.setFileViewed).not.toHaveBeenCalled();
   await waitFor(() => expect(rpc.getFileViews).toHaveBeenCalledTimes(2));
@@ -159,41 +159,57 @@ test("a narrow workspace on a wide screen lays out by its own width: the chapter
   restore();
 });
 
-test("the toolbar switches between split and unified, and saves the layout", async () => {
+/** Diff options' Layout: its Unified and Split. */
+async function layoutChoices(slot: Awaited<ReturnType<typeof renderWorkspace>>["slot"]) {
+  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+  const layout = within(await slot.findByRole("radiogroup", { name: "Layout" }));
+  return { unified: layout.getByRole("radio", { name: "Unified" }), split: layout.getByRole("radio", { name: "Split" }) };
+}
+
+test("Diff options' Layout switches between split and unified, and saves the layout", async () => {
   const savePreferences = vi.fn(({ preferences }: any) => ({ preferences, revision: 1 }));
   const { slot } = await renderWorkspace({ rpc: { savePreferences } });
   await slot.findByText("aa");
   expect(drawn.at(-1)!.options.diffStyle).toBe("split");
-  const split = within(slot.getByRole("main")).getByRole("button", { name: "Split view" });
-  expect(split.getAttribute("aria-pressed")).toBe("true");
-  fireEvent.click(split);
+  const { unified, split } = await layoutChoices(slot);
+  expect(split.getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(unified);
   await waitFor(() => expect(drawn.at(-1)!.options.diffStyle).toBe("unified"));
-  expect(split.getAttribute("aria-pressed")).toBe("false");
+  expect(split.getAttribute("aria-checked")).toBe("false");
+  expect(unified.getAttribute("aria-checked")).toBe("true");
   expect(savePreferences).toHaveBeenCalledWith({ preferences: { ...defaultPreferences, diffLayout: "unified" }, revision: 0 });
+  // The arrow keys move the choice, as in any radio group.
+  fireEvent.keyDown(unified, { key: "ArrowRight" });
+  await waitFor(() => expect(drawn.at(-1)!.options.diffStyle).toBe("split"));
+  expect(document.activeElement).toBe(split);
   slot.lifecycle.unmount();
 });
 
-test("in a pane too narrow for split, Split view shows unified and saves nothing", async () => {
+test("in a pane too narrow for split, the diff shows unified, and Split is off and says why, saving nothing", async () => {
   const restore = fakeWidth(800);
   const savePreferences = vi.fn(({ preferences }: any) => ({ preferences, revision: 1 }));
   const { slot } = await renderWorkspace({ rpc: { savePreferences } });
   await slot.findByText("aa");
   expect(drawn.at(-1)!.options.diffStyle).toBe("unified");
-  const split = within(slot.getByRole("main")).getByRole("button", { name: "Split view" });
-  await waitFor(() => expect(split.getAttribute("aria-pressed")).toBe("false"));
-  expect(split.getAttribute("aria-disabled")).toBe("true");
+  const { unified, split } = await layoutChoices(slot);
+  await waitFor(() => expect(split.getAttribute("aria-disabled")).toBe("true"));
+  expect(unified.getAttribute("aria-checked")).toBe("true");
+  expect(slot.getByText("Split view needs a wider pane")).toBeTruthy();
+  expect(slot.getByRole("radio", { name: "Split", description: "Split view needs a wider pane" })).toBe(split);
   fireEvent.click(split);
+  fireEvent.keyDown(unified, { key: "ArrowRight" });
   expect(savePreferences).not.toHaveBeenCalled();
   slot.lifecycle.unmount();
   restore();
 });
 
-test("Wrap lines wraps the diff's code and sticks in this browser, and starts on in a compact workspace", async () => {
+test("Wrap long lines wraps the diff's code and sticks in this browser, and starts on in a compact workspace", async () => {
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
   expect(drawn.at(-1)!.options.overflow).not.toBe("wrap");
-  const wrap = within(slot.getByRole("main")).getByRole("button", { name: "Wrap lines" });
-  expect(wrap.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+  const wrap = await slot.findByRole("switch", { name: "Wrap long lines" });
+  expect(wrap.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(wrap);
   await waitFor(() => expect(drawn.at(-1)!.options.overflow).toBe("wrap"));
   slot.lifecycle.unmount();
