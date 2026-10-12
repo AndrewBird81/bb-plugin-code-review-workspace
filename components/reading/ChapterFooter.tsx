@@ -1,4 +1,5 @@
 import { useContext } from "react";
+import { chapterAt } from "../../src/hunks";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
 import { InlineDraftContext } from "../InlineDraft";
@@ -17,7 +18,10 @@ const NAMED = 3;
  * The end of a chapter: how much of it you've viewed and commented on, then on to the next, marking it viewed if you
  * like. The last chapter's next step is finishing, and it names the files you haven't viewed yet in the others.
  */
-export function ChapterFooter() {
+export function ChapterFooter({ patch }: {
+  /** The diff, to place a comment on a file split across chapters by its hunk. */
+  patch: string;
+}) {
   const { sections, activeId, files, go, openFinish } = useWorkspace();
   const draft = useContext(InlineDraftContext);
   const index = sections.findIndex((section) => section.id === activeId);
@@ -27,8 +31,8 @@ export function ChapterFooter() {
   const own = new Set(chapter.diffs.map((diff) => diff.file));
   const viewed = [...own].filter((file) => files.views.get(file)?.viewed).length;
   const left = viewed < own.size;
-  // Hidden nits count nowhere, as in the files' headers. A file split across chapters counts its comments in each.
-  const comments = draft?.comments.filter((comment) => own.has(comment.file) && !(draft.hideNits && comment.severity === "nit")).length ?? 0;
+  // Hidden nits count nowhere, as in the files' headers. A comment on a file split across chapters counts in the one with its line.
+  const comments = draft?.comments.filter((comment) => own.has(comment.file) && !(draft.hideNits && comment.severity === "nit") && chapterAt(sections, patch, comment)?.id === chapter.id).length ?? 0;
   const unviewed = next ? [] : [...new Set(sections.flatMap((section) => section.diffs.map((diff) => diff.file)))].filter((file) => !own.has(file) && !files.views.get(file)?.viewed);
   const button = cn("min-w-0 max-w-full @max-[480px]/review:w-full", TOUCH_CONTROL);
   return (

@@ -1006,7 +1006,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>
-              <ChapterFooter />
+              <ChapterFooter patch={patch} />
               </>
             ) : <ReviewOverview checks={checks} readLines={readLines} changedSince={changedSince} generated={generated} snoozing={snoozing} resume={lastChapter} onShowFeedback={showFeedback} onOpenLine={openHotspot} />}
           </div>

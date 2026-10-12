@@ -75,6 +75,8 @@ test("a file split across two chapters shows each chapter only its hunks and com
   expect(card(slot).getByText(/Also in/).textContent).toBe("Also in Caching");
   await waitFor(() => expect(card(slot).getByText("comment on 1")).toBeTruthy());
   expect(card(slot).queryByText("comment on 20")).toBeNull();
+  // The chapter's end counts the comments in its hunks only.
+  expect(within(slot.getByRole("main")).getByText("1 comment")).toBeTruthy();
   // Viewed stays per file: two files, not three.
   expect(within(slot.getByRole("navigation", { name: "Chapters" })).getByText("0/2 files viewed")).toBeTruthy();
 
@@ -85,6 +87,7 @@ test("a file split across two chapters shows each chapter only its hunks and com
   expect(card(slot).getByText(/Also in/).textContent).toBe("Also in Parsing");
   expect(card(slot).getByText("comment on 20")).toBeTruthy();
   expect(card(slot).queryByText("comment on 1")).toBeNull();
+  expect(within(slot.getByRole("main")).getByText("1 comment")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
