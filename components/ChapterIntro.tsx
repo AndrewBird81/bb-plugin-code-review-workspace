@@ -84,7 +84,7 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
           </button>
         )}
       </div>
-      {overview && !collapsed && <div ref={overviewBox} className={cn("mt-2 max-w-[80ch]", clamp && "max-h-[4.25rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_2.75rem,transparent)]")}>
+      {overview && !collapsed && <div ref={overviewBox} className={cn("mt-2 max-w-[80ch]", clamp && "max-h-[4.25rem] overflow-hidden", clamp && clipped && "[mask-image:linear-gradient(to_bottom,black_2.75rem,transparent)]")}>
         <Markdown content={overview} className="text-sm leading-relaxed text-foreground/90" />
       </div>}
       {brief && !collapsed && (checks.length > 0 || clipped) && (

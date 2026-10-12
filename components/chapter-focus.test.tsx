@@ -104,18 +104,19 @@ test("on a phone the overview shows three lines until More, and what to verify o
   expect(verify.getAttribute("aria-expanded")).toBe("true");
   const overview = intro.getByText("Reads rows.");
   expect(overview.closest(".max-h-\\[4\\.25rem\\]")).toBeTruthy();
+  expect(overview.closest("[class*='mask-image']")).toBeTruthy();
   fireEvent.click(intro.getByRole("button", { name: "More" }));
   expect(overview.closest(".max-h-\\[4\\.25rem\\]")).toBeNull();
   expect(intro.getByRole("button", { name: "Less" }).getAttribute("aria-expanded")).toBe("true");
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("on a phone an overview three lines hold has no More", async () => {
+test("on a phone an overview three lines hold has no More, and doesn't fade", async () => {
   phone();
   const slot = await renderWorkspace({ ...guide, sections: guide.sections.map(({ focus: _, ...section }: any) => section) });
   await slot.findByText("aa");
   const intro = within(slot.getByRole("region", { name: "Parsing" }));
-  expect(intro.getByText("Reads rows.")).toBeTruthy();
+  expect(intro.getByText("Reads rows.").closest("[class*='mask-image']")).toBeNull();
   expect(intro.queryByRole("button", { name: "More" })).toBeNull();
   slot.lifecycle.unmount();
 }, 15_000);
