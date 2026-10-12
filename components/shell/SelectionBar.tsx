@@ -65,10 +65,12 @@ export function SelectionBar({ lines, phone, onComment, onAskLines, onClear }: {
   }, []);
   // A selection's actions go with the chapter it was made in.
   useEffect(() => setText(null), [activeId]);
-  const shown = lines ? "lines" : text ? "text" : null;
+  // Not over a side over the code, which dims it, nor over a phone's sheet, as a fold can open one with lines selected.
+  const over = layout.nav === "overlay" || layout.panel === "overlay";
+  const shown = over ? null : lines ? "lines" : text ? "text" : null;
 
   // At the code's right edge, clear of the panel docked beside it, and of the fold of a foldable held open.
-  const [edge, setEdge] = useState<{ right: number; width: number } | null>(null);
+  const [edge, setEdge] = useState<{ left: number; right: number; width: number } | null>(null);
   useLayoutEffect(() => {
     const root = ref.current?.parentElement;
     const main = root?.querySelector("main");
@@ -76,7 +78,8 @@ export function SelectionBar({ lines, phone, onComment, onAskLines, onClear }: {
     const place = () => {
       const outer = root.getBoundingClientRect();
       const box = main.getBoundingClientRect();
-      setEdge((was) => was?.right === outer.right - box.right && was.width === box.width ? was : { right: outer.right - box.right, width: box.width });
+      const next = { left: box.left - outer.left, right: outer.right - box.right, width: box.width };
+      setEdge((was) => was?.left === next.left && was.right === next.right && was.width === next.width ? was : next);
     };
     place();
     if (typeof ResizeObserver === "undefined") return;
@@ -104,8 +107,12 @@ export function SelectionBar({ lines, phone, onComment, onAskLines, onClear }: {
   const hint = lines && coarse ? "Tap another line to select a range" : null;
   const first = lines ? Math.min(lines.range.start, lines.range.end) : 0;
   const last = lines ? Math.max(lines.range.start, lines.range.end) : 0;
+  // Beside a docked panel in under 600px of code on touch, as beside Comments on an unfolded iPhone Duo held sideways,
+  // the fold (x 455–496 of the code's 0–560) runs through its right part: the bar keeps to the code's left, short of it.
+  const besideFold = coarse && layout.panel === "docked" && !!edge && edge.width < 600;
   const place: CSSProperties | undefined = phone || !edge ? undefined
-    : { right: edge.right ? edge.right + 16 : "max(16px, env(safe-area-inset-right))", maxWidth: edge.width > 64 ? edge.width - 32 : undefined };
+    : besideFold ? { left: edge.left + 16, right: "auto", maxWidth: Math.min(edge.width - 32, 420) }
+    : { right: edge.right ? edge.right + 16 : "max(16px, var(--gr-safe-right, 0px))", maxWidth: edge.width > 64 ? edge.width - 32 : undefined };
   return (
     <div ref={ref} className="contents">
       {shown && (
@@ -115,12 +122,13 @@ export function SelectionBar({ lines, phone, onComment, onAskLines, onClear }: {
           style={place}
           className={cn(
             "absolute z-[62] flex flex-col rounded-xl border border-border bg-popover p-1 text-xs shadow-2xl ring-1 ring-primary/10",
-            !phone ? "bottom-[max(16px,env(safe-area-inset-bottom))] right-4 w-max max-w-[calc(100%-32px)]"
-              // Each side clear of its own safe area: a full-screen cover's padding doesn't move what's absolute in it.
-              : "left-[calc(6px+env(safe-area-inset-left))] right-[calc(6px+env(safe-area-inset-right))]",
-            phone && (shown === "lines" ? "bottom-[calc(4px+env(safe-area-inset-bottom))]"
-              // Above the dock, which stays while text is selected.
-              : "bottom-[calc(60px+env(safe-area-inset-bottom))]"),
+            !phone ? "bottom-[max(16px,var(--gr-safe-bottom,0px))] right-4 w-max max-w-[calc(100%-32px)]"
+              // Each side clear of what of its safe area reaches the workspace (lib/use-safe-area.ts): its padding doesn't
+              // move what's absolute in it.
+              : "left-[calc(6px+var(--gr-safe-left,0px))] right-[calc(6px+var(--gr-safe-right,0px))]",
+            phone && (shown === "lines" ? "bottom-[calc(4px+var(--gr-safe-bottom,0px))]"
+              // Above the dock (52px and the safe area under it), which stays while text is selected.
+              : "bottom-[calc(60px+var(--gr-safe-bottom,0px))]"),
           )}
         >
           <div className="flex min-w-0 items-center gap-1">

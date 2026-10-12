@@ -357,6 +357,52 @@ test("unfolded, chapters peeked at beside docked Comments: folding shows the one
   slot.lifecycle.unmount();
 });
 
+test("folding with lines picked beside docked Comments: Comments comes over the code as the sheet, the selection bar steps aside for it, and comes back as it closes", async () => {
+  const screen = fakeScreen(INNER_LANDSCAPE.width, INNER_LANDSCAPE.height);
+  const slot = await renderWorkspace();
+  fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
+  fireEvent.click(slot.getByRole("button", { name: "Pick line 1" }));
+  expect(slot.getByRole("group", { name: "Selection" })).toBeTruthy();
+  screen.fold(OUTER);
+  // The sheet comes down to the bottom, where the dock makes way for the lines' bar: nothing of the bar over it.
+  expect(sheet(slot, "Comments")).toBeTruthy();
+  expect(slot.queryByRole("group", { name: "Selection" })).toBeNull();
+  fireEvent.click(within(sheet(slot, "Comments")!).getByRole("button", { name: "Close" }));
+  expect(within(slot.getByRole("group", { name: "Selection" })).getByText("L1")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+/** jsdom lays nothing out: the code's box is 560px at the workspace's left, 951px wide, with Comments docked beside it. */
+function fakeDuoBoxes() {
+  const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const width = this.tagName === "MAIN" ? 560 : this.className.includes("@container/review") ? INNER_LANDSCAPE.width : 0;
+    return new DOMRect(0, 0, width, 0);
+  });
+  restores.push(() => rect.mockRestore());
+}
+
+test("lines picked beside Comments docked on an unfolded iPhone Duo held sideways: the selection bar keeps to the code's left, short of the fold", async () => {
+  fakeScreen(INNER_LANDSCAPE.width, INNER_LANDSCAPE.height);
+  fakeDuoBoxes();
+  const slot = await renderWorkspace();
+  fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
+  fireEvent.click(slot.getByRole("button", { name: "Pick line 1" }));
+  const bar = slot.getByRole("group", { name: "Selection" });
+  expect([bar.style.left, bar.style.right, bar.style.maxWidth]).toEqual(["16px", "auto", "420px"]);
+  slot.lifecycle.unmount();
+});
+
+test("with a mouse there's no fold to keep off: the selection bar stays at the code's right edge, beside docked Comments", async () => {
+  fakeScreen(INNER_LANDSCAPE.width, INNER_LANDSCAPE.height, { pointer: "fine" });
+  fakeDuoBoxes();
+  const slot = await renderWorkspace();
+  fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
+  fireEvent.click(slot.getByRole("button", { name: "Pick line 1" }));
+  const bar = slot.getByRole("group", { name: "Selection" });
+  expect([bar.style.left, bar.style.right]).toEqual(["", "407px"]);
+  slot.lifecycle.unmount();
+});
+
 /**
  * The code in the workspace's scroll `box`, which jsdom doesn't lay out: 30 lines 40px tall in the file's diff, the box
  * 380 × 500 at y 100 and scrolled to 300, with what's at each point found from those (lib/use-scroll-anchor.ts).

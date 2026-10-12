@@ -178,9 +178,9 @@ test("the dock makes way while you type, and for the lines you select, whose bar
   fireEvent.click(slot.getAllByRole("button", { name: "Pick line 1" })[0]!);
   expect(group.hidden).toBe(true);
   const bar = slot.getByRole("group", { name: "Selection" });
-  expect(bar.className).toContain("bottom-[calc(4px+env(safe-area-inset-bottom))]");
-  // Each side clear of its own safe area.
-  expect(bar.className.split(" ")).toEqual(expect.arrayContaining(["left-[calc(6px+env(safe-area-inset-left))]", "right-[calc(6px+env(safe-area-inset-right))]"]));
+  expect(bar.className).toContain("bottom-[calc(4px+var(--gr-safe-bottom,0px))]");
+  // Each side clear of what of its own safe area reaches the workspace (lib/use-safe-area.ts).
+  expect(bar.className.split(" ")).toEqual(expect.arrayContaining(["left-[calc(6px+var(--gr-safe-left,0px))]", "right-[calc(6px+var(--gr-safe-right,0px))]"]));
   fireEvent.click(slot.getByRole("button", { name: "Clear selection" }));
   expect(group.hidden).toBe(false);
   slot.lifecycle.unmount();
