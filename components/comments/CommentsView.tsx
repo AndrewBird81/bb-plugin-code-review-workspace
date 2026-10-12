@@ -280,7 +280,8 @@ function Chips({ groups, total, filter, onFilter }: { groups: CommentGroup[]; to
     requestAnimationFrame(() => group.querySelector<HTMLElement>(`[data-filter="${next}"]`)?.focus());
   };
   return (
-    <div role="radiogroup" aria-label="Show" onKeyDown={arrow} className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none]">
+    // Touch's wider chips wrap rather than scroll out of sight, as they would in a 400px panel or on a phone.
+    <div role="radiogroup" aria-label="Show" onKeyDown={arrow} className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none] pointer-coarse:flex-wrap">
       {FILTERS.map((id) => {
         const on = filter === id;
         return (
