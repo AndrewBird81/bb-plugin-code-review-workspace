@@ -214,10 +214,12 @@ test("where the browser can't go full screen, as on an iPhone, Full screen cover
   fireEvent.click(await slot.findByRole("button", { name: "Full screen" }));
   expect(show.mock.contexts).toEqual([root]);
   expect(root.getAttribute("popover")).toBe("manual");
-  // Clear of the notch; the dock, inside it, keeps clear of the home indicator.
-  expect(root.className.split(" ")).toEqual(expect.arrayContaining(["fixed", "inset-0", "pt-[env(safe-area-inset-top)]"]));
-  expect(root.className).not.toContain("safe-area-inset-bottom");
-  expect(slot.getByRole("group", { name: "Review commands" }).className).toContain("env(safe-area-inset-bottom)");
+  // Clear of the notch, by all of its inset at the window's edge (lib/use-safe-area.ts); the dock, inside it, keeps
+  // clear of the home indicator.
+  expect(root.className.split(" ")).toEqual(expect.arrayContaining(["fixed", "inset-0", "pt-[var(--gr-safe-top,0px)]"]));
+  expect((root as HTMLElement).style.getPropertyValue("--gr-safe-top")).toMatch(/^max\(0px, env\(safe-area-inset-top\) - 0px\)$/);
+  expect(root.className).not.toContain("--gr-safe-bottom");
+  expect(slot.getByRole("group", { name: "Review commands" }).className).toContain("var(--gr-safe-bottom,0px)");
   fireEvent.click(slot.getByRole("button", { name: /^Chapters:/ }));
   fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Review actions" }));
   expect(root.contains(await slot.findByRole("button", { name: "Review settings…" }))).toBe(true);

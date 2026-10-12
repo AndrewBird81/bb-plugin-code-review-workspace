@@ -14,6 +14,7 @@ import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpe
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
 import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout } from "../lib/workspace-layout";
 import { useKeyboardInset } from "../lib/use-keyboard-inset";
+import { useSafeArea } from "../lib/use-safe-area";
 import { useScrollAnchor } from "../lib/use-scroll-anchor";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { Button } from "./ui/button";
@@ -486,6 +487,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, []);
   const canFullscreen = document.fullscreenEnabled || "showPopover" in HTMLElement.prototype;
   useKeyboardInset(rootEl);
+  useSafeArea(rootEl);
   useScrollAnchor(scrollEl);
   useLayoutEffect(() => {
     if (!covering || !rootEl) return;
@@ -974,14 +976,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
     {/* Kit popovers open as bottom drawers where the workspace is phone-sized or short. */}
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
-    {/* It ends above a keyboard over it (--gr-kb). Covering the window, it keeps clear of the notch and the home
-        indicator; a phone's dock does that at the bottom. */}
+    {/* It keeps clear of the screen's edges where it reaches them (--gr-safe-*: the notch, the Duo's rail, the home
+        indicator, which a phone's dock keeps clear of at the bottom), and ends above a keyboard over it (--gr-kb). */}
     <div
       ref={(el) => {
         rootRef.current = el;
         setRootEl(el);
       }}
-      className={cn("@container/review relative flex h-full min-h-0 min-w-0 flex-col bg-background pb-[var(--gr-kb,0px)]", covering && "fixed inset-0 m-0 h-auto w-auto overflow-hidden border-0 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground", covering && !sheet && "pb-[max(env(safe-area-inset-bottom),var(--gr-kb,0px))]")}
+      className={cn("@container/review relative flex h-full min-h-0 min-w-0 flex-col bg-background pt-[var(--gr-safe-top,0px)] pr-[var(--gr-safe-right,0px)] pl-[var(--gr-safe-left,0px)]", sheet ? "pb-[var(--gr-kb,0px)]" : "pb-[max(var(--gr-safe-bottom,0px),var(--gr-kb,0px))]", covering && "fixed inset-0 m-0 h-auto w-auto overflow-hidden border-0 text-foreground")}
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
       <div className="relative flex min-h-0 flex-1">
