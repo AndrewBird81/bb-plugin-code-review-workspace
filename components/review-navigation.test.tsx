@@ -617,7 +617,7 @@ test("⇧V marks the chapter's files viewed, and the toast's Undo puts each back
   await slot.findByText("aa");
   fireEvent.click(chapters(slot).getByText("Caching"));
   await waitFor(() => expect(currentChapter(slot)?.textContent).toContain("Caching"));
-  const changed = () => within(slot.container.querySelector<HTMLElement>('[data-file="src/b.ts"] [data-file-header]')!).queryByText("changed");
+  const changed = () => within(slot.container.querySelector<HTMLElement>('[data-file="src/b.ts"]')!).queryByText("Changed since you viewed it");
   await waitFor(() => expect(changed()).toBeTruthy());
   // Caps Lock's V, without Shift, is a v.
   press("V");

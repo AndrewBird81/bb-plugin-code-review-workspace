@@ -129,11 +129,11 @@ test("Hide nits hides nit cards in the diff and the panel, and from the file's c
   let { slot, diff, panel } = await renderReview("hide", rpc);
   await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" });
   const header = () => within(slot.container.querySelector<HTMLElement>('[data-file="src/a.ts"]')!);
-  expect(header().getByText("2 draft comments")).toBeTruthy();
+  expect(header().getByText("2 not submitted")).toBeTruthy();
   fireEvent.click(panel().getByRole("button", { name: "Hide nits" }));
   expect(panel().getByRole("button", { name: "Hide nits" }).getAttribute("aria-pressed")).toBe("true");
-  // The file's header leaves the hidden nit out, and Draft review says how many it hides.
-  expect(header().getByText("1 draft comment")).toBeTruthy();
+  // The file's row leaves the hidden nit out, and Draft review says how many it hides.
+  expect(header().getByText("1 not submitted")).toBeTruthy();
   expect(panel().getByText("1 blocking · 1 nit · 1 hidden")).toBeTruthy();
   expect(diff().queryByRole("article", { name: "Draft comment on src/a.ts:2" })).toBeNull();
   expect(diff().getByRole("article", { name: "Draft comment on src/a.ts:1" })).toBeTruthy();

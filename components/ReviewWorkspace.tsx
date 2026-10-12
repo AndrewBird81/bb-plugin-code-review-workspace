@@ -999,6 +999,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 sinceWhat={sinceWhat}
                 owners={owners}
                 foldAll={foldAll}
+                onSinceOnly={sheet ? setSinceOnly : undefined}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>
