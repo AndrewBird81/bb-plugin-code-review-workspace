@@ -3,7 +3,7 @@ import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
 import { CompareMenu, compareLabel, compareProblem, lastReviewed, showAllChanges, useCommits } from "../ComparePicker";
-import { TOUCH_CONTROL } from "../touch";
+import { TOUCH_COMPACT, TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
 import { useMediaQuery } from "../ui/hooks/use-media-query";
@@ -54,7 +54,8 @@ function Segmented<T extends string>({ label, value, options, onChange }: {
           onKeyDown={step}
           onClick={() => { if (!option.disabled && option.value !== value) onChange(option.value); }}
           className={cn(
-            "h-7 rounded-[5px] px-2.5 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-10",
+            "h-7 rounded-[5px] px-2.5 text-xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            TOUCH_COMPACT,
             option.value === value && "bg-background text-foreground shadow-xs",
             option.disabled && "cursor-default opacity-50",
           )}
