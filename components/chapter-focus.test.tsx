@@ -8,7 +8,25 @@ import { getReviewState, patchReviewState } from "../lib/panel-state";
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre>{fileDiff.additionLines.join("\n")}</pre> }));
 
-afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); });
+const restores: (() => void)[] = [];
+afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); restores.splice(0).forEach((restore) => restore()); });
+
+/** A phone's screen: every ResizeObserver reports 390×844, and media queries answer for it. */
+function phone() {
+  const original = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    constructor(private notify: ResizeObserverCallback) {}
+    observe(target: Element) { this.notify([{ target, contentRect: { width: 390, height: 844 } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver); }
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => {
+    const max = query.match(/max-(width|height): (\d+)px/);
+    const matches = !!max && (max[1] === "width" ? 390 : 844) <= Number(max[2]);
+    return { matches, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false } as MediaQueryList;
+  });
+  restores.push(() => { globalThis.ResizeObserver = original; matchMedia.mockRestore(); });
+}
 
 const file = (path: string, hunks: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${hunks}`;
 const patch = file("src/a.ts", "@@ -1 +1 @@\n-a\n+aa\n") + file("src/b.ts", "@@ -1,2 +1,2 @@\n x\n-b\n+bb\n");
@@ -67,5 +85,37 @@ test("a chapter's intro says where it is, its risk, its size and how much of it 
   fireEvent.keyDown(document.body, { key: "n" });
   const next = within(await slot.findByRole("region", { name: "Caching" }));
   expect(next.getByText("Chapter 2 of 2").parentElement!.textContent).toBe("Chapter 2 of 2\u00a0· 1 file\u00a0· 2 lines\u00a0· 0 of 1 viewed");
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("on a phone the overview shows three lines until More, and what to verify one line until you open it", async () => {
+  phone();
+  // Three lines cut this overview short.
+  const scrollHeight = vi.spyOn(Element.prototype, "scrollHeight", "get").mockImplementation(function (this: Element) { return this.className.includes("max-h-") ? 120 : 0; });
+  restores.push(() => scrollHeight.mockRestore());
+  const slot = await renderWorkspace(guide);
+  await slot.findByText("aa");
+  const intro = within(slot.getByRole("region", { name: "Parsing" }));
+  expect(intro.queryByRole("list", { name: "What to verify" })).toBeNull();
+  const verify = intro.getByRole("button", { name: "What to verify · 2" });
+  expect(verify.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(verify);
+  expect(within(intro.getByRole("list", { name: "What to verify" })).getAllByRole("listitem")).toHaveLength(2);
+  expect(verify.getAttribute("aria-expanded")).toBe("true");
+  const overview = intro.getByText("Reads rows.");
+  expect(overview.closest(".max-h-\\[4\\.25rem\\]")).toBeTruthy();
+  fireEvent.click(intro.getByRole("button", { name: "More" }));
+  expect(overview.closest(".max-h-\\[4\\.25rem\\]")).toBeNull();
+  expect(intro.getByRole("button", { name: "Less" }).getAttribute("aria-expanded")).toBe("true");
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("on a phone an overview three lines hold has no More", async () => {
+  phone();
+  const slot = await renderWorkspace({ ...guide, sections: guide.sections.map(({ focus: _, ...section }: any) => section) });
+  await slot.findByText("aa");
+  const intro = within(slot.getByRole("region", { name: "Parsing" }));
+  expect(intro.getByText("Reads rows.")).toBeTruthy();
+  expect(intro.queryByRole("button", { name: "More" })).toBeNull();
   slot.lifecycle.unmount();
 }, 15_000);

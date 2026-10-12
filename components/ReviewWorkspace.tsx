@@ -1009,7 +1009,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <div ref={(el) => { scrollBox.current = el; setScrollEl(el); }} onScroll={onScroll} onWheel={scrolledByYou} onTouchMove={scrolledByYou} onPointerDown={unpin} className={cn("min-h-0 flex-1 overflow-y-auto px-4 before:block before:h-4 before:content-['']", commentStep ? "pb-24" : "pb-6")}>
             {activeSection ? (
               <>
-              <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} />
+              <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} brief={layout.mode !== "tablet"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} />
               <CheckFailuresContext.Provider value={checkFailures}>
               <DiffThreadsContext.Provider value={showThreads ? diffThreads : null}>
               <DiffViewer

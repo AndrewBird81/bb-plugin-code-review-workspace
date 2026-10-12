@@ -1,4 +1,4 @@
-import { memo, useId, useState } from "react";
+import { memo, useId, useLayoutEffect, useRef, useState } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { getIntroCollapsed, setIntroCollapsed } from "../lib/panel-state";
 import { cn } from "../lib/utils";
@@ -12,9 +12,10 @@ import { TOUCH_CONTROL } from "./touch";
 
 /**
  * The open chapter above its diff: where it is in the guide, its risk and size, its title, full overview, and what to
- * verify. Hiding the overview sticks in this browser.
+ * verify. Hiding the overview sticks in this browser. On a phone (`brief`) the overview shows three lines until More,
+ * and what to verify one line until you open it, so the code starts on screen.
  */
-export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk, focus, lines, collapsedByDefault = false }: {
+export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk, focus, lines, collapsedByDefault = false, brief = false }: {
   index: number;
   total: number;
   title: string;
@@ -26,6 +27,8 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
   lines: number;
   /** Hide the overview until you show it, unless you chose in this browser. */
   collapsedByDefault?: boolean;
+  /** A phone's: the overview cut to three lines, and what to verify to one. */
+  brief?: boolean;
 }) {
   const { sections, files } = useWorkspace();
   const [chosen, setCollapsed] = useState(getIntroCollapsed);
@@ -33,6 +36,24 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
   const titleId = useId();
   const chapterFiles = sections[index]?.diffs ?? [];
   const viewed = chapterFiles.filter((diff) => files.views.get(diff.file)?.viewed).length;
+  const [more, setMore] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const clamp = brief && !more;
+  // More shows only where three lines cut the overview short, measured as the width changes.
+  const overviewBox = useRef<HTMLDivElement>(null);
+  const [clipped, setClipped] = useState(false);
+  useLayoutEffect(() => {
+    const el = overviewBox.current;
+    if (!el || !clamp) return;
+    const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [clamp, overview, collapsed]);
+  const checks = focus ?? [];
+  const listed = checks.length > 0 && (!brief || verifying);
   function toggle() {
     setIntroCollapsed(!collapsed);
     setCollapsed(!collapsed);
@@ -63,12 +84,25 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
           </button>
         )}
       </div>
-      {overview && !collapsed && <Markdown content={overview} className="mt-2 max-w-[80ch] text-sm leading-relaxed text-foreground/90" />}
-      {!!focus?.length && !collapsed && (
-        <div className="mt-2.5 max-w-[80ch] text-xs">
-          <p className="flex items-center gap-1.5 font-medium text-foreground"><Icon name="ListTodo" className="size-3.5 text-primary" aria-hidden />What to verify</p>
-          <ul aria-label="What to verify" className="mt-1 list-disc space-y-0.5 pl-5 text-foreground/90 marker:text-subtle-foreground">
-            {focus.map((item) => <li key={item}><InlineCode text={item} /></li>)}
+      {overview && !collapsed && <div ref={overviewBox} className={cn("mt-2 max-w-[80ch]", clamp && "max-h-[4.25rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_2.75rem,transparent)]")}>
+        <Markdown content={overview} className="text-sm leading-relaxed text-foreground/90" />
+      </div>}
+      {brief && !collapsed && (checks.length > 0 || clipped) && (
+        <div className="mt-1 flex flex-wrap items-center gap-x-4 text-xs pointer-coarse:-mb-2">
+          {checks.length > 0 && <button type="button" aria-expanded={verifying} onClick={() => setVerifying(!verifying)} className={cn("flex items-center gap-1.5 rounded-sm font-medium text-foreground", TOUCH_CONTROL)}>
+            <Icon name="ListTodo" className="size-3.5 text-primary" aria-hidden />What to verify<span className="font-normal text-muted-foreground"> · {checks.length}</span>
+            <Icon name="ChevronRight" className={cn("size-3.5 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none", verifying && "rotate-90")} aria-hidden />
+          </button>}
+          {clipped && <button type="button" aria-expanded={more} onClick={() => setMore(!more)} className={cn("inline-flex items-center gap-0.5 rounded-sm text-muted-foreground hover:text-foreground", checks.length > 0 && "ml-auto", TOUCH_CONTROL)}>
+            {more ? "Less" : "More"}<Icon name={more ? "ChevronUp" : "ChevronDown"} className="size-3" aria-hidden />
+          </button>}
+        </div>
+      )}
+      {listed && !collapsed && (
+        <div className={cn("max-w-[80ch] text-xs", brief ? "mt-1" : "mt-2.5")}>
+          {!brief && <p className="flex items-center gap-1.5 font-medium text-foreground"><Icon name="ListTodo" className="size-3.5 text-primary" aria-hidden />What to verify</p>}
+          <ul aria-label="What to verify" className={cn("list-disc space-y-0.5 pl-5 text-foreground/90 marker:text-subtle-foreground", !brief && "mt-1")}>
+            {checks.map((item) => <li key={item}><InlineCode text={item} /></li>)}
           </ul>
         </div>
       )}
