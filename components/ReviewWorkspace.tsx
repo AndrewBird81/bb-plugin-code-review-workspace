@@ -166,6 +166,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [commentsTab, setCommentsTab] = useState<CommentsTab>("drafts");
   // Comments was to open as the review opened, but couldn't beside the code: the "need you" pill offers it instead.
   const [pill, setPill] = useState(false);
+  // Comments to open as the review opens, on this tab: decided once the workspace has its own size, as BB's pane can be
+  // narrower than the window, all there is to measure before the workspace renders.
+  const [opening, setOpening] = useState<CommentsTab | null>(null);
   // Where you're typing: a phone's fold or rotation keeps that side open, over the code if it must, and hides the side
   // you're not typing in rather than cover your box. Read as it renders, as the resize renders it: it's never stale, as
   // it would be after the box you typed in went away with the focus, which tells no one.
@@ -346,10 +349,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       // only once you've reviewed it, as 0.5 did.
       const left = saved.view === "feedback" || saved.view === "threads" ? saved.view : null;
       const tab = back ? "feedback" : left && review.kind === "pr" && (left === "threads" || baselineOf(review).at !== null) ? left : null;
-      if (tab && layoutRef.current.panelCanDock) {
-        setCommentsTab(tab);
-        setPanelView("comments");
-      } else if (tab) setPill(true);
+      if (tab) setOpening(tab);
       // Undefined drops the key: the old view is used up.
       patchReviewState(targetKey, { view: undefined, ...(turn.signal ? { turnSignal: turn.signal } : {}) });
     } catch (err) {
@@ -540,6 +540,20 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // A file a key or click went to stays current until you scroll yourself: it may not reach the top.
   const pinned = useRef(false);
   const unpin = useCallback(() => { pinned.current = false; }, []);
+  // Your first scroll puts the "need you" pill away: Comments' count and the dock's dot still say so.
+  const scrolledByYou = useCallback(() => { unpin(); setPill(false); }, [unpin]);
+  useEffect(() => {
+    if (!opening || !rootEl) return;
+    // A frame on, the layout is the workspace's own, not the window's guess.
+    const frame = requestAnimationFrame(() => {
+      setOpening(null);
+      if (layoutRef.current.panelCanDock) {
+        setCommentsTab(opening);
+        setPanelView("comments");
+      } else setPill(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [opening, rootEl]);
   const reviewFiles: string[] = useMemo(() => [...new Set<string>(sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)))], [sections]);
 
   // Restore the saved scroll position once the page it was saved on shows. The diff draws its files a moment later, so
@@ -992,7 +1006,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
             <ReviewNotices notices={notices} />
           </div>
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
-          <div ref={(el) => { scrollBox.current = el; setScrollEl(el); }} onScroll={onScroll} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className={cn("min-h-0 flex-1 overflow-y-auto px-4 before:block before:h-4 before:content-['']", commentStep ? "pb-24" : "pb-6")}>
+          <div ref={(el) => { scrollBox.current = el; setScrollEl(el); }} onScroll={onScroll} onWheel={scrolledByYou} onTouchMove={scrolledByYou} onPointerDown={unpin} className={cn("min-h-0 flex-1 overflow-y-auto px-4 before:block before:h-4 before:content-['']", commentStep ? "pb-24" : "pb-6")}>
             {activeSection ? (
               <>
               <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} />

@@ -128,7 +128,8 @@ test("a failed comparison with your last review says so", async () => {
 test("Follow up on a file outside every chapter says so and offers GitHub, without opening a comment box", async () => {
   const { toast } = await import("sonner");
   const { slot } = await renderWorkspace(() => ({ submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, turn: turn({ group: "needs", reason: "handled", label: "Feedback handled", signal: "handled:1" }) }));
-  // Your thread waits on its author: it's on GitHub, not in Needs you.
+  // Your thread waits on its author: it's on GitHub, not in Needs you. Comments opens once the workspace has its size.
+  await slot.findByRole("complementary", { name: "Comments and agent" });
   const github = await panel(slot).findByRole("radio", { name: /^On GitHub,/ });
   fireEvent.click(github);
   fireEvent.click(await panel(slot).findByRole("button", { name: "Expand GitHub thread on src/gone.ts:2" }));

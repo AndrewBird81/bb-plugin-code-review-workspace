@@ -38,6 +38,22 @@ function phone() {
   restores.push(() => { globalThis.ResizeObserver = original; matchMedia.mockRestore(); });
 }
 
+/** BB's pane `width` × `height` on an iPad's touch screen wider than it: the ResizeObserver reports the pane, and media queries the window. */
+function pane(width: number, height: number) {
+  const original = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    constructor(private notify: ResizeObserverCallback) {}
+    observe(target: Element) { this.notify([{ target, contentRect: { width, height } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver); }
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => {
+    const matches = query === "(pointer: coarse)";
+    return { matches, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false } as MediaQueryList;
+  });
+  restores.push(() => { globalThis.ResizeObserver = original; matchMedia.mockRestore(); });
+}
+
 const now = Date.now();
 const file = (path: string, line: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1,2 +1,2 @@\n one\n-x\n+${line}\n`;
 const patch = file("src/a.ts", "aa") + file("src/b.ts", "bb");
@@ -263,6 +279,24 @@ test("back to you where Comments couldn't open beside the code, \"1 need you\" o
   expect(sheet.getByRole("radio", { name: "Needs you, 1" }).getAttribute("aria-checked")).toBe("true");
   fireEvent.click(sheet.getByRole("button", { name: "Close" }));
   await waitFor(() => expect(slot.queryByRole("dialog")).toBeNull());
+  expect(slot.queryByRole("button", { name: "1 need you" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("back to you in BB's pane, narrower than its window, Comments can't dock there: the pill offers it", async () => {
+  // An iPad held upright with BB's thread list open: a 712px pane in a 1024px window, where Comments would dock.
+  pane(712, 1032);
+  const slot = await renderWorkspace(backToYou);
+  expect(await slot.findByRole("button", { name: "1 need you" })).toBeTruthy();
+  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("your first scroll of the code puts the pill away", async () => {
+  phone();
+  const slot = await renderWorkspace(backToYou);
+  await slot.findByRole("button", { name: "1 need you" });
+  fireEvent.touchMove(slot.getByRole("main", { name: "Review" }).querySelector(":scope > .overflow-y-auto")!);
   expect(slot.queryByRole("button", { name: "1 need you" })).toBeNull();
   slot.lifecycle.unmount();
 });

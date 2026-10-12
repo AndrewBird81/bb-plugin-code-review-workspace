@@ -174,7 +174,8 @@ test("Use as draft opens the draft with the assistant's verdict and summary", as
     useSuggestedVerdict: vi.fn(() => { draft = { ...draft, verdict: "APPROVE", body: "Looks good now." }; return { ok: true }; }),
   });
   await slot.findByRole("region", { name: "Submitted review", hidden: true });
-  // Finish review, from Comments' Finish bar.
+  // Finish review, from Comments' Finish bar, open once the workspace has its size.
+  await slot.findByRole("complementary", { name: "Comments and agent" });
   fireEvent.click(await panel(slot).findByRole("button", { name: "Finish review" }));
   fireEvent.click(await slot.findByRole("button", { name: "Use as draft" }));
   await waitFor(() => expect(rpc.useSuggestedVerdict).toHaveBeenCalledWith({ targetKey: "pr-42", mode: "suggested", revision: "r1" }));
