@@ -123,7 +123,7 @@ test("the Overview totals the changed lines worth reading, with a rough reading 
 test("the status line says whose turn it is, how your feedback fared and how the checks are, as words beside icons, not pills", async () => {
   const slot = await renderWorkspace({
     kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url, submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, signals: { requestedBy: "alice", ci: "pass" },
-    turn: { group: "needs", reason: "re-requested", label: "Re-requested", action: "Review changes", signal: "re-requested:1", at: now, notify: true, blocking: true, updated: true, eventAt: now, failed: false },
+    turn: { group: "needs", reason: "re-requested", label: "Re-requested", signal: "re-requested:1", at: now, notify: true, blocking: true, updated: true, eventAt: now, failed: false },
     progress: { done: 2, total: 2, source: "threads", nits: 1 },
   }, { getChecks: () => ({ bucket: "fail", checks: [{ name: "test", bucket: "fail", state: "FAILURE", link: "https://ci/1" }, { name: "lint", bucket: "pending", state: "PENDING" }, { name: "build", bucket: "pass", state: "SUCCESS" }] }) });
   // In the words All reviews uses (lib/status-line.ts), the checks as just read rather than as the last sync saw them.
@@ -192,7 +192,7 @@ test("every fact the 0.5.2 header showed is on the Overview", async () => {
   const slot = await renderWorkspace({
     kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url, author: "octo", base: "main", head: "fix-race",
     submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY,
-    turn: { group: "needs", reason: "re-requested", label: "Re-requested", action: "Review changes", signal: "re-requested:1", at: now, notify: true, blocking: true, updated: true, eventAt: now, failed: false },
+    turn: { group: "needs", reason: "re-requested", label: "Re-requested", signal: "re-requested:1", at: now, notify: true, blocking: true, updated: true, eventAt: now, failed: false },
     progress: { done: 1, total: 3, source: "assistant" },
     signals: { lastReviewSha: "old", rounds: [{ state: "CHANGES_REQUESTED", at: now - DAY, sha: "old" }] },
     stack: { members: [parent, { ...parent, targetKey: "pr-42", number: 42 }], index: 1, parent, children: [] },

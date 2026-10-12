@@ -32,7 +32,7 @@ const feedbackOf = (over: Partial<FeedbackView> = {}): FeedbackView => ({
   }],
   ...over,
 });
-const waiting = (number: number, title: string, at: number, reason = "requested") => ({ targetKey: `pr-${number}`, kind: "pr", number, title, createdAt: at, signals: { requestedBy: "alice" }, turn: { group: "needs", reason, label: "Review requested", action: "Review", signal: null, at, notify: true, blocking: false, updated: false } });
+const waiting = (number: number, title: string, at: number, reason = "requested") => ({ targetKey: `pr-${number}`, kind: "pr", number, title, createdAt: at, signals: { requestedBy: "alice" }, turn: { group: "needs", reason, label: "Review requested", signal: null, at, notify: true, blocking: false, updated: false } });
 
 async function renderWorkspace({ review = {}, rpc = {} }: { review?: Record<string, unknown>; rpc?: Record<string, unknown> } = {}) {
   patchReviewState("pr-42", { activeId: "c1" });

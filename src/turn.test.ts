@@ -43,7 +43,7 @@ test("a review you haven't submitted yet is yours", () => {
 
 test("a request for your review alerts you; a team request is quieter", () => {
   const requested = turn({ targetKey: "a", kind: "pr", status: "tracked", signals: { requestedAt: t(1), requestedVia: "user", requestPending: true } });
-  expect(requested).toMatchObject({ group: "needs", reason: "requested", notify: true, action: "Start review", signal: `requested:${t(1)}` });
+  expect(requested).toMatchObject({ group: "needs", reason: "requested", notify: true, signal: `requested:${t(1)}` });
   const team = turn({ targetKey: "a", kind: "pr", status: "tracked", signals: { requestedAt: t(1), requestedVia: "team", requestPending: true } });
   expect(team).toMatchObject({ group: "needs", reason: "team-requested", notify: false });
 });
@@ -95,10 +95,10 @@ test("a re-request after your review makes it your turn and alerts you", () => {
   expect(turn(changesRequested({}, { requestedAt: t(6) })).group).toBe("waiting");
 });
 
-test("Not yet hides a review until a newer signal", () => {
+test("snoozing until the author responds hides a review until a newer signal", () => {
   const snoozed = changesRequested({ latestHeadSha: "sha2", snoozedAt: t(0.5) }, { requestedAt: t(1) });
-  expect(turn(snoozed)).toMatchObject({ group: "waiting", reason: "snoozed", label: "Not yet" });
-  // A push after Not yet doesn't wake it.
+  expect(turn(snoozed)).toMatchObject({ group: "waiting", reason: "snoozed", label: "Snoozed until the author responds" });
+  // A push after the snooze doesn't wake it.
   expect(turn({ ...snoozed, latestHeadSha: "sha3", signals: { ...snoozed.signals, headSeenAt: t(0.1) } }).group).toBe("waiting");
   // A new re-request does.
   expect(turn({ ...snoozed, signals: { ...snoozed.signals, requestedAt: t(0.2) } })).toMatchObject({ group: "needs", reason: "re-requested" });
@@ -241,7 +241,7 @@ test("a handled turn holds until you act, even when the author pushes again", ()
   // A new push restarted the quiet period, but the turn already came to you.
   const review = changesRequested({ latestHeadSha: "sha3", heldTurn: held }, { headSeenAt: NOW - 60_000, handledAt: t(1) });
   expect(turn(review)).toMatchObject({ group: "needs", reason: "handled", signal: `handled:${t(1)}`, notify: false });
-  // Your next review, or Not yet, ends it.
+  // Your next review, or a snooze until the author responds, ends it.
   expect(turn({ ...review, submittedAt: NOW - 1000 }).group).toBe("waiting");
   expect(turn({ ...review, snoozedAt: NOW - 1000 }).group).toBe("waiting");
 });
@@ -252,7 +252,7 @@ test("questions and mentions count whatever your verdict", () => {
   expect(turn(changesRequested({}, { questionAt: t(1), isDraft: true }))).toMatchObject({ group: "needs", reason: "question" });
 });
 
-test("the baseline is your latest review, here or on GitHub, and Not yet needs one", () => {
+test("the baseline is your latest review, here or on GitHub, and snoozing until the author responds needs one", () => {
   expect(baselineOf(changesRequested())).toEqual({ sha: "sha1", at: t(5), verdict: "REQUEST_CHANGES" });
   expect(baselineOf(changesRequested({ submittedAt: t(1), submittedHeadSha: "sha2" }))).toEqual({ sha: "sha2", at: t(1), verdict: "REQUEST_CHANGES" });
   const needs = changesRequested({}, { requestedAt: t(1) });

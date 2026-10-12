@@ -21,7 +21,7 @@ const pinnedThread = { id: "thr-1", title: "Per's PR's", isPinned: true, isArchi
 
 const hour = 3_600_000;
 const turn = (group: Turn["group"], reason: Turn["reason"], hoursAgo: number, blocking = false): Turn =>
-  ({ group, reason, label: "", action: "", signal: null, at: Date.now() - hoursAgo * hour, notify: false, blocking, updated: false, eventAt: null, failed: false });
+  ({ group, reason, label: "", signal: null, at: Date.now() - hoursAgo * hour, notify: false, blocking, updated: false, eventAt: null, failed: false });
 const reviews = [
   { targetKey: "pr-team", title: "Team request", repo: "acme/web", number: 3, status: "ready", turn: turn("needs", "team-requested", 30) },
   { targetKey: "pr-waiting", title: "Waiting on the author", status: "ready", turn: turn("waiting", "waiting", 1) },

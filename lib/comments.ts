@@ -420,9 +420,6 @@ export function toSend({ draft, threads, feedback, replyDrafts }: CommentSources
   };
 }
 
-/** Where ] and [ go: a stop per item, in the list's order and filter. */
-export interface CommentStop { id: string; at: CommentPlace | null; chapterId: string | null; group: GroupId }
-
 /**
  * What the list shows for one chip, or for All, in its order: All each item once by group; Not submitted every draft
  * comment in reading order; On GitHub's folded threads only while they show.
@@ -432,9 +429,4 @@ export function shownItems(items: readonly CommentItem[], filter: CommentFilter 
   return groups(items)
     .filter(({ id }) => filter === "all" || id === filter)
     .flatMap((group) => [...group.items, ...(showFolded ? group.folded?.items ?? [] : [])]);
-}
-
-/** The list's items in its order, for one chip or all; On GitHub's folded threads only while they show. */
-export function commentStops(items: readonly CommentItem[], filter: CommentFilter = "all", showFolded = false): CommentStop[] {
-  return shownItems(items, filter, showFolded).map(({ id, at, chapterId, group }) => ({ id, at, chapterId, group }));
 }

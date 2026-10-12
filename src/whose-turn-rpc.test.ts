@@ -63,7 +63,7 @@ test("reviews leave the server with whose turn they are", async () => {
   expect((await call("getReview", { targetKey: "pr-1" })).review.turn.group).toBe("needs");
 });
 
-test("Not yet moves a review to Waiting on author and clears its alert", async () => {
+test("snoozing until the author responds moves a review to Waiting on author and clears its alert", async () => {
   const { call, published } = await setup();
   expect(await call("snoozeReview", { targetKey: "pr-1", snoozed: true })).toEqual({ ok: true });
   expect((await call("getReview", { targetKey: "pr-1" })).review.turn).toMatchObject({ group: "waiting", reason: "snoozed" });
@@ -72,7 +72,7 @@ test("Not yet moves a review to Waiting on author and clears its alert", async (
   expect((await call("getReview", { targetKey: "pr-1" })).review.turn.group).toBe("needs");
 });
 
-test("Snooze until keeps a review in Waiting on author until its time, and Not yet clears the time", async () => {
+test("Snooze until keeps a review in Waiting on author until its time, and snoozing until the author responds clears the time", async () => {
   const { call, store } = await setup();
   const until = Date.now() + 3_600_000;
   expect(await call("snoozeReview", { targetKey: "pr-1", snoozed: true, until })).toEqual({ ok: true });

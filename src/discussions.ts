@@ -32,7 +32,7 @@ export function discussionMessage(store: Store, targetKey: string, input: AskInp
   const discussion = store.listDiscussions(targetKey).find((d) => sameLocation(d, at));
   const history = (discussion?.entries ?? []).map((entry) => historyLine(entry, at)).join("\n").slice(-MAX_HISTORY);
   if (isSummary(at)) return { text: `On the review summary: ${input.body}`, context: [
-    "This message comes from the reviewer's discussion on the review summary in Draft review, not from the chat. They read replies there.",
+    "This message comes from the reviewer's discussion on the review summary in Finish review, not from the chat. They read replies there.",
     "When they ask you to change the summary, or to write one, do it with set_review_summary instead of describing it. If a reply is warranted, answer with reply_in_discussion with summary: true. Keep your reply in this chat to one short line.",
     describeSummary(store, targetKey),
     describeComments(store, targetKey),

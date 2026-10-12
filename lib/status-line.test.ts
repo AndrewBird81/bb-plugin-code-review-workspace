@@ -7,7 +7,7 @@ import { statusLine, statusWhy } from "./status-line";
 const HOUR = 3_600_000, DAY = 24 * HOUR;
 const now = Date.parse("2026-10-11T12:00:00Z");
 const turn = (group: Turn["group"], reason: Turn["reason"], label = "", extra: Partial<Turn> = {}): Turn =>
-  ({ group, reason, label, action: "", signal: null, at: null, notify: false, blocking: false, updated: false, eventAt: null, failed: false, ...extra });
+  ({ group, reason, label, signal: null, at: null, notify: false, blocking: false, updated: false, eventAt: null, failed: false, ...extra });
 const review = (t: Turn, extra: Partial<ReviewItem> = {}): ReviewItem => ({ targetKey: "k", kind: "pr", status: "ready", turn: t, ...extra });
 const said = (r: ReviewItem) => { const part = statusWhy(r, now); return part && [part.text, part.tone, part.icon]; };
 const line = (r: ReviewItem, passingChecks = false) => statusLine(r, { now, passingChecks }).map((part) => part.text);
@@ -34,7 +34,7 @@ test("why it's yours says who asked, in words, with an icon and a tone only wher
 test("the author's turn and settled reviews say what you did and when; archived ones how they ended", () => {
   expect(said(review(turn("waiting", "waiting", "Changes requested", { at: now - 2 * DAY }), { submittedVerdict: "REQUEST_CHANGES" }))).toEqual(["You requested changes 2d ago", "neutral", "FileDiff"]);
   expect(said(review(turn("waiting", "waiting", "Commented", { at: now - 3 * HOUR }), { submittedVerdict: "COMMENT" }))).toEqual(["You commented 3h ago", "neutral", "MessageSquare"]);
-  expect(said(review(turn("waiting", "snoozed", "Not yet")))).toEqual(["Snoozed until the author responds", "neutral", "Clock"]);
+  expect(said(review(turn("waiting", "snoozed", "Snoozed until the author responds")))).toEqual(["Snoozed until the author responds", "neutral", "Clock"]);
   const until = now + 3 * DAY;
   expect(said(review(turn("waiting", "snoozed", "Snoozed"), { snoozedUntil: until }))).toEqual([snoozeLabel(until, now), "neutral", "Clock"]);
   expect(said(review(turn("waiting", "draft", "Draft")))).toEqual(["Draft PR", "neutral", "GitPullRequestDraft"]);

@@ -41,7 +41,7 @@ interface PanelState {
   introCollapsed?: boolean;
   /** The diff wraps long lines instead of scrolling them; unset follows the workspace's width. */
   wrapLines?: boolean;
-  /** Draft review and the diff hide nit comments, in every review. */
+  /** Comments and the diff hide nit comments, in every review. */
   hideNits?: boolean;
   /** The sidebar lists the chapters, or every file as a folder tree, in every review. */
   navView?: NavView;

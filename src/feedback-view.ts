@@ -1,5 +1,5 @@
 // Your feedback, the PR's diffs at the commits that matter, and the assistant's
-// check, assembled for the Feedback view and the assistant's tools.
+// check, assembled for Comments and the assistant's tools.
 import type { Store, ReviewMeta } from "./store";
 import type { runGh } from "./gh";
 import { ghErrorMessage } from "./gh";

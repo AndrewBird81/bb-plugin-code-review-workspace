@@ -4,7 +4,7 @@ import type { FeedbackThread } from "../src/github/types";
 import type { ReviewThread, ThreadComment } from "../src/threads";
 import type { AssessmentVerdict, FeedbackItem, FeedbackView, ReplyDraft } from "./feedback";
 import {
-  buildItems, checkTally, commentStops, fileCounts, groups, needsYou, toSend, CHECK_LABEL, FILTER_LABEL, GROUP_TITLE, REPLY_DRAFT_LABEL, STATE_LABEL, SUMMARY_LABEL, THREAD_FLAG_LABEL,
+  buildItems, checkTally, fileCounts, groups, needsYou, shownItems, toSend, CHECK_LABEL, FILTER_LABEL, GROUP_TITLE, REPLY_DRAFT_LABEL, STATE_LABEL, SUMMARY_LABEL, THREAD_FLAG_LABEL,
   type CommentItem, type CommentSources, type ThreadItem,
 } from "./comments";
 
@@ -257,17 +257,17 @@ test("toSend counts what Submit posts by severity and author, what holds it, and
 
 test("] and [ step through the list in its order and filter, with chapters to switch to", () => {
   const items = buildItems(sources);
-  const all = commentStops(items);
+  const all = shownItems(items);
   expect(all).toHaveLength(16);
-  expect(all[0]).toEqual({ id: "draft:src/cache.ts:21:RIGHT", at: { file: "src/cache.ts", line: 21, side: "RIGHT", lines: "21" }, chapterId: "cache", group: "needs-you" });
+  expect(all[0]).toMatchObject({ id: "draft:src/cache.ts:21:RIGHT", at: { file: "src/cache.ts", line: 21, side: "RIGHT", lines: "21" }, chapterId: "cache", group: "needs-you" });
   // Not submitted is every draft comment, in reading order: the one on an older diff too.
-  expect(commentStops(items, "not-submitted").map((stop) => [stop.id, stop.chapterId])).toEqual([
+  expect(shownItems(items, "not-submitted").map((stop) => [stop.id, stop.chapterId])).toEqual([
     ["draft:src/cache.ts:16:RIGHT", "cache"], ["draft:src/cache.ts:21:RIGHT", "cache"], ["draft:src/server.ts:38:RIGHT", "cache"], ["draft:src/api/handler.ts:5:RIGHT", "api"], ["draft:README.md:2:RIGHT", "api"],
   ]);
   // The whole PR's ask has no place in the code; the list shows it.
-  expect(commentStops(items, "on-github").map((stop) => [stop.id, stop.at?.line ?? null])).toEqual([["summary:2", null], ["B1", 14], ["B3", null], ["B5", 1]]);
-  expect(ids(commentStops(items, "on-github", true))).toEqual(["summary:2", "B1", "B3", "B5", "T3", "B2", "B4"]);
-  expect(ids(commentStops(items)).slice(-1)).toEqual(["private:src/server.ts:39:RIGHT"]);
+  expect(shownItems(items, "on-github").map((stop) => [stop.id, stop.at?.line ?? null])).toEqual([["summary:2", null], ["B1", 14], ["B3", null], ["B5", 1]]);
+  expect(ids(shownItems(items, "on-github", true))).toEqual(["summary:2", "B1", "B3", "B5", "T3", "B2", "B4"]);
+  expect(ids(shownItems(items)).slice(-1)).toEqual(["private:src/server.ts:39:RIGHT"]);
 });
 
 test("GitHub's read decides whether a thread is resolved; your feedback says who answered since your last comment", () => {

@@ -1,6 +1,7 @@
 // For tests, not the plugin: the draft's provider with Comments and Finish review after what it wraps, both showing, in
 // a workspace of their own, as the side panel shows them one at a time. Import it after the plugin runtime is installed.
 import { useEffect, type ReactNode } from "react";
+import type { CommentLocation } from "../src/draft";
 import type { ReviewItem } from "../lib/review-state";
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
 import { DraftProvider, type DraftProviderProps } from "./DraftProvider";
@@ -32,7 +33,7 @@ export function testWorkspace(targetKey: string, over: Partial<WorkspaceApi> = {
  * The draft as the side panel shows it: Comments' list and Finish review. Its chapters are one, of `files`, in their
  * order; `onShowComment` is where a comment chosen in the list goes. GitHub has answered, with nothing.
  */
-export function DraftTray({ children, workspace, ...props }: DraftProviderProps & { children?: ReactNode; workspace?: Partial<WorkspaceApi> }) {
+export function DraftTray({ children, workspace, onShowComment, ...props }: DraftProviderProps & { children?: ReactNode; workspace?: Partial<WorkspaceApi>; onShowComment?: (at: CommentLocation) => void }) {
   const { targetKey } = props;
   const files = props.files ?? props.activeFiles;
   updateComments(targetKey, { loaded: true });
@@ -41,7 +42,7 @@ export function DraftTray({ children, workspace, ...props }: DraftProviderProps 
   const api = testWorkspace(targetKey, {
     review: (props.review ?? { targetKey, kind: props.isLocal ? "ref" : "pr" }) as ReviewItem,
     sections: [{ id: "c1", title: "Chapter", overview: "", diffs: files.map((file) => ({ file })) }],
-    reveal: props.onShowComment ?? noop,
+    reveal: onShowComment ?? noop,
     ...workspace,
   });
   return (

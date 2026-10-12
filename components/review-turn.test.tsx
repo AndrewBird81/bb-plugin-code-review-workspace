@@ -24,7 +24,7 @@ const guide = {
   title: "Guide", intent: "Parses rows.", unplacedFiles: [],
   sections: [{ id: "c1", title: "Parsing", overview: "", diffs: [{ file: "src/a.ts" }] }],
 };
-const turn = (over: Record<string, unknown>) => ({ group: "needs", reason: "re-requested", label: "Re-requested", action: "Review changes", signal: "re-requested:1", at: now, notify: true, blocking: false, updated: true, ...over });
+const turn = (over: Record<string, unknown>) => ({ group: "needs", reason: "re-requested", label: "Re-requested", signal: "re-requested:1", at: now, notify: true, blocking: false, updated: true, ...over });
 const feedback: FeedbackView = {
   baseline: { sha: "old", at: now - 3 * DAY, verdict: "REQUEST_CHANGES" }, head: "new", fetchedAt: now, suggestionInDraft: false,
   run: { headSha: "new", summary: "", suggestedVerdict: "APPROVE", suggestedBody: "Looks good now.", assessedAt: now, current: true },
@@ -212,7 +212,7 @@ test("the Overview shows your review rounds, progress, Blocks merge, and snoozes
 });
 
 test("a snoozed review offers Back to Needs review, and an unreviewed one can't wait for the author", async () => {
-  const snoozed = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({ group: "waiting", reason: "snoozed", label: "Not yet" }) });
+  const snoozed = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({ group: "waiting", reason: "snoozed", label: "Snoozed until the author responds" }) });
   // "Not yet" is gone from the words: the chapters' Overview row says Snoozed, the status line why.
   const row = within(await snoozed.slot.findByRole("navigation", { name: "Chapters" })).getByRole("button", { name: /^Overview/ });
   expect(row.textContent).toBe("Overview · Snoozed");

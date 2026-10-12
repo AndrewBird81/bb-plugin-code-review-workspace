@@ -12,7 +12,7 @@ afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.cl
 const DAY = 86_400_000;
 const now = Date.now();
 const turn = (group: Turn["group"], reason: Turn["reason"], label: string, extra: Partial<Turn> = {}): Turn =>
-  ({ group, reason, label, action: "Open review", signal: null, at: null, notify: false, blocking: false, updated: false, eventAt: null, failed: false, ...extra });
+  ({ group, reason, label, signal: null, at: null, notify: false, blocking: false, updated: false, eventAt: null, failed: false, ...extra });
 
 /** All reviews over these reviews, with the RPCs the page calls. */
 async function inbox(reviews: unknown[], rpc: Record<string, (input: any) => unknown> = {}) {

@@ -3,7 +3,7 @@ import { reviewState, type ReviewItem } from "../lib/review-state";
 import type { StatusPart, StatusTone } from "../lib/status-line";
 import { snoozeLabel } from "../lib/turn";
 import { cn } from "../lib/utils";
-import { Badge, TONE_TEXT, type Tone } from "./ui/badge";
+import { TONE_TEXT, type Tone } from "./ui/badge";
 import { Icon, type IconName } from "./ui/icon";
 
 /** How a review's status reads: GitHub's verdict colors, the agent's for its work, chosen by whose turn it is and why. */
@@ -29,7 +29,6 @@ export function statusLook(review: ReviewItem): { label: string; tone: Tone; ico
     case "dismissed": return { label, tone: "warning", icon: "AlertCircle" };
     case "waiting": return label === "Changes requested" ? { label, tone: "warning", icon: "FileDiff" } : { label, tone: "neutral", icon: "MessageSquare" };
     // The wake time reads in your time zone, not the server's.
-    // Until the author responds, the turn still says "Not yet", the old name of that Snooze.
     case "snoozed": return { label: label === "Snoozed" && review.snoozedUntil ? snoozeLabel(review.snoozedUntil) : "Snoozed", tone: "neutral", icon: "Clock" };
     case "draft": return { label, tone: "neutral", icon: "GitPullRequestDraft" };
     case "approved": return { label, tone: "success", icon: "Check" };
@@ -45,15 +44,6 @@ export function kindLook(review: ReviewItem): { tone: Tone; icon: IconName } {
   if (review.kind === "ref" || (review.kind !== "pr" && review.number == null)) return { tone: "primary", icon: "GitBranch" };
   if (review.userArchivedAt) return { tone: "neutral", icon: "GitPullRequest" };
   return { tone: "success", icon: "GitPullRequest" };
-}
-
-export function StatusBadge({ review, className }: { review: ReviewItem; className?: string }) {
-  const look = statusLook(review);
-  return (
-    <Badge tone={look.tone} className={className} dot={!look.icon} icon={look.icon && <Icon name={look.icon} className={cn(look.busy && "animate-spin motion-reduce:animate-none")} aria-hidden />}>
-      {look.label}
-    </Badge>
-  );
 }
 
 /** A status part's tone as its text color: the kit's tones, and foreground. */

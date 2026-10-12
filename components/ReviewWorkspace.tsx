@@ -77,7 +77,7 @@ function typingIn(targetKey: string): LayoutState["typingIn"] {
   return document.getElementById(navigatorId(targetKey))?.contains(active) ? "nav" : document.getElementById(sidePanelId(targetKey))?.contains(active) ? "panel" : "other";
 }
 
-/** Hands the workspace the lines with draft comments or discussions, which the draft panel provides, without the nits it hides. */
+/** Hands the workspace the lines with draft comments or discussions, which the draft provides, without the nits it hides. */
 function DraftLines({ into }: { into: MutableRefObject<CommentLocation[]> }) {
   const draft = useContext(InlineDraftContext);
   useEffect(() => {
@@ -660,7 +660,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     [activeId, scrollToFile, unhide, closeOverlays],
   );
 
-  // A comment chosen in the draft panel: show its line in the diff.
+  // A comment chosen in Comments: show its line in the diff.
   const showComment = useCallback((at: CommentLocation) => {
     const chapter = chapterAt(sections, patch, at);
     if (!chapter) return;
@@ -689,7 +689,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     toast.info(`${file} isn’t changed in this PR anymore.`, url ? { action: { label: "Open on GitHub", onClick: () => navigateRef.current.openUrl(url) } } : undefined);
     return true;
   }, [sections]);
-  // A line from the Feedback view: the whole diff, so the line is there. Without a line, the file.
+  // A line from Comments, a thread, Find or Start here: the whole diff, so the line is there. Without a line, the file.
   const showLocation = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
     if (outsideGuide(file, url)) return;
     narrow(false);
@@ -958,7 +958,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   return (
     <WorkspaceProvider api={api}>
     {/* The draft's provider shares it with the diff, which shows each comment under its line, and with its panel. */}
-    <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
+    <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={() => { void load(); }} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
     {/* Kit popovers open as bottom drawers where the workspace is phone-sized or short. */}
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
     {/* It keeps clear of the screen's edges where it reaches them (--gr-safe-*: the notch, the Duo's rail, the home

@@ -105,7 +105,7 @@ export interface TurnInput {
   headSha?: string;
   signals?: TurnSignals | null;
   snoozedAt?: number | null;
-  /** Snooze until: set aside at snoozedAt until this time, or a newer signal. Without it, snoozedAt is "Not yet". */
+  /** Snooze until: set aside at snoozedAt until this time, or a newer signal. Without it, snoozedAt snoozes until the author responds. */
   snoozedUntil?: number | null;
   assessment?: AssessmentSummary | null;
   /** GitHub can't find the PR, or refuses access, since `since`. */
@@ -132,8 +132,6 @@ export interface Turn {
   reason: TurnReason;
   /** The status badge. */
   label: string;
-  /** What opening the review does, for the list row. */
-  action: string;
   /** Identifies the event that made it your turn; a new one alerts again. Null when it isn't your turn. */
   signal: string | null;
   /** When the current state began, for "your turn for 2d". */
@@ -172,13 +170,13 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   const reviewedSha = (local ? review.submittedHeadSha : s.lastReviewSha ?? review.submittedHeadSha) ?? null;
   const updated = !!(head && reviewedSha && head !== reviewedSha);
   const base = { signal: null, at: null, notify: false, blocking: false, updated, eventAt: null, failed: false };
-  const make = (group: TurnGroup, reason: TurnReason, label: string, action: string, extra: Partial<Turn> = {}): Turn =>
-    ({ ...base, group, reason, label, action, ...extra });
+  const make = (group: TurnGroup, reason: TurnReason, label: string, extra: Partial<Turn> = {}): Turn =>
+    ({ ...base, group, reason, label, ...extra });
 
-  if (review.prState === "MERGED") return make("archive", "merged", "Merged", "View review");
-  if (review.prState === "CLOSED" || review.archivedAt) return make("archive", "closed", "Closed", "View review");
+  if (review.prState === "MERGED") return make("archive", "merged", "Merged");
+  if (review.prState === "CLOSED" || review.archivedAt) return make("archive", "closed", "Closed");
   // Deleted, or out of your reach for good; access refused (say, for SSO) may come back.
-  if (review.unreachable?.reason === "not-found" && now - review.unreachable.since >= UNREACHABLE_MS) return make("archive", "unreachable", "Can’t read on GitHub", "View review");
+  if (review.unreachable?.reason === "not-found" && now - review.unreachable.since >= UNREACHABLE_MS) return make("archive", "unreachable", "Can’t read on GitHub");
 
   // A local receipt counts until GitHub reports the review.
   const lastReviewAt = Math.max(s.lastReviewAt ?? 0, review.submittedAt ?? 0) || null;
@@ -187,50 +185,50 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   const woke = review.snoozedUntil != null && now >= review.snoozedUntil;
   const snoozedAt = woke ? null : review.snoozedAt ?? null;
   const until = woke ? null : review.snoozedUntil ?? null;
-  const snoozedLabel = until ? "Snoozed" : "Not yet";
+  const snoozedLabel = until ? "Snoozed" : "Snoozed until the author responds";
   // Only a request to you asks you again; a team you're on being asked doesn't.
   const reRequested = reviewed && s.requestedVia !== "team" && after(s.requestedAt, lastReviewAt);
 
   // A person asking you again outranks your own archive.
   if (review.userArchivedAt && !(reRequested && after(s.requestedAt, review.userArchivedAt))) {
-    return make("archive", "archived", "Archived", "View review");
+    return make("archive", "archived", "Archived");
   }
   const turn = reviewerTurn();
   // A failed guide needs you to retry, without losing why it's your turn.
-  if (review.status === "error") return { ...turn, group: "needs", label: "Failed", action: "Retry review", failed: true };
+  if (review.status === "error") return { ...turn, group: "needs", label: "Failed", failed: true };
   // Generation shows where the review stands; it doesn't move it.
-  return review.status === "generating" ? { ...turn, label: "Generating", action: "View progress" } : turn;
+  return review.status === "generating" ? { ...turn, label: "Generating" } : turn;
 
   function reviewerTurn(): Turn {
-    if (review.kind === "ref") return make("needs", "new", "Ready", "Open review", { at: review.createdAt ?? null });
+    if (review.kind === "ref") return make("needs", "new", "Ready", { at: review.createdAt ?? null });
     const tracked = review.status === "tracked";
     // Your own PR is yours to review until you have; then nothing brings it back.
     if (review.ownPr) {
-      if (!reviewed && until) return make("waiting", "snoozed", snoozedLabel, "Open review", { at: snoozedAt });
-      if (!reviewed) return make("needs", "own", "Your PR", tracked ? "Start review" : "Open review", { at: review.createdAt ?? null });
-      return make("reviewed", "own", updated ? "Your PR · updated" : "Your PR", "View review");
+      if (!reviewed && until) return make("waiting", "snoozed", snoozedLabel, { at: snoozedAt });
+      if (!reviewed) return make("needs", "own", "Your PR", { at: review.createdAt ?? null });
+      return make("reviewed", "own", updated ? "Your PR · updated" : "Your PR");
     }
     if (!reviewed) {
-      if (tracked && s.isDraft) return make("waiting", "draft", "Draft", "Open review");
+      if (tracked && s.isDraft) return make("waiting", "draft", "Draft");
       // A PR found on GitHub that no longer asks for you, or only asks a team when you've left those out.
       if (tracked && review.signals && (!s.requestPending || s.requestedVia === "team" && options.teamRequests === false)) {
-        return make("archive", "unrequested", "No longer requested", "View review");
+        return make("archive", "unrequested", "No longer requested");
       }
       // Only a newer request wakes a snoozed one.
-      if (until && !after(s.requestedAt, snoozedAt)) return make("waiting", "snoozed", snoozedLabel, tracked ? "Start review" : "Open review", { at: snoozedAt });
+      if (until && !after(s.requestedAt, snoozedAt)) return make("waiting", "snoozed", snoozedLabel, { at: snoozedAt });
       if (s.requestPending || s.requestedAt) {
         const team = s.requestedVia === "team";
-        return make("needs", team ? "team-requested" : "requested", team ? "Team review requested" : "Review requested", tracked ? "Start review" : "Open review", {
+        return make("needs", team ? "team-requested" : "requested", team ? "Team review requested" : "Review requested", {
           signal: `requested:${s.requestedAt ?? "pending"}`, at: s.requestedAt ?? review.createdAt ?? null, notify: !team, eventAt: s.requestedAt ?? null,
         });
       }
-      return make("needs", "new", tracked ? "Tracked" : "Ready", tracked ? "Start review" : "Open review", { at: review.createdAt ?? null });
+      return make("needs", "new", tracked ? "Tracked" : "Ready", { at: review.createdAt ?? null });
     }
 
     const verdict = review.submittedVerdict ?? null;
     const blocking = verdict === "REQUEST_CHANGES" && !!s.blocking;
     const needs = (reason: TurnReason, label: string, signal: string, at: number, notify: boolean, eventAt = at) =>
-      make("needs", reason, label, "Review changes", { signal, at, notify, blocking, eventAt });
+      make("needs", reason, label, { signal, at, notify, blocking, eventAt });
 
     if (reRequested && after(s.requestedAt, snoozedAt)) {
       return needs("re-requested", "Re-requested", `re-requested:${s.requestedAt}`, s.requestedAt, true);
@@ -238,7 +236,7 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     // GitHub dismissed your review, for example a stale approval.
     if (!verdict) {
       if (after(lastReviewAt, snoozedAt)) return needs("dismissed", "Review dismissed", `dismissed:${lastReviewAt}`, lastReviewAt!, false, s.dismissedAt ?? lastReviewAt!);
-      return make("waiting", "snoozed", snoozedLabel, "View review", { at: snoozedAt });
+      return make("waiting", "snoozed", snoozedLabel, { at: snoozedAt });
     }
     // Someone asking you something is your turn whatever your verdict: a question on your thread, or any reply if you chose that, or a mention.
     const threads = s.threads;
@@ -251,9 +249,9 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     if (after(s.mentionAt, lastReviewAt, snoozedAt)) {
       return needs("mentioned", "Mentioned you", `mention:${s.mentionAt}`, s.mentionAt, true);
     }
-    if (s.isDraft) return make(verdict === "APPROVE" ? "reviewed" : "waiting", "draft", "Draft", "View review", { updated });
-    if (verdict === "APPROVE") return make("reviewed", "approved", updated ? "Approved · updated" : "Approved", "View review");
-    if (verdict === "COMMENT" && !hasThreads) return make("reviewed", "commented", "Commented", "View review");
+    if (s.isDraft) return make(verdict === "APPROVE" ? "reviewed" : "waiting", "draft", "Draft", { updated });
+    if (verdict === "APPROVE") return make("reviewed", "approved", updated ? "Approved · updated" : "Approved");
+    if (verdict === "COMMENT" && !hasThreads) return make("reviewed", "commented", "Commented");
 
     // A handled or looks-ready turn holds until you act, even if the author pushes again.
     const held = review.heldTurn;
@@ -269,9 +267,9 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
       return needs("looks-ready", "Looks ready", `looks-ready:${head}`, assessment.assessedAt, true);
     }
     // A comment review with nothing open isn't waiting on anyone.
-    if (verdict === "COMMENT" && threads!.open + threads!.questions === 0) return make("reviewed", "commented", "Commented", "View review");
-    if (snoozedAt && snoozedAt >= (lastReviewAt ?? 0)) return make("waiting", "snoozed", snoozedLabel, "View review", { at: snoozedAt, blocking });
-    return make("waiting", "waiting", VERDICT_LABEL[verdict], "View review", { at: lastReviewAt, blocking });
+    if (verdict === "COMMENT" && threads!.open + threads!.questions === 0) return make("reviewed", "commented", "Commented");
+    if (snoozedAt && snoozedAt >= (lastReviewAt ?? 0)) return make("waiting", "snoozed", snoozedLabel, { at: snoozedAt, blocking });
+    return make("waiting", "waiting", VERDICT_LABEL[verdict], { at: lastReviewAt, blocking });
   }
 }
 
@@ -311,7 +309,7 @@ export function baselineOf(review: TurnInput): { sha: string | null; at: number 
   };
 }
 
-/** Whether "Not yet" applies: it's your turn on a review you've already given, and the guide didn't fail. */
+/** Whether snoozing until the author responds applies: it's your turn on a review you've already given, and the guide didn't fail. */
 export function canSnooze(review: TurnInput, turn: Turn): boolean {
   return turn.group === "needs" && !turn.failed && baselineOf(review).at !== null;
 }

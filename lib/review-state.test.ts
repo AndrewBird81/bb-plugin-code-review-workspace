@@ -5,7 +5,7 @@ import { needsGroup, needsOrder, type ReviewItem } from "./review-state";
 const DAY = 86_400_000;
 const now = Date.now();
 const turn = (reason: Turn["reason"], at: number, extra: Partial<Turn> = {}): Turn =>
-  ({ group: "needs", reason, label: "", action: "", signal: null, at, notify: false, blocking: false, updated: false, eventAt: null, failed: false, ...extra });
+  ({ group: "needs", reason, label: "", signal: null, at, notify: false, blocking: false, updated: false, eventAt: null, failed: false, ...extra });
 const review = (targetKey: string, t: Turn, extra: Partial<ReviewItem> = {}): ReviewItem => ({ targetKey, turn: t, ...extra });
 
 test("Needs review is in three parts: what came back to you, first reviews, and team requests", () => {

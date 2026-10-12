@@ -1,5 +1,5 @@
 // Your feedback on a PR and the review assistant's check of it, shared by the
-// server and the Feedback view.
+// server and Comments.
 import type { Verdict } from "../src/draft";
 import type { FeedbackThread } from "../src/github/types";
 
@@ -32,7 +32,7 @@ export interface AssessmentRun {
 
 export interface ReplyDraft { body: string; author: "agent" | "reviewer"; updatedAt: number }
 
-/** One piece of your feedback, as the Feedback view shows it. */
+/** One piece of your feedback, as Comments shows it. */
 export interface FeedbackItem {
   id: string;
   kind: "thread" | "summary";

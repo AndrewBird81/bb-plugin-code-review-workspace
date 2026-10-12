@@ -138,7 +138,7 @@ test("asking on the review summary sends the summary, the verdicts, and the comm
   const [message] = sent();
   expect(message.input[0].text).toBe("On the review summary: Mention the overflow.");
   const context: string = message.input[1].text;
-  for (const part of ["discussion on the review summary in Draft review", "with set_review_summary instead of describing it", "reply_in_discussion with summary: true", "one short line",
+  for (const part of ["discussion on the review summary in Finish review", "with set_review_summary instead of describing it", "reply_in_discussion with summary: true", "one short line",
     "Review summary · written by the reviewer\n  Fine by me.", "Verdict: the reviewer hasn't picked one, so it's Comment by default.", "An agent's suggested verdict: Approve.",
     "a.ts:3 RIGHT · added by an agent\n  Can this overflow?"]) expect(context).toContain(part);
   expect(context).not.toContain("Earlier in this discussion");

@@ -22,7 +22,7 @@ export interface DraftProviderProps {
   patch?: string;
   /** The review's changed files, chapter by chapter. */
   files?: string[];
-  prefill?: CommentPrefill; isLocal?: boolean; review?: ReviewItem; onSubmitted?: () => void; onShowComment?: (at: CommentLocation) => void;
+  prefill?: CommentPrefill; isLocal?: boolean; review?: ReviewItem; onSubmitted?: () => void;
   reviewRevision?: string; account?: string;
   /** The guide is rebuilding for new commits: comments and submit wait for the new diff. */
   rebuilding?: boolean;
@@ -39,7 +39,7 @@ export interface DraftProviderProps {
 export type DraftState = ReturnType<typeof useDraftState>;
 const DraftContext = createContext<DraftState | null>(null);
 
-/** The draft and everything that changes it, for DraftPanel. */
+/** The draft and everything that changes it, for Comments, Finish review and the cards in the code. */
 export function useDraft(): DraftState {
   const draft = useContext(DraftContext);
   if (!draft) throw new Error("useDraft() needs a DraftProvider around it.");
@@ -58,7 +58,7 @@ export const DraftProvider = memo(function DraftProvider({ children, ...props }:
 });
 DraftProvider.displayName = "DraftProvider";
 
-function useDraftState({ targetKey, activeChapterId, activeFiles, files = activeFiles, prefill, isLocal = false, review, onSubmitted, onShowComment, onOpenPanel, reviewRevision, rebuilding = false, ownPr = false, account, showDraft, patch = "" }: Omit<DraftProviderProps, "children">) {
+function useDraftState({ targetKey, activeChapterId, activeFiles, files = activeFiles, prefill, isLocal = false, review, onSubmitted, onOpenPanel, reviewRevision, rebuilding = false, ownPr = false, account, showDraft, patch = "" }: Omit<DraftProviderProps, "children">) {
   const rpc = useRpc<typeof rpcContract>();
   const [draft, setDraft] = useState<Draft>({ targetKey, verdict: "COMMENT", body: "", comments: [] });
   const [loaded, setLoaded] = useState(false);
@@ -535,7 +535,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   return {
     targetKey, loadError, load, loaded, closed, review, draft, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
-    showComposer, inline, counts, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, onShowComment, body, removeComment,
+    showComposer, inline, counts, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment,
     file, boxLines, line, side, files, setFile, editing, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
     ownPr, suggested, chooseVerdict, confirming, setConfirming, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
     inlineDraft, inlineComposer, askAgent, patch, account,

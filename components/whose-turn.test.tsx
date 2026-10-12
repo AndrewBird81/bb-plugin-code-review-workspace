@@ -10,7 +10,7 @@ afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); });
 const DAY = 86_400_000;
 const now = Date.now();
 const turn = (group: Turn["group"], reason: Turn["reason"], label: string, extra: Partial<Turn> = {}): Turn =>
-  ({ group, reason, label, action: "Open review", signal: null, at: null, notify: false, blocking: false, updated: false, eventAt: null, failed: false, ...extra });
+  ({ group, reason, label, signal: null, at: null, notify: false, blocking: false, updated: false, eventAt: null, failed: false, ...extra });
 
 async function list(reviews: any[], overrides: Record<string, (input: any) => unknown> = {}) {
   const app = await loadPluginApp(() => import("../app"));
@@ -72,7 +72,7 @@ test("Waiting on author lists the most recent activity first; with no one waitin
   const { slot, open, titles } = await list([
     { targetKey: "a", title: "Change Quiet", status: "ready", turn: turn("waiting", "waiting", "Changes requested", { at: now - 5 * DAY }) },
     { targetKey: "b", title: "Change Pushed", status: "ready", signals: { headSeenAt: now - DAY }, turn: turn("waiting", "waiting", "Changes requested", { at: now - 6 * DAY }) },
-    { targetKey: "c", title: "Change Snoozed", status: "ready", turn: turn("waiting", "snoozed", "Not yet", { at: now - 2 * DAY }) },
+    { targetKey: "c", title: "Change Snoozed", status: "ready", turn: turn("waiting", "snoozed", "Snoozed until the author responds", { at: now - 2 * DAY }) },
   ]);
   await open(/^Waiting on author/);
   await slot.findByText("Change Quiet");
@@ -109,7 +109,7 @@ test("a review you gave can wait until its author responds, come back to Needs r
     { targetKey: "given", title: "Change Given", status: "ready", submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, turn: turn("needs", "question", "Question for you") },
     { targetKey: "fresh", title: "Change Fresh", status: "ready", turn: turn("needs", "requested", "Review requested") },
     { targetKey: "tracked", title: "Change Tracked", status: "tracked", turn: turn("needs", "requested", "Review requested") },
-    { targetKey: "snoozed", title: "Change Snoozed", status: "ready", signals: { lastReviewAt: 1 }, turn: turn("waiting", "snoozed", "Not yet") },
+    { targetKey: "snoozed", title: "Change Snoozed", status: "ready", signals: { lastReviewAt: 1 }, turn: turn("waiting", "snoozed", "Snoozed until the author responds") },
   ];
   const { slot, open, calls } = await list(reviews, {
     snoozeReview: () => ({ ok: true }),
@@ -192,7 +192,7 @@ test("status badges take their tone from why it's your turn", async () => {
   expect(look(turn("needs", "looks-ready", "Looks ready"))).toEqual(["agent", "Sparkles"]);
   expect(look(turn("waiting", "waiting", "Changes requested"))).toEqual(["warning", "FileDiff"]);
   expect(look(turn("waiting", "waiting", "Commented"))).toEqual(["neutral", "MessageSquare"]);
-  expect(look(turn("waiting", "snoozed", "Not yet"))).toEqual(["neutral", "Clock"]);
+  expect(look(turn("waiting", "snoozed", "Snoozed until the author responds"))).toEqual(["neutral", "Clock"]);
   expect(look(turn("reviewed", "approved", "Approved · updated"))).toEqual(["success", "Check"]);
   expect(look(turn("needs", "new", "Tracked"))).toEqual(["primary", undefined]);
   expect(look(turn("needs", "own", "Your PR"))).toEqual(["primary", "UserRound"]);

@@ -11,7 +11,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers(); });
 
 const DAY = 86_400_000;
 const turn = (group: Turn["group"], reason: Turn["reason"], label = "", extra: Partial<Turn> = {}): Turn =>
-  ({ group, reason, label, action: "", signal: null, at: null, notify: false, blocking: false, updated: false, eventAt: null, failed: false, ...extra });
+  ({ group, reason, label, signal: null, at: null, notify: false, blocking: false, updated: false, eventAt: null, failed: false, ...extra });
 const given = { targetKey: "given", kind: "pr", title: "Change Given", status: "ready", url: "https://github.com/acme/web/pull/7", submittedVerdict: "REQUEST_CHANGES", submittedAt: Date.now() - DAY, turn: turn("needs", "question", "Question for you") } as const;
 const fresh = { targetKey: "fresh", kind: "pr", title: "Change Fresh", status: "tracked", turn: turn("needs", "requested", "Review requested") } as const;
 
@@ -90,7 +90,7 @@ test("Pick a date… snoozes until 9 AM on the day picked", async () => {
 });
 
 test("a snoozed review goes back to Needs review instead; a failed, archived or local one offers no Snooze", async () => {
-  let { slot, calls } = await menu({ ...given, turn: turn("waiting", "snoozed", "Not yet") });
+  let { slot, calls } = await menu({ ...given, turn: turn("waiting", "snoozed", "Snoozed until the author responds") });
   expect(slot.queryByRole("button", { name: "Snooze" })).toBeNull();
   fireEvent.click(await slot.findByRole("button", { name: "Back to Needs review" }));
   await waitFor(() => expect(calls("snoozeReview")).toEqual([{ targetKey: "given", snoozed: false }]));

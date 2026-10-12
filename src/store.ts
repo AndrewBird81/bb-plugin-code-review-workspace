@@ -25,7 +25,7 @@ export interface ReviewLifecycle {
   latestHeadSha?: string;
   /** What GitHub says about whose turn it is. */
   signals?: TurnSignals | null;
-  /** "Not yet": hidden from Needs review until a newer signal. */
+  /** Snoozed until the author responds: hidden from Needs review until a newer signal. */
   snoozedAt?: number | null;
   /** Snooze until: hidden from Needs review until this time, or a newer signal. */
   snoozedUntil?: number | null;

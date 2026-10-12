@@ -185,7 +185,7 @@ test("an alert goes out anyway when preparing takes too long", async () => {
   await vi.waitFor(() => expect(s.published).toHaveLength(1));
 });
 
-test("Not yet clears the alert, and leaving Needs review dismisses it", async () => {
+test("snoozing until the author responds clears the alert, and leaving Needs review dismisses it", async () => {
   const s = setup({ reviewed: true });
   await s.sync.all();
   s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });

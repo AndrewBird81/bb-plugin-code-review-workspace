@@ -45,7 +45,7 @@ const guide = { title: "Guide", intent: "Parses rows.", unplacedFiles: [] as str
   { id: "c1", title: "Parsing", overview: "Reads rows.", diffs: [{ file: "src/a.ts" }] },
   { id: "c2", title: "Caching", overview: "Keeps rows.", diffs: [{ file: "src/b.ts" }] },
 ] };
-const backToYou = { submittedVerdict: "REQUEST_CHANGES", submittedAt: 1, turn: { group: "needs", reason: "re-requested", label: "Re-requested", action: "Review changes", signal: "re-requested:1", at: 2, notify: true, blocking: false, updated: true } };
+const backToYou = { submittedVerdict: "REQUEST_CHANGES", submittedAt: 1, turn: { group: "needs", reason: "re-requested", label: "Re-requested", signal: "re-requested:1", at: 2, notify: true, blocking: false, updated: true } };
 
 async function renderWorkspace(review: Record<string, unknown> = {}, moreThreads: unknown[] = []) {
   if (!localStorage.getItem("gr:panelstate")) patchReviewState("pr-42", { activeId: "c1" });
