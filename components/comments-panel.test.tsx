@@ -7,6 +7,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
 import type { FeedbackItem, FeedbackView } from "../lib/feedback";
+import { TOUCH_CONTROL } from "./touch";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // The lines pierre is asked to show something under, and what's shown there.
@@ -216,6 +217,47 @@ test("GitHub threads show at their lines with every message; a resolved one fold
   await waitFor(() => expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy());
   fireEvent.click(await code(slot, "src/b.ts").findByRole("button", { name: "File comments (1)" }));
   expect(code(slot, "src/b.ts").getByText("Document this file.")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("a card shows the latest two replies and a long message's start until asked; Show the fix and ⋯ Open on GitHub go there", async () => {
+  const long = `**Blocking:** ${"Why upper case here, when nothing else is? ".repeat(8)}`;
+  const { slot } = await renderWorkspace({ rpc: {
+    getReviewThreads: () => ({ threads: [{ ...threads()[0], comments: [said("c1", 111, "me", long, 48), said("c2", 112, "alice", "It's a constant.", 5), said("c6", 116, "me", "Is it?", 4), said("c7", 117, "alice", "Yes, see the fix.", 3)] }, ...threads().slice(1)] }),
+    getFeedback: () => ({ feedback: feedbackOf([mine({ assessment: { ...mine().assessment!, file: "src/b.ts", line: 1 } })]) }),
+  } });
+  const card = within(await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" }));
+  const touch = expect.arrayContaining(TOUCH_CONTROL.split(" "));
+  expect(card.queryByText("It's a constant.")).toBeNull();
+  const earlier = card.getByRole("button", { name: "Show 1 earlier reply" });
+  expect(earlier.className.split(" ")).toEqual(touch);
+  fireEvent.click(earlier);
+  expect(card.getByText("It's a constant.")).toBeTruthy();
+  const more = card.getByRole("button", { name: "More" });
+  expect(more.getAttribute("aria-expanded")).toBe("false");
+  expect(more.className.split(" ")).toEqual(touch);
+  fireEvent.click(more);
+  expect(card.getByRole("button", { name: "Less" }).getAttribute("aria-expanded")).toBe("true");
+  fireEvent.click(card.getByRole("button", { name: "More on the thread on src/a.ts:2" }));
+  fireEvent.click(within(await slot.findByRole("dialog")).getByRole("button", { name: "Open on GitHub" }));
+  expect(slot.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: "https://github.com/acme/web/pull/42#discussion_r111" });
+  // The agent's check found the fix in another chapter.
+  fireEvent.click(card.getByRole("button", { name: /^Show the fix/ }));
+  await waitFor(() => expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy());
+  slot.lifecycle.unmount();
+});
+
+test("a thread card hidden in the code keeps one plain line: who resolved it, its replies, and who said what first", async () => {
+  const { slot } = await renderWorkspace();
+  const line = (card: HTMLElement) => card.querySelector("p.truncate")?.textContent;
+  const yours = await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" });
+  fireEvent.click(within(yours).getByRole("button", { name: "Hide" }));
+  expect(line(yours)).toBe("1 reply · You: Blocking: Why upper case?");
+  expect(line(code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2 (old line)" }))).toBe("Resolved by @bob · @bob: Old line note.");
+  fireEvent.click(code(slot, "src/a.ts").getByRole("button", { name: "Outdated (1)" }));
+  const daves = code(slot, "src/a.ts").getAllByRole("article").find((card) => within(card).queryByText("This moved."))!;
+  fireEvent.click(within(daves).getByRole("button", { name: "Hide" }));
+  expect(line(daves)).toBe("@dave: This moved.");
   slot.lifecycle.unmount();
 });
 

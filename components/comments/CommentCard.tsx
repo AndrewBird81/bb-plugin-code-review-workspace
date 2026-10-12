@@ -13,8 +13,9 @@ import { Avatar } from "../ui/avatar";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Icon } from "../ui/icon";
+import { InlineCode } from "../ui/inline-code";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
-import { CheckBadge, frameOf, TAG_TONE, ThreadState } from "./look";
+import { CheckBadge, frameOf, plainLine, TAG_TONE, ThreadState } from "./look";
 import { ReplyBox } from "./ReplyBox";
 import { useComments } from "./store";
 
@@ -50,7 +51,7 @@ export function Clamped({ body }: { body: string }) {
   const long = body.length > CLAMP || body.split("\n").length > 6;
   return <div>
     <div className={cn(!all && long && "max-h-[6.5rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_4.5rem,transparent)]")}><CommentBody body={body} /></div>
-    {long && <button type="button" aria-expanded={all} onClick={() => setAll(!all)} className="mt-0.5 inline-flex items-center gap-0.5 rounded-sm text-xs text-muted-foreground hover:text-foreground">
+    {long && <button type="button" aria-expanded={all} onClick={() => setAll(!all)} className={cn("mt-0.5 inline-flex items-center gap-0.5 rounded-sm text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)}>
       {all ? "Less" : "More"}<Icon name={all ? "ChevronUp" : "ChevronDown"} className="size-3" aria-hidden />
     </button>}
   </div>;
@@ -83,7 +84,7 @@ function Replies({ replies }: { replies: ThreadMessage[] }) {
   const hidden = replies.length - 2;
   if (!replies.length) return null;
   return <div className="space-y-2.5">
-    {hidden > 0 && <button type="button" aria-expanded={all} onClick={() => setAll(!all)} className="text-xs text-muted-foreground hover:text-foreground">
+    {hidden > 0 && <button type="button" aria-expanded={all} onClick={() => setAll(!all)} className={cn("inline-flex items-center text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)}>
       {all ? "Show fewer replies" : `Show ${hidden} earlier repl${hidden === 1 ? "y" : "ies"}`}
     </button>}
     <ul className="space-y-2.5">
@@ -112,6 +113,8 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
   const [first, ...replies] = item.messages;
   const followUp = item.at && api ? () => api.followUp(item.at!.file, item.at!.line, item.at!.side, item.url) : null;
   const replyShows = writing || !!item.replyDraft;
+  // Hidden, one line says what's under it.
+  const shutLine = [item.state === "resolved" && item.resolvedBy ? `Resolved by @${item.resolvedBy}` : null, replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : null].filter(Boolean).join(" · ");
   return (
     <article aria-label={`GitHub thread on ${where}`} className={cn(inline ? INLINE_CARD : "overflow-hidden rounded-lg bg-card pt-2.5 text-sm", frameOf(item))}>
       {inline && <div className={cn(HEAD, !open && "pb-1")}>
@@ -148,8 +151,8 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
           </Popover>}
         </div>}
       </div> : <p className="truncate px-3 pb-2 text-xs text-muted-foreground">
-        {[item.state === "resolved" && item.resolvedBy ? `Resolved by @${item.resolvedBy}` : null, replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : null].filter(Boolean).join(" · ")}
-        {first && <> · {first.who}: <span className="text-foreground/80">{first.body.split("\n")[0]}</span></>}
+        {shutLine}{shutLine && first && " · "}
+        {first && <>{first.who}: <span className="text-foreground/80"><InlineCode text={plainLine(first.body)} /></span></>}
       </p>}
     </article>
   );
