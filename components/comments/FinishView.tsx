@@ -73,9 +73,9 @@ export function FinishView({ shown, revision }: {
       {d.loadError ? <div role="alert" className="space-y-3 p-3 text-sm"><p>Couldn’t load your draft. Editing is paused to protect it.</p><Button variant="outline" onClick={() => void d.load()}>Retry draft</Button></div>
         : !d.loaded ? <p role="status" className="p-3 text-sm text-muted-foreground">Loading draft…</p>
         : body ? <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">{body}{notes.show && <PrivateNotes targetKey={targetKey} />}</div>
-        : <section aria-label="Review draft" className="flex min-h-0 flex-1 flex-col [@media(max-height:560px)]:overflow-y-auto">
+        : <section aria-label="Review draft" className="flex min-h-0 flex-1 flex-col [@media(max-height:640px)]:overflow-y-auto">
           {/* On short screens the draft and its foot scroll together, so the foot doesn't crowd out the draft. */}
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 [@media(max-height:560px)]:flex-none [@media(max-height:560px)]:overflow-visible">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 [@media(max-height:640px)]:flex-none [@media(max-height:640px)]:overflow-visible">
             {d.submittedVerdict && <LastReview />}
             <span role="status" className={cn("flex items-center gap-1.5 text-xs", d.status.error ? "text-destructive-text" : "text-muted-foreground")}>{d.status.error ? <Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden /> : d.status.saving ? <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />}{d.status.error ?? (d.status.saving ? "Saving…" : "Draft saved")}</span>
             <Part title={isPr ? "Summary · posted with your verdict" : "Summary"}>
