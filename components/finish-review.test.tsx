@@ -161,6 +161,25 @@ test("a suggestion already in the draft says so instead of offering it again", a
   const view = await finish(slot);
   expect(view.getByText("In your draft")).toBeTruthy();
   expect(view.queryByRole("button", { name: "Use as draft" })).toBeNull();
+  expect(view.queryByText("One ask remains.")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("the agent's summary shows with its suggestion, so you can read it while your own summary stays", async () => {
+  let { slot } = await renderWorkspace({ rpc: {
+    getDraft: vi.fn(() => ({ draft: draftOf({ body: "My summary." }), stale: [] })),
+    getFeedback: () => ({ feedback: feedbackOf({ run: { ...run, summary: "Mostly there." } }) }),
+  } });
+  let suggestion = within((await finish(slot)).getByRole("region", { name: "Agent’s suggestion" }));
+  expect(suggestion.getByText("Agent suggests Request changes")).toBeTruthy();
+  expect(suggestion.getByText("One ask remains.")).toBeTruthy();
+  expect(suggestion.getByRole("button", { name: "Use as draft" })).toBeTruthy();
+  slot.lifecycle.unmount();
+  // Without a suggested summary: the agent's word on where the PR stands.
+  ({ slot } = await renderWorkspace({ rpc: { getFeedback: () => ({ feedback: feedbackOf({ run: { ...run, suggestedVerdict: null, suggestedBody: "", summary: "Mostly there." } }) }) } }));
+  suggestion = within((await finish(slot)).getByRole("region", { name: "Agent’s suggestion" }));
+  expect(suggestion.getByText("Mostly there.")).toBeTruthy();
+  expect(suggestion.getByRole("button", { name: "Request what’s left" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

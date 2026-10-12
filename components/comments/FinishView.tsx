@@ -18,6 +18,7 @@ import { Button, buttonVariants } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
+import { Clamped } from "./CommentCard";
 import { notSubmitted } from "./look";
 import { updateComments, useComments } from "./store";
 
@@ -117,6 +118,8 @@ function Verdicts({ revision }: { revision: string }) {
   const run = feedback?.run ?? null;
   // Blocking feedback the agent's check says isn't done yet.
   const left = !!feedback?.items.some((item) => !item.nonBlocking && item.assessment && item.assessment.verdict !== "addressed");
+  // The agent's summary to use as yours, or its word on where the PR stands: readable here, whatever your summary says.
+  const said = feedback?.suggestionInDraft ? "" : (run?.suggestedBody || run?.summary || "").trim();
   async function apply(mode: "suggested" | "remaining") {
     const result = await rpc.call("useSuggestedVerdict", { targetKey, mode, ...(revision ? { revision } : {}) });
     if (!result.ok) return void toast.error(result.error ?? "Couldn’t update the draft.");
@@ -154,18 +157,19 @@ function Verdicts({ revision }: { revision: string }) {
         </Button>)}
       </div>
       {d.ownPr && <p id={ownPrId} className="text-xs text-muted-foreground">{OWN_PR}</p>}
-      {(suggested && (suggested !== d.draft.verdict || !verdictPicked(d.draft)) && !(d.ownPr && suggested !== "COMMENT") || run && (run.suggestedVerdict || left)) && (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg bg-(--ansi-13)/5 px-2.5 py-2">
+      {(suggested && (suggested !== d.draft.verdict || !verdictPicked(d.draft)) && !(d.ownPr && suggested !== "COMMENT") || run && (run.suggestedVerdict || left || said)) && (
+        <section aria-label="Agent’s suggestion" className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg bg-(--ansi-13)/5 px-2.5 py-2">
           <p className="flex min-w-0 flex-1 basis-40 items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />
-            {suggested && !(d.ownPr && suggested !== "COMMENT") ? `Agent suggests ${VERDICT_LABEL[suggested]}` : run?.suggestedVerdict ? `Agent suggests ${VERDICT_LABEL[run.suggestedVerdict]}` : "The agent found open items"}
+            {suggested && !(d.ownPr && suggested !== "COMMENT") ? `Agent suggests ${VERDICT_LABEL[suggested]}` : run?.suggestedVerdict ? `Agent suggests ${VERDICT_LABEL[run.suggestedVerdict]}` : left ? "The agent found open items" : "Agent’s check"}
           </p>
+          {said && <div className="min-w-0 basis-full"><Clamped body={said} /></div>}
           {run && (run.suggestedVerdict || left) && <span className="flex flex-wrap gap-1.5">
             {feedback?.suggestionInDraft
               ? <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />In your draft</span>
               : run.suggestedVerdict && <Button size="sm" variant="outline" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} disabled={!!busy || !d.editable} onClick={() => void suggest("suggested")}>Use as draft</Button>}
             {left && <Button size="sm" variant="outline" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} disabled={!!busy || !d.editable} onClick={() => void suggest("remaining")}>Request what’s left</Button>}
           </span>}
-        </div>
+        </section>
       )}
       <Dialog open={!!confirming} onOpenChange={(open) => { if (!open) setConfirming(null); }}>
         <DialogContent>

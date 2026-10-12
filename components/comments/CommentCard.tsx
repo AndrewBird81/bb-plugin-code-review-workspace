@@ -45,7 +45,7 @@ export function CommentCard({ targetKey, item, variant }: { targetKey: string; i
 const CLAMP = 280;
 
 /** A long comment shows its start until you ask for the rest. */
-function Clamped({ body }: { body: string }) {
+export function Clamped({ body }: { body: string }) {
   const [all, setAll] = useState(false);
   const long = body.length > CLAMP || body.split("\n").length > 6;
   return <div>

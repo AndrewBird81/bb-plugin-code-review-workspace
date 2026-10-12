@@ -186,5 +186,5 @@ export function assess(store: Store, review: ReviewMeta, input: AssessInput): { 
   const summary = summarize(head, store.getAssessment(review.targetKey, head).items, threads.filter((t) => !threadLabel(t.body)?.nonBlocking).map((t) => t.id));
   store.setLifecycle(review.targetKey, { assessment: summary });
   const missing = summary.total - summary.addressed - summary.partial - summary.notAddressed - summary.disputed - summary.unclear;
-  return { ok: true, text: `Recorded ${items.length} item${items.length === 1 ? "" : "s"} for ${short(head)}: ${summary.addressed} of ${summary.total} addressed.${missing ? ` ${missing} item${missing === 1 ? " has" : "s have"} no verdict yet.` : ""} The reviewer sees them in the Feedback view.` };
+  return { ok: true, text: `Recorded ${items.length} item${items.length === 1 ? "" : "s"} for ${short(head)}: ${summary.addressed} of ${summary.total} addressed.${missing ? ` ${missing} item${missing === 1 ? " has" : "s have"} no verdict yet.` : ""} The reviewer sees them in Comments.` };
 }
