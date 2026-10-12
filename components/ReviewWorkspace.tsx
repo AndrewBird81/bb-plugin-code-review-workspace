@@ -16,7 +16,8 @@ import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout,
 import { useKeyboardInset } from "../lib/use-keyboard-inset";
 import { useFold } from "../lib/use-fold";
 import { useSafeArea } from "../lib/use-safe-area";
-import { useScrollAnchor } from "../lib/use-scroll-anchor";
+import { goToPlace, linePlace, useScrollAnchor } from "../lib/use-scroll-anchor";
+import { carried, keep, present, type KeptFocus } from "../lib/remount";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { Button } from "./ui/button";
@@ -121,6 +122,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const opened = useRef(false);
   // The saved scroll position, when the review opens where it was saved.
   const restoreScroll = useRef<number | null>(null);
+  // What the workspace this one took the place of had open, typed, showed and focused, as BB remounts the page when its
+  // layout switches (lib/remount.ts); null for a review opened as usual. Read once, as it mounts.
+  const [carry] = useState(() => carried(targetKey));
+  const carriedPlace = useRef(carry?.place ?? null);
+  const carriedFocus = useRef(carry?.focus ?? null);
+  // Where you were typing, until the focus is back there: what's open goes where it would in place.
+  const carriedTyping = useRef(carry?.focus?.typing);
+  const carriedLines = useRef(carry?.lines ?? null);
   const [revision, setRevision] = useState("");
   const [repoAccess, setRepoAccess] = useState<{ accessible: boolean; repo: string | null; account: string | null } | null>(null);
   const [views, setViews] = useState<Map<string, FileViewFlags>>(new Map());
@@ -159,12 +168,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Where the navigator and the side panel go, from the workspace's own size (lib/workspace-layout.ts): what you want,
   // which holds in every review, and the overlays you open where they can't dock, which don't.
   const [navOpen, setNavOpenState] = useState(getNavOpen);
-  const [navOverlay, setNavOverlay] = useState(false);
+  const [navOverlay, setNavOverlay] = useState(carry?.navOverlay ?? false);
   const [navWidth, setNavWidth] = useState(getNavWidth);
   const [panelWidth, setPanelWidth] = useState(getPanelWidth);
   // The panel's view, which opens again only where it can dock.
   const [panelView, setPanelView] = useState<PanelView | null>(persisted.panel ?? null);
-  const [panelOverlay, setPanelOverlay] = useState(false);
+  const [panelOverlay, setPanelOverlay] = useState(carry?.panelOverlay ?? false);
   const [commentsTab, setCommentsTab] = useState<CommentsTab>("drafts");
   // Comments was to open as the review opened, but couldn't beside the code: the "need you" pill offers it instead.
   const [pill, setPill] = useState(false);
@@ -174,7 +183,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Where you're typing: a phone's fold or rotation keeps that side open, over the code if it must, and hides the side
   // you're not typing in rather than cover your box. Read as it renders, as the resize renders it: it's never stale, as
   // it would be after the box you typed in went away with the focus, which tells no one.
-  const layout = useWorkspaceLayout(rootEl, { navWidth, panelWidth, navOpen, navOverlay, typingIn: typingIn(targetKey), panelOpen: panelView !== null, panelOverlay });
+  const layout = useWorkspaceLayout(rootEl, { navWidth, panelWidth, navOpen, navOverlay, typingIn: typingIn(targetKey) ?? carriedTyping.current, panelOpen: panelView !== null, panelOverlay }, targetKey);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   // The panel's view as it shows, docked or over the code.
@@ -190,6 +199,58 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useLayoutEffect(() => { if (layout.nav === "overlay") setNavOverlay(true); }, [layout.nav]);
   useEffect(() => { if (layout.panel === "docked") setPanelOverlay(false); }, [layout.panel]);
   useEffect(() => patchReviewState(targetKey, { panel: panelView }), [targetKey, panelView]);
+  // For a workspace that may take this one's place (lib/remount.ts): that this one is here, what's over the code, the
+  // lines selected, and what has the focus, with the caret.
+  useLayoutEffect(() => present(targetKey), [targetKey]);
+  useEffect(() => keep(targetKey, { navOverlay, panelOverlay }), [targetKey, navOverlay, panelOverlay]);
+  useEffect(() => keep(targetKey, { lines: lineSel }), [targetKey, lineSel]);
+  const keepFind = useCallback((find: string) => keep(targetKey, { find }), [targetKey]);
+  useEffect(() => {
+    if (!rootEl) return;
+    const note = () => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || !rootEl.contains(active)) return;
+      const caret = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? [active.selectionStart ?? 0, active.selectionEnd ?? 0] as [number, number] : undefined;
+      const typing = typingIn(targetKey);
+      const focus: KeptFocus | null = active.matches("[data-find-box]") ? { in: "find", caret, typing }
+        : active.matches("textarea") && active.closest("[data-keyboard-box]") ? { in: "composer", caret, typing }
+        : document.getElementById(sidePanelId(targetKey))?.contains(active) ? { in: "panel" } : null;
+      // Typing in the code, the box is where you are (as on a scroll); elsewhere the code's top stays the place it was.
+      keep(targetKey, scrollBox.current?.contains(active) ? { focus, place: linePlace(scrollBox.current) } : { focus });
+    };
+    // Gone from the workspace, not with it: as BB remounts the page, the old one's focus goes with its nodes.
+    const left = () => setTimeout(() => { if (rootEl.isConnected && !rootEl.contains(document.activeElement)) keep(targetKey, { focus: null }); });
+    const events = ["focusin", "keyup", "input", "pointerup", "select"] as const;
+    events.forEach((type) => rootEl.addEventListener(type, note));
+    rootEl.addEventListener("focusout", left);
+    return () => {
+      events.forEach((type) => rootEl.removeEventListener(type, note));
+      rootEl.removeEventListener("focusout", left);
+    };
+  }, [rootEl, targetKey]);
+  // The focus as a remounted workspace had it, once what had it is back: Find in review's box, the comment box (which
+  // the draft brings back), or the side panel.
+  useEffect(() => {
+    const focus = carriedFocus.current;
+    if (!focus || !activeId) return;
+    carriedFocus.current = null;
+    let frame = 0;
+    const until = Date.now() + 3000;
+    const attempt = () => {
+      const root = rootRef.current;
+      const el = focus.in === "find" ? root?.querySelector<HTMLInputElement>("[data-find-box]")
+        : focus.in === "composer" ? root?.querySelector<HTMLTextAreaElement>("[data-keyboard-box] textarea")
+        : document.getElementById(sidePanelId(targetKey))?.querySelector<HTMLElement>("button[aria-label^='Close']");
+      if (el?.checkVisibility?.() ?? el?.isConnected) {
+        el!.focus({ preventScroll: true });
+        if (focus.caret && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) el.setSelectionRange(...focus.caret);
+        carriedTyping.current = undefined;
+      } else if (Date.now() < until) frame = requestAnimationFrame(attempt);
+      else carriedTyping.current = undefined;
+    };
+    attempt();
+    return () => cancelAnimationFrame(frame);
+  }, [activeId, targetKey]);
   // The navigator hidden with the focus in it, as when the panel docks over its room: the chapters toggle takes it.
   // Before paint, while the hidden navigator still has the focus.
   const shownNav = useRef(layout.nav);
@@ -347,7 +408,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       const back = review.kind === "pr" && turn.group === "needs" && FEEDBACK_FIRST.has(turn.reason) && !!turn.signal && turn.signal !== saved.turnSignal;
       const resumable = saved.activeId === OVERVIEW || chapters.some((section) => section.id === saved.activeId);
       const start = !back && resumable ? saved.activeId! : OVERVIEW;
-      restoreScroll.current = start === saved.activeId ? saved.scrollTop ?? null : null;
+      restoreScroll.current = start === saved.activeId ? saved.scrollTop ?? 0 : null;
       setActiveId(start);
       // Before 0.6.0 a review was left on Feedback or Threads, which Comments shows now: once, if it docks. Feedback
       // only once you've reviewed it, as 0.5 did.
@@ -562,16 +623,27 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   // Restore the saved scroll position once the page it was saved on shows. The diff draws its files a moment later, so
   // it follows them down until it gets there, for a few seconds, or until you scroll yourself. Meanwhile the browser's
-  // scroll anchoring is off: when a diff above the place draws, it would keep what shows on screen, off the place.
+  // scroll anchoring is off: when a diff above the place draws, it would keep what shows on screen, off the place. A
+  // remounted workspace goes back to the line that was at the top instead, which a new width wraps elsewhere.
   useEffect(() => {
     const box = scrollBox.current;
     const top = restoreScroll.current;
     if (top === null || !activeId || !box) return;
     restoreScroll.current = null;
-    if (!top) return;
+    const place = carriedPlace.current;
+    carriedPlace.current = null;
+    if (!top && !place) return;
     let frame = 0;
+    let settled = 0;
     const until = Date.now() + 3000;
     const follow = () => {
+      if (place) {
+        // On its line for a few frames running, as what's above it finishes drawing.
+        const off = goToPlace(box, place);
+        settled = off !== null && off < 2 ? settled + 1 : 0;
+        if (settled < 6 && Date.now() < until) frame = requestAnimationFrame(follow);
+        return;
+      }
       box.scrollTop = top;
       if (box.scrollTop < top - 1 && Date.now() < until) frame = requestAnimationFrame(follow);
     };
@@ -753,7 +825,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // The diff remounts after the Overview; it shouldn't jump back to an old comment.
   useEffect(() => { if (activeId === OVERVIEW) setReveal(undefined); }, [activeId]);
   // A selection's actions go with the chapter it was made in.
-  useEffect(() => { setLineSel(null); }, [activeId]);
+  // A new chapter starts with nothing selected, but for the lines a remounted workspace had selected.
+  useEffect(() => {
+    const lines = activeId ? carriedLines.current : null;
+    if (activeId) carriedLines.current = null;
+    setLineSel(lines);
+  }, [activeId]);
 
   useEffect(() => {
     if (pendingScroll.current && activeFiles.includes(pendingScroll.current)) {
@@ -791,7 +868,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     });
     if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current);
     const value = box.scrollTop;
-    scrollSaveTimer.current = setTimeout(() => patchReviewState(targetKey, { scrollTop: value }), 200);
+    scrollSaveTimer.current = setTimeout(() => {
+      patchReviewState(targetKey, { scrollTop: value });
+      keep(targetKey, { place: linePlace(box) });
+    }, 200);
   }, [targetKey, fileAtTop]);
 
   // Everyone's GitHub threads, under their lines in the diff unless hidden, and your feedback and reply drafts: the one
@@ -1001,7 +1081,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     >
       <div className="relative flex min-h-0 flex-1">
         <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetTitle={<ChapterViewSwitch view={navView} onChange={changeNavView} />} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelDockWidth(paneWidth, panelWidth) : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
-          <Navigator leading={<TopBand />} patch={patch} currentFile={currentFile} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={owners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} />
+          <Navigator leading={<TopBand />} patch={patch} currentFile={currentFile} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={owners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} initialFind={carry?.find} onFind={keepFind} />
         </NavigatorHost>
         <main aria-label="Review" inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
           {/* With the keyboard up leaving a phone held sideways' room or less, the band and notices give way to the code. */}

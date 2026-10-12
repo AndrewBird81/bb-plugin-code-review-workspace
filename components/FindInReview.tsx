@@ -35,16 +35,20 @@ function moveFocus(event: KeyboardEvent<HTMLElement>, box: HTMLInputElement | nu
  * of the diff, and the guide's chapters and file summaries. Its box heads the navigator, after
  * `leading`, and while there's a query its results take the place of `children`, which scroll below.
  */
-export const FindInReview = memo(function FindInReview({ patch, sections, onOpenLine, onOpenChapter, onOpenFile, leading, children }: {
+export const FindInReview = memo(function FindInReview({ patch, sections, onOpenLine, onOpenChapter, onOpenFile, leading, initialQuery = "", onQuery, children }: {
   patch: string;
   sections: readonly Section[];
   onOpenLine: (file: string, line: number, side: "LEFT" | "RIGHT") => void;
   onOpenChapter: (chapterId: string) => void;
   onOpenFile: (chapterId: string, file: string) => void;
   leading?: ReactNode;
+  /** The query a remounted workspace had typed (lib/remount.ts). */
+  initialQuery?: string;
+  onQuery?: (query: string) => void;
   children: ReactNode;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
+  useEffect(() => onQuery?.(query), [query, onQuery]);
   const box = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
   // "clearfind" empties the box at once, so what the results hide can take focus.

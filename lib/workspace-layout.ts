@@ -1,6 +1,7 @@
 // Where the review workspace puts its navigator and side panel, decided from the workspace's own size: BB's pane,
 // not the window, so a narrow pane on a wide screen lays out like a small screen.
-import { useLayoutEffect, useReducer, useRef } from "react";
+import { useLayoutEffect, useReducer, useRef, useState } from "react";
+import { carried, keep } from "./remount";
 import { TEXT_FIELD } from "./review-shortcuts";
 
 /** The narrowest the code gets beside docked sides. */
@@ -152,22 +153,35 @@ function phoneResize(was: Size, is: Size): boolean {
 /**
  * The layout for `el`'s size as it resizes. It re-renders only when the layout changes, not on every frame of a pane
  * drag. It measures as `el` resizes, and as the window and its visual viewport do, then again a frame later: on a
- * phone the window's new size can arrive after the resize.
+ * phone the window's new size can arrive after the resize. With `carryKey`, a workspace that takes another's place (BB
+ * remounts its page: lib/remount.ts) starts from that one's size, window and layout, so the change between them is a
+ * resize as in place: a phone's turn or fold carries what's open.
  */
-export function useWorkspaceLayout(el: HTMLElement | null, state: LayoutState): WorkspaceLayout {
-  const size = useRef<{ width: number; height: number; phoneResized: boolean } | null>(null);
+export function useWorkspaceLayout(el: HTMLElement | null, state: LayoutState, carryKey?: string): WorkspaceLayout {
+  const [seed] = useState(() => carryKey ? carried(carryKey)?.layout : undefined);
+  const size = useRef<{ width: number; height: number; phoneResized: boolean } | null>(seed ? { width: seed.width, height: seed.height, phoneResized: false } : null);
+  // The window as the workspace last resized.
+  const windowLast = useRef<Size | null>(seed?.window ?? null);
   const latest = useRef(state);
   latest.current = state;
   // The layout last rendered, which hysteresis keeps to.
-  const shown = useRef<WorkspaceLayout | undefined>(undefined);
+  const shown = useRef<WorkspaceLayout | undefined>(seed?.shown);
   const [, remeasured] = useReducer((count: number) => count + 1, 0);
   const { width, height, phoneResized } = size.current ?? { ...windowSize(), phoneResized: false };
   const next = workspaceLayout(width, height, state, shown.current, phoneResized);
   const layout = shown.current && sameLayout(next, shown.current) ? shown.current : next;
-  useLayoutEffect(() => { shown.current = layout; });
+  const kept = useRef<unknown[]>([]);
+  useLayoutEffect(() => {
+    shown.current = layout;
+    const now = [size.current?.width, size.current?.height, windowLast.current?.width, windowLast.current?.height, layout];
+    if (!carryKey || !size.current || !windowLast.current || now.every((value, index) => value === kept.current[index])) return;
+    kept.current = now;
+    keep(carryKey, { layout: { width: size.current.width, height: size.current.height, window: windowLast.current, shown: layout } });
+  });
   useLayoutEffect(() => {
     if (!el || typeof ResizeObserver === "undefined") return;
-    let windowWas = windowNow();
+    let windowWas = windowLast.current ?? windowNow();
+    windowLast.current = windowWas;
     const measure = ({ width, height: measured }: Size) => {
       if (!(width > 0)) return;
       let height = Number.isFinite(measured) ? measured : windowSize().height;
@@ -183,6 +197,7 @@ export function useWorkspaceLayout(el: HTMLElement | null, state: LayoutState): 
       const windowIs = windowNow();
       const phoneResized = phoneResize(windowWas, windowIs);
       windowWas = windowIs;
+      windowLast.current = windowIs;
       size.current = { width, height, phoneResized };
       if (!shown.current || !sameLayout(workspaceLayout(width, height, latest.current, shown.current, phoneResized), shown.current)) remeasured();
     };

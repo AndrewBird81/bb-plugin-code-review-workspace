@@ -13,8 +13,11 @@ import { Icon } from "./ui/icon";
  * Where you are in the review: Find in review's box after `leading`, then the Overview and the chapters, or every file.
  * The workspace hosts it beside the code, over it, or in a phone's sheet.
  */
-export const Navigator = memo(function Navigator({ leading, patch, currentFile, changedSince, lines, generated, threads, owners, onSelect, onSelectFile, onOpenLine, onOpenFile }: {
+export const Navigator = memo(function Navigator({ leading, patch, currentFile, changedSince, lines, generated, threads, owners, onSelect, onSelectFile, onOpenLine, onOpenFile, initialFind, onFind }: {
   leading: ReactNode;
+  /** Find in review's query as a remounted workspace had it, and where its changes go to be kept for the next. */
+  initialFind?: string;
+  onFind?: (query: string) => void;
   patch: string;
   /** The file you're on, marked in the open chapter's list. */
   currentFile?: string;
@@ -35,7 +38,7 @@ export const Navigator = memo(function Navigator({ leading, patch, currentFile, 
   // Where the review stands, in All reviews' words; a ready guide that's nobody's news says nothing.
   const status = reviewState(review).label === "Ready" ? null : statusWhy(review)?.text;
   return (
-    <FindInReview leading={leading} patch={patch} sections={sections} onOpenLine={onOpenLine} onOpenChapter={onSelect} onOpenFile={onOpenFile}>
+    <FindInReview leading={leading} patch={patch} sections={sections} onOpenLine={onOpenLine} onOpenChapter={onSelect} onOpenFile={onOpenFile} initialQuery={initialFind} onQuery={onFind}>
       <ChapterNav
         sections={sections}
         activeId={activeId}

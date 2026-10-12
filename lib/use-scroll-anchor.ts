@@ -2,6 +2,7 @@
 // reading rewrap and move it on screen, as does its file's sticky header. The browser's own scroll anchoring doesn't
 // reach into the diff's shadow DOM, so this keeps that line where it was: as far under the header as it was.
 import { useEffect } from "react";
+import type { LinePlace } from "./remount";
 
 interface Anchor {
   el: Element;
@@ -43,13 +44,13 @@ const sizeOf = (box: HTMLElement) => `${box.clientWidth}x${box.clientHeight}`;
  * as the chapter's intro, which may fold away as the screen turns; else the first thing that starts there; or, failing
  * that, what's there.
  */
-function anchorIn(box: HTMLElement): Anchor | null {
+function anchorIn(box: HTMLElement, focus = true): Anchor | null {
   const rect = box.getBoundingClientRect();
   if (!rect.height) return null;
   const x = rect.left + rect.width / 2;
   const top = codeTop(box);
   const focused = document.activeElement;
-  if (focused && focused !== box && box.contains(focused)) {
+  if (focus && focused && focused !== box && box.contains(focused)) {
     const { top: focusTop, bottom } = focused.getBoundingClientRect();
     if (bottom > top && focusTop < rect.bottom && bottom - focusTop <= rect.height) return { el: focused, offset: focusTop - top, size: sizeOf(box) };
   }
@@ -66,6 +67,33 @@ function anchorIn(box: HTMLElement): Anchor | null {
   }
   const el = starting ?? first;
   return el && { el, offset: el.getBoundingClientRect().top - top, size: sizeOf(box) };
+}
+
+/**
+ * Where you are in the code in `box`, as the resize anchor keeps it: the box you're typing in, else the line of code at
+ * the top of what shows, by its file and its index in pierre's diff rather than by pixels; and how far under the top.
+ * Where a new workspace goes back to (lib/remount.ts). Null where there's neither.
+ */
+export function linePlace(box: HTMLElement): LinePlace | null {
+  const anchor = anchorIn(box);
+  if (anchor && anchor.el === document.activeElement) return { focus: true, offset: anchor.offset };
+  const index = anchor?.el.getAttribute("data-line-index");
+  const host = anchor && (anchor.el.getRootNode() as ShadowRoot).host;
+  const file = index && host?.closest("[data-file]")?.getAttribute("data-file");
+  return anchor && index && file ? { file, index, offset: anchor.offset } : null;
+}
+
+/** Scrolls `box` to put `place` as far under the code's top as it was: how far off it still is, or null while it isn't there. */
+export function goToPlace(box: HTMLElement, place: LinePlace): number | null {
+  let target: Element | null | undefined;
+  if ("focus" in place) target = document.activeElement !== box && box.contains(document.activeElement) ? document.activeElement : null;
+  else {
+    const file = Array.from(box.querySelectorAll("[data-file]")).find((el) => el.getAttribute("data-file") === place.file);
+    target = file?.querySelector("diffs-container")?.shadowRoot?.querySelector(`[data-line][data-line-index="${place.index}"]`);
+  }
+  if (!target) return null;
+  box.scrollTop += target.getBoundingClientRect().top - codeTop(box) - place.offset;
+  return Math.abs(target.getBoundingClientRect().top - codeTop(box) - place.offset);
 }
 
 /** Keeps what's at the top of the code in its scroll `box` in its place on screen as the box resizes. */

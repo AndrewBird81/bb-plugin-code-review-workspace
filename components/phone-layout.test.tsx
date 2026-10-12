@@ -87,6 +87,28 @@ test("on a phone the chapters sheet's header holds Chapters | All files, and the
   slot.lifecycle.unmount();
 });
 
+test("as BB remounts the page, as a phone turns, the new one has the chapters open, Find's text and the focus; later, nothing opens by itself", async () => {
+  fakeSize(390, 844);
+  let slot = await renderWorkspace();
+  fireEvent.click(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Chapters:/ }));
+  const find = slot.getByRole("dialog", { name: "Chapters" }).querySelector<HTMLInputElement>("[data-find-box]")!;
+  find.focus();
+  fireEvent.change(find, { target: { value: "rows" } });
+  slot.lifecycle.unmount();
+  slot = await renderWorkspace();
+  const sheet = await slot.findByRole("dialog", { name: "Chapters" });
+  const again = sheet.querySelector<HTMLInputElement>("[data-find-box]")!;
+  expect(again.value).toBe("rows");
+  await waitFor(() => expect(document.activeElement).toBe(again));
+  slot.lifecycle.unmount();
+  // Opened again later, it opens as usual.
+  const later = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 5000);
+  restores.push(() => later.mockRestore());
+  slot = await renderWorkspace();
+  expect(slot.queryByRole("dialog", { name: "Chapters" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("on a phone the diff's options are behind the chapters sheet's Diff options, without Split, which can't apply there", async () => {
   fakeSize(390, 844);
   const slot = await renderWorkspace();
