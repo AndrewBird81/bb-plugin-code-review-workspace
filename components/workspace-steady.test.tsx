@@ -101,13 +101,13 @@ test("a background reload keeps the diff the server leaves out, and reads the ch
 test("Since your review follows the review you just submitted here, before GitHub reports it", async () => {
   let review: Record<string, unknown> = { submittedVerdict: "REQUEST_CHANGES", submittedAt: now - 3 * DAY, submittedHeadSha: "old", signals: { lastReviewAt: now - 3 * DAY, lastReviewSha: "old" }, turn: turn() };
   const { slot, rpc } = await renderWorkspace(() => review);
-  const toggle = await slot.findByRole("button", { name: "Since your review" });
-  fireEvent.click(toggle);
-  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(await slot.findByRole("button", { name: "Show changes: All changes" }));
+  fireEvent.click(await slot.findByRole("menuitemradio", { name: /^Since your review/ }));
+  expect(await slot.findByRole("button", { name: "Show changes: Since your review" })).toBeTruthy();
   // You submit on the new head; GitHub still reports the old review.
   review = { ...review, submittedAt: now, submittedHeadSha: "new" };
   await slot.emitRealtime("review:pr-42", {});
-  await waitFor(() => expect(slot.queryByRole("button", { name: "Since your review" })).toBeNull());
+  await waitFor(() => expect(slot.queryByRole("button", { name: /^Show changes/ })).toBeNull());
   expect(rpc.getSinceReview).toHaveBeenCalledTimes(1);
   slot.lifecycle.unmount();
 });
@@ -116,9 +116,12 @@ test("a failed comparison with your last review says so", async () => {
   const { slot } = await renderWorkspace(() => ({ submittedVerdict: "COMMENT", submittedAt: now - DAY, submittedHeadSha: "old", turn: turn() }), {
     getSinceReview: () => ({ baseline: null, files: [], error: "gh: not found" }),
   });
-  const status = await slot.findByText("Couldn’t compare with your last review");
-  expect(status.getAttribute("title")).toBe("gh: not found");
-  expect(slot.queryByRole("button", { name: "Since your review" })).toBeNull();
+  // The compare select says so, and why, and narrows nothing.
+  const select = await slot.findByRole("button", { name: "Show changes: All changes. Couldn’t compare with your last review: gh: not found" });
+  fireEvent.click(select);
+  fireEvent.click(await slot.findByRole("menuitemradio", { name: /^Since your review/ }));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(select.getAttribute("aria-label")).toMatch(/^Show changes: All changes\./);
   slot.lifecycle.unmount();
 });
 

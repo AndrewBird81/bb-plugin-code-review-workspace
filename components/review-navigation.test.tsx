@@ -166,18 +166,23 @@ test("under Since your review, opening a file unchanged since then turns the fil
   const setup = await sinceReviewSetup();
   const comment = { file: "src/a.ts", line: 1, side: "RIGHT", body: "Why?", author: "reviewer" };
   const { slot } = await renderWorkspace({ ...setup, rpc: { ...setup.rpc, getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [comment] } }) } });
-  const filter = await slot.findByRole("button", { name: "Since your review" });
+  // The band's compare select, narrowed to what changed since your review.
+  const narrow = async () => {
+    fireEvent.click(await slot.findByRole("button", { name: /^Show changes: / }));
+    fireEvent.click(await slot.findByRole("menuitemradio", { name: /^Since your review/ }));
+  };
+  const showing = () => slot.getByRole("button", { name: /^Show changes: / }).getAttribute("aria-label");
   fireEvent.click(chapters(slot).getByText("Parsing"));
-  fireEvent.click(filter);
+  await narrow();
   expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeNull();
   fireEvent.click(chapters(slot).getByText("a.ts"));
-  expect(filter.getAttribute("aria-pressed")).toBe("false");
+  expect(showing()).toBe("Show changes: All changes");
   expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeTruthy();
   // A draft comment's Show in diff does the same.
-  fireEvent.click(filter);
+  await narrow();
   await openDrafts(slot);
   fireEvent.click(await slot.findByRole("button", { name: /^src\/a\.ts:1/ }));
-  expect(filter.getAttribute("aria-pressed")).toBe("false");
+  expect(showing()).toBe("Show changes: All changes");
   slot.lifecycle.unmount();
 }, 15_000);
 
@@ -394,7 +399,7 @@ test("shortcuts wait while you type, and with Ctrl, Meta, or Alt held", async ()
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("v and Mark chapter viewed fold or open a file the checkbox folded before", async () => {
+test("v and Mark chapter viewed (⇧V) fold or open a file the checkbox folded before", async () => {
   const viewed = new Set<string>();
   const { slot } = await renderWorkspace({ rpc: {
     getFileViews: () => ({ views: [...viewed].map((file) => ({ file, viewed: true, stale: false })) }),
@@ -406,7 +411,7 @@ test("v and Mark chapter viewed fold or open a file the checkbox folded before",
   await waitFor(() => expect(slot.queryByText("aa")).toBeNull());
   press("v");
   await slot.findByText("aa");
-  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Mark chapter viewed" }));
+  press("V", { shiftKey: true });
   await waitFor(() => expect(slot.queryByText("aa")).toBeNull());
   slot.lifecycle.unmount();
 }, 15_000);
@@ -529,14 +534,15 @@ test("keys work as soon as Esc closes the shortcuts, while they fade out", async
   vi.mocked(window.getComputedStyle).mockRestore();
 }, 15_000);
 
-test("the toolbar counts the chapter's viewed files as such, and marks the chapter viewed", async () => {
+test("the band names the chapter with its files viewed as such, and ⇧V marks the chapter viewed", async () => {
   const { slot, rpc } = await renderWorkspace();
   await slot.findByText("aa");
   fireEvent.click(chapters(slot).getByText("Caching"));
-  const main = within(slot.getByRole("main"));
-  await main.findByText("0 of 2 files viewed in this chapter");
-  fireEvent.click(main.getByRole("button", { name: "Mark chapter viewed" }));
+  const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
+  await crumbs.findByText("Chapter 2 of 2: Caching, 0 of 2 files viewed");
+  press("V", { shiftKey: true });
   expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts", "src/c.ts"] });
+  expect(await crumbs.findByText("Chapter 2 of 2: Caching, 2 of 2 files viewed")).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
 

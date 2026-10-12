@@ -53,15 +53,21 @@ async function renderWorkspace() {
   return slot;
 }
 
-test("Hide whitespace shows whitespace-only changes as unchanged lines, keeps comments on them, and sticks in this browser", async () => {
+/** Diff options' Hide whitespace changes. */
+async function hideWhitespace(slot: Awaited<ReturnType<typeof renderWorkspace>>) {
+  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+  return slot.findByRole("switch", { name: "Hide whitespace changes" });
+}
+
+test("Hide whitespace changes shows whitespace-only changes as unchanged lines, keeps comments on them, and sticks in this browser", async () => {
   const slot = await renderWorkspace();
-  const toggle = within(slot.getByRole("main")).getByRole("button", { name: "Hide whitespace" });
-  expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  const toggle = await hideWhitespace(slot);
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
   expect(lastDrawn("src/a.ts").kinds).toEqual(["change"]);
   fireEvent.click(toggle);
   await waitFor(() => expect(lastDrawn("src/a.ts").kinds).toEqual(["context"]));
   expect(lastDrawn("src/b.ts").kinds).toEqual(["context", "change"]);
-  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
   const a = within(slot.container.querySelector<HTMLElement>('[data-file="src/a.ts"]')!);
   const b = within(slot.container.querySelector<HTMLElement>('[data-file="src/b.ts"]')!);
   expect(a.getByRole("status").textContent).toBe("Only whitespace changed.");
@@ -73,7 +79,8 @@ test("Hide whitespace shows whitespace-only changes as unchanged lines, keeps co
   drawn.length = 0;
 
   const again = await renderWorkspace();
-  expect(within(again.getByRole("main")).getByRole("button", { name: "Hide whitespace" }).getAttribute("aria-pressed")).toBe("true");
+  expect((await hideWhitespace(again)).getAttribute("aria-checked")).toBe("true");
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   expect(lastDrawn("src/a.ts").kinds).toEqual(["context"]);
   // Loaded in full, the file still hides them.
   const a2 = within(again.container.querySelector<HTMLElement>('[data-file="src/a.ts"]')!);

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { test, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 import { installTestPluginRuntime, loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { interdiff } from "../src/interdiff";
 import { defaultPreferences } from "../src/preferences";
@@ -66,10 +66,11 @@ test("removed files show only in the chapter that shows them", () => {
 test("with the filter off, every file shows in full and changed or added ones are badged", () => {
   render(<DiffViewer patch={current} files={chapter} views={new Map()} onToggleViewed={() => {}} since={since} />);
   expect(diffOf("src/a.ts")!.getByTestId("filediff").textContent).toContain("new");
-  expect(diffOf("src/a.ts")!.getByText("Changed since your review")).toBeTruthy();
+  // Briefly, with the whole of it in its tooltip and for screen readers.
+  expect(diffOf("src/a.ts")!.getByTitle("Changed since your review").textContent).toBe("Changed since your review");
   // A file new to the PR since then says so, as All files does.
-  expect(diffOf("src/c.ts")!.getByText("Added since your review")).toBeTruthy();
-  expect(diffOf("src/b.ts")!.queryByText("Changed since your review")).toBeNull();
+  expect(diffOf("src/c.ts")!.getByTitle("Added to the PR since your review").textContent).toBe("Added since your review");
+  expect(diffOf("src/b.ts")!.queryByTitle("Changed since your review")).toBeNull();
   expect(screen.queryByText(/unchanged since your review/)).toBeNull();
   expect(screen.queryByRole("region", { name: "src/d.ts removed" })).toBeNull();
 });
@@ -106,19 +107,21 @@ async function renderWorkspace(review: Record<string, unknown>, getSinceReview =
 
 test("the diff offers Since your review only when you reviewed another commit", async () => {
   const same = await renderWorkspace({ headSha: "old", signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" });
-  expect(same.slot.queryByRole("button", { name: "Since your review" })).toBeNull();
+  await same.slot.findAllByTestId("filediff");
+  expect(same.slot.queryByRole("button", { name: /^Show changes/ })).toBeNull();
   expect(same.getSinceReview).not.toHaveBeenCalled();
   same.slot.lifecycle.unmount();
 
   const { slot, getSinceReview } = await renderWorkspace({ headSha: "new", signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" });
-  const toggle = await slot.findByRole("button", { name: "Since your review" });
+  const select = await slot.findByRole("button", { name: "Show changes: All changes" });
   expect(getSinceReview).toHaveBeenCalledWith({ targetKey: "pr-42" });
   // Each chapter counts its files changed since your review.
   const chapters = within(slot.getByRole("navigation", { name: "Chapters" }));
-  expect(chapters.getAllByText("1 changed")).toHaveLength(2);
+  await waitFor(() => expect(chapters.getAllByText("1 changed")).toHaveLength(2));
   expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
-  fireEvent.click(toggle);
-  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(select);
+  fireEvent.click(await slot.findByRole("menuitemradio", { name: /^Since your review/ }));
+  expect(await slot.findByRole("button", { name: "Show changes: Since your review" })).toBeTruthy();
   expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeNull();
   expect(slot.getByText("1 file unchanged since your review")).toBeTruthy();
   slot.lifecycle.unmount();

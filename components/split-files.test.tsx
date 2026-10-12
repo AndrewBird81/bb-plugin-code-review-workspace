@@ -118,7 +118,8 @@ test("since your review, a split file counts and shows only in the chapters whos
   await waitFor(() => expect(nav.getByText("1 changed")).toBeTruthy());
   expect(nav.getByText("1 changed").closest("li")!.textContent).toContain("Caching");
   fireEvent.click(nav.getByText("Parsing"));
-  fireEvent.click(await slot.findByRole("button", { name: "Since your review" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Show changes: All changes" }));
+  fireEvent.click(await slot.findByRole("menuitemradio", { name: /^Since your review/ }));
   await waitFor(() => expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeNull());
   fireEvent.click(nav.getByText("Caching"));
   await slot.findByText(/CACHE/);
@@ -176,10 +177,10 @@ test("a split file shows Changed since your review only in the chapters whose hu
   await waitFor(() => expect(nav.getByText("1 changed")).toBeTruthy());
   fireEvent.click(nav.getByText("Parsing"));
   await slot.findByText(/PARSE/);
-  expect(card(slot).queryByText("Changed since your review")).toBeNull();
+  expect(card(slot).queryByTitle("Changed since your review")).toBeNull();
   fireEvent.click(nav.getByText("Caching"));
   await slot.findByText(/CACHE/);
-  expect(card(slot).getByText("Changed since your review")).toBeTruthy();
+  expect(card(slot).getByTitle("Changed since your review")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -202,9 +203,9 @@ test("a split file shows Changed since your review in the chapter nearest a chan
   expect(nav.getByText("1 changed").closest("li")!.textContent).toContain("Caching");
   fireEvent.click(nav.getByText("Parsing"));
   await slot.findByText(/PARSE/);
-  expect(card(slot).queryByText("Changed since your review")).toBeNull();
+  expect(card(slot).queryByTitle("Changed since your review")).toBeNull();
   fireEvent.click(nav.getByText("Caching"));
   await slot.findByText(/CACHE/);
-  expect(card(slot).getByText("Changed since your review")).toBeTruthy();
+  expect(card(slot).getByTitle("Changed since your review")).toBeTruthy();
   slot.lifecycle.unmount();
 });

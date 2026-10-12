@@ -121,7 +121,8 @@ test("a phone held sideways keeps its band to 40px: All reviews and the chapter,
   const slot = await renderWorkspace();
   expect(band(slot).className.split(" ")).toContain("h-10");
   const crumbs = within(slot.getByRole("navigation", { name: "Breadcrumb" }));
-  expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("");
+  // With 720px of room, ‹ says where it goes.
+  expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("All reviews");
   expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
   const main = within(slot.getByRole("main"));
   expect(main.queryByRole("button", { name: "Wrap lines" })).toBeNull();
@@ -130,7 +131,7 @@ test("a phone held sideways keeps its band to 40px: All reviews and the chapter,
   slot.lifecycle.unmount();
 });
 
-test("on a wide screen the band shows the review's title beside the chapter, and the toolbar's controls", async () => {
+test("on a wide screen the band shows the review's title beside the chapter, then Fold comments and Diff options", async () => {
   // The code keeps 912px between the chapters and the panel.
   fakeSize(1600, 900);
   const slot = await renderWorkspace();
@@ -138,10 +139,10 @@ test("on a wide screen the band shows the review's title beside the chapter, and
   expect(crumbs.getByRole("button", { name: "All reviews" }).textContent).toBe("All reviews");
   expect(crumbs.getByRole("button", { name: "Parse rows" })).toBeTruthy();
   expect(crumbs.getByText("Chapter 1 of 1: Parsing, 0 of 1 files viewed")).toBeTruthy();
-  const main = within(slot.getByRole("main"));
-  expect(main.getByRole("button", { name: "Split view" })).toBeTruthy();
-  expect(main.getByText("0 of 1 files viewed in this chapter")).toBeTruthy();
-  expect(main.getByRole("button", { name: "Mark chapter viewed" })).toBeTruthy();
+  // The diff's settings are behind Diff options; the chapter's end and the chapters mark it viewed.
+  const controls = within(band(slot)).getAllByRole("button").map((button) => button.getAttribute("aria-label"));
+  expect(controls.slice(-2)).toEqual(["Fold comments in code", "Diff options"]);
+  expect(within(band(slot)).queryByRole("button", { name: "Mark chapter viewed" })).toBeNull();
   // Not short: the chapters, the chapter's overview, and the saved open panel show.
   expect(slot.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
   expect(slot.getByRole("button", { name: "Hide chapter overview" })).toBeTruthy();

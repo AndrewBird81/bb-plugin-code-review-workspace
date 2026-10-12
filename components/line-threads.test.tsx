@@ -73,7 +73,13 @@ test("GitHub threads show under their lines, with replies, and resolved and outd
   slot.lifecycle.unmount();
 });
 
-test("Reply and Resolve on a thread in the diff go to GitHub, and the toolbar hides the threads", async () => {
+/** Diff options' GitHub threads in code, from the band. */
+async function threadsInCode(slot: Awaited<ReturnType<typeof renderWorkspace>>["slot"]) {
+  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+  return slot.findByRole("switch", { name: "GitHub threads in code" });
+}
+
+test("Reply and Resolve on a thread in the diff go to GitHub, and Diff options hides the threads", async () => {
   const { slot, rpc, file } = await renderWorkspace();
   const open = await file().findByRole("article", { name: "GitHub thread on src/a.ts:2" });
   fireEvent.click(within(open).getByRole("button", { name: "Reply" }));
@@ -83,11 +89,11 @@ test("Reply and Resolve on a thread in the diff go to GitHub, and the toolbar hi
   await waitFor(() => expect(rpc.getReviewThreads).toHaveBeenCalledTimes(2));
   fireEvent.click(within(await file().findByRole("article", { name: "GitHub thread on src/a.ts:2" })).getByRole("button", { name: "Resolve" }));
   await waitFor(() => expect(rpc.resolveThread).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t1" }));
-  const toggle = within(slot.getByRole("main")).getByRole("button", { name: "GitHub threads" });
-  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  const toggle = await threadsInCode(slot);
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
   fireEvent.click(toggle);
   await waitFor(() => expect(file().queryByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeNull());
-  expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
   slot.lifecycle.unmount();
 });
 
@@ -111,13 +117,13 @@ test("Show in diff in Comments' Threads opens the diff at the thread, beside the
 
 test("Show in diff in Comments' Threads shows GitHub threads in the diff again if they were hidden", async () => {
   const { slot, file } = await renderWorkspace();
-  const main = within(slot.getByRole("main"));
   await file().findByRole("article", { name: "GitHub thread on src/a.ts:2" });
-  fireEvent.click(main.getByRole("button", { name: "GitHub threads" }));
+  fireEvent.click(await threadsInCode(slot));
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   const panel = await openThreads(slot);
   await panel.findByText("Why upper case?");
   fireEvent.click(panel.getAllByRole("button", { name: "Show in diff" })[0]);
   expect(await file().findByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeTruthy();
-  expect(main.getByRole("button", { name: "GitHub threads" }).getAttribute("aria-pressed")).toBe("true");
+  expect((await threadsInCode(slot)).getAttribute("aria-checked")).toBe("true");
   slot.lifecycle.unmount();
 });
