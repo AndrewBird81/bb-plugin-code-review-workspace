@@ -81,7 +81,7 @@ function ComparePage({ onBack, onPicked }: { onBack: () => void; onPicked: () =>
   const { review } = useWorkspace();
   const { commits, error } = useCommits(review.kind === "pr");
   return <>
-    <Button variant="ghost" size="sm" className={cn("h-8 w-full justify-start gap-1 px-1.5 text-xs text-muted-foreground", TOUCH_CONTROL)} onClick={onBack}>
+    <Button variant="ghost" size="sm" aria-label="Back to Diff options" className={cn("h-8 w-full justify-start gap-1 px-1.5 text-xs text-muted-foreground", TOUCH_CONTROL)} onClick={onBack}>
       <Icon name="ChevronLeft" aria-hidden />Diff options
     </Button>
     <CompareMenu commits={commits} error={error} onPicked={onPicked} />

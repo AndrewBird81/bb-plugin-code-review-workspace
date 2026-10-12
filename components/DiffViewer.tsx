@@ -617,7 +617,7 @@ export const DiffViewer = memo(function DiffViewer({
   const narrowedNote = filtering && onSinceOnly && (
     <p role="status" className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-lg border border-primary/25 bg-primary/10 py-1 pl-3 pr-1 text-xs text-primary">
       <Icon name="GitCommit" className="size-3.5 shrink-0" aria-hidden />
-      <span className="min-w-0 flex-1">Showing changes since {sinceWhat} · {perFile.length} of {perFile.length + unchanged} file{perFile.length + unchanged === 1 ? "" : "s"}</span>
+      <span className="min-w-0 flex-1">Showing changes since {sinceWhat} · <span className="whitespace-nowrap">{perFile.length} of {perFile.length + unchanged} file{perFile.length + unchanged === 1 ? "" : "s"}</span></span>
       <Button variant="ghost" size="sm" className={cn("h-7 px-2 text-xs font-medium text-primary hover:text-primary", TOUCH_COMPACT)} onClick={() => onSinceOnly(false)}>Show all</Button>
     </p>
   );
@@ -718,9 +718,10 @@ export const DiffViewer = memo(function DiffViewer({
                 Viewed
               </label>
             </div>
-            {/* What the guide says of it, and what else there is to do with it: this scrolls away. */}
+            {/* What the guide says of it, and what else there is to do with it, which scroll away. The actions end the row
+                where they fit, and start a line of their own where they don't. */}
             {details && (
-              <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] px-3 py-1.5", !folded && "border-b border-border")}>
+              <div className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] px-3 py-1.5", !folded && "border-b border-border")}>
                 <div className="min-w-0 flex-1 basis-60 space-y-0.5 empty:hidden">
                   {summary && <p className="text-xs leading-snug text-muted-foreground"><InlineCode text={summary} /></p>}
                   {oldPath && <p className="truncate text-[11px] text-muted-foreground">Renamed from <span className="font-mono">{oldPath}</span></p>}
@@ -733,7 +734,7 @@ export const DiffViewer = memo(function DiffViewer({
                   )}
                   {stale && <p className="flex items-center gap-1 text-[11px] font-medium text-warning-text"><Icon name="AlertTriangle" className="size-3 shrink-0" aria-hidden />Changed since you viewed it</p>}
                 </div>
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <FileTag file={path} generated={generated.has(path)} className="text-[11px]" />
                   {showDiff && (
                     <Button variant="ghost" size="sm" aria-label={`Show diff of ${path}`} className={cn("h-6 shrink-0 px-2 text-[11px]", TOUCH_COMPACT)} onClick={() => toggleCollapsed(path)}>Show diff</Button>

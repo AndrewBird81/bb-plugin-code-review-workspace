@@ -3,7 +3,7 @@ import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
 import { useTitleBarMounted } from "../../lib/workspace-store";
-import { ComparePicker, lastReviewed } from "../ComparePicker";
+import { compareLabel, ComparePicker, lastReviewed } from "../ComparePicker";
 import { ChapterStep } from "../shell/ChapterStep";
 import { TopBand } from "../shell/TopBand";
 import { TitleBarControls } from "../TitleBarControls";
@@ -18,36 +18,46 @@ import { DiffOptions } from "./DiffOptions";
 /** How long BB's title bar has to take the review's commands before the band shows them itself. */
 const TITLE_BAR_WAIT_MS = 500;
 
-/** What the band shows beside its buttons: "All reviews" beside ‹, the review's title, and the compare select's label. */
+/** What the band shows beside its buttons: "All reviews" beside ‹, the review's title, the compare select, and Fold. */
 export interface BandFit {
   back: boolean;
   title: boolean;
   /** "brief": "Since review"; null: the comparison is in Diff options. */
   compare: "full" | "brief" | null;
+  /** Fold comments, which a phone held sideways also has in Diff options. */
+  fold: boolean;
 }
 
 // The widths, in px, that the band's parts need beside its buttons: the chapter's ring and the start of its title, which
-// always shows; the compare select's two labels; "All reviews" beside ‹; and the review's title with its slashes.
-const CHAPTER = 160;
-const COMPARE = { full: 150, brief: 118 };
-const BACK = 84;
-const TITLE = 200;
+// always show, at the least beside the compare select and as usual beside the rest; "All reviews" beside ‹; and the
+// review's title with its slashes.
+const CHAPTER = { least: 120, usual: 180 };
+const BACK = 82;
+const TITLE = 160;
+
+/** The compare select's width with `label`: about 6.5px a character, its chevron, and its padding. */
+export const selectWidth = (label: string) => Math.ceil(label.length * 6.5) + 34;
 
 /**
  * What fits in `room` px of band beside its `buttons` square buttons of `size` px: the chapter's title first, then the
- * compare select (`compare`: the review has one), then "All reviews" from a reader of 720px, then the review's title.
+ * compare select, `compare` px wide with its full or brief label (null: the review has none), then "All reviews" from a
+ * reader of 720px, then the review's title. Fold comments, one of the buttons, gives way to the chapter's title where
+ * Diff options has it too (`foldable`).
  */
-export function bandFit(room: number, buttons: number, size: number, compare: boolean): BandFit {
-  let left = room - buttons * (size + 4) - CHAPTER - 12;
+export function bandFit(room: number, buttons: number, size: number, compare: { full: number; brief: number } | null, foldable = false): BandFit {
+  let left = room - buttons * (size + 4);
+  const fold = !foldable || left >= CHAPTER.least;
+  if (!fold) left += size + 4;
   // The full label only with room to spare, so the chapter's title doesn't lose what the label gains.
-  const select = !compare ? null : left >= COMPARE.full + 80 ? "full" : left >= COMPARE.brief ? "brief" : null;
-  left -= select ? COMPARE[select] : 0;
+  const select = !compare ? null : left - CHAPTER.least >= compare.full + 60 ? "full" : left - CHAPTER.least >= compare.brief ? "brief" : null;
+  left -= (select ? compare![select] : 0) + CHAPTER.usual;
   const back = room >= 720 && left >= BACK;
   left -= back ? BACK : 0;
-  return { back, title: left >= TITLE + 120, compare: select };
+  // The review's title only in the whole breadcrumb: after ‹ alone, it would read as where ‹ goes.
+  return { back, title: back && left >= TITLE + 120, compare: select, fold };
 }
 
-const sameFit = (a: BandFit, b: BandFit) => a.back === b.back && a.title === b.title && a.compare === b.compare;
+const sameFit = (a: BandFit, b: BandFit) => a.back === b.back && a.title === b.title && a.compare === b.compare && a.fold === b.fold;
 
 /**
  * The band's fit for the room its `el` has, measured as it resizes. It re-renders only when the fit changes, not on
@@ -98,10 +108,13 @@ export function ReaderBar({ threads }: { threads: boolean }) {
   const short = layout.mode === "short";
   const index = activeId === OVERVIEW ? -1 : sections.findIndex((section) => section.id === activeId);
   const chapter = sections[index];
-  // A re-review compares with your last review; a first review shows its comparison once you pick a commit.
-  const comparable = !!lastReviewed(compare) || !!compare.from;
+  // A re-review compares with your last review; a first review shows its comparison once you pick a commit. The select
+  // is sized for its longer label either way, so what it says doesn't move it out of the band.
+  const comparable = !!chapter && (!!lastReviewed(compare) || !!compare.from);
+  const longer = (brief: boolean) => [compareLabel(false, null), compareLabel(true, compare.from, brief)].reduce((a, b) => b.length > a.length ? b : a);
+  const sized = (brief: boolean) => selectWidth(longer(brief)) + (compare.error ? 18 : 0);
   const buttons = (layout.nav === "docked" ? 0 : 2) + 1 + (chapter ? 2 : 0);
-  const fit = useBandFit(reading, (room) => bandFit(room, buttons, short ? 36 : coarse ? 44 : 32, !!chapter && comparable));
+  const fit = useBandFit(reading, (room) => bandFit(room, buttons, short ? 36 : coarse ? 44 : 32, comparable ? { full: sized(false), brief: sized(true) } : null, short));
   if (layout.mode === "phone") return null;
   const commands = fullscreen.on || (waited && !titleBar);
   const chapterFiles = chapter?.diffs.map((diff) => diff.file) ?? [];
@@ -137,11 +150,11 @@ export function ReaderBar({ threads }: { threads: boolean }) {
         </nav>
         {chapter && <div className="flex shrink-0 items-center gap-1">
           {fit.compare && <ComparePicker brief={fit.compare === "brief"} />}
-          <Hint label="Fold comments (i)" container={container}>
+          {fit.fold && <Hint label="Fold comments (i)" container={container}>
             <Button variant="ghost" size="sm" aria-label={display.commentsFolded ? "Unfold comments in code" : "Fold comments in code"} className={cn(icon, display.commentsFolded && "text-primary hover:text-primary")} onClick={() => display.setCommentsFolded(!display.commentsFolded)}>
               <Icon name={display.commentsFolded ? "ChevronsDown" : "ChevronsUp"} aria-hidden />
             </Button>
-          </Hint>
+          </Hint>}
           <DiffOptions threads={threads} compareInBand={!!fit.compare} className={touch} />
         </div>}
       </div>
