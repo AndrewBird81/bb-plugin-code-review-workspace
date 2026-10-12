@@ -91,3 +91,72 @@ test("without a visual viewport there's nothing to do", () => {
   act(() => box.focus());
   expect(root.style.getPropertyValue("--gr-kb")).toBe("");
 });
+
+test("with the keyboard up, the workspace says whether it leaves a phone held sideways' room or less", () => {
+  // The Duo folded sideways: 386 tall, less BB's bar, less a 230px keyboard, leaves 108.
+  const short = fakeViewport(386);
+  const { root, box } = workspace(386);
+  renderHook(() => useKeyboardInset(root));
+  expect(root.hasAttribute("data-keyboard")).toBe(false);
+  act(() => box.focus());
+  short.show(230);
+  expect(root.getAttribute("data-keyboard")).toBe("short");
+  act(() => box.blur());
+  expect(root.hasAttribute("data-keyboard")).toBe(false);
+});
+
+test("an iPad's keyboard leaves room to spare", () => {
+  const viewport = fakeViewport(1376);
+  const { root, box } = workspace(1376);
+  renderHook(() => useKeyboardInset(root));
+  act(() => box.focus());
+  viewport.show(400);
+  expect(root.getAttribute("data-keyboard")).toBe("up");
+});
+
+test("a box taller than the room above the keyboard shows its top, where you type, under the file's sticky header", async () => {
+  const viewport = fakeViewport(386);
+  const root = document.createElement("div");
+  const scroller = root.appendChild(document.createElement("div"));
+  scroller.style.overflowY = "auto";
+  Object.defineProperty(scroller, "scrollHeight", { value: 2000 });
+  Object.defineProperty(scroller, "clientHeight", { value: 290 });
+  // The diff's box scrolls sideways only, and so has overflow-y auto too.
+  const sideways = scroller.appendChild(document.createElement("div"));
+  sideways.style.overflowX = "auto";
+  sideways.style.overflowY = "auto";
+  const header = scroller.appendChild(document.createElement("div"));
+  header.style.position = "sticky";
+  const name = header.appendChild(document.createElement("span"));
+  const box = sideways.appendChild(document.createElement("textarea"));
+  document.body.append(root);
+  root.getBoundingClientRect = () => new DOMRect(0, 48, 594, 338);
+  scroller.scrollTop = 500;
+  // Brought into view at its end, its top sits 40px under the header held at 48–112.
+  box.scrollIntoView = vi.fn();
+  box.getBoundingClientRect = () => new DOMRect(0, 72, 500, 80);
+  header.getBoundingClientRect = () => new DOMRect(0, 48, 594, 64);
+  document.elementsFromPoint = () => [name, header, scroller, root];
+  try {
+    renderHook(() => useKeyboardInset(root));
+    act(() => box.focus());
+    viewport.show(230);
+    await vi.waitFor(() => expect(scroller.scrollTop).toBe(460));
+    expect(box.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+  } finally {
+    delete (document as { elementsFromPoint?: unknown }).elementsFromPoint;
+  }
+});
+
+test("as what holds the workspace scrolls, bringing the box into view, the workspace's end follows", () => {
+  const viewport = fakeViewport(598);
+  const { root, box } = workspace(598);
+  renderHook(() => useKeyboardInset(root));
+  act(() => box.focus());
+  viewport.show(290);
+  expect(root.style.getPropertyValue("--gr-kb")).toBe("290px");
+  // BB's frame scrolled 58px to show the box: the workspace's bottom is at 540, 232 of it under the keyboard.
+  root.getBoundingClientRect = () => new DOMRect(0, -10, 390, 550);
+  act(() => { document.body.dispatchEvent(new Event("scroll")); });
+  expect(root.style.getPropertyValue("--gr-kb")).toBe("232px");
+});

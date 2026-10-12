@@ -4,6 +4,8 @@ import { useLayoutEffect, useReducer, useRef } from "react";
 
 /** The narrowest the code gets beside docked sides. */
 export const READER_MIN = 560;
+/** A workspace shorter than this is a phone held sideways (`short`). */
+export const SHORT_BELOW = 500;
 export const NAV_WIDTH = { initial: 288, min: 200, max: 560 };
 export const PANEL_WIDTH = { initial: 400, min: 320, max: 640 };
 /** How far past a threshold a size must move to undo what it decided, so a size wobbling across it doesn't flip it. */
@@ -72,7 +74,7 @@ export function readerWidth(width: number, state: LayoutState, layout: Pick<Work
  * takes it over the code instead: what you had open stays open as the screen changes.
  */
 export function workspaceLayout(width: number, height: number, state: LayoutState, previous?: WorkspaceLayout, windowResized = false): WorkspaceLayout {
-  const mode: WorkspaceMode = below(height, 500, previous && previous.mode === "short") ? "short"
+  const mode: WorkspaceMode = below(height, SHORT_BELOW, previous && previous.mode === "short") ? "short"
     : below(width, 640, previous && previous.mode === "phone") ? "phone" : "tablet";
   // Docked, a side stays docked down to HYSTERESIS under READER_MIN; anything else docks at READER_MIN.
   const fits = (room: number, docked: boolean) => mode === "tablet" && room >= READER_MIN - (docked ? HYSTERESIS : 0);

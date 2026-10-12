@@ -991,8 +991,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <Navigator leading={<TopBand />} patch={patch} currentFile={currentFile} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={owners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} />
         </NavigatorHost>
         <main aria-label="Review" inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
-          <ReaderBar threads={isPr && diffThreads.threads.length > 0} />
-          <ReviewNotices notices={notices} />
+          {/* With the keyboard up leaving a phone held sideways' room or less, the band and notices give way to the code. */}
+          <div className="contents [[data-keyboard=short]_&]:hidden">
+            <ReaderBar threads={isPr && diffThreads.threads.length > 0} />
+            <ReviewNotices notices={notices} />
+          </div>
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
           <div ref={(el) => { scrollBox.current = el; setScrollEl(el); }} onScroll={onScroll} onMouseUp={onMouseUp} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
             {activeSection ? (

@@ -116,13 +116,25 @@ test("what has the focus in the code, such as the comment you're typing, is what
   const { box, lines, heights } = code();
   const typing = lines[9].appendChild(document.createElement("textarea"));
   typing.getBoundingClientRect = () => lines[9].getBoundingClientRect();
-  renderHook(() => useScrollAnchor(box));
   act(() => typing.focus());
-  box.dispatchEvent(new Event("scroll"));
-  return act(() => new Promise((done) => requestAnimationFrame(() => done(undefined)))).then(() => {
-    const offset = under(typing, 0);
-    for (let i = 0; i < 9; i++) heights[i] = 25;
-    resize();
-    expect(under(typing, 0)).toBe(offset);
-  });
+  renderHook(() => useScrollAnchor(box));
+  const offset = under(typing, 0);
+  for (let i = 0; i < 9; i++) heights[i] = 25;
+  resize();
+  expect(under(typing, 0)).toBe(offset);
+});
+
+test("after the fold, what the new layout redraws, such as comments unfolding, is put right too", () => {
+  const resize = stubResizeObserver();
+  const { box, lines, heights } = code();
+  renderHook(() => useScrollAnchor(box));
+  const reading = lines[7];
+  const offset = under(reading, 0);
+  for (let i = 0; i < 7; i++) heights[i] = 20;
+  resize();
+  expect(under(reading, 0)).toBe(offset);
+  // The band appears over the code and a comment above unfolds: the box resizes again.
+  heights[3] = 120;
+  resize();
+  expect(under(reading, 0)).toBe(offset);
 });
