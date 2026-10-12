@@ -870,7 +870,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const value = box.scrollTop;
     scrollSaveTimer.current = setTimeout(() => {
       patchReviewState(targetKey, { scrollTop: value });
-      keep(targetKey, { place: linePlace(box) });
+      // Under a phone's sheet the code is inert, and what's at its top can't be read: the place stays the one it was.
+      if (!box.closest("[inert]")) keep(targetKey, { place: linePlace(box) });
     }, 200);
   }, [targetKey, fileAtTop]);
 

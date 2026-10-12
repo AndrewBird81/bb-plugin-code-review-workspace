@@ -4,6 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
+import { keep } from "../lib/remount";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
@@ -106,6 +107,20 @@ test("as BB remounts the page, as a phone turns, the new one has the chapters op
   restores.push(() => later.mockRestore());
   slot = await renderWorkspace();
   expect(slot.queryByRole("dialog", { name: "Chapters" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("under a phone's sheet the code is inert: a scroll of it keeps the line a remount goes back to, which it can't read there", async () => {
+  fakeSize(390, 844);
+  const slot = await renderWorkspace();
+  const place = { file: "src/a.ts", index: "1,1", offset: 12 };
+  keep("pr-42", { place });
+  fireEvent.click(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Chapters:/ }));
+  const code = slot.getByRole("main", { name: "Review" });
+  expect(code.hasAttribute("inert")).toBe(true);
+  fireEvent.scroll(code.querySelector(":scope > .overflow-y-auto")!);
+  await new Promise((done) => setTimeout(done, 250));
+  expect(JSON.parse(sessionStorage.getItem("gr:remount")!)["pr-42"].place).toEqual(place);
   slot.lifecycle.unmount();
 });
 
