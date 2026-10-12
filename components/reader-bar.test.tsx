@@ -102,6 +102,16 @@ test("the band says where you are, chapter included, as text: the chapters toggl
   slot.lifecycle.unmount();
 });
 
+test("where the band has room for the review's title, it goes to the Overview, a 44px target on touch like the band's buttons", async () => {
+  fakePane(1600);
+  const slot = await renderWorkspace();
+  const title = within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "Parse rows" });
+  expect(title.className).toContain("pointer-coarse:h-11");
+  fireEvent.click(title);
+  await band(slot).findByText("Overview");
+  slot.lifecycle.unmount();
+});
+
 test("on a re-review the band ends with the compare select, Fold comments and Diff options; on a first review, without the select", async () => {
   fakePane(1400);
   let slot = await renderWorkspace(rereview);

@@ -141,7 +141,8 @@ export function ReaderBar({ threads, onCompareShown }: { threads: boolean; onCom
           </span> : <>
             {/* The review's title, which goes to its Overview, where the band has room for it beside the chapter's. */}
             {fit.title && <span className="flex min-w-0 shrink-[3] items-center gap-1">
-              <button type="button" title="Overview" className="min-w-0 max-w-56 truncate rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" onClick={() => go(OVERVIEW)}>{review.title ?? guide.title ?? targetKey}</button>
+              {/* Its words truncate inside it, so a 44px target around it (short's ::after) isn't clipped. */}
+              <button type="button" title="Overview" className={cn("flex min-w-0 max-w-56 items-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", touch)} onClick={() => go(OVERVIEW)}><span className="truncate">{review.title ?? guide.title ?? targetKey}</span></button>
               <span aria-hidden className="text-subtle-foreground">/</span>
             </span>}
             {/* Where you are, not a button: the chapters toggle shows the chapters, here or at the navigator's top. */}
