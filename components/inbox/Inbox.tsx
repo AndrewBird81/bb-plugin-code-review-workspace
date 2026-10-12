@@ -173,6 +173,8 @@ export function Inbox() {
   }, [rpc, reload]);
 
   const firstRun = !loading && !loadError && reviews.length === 0;
+  // GitHub's last read says nothing here: with no reviews there's nothing to read. The first run looks once itself.
+  useEffect(() => { if (firstRun) void refresh(false); }, [firstRun, refresh]);
   // The box sits on the page where there's room for it beside the list; a phone opens it from the title bar.
   const searchInline = firstRun || !size || (size.width >= 560 && size.height >= 500);
   const compact = !!size && (size.width < 640 || size.height < 500);
@@ -255,7 +257,7 @@ export function Inbox() {
         {!firstRun && !searchInline && !phoneBox && ownControls && <div className="flex justify-end py-1"><ListTitleBar placement="page" /></div>}
         {!syncError && problem && <p role="status" className={cn("mx-1.5 mb-2 flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning-text", firstRun && "mt-4")}><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />{problem}</p>}
         {syncError && <p role="alert" className={cn("mx-1.5 mb-2 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text", firstRun && "mt-4")}><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />Couldn’t refresh GitHub status. Saved reviews are still available; try Refresh again.</p>}
-        {firstRun ? <div className="px-2.5 pt-6"><FirstRun omnibox={omnibox} syncing={!health?.lastReadAt && !health?.error} /></div> : <>
+        {firstRun ? <div className="px-2.5 pt-6"><FirstRun omnibox={omnibox} syncing={refreshing} /></div> : <>
           {loading ? <div role="status" aria-busy="true" className="space-y-1 pt-2"><span className="sr-only">Loading reviews…</span>
             {Array.from({ length: 6 }).map((_, i) => <div key={i} className="space-y-2 px-3 py-3"><Skeleton className="h-3.5" style={{ width: `${62 - i * 6}%` }} /><Skeleton className="h-3 w-48" /></div>)}
           </div>

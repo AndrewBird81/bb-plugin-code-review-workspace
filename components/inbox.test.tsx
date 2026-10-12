@@ -17,12 +17,15 @@ const turn = (group: Turn["group"], reason: Turn["reason"], label: string, extra
 /** All reviews over these reviews, with the RPCs the page calls. */
 async function inbox(reviews: unknown[], rpc: Record<string, (input: any) => unknown> = {}) {
   const app = await loadPluginApp(() => import("../app"));
+  const listReviews = rpc.listReviews ?? (() => ({ reviews }));
   const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: {
     setReviewPresence: () => ({ ok: true }),
     getGhAccounts: () => ({ active: "me", accounts: [] }),
     getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
     getSetupStatus: () => ({ account: "me", githubCli: true, agentAvailable: true, projectAvailable: true }),
-    listReviews: () => ({ reviews }),
+    listReviews,
+    // A pass that finds nothing new, as the first run makes.
+    refreshReviews: listReviews,
     ...rpc,
   } as any });
   const calls = (method: string) => slot.inspection.rpcCalls.filter((call) => call.method === method).map((call) => call.input);
@@ -310,6 +313,18 @@ test("with no reviews yet, a first-run panel says what a review needs and how to
   expect(slot.getByRole("searchbox", { name: "Find a review, or paste a PR link" }).getAttribute("placeholder")).toBe("Paste a GitHub PR link to review it");
   expect(within(panel).getByText(/in any BB thread/).textContent).toBe("Paste a PR link above, or run bb review <pr> in any BB thread.");
   expect(slot.queryByRole("heading", { name: /^Needs review/ })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("the first run looks for PRs that request your review once, and says so only while it looks", async () => {
+  let finish!: () => void;
+  const { slot, calls } = await inbox([], { refreshReviews: () => new Promise((resolve) => { finish = () => resolve({ reviews: [], sync: { lastReadAt: null, error: null } }); }) });
+  await slot.findByText("Looking for PRs that request your review…");
+  expect(calls("refreshReviews")).toEqual([{ force: false }]);
+  finish();
+  // Nothing found leaves GitHub's last read unset, as with no reviews to read.
+  await waitFor(() => expect(slot.queryByText("Looking for PRs that request your review…")).toBeNull());
+  expect(calls("refreshReviews")).toEqual([{ force: false }]);
   slot.lifecycle.unmount();
 });
 
