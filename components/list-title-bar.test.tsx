@@ -102,6 +102,19 @@ test("without BB's title bar the page shows the list's controls itself, after a 
   for (const button of commands.getAllByRole("button")) expect(button.className).toContain("pointer-coarse:h-11");
 });
 
+test("the page's own Refresh and Settings leave a PR link typed in the find box alone", async () => {
+  const { page } = await renderList({ startReview: () => ({ ok: true, targetKey: "pr-8" }) }, { titleBar: false });
+  const commands = within(await page.findByRole("group", { name: "Review list commands" }));
+  fireEvent.change(page.getByRole("searchbox", { name: "Find a review, or paste a PR link" }), { target: { value: "acme/web#8" } });
+  fireEvent.click(commands.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(page.inspection.rpcCalls.filter((call) => call.method === "refreshReviews")).toHaveLength(1));
+  fireEvent.click(await commands.findByRole("button", { name: "Settings" }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(page.inspection.rpcCalls.filter((call) => call.method === "startReview")).toEqual([]);
+  expect(page.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "settings" } }]);
+  expect(page.getByRole("button", { name: /Review acme\/web#8/ })).toBeTruthy();
+});
+
 test("folding and unfolding a Duo keeps the find box, what's typed in it, and its focus", async () => {
   const size = fakeSize(951, 541);
   const { bar, page } = await renderList();

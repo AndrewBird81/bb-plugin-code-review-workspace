@@ -11,7 +11,8 @@ import { mountListTitleBar, useInboxBar } from "./inbox-store";
 
 /**
  * The list's controls, in BB's title bar: Find a review where the page has no room for its box (a phone), Refresh, and
- * Settings. `placement="page"`: the page shows them itself, where BB has no title bar for them.
+ * Settings. `placement="page"`: the page shows them itself, where BB has no title bar for them, beside the find box in
+ * its form, so they never submit it.
  */
 export function ListTitleBar({ placement = "title" }: { placement?: "title" | "page" }) {
   // Told even while it shows nothing, so the page knows not to show them itself.
@@ -25,17 +26,17 @@ export function ListTitleBar({ placement = "title" }: { placement?: "title" | "p
   return (
     <div role="group" aria-label="Review list commands" className="flex shrink-0 items-center gap-1">
       {!inbox.searchInline && <Hint label="Find a review">
-        <Button variant="ghost" size="sm" aria-label="Find a review" aria-expanded={inbox.searchOpen} className={button} onClick={inbox.openSearch}>
+        <Button type="button" variant="ghost" size="sm" aria-label="Find a review" aria-expanded={inbox.searchOpen} className={button} onClick={inbox.openSearch}>
           <Icon name="Search" aria-hidden />
         </Button>
       </Hint>}
       <Hint label={read ? `Refresh · GitHub read ${read}` : "Refresh"}>
-        <Button variant="ghost" size="sm" aria-label={inbox.refreshing ? "Refreshing…" : "Refresh"} disabled={inbox.refreshing} className={button} onClick={inbox.refresh}>
+        <Button type="button" variant="ghost" size="sm" aria-label={inbox.refreshing ? "Refreshing…" : "Refresh"} disabled={inbox.refreshing} className={button} onClick={inbox.refresh}>
           <Icon name="ArrowReloadHorizontal" className={cn(inbox.refreshing && "animate-spin motion-reduce:animate-none", inbox.health?.error && TONE_TEXT.warning)} aria-hidden />
         </Button>
       </Hint>
       <Hint label="Settings">
-        <Button variant="ghost" size="sm" aria-label="Settings" className={button} onClick={() => navigate.toPluginPanel("review", { subPath: "settings" })}>
+        <Button type="button" variant="ghost" size="sm" aria-label="Settings" className={button} onClick={() => navigate.toPluginPanel("review", { subPath: "settings" })}>
           <Icon name="Settings" aria-hidden />
         </Button>
       </Hint>
