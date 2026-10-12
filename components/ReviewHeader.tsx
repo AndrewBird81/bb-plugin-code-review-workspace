@@ -1,59 +1,47 @@
 import { memo, useState, type ReactNode } from "react";
-import { Markdown, UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
+import { UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
-import type { z } from "zod";
 import type { rpcContract } from "../src/rpc-contract";
-import type { RequirementSchema } from "../src/guide";
+import type { CheckItem } from "../src/threads";
 import type { StackMember, StackPlace } from "../lib/stacks";
 import { LINES_PER_HOUR, readingTime } from "../lib/review-size";
-import { reviewState } from "../lib/review-state";
-import { canSnooze, canSnoozeUntil, computeTurn, progressText, type feedbackProgress, type ReviewRound, type Turn } from "../lib/turn";
+import { reviewState, type ReviewItem } from "../lib/review-state";
+import { canSnooze, canSnoozeUntil, progressText, type ReviewRound } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
-import { Badge, TONE_TEXT, type Tone } from "./ui/badge";
+import { Dot, TONE_TEXT, type Tone } from "./ui/badge";
 import { Avatar } from "./ui/avatar";
-import { StatusBadge, kindLook } from "./ReviewStatus";
-import { IconTile } from "./ui/icon-tile";
 import { InlineCode } from "./ui/inline-code";
 import { Button } from "./ui/button";
-import { timeAgo } from "./time-ago";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { kindLook, statusLook } from "./ReviewStatus";
+import { MetaLine } from "./MetaLine";
 import { SnoozeChoices } from "./SnoozeChoices";
+import { TOUCH_CONTROL } from "./touch";
+import { timeAgo } from "./time-ago";
 
-type ChecksSummary = { bucket: string; checks: any[] } | null | undefined;
-
-/** CI status as a pill: green passing, red failing, amber pending. Hovering lists the checks. */
-function CiBadge({ checks }: { checks: ChecksSummary }) {
-  if (!checks || checks.bucket === "none") return null;
-  const title = checks.checks.map((c: any) => `${c.name}: ${c.bucket}`).join("\n");
-  if (checks.bucket === "fail") {
-    const n = checks.checks.filter((c: any) => c.bucket === "fail").length;
-    return <Badge tone="danger" title={title} icon={<Icon name="X" aria-hidden />}>{n} failing</Badge>;
-  }
-  if (checks.bucket === "pending") {
-    const n = checks.checks.filter((c: any) => c.bucket === "pending").length;
-    return <Badge tone="warning" title={title} dot pulse>{n} pending</Badge>;
-  }
-  return <Badge tone="success" title={title} icon={<Icon name="Check" aria-hidden />}>Checks passing</Badge>;
-}
+/** A text button in a line of text is 44px tall on a coarse pointer, its words centred in it. */
+const TOUCH_TEXT = "pointer-coarse:min-h-11";
 
 /** A branch name, GitHub-style. */
 export function BranchChip({ children, className }: { children: ReactNode; className?: string }) {
   return <span className={cn("max-w-56 truncate rounded-md bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-primary", className)}>{children}</span>;
 }
 
-/** Review title that opens its GitHub PR when one is known; place in a flex container. */
-export function ReviewTitleLink({ url, children }: { url?: string; children: ReactNode }) {
-  if (!url) return <span className="truncate">{children}</span>;
+/** Review title that opens its GitHub PR when one is known. Its ↗ stays on the line with its last word. */
+export function ReviewTitleLink({ url, text }: { url?: string; text: string }) {
+  if (!url) return <InlineCode text={text} />;
+  const icon = <Icon name="ArrowUpRight" className="ml-1 inline size-[1em] align-[-0.125em] text-muted-foreground transition-colors group-hover:text-primary" aria-hidden />;
+  // Not inside `code`: an odd count of the parts before the last space means its backticks pair up.
+  const at = text.lastIndexOf(" ");
+  const split = at > 0 && text.slice(0, at).split("`").length % 2 === 1;
   return (
-    <UrlLink href={url} title="Open on GitHub" className="group flex min-w-0 items-center gap-1.5 rounded-sm">
-      <span className="truncate decoration-primary/50 underline-offset-4 group-hover:underline">{children}</span>
-      <Icon name="ArrowUpRight" className="size-[1em] shrink-0 text-muted-foreground transition-colors group-hover:text-primary" aria-hidden />
+    // Inline, so its padding makes a 44px target on a coarse pointer without moving the lines.
+    <UrlLink href={url} title="Open on GitHub" className="group rounded-sm decoration-primary/50 underline-offset-4 hover:underline pointer-coarse:py-2.5">
+      {split ? <><InlineCode text={text.slice(0, at + 1)} /><span className="whitespace-nowrap"><InlineCode text={text.slice(at + 1)} />{icon}</span></> : <><InlineCode text={text} />{icon}</>}
     </UrlLink>
   );
 }
-
-const INTENT_TOGGLE_THRESHOLD = 160;
 
 const ROUND_LABEL: Record<ReviewRound["state"], string> = { APPROVED: "Approved", CHANGES_REQUESTED: "Changes requested", COMMENTED: "Commented", DISMISSED: "Dismissed" };
 
@@ -94,7 +82,7 @@ export function StackLinks({ stack }: { stack: StackPlace }) {
     } finally { setBusy(false); }
   }
   const link = (member: StackMember, label: string) => (
-    <button key={label} type="button" disabled={busy} title={member.title ?? undefined} onClick={() => void open(member)} className="rounded-sm text-foreground/90 underline decoration-border underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">{label}</button>
+    <button key={label} type="button" disabled={busy} title={member.title ?? undefined} onClick={() => void open(member)} className={cn("rounded-sm text-foreground/90 underline decoration-border underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_TEXT)}>{label}</button>
   );
   return (
     <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -111,170 +99,106 @@ export function UnreviewedParent({ stack, className }: { stack: StackPlace | nul
   return <p className={cn("flex items-center gap-1.5 text-xs text-warning-text", className)}><Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden />You haven’t reviewed #{stack.parent.number}, which this builds on.</p>;
 }
 
-type Requirement = z.infer<typeof RequirementSchema>;
-const REQUIREMENT_LOOK: Record<Requirement["status"], { tone: Tone; label: string }> = {
-  covered: { tone: "success", label: "Covered" },
-  partial: { tone: "warning", label: "Partial" },
-  missing: { tone: "danger", label: "Missing" },
-  unclear: { tone: "neutral", label: "Unclear" },
-};
+/** The PR's CI checks, as getChecks reads them. */
+export type Checks = { bucket: string; checks: CheckItem[] };
 
-/** "Requirements: 3/4 covered", expanding to what the PR asks for and whether the diff does it. */
-function Requirements({ requirements, onOpen }: { requirements: Requirement[]; onOpen?: (file: string, line: number) => void }) {
+/** One fact of the status line: its icon in its tone, then its words. */
+function Fact({ icon, tone, title, children }: { icon: ReactNode; tone: Tone; title?: string; children: ReactNode }) {
+  return <span title={title} className="inline-flex items-center gap-1.5"><span className={cn("flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3.5", TONE_TEXT[tone])}>{icon}</span>{children}</span>;
+}
+
+/** The PR's checks as one fact: what's failing, else what's pending, else passing. Hovering lists them. */
+function ChecksFact({ checks }: { checks: Checks }) {
+  const title = checks.checks.map((check) => `${check.name}: ${check.bucket}`).join("\n");
+  const count = (bucket: string) => checks.checks.filter((check) => check.bucket === bucket).length;
+  const checksWord = (n: number) => `${n} ${n === 1 ? "check" : "checks"}`;
+  if (checks.bucket === "fail") return <Fact icon={<Icon name="CircleX" aria-hidden />} tone="danger" title={title}>{checksWord(count("fail"))} failing</Fact>;
+  if (checks.bucket === "pending") return <Fact icon={<Dot tone="warning" pulse />} tone="warning" title={title}>{checksWord(count("pending"))} pending</Fact>;
+  return <Fact icon={<Icon name="CircleCheck" aria-hidden />} tone="success" title={title}>Checks passing</Fact>;
+}
+
+/** Snooze while it's your turn: until the author responds, or until a time. A snoozed review offers to come back. */
+function Snooze({ review, snoozing, onSnooze }: { review: ReviewItem; snoozing: boolean; onSnooze: (snoozed: boolean, until?: number) => void }) {
   const [open, setOpen] = useState(false);
-  const covered = requirements.filter((r) => r.status === "covered").length;
-  const done = covered === requirements.length;
+  const turn = reviewState(review);
+  const button = cn("text-muted-foreground", TOUCH_CONTROL);
+  if (turn.reason === "snoozed") return <Button variant="ghost" size="sm" className={button} disabled={snoozing} onClick={() => onSnooze(false)}><Icon name="ArrowTurnBackward" aria-hidden />Back to Needs review</Button>;
+  const responds = canSnooze(review, turn);
+  const timed = canSnoozeUntil(review, turn);
+  if (!responds && !timed) return null;
+  const pick = (until?: number) => { setOpen(false); onSnooze(true, until); };
   return (
-    <div className="max-w-[80ch] text-xs">
-      <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1.5 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-        <Icon name={done ? "CircleCheck" : "AlertCircle"} className={cn("size-3.5", TONE_TEXT[done ? "success" : "warning"])} aria-hidden />
-        <span>Requirements: <span className="tabular-nums">{covered}/{requirements.length}</span> covered</span>
-        <Icon name="ChevronDown" className={cn("size-3 transition-transform duration-150", !open && "-rotate-90")} aria-hidden />
-      </button>
-      {open && (
-        <ul aria-label="Requirements" className="mt-1.5 space-y-1 pl-5">
-          {requirements.map(({ text, status, evidence, file, line }, index) => (
-            <li key={index} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <Badge tone={REQUIREMENT_LOOK[status].tone} size="sm" className="shrink-0">{REQUIREMENT_LOOK[status].label}</Badge>
-              <span className="text-foreground/90"><InlineCode text={text} /></span>
-              <span className="min-w-0 text-muted-foreground"><InlineCode text={evidence} /></span>
-              {file && line && onOpen && (
-                <button type="button" aria-label={`${file}:${line}`} title={`${file}:${line}`} className="shrink-0 font-mono text-primary hover:underline" onClick={() => onOpen(file, line)}>
-                  {file.split("/").pop()}:{line}
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="sm" className={button} disabled={snoozing}><Icon name="Clock" aria-hidden />Snooze<Icon name="ChevronDown" className="text-subtle-foreground" aria-hidden /></Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" mobileTitle="Snooze" className="w-64 max-w-[calc(100vw-24px)] p-1">
+        {responds && <>
+          <Button variant="ghost" size="sm" disabled={snoozing} className={cn("w-full justify-start text-muted-foreground hover:text-foreground", TOUCH_CONTROL)} onClick={() => pick()}>Until the author responds</Button>
+          <p className="px-3 pb-2 text-xs text-subtle-foreground">Back when they re-request, answer, or ask you.</p>
+        </>}
+        {timed && <SnoozeChoices disabled={snoozing} onPick={pick} />}
+      </PopoverContent>
+    </Popover>
   );
 }
 
-export const ReviewHeader = memo(function ReviewHeader({
-  review,
-  checks,
-  intent,
-  sinceReview,
-  requirements,
-  onOpenLine,
-  trailing,
-  onShowFeedback,
-  onSnooze,
-  snoozing = false,
-  readLines,
-  collapse,
-}: {
-  review: any;
-  checks?: ChecksSummary;
-  intent?: string;
-  /** The guide's summary of what changed since your last review. */
-  sinceReview?: string;
-  /** The guide's check of what the PR asks for. */
-  requirements?: Requirement[];
-  /** Opens a requirement's line in the diff. */
-  onOpenLine?: (file: string, line: number) => void;
-  /** Actions at the end of the title row, such as Re-review. */
-  trailing?: ReactNode;
-  /** The progress pill opens the Feedback view. */
-  onShowFeedback?: () => void;
-  /** "Not yet" (true), "Snooze until" (true, until), or "Back to Needs review" (false). */
-  onSnooze?: (snoozed: boolean, until?: number) => void;
-  snoozing?: boolean;
+/**
+ * The top of a review's Overview: its title, who and what it is, a status line (whose turn, your feedback, checks), your
+ * reviews and its stack, then `action`, the way into its chapters, with Snooze beside it while it's your turn.
+ */
+export const ReviewHeader = memo(function ReviewHeader({ review, checks, readLines, onShowFeedback, onSnooze, snoozing = false, action }: {
+  review: ReviewItem;
+  checks?: Checks | null;
   /** The changed lines worth reading (lib/review-size.ts readingLines). */
   readLines?: number;
-  /** The button at the header's top-right that collapses it. */
-  collapse?: ReactNode;
+  /** Your feedback's progress opens it in Comments. */
+  onShowFeedback?: () => void;
+  /** Snooze until the author responds (true), until a time (true, until), or back to Needs review (false). */
+  onSnooze?: (snoozed: boolean, until?: number) => void;
+  snoozing?: boolean;
+  action?: ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [snoozeOpen, setSnoozeOpen] = useState(false);
-  if (!review) return null;
-  const showIntentToggle = !!intent && intent.length > INTENT_TOGGLE_THRESHOLD;
   const kind = kindLook(review);
-  const state = reviewState(review);
-  const turn: Turn = review.turn ?? computeTurn(review);
+  const turn = reviewState(review);
+  const status = statusLook(review);
   const rounds: ReviewRound[] = review.signals?.rounds ?? [];
-  const progress: ReturnType<typeof feedbackProgress> = review.progress ?? null;
-  const stack: StackPlace | null = review.stack ?? null;
-
+  const progress = review.progress ?? null;
+  const stack = review.stack ?? null;
+  const feedback = progress && progress.total > 0;
+  const facts = [
+    status.label !== "Ready" && <Fact key="turn" icon={status.icon ? <Icon name={status.icon} className={cn(status.busy && "animate-spin motion-reduce:animate-none")} aria-hidden /> : <Dot tone={status.tone} />} tone={status.tone}>{status.label}</Fact>,
+    turn.blocking && <Fact key="blocking" icon={<Icon name="Lock" aria-hidden />} tone="warning" title="Everyone else approved; only your changes requested is left.">Blocks merge</Fact>,
+    feedback && (
+      <button key="feedback" type="button" onClick={onShowFeedback} title={progress.source === "threads" ? "Resolved or answered. Show your feedback in Comments" : "Show your feedback in Comments"} className={cn("rounded-sm underline decoration-border underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_TEXT)}>
+        <Fact icon={<Icon name={progress.source === "assistant" ? "Sparkles" : "MessageSquare"} aria-hidden />} tone={progress.done === progress.total ? "success" : "primary"}>{progressText(progress)}</Fact>
+      </button>
+    ),
+    checks && checks.bucket !== "none" && <ChecksFact key="checks" checks={checks} />,
+  ].filter(Boolean);
+  const snooze = onSnooze && <Snooze review={review} snoozing={snoozing} onSnooze={onSnooze} />;
   return (
-    <header className="flex items-start gap-3">
-      <IconTile tone={kind.tone} icon={kind.icon} className="mt-0.5 hidden size-9 @min-[640px]/review:flex" />
-      <div className="min-w-0 flex-1 space-y-2">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          <h2 className="flex min-w-0 flex-1 basis-80 text-base font-semibold leading-snug text-foreground @min-[640px]/review:text-lg">
-            <ReviewTitleLink url={review.url}><InlineCode text={review.title ?? review.gitRef ?? review.targetKey} /></ReviewTitleLink>
-          </h2>
-          {/* Wraps on its own row when the title's is full, so Snooze and Re-review stay on screen on a phone. */}
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <CiBadge checks={checks} />
-            {state.label !== "Ready" && <StatusBadge review={review} />}
-            {turn.blocking && <Badge tone="warning" icon={<Icon name="Lock" aria-hidden />} title="Everyone else approved; only your changes requested is left.">Blocks merge</Badge>}
-            {progress && progress.total > 0 && (
-              <button type="button" onClick={onShowFeedback} title={progress.source === "assistant" ? "Show your feedback" : "Resolved or answered. Show your feedback"} className="rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-                <Badge tone={progress.done === progress.total ? "success" : "primary"} className="cursor-pointer tabular-nums" icon={progress.source === "assistant" ? <Icon name="Sparkles" aria-hidden /> : <Icon name="MessageSquare" aria-hidden />}>
-                  {progressText(progress)}
-                </Badge>
-              </button>
-            )}
-            {onSnooze && turn.reason === "snoozed" ? (
-              <Button variant="ghost" size="sm" className="h-7 px-2 text-muted-foreground" disabled={snoozing} onClick={() => onSnooze(false)}>Back to Needs review</Button>
-            ) : onSnooze && canSnooze(review, turn) && (
-              <Button variant="ghost" size="sm" className="h-7 px-2 text-muted-foreground" disabled={snoozing} onClick={() => onSnooze(true)}>
-                <Icon name="Clock" className="size-3.5" aria-hidden />Not yet
-              </Button>
-            )}
-            {onSnooze && turn.reason !== "snoozed" && canSnoozeUntil(review, turn) && (
-              <Popover open={snoozeOpen} onOpenChange={setSnoozeOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-7 px-2 text-muted-foreground" disabled={snoozing}><Icon name="Calendar" className="size-3.5" aria-hidden />Snooze</Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" mobileTitle="Snooze until" className="w-64 max-w-[calc(100vw-24px)] p-1">
-                  <SnoozeChoices disabled={snoozing} onPick={(until) => { setSnoozeOpen(false); onSnooze(true, until); }} />
-                </PopoverContent>
-              </Popover>
-            )}
-            {trailing}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
-          {review.author && <span className="inline-flex items-center gap-1.5"><Avatar login={review.author} size={18} /><span className="text-foreground/90">@{review.author}</span></span>}
-          {review.repo && <span className="font-mono text-[11px]">{review.repo}{review.number ? <span className="text-subtle-foreground"> #{review.number}</span> : null}</span>}
-          {review.base && review.head
-            ? <span className="inline-flex min-w-0 items-center gap-1"><BranchChip>{review.base}</BranchChip><Icon name="ArrowRight" className="size-3 shrink-0 rotate-180 text-subtle-foreground" aria-hidden /><BranchChip>{review.head}</BranchChip></span>
-            : review.gitRef && <BranchChip>{review.gitRef}</BranchChip>}
-          {!!readLines && <span className="tabular-nums" title={`Without lockfiles and generated files. Reading time at about ${LINES_PER_HOUR} changed lines an hour.`}>{readLines.toLocaleString()} changed {readLines === 1 ? "line" : "lines"} · {readingTime(readLines)}</span>}
+    <header className="space-y-2.5">
+      <h2 className="text-base font-semibold leading-snug text-foreground @min-[640px]/overview:text-xl">
+        <ReviewTitleLink url={review.url} text={review.title ?? review.gitRef ?? review.targetKey} />
+      </h2>
+      <MetaLine className="leading-6" items={[
+        review.author && <span className="inline-flex items-center gap-1.5 align-top"><Avatar login={review.author} size={16} /><span className="text-foreground/90">@{review.author}</span></span>,
+        review.repo && <span className="inline-flex items-center gap-1 align-top"><Icon name={kind.icon} className={cn("size-3.5 shrink-0", TONE_TEXT[kind.tone])} aria-hidden /><span className="font-mono text-[11px]">{review.repo}</span>{review.number ? <span className="text-subtle-foreground">#{review.number}</span> : null}</span>,
+        review.base && review.head
+          ? <span className="inline-flex min-w-0 max-w-full items-center gap-1 align-top"><BranchChip>{review.base}</BranchChip><Icon name="ArrowRight" className="size-3 shrink-0 rotate-180 text-subtle-foreground" aria-hidden /><BranchChip>{review.head}</BranchChip></span>
+          : review.gitRef && <BranchChip className="align-top">{review.gitRef}</BranchChip>,
+        !!readLines && <span className="tabular-nums" title={`Without lockfiles and generated files. Reading time at about ${LINES_PER_HOUR} changed lines an hour.`}>{readLines.toLocaleString()} changed {readLines === 1 ? "line" : "lines"} · {readingTime(readLines)}</span>,
+      ]} />
+      {facts.length > 0 && <p className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-foreground/90">{facts}</p>}
+      {(rounds.length > 0 || stack) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
           {rounds.length > 0 && <RoundTimeline rounds={rounds} />}
           {stack && <StackLinks stack={stack} />}
         </div>
-        <UnreviewedParent stack={stack} />
-        {intent && (
-          <div className="max-w-[80ch] border-l-2 border-primary/40 pl-3">
-            <div className={cn("relative text-foreground/90", !expanded && showIntentToggle && "max-h-[3.4rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_2.85rem,transparent)]")}>
-              <Markdown content={intent} className="text-sm leading-relaxed" />
-            </div>
-            {showIntentToggle && (
-              <button
-                type="button"
-                className="mt-0.5 inline-flex items-center gap-0.5 rounded-sm text-xs text-muted-foreground hover:text-foreground"
-                aria-expanded={expanded}
-                onClick={() => setExpanded((e) => !e)}
-              >
-                {expanded ? "less" : "more"}
-                <Icon name={expanded ? "ChevronUp" : "ChevronDown"} className="size-3" aria-hidden />
-              </button>
-            )}
-          </div>
-        )}
-        {sinceReview && (
-          <div className="flex max-w-[80ch] gap-2 border-l-2 border-(--ansi-13)/50 pl-3 text-sm text-foreground/90">
-            <span className="shrink-0 font-medium text-(--ansi-13)">Since your review</span>
-            <Markdown content={sinceReview} className="min-w-0 text-sm leading-relaxed" />
-          </div>
-        )}
-        {!!requirements?.length && <Requirements requirements={requirements} onOpen={onOpenLine} />}
-      </div>
-      {collapse}
+      )}
+      <UnreviewedParent stack={stack} />
+      {(action || snooze) && <div className="flex flex-wrap items-center gap-2 pt-1.5">{action}{snooze}</div>}
     </header>
   );
 });

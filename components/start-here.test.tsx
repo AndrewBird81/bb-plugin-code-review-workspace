@@ -37,7 +37,8 @@ test("Start here on the Overview lists the guide's hotspots, each opening its li
   } as any });
   const start = within(await slot.findByRole("region", { name: "Start here" }));
   expect(start.getByText("tenant")).toBeTruthy();
-  fireEvent.click(start.getByRole("button", { name: "src/b.ts:2" }));
+  // Named by its line, described by why.
+  fireEvent.click(start.getByRole("button", { name: "src/b.ts:2", description: /^The cache key ignores tenant/ }));
   await slot.findByText(/bb/);
   const chapters = within(slot.getByRole("navigation", { name: "Chapters" }));
   await waitFor(() => expect(chapters.getAllByRole("button").find((b) => b.getAttribute("aria-current") === "step")?.textContent).toContain("Caching"));

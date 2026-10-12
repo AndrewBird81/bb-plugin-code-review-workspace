@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { changedLines, LINES_PER_HOUR, readingLines, readingTime } from "../lib/review-size";
+import { changedLines, chapterReadingLines, LINES_PER_HOUR, readingLines, readingTime } from "../lib/review-size";
 
 const patch = [
   "diff --git a/src/a.ts b/src/a.ts", "--- a/src/a.ts", "+++ b/src/a.ts", "@@ -1,3 +1,3 @@", " keep", "-old", "+new", "+more", "",
@@ -16,6 +16,16 @@ test("lockfiles and generated files don't count toward reading", () => {
   expect(readingLines(["src/a.ts", "package-lock.json", "dist/app.min.js"], lines)).toBe(3);
   // Nor do files the repo's .gitattributes marks generated.
   expect(readingLines(["src/a.ts", "package-lock.json"], lines, new Set(["src/a.ts"]))).toBe(0);
+});
+
+test("each chapter reads its files' changed lines, a split file only its hunks there, and no lockfiles", () => {
+  const split = ["diff --git a/src/b.ts b/src/b.ts", "--- a/src/b.ts", "+++ b/src/b.ts", "@@ -1 +1 @@", "-a", "+aa", "@@ -20,2 +20,2 @@", "-b", "-c", "+bb", "+cc", ""].join("\n");
+  const sections = [
+    { id: "c1", diffs: [{ file: "src/a.ts" }, { file: "src/b.ts", hunks: [1] }] },
+    { id: "c2", diffs: [{ file: "src/b.ts", hunks: [2] }, { file: "package-lock.json" }] },
+  ];
+  const all = patch + split;
+  expect(chapterReadingLines(sections, all, changedLines(all))).toEqual(new Map([["c1", 3 + 2], ["c2", 4]]));
 });
 
 test("reading time is a rough estimate at LINES_PER_HOUR", () => {

@@ -39,13 +39,10 @@ function renderWorkspace(sent: object) {
   } as any }));
 }
 
-test("the Overview tallies the PR's requirements, and expands to them, a covered one opening its line", async () => {
+test("the Overview tallies the PR's requirements and lists them, each with its status in words, a covered one opening its line", async () => {
   const slot = await renderWorkspace(guide);
-  const toggle = await slot.findByRole("button", { name: "Requirements: 1/2 covered" });
-  expect(toggle.getAttribute("aria-expanded")).toBe("false");
-  expect(slot.queryByText("Expire the cache hourly")).toBeNull();
-  fireEvent.click(toggle);
-  const list = within(slot.getByRole("list", { name: "Requirements" }));
+  const section = within(await slot.findByRole("region", { name: /^Requirements\s·\s1 of 2 covered$/ }));
+  const list = within(section.getByRole("list", { name: "Requirements" }));
   expect(list.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
     expect.stringMatching(/Covered.*Cache parsed rows.*The cache keeps each row\..*b\.ts:2/),
     expect.stringMatching(/Missing.*Expire the cache hourly.*Nothing expires it\./),
@@ -61,6 +58,7 @@ test("a guide without requirements shows no tally", async () => {
   const { requirements: _, ...old } = guide;
   const slot = await renderWorkspace(old);
   await slot.findByRole("heading", { name: "Parse rows" });
-  expect(slot.queryByText(/Requirements/)).toBeNull();
+  expect(slot.queryByRole("region", { name: /Requirements/ })).toBeNull();
+  expect(slot.queryByRole("list", { name: "Requirements" })).toBeNull();
   slot.lifecycle.unmount();
 }, 15_000);

@@ -47,6 +47,8 @@ export interface WorkspaceApi {
     toggleViewed(file: string, viewed: boolean): void;
     /** Mark every file in a chapter viewed. */
     markChapterViewed(id: string): void;
+    /** Open the next file not viewed yet, after the one you're on, in any chapter (u). */
+    nextUnviewed(): void;
     /** Fold or unfold every file of the chapter in the diff. */
     foldAll(folded: boolean): void;
   };

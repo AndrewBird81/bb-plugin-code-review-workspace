@@ -176,3 +176,15 @@ test("f with a Find in review query clears it, so All files shows with the curso
   expect(slot.queryByRole("list", { name: "Results" })).toBeNull();
   slot.lifecycle.unmount();
 }, 15_000);
+
+test("on a coarse pointer Find in review's box and its results are 44px targets, the box's label taking taps around it", async () => {
+  const slot = await renderWorkspace();
+  const box = slot.getByRole("searchbox", { name: "Find in review" });
+  const label = box.closest("label")!;
+  expect(label.className).toContain("pointer-coarse:py-1");
+  expect(box.className).toContain("pointer-coarse:h-9");
+  fireEvent.change(box, { target: { value: "retries" } });
+  const results = within(await slot.findByRole("list", { name: "Results" })).getAllByRole("button");
+  for (const result of results) expect(result.className).toContain("pointer-coarse:min-h-11");
+  slot.lifecycle.unmount();
+}, 15_000);

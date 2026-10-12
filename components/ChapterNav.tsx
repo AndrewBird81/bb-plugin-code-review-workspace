@@ -1,16 +1,19 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/utils";
 import { classifyFile } from "../src/classify";
+import { useFullscreenPortalContainer } from "../lib/portal-scope";
 import { Icon } from "./ui/icon";
 import { Badge, type Tone } from "./ui/badge";
+import { Button } from "./ui/button";
 import { Progress } from "./ui/diff-stat";
+import { Hint } from "./ui/hint";
 import { FileTag } from "./FileTag";
 import { InlineCode } from "./ui/inline-code";
 import type { FileViewFlags } from "./DiffViewer";
-import { changedLines, readingLines } from "../lib/review-size";
-import { filePart } from "../src/hunks";
-import { splitPatchByFile } from "../src/patch";
+import { chapterReadingLines } from "../lib/review-size";
 import { FileTree } from "./FileTree";
+import { MetaLine } from "./MetaLine";
+import { TOUCH_COMPACT, TOUCH_CONTROL } from "./touch";
 import type { FileInterdiff } from "../src/interdiff";
 import type { ReviewThread } from "../src/threads";
 import type { FileOwners } from "../src/codeowners";
@@ -32,7 +35,7 @@ export const RISK_LABEL: Record<string, string> = { high: "High risk", medium: "
  * green as its files are viewed. The open chapter is solid blue; a finished
  * one shows a check.
  */
-function StepMarker({ index, viewed, total, active }: { index: number; viewed: number; total: number; active: boolean }) {
+export function StepMarker({ index, viewed, total, active }: { index: number; viewed: number; total: number; active: boolean }) {
   const done = total > 0 && viewed === total;
   const ratio = total ? viewed / total : 0;
   return (
@@ -70,6 +73,9 @@ export const ChapterNav = memo(function ChapterNav({
   owners,
   sinceWhat = "your review",
   patch,
+  overview,
+  onMarkViewed,
+  onNextUnviewed,
 }: {
   sections: Section[];
   activeId: string;
@@ -95,17 +101,27 @@ export const ChapterNav = memo(function ChapterNav({
   sinceWhat?: string;
   /** The diff, for the lines of a file split across chapters. */
   patch?: string;
+  /** The Overview's row, the step before the first chapter. */
+  overview?: ReactNode;
+  /** Mark a chapter's files viewed: an open chapter's button, and the ✓ a closed one shows on hover or focus. */
+  onMarkViewed?: (id: string) => void;
+  /** Open the next file not viewed yet (u). */
+  onNextUnviewed?: () => void;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const container = useFullscreenPortalContainer();
   const isExpanded = (id: string) => expanded[id] ?? id === activeId;
+  const chapterButtons = useRef(new Map<string, HTMLButtonElement>());
+  // Marking hides the control that did it: its focus moves to the chapter's own button rather than to the page. A tap
+  // that didn't focus the control (Safari) leaves the focus where it was, such as in a comment being written.
+  const markViewed = (id: string, control: HTMLElement) => {
+    onMarkViewed?.(id);
+    if (document.activeElement === control) chapterButtons.current.get(id)?.focus({ preventScroll: true });
+  };
   // A file split across chapters counts once.
   const allFiles = [...new Set(sections.flatMap((s) => s.diffs.map((d) => d.file)))];
   const viewedAll = allFiles.filter((f) => views.get(f)?.viewed).length;
-  // A split file's lines in each chapter: those of its hunks there.
-  const partLines = useMemo(() => {
-    const texts = new Map(splitPatchByFile(patch ?? "").map((f) => [f.path, f.text]));
-    return new Map(sections.map((s) => [s.id, new Map(s.diffs.flatMap((d) => d.hunks && texts.has(d.file) ? [[d.file, changedLines(filePart(texts.get(d.file)!, d.hunks)).get(d.file) ?? 0] as const] : []))]));
-  }, [sections, patch]);
+  const toRead = useMemo(() => lines ? chapterReadingLines(sections, patch ?? "", lines, generated) : null, [sections, patch, lines, generated]);
   // A split file opens in the open chapter when it's there, else in the first chapter with it.
   const chapterOf = useMemo(() => {
     const map = new Map<string, string>();
@@ -115,30 +131,40 @@ export const ChapterNav = memo(function ChapterNav({
 
   return (
     <nav aria-label="Chapters" className="space-y-3">
-      <div className="space-y-1.5 px-2 pt-1">
-        <div className="flex items-center justify-between gap-2 text-[11px]">
+      <div className="space-y-1.5 px-1">
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
+          {/* On a coarse pointer the track's padding is part of each segment's 44px target. */}
           {onViewChange ? (
-            <span className="-ml-1 inline-flex items-center gap-0.5 rounded-md bg-muted/40 p-0.5 ring-1 ring-inset ring-border">
+            <span className="inline-flex items-center gap-0.5 rounded-md bg-muted/40 p-0.5 ring-1 ring-inset ring-border">
               {(["chapters", "files"] as const).map((value) => (
                 <button
                   key={value}
                   type="button"
                   aria-pressed={view === value}
                   onClick={() => onViewChange(value)}
-                  className="rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider text-subtle-foreground hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-xs"
+                  className="relative rounded px-2 py-0.5 font-medium text-muted-foreground hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-xs pointer-coarse:min-h-10 pointer-coarse:px-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-y-0.5 pointer-coarse:after:inset-x-0 pointer-coarse:after:content-['']"
                 >
                   {value === "chapters" ? "Chapters" : "All files"}
                 </button>
               ))}
             </span>
-          ) : <span className="font-semibold uppercase tracking-wider text-subtle-foreground">Chapters</span>}
+          ) : <span className="font-medium text-foreground">Chapters</span>}
           <span className="tabular-nums text-muted-foreground">{viewedAll}/{allFiles.length} files viewed</span>
         </div>
-        <Progress value={viewedAll} max={allFiles.length} label="Files viewed" />
+        <div className="flex items-center gap-2">
+          <Progress value={viewedAll} max={allFiles.length} label="Files viewed" className="flex-1" />
+          {onNextUnviewed && viewedAll < allFiles.length && (
+            <Button variant="ghost" size="sm" className={cn("-mr-1 h-6 shrink-0 gap-0.5 px-1.5 text-xs font-normal text-primary hover:text-primary [&_svg]:size-3.5", TOUCH_COMPACT)} onClick={onNextUnviewed}>
+              Next unviewed<Icon name="ChevronRight" aria-hidden />
+            </Button>
+          )}
+        </div>
       </div>
       {view === "files" ? (
         <FileTree chapterOf={chapterOf} views={views} onSelectFile={onSelectFile} currentFile={currentFile} since={since} threads={threads} owners={owners} generated={generated} sinceWhat={sinceWhat} />
       ) : (
+      <div className="space-y-0.5">
+      {overview}
       <ol className="relative space-y-0.5">
         {sections.map((s, index) => {
           const active = s.id === activeId;
@@ -146,51 +172,47 @@ export const ChapterNav = memo(function ChapterNav({
           const skippable = s.diffs.filter((d) => classifyFile(d.file, generated?.has(d.file)).skippable).length;
           const allSkippable = s.diffs.length > 0 && skippable === s.diffs.length;
           const viewed = s.diffs.filter((d) => views.get(d.file)?.viewed).length;
+          const done = s.diffs.length > 0 && viewed === s.diffs.length;
           const changed = changedSince?.[s.id] ?? 0;
-          const own = partLines.get(s.id);
-          const toRead = lines ? readingLines(s.diffs.map((d) => d.file), own?.size ? new Map([...lines, ...own]) : lines, generated) : 0;
+          const chapterLines = toRead?.get(s.id) ?? 0;
           return (
             <li key={s.id} className="relative">
               {index < sections.length - 1 && <span aria-hidden className="absolute bottom-[-6px] left-[18px] top-7 w-px bg-border" />}
               <div
                 className={cn(
-                  "rounded-lg transition-colors duration-150",
+                  "group/card rounded-lg transition-colors duration-150",
                   active ? "bg-state-active/50 ring-1 ring-inset ring-primary/20" : "hover:bg-state-hover",
                 )}
               >
-                <div className="flex items-start gap-2.5 py-2 pl-[7px] pr-1.5">
+                <div className="flex items-start gap-2.5 py-2 pl-[7px] pr-1">
                   <StepMarker index={index} viewed={viewed} total={s.diffs.length} active={active} />
-                  <button onClick={() => onSelect(s.id)} aria-current={active ? "step" : undefined} className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                    <div className={cn("text-sm font-medium leading-snug line-clamp-3", active ? "text-foreground" : "text-foreground/90")}>
+                  <button ref={(button) => { if (button) chapterButtons.current.set(s.id, button); else chapterButtons.current.delete(s.id); }} onClick={() => onSelect(s.id)} aria-current={active ? "step" : undefined} title={s.overview || undefined} className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11">
+                    <span className={cn("block text-sm font-medium leading-snug line-clamp-3", active ? "text-foreground" : "text-foreground/90")}>
                       <InlineCode text={s.title} />
-                    </div>
-                    {s.overview && (
-                      <div className="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground"><InlineCode text={s.overview} /></div>
-                    )}
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-subtle-foreground">
-                      {s.risk && (
-                        <Badge tone={RISK_TONE[s.risk] ?? "neutral"} size="sm" title={s.overview}>
-                          {RISK_LABEL[s.risk] ?? s.risk}
-                        </Badge>
-                      )}
-                      <span className="tabular-nums">
-                        {viewed > 0 ? `${viewed}/` : ""}{s.diffs.length} file{s.diffs.length === 1 ? "" : "s"}{viewed > 0 ? " viewed" : ""}
-                      </span>
-                      {toRead > 0 && <span className="tabular-nums" title="Changed lines, without lockfiles and generated files">{toRead.toLocaleString()} {toRead === 1 ? "line" : "lines"}</span>}
-                      {changed > 0 && (
-                        <Badge tone="primary" size="sm" title={`${changed} file${changed === 1 ? "" : "s"} changed since ${sinceWhat}`}>
-                          {changed} changed
-                        </Badge>
-                      )}
-                      {skippable > 0 && <span>· {skippable} skippable</span>}
-                      {allSkippable && <span className="italic">· generated files — skim</span>}
-                    </div>
+                    </span>
+                    <MetaLine className="mt-1 text-[11px] leading-5 tabular-nums" items={[
+                      s.risk && s.risk !== "low" && <Badge tone={RISK_TONE[s.risk] ?? "neutral"} size="sm" className="align-[-2px]">{RISK_LABEL[s.risk] ?? s.risk}</Badge>,
+                      `${s.diffs.length} file${s.diffs.length === 1 ? "" : "s"}`,
+                      chapterLines > 0 && <span title="Changed lines, without lockfiles and generated files">{chapterLines.toLocaleString()} {chapterLines === 1 ? "line" : "lines"}</span>,
+                      changed > 0 && <span className="text-primary" title={`${changed} file${changed === 1 ? "" : "s"} changed since ${sinceWhat}`}>{changed} changed</span>,
+                      skippable > 0 && `${skippable} skippable`,
+                      allSkippable && <span className="italic">generated files — skim</span>,
+                    ]} />
+                    {viewed > 0 && <span className="sr-only">, {viewed} of {s.diffs.length} viewed</span>}
                   </button>
+                  {/* Skipping a chapter without opening it: with a pointer, from its row. A touch opens the row instead. */}
+                  {onMarkViewed && !open && !done && (
+                    <Hint label={`Mark chapter ${index + 1} viewed`} container={container}>
+                      <Button variant="ghost" size="sm" aria-label={`Mark chapter ${index + 1} viewed`} className="size-7 shrink-0 px-0 text-muted-foreground opacity-0 transition-opacity hover:text-diff-added focus-visible:opacity-100 group-hover/card:opacity-100 pointer-coarse:hidden" onClick={(event) => markViewed(s.id, event.currentTarget)}>
+                        <Icon name="CircleCheck" aria-hidden />
+                      </Button>
+                    </Hint>
+                  )}
                   <button
                     type="button"
                     aria-label={open ? "Collapse chapter" : "Expand chapter"}
                     aria-expanded={open}
-                    className="mt-0.5 shrink-0 rounded-md p-0.5 text-subtle-foreground hover:bg-state-hover hover:text-foreground"
+                    className={cn("flex size-7 shrink-0 items-center justify-center rounded-md text-subtle-foreground hover:bg-state-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_CONTROL)}
                     onClick={() => setExpanded((e) => ({ ...e, [s.id]: !open }))}
                   >
                     <Icon name="ChevronDown" className={cn("size-3.5 transition-transform duration-150", !open && "-rotate-90")} aria-hidden />
@@ -207,11 +229,11 @@ export const ChapterNav = memo(function ChapterNav({
                             type="button"
                             onClick={() => onSelectFile(s.id, d.file)}
                             aria-current={current ? "true" : undefined}
-                            className={cn("flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left hover:bg-state-hover", current && "bg-state-hover")}
+                            className={cn("flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left hover:bg-state-hover pointer-coarse:min-h-11", current && "bg-state-hover")}
                             title={d.summary ? `${d.file} — ${d.summary}` : d.file}
                           >
                             <Icon
-                              name={viewed ? "CircleCheck" : "File"}
+                              name={viewed ? "CircleCheck" : "Circle"}
                               className={cn("size-3.5 shrink-0", viewed ? "text-diff-added" : current ? "text-primary" : "text-subtle-foreground")}
                               aria-hidden
                             />
@@ -231,11 +253,24 @@ export const ChapterNav = memo(function ChapterNav({
                     })}
                   </ul>
                 )}
+                {open && onMarkViewed && s.diffs.length > 0 && (
+                  <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-2 gap-y-1 pb-2 pl-8 pr-2 text-[11px]">
+                    {done ? (
+                      <span className="inline-flex items-center gap-1.5 font-medium text-diff-added"><Icon name="CircleCheck" className="size-3.5" aria-hidden />Chapter viewed</span>
+                    ) : <>
+                      <span className="tabular-nums text-muted-foreground">{viewed} of {s.diffs.length} viewed</span>
+                      <Button variant="outline" size="sm" className={cn("h-7 gap-1.5 px-2 text-xs [&_svg]:size-3.5", TOUCH_CONTROL)} onClick={(event) => markViewed(s.id, event.currentTarget)}>
+                        <Icon name="CircleCheck" aria-hidden />Mark chapter viewed
+                      </Button>
+                    </>}
+                  </div>
+                )}
               </div>
             </li>
           );
         })}
       </ol>
+      </div>
       )}
     </nav>
   );

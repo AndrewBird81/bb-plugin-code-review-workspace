@@ -1,28 +1,34 @@
-import { memo } from "react";
+import { memo, useId } from "react";
 import type { z } from "zod";
 import type { HotspotSchema } from "../src/guide";
 import { Icon } from "./ui/icon";
 import { InlineCode } from "./ui/inline-code";
 
-/** The guide's hotspots, highest risk first: read before the rest, since defects in what's read last get missed. */
+/**
+ * The guide's hotspots, highest risk first, each opening its line: read before the rest, since defects in what's read
+ * last get missed.
+ */
 export const StartHere = memo(function StartHere({ hotspots, onOpen }: {
   hotspots: z.infer<typeof HotspotSchema>[];
   onOpen: (file: string, line: number) => void;
 }) {
+  const id = useId();
   return (
-    <section aria-label="Start here" className="mt-3 space-y-1 text-xs">
-      <p className="flex items-center gap-1.5 font-medium text-foreground"><Icon name="Target" className="size-3.5 text-warning-text" aria-hidden />Start here</p>
-      <ol className="space-y-1 pl-5">
-        {hotspots.map(({ file, line, why }) => (
-          <li key={`${file}:${line}`} className="flex flex-wrap items-baseline gap-x-2">
-            <button type="button" aria-label={`${file}:${line}`} title={`${file}:${line}`} className="shrink-0 font-mono text-primary hover:underline" onClick={() => onOpen(file, line)}>
-              {file.split("/").pop()}:{line}
-            </button>
-            <span className="min-w-0 text-muted-foreground"><InlineCode text={why} /></span>
-          </li>
-        ))}
-      </ol>
-    </section>
+    <ol className="-mx-2 space-y-px">
+      {hotspots.map(({ file, line, why }, index) => (
+        <li key={`${file}:${line}`}>
+          <button type="button" aria-label={`${file}:${line}`} aria-describedby={`${id}-${index}`} title={`${file}:${line}`} onClick={() => onOpen(file, line)} className="group flex w-full items-baseline gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-state-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:min-h-11 pointer-coarse:items-center">
+            <span aria-hidden className="w-3 shrink-0 text-right text-xs tabular-nums text-subtle-foreground">{index + 1}</span>
+            {/* Where the row is narrow, why goes under its line rather than beside it. */}
+            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2.5">
+              <span className="shrink-0 font-mono text-xs text-primary">{file.split("/").pop()}:{line}</span>
+              <span id={`${id}-${index}`} className="min-w-0 flex-1 basis-60 text-sm text-foreground/90"><InlineCode text={why} /></span>
+            </span>
+            <Icon name="ArrowRight" className="size-3.5 shrink-0 self-center text-subtle-foreground transition-colors group-hover:text-foreground" aria-hidden />
+          </button>
+        </li>
+      ))}
+    </ol>
   );
 });
 StartHere.displayName = "StartHere";

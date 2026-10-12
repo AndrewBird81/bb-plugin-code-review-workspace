@@ -5,11 +5,12 @@ import { cn } from "../lib/utils";
 import { OVERVIEW, useWorkspace } from "../lib/workspace-context";
 import { ChapterNav } from "./ChapterNav";
 import { FindInReview } from "./FindInReview";
+import { statusLook } from "./ReviewStatus";
 import { Icon } from "./ui/icon";
 
 /**
  * Where you are in the review: Find in review's box after `leading`, then the Overview and the chapters, or every file.
- * The workspace hosts it beside the code or over it.
+ * The workspace hosts it beside the code, over it, or in a phone's sheet.
  */
 export const Navigator = memo(function Navigator({ leading, patch, currentFile, changedSince, lines, generated, threads, owners, onSelect, onSelectFile, onOpenLine, onOpenFile }: {
   leading: ReactNode;
@@ -28,19 +29,11 @@ export const Navigator = memo(function Navigator({ leading, patch, currentFile, 
   onOpenLine: (file: string, line: number, side: "LEFT" | "RIGHT") => void;
   onOpenFile: (chapterId: string, file: string) => void;
 }) {
-  const { sections, activeId, files, nav, compare } = useWorkspace();
-  const overview = activeId === OVERVIEW;
+  const { review, sections, activeId, files, nav, compare } = useWorkspace();
+  const current = activeId === OVERVIEW;
+  const status = statusLook(review).label;
   return (
     <FindInReview leading={leading} patch={patch} sections={sections} onOpenLine={onOpenLine} onOpenChapter={onSelect} onOpenFile={onOpenFile}>
-      <button
-        type="button"
-        aria-current={overview ? "page" : undefined}
-        onClick={() => onSelect(OVERVIEW)}
-        className={cn("mb-2 flex w-full items-center gap-2.5 rounded-lg py-2 pl-[9px] pr-2 text-left text-sm font-medium transition-colors duration-150 pointer-coarse:min-h-11", overview ? "bg-state-active/50 text-foreground ring-1 ring-inset ring-primary/20" : "text-foreground/90 hover:bg-state-hover")}
-      >
-        <Icon name="AlignLeft" className={cn("size-4 shrink-0", overview ? "text-primary" : "text-subtle-foreground")} aria-hidden />
-        Overview
-      </button>
       <ChapterNav
         sections={sections}
         activeId={activeId}
@@ -58,6 +51,22 @@ export const Navigator = memo(function Navigator({ leading, patch, currentFile, 
         threads={threads}
         owners={owners}
         sinceWhat={compare.what}
+        onMarkViewed={files.markChapterViewed}
+        onNextUnviewed={files.nextUnviewed}
+        overview={
+          <button
+            type="button"
+            aria-current={current ? "page" : undefined}
+            onClick={() => onSelect(OVERVIEW)}
+            className={cn("flex w-full items-center gap-2.5 rounded-lg py-2 pl-[10px] pr-2 text-left text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11", current ? "bg-state-active/50 ring-1 ring-inset ring-primary/20" : "hover:bg-state-hover")}
+          >
+            <Icon name="AlignLeft" className={cn("size-4 shrink-0", current ? "text-primary" : "text-subtle-foreground")} aria-hidden />
+            <span className="min-w-0 flex-1 truncate">
+              <span className="font-medium text-foreground">Overview</span>
+              {status !== "Ready" && <span className="text-muted-foreground"> · {status}</span>}
+            </span>
+          </button>
+        }
       />
     </FindInReview>
   );

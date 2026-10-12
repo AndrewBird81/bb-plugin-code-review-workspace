@@ -213,3 +213,14 @@ test("Enter in the filter opens the first file the tree shows, not the guide's f
   expect(fileRow(slot, "src/cache/evict.ts").getAttribute("aria-current")).toBe("true");
   slot.lifecycle.unmount();
 }, 15_000);
+
+test("on a coarse pointer All files' rows and filter are 44px targets", async () => {
+  const slot = await renderWorkspace();
+  fireEvent.click(nav(slot).getByRole("button", { name: "All files" }));
+  const filter = slot.getByRole("searchbox", { name: "Filter files" });
+  expect(filter.closest("label")!.className).toContain("pointer-coarse:py-1");
+  expect(filter.className).toContain("pointer-coarse:h-9");
+  const tree = within(slot.getByRole("list", { name: "All files" }));
+  for (const row of [tree.getByRole("button", { name: "src" }), fileRow(slot, "src/api.ts")]) expect(row.className).toContain("pointer-coarse:min-h-11");
+  slot.lifecycle.unmount();
+}, 15_000);

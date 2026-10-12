@@ -277,7 +277,7 @@ test("a closed PR's Comments offers its archived review by touch, where the Fini
   const { slot } = await renderWorkspace({ review: { prState: "MERGED", archivedAt: 1 } });
   fireEvent.click(await slot.findByRole("button", { name: /^Comments/ }));
   const list = await slot.findByRole("region", { name: "Comments" });
-  expect(slot.queryByRole("button", { name: /^Finish review/ })).toBeNull();
+  expect(within(list.parentElement!).queryByRole("button", { name: /^Finish review/ })).toBeNull();
   const archived = within(list.parentElement!).getByText("Merged · Archived").closest("div")!;
   fireEvent.click(within(archived).getByRole("button", { name: "Open the archived review" }));
   expect(within(await slot.findByRole("region", { name: "Archived review" })).getByText("Merged · Archived")).toBeTruthy();
