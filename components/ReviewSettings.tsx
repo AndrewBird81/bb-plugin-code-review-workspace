@@ -268,7 +268,8 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
           <Button className={TOUCH_CONTROL} disabled={!dirty || incomplete || busy || updating} onClick={() => void save()}>{busy ? "Saving…" : "Save settings"}</Button>
           {dirty && <Button variant="ghost" className={TOUCH_CONTROL} disabled={busy || updating} onClick={() => { setRecord({ ...record, preferences: JSON.parse(baseline) }); setError(""); }}>Discard edits</Button>}
           <span role="status" className="text-xs text-muted-foreground">{saved ? "Settings saved" : dirty ? "Unsaved changes" : ""}</span>
-          <Button variant="ghost" size="sm" className={`ml-auto ${TOUCH_CONTROL}`} disabled={busy || updating} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...defaultPreferences } }); }}>Restore defaults</Button>
+          {/* The diff layout isn't on this page: the review's Diff options set it. */}
+          <Button variant="ghost" size="sm" className={`ml-auto ${TOUCH_CONTROL}`} disabled={busy || updating} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...defaultPreferences, diffLayout: record.preferences.diffLayout } }); }}>Restore defaults</Button>
         </div>
       </>}
     </div>

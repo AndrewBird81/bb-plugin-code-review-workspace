@@ -36,6 +36,24 @@ test("settings have an installed slot, save explicitly, and restore defaults wit
   slot.lifecycle.unmount();
 });
 
+test("Restore defaults keeps the diff layout, which the review sets, not Settings", async () => {
+  const { ReviewSettings } = await import("./ReviewSettings");
+  let record = { preferences: { ...defaultPreferences, diffLayout: "unified" }, revision: 0 };
+  const save = vi.fn(async (input: any) => record = { ...input, revision: input.revision + 1 });
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record, savePreferences: save } });
+  await slot.findByRole("textbox", { name: "Guide instructions" });
+  // What the page shows is already at its defaults.
+  fireEvent.click(slot.getByRole("button", { name: "Restore defaults" }));
+  expect(slot.queryByText("Unsaved changes")).toBeNull();
+  fireEvent.click(slot.getByRole("button", { name: /^Detailed$/ }));
+  fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
+  await slot.findByText("Settings saved");
+  fireEvent.click(slot.getByRole("button", { name: "Restore defaults" }));
+  fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
+  await waitFor(() => expect(record.preferences).toEqual({ ...defaultPreferences, diffLayout: "unified" }));
+  slot.lifecycle.unmount();
+});
+
 test("Settings goes back to where it was opened from, All reviews or the review, once edits are saved or discarded", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const rpc = { setReviewPresence: () => ({ ok: true }), getPreferences: () => ({ preferences: { ...defaultPreferences }, revision: 0 }), getGhAccounts: () => ({ active: "me", accounts: [] }) } as any;
