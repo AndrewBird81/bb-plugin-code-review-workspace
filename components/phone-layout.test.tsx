@@ -173,7 +173,8 @@ test("a phone held sideways opens on code: the chapter overview, the chapters an
   fakeSize(844, 390);
   const slot = await renderWorkspace();
   const main = within(slot.getByRole("main"));
-  expect(slot.getByRole("button", { name: "Show chapters" }).getAttribute("aria-pressed")).toBe("false");
+  // Its label says the chapters are hidden, so it isn't also a pressed toggle.
+  expect(slot.getByRole("button", { name: "Show chapters" }).hasAttribute("aria-pressed")).toBe(false);
   expect(within(main.getByRole("region", { name: "Parsing" })).queryByText("Reads rows.")).toBeNull();
   expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
   fireEvent.click(slot.getByRole("button", { name: "Show chapters" }));

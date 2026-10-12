@@ -113,7 +113,7 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
         <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />
       </Button>
       {fullscreen.available && (
-        <Button variant="ghost" aria-label={fullscreen.on ? "Exit full screen" : "Full screen"} aria-pressed={fullscreen.on} className={tab} onClick={fullscreen.toggle}>
+        <Button variant="ghost" aria-label={fullscreen.on ? "Exit full screen" : "Full screen"} className={tab} onClick={fullscreen.toggle}>
           <Icon name={fullscreen.on ? "Minimize2" : "Maximize2"} aria-hidden />
         </Button>
       )}

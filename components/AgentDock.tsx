@@ -226,7 +226,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
   </div>, container ?? document.body);
   return <>
     <section aria-label="Review agent" hidden={!active} className={cn("flex min-h-0 flex-1 flex-col", !active && "hidden")}>
-      {mode === "panel" ? panel : <><div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5"><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /><h2 className="flex-1 text-sm font-medium">Review agent</h2>{onCollapse && <Button variant="ghost" size="icon" className="size-8 text-muted-foreground pointer-coarse:size-11" aria-label={closeLabel} onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}</div><div className="space-y-3 p-3 text-sm"><p className="text-muted-foreground">The agent is popped out.</p><Button variant="outline" size="sm" onClick={dock}>Dock</Button></div></>}
+      {mode === "panel" ? panel : <><div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5"><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /><h2 className="flex-1 text-sm font-medium">Review agent</h2>{onCollapse && <Button variant="ghost" size="icon" className="size-8 text-muted-foreground pointer-coarse:size-11" aria-label={closeLabel} onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}</div><div className="space-y-3 p-3 text-sm"><p className="text-muted-foreground">The agent is popped out.</p><Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={dock}>Dock</Button></div></>}
     </section>
     {widget}
   </>;

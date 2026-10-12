@@ -92,7 +92,6 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
             variant="ghost"
             size="sm"
             aria-label={api.fullscreen.on ? "Exit full screen" : "Full screen"}
-            aria-pressed={api.fullscreen.on}
             className={icon}
             onClick={(event) => {
               // From the keyboard (a click without a pointer), the focus follows the toggle.
