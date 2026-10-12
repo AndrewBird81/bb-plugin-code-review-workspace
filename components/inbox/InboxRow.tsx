@@ -36,7 +36,7 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   const closed = review.prState === "MERGED" || review.prState === "CLOSED" || !!review.archivedAt;
   const untilAuthor = canSnooze(review, turn), untilTime = canSnoozeUntil(review, turn);
   const snoozable = (untilAuthor || untilTime) && turn.reason !== "snoozed";
-  const quick = "size-7 px-0 text-muted-foreground hover:text-foreground";
+  const quick = "size-6 px-0 text-muted-foreground hover:text-foreground";
   return (
     <div className="group/row relative flex min-w-0 items-center hover:bg-state-hover has-[[data-row]:focus-visible]:bg-state-hover">
       <button type="button" data-row onClick={onOpen} className={cn("min-w-0 flex-1 px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", short ? "py-1.5" : "py-2 pointer-coarse:py-3")}>
@@ -52,10 +52,13 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
         <StatusLine parts={statusLine(review)} after={where ? { content: <span className="font-mono text-[11px]">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
           className="mt-0.5 text-xs leading-4 text-muted-foreground" />
       </button>
-      {/* A fine pointer's quick actions show over the end of the status line while the row is hovered or focused, and
-          stay while one's menu is open; a touch screen keeps Review actions, 44px, beside the row. */}
-      <div className="flex shrink-0 items-center gap-0.5 pr-1.5 pointer-fine:absolute pointer-fine:bottom-1 pointer-fine:right-1.5 pointer-fine:rounded-md pointer-fine:bg-background pointer-fine:pr-0 pointer-fine:opacity-0 pointer-fine:group-hover/row:opacity-100 pointer-fine:group-focus-within/row:opacity-100 pointer-fine:has-[[data-state=open]]:opacity-100">
-        <div className="flex items-center gap-0.5 rounded-md pointer-coarse:hidden pointer-fine:group-hover/row:bg-state-hover">
+      {/* A fine pointer's quick actions show over the end of the status line, clear of the line above, while the row is
+          hovered or focused, and stay while one's menu is open; a touch screen keeps Review actions, 44px, beside the
+          row. The strip hides the status line under it, with the row's tint layered over, as the row has it. */}
+      <div className={cn("flex shrink-0 items-center gap-0.5 pr-1.5 pointer-fine:absolute pointer-fine:right-1.5 pointer-fine:rounded-md pointer-fine:bg-background pointer-fine:pr-0 pointer-fine:opacity-0 pointer-fine:group-hover/row:opacity-100 pointer-fine:group-focus-within/row:opacity-100 pointer-fine:has-[[aria-expanded=true]]:opacity-100",
+        "pointer-fine:group-hover/row:bg-[linear-gradient(var(--state-hover),var(--state-hover))] pointer-fine:group-has-[[data-row]:focus-visible]/row:bg-[linear-gradient(var(--state-hover),var(--state-hover))]",
+        short ? "pointer-fine:bottom-0" : "pointer-fine:bottom-0.5")}>
+        <div className="flex items-center gap-0.5 pointer-coarse:hidden">
           {snoozable && <Popover open={snoozeOpen} onOpenChange={setSnoozeOpen}>
             <Hint label="Snooze">
               <PopoverTrigger asChild>
