@@ -926,8 +926,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (loading) return <ReviewSkeleton />;
     if (!review) return <ReviewError title="Review not found" message="This review may have been removed. Return to your reviews or refresh the connection." onRetry={() => void load()} onBack={back} />;
     if (review.status === "tracked") return <TrackedReview review={review} onBack={back} />;
-    if (review.status === "error") return <ReviewError onRetry={() => void rebuild()} onBack={back} busy={rebuilding} />;
-    return <ReviewSkeleton />;
+    if (review.status === "error") return <ReviewError review={review} onRetry={() => void rebuild()} onBack={back} busy={rebuilding} />;
+    return <ReviewSkeleton review={review} onBack={back} />;
   }
 
   const noticeButton = cn("h-7", TOUCH_CONTROL);

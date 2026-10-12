@@ -76,12 +76,12 @@ test("a guide rebuild that didn't run offers Re-review, which is what it starts"
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("a tracked PR whose guide didn't start on its own says why above Start review", async () => {
+test("a tracked PR whose guide didn't start on its own says why above Build the guide", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, workspace({ ...outsider, status: "tracked", skippedRun: { run: "guide", head: "sha1", at: 1 } }));
   const section = await slot.findByRole("region", { name: "Tracked pull request" });
   expect(section.textContent).toContain("Not run automatically: @mallory isn’t a member of acme");
-  expect(slot.getByRole("button", { name: "Start review" })).toBeTruthy();
+  expect(slot.getByRole("button", { name: "Build the guide" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
