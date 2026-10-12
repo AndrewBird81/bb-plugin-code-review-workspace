@@ -50,6 +50,13 @@ window.addEventListener("resize", () => { resizedAt = Date.now(); });
 /** Per review, what waits to be kept, until SETTLE_MS after the window last resized. */
 const waiting = new Map<string, { patch: Partial<Kept>; timer: ReturnType<typeof setTimeout> }>();
 
+/** For tests, which share this module's state within a file: no window resize to wait out, and nothing waiting. */
+export function resetForTests() {
+  resizedAt = -Infinity;
+  waiting.forEach(({ timer }) => clearTimeout(timer));
+  waiting.clear();
+}
+
 function read(): Record<string, Entry> {
   try {
     return JSON.parse(sessionStorage.getItem(KEY) ?? "{}") as Record<string, Entry>;
@@ -58,11 +65,18 @@ function read(): Record<string, Entry> {
   }
 }
 
+/** Whether a new workspace may go on from `entry`: kept in this page, with its workspace there or gone under FRESH_MS ago. */
+function fresh(entry: Entry): boolean {
+  return entry.doc === performance.timeOrigin && (entry.live > 0 || (entry.gone !== undefined && Date.now() - entry.gone < FRESH_MS));
+}
+
+/** Changes the review `key`'s entry; what no workspace can go on from any more, as another page's, goes first. */
 function update(key: string, change: (entry: Entry) => Entry) {
   const all = read();
-  const was = JSON.stringify(all[key] ?? null);
+  const was = JSON.stringify(all);
+  for (const [other, entry] of Object.entries(all)) if (!fresh(entry)) delete all[other];
   all[key] = change(all[key] ?? { live: 0 });
-  if (JSON.stringify(all[key]) === was) return;
+  if (JSON.stringify(all) === was) return;
   try { sessionStorage.setItem(KEY, JSON.stringify(all)); } catch { /* storage full or blocked: nothing is carried */ }
 }
 
@@ -80,7 +94,7 @@ export function keep(key: string, patch: Partial<Kept>) {
 /** A workspace of the review `key` is there; the function it returns says it's gone, and drops what waits to be kept. */
 export function present(key: string): () => void {
   const doc = performance.timeOrigin;
-  update(key, (entry) => ({ ...entry, live: entry.doc === doc ? entry.live + 1 : 1, doc }));
+  update(key, (entry) => entry.doc === doc ? { ...entry, live: entry.live + 1 } : { live: 1, doc });
   return () => {
     clearTimeout(waiting.get(key)?.timer);
     waiting.delete(key);
@@ -91,7 +105,7 @@ export function present(key: string): () => void {
 /** What the workspace of the review `key` that this one takes the place of kept, if it does; else null. */
 export function carried(key: string): Partial<Kept> | null {
   const entry = read()[key];
-  if (!entry || entry.doc !== performance.timeOrigin || !(entry.live > 0 || (entry.gone !== undefined && Date.now() - entry.gone < FRESH_MS))) return null;
+  if (!entry || !fresh(entry)) return null;
   const { live: _live, gone: _gone, doc: _doc, ...was } = entry;
   return was;
 }

@@ -252,7 +252,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       else carriedTyping.current = undefined;
     };
     attempt();
-    return () => cancelAnimationFrame(frame);
+    // A chapter changed before it's back: it won't be, and you're not typing there.
+    return () => { cancelAnimationFrame(frame); carriedTyping.current = undefined; };
   }, [activeId, targetKey]);
   // The navigator hidden with the focus in it, as when the panel docks over its room: the chapters toggle takes it.
   // Before paint, while the hidden navigator still has the focus.
@@ -882,8 +883,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const restoring = restoringPlace.current;
     scrollSaveTimer.current = setTimeout(() => {
       patchReviewState(targetKey, { scrollTop: value });
-      // Under a phone's sheet the code is inert, and what's at its top can't be read: the place stays the one it was.
-      if (!restoring && !box.closest("[inert]")) keep(targetKey, { place: linePlace(box) });
+      // Under a phone's sheet the code is inert, and gone with the workspace (BB remounting the page) it isn't laid out:
+      // what's at its top can't be read, and the place stays the one it was.
+      if (!restoring && box.isConnected && !box.closest("[inert]")) keep(targetKey, { place: linePlace(box) });
     }, 200);
   }, [targetKey, fileAtTop]);
 

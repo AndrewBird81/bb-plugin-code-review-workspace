@@ -3,10 +3,11 @@
 // focused stays (lanes/00-devices.md, requirement 3). BB's pane narrowing alone, and an iPad's or a desktop's window
 // resizing, keep the shell's older rules.
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
+import { keep, resetForTests } from "../lib/remount";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // The diff draws the comment box under its line, and picks a line as a tap on its number does.
@@ -21,7 +22,7 @@ vi.mock("@pierre/diffs/react", () => ({
 }));
 
 const restores: (() => void)[] = [];
-afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); restores.splice(0).forEach((restore) => restore()); });
+afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); restores.splice(0).forEach((restore) => restore()); resetForTests(); });
 
 /**
  * The workspace in a BB pane `width` × `height`, in a window (`window`: by default the pane plus BB's bar, as Safari's
@@ -194,8 +195,6 @@ test.each([
   { open: "Comments", opener: "Comments" },
   { open: "Chapters", opener: /^Chapters:/ },
 ])("unfolding as BB remounts the page beside its thread list, $open open folded stays open over the code", async ({ open, opener }) => {
-  // What's kept waits 300ms after a window resize (lib/remount.ts), such as the test's before.
-  await new Promise((done) => setTimeout(done, 300));
   const screen = fakeScreen(OUTER.width, OUTER.height);
   let slot = await renderWorkspace();
   fireEvent.click(await slot.findByRole("button", { name: opener }));
@@ -209,6 +208,22 @@ test.each([
   screen.pane({ width: 631, height: INNER_LANDSCAPE.height });
   slot = await renderWorkspace();
   expect(await slot.findByRole("dialog", { name: open })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("as BB remounts the page while you type in the code, another chapter before the box is back ends that: folding then keeps Comments open", async () => {
+  const screen = fakeScreen(INNER_LANDSCAPE.width, INNER_LANDSCAPE.height);
+  let slot = await renderWorkspace();
+  fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
+  keep("pr-42", { focus: { in: "composer", typing: "other" } });
+  slot.lifecycle.unmount();
+  // The comment box doesn't come back: you go to the Overview first.
+  slot = await renderWorkspace();
+  expect(dockedPanel(slot)).toBeTruthy();
+  fireEvent.keyDown(document.body, { key: "p" });
+  await waitFor(() => expect(slot.queryByTestId("filediff")).toBeNull());
+  screen.fold(OUTER);
+  expect(sheet(slot, "Comments")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

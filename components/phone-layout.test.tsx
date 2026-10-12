@@ -178,6 +178,20 @@ test("as BB remounts the page, a tap outside the code, as on the dock, ends putt
   slot.lifecycle.unmount();
 });
 
+test("the code's scroll saved after its box has gone, as BB remounts the page, keeps the line the box had", async () => {
+  fakeSize(390, 844);
+  const slot = await renderWorkspace();
+  const place = { file: "src/a.ts", index: "1,1", offset: 12 };
+  keep("pr-42", { place });
+  const code = slot.getByRole("main", { name: "Review" }).querySelector<HTMLElement>(":scope > .overflow-y-auto")!;
+  fireEvent.scroll(code);
+  Object.defineProperty(code, "isConnected", { configurable: true, get: () => false });
+  await new Promise((done) => setTimeout(done, 250));
+  expect(JSON.parse(sessionStorage.getItem("gr:remount")!)["pr-42"].place).toEqual(place);
+  delete (code as { isConnected?: boolean }).isConnected;
+  slot.lifecycle.unmount();
+});
+
 test("on a phone the diff's options are behind the chapters sheet's Diff options, without Split, which can't apply there", async () => {
   fakeSize(390, 844);
   const slot = await renderWorkspace();

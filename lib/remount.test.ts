@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { carried, keep, present } from "./remount";
+import { carried, keep, present, resetForTests } from "./remount";
 
-afterEach(() => { sessionStorage.clear(); vi.useRealTimers(); });
+afterEach(() => { sessionStorage.clear(); vi.useRealTimers(); resetForTests(); });
 
 test("a workspace that mounts while the review's last one is there carries what it kept", () => {
   const gone = present("pr-42");
@@ -47,6 +47,33 @@ test("with the workspace still there, what waited is kept once the window has se
   expect(carried("pr-42")).toEqual({});
   vi.advanceTimersByTime(300);
   expect(carried("pr-42")).toEqual({ find: "cache", navOverlay: true });
+  gone();
+});
+
+test("a new page after a reload starts clean: a remount there carries only what it kept itself", () => {
+  // The page reloads with the workspace there: it never says it went.
+  present("pr-42");
+  keep("pr-42", { panelOverlay: true, focus: { in: "composer", caret: [3, 3], typing: "other" } });
+  const origin = vi.spyOn(performance, "timeOrigin", "get").mockReturnValue(performance.timeOrigin + 1);
+  try {
+    const gone = present("pr-42");
+    expect(carried("pr-42")).toEqual({});
+    keep("pr-42", { find: "cache" });
+    expect(carried("pr-42")).toEqual({ find: "cache" });
+    gone();
+  } finally {
+    origin.mockRestore();
+  }
+});
+
+test("what no workspace can go on from any more is dropped as anything's kept: another page's, and a review's gone 2 seconds", () => {
+  vi.useFakeTimers();
+  sessionStorage.setItem("gr:remount", JSON.stringify({ "pr-40": { live: 1, doc: performance.timeOrigin - 1, find: "cache" } }));
+  present("pr-41")();
+  expect(Object.keys(JSON.parse(sessionStorage.getItem("gr:remount")!))).toEqual(["pr-41"]);
+  vi.advanceTimersByTime(2000);
+  const gone = present("pr-42");
+  expect(Object.keys(JSON.parse(sessionStorage.getItem("gr:remount")!))).toEqual(["pr-42"]);
   gone();
 });
 
