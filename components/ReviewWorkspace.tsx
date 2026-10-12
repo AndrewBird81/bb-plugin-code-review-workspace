@@ -407,6 +407,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (!narrowed) { narrowOnLoad.current = false; setCompareFrom(null); }
     setSinceOnly(narrowed);
   }, []);
+  // A new push ends the comparison, and with it the narrowing: it lets a picked commit go too, as All changes does, so
+  // the select and the files' badges count from your review again. A pick still loading is a new comparison, not this.
+  const comparedHead = useRef(review?.headSha);
+  useEffect(() => {
+    const head = review?.headSha;
+    if (!head || head === comparedHead.current) return;
+    const pushed = !!comparedHead.current;
+    comparedHead.current = head;
+    if (pushed) narrow(false);
+  }, [review?.headSha, narrow]);
   const sinceWhat = compareFrom ? compareFrom.slice(0, 7) : "your review";
   // Who owns each file, by CODEOWNERS on a PR's base branch, or a local review's new side.
   useEffect(() => {

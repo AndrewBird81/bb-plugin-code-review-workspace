@@ -189,6 +189,20 @@ test("on a re-review, All changes lets a picked commit go: the files' badges say
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("a new push lets a picked commit go, as All changes does, so the select and the badges agree", async () => {
+  const { slot, rpc, push } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" });
+  fireEvent.click(await (await bandMenu(slot)).findByText("Invalidate on write"));
+  await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
+  await waitFor(() => expect(slot.queryAllByTitle("Changed since c2bbbbb")).not.toEqual([]));
+  await push();
+  await slot.findByRole("button", { name: "Show changes: All changes" });
+  // The badges count from your review again, not from the commit the select no longer names.
+  await waitFor(() => expect(slot.queryAllByTitle("Changed since your review")).toHaveLength(2));
+  expect(slot.queryAllByTitle("Changed since c2bbbbb")).toEqual([]);
+  expect(rpc.getSinceReview).toHaveBeenLastCalledWith({ targetKey: "pr-42" });
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("opening a file the narrowing hides, or a line from Find, lets a picked commit go as All changes does, so the select and the badges agree", async () => {
   const { slot } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" });
   const pick = async () => {
