@@ -7,7 +7,7 @@ import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
 import { setNeedsYou } from "../lib/workspace-store";
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
 
 const restores: (() => void)[] = [];

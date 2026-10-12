@@ -1,6 +1,6 @@
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useRpc, useRealtime, useBbNavigate } from "@get-bb/plugin-sdk/app";
-import { toast } from "sonner";
+import { Toaster, toast } from "sonner";
 import type { SelectedLineRange } from "@pierre/diffs";
 import type { rpcContract } from "../src/rpc-contract";
 import type { AgentMessageContext } from "../src/store";
@@ -1060,6 +1060,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       <StepBar hidden={!!lineSel} pill={pill} />
       <SelectionBar lines={lineSel} phone={sheet} onComment={() => commentOnLines()} onAskLines={askAboutLines} onClear={() => setLineSel(null)} />
       <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      {/* In full screen the workspace is over the page, BB's toaster under it: sonner is BB's, so a toaster of its own
+          here shows the same toasts, Undo's among them. */}
+      {fullscreen && <Toaster theme={codeTheme.mode} position="bottom-right" />}
     </div>
     </CompactViewportOverrideProvider>
     </DraftProvider>
