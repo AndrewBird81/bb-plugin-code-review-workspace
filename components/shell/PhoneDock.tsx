@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useDraftStatus } from "../../lib/draft-status";
 import { TEXT_FIELD } from "../../lib/review-shortcuts";
 import { cn } from "../../lib/utils";
@@ -15,6 +15,32 @@ import { navigatorId } from "./TopBand";
 /** Whether the focus is in a box you type in, which brings up a phone's keyboard. */
 function typingIn(el: Element | null): boolean {
   return el instanceof HTMLElement && (el.isContentEditable || !!el.closest(TEXT_FIELD));
+}
+
+/**
+ * While the dock shows, toasts at the page's bottom sit above it rather than over it. BB shows them, with its own
+ * toaster (sonner), outside the plugin: a style in the page's head lifts that toaster by what the dock covers.
+ */
+function useToastsAbove(dock: HTMLElement | null) {
+  useLayoutEffect(() => {
+    if (!dock) return;
+    const style = document.createElement("style");
+    style.setAttribute("data-gr-toasts-above-dock", "");
+    const update = () => {
+      const lift = Math.max(0, Math.round(document.documentElement.clientHeight - dock.getBoundingClientRect().top));
+      style.textContent = `[data-sonner-toaster][data-y-position="bottom"] { margin-bottom: ${lift}px !important; }`;
+    };
+    update();
+    document.head.append(style);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(dock);
+    window.addEventListener("resize", update);
+    return () => {
+      style.remove();
+      observer?.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [dock]);
 }
 
 /**
@@ -44,13 +70,16 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
   const comments = panel.view === "comments" || panel.view === "finish";
   const unsent = status?.comments ?? 0;
   const away = hidden || typing;
+  const [dock, setDock] = useState<HTMLDivElement | null>(null);
+  useToastsAbove(away ? null : dock);
   const tab = "h-11 min-w-11 shrink-0 px-0 text-muted-foreground";
   return (
     <div
+      ref={setDock}
       role="group"
       aria-label="Review commands"
       hidden={away}
-      className={cn("flex shrink-0 items-center gap-1 border-t border-border px-1.5 pt-[3px] pb-[calc(4px+env(safe-area-inset-bottom))]", away && "hidden")}
+      className={cn("flex shrink-0 items-center gap-1 border-t border-border px-1.5 pt-[3px] pb-[calc(4px+var(--gr-safe-bottom,0px))]", away && "hidden")}
       style={OPAQUE}
     >
       <Button variant="ghost" aria-label="All reviews" className={tab} onClick={() => void leave()}>

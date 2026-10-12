@@ -12,8 +12,11 @@ import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setCommentsFolded, setGithubThreadsInCode, setHideWhitespace, setLastReview, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView } from "../lib/panel-state";
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
-import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, useWorkspaceLayout } from "../lib/workspace-layout";
+import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout, type LayoutState } from "../lib/workspace-layout";
 import { useKeyboardInset } from "../lib/use-keyboard-inset";
+import { useFold } from "../lib/use-fold";
+import { useSafeArea } from "../lib/use-safe-area";
+import { useScrollAnchor } from "../lib/use-scroll-anchor";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { Button } from "./ui/button";
 import type { FileOwners } from "../src/codeowners";
@@ -26,7 +29,7 @@ import { AgentDock, type DockInjection } from "./AgentDock";
 import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { AccountBar } from "./AccountBar";
 import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
-import { inDiffOrder, readingOrder, shortcutKey } from "../lib/review-shortcuts";
+import { TEXT_FIELD, inDiffOrder, readingOrder, shortcutKey } from "../lib/review-shortcuts";
 import { stepComment } from "../lib/comment-stops";
 import { InlineDraftContext } from "./InlineDraft";
 import { DiffThreadsContext, useDiffThreads } from "./LineThreads";
@@ -45,7 +48,7 @@ import { PhoneDock } from "./shell/PhoneDock";
 import { returnFocus } from "./shell/side-parts";
 import { ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
 import { SelectionBar } from "./shell/SelectionBar";
-import { SidePanel } from "./shell/SidePanel";
+import { SidePanel, sidePanelId } from "./shell/SidePanel";
 import { TopBand, navigatorId } from "./shell/TopBand";
 import { ReviewMenu } from "./TitleBarControls";
 import { TOUCH_CONTROL } from "./touch";
@@ -65,6 +68,13 @@ const OTHER_FILES = "other-files";
 
 function viewMap(views: { file: string; viewed: boolean; stale: boolean }[]): Map<string, FileViewFlags> {
   return new Map(views.map((v) => [v.file, { viewed: v.viewed, stale: v.stale }]));
+}
+
+/** Where you're typing in the review `targetKey`, if you are: in its chapters (Find in review), its side panel, or elsewhere. */
+function typingIn(targetKey: string): LayoutState["typingIn"] {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement && (active.isContentEditable || active.closest(TEXT_FIELD)))) return undefined;
+  return document.getElementById(navigatorId(targetKey))?.contains(active) ? "nav" : document.getElementById(sidePanelId(targetKey))?.contains(active) ? "panel" : "other";
 }
 
 /** Hands the workspace the lines with draft comments or discussions, which the draft panel provides, without the nits it hides. */
@@ -140,6 +150,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const fileEls = useRef<Map<string, HTMLElement>>(new Map());
   const pendingScroll = useRef<string | null>(null);
   const scrollBox = useRef<HTMLDivElement>(null);
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
 
@@ -155,7 +166,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [commentsTab, setCommentsTab] = useState<CommentsTab>("drafts");
   // Comments was to open as the review opened, but couldn't beside the code: the "need you" pill offers it instead.
   const [pill, setPill] = useState(false);
-  const layout = useWorkspaceLayout(rootEl, { navWidth, panelWidth, navOpen, navOverlay, panelOpen: panelView !== null, panelOverlay });
+  // Where you're typing: a phone's fold or rotation keeps that side open, over the code if it must, and hides the side
+  // you're not typing in rather than cover your box. Read as it renders, as the resize renders it: it's never stale, as
+  // it would be after the box you typed in went away with the focus, which tells no one.
+  const layout = useWorkspaceLayout(rootEl, { navWidth, panelWidth, navOpen, navOverlay, typingIn: typingIn(targetKey), panelOpen: panelView !== null, panelOverlay });
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   // The panel's view as it shows, docked or over the code.
@@ -164,8 +178,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   shownPanelRef.current = shownPanel;
   const commentsTabRef = useRef(commentsTab);
   commentsTabRef.current = commentsTab;
-  // Overlays don't come back by themselves: once a side docks, it was never opened over the code.
-  useEffect(() => { if (layout.nav === "docked") setNavOverlay(false); }, [layout.nav]);
+  // Overlays don't come back by themselves: once a side docks or hides, it was never opened over the code. Unless a
+  // phone's fold, unfold or rotation docked it: the chapters you had open over the code go back there with the next.
+  useEffect(() => { if (layout.nav === "closed" || layout.nav === "suppressed" || (layout.nav === "docked" && !layout.phoneResized)) setNavOverlay(false); }, [layout.nav]);
+  // Over the code after such a resize, they stay there: before paint, while the resize still has them there.
+  useLayoutEffect(() => { if (layout.nav === "overlay") setNavOverlay(true); }, [layout.nav]);
   useEffect(() => { if (layout.panel === "docked") setPanelOverlay(false); }, [layout.panel]);
   useEffect(() => patchReviewState(targetKey, { panel: panelView }), [targetKey, panelView]);
   // The navigator hidden with the focus in it, as when the panel docks over its room: the chapters toggle takes it.
@@ -176,7 +193,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     shownNav.current = layout.nav;
     if (was !== "docked" || layout.nav === "docked" || layout.nav === "overlay") return;
     const host = document.getElementById(navigatorId(targetKey));
-    if (host?.contains(document.activeElement)) returnFocus(rootRef.current?.querySelector<HTMLElement>(`main [aria-controls="${navigatorId(targetKey)}"]`), host);
+    // The band's toggle, or a phone's chapters tab.
+    const toggle = rootRef.current?.querySelector<HTMLElement>(`main [aria-controls="${navigatorId(targetKey)}"], [aria-label="Review commands"] > [aria-controls="${navigatorId(targetKey)}"]`);
+    if (host?.contains(document.activeElement)) returnFocus(toggle, host);
   }, [layout.nav, targetKey]);
 
   const changeNavOpen = useCallback((open: boolean) => { setNavOpenState(open); saveNavOpen(open); }, []);
@@ -190,7 +209,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [changeNavOpen]);
   const toggleNav = useCallback(() => {
     const { nav } = layoutRef.current;
-    if (nav === "docked") changeNavOpen(false);
+    // Docked, it may have been over the code before the window resized: hidden, it doesn't go back there.
+    if (nav === "docked") { changeNavOpen(false); setNavOverlay(false); }
     else if (nav === "overlay") setNavOverlay(false);
     else showNav();
   }, [changeNavOpen, showNav]);
@@ -471,6 +491,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, []);
   const canFullscreen = document.fullscreenEnabled || "showPopover" in HTMLElement.prototype;
   useKeyboardInset(rootEl);
+  useSafeArea(rootEl);
+  useFold(rootEl);
+  useScrollAnchor(scrollEl);
   useLayoutEffect(() => {
     if (!covering || !rootEl) return;
     rootEl.setAttribute("popover", "manual");
@@ -921,7 +944,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review)}.`, action: <NotRunButton review={review} /> }] as const : []),
     ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: "New commits since this guide was written.", action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),
   ];
-  const paneWidth = rootEl?.clientWidth ?? 0;
+  // Inside the padding that keeps the workspace clear of the screen's edges.
+  const rootStyle = rootEl && getComputedStyle(rootEl);
+  const paneWidth = rootEl && rootStyle ? rootEl.clientWidth - (parseFloat(rootStyle.paddingLeft) || 0) - (parseFloat(rootStyle.paddingRight) || 0) : 0;
   // A phone's sides are its one sheet, over the code, which shows nothing else to reach meanwhile.
   const sheet = layout.mode === "phone";
   const sheetOpen = sheet && (layout.nav === "overlay" || layout.panel === "overlay");
@@ -932,25 +957,28 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={() => { void load(); }} onShowComment={showComment} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
     {/* Kit popovers open as bottom drawers where the workspace is phone-sized or short. */}
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
-    {/* It ends above a keyboard over it (--gr-kb). Covering the window, it keeps clear of the notch and the home
-        indicator; a phone's dock does that at the bottom. */}
+    {/* It keeps clear of the screen's edges where it reaches them (--gr-safe-*: the notch, the Duo's rail, the home
+        indicator, which a phone's dock keeps clear of at the bottom), and ends above a keyboard over it (--gr-kb). */}
     <div
       ref={(el) => {
         rootRef.current = el;
         setRootEl(el);
       }}
-      className={cn("@container/review relative flex h-full min-h-0 min-w-0 flex-col bg-background pb-[var(--gr-kb,0px)]", covering && "fixed inset-0 m-0 h-auto w-auto overflow-hidden border-0 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground", covering && !sheet && "pb-[max(env(safe-area-inset-bottom),var(--gr-kb,0px))]")}
+      className={cn("@container/review relative flex h-full min-h-0 min-w-0 flex-col bg-background pt-[var(--gr-safe-top,0px)] pr-[var(--gr-safe-right,0px)] pl-[var(--gr-safe-left,0px)]", sheet ? "pb-[var(--gr-kb,0px)]" : "pb-[max(var(--gr-safe-bottom,0px),var(--gr-kb,0px))]", covering && "fixed inset-0 m-0 h-auto w-auto overflow-hidden border-0 text-foreground")}
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
       <div className="relative flex min-h-0 flex-1">
-        <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelWidth : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
+        <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelDockWidth(paneWidth, panelWidth) : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
           <Navigator leading={<TopBand />} patch={patch} currentFile={currentFile} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={owners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} />
         </NavigatorHost>
         <main aria-label="Review" inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
-          <ReaderBar threads={isPr && diffThreads.threads.length > 0} onCompareShown={setCompareShown} />
-          <ReviewNotices notices={notices} />
+          {/* With the keyboard up leaving a phone held sideways' room or less, the band and notices give way to the code. */}
+          <div className="contents [[data-keyboard=short]_&]:hidden">
+            <ReaderBar threads={isPr && diffThreads.threads.length > 0} onCompareShown={setCompareShown} />
+            <ReviewNotices notices={notices} />
+          </div>
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
-          <div ref={scrollBox} onScroll={onScroll} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
+          <div ref={(el) => { scrollBox.current = el; setScrollEl(el); }} onScroll={onScroll} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
             {activeSection ? (
               <>
               <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} />

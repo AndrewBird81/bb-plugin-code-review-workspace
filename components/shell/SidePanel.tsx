@@ -1,7 +1,7 @@
 import { createContext, useRef, useState, type ReactNode } from "react";
 import type { PanelView } from "../../lib/panel-state";
 import { cn } from "../../lib/utils";
-import { PANEL_WIDTH, type PanelPlacement } from "../../lib/workspace-layout";
+import { PANEL_WIDTH, READER_MIN, type PanelPlacement } from "../../lib/workspace-layout";
 import { Button } from "../ui/button";
 import { Icon } from "../ui/icon";
 import { TOUCH_CONTROL } from "../touch";
@@ -45,9 +45,12 @@ export function SidePanel({ targetKey, placement, sheet, view, width, maxWidth, 
   const dialog = useSide(ref, { shown, overlay, modal: !sheet, onClose });
   const [actions, setActions] = useState<HTMLElement | null>(null);
   const button = cn("size-8 shrink-0 px-0 text-muted-foreground", TOUCH_CONTROL);
+  // Docked where the code would get under READER_MIN beside it, it narrows, down to its least (lib/workspace-layout.ts);
+  // in CSS (100cqw: the workspace's width), so it follows the pane as it resizes.
+  const docked = `min(${width}px, max(${PANEL_WIDTH.min}px, 100cqw - ${READER_MIN}px))`;
   return (
     <>
-      {placement === "docked" && <Resizer label="Resize panel" edge="right" width={width} min={PANEL_WIDTH.min} max={maxWidth} initial={PANEL_WIDTH.initial} onWidth={onWidth} onDone={onWidthDone} />}
+      {placement === "docked" && <Resizer label="Resize panel" edge="right" width={Math.min(width, Math.max(PANEL_WIDTH.min, maxWidth))} min={PANEL_WIDTH.min} max={maxWidth} initial={PANEL_WIDTH.initial} narrows onWidth={onWidth} onDone={onWidthDone} />}
       <aside
         ref={ref}
         id={sidePanelId(targetKey)}
@@ -58,10 +61,11 @@ export function SidePanel({ targetKey, placement, sheet, view, width, maxWidth, 
           "flex min-h-0 min-w-0 flex-col bg-background outline-none",
           !shown && "hidden",
           placement === "docked" && "relative shrink-0",
-          overlay && !sheet && "absolute inset-y-0 right-0 z-40 w-[min(440px,92%)] border-l border-border shadow-2xl animate-in slide-in-from-right duration-200 motion-reduce:animate-none",
+          // Where a foldable says where its fold is (lib/use-fold.ts), it keeps to the fold's right, if it can at its least.
+          overlay && !sheet && "absolute inset-y-0 right-0 z-40 w-[min(440px,92%)] max-w-[max(320px,calc(100%-var(--gr-fold-end,0px)))] border-l border-border shadow-2xl animate-in slide-in-from-right duration-200 motion-reduce:animate-none",
           inSheet && SHEET,
         )}
-        style={placement === "docked" ? { width } : overlay ? OPAQUE : undefined}
+        style={placement === "docked" ? { width: docked } : overlay ? OPAQUE : undefined}
       >
         {inSheet && <SheetHandle sheet={ref} onClose={onClose} />}
         {view && view !== "agent" && (

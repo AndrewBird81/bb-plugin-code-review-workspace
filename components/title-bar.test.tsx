@@ -210,9 +210,10 @@ test("Full screen goes from the title bar to the band's end and back; from the k
   fireEvent.click(enter, { detail: 0 });
   expect(document.fullscreenElement).toBe(band().getByRole("button", { name: "Exit full screen" }).closest("[class*='@container/review']"));
   expect(bar!.container.innerHTML).toBe("");
-  // The commands end the band, after how the diff draws.
+  // The commands end the band, after how the diff draws; one under 720px shows Submit as its icon and count.
   const buttons = band().getAllByRole("button").map((button) => button.getAttribute("aria-label"));
   expect(buttons.slice(buttons.indexOf("Diff options") - 1, buttons.indexOf("Diff options") + 2)).toEqual(["Fold comments in code", "Diff options", "Comments"]);
+  expect(band().getByText("Submit").className).toContain("@max-[720px]/band:hidden");
   const exit = await band().findByRole("button", { name: "Exit full screen" });
   await waitFor(() => expect(document.activeElement).toBe(exit));
   fireEvent.click(exit, { detail: 0 });

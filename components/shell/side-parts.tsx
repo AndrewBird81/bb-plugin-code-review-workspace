@@ -66,9 +66,10 @@ export function useSide(ref: RefObject<HTMLElement | null>, { shown, overlay, mo
 
 /**
  * The line between a docked side and the code, which drags or steps its width. `edge`: the side of the line its pane
- * is on. Double-clicking or double-tapping it puts the width back.
+ * is on. Double-clicking or double-tapping it puts the width back. A width is saved only when it changes: a touch, or
+ * a key that can't go further, keeps the one you chose.
  */
-export function Resizer({ label, edge, width, min, max, initial, onWidth, onDone }: {
+export function Resizer({ label, edge, width, min, max, initial, narrows = false, onWidth, onDone }: {
   label: string;
   edge: "left" | "right";
   width: number;
@@ -76,6 +77,8 @@ export function Resizer({ label, edge, width, min, max, initial, onWidth, onDone
   /** The widest it goes now, which keeps the code at its narrowest or wider. */
   max: number;
   initial: number;
+  /** It shows narrower than its width where the room is less (lib/workspace-layout.ts): putting it back saves `initial` itself. */
+  narrows?: boolean;
   onWidth: (width: number) => void;
   /** The drag or key that changed the width ended, so it can be saved. */
   onDone: (width: number) => void;
@@ -84,23 +87,36 @@ export function Resizer({ label, edge, width, min, max, initial, onWidth, onDone
   latest.current = width;
   const lastDown = useRef(-Infinity);
   const clamp = (value: number) => Math.round(Math.min(Math.max(value, min), Math.max(min, max)));
-  const set = (value: number) => { const next = clamp(value); onWidth(next); onDone(next); };
+  const set = (value: number) => {
+    const next = clamp(value);
+    if (next === width) return;
+    onWidth(next);
+    onDone(next);
+  };
   // Moving away from the pane widens it.
   const sign = edge === "left" ? 1 : -1;
   function drag(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     event.preventDefault();
     // A second press soon after the first, as a double-click or a double tap.
-    if (event.timeStamp - lastDown.current < 300) { lastDown.current = -Infinity; set(initial); return; }
+    if (event.timeStamp - lastDown.current < 300) {
+      lastDown.current = -Infinity;
+      if (!narrows) set(initial);
+      else if (initial !== width) { onWidth(initial); onDone(initial); }
+      return;
+    }
     lastDown.current = event.timeStamp;
     const startX = event.clientX;
     const startWidth = width;
-    const move = (ev: globalThis.PointerEvent) => onWidth(clamp(startWidth + sign * (ev.clientX - startX)));
+    const move = (ev: globalThis.PointerEvent) => {
+      const next = clamp(startWidth + sign * (ev.clientX - startX));
+      if (next !== latest.current) onWidth(next);
+    };
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
-      onDone(latest.current);
+      if (latest.current !== startWidth) onDone(latest.current);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);

@@ -77,9 +77,10 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
         {status && <Hint label="Finish and submit (s)" container={container}>
           <Button variant="ghost" size="sm" aria-label={`Submit review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`} aria-pressed={panel.view === "finish"} aria-controls={controls} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
             <Icon name="Github" aria-hidden />
-            {tier === "labeled" ? "Submit review" : "Submit"}
+            {/* A band under 720px (full screen on a phone) keeps its room for where you are: the icon and the count. */}
+            <span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>{tier === "labeled" ? "Submit review" : "Submit"}</span>
             {tier === "labeled" && <span className="font-normal text-subtle-foreground">· {VERDICT_LABEL[status.verdict]}</span>}
-            {comments > 0 && <span className="font-normal text-subtle-foreground tabular-nums">· {comments}</span>}
+            {comments > 0 && <span className="font-normal text-subtle-foreground tabular-nums"><span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>· </span>{comments}</span>}
           </Button>
         </Hint>}
         <ReviewMenu api={api} className={icon} />

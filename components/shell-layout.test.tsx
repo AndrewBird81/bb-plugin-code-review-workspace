@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
-import { getNavWidth, getPanelWidth, patchReviewState } from "../lib/panel-state";
+import { getNavWidth, getPanelWidth, patchReviewState, setPanelWidth } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre data-testid="filediff">{fileDiff.additionLines.join("\n")}</pre> }));
@@ -86,8 +86,17 @@ test("the panel docks where the code keeps 560px, and the chapters dock beside i
   fireEvent.click(within(panel(slot)!).getByRole("button", { name: "Close panel" }));
   expect(chapters(slot)).toBeTruthy();
   slot.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore()); localStorage.clear();
-  // 900 - 400 leaves 500: the panel opens over the code, a modal dialog, and the chapters stay docked under it.
+  // 900 - 400 leaves 500: the panel docks narrower, keeping 560 for the code, and the chapters give way to it.
   fakePane(900);
+  ({ slot, comments } = await renderWorkspace());
+  fireEvent.click(comments);
+  expect(panel(slot)).toBeTruthy();
+  expect(chapters(slot)).toBeNull();
+  expect(slot.queryByRole("dialog")).toBeNull();
+  slot.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore()); localStorage.clear();
+  // 860 leaves 540 beside even its narrowest, 320: the panel opens over the code, a modal dialog, and the chapters
+  // stay docked under it.
+  fakePane(860);
   ({ slot, comments } = await renderWorkspace());
   fireEvent.click(comments);
   const dialog = slot.getByRole("dialog", { name: "Comments" });
@@ -97,7 +106,7 @@ test("the panel docks where the code keeps 560px, and the chapters dock beside i
 });
 
 test("over the code, the panel closes on Esc or a tap on the dimmed code, and a pick in it closes it to show what was picked", async () => {
-  fakePane(900);
+  fakePane(860);
   const { slot, comments } = await renderWorkspace();
   fireEvent.click(comments);
   fireEvent.keyDown(slot.getByRole("dialog", { name: "Comments" }), { key: "Escape" });
@@ -113,7 +122,7 @@ test("over the code, the panel closes on Esc or a tap on the dimmed code, and a 
 });
 
 test("over the code, Tab in Finish review stops at Private notes, and goes past its notes while they're closed, to Submit", async () => {
-  fakePane(900);
+  fakePane(860);
   // Notes from before notes were retired, which Finish review keeps.
   const { slot } = await renderWorkspace({ notes: "Check the TTL." });
   fireEvent.keyDown(document.body, { key: "s" });
@@ -170,6 +179,60 @@ test("the chapters and the panel resize by dragging or arrow keys, keep the code
   fireEvent.pointerUp(window);
   fireEvent.pointerDown(panelHandle, { button: 0, clientX: 600, timeStamp: 1100 });
   expect(panelHandle.getAttribute("aria-valuenow")).toBe("400");
+  slot.lifecycle.unmount();
+});
+
+test("docked narrower than its width (an unfolded iPhone Duo's 951), a touch of the panel's handle, or a key that can't widen it, saves nothing; a double tap saves its first width", async () => {
+  setPanelWidth(500);
+  fakePane(951);
+  const { slot, comments } = await renderWorkspace();
+  fireEvent.click(comments);
+  const handle = slot.getByRole("separator", { name: "Resize panel" });
+  expect(handle.getAttribute("aria-valuenow")).toBe("391");
+  fireEvent.pointerDown(handle, { button: 0, clientX: 560, timeStamp: 1000 });
+  fireEvent.pointerUp(window);
+  fireEvent.keyDown(handle, { key: "ArrowLeft" });
+  fireEvent.keyDown(handle, { key: "End" });
+  expect(getPanelWidth()).toBe(500);
+  expect(handle.getAttribute("aria-valuenow")).toBe("391");
+  // Its first width, which shows as wide as there's room for.
+  fireEvent.pointerDown(handle, { button: 0, clientX: 560, timeStamp: 5000 });
+  fireEvent.pointerUp(window);
+  fireEvent.pointerDown(handle, { button: 0, clientX: 560, timeStamp: 5100 });
+  expect(getPanelWidth()).toBe(400);
+  expect(handle.getAttribute("aria-valuenow")).toBe("391");
+  slot.lifecycle.unmount();
+});
+
+test("padded clear of a screen edge's inset (a phone's rail), the sides still keep the code at 560px inside the padding", async () => {
+  fakePane(1400);
+  const { slot, comments } = await renderWorkspace();
+  fireEvent.click(comments);
+  slot.getByRole("main").closest<HTMLElement>("[class*='@container/review']")!.style.paddingRight = "84px";
+  const navHandle = slot.getByRole("separator", { name: "Resize chapters" });
+  const panelHandle = slot.getByRole("separator", { name: "Resize panel" });
+  fireEvent.keyDown(navHandle, { key: "ArrowRight" });
+  fireEvent.pointerDown(panelHandle, { button: 0, clientX: 1000 });
+  fireEvent.pointerMove(window, { clientX: 400 });
+  fireEvent.pointerUp(window);
+  expect(panelHandle.getAttribute("aria-valuenow")).toBe(String(1400 - 84 - 560 - 308));
+  slot.lifecycle.unmount();
+});
+
+test("on an iPad as a home-screen app, the workspace keeps its foot clear of the home indicator where the inset reaches it, and not where BB's frame does", async () => {
+  fakePane(1376, 984);
+  const { slot } = await renderWorkspace();
+  const root = slot.getByRole("main").closest<HTMLElement>("[class*='@container/review']")!;
+  // The bottom pads by what of the inset reaches it (lib/use-safe-area.ts), or the keyboard over it: the more of the two.
+  expect(root.className.split(" ")).toContain("pb-[max(var(--gr-safe-bottom,0px),var(--gr-kb,0px))]");
+  const height = Object.getOwnPropertyDescriptor(document.documentElement, "clientHeight");
+  Object.defineProperty(document.documentElement, "clientHeight", { configurable: true, value: 1032 });
+  restores.push(() => { if (height) Object.defineProperty(document.documentElement, "clientHeight", height); else delete (document.documentElement as { clientHeight?: number }).clientHeight; });
+  for (const [bottom, gap] of [[1032, 0], [1012, 20]]) {
+    root.getBoundingClientRect = () => new DOMRect(0, 48, 1376, bottom - 48);
+    act(() => { window.dispatchEvent(new Event("resize")); });
+    expect(root.style.getPropertyValue("--gr-safe-bottom")).toBe(`max(0px, env(safe-area-inset-bottom) - ${gap}px)`);
+  }
   slot.lifecycle.unmount();
 });
 

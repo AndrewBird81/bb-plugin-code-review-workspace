@@ -15,7 +15,7 @@ const later = async () => {};
 export function testWorkspace(targetKey: string, over: Partial<WorkspaceApi> = {}): WorkspaceApi {
   return {
     targetKey, review: { targetKey, kind: "pr" }, guide: { title: "Guide", intent: "", sections: [], unplacedFiles: [] } as unknown as WorkspaceApi["guide"], sections: [], activeId: OVERVIEW, go: noop,
-    layout: { mode: "tablet", nav: "closed", panel: "docked", navCanDock: true, panelCanDock: true, narrowReader: false, widePane: true },
+    layout: { mode: "tablet", nav: "closed", panel: "docked", navCanDock: true, panelCanDock: true, narrowReader: false, widePane: true, phoneResized: false },
     nav: { open: false, toggle: noop, find: noop, view: "chapters", setView: noop },
     panel: { view: "comments", open: noop, toggle: noop, close: noop },
     files: { views: new Map(), toggleViewed: noop, markChapterViewed: noop, nextUnviewed: noop, foldAll: noop },

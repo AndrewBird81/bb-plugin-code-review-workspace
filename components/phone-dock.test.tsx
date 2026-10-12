@@ -186,6 +186,22 @@ test("the dock makes way while you type, and for the lines you select, whose bar
   slot.lifecycle.unmount();
 });
 
+test("while the dock shows, BB's toasts at the page's bottom sit above it, and drop back when it makes way or goes", async () => {
+  const { slot, dock } = await renderPhone();
+  const group = slot.getByRole("group", { name: "Review commands" });
+  const rule = () => document.head.querySelector("style[data-gr-toasts-above-dock]")?.textContent ?? null;
+  // jsdom lays out nothing: the dock's top is at 0, so it lifts them by the page's whole height.
+  expect(rule()).toBe(`[data-sonner-toaster][data-y-position="bottom"] { margin-bottom: ${document.documentElement.clientHeight}px !important; }`);
+  fireEvent.click(dock.getByRole("button", { name: /^Chapters:/ }));
+  act(() => within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("searchbox", { name: "Find in review" }).focus());
+  expect(group.hidden).toBe(true);
+  expect(rule()).toBeNull();
+  act(() => (document.activeElement as HTMLElement).blur());
+  expect(rule()).not.toBeNull();
+  slot.lifecycle.unmount();
+  expect(rule()).toBeNull();
+});
+
 test("the agent's sheet has no Pop out, and an agent popped out on a bigger screen shows in it", async () => {
   localStorage.setItem("gr:agentdock:pr-42", JSON.stringify({ mode: "widget", rect: { x: 10, y: 10, w: 300, h: 400 } }));
   const { slot, dock } = await renderPhone();
