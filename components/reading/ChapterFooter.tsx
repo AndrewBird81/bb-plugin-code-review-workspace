@@ -30,15 +30,15 @@ export function ChapterFooter() {
   // Hidden nits count nowhere, as in the files' headers. A file split across chapters counts its comments in each.
   const comments = draft?.comments.filter((comment) => own.has(comment.file) && !(draft.hideNits && comment.severity === "nit")).length ?? 0;
   const unviewed = next ? [] : [...new Set(sections.flatMap((section) => section.diffs.map((diff) => diff.file)))].filter((file) => !own.has(file) && !files.views.get(file)?.viewed);
-  const button = cn("min-w-0 max-w-full", TOUCH_CONTROL);
+  const button = cn("min-w-0 max-w-full @max-[480px]/review:w-full", TOUCH_CONTROL);
   return (
     <div className="mt-6 space-y-3 border-t border-border pt-4">
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
         <MetaLine className="mr-auto tabular-nums" items={[`${viewed} of ${plural(own.size, "file")} viewed`, comments > 0 && plural(comments, "comment")]} />
-        {/* Where the pane is phone-sized, the buttons take the row, the first the room. */}
+        {/* Where the pane is phone-sized, each button takes a row of its own. */}
         <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2 @max-[480px]/review:w-full">
           {left && (
-            <Button size="sm" className={cn(button, "@max-[480px]/review:flex-1")} onClick={() => { files.markChapterViewed(chapter.id); if (next) go(next.id); else openFinish(); }}>
+            <Button size="sm" className={button} onClick={() => { files.markChapterViewed(chapter.id); if (next) go(next.id); else openFinish(); }}>
               <Icon name="CircleCheck" aria-hidden />
               {next ? "Mark viewed and continue" : "Mark viewed and finish"}
             </Button>
