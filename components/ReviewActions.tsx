@@ -89,6 +89,10 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   const untilAuthor = canSnooze(review, turn);
   const untilTime = canSnoozeUntil(review, turn);
   const snoozed = turn.reason === "snoozed";
+  // Archive takes a review out of Pinned, so it offers only Unpin there.
+  const pin = pinnable && (!!review.pinnedAt || turn.group !== "archive");
+  // The menu's first part (the page's items, guide, Snooze, Pin, Archive): a merged or closed review may have none of it.
+  const top = !!items?.length || review.status === "tracked" || snoozed || untilAuthor || untilTime || pin || !closed;
   const open = (next: boolean) => {
     setMenuOpen(next);
     if (!next) setView("actions");
@@ -141,10 +145,9 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
             : (untilAuthor || untilTime) && <Button data-snooze-item variant="ghost" size="sm" className={MENU_ITEM} onClick={() => show("snooze")}>
               <Icon name="Clock" aria-hidden />Snooze<Icon name="ChevronRight" className="ml-auto text-subtle-foreground" aria-hidden />
             </Button>}
-          {/* Archive takes a review out of Pinned, so it offers only Unpin there. */}
-          {pinnable && (review.pinnedAt || turn.group !== "archive") && item({ label: review.pinnedAt ? "Unpin" : "Pin", icon: review.pinnedAt ? "PinOff" : "Pin", onSelect: () => void actions.setPinned(!review.pinnedAt) })}
+          {pin && item({ label: review.pinnedAt ? "Unpin" : "Pin", icon: review.pinnedAt ? "PinOff" : "Pin", onSelect: () => void actions.setPinned(!review.pinnedAt) })}
           {!closed && item({ label: review.userArchivedAt ? "Unarchive" : "Archive", icon: review.userArchivedAt ? "ArchiveRestore" : "Archive", onSelect: () => void actions.setArchived(!review.userArchivedAt) })}
-          <div role="separator" className="my-1 h-px bg-border" />
+          {top && <div role="separator" className="my-1 h-px bg-border" />}
           {review.url && <Button variant="ghost" size="sm" className={MENU_ITEM} onClick={() => pick(() => navigate.openUrl(review.url!))}>
             <Icon name="Github" aria-hidden />Open on GitHub<Icon name="ArrowUpRight" className="ml-auto text-subtle-foreground" aria-hidden />
           </Button>}

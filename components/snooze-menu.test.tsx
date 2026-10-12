@@ -107,6 +107,16 @@ test("a snoozed review goes back to Needs review instead; a failed, archived or 
   }
 });
 
+test("a merged or closed review's menu starts with its first item, not a divider", async () => {
+  for (const reason of ["merged", "closed"] as const) {
+    const { slot } = await menu({ ...given, prState: reason === "merged" ? "MERGED" : "CLOSED", archivedAt: 1, turn: turn("archive", reason) });
+    const entries = Array.from((await slot.findByRole("button", { name: "Delete…" })).parentElement!.children)
+      .map((entry) => entry.getAttribute("role") === "separator" ? "─" : entry.textContent);
+    expect(entries).toEqual(["Open on GitHub", "─", "Delete…"]);
+    slot.lifecycle.unmount();
+  }
+});
+
 test("Archive and Pin from the menu can be undone from their toast", async () => {
   const { slot, calls } = await menu(given, { pinnable: true });
   fireEvent.click(await slot.findByRole("button", { name: "Archive" }));
