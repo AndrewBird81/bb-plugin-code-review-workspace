@@ -84,10 +84,19 @@ async function finish(slot: Slot) {
 }
 const submit = (view: ReturnType<typeof within>) => view.getByRole("button", { name: /^Submit to GitHub/ });
 
+test("a reply draft whose thread isn't listed, as when GitHub's threads didn't load, isn't counted as one to send", async () => {
+  const { slot } = await renderWorkspace({ rpc: { getReplyDrafts: () => ({ drafts: [{ threadId: "gone", body: "Still throws for me.", author: "reviewer", updatedAt: now }] }) } });
+  const view = await finish(slot);
+  expect(view.queryByText(/reply drafts? not sent/)).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("it lists what goes to GitHub: the comments and their severities, who wrote them, and the replies that post on their own", async () => {
   const { slot } = await renderWorkspace();
   const view = await finish(slot);
-  expect(view.getByText("2 comments", { exact: false }).textContent).toBe("2 comments · 1 blocking · 1 nit");
+  // Each count keeps its noun on its line.
+  expect(view.getByText("2 comments").parentElement!.textContent).toBe("2 comments\u00a0· 1 blocking\u00a0· 1 nit");
+  expect(view.getByText("1 blocking").parentElement!.className).toContain("whitespace-nowrap");
   expect(view.getByText("1 written by the agent")).toBeTruthy();
   expect(view.getByText("1 reply draft not sent: replies post on their own")).toBeTruthy();
   expect(submit(view).textContent).toBe("Submit to GitHub · Comment");
@@ -96,6 +105,22 @@ test("it lists what goes to GitHub: the comments and their severities, who wrote
   fireEvent.click(view.getByRole("button", { name: "Show the comments to send" }));
   const list = within(await slot.findByRole("region", { name: "Comments" }));
   expect(list.getByRole("radio", { name: "Not submitted, 2" }).getAttribute("aria-checked")).toBe("true");
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("handing back to Comments, ‹ Comments and a Show link take the focus along: to the chosen chip, or the row they open", async () => {
+  const { slot } = await renderWorkspace({ rpc: { getDraft: () => ({ draft: draftOf(), stale: [{ file: "src/a.ts", line: 1, side: "RIGHT" }] }) } });
+  let view = await finish(slot);
+  const back = slot.getByRole("button", { name: "Comments" });
+  back.focus();
+  fireEvent.click(back);
+  const list = within(await slot.findByRole("region", { name: "Comments" }));
+  await waitFor(() => expect(document.activeElement).toBe(list.getByRole("radio", { checked: true })));
+  view = await finish(slot);
+  const show = view.getByRole("button", { name: "Show the comments on an older diff" });
+  show.focus();
+  fireEvent.click(show);
+  await waitFor(() => expect(document.activeElement).toBe(list.getByRole("button", { name: /^Older diff · not submitted · src\/a\.ts:1/ })));
   slot.lifecycle.unmount();
 }, 15_000);
 

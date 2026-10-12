@@ -134,7 +134,8 @@ export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, 
           </Section>
         )}
         {!!guide.hotspots?.length && <Section title="Start here"><StartHere hotspots={guide.hotspots} onOpen={onOpenLine} /></Section>}
-        {requirements.length > 0 && <Section title={<>Requirements{"\u00a0·"} <span className="whitespace-nowrap">{covered} of {requirements.length} covered</span></>}><Requirements requirements={requirements} onOpen={onOpenLine} /></Section>}
+        {/* In the label column, how many are covered goes under the label, rather than after a dot at a line's end. */}
+        {requirements.length > 0 && <Section title={<>Requirements<span className="@min-[560px]/overview:hidden">{"\u00a0·"}</span> <span className="whitespace-nowrap @min-[560px]/overview:block">{covered} of {requirements.length} covered</span></>}><Requirements requirements={requirements} onOpen={onOpenLine} /></Section>}
         {unsettled.length > 0 && <Section title="Checks"><CheckList checks={unsettled} /></Section>}
         <Section title="Chapters">
           <ol className="-mx-2 space-y-px">

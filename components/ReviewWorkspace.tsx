@@ -41,7 +41,7 @@ import { ReviewOverview } from "./ReviewOverview";
 import { DiffOptions } from "./reading/DiffOptions";
 import { ReaderBar } from "./reading/ReaderBar";
 import { ChapterFooter } from "./reading/ChapterFooter";
-import { CommentsView, type CommentsTab } from "./comments/CommentsView";
+import { CommentsView, focusComments, type CommentsTab } from "./comments/CommentsView";
 import { FinishView } from "./comments/FinishView";
 import { StepBar } from "./comments/StepBar";
 import { NavigatorHost } from "./shell/NavigatorHost";
@@ -1046,7 +1046,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
             ) : <ReviewOverview checks={checks} readLines={readLines} changedSince={changedSince} generated={generated} snoozing={snoozing} resume={lastChapter} onShowFeedback={showFeedback} onOpenLine={openHotspot} />}
           </div>
         </main>
-        <SidePanel targetKey={targetKey} placement={layout.panel} sheet={sheet} view={shownPanel} width={panelWidth} maxWidth={Math.min(PANEL_WIDTH.max, paneWidth - READER_MIN - (layout.nav === "docked" ? navWidth : 0))} onWidth={setPanelWidth} onWidthDone={savePanelWidth} onClose={closePanel} onBack={() => openPanel("comments")}>
+        <SidePanel targetKey={targetKey} placement={layout.panel} sheet={sheet} view={shownPanel} width={panelWidth} maxWidth={Math.min(PANEL_WIDTH.max, paneWidth - READER_MIN - (layout.nav === "docked" ? navWidth : 0))} onWidth={setPanelWidth} onWidthDone={savePanelWidth} onClose={closePanel} onBack={() => { openPanel("comments"); focusComments(targetKey); }}>
           <CommentsView shown={shownPanel === "comments" || shownPanel === "finish"} finish={shownPanel === "finish"} tab={commentsTab} onTab={setCommentsTab} revision={revision} onShowThread={showThread} />
           <FinishView shown={shownPanel === "finish"} revision={revision} />
           <AgentDock targetKey={targetKey} patch={patch} injection={injection} container={rootEl} active={shownPanel === "agent"} popOut={layout.mode === "tablet"} closeLabel={sheet ? "Close" : undefined} onDock={() => openPanel("agent")} onCollapse={closePanel} />

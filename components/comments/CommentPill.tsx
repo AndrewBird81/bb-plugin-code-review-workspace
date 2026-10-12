@@ -9,7 +9,7 @@ import { plainLine } from "./look";
  * what's under it ("2 replies · Resolved"), and Show, which opens it in full. 28px tall, 44px on a coarse pointer; its
  * frame keeps the card's: dashed with an edge while it's only in BB, solid on GitHub, muted when private.
  */
-export function CommentPill({ frame, icon, who, words, tag, badge, text, more, name, onShow, className }: {
+export function CommentPill({ frame, icon, who, words, tag, badge, briefBadge, text, more, name, onShow, className }: {
   /** The card's frame classes (look.tsx). */
   frame: string;
   icon: ReactNode;
@@ -20,6 +20,8 @@ export function CommentPill({ frame, icon, who, words, tag, badge, text, more, n
   tag?: string | null;
   /** What waits with it and isn't sent: a thread's reply draft. After its state; on a phone, ahead of its first line. */
   badge?: ReactNode;
+  /** The badge as a phone shows it, shorter, so its first line keeps room beside it. */
+  briefBadge?: ReactNode;
   /** Its first line. */
   text: string;
   /** What's folded under it: "2 replies · Resolved". */
@@ -44,7 +46,7 @@ export function CommentPill({ frame, icon, who, words, tag, badge, text, more, n
           <span className="max-w-full min-w-0 flex-1 truncate text-foreground/80 pointer-coarse:@max-[600px]/review:flex-none">
             <span aria-hidden className="mr-1.5 text-subtle-foreground pointer-coarse:@max-[600px]/review:hidden">·</span>
             {tag && <span className="hidden font-medium text-muted-foreground pointer-coarse:@max-[600px]/review:inline">{tag} · </span>}
-            {badge && <span className="mr-1.5 hidden align-middle pointer-coarse:@max-[600px]/review:inline-flex">{badge}</span>}
+            {badge && <span className="mr-1.5 hidden align-middle pointer-coarse:@max-[600px]/review:inline-flex">{briefBadge ?? badge}</span>}
             <InlineCode text={first} />
           </span>
         </span>

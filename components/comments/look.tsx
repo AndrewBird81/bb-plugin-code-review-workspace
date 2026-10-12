@@ -68,9 +68,15 @@ export function ThreadState({ item, size = "sm" }: { item: ThreadItem; size?: "s
 }
 
 /** A thread's reply drafted and not sent yet, yours or the agent's, on its row or pill: dashed, as anything only in BB. */
-export function ReplyDraftBadge({ reply }: { reply: NonNullable<ThreadItem["replyDraft"]> }) {
+export function ReplyDraftBadge({ reply, brief = false }: {
+  reply: NonNullable<ThreadItem["replyDraft"]>;
+  /** "Reply draft", its dashed frame and icon saying the rest, which a screen reader hears in full. */
+  brief?: boolean;
+}) {
   const agent = reply.author === "agent";
-  return <Badge tone={agent ? "agent" : "primary"} size="sm" className="border-dashed" icon={<Icon name={agent ? "Sparkles" : "CircleDashed"} aria-hidden />}>{reply.label}</Badge>;
+  return <Badge tone={agent ? "agent" : "primary"} size="sm" className="border-dashed" icon={<Icon name={agent ? "Sparkles" : "CircleDashed"} aria-hidden />}>
+    {brief ? <><span aria-hidden>Reply draft</span><span className="sr-only">{reply.label}</span></> : reply.label}
+  </Badge>;
 }
 
 const CHECK_TONE: Record<AssessmentVerdict, Tone> = { addressed: "success", partial: "warning", not_addressed: "danger", disputed: "warning", unclear: "neutral" };

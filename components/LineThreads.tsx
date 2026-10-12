@@ -237,7 +237,7 @@ function ThreadInCode({ targetKey, item, className }: { targetKey: string; item:
   if (folded && !opened) {
     return <div ref={ref}>
       <CommentPill frame={frameOf(item)} icon={<Icon name="Github" className="size-3.5 shrink-0" aria-hidden />} who={item.who} words={itemWords(item)} text={item.messages[0]?.body ?? ""}
-        badge={item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} />}
+        badge={item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} />} briefBadge={item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} brief />}
         more={[replies > 0 ? `${replies} repl${replies === 1 ? "y" : "ies"}` : null, item.check ? `✦ ${item.check.label}` : null].filter(Boolean).join(" · ") || null}
         name={`GitHub thread on ${whereOf(item)}`} onShow={() => setCommentOpen(targetKey, item.id, true)} className={className} />
     </div>;

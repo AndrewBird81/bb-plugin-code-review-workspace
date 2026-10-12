@@ -19,8 +19,10 @@ import { Button, buttonVariants } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
+import { MetaLine } from "../MetaLine";
 import { Clamped } from "./CommentCard";
 import { notSubmitted } from "./look";
+import { focusComments } from "./CommentsView";
 import { updateComments, useComments } from "./store";
 
 const OWN_PR = "This is your PR, so GitHub allows only a Comment review.";
@@ -48,8 +50,6 @@ export function FinishView({ shown, revision }: {
   const { targetKey, review } = api;
   const d = useDraft();
   const items = useComments(targetKey, "items");
-  const feedback = useComments(targetKey, "feedback");
-  const replyDrafts = useComments(targetKey, "replyDrafts");
   const isPr = review.kind === "pr";
   const notes = usePrivateNotes(targetKey, shown);
   // What the last Submit here sent, for its receipt.
@@ -63,6 +63,7 @@ export function FinishView({ shown, revision }: {
   const openList = (filter: CommentFilter, id: string | null = null) => {
     updateComments(targetKey, { filter, expanded: id });
     api.panel.open("comments");
+    focusComments(targetKey);
   };
 
   // The receipt of a review sent from here; one sent earlier is a line above the next one's draft.
@@ -90,7 +91,7 @@ export function FinishView({ shown, revision }: {
                 onUndo={() => void d.undo(SUMMARY_AT)} onRequest={(text) => void d.requestSummary(text)} />
             </Part>
             {isPr && <Verdicts revision={revision} />}
-            {isPr ? <GoesToGitHub items={items} replyDrafts={replyDrafts?.length ?? feedback?.items.filter((item) => item.replyDraft).length ?? 0} onList={openList} />
+            {isPr ? <GoesToGitHub items={items} replyDrafts={items.filter((item) => item.kind === "thread" && item.replyDraft).length} onList={openList} />
               : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p>{notes.show && <PrivateNotes targetKey={targetKey} />}</Part>}
             {(d.isLocal || d.ownPr) && <FixHandoff targetKey={targetKey} comments={d.sortedComments} />}
             {isPr && notes.show && <Part title="Stays in BB"><PrivateNotes targetKey={targetKey} /></Part>}
@@ -214,7 +215,7 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
     <Part title="Goes to GitHub">
       <ul className="space-y-1.5">
         <Row icon={<Icon name="CircleDashed" className="size-4 shrink-0 text-primary" aria-hidden />} action={comments.length > 0 && link("Show the comments to send", () => onList("not-submitted"))}>
-          <p>{comments.length ? plural(comments.length, "comment") : "No line comments"}{d.counts && <span className="text-muted-foreground"> · {d.counts}</span>}</p>
+          <MetaLine className="text-sm text-foreground" items={[comments.length ? plural(comments.length, "comment") : "No line comments", ...(d.counts ? d.counts.split(" · ").map((count) => <span className="text-muted-foreground">{count}</span>) : [])]} />
           {agent > 0 && <p className="text-xs text-muted-foreground">{agent} written by the agent</p>}
         </Row>
         {older.length > 0 && <Row tone="warning" icon={<Icon name="AlertTriangle" className="size-4 shrink-0" aria-hidden />} action={link("Show the comments on an older diff", () => onList("needs-you", older[0].id))}>
@@ -246,7 +247,7 @@ function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean) => void }) {
   const where = review.repo && review.number ? `${review.repo}#${review.number}` : null;
   const ready = d.hint === "Drafts stay in BB until you submit.";
   return (
-    <footer className="shrink-0 space-y-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <footer className="shrink-0 space-y-2 border-t border-border p-3">
       {d.confirming ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
         <p>{d.approvingBlocked ? `Approve with ${plural(d.blockingCount, "blocking comment")}?` : `Submit ${VERDICT_LABEL[d.draft.verdict]}${d.commentCount ? ` with ${plural(d.commentCount, "comment")}` : ""}?`} {d.doubts.join(" ")}</p>
         <div className="flex flex-wrap gap-2">

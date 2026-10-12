@@ -30,8 +30,11 @@ export function CheckStrip({ run, tally, running, starting, onCheck }: {
             <span className="font-medium text-foreground">Agent’s check</span>
             <span aria-hidden>·</span><span className="font-mono">{run.headSha.slice(0, 7)}</span>
             {when && <><span aria-hidden>·</span><span>{when}</span></>}
-            {tally && <><span aria-hidden>·</span><span className="font-medium tabular-nums text-foreground/90">{tally}</span></>}
-            {!run.current && <Badge tone="warning" size="sm" title="The agent checked an earlier commit than the PR’s head.">older commit</Badge>}
+            {/* Its own line, rather than after a dot left at the end of the first. */}
+            {(tally || !run.current) && <span className="flex basis-full flex-wrap items-center gap-1.5">
+              {tally && <span className="font-medium tabular-nums text-foreground/90">{tally}</span>}
+              {!run.current && <Badge tone="warning" size="sm" title="The agent checked an earlier commit than the PR’s head.">older commit</Badge>}
+            </span>}
           </>
           : <span>The agent hasn’t checked your feedback on this push yet.</span>}
       </p>

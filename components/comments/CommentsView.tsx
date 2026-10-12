@@ -10,7 +10,7 @@ import { useWorkspace } from "../../lib/workspace-context";
 import { setNeedsYou } from "../../lib/workspace-store";
 import { useDraft } from "../DraftProvider";
 import { ComposerFields } from "../InlineDraft";
-import { PanelActionsContext } from "../shell/SidePanel";
+import { PanelActionsContext, sidePanelId } from "../shell/SidePanel";
 import { timeAgo } from "../time-ago";
 import { Hint } from "../ui/hint";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
@@ -37,6 +37,18 @@ const FILTERS: CommentFilter[] = ["all", "needs-you", "not-submitted", "on-githu
  * the review's items once, for the list, the cards in the code, ] and [, and the title bar's "need you" badge. Hidden,
  * it stays mounted: they need it. Finish review is its own view (`finish`).
  */
+/**
+ * Where the focus goes as Finish review hands back to Comments (‹ Comments, its Show links), which hides the button that
+ * had it: the open row, else the chosen chip, a frame on, once Comments shows.
+ */
+export function focusComments(targetKey: string) {
+  requestAnimationFrame(() => {
+    const list = document.getElementById(sidePanelId(targetKey))?.querySelector("section[aria-label='Comments']");
+    const open = list?.querySelector("[data-comment-row] button[aria-expanded=true]")?.parentElement?.querySelector("button");
+    (open ?? list?.querySelector<HTMLElement>("[role=radio][aria-checked=true]"))?.focus();
+  });
+}
+
 export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   shown: boolean;
   finish: boolean;
@@ -139,7 +151,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
     else api.reveal({ file: item.at.file, line: item.at.line ?? 0, side: item.at.side });
     const index = stops.findIndex((stop) => stop.id === item.id);
     if (index < 0) return;
-    const at = { id: item.id, index, total: stops.length, shownOnly: stops.length < chipCount, filter: FILTER_LABEL[filter], nonce: Date.now() };
+    const at = { id: item.id, index, total: stops.length, hidden: Math.max(0, chipCount - stops.length), filter: FILTER_LABEL[filter], nonce: Date.now() };
     if (step?.via === "bar" || (from === "row" && over && coarse)) showCommentStep(targetKey, { ...at, via: "bar" });
     else if (from === "step" && api.panel.view !== "comments") showCommentStep(targetKey, { ...at, via: "hint" });
   }, [targetKey]);
@@ -224,7 +236,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
           : !draft.loaded ? <p role="status" className="text-sm text-muted-foreground">Loading comments…</p> : <>
           {box && !boxItem && draft.editable && <NewComment composer={composer} />}
           {isPr && !githubRead && <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Reading GitHub…</p>}
-          {empty ? <Empty text={closed ? "No comments on this review." : "No comments yet. Select a line, or tap + beside one, to comment."} />
+          {empty ? <Empty text={closed ? "No comments on this review." : coarse ? "No comments yet. Tap a line to comment." : "No comments yet. Select a line, or tap + beside one, to comment."} />
             : filterEmpty ? <Empty text={filter === "needs-you" ? "Nothing needs you." : filter === "not-submitted" ? "No comments to submit yet." : "Nothing on GitHub yet."} onAll={() => setFilter("all")} />
             : shownGroups.map((group) => groupBody(group, filter === "not-submitted" ? stops : group.items, counted.find((entry) => entry.id === group.id)!))}
         </>}

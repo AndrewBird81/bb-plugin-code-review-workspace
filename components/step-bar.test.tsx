@@ -123,7 +123,7 @@ test("by touch, a comment tapped in the sheet closes it to show the comment, and
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("the step bar counts the comments the list shows, and says \"shown\" when the chip counts more", async () => {
+test("the step bar counts the comments the list shows, and how many more the chip counts are hidden", async () => {
   phone();
   const resolved = { id: "t2", isResolved: true, isOutdated: false, path: "src/b.ts", line: 2, side: "RIGHT", comments: [{ id: "c2", databaseId: 2, author: "carol", body: "Done.", createdAt: now }] };
   const slot = await renderWorkspace({}, [resolved]);
@@ -132,7 +132,7 @@ test("the step bar counts the comments the list shows, and says \"shown\" when t
   await sheet.findByRole("radio", { name: "All, 5" });
   fireEvent.click(sheet.getByRole("button", { name: "Draft · not submitted · src/b.ts:2" }));
   // carol's resolved thread is folded in the list, so the steps leave it out.
-  await waitFor(() => expect(within(bar(slot)!).getByRole("status").textContent).toBe("3 of 4 shown · All"));
+  await waitFor(() => expect(within(bar(slot)!).getByRole("status").textContent).toBe("3 of 4 · All · 1 hidden"));
   slot.lifecycle.unmount();
 });
 

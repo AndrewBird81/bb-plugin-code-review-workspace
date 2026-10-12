@@ -152,7 +152,8 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
         </div>}
       </div> : <p className="truncate px-3 pb-2 text-xs text-muted-foreground">
         {shutLine}{shutLine && first && " · "}
-        {first && <>{first.who}: <span className="text-foreground/80"><InlineCode text={plainLine(first.body)} /></span></>}
+        {/* Its code without the chip's ground, which the cut would leave as a sliver before the ellipsis. */}
+        {first && <>{first.who}: <span className="text-foreground/80 [&_code]:bg-transparent [&_code]:px-0"><InlineCode text={plainLine(first.body)} /></span></>}
       </p>}
     </article>
   );

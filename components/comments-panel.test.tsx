@@ -323,7 +323,9 @@ test("the check strip says what the agent checked, when, and how much is address
   const { slot, rpc } = await renderWorkspace();
   const list = await openComments(slot);
   const strip = list.getByRole("status", { name: "" });
-  expect(strip.textContent).toContain("Agent’s check·abcdef1·2h·0 of 1 addressed");
+  expect(strip.textContent).toContain("Agent’s check·abcdef1·2h0 of 1 addressed");
+  // How much is addressed starts its own line, with no dot left at the end of the first.
+  expect(within(strip).getByText("0 of 1 addressed").parentElement!.className).toContain("basis-full");
   expect(within(strip).getByText("older commit")).toBeTruthy();
   fireEvent.click(within(strip).getByRole("button", { name: "Check again" }));
   await waitFor(() => expect(rpc.checkFeedback).toHaveBeenCalledWith({ targetKey: "pr-42" }));
@@ -433,6 +435,18 @@ test("with Hide nits on, a nit on an older diff counts wherever comments are cou
   fireEvent.click(nav.getByRole("button", { name: "All files" }));
   expect(within((await slot.findByRole("list", { name: "All files" })).querySelector<HTMLElement>('[title="src/a.ts"]')!.closest("li")!).getByText("1 draft comment")).toBeTruthy();
   slot.lifecycle.unmount();
+});
+
+test("on a touch screen, which has no + beside a line, the empty list says to tap a line", async () => {
+  const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(pointer: coarse)", media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }) as MediaQueryList);
+  try {
+    const { slot } = await renderWorkspace({ rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }), getReviewThreads: () => ({ threads: [] }), getFeedback: () => ({ feedback: feedbackOf([], null) }), getReplyDrafts: () => ({ drafts: [] }) } });
+    const list = await openComments(slot);
+    expect(list.getByText("No comments yet. Tap a line to comment.")).toBeTruthy();
+    slot.lifecycle.unmount();
+  } finally {
+    matchMedia.mockRestore();
+  }
 });
 
 test("empty states: no comments yet; nothing needs you, with Show all; a local review's comments stay in BB", async () => {
