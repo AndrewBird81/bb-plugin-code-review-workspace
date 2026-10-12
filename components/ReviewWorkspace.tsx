@@ -824,8 +824,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const showFeedback = useMemo(() => isPr ? () => openComments("feedback") : undefined, [isPr, openComments]);
   // The diff remounts after the Overview; it shouldn't jump back to an old comment.
   useEffect(() => { if (activeId === OVERVIEW) setReveal(undefined); }, [activeId]);
-  // A selection's actions go with the chapter it was made in.
-  // A new chapter starts with nothing selected, but for the lines a remounted workspace had selected.
+  // A selection's actions go with the chapter it was made in: a new chapter starts with none, but for the lines a
+  // remounted workspace had selected.
   useEffect(() => {
     const lines = activeId ? carriedLines.current : null;
     if (activeId) carriedLines.current = null;
