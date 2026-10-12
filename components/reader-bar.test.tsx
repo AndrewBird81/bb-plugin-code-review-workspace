@@ -35,10 +35,14 @@ test("narrower, the compare select shortens its label, then moves into Diff opti
   expect(bandFit(1100, 3, 32, null).compare).toBeNull();
 });
 
-test("short of room, Fold comments moves into Diff options before the chapter's title gives way", () => {
+test("short of room, Fold comments moves into Diff options before the chapter's title or the compare select gives way", () => {
   // Full screen on a phone held sideways, 594px, its commands beside it.
   expect(bandFit(310, 5, 36, select)).toEqual({ back: false, title: false, compare: null, fold: false });
   expect(bandFit(512, 5, 36, select).fold).toBe(true);
+  // Full screen on an unfolded foldable held sideways: the chapters docked, the commands beside the band.
+  expect(bandFit(330, 3, 44, select)).toEqual({ back: false, title: false, compare: "brief", fold: false });
+  // Without a comparison, Fold stays while the chapter's title has room.
+  expect(bandFit(330, 3, 44, null).fold).toBe(true);
 });
 
 /** Every ResizeObserver reports this size: the workspace's pane, and the band's room in it unless `room` says. */
@@ -112,8 +116,8 @@ test("on a re-review the band ends with the compare select, Fold comments and Di
 });
 
 test("where the band has no room for the compare select, Diff options shows the changes either way, and a commit to pick", async () => {
-  // A phone held sideways, its band 400px.
-  fakePane(400, 380);
+  // A phone held sideways, its band 360px.
+  fakePane(360, 380);
   const slot = await renderWorkspace(rereview);
   expect(band(slot).queryByRole("button", { name: /^Show changes/ })).toBeNull();
   fireEvent.click(band(slot).getByRole("button", { name: "Diff options" }));

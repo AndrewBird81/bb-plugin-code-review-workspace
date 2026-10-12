@@ -39,16 +39,19 @@ const TITLE = 160;
 export const selectWidth = (label: string) => Math.ceil(label.length * 6.5) + 34;
 
 /**
- * What fits in `room` px of band beside its `buttons` square buttons of `size` px: the chapter's title first, which Fold
- * comments, one of the buttons, gives way to; then the compare select, `compare` px wide with its full or brief label
- * (null: the review has none); then "All reviews" from a reader of 720px; then the review's title.
+ * What fits in `room` px of band beside its `buttons` square buttons of `size` px: the chapter's title first, then the
+ * compare select, `compare` px wide with its full or brief label (null: the review has none), then "All reviews" from a
+ * reader of 720px, then the review's title. Fold comments, one of the buttons, is a setting Diff options has too: it
+ * gives way to the chapter's title and to the compare select, a state you must see.
  */
 export function bandFit(room: number, buttons: number, size: number, compare: { full: number; brief: number } | null): BandFit {
-  let left = room - buttons * (size + 4);
-  const fold = left >= CHAPTER.least;
-  if (!fold) left += size + 4;
+  const button = size + 4;
+  let left = room - buttons * button;
   // The full label only with room to spare, so the chapter's title doesn't lose what the label gains.
-  const select = !compare ? null : left - CHAPTER.least >= compare.full + 60 ? "full" : left - CHAPTER.least >= compare.brief ? "brief" : null;
+  const fits = (space: number): BandFit["compare"] => !compare ? null : space - CHAPTER.least >= compare.full + 60 ? "full" : space - CHAPTER.least >= compare.brief ? "brief" : null;
+  let select = fits(left);
+  const fold = left >= CHAPTER.least && (!compare || !!select || !fits(left + button));
+  if (!fold) select = fits(left += button);
   left -= (select ? compare![select] : 0) + CHAPTER.usual;
   const back = room >= 720 && left >= BACK;
   left -= back ? BACK : 0;
