@@ -116,9 +116,11 @@ export function SelectionBar({ lines, phone, onComment, onAskLines, onClear }: {
           className={cn(
             "absolute z-[62] flex flex-col rounded-xl border border-border bg-popover p-1 text-xs shadow-2xl ring-1 ring-primary/10",
             !phone ? "bottom-[max(16px,env(safe-area-inset-bottom))] right-4 w-max max-w-[calc(100%-32px)]"
-              : shown === "lines" ? "inset-x-1.5 bottom-[calc(4px+env(safe-area-inset-bottom))]"
-                // Above the dock, which stays while text is selected.
-                : "inset-x-1.5 bottom-[calc(60px+env(safe-area-inset-bottom))]",
+              // Each side clear of its own safe area: a full-screen cover's padding doesn't move what's absolute in it.
+              : "left-[calc(6px+env(safe-area-inset-left))] right-[calc(6px+env(safe-area-inset-right))]",
+            phone && (shown === "lines" ? "bottom-[calc(4px+env(safe-area-inset-bottom))]"
+              // Above the dock, which stays while text is selected.
+              : "bottom-[calc(60px+env(safe-area-inset-bottom))]"),
           )}
         >
           <div className="flex min-w-0 items-center gap-1">

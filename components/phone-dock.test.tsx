@@ -179,6 +179,8 @@ test("the dock makes way while you type, and for the lines you select, whose bar
   expect(group.hidden).toBe(true);
   const bar = slot.getByRole("group", { name: "Selection" });
   expect(bar.className).toContain("bottom-[calc(4px+env(safe-area-inset-bottom))]");
+  // Each side clear of its own safe area.
+  expect(bar.className.split(" ")).toEqual(expect.arrayContaining(["left-[calc(6px+env(safe-area-inset-left))]", "right-[calc(6px+env(safe-area-inset-right))]"]));
   fireEvent.click(slot.getByRole("button", { name: "Clear selection" }));
   expect(group.hidden).toBe(false);
   slot.lifecycle.unmount();
