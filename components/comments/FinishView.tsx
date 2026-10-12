@@ -6,6 +6,7 @@ import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "../../sr
 import type { CommentFilter, CommentItem } from "../../lib/comments";
 import { readDraftRecovery } from "../../lib/draft-recovery";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
+import { statusWhy } from "../../lib/status-line";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
 import { useDraft } from "../DraftProvider";
@@ -326,7 +327,7 @@ function Receipt({ sent }: { sent: { comments: number; at: number } | null }) {
         <div className="flex min-h-11 items-center gap-2 rounded-lg border border-border bg-card py-1.5 pl-3 pr-1.5">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium"><InlineCode text={next.title ?? next.gitRef ?? next.targetKey} /></p>
-            <p className="truncate text-xs text-muted-foreground">{[reviewState(next).label, next.number ? `#${next.number}` : null, age(reviewState(next).at ?? next.createdAt)].filter(Boolean).join(" · ")}</p>
+            <p className="truncate text-xs text-muted-foreground">{[statusWhy(next)?.text, next.number ? `#${next.number}` : null, age(reviewState(next).at ?? next.createdAt)].filter(Boolean).join(" · ")}</p>
           </div>
           <Button size="sm" className={cn("shrink-0", TOUCH_CONTROL)} onClick={() => void api.leave(next.targetKey)}>Open</Button>
         </div>

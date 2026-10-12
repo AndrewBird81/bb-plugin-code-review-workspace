@@ -29,7 +29,8 @@ export function statusLook(review: ReviewItem): { label: string; tone: Tone; ico
     case "dismissed": return { label, tone: "warning", icon: "AlertCircle" };
     case "waiting": return label === "Changes requested" ? { label, tone: "warning", icon: "FileDiff" } : { label, tone: "neutral", icon: "MessageSquare" };
     // The wake time reads in your time zone, not the server's.
-    case "snoozed": return { label: label === "Snoozed" && review.snoozedUntil ? snoozeLabel(review.snoozedUntil) : label, tone: "neutral", icon: "Clock" };
+    // Until the author responds, the turn still says "Not yet", the old name of that Snooze.
+    case "snoozed": return { label: label === "Snoozed" && review.snoozedUntil ? snoozeLabel(review.snoozedUntil) : "Snoozed", tone: "neutral", icon: "Clock" };
     case "draft": return { label, tone: "neutral", icon: "GitPullRequestDraft" };
     case "approved": return { label, tone: "success", icon: "Check" };
     case "commented": return { label, tone: "neutral", icon: "MessageSquare" };

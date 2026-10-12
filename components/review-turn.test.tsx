@@ -213,6 +213,10 @@ test("the Overview shows your review rounds, progress, Blocks merge, and snoozes
 
 test("a snoozed review offers Back to Needs review, and an unreviewed one can't wait for the author", async () => {
   const snoozed = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({ group: "waiting", reason: "snoozed", label: "Not yet" }) });
+  // "Not yet" is gone from the words: the chapters' Overview row says Snoozed, the status line why.
+  const row = within(await snoozed.slot.findByRole("navigation", { name: "Chapters" })).getByRole("button", { name: /^Overview/ });
+  expect(row.textContent).toBe("Overview · Snoozed");
+  expect(snoozed.slot.getByText("Snoozed until the author responds")).toBeTruthy();
   fireEvent.click(await snoozed.slot.findByRole("button", { name: "Back to Needs review" }));
   await waitFor(() => expect(snoozed.rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: false }));
   snoozed.slot.lifecycle.unmount();

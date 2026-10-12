@@ -32,7 +32,7 @@ const feedbackOf = (over: Partial<FeedbackView> = {}): FeedbackView => ({
   }],
   ...over,
 });
-const waiting = (number: number, title: string, at: number, reason = "requested") => ({ targetKey: `pr-${number}`, kind: "pr", number, title, createdAt: at, turn: { group: "needs", reason, label: "Review requested", action: "Review", signal: null, at, notify: true, blocking: false, updated: false } });
+const waiting = (number: number, title: string, at: number, reason = "requested") => ({ targetKey: `pr-${number}`, kind: "pr", number, title, createdAt: at, signals: { requestedBy: "alice" }, turn: { group: "needs", reason, label: "Review requested", action: "Review", signal: null, at, notify: true, blocking: false, updated: false } });
 
 async function renderWorkspace({ review = {}, rpc = {} }: { review?: Record<string, unknown>; rpc?: Record<string, unknown> } = {}) {
   patchReviewState("pr-42", { activeId: "c1" });
@@ -199,7 +199,8 @@ test("after Submit, the receipt says what went where, and offers the next review
   // Not this review: the next in the inbox's Needs review order, the one waiting longest.
   const next = within(await slot.findByRole("region", { name: "Next review" }));
   expect(next.getByText("Trim the Docker image")).toBeTruthy();
-  expect(next.getByText("Review requested · #110 · 16h")).toBeTruthy();
+  // In All reviews' words (lib/status-line.ts).
+  expect(next.getByText("Requested by @alice · #110 · 16h")).toBeTruthy();
   fireEvent.click(next.getByRole("button", { name: "Open" }));
   await waitFor(() => expect(slot.inspection.navigateCalls).toContainEqual(expect.objectContaining({ method: "toPluginPanel", path: "review", options: { subPath: "pr-110" } })));
   expect(rpc.listReviews).toHaveBeenCalledTimes(1);
