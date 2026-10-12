@@ -57,7 +57,8 @@ export function SidePanel({ targetKey, placement, sheet, view, width, maxWidth, 
           "flex min-h-0 min-w-0 flex-col bg-background outline-none",
           !shown && "hidden",
           placement === "docked" && "relative shrink-0",
-          overlay && !sheet && "absolute inset-y-0 right-0 z-40 w-[min(440px,92%)] border-l border-border shadow-2xl animate-in slide-in-from-right duration-200 motion-reduce:animate-none",
+          // Where a foldable says where its fold is (lib/use-fold.ts), it keeps to the fold's right, if it can at its least.
+          overlay && !sheet && "absolute inset-y-0 right-0 z-40 w-[min(440px,92%)] max-w-[max(320px,calc(100%-var(--gr-fold-end,0px)))] border-l border-border shadow-2xl animate-in slide-in-from-right duration-200 motion-reduce:animate-none",
           inSheet && SHEET,
         )}
         style={placement === "docked" ? { width: docked } : overlay ? OPAQUE : undefined}

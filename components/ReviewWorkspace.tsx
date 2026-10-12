@@ -14,6 +14,7 @@ import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpe
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
 import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout } from "../lib/workspace-layout";
 import { useKeyboardInset } from "../lib/use-keyboard-inset";
+import { useFold } from "../lib/use-fold";
 import { useSafeArea } from "../lib/use-safe-area";
 import { useScrollAnchor } from "../lib/use-scroll-anchor";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
@@ -488,6 +489,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const canFullscreen = document.fullscreenEnabled || "showPopover" in HTMLElement.prototype;
   useKeyboardInset(rootEl);
   useSafeArea(rootEl);
+  useFold(rootEl);
   useScrollAnchor(scrollEl);
   useLayoutEffect(() => {
     if (!covering || !rootEl) return;
