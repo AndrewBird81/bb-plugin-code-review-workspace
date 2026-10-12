@@ -17,24 +17,16 @@ function focusables(el: HTMLElement): HTMLElement[] {
   return Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((item) => !item.closest("[hidden], [aria-hidden=\"true\"], [inert]") && !inClosedDetails(item));
 }
 
-// Whether the last input was a key rather than a pointer: focus moved for a keyboard opens tooltips that a click
-// shouldn't, so only a keyboard's focus is given back when a side closes.
-let keyboard = false;
-if (typeof document !== "undefined") {
-  document.addEventListener("keydown", () => { keyboard = true; }, true);
-  document.addEventListener("pointerdown", () => { keyboard = false; }, true);
-}
-
 /** Over the code a side is opaque, as the workspace is, whatever the alpha of BB's background. */
 export const OPAQUE = { backgroundColor: "rgb(from var(--background) r g b / 1)" };
 
 /**
- * Give the focus to `el`, if the keyboard had it and it was lost or left behind in what closed: on the next frame, once
- * what changed with the closing, such as `el` showing again, is drawn.
+ * Give the focus to `el`, if it was lost or left behind in what closed: on the next frame, once what changed with the
+ * closing, such as `el` showing again, is drawn. After a tap or a click too: a Hint there opens only for a keyboard.
  */
 export function returnFocus(el: HTMLElement | null | undefined, from: HTMLElement | null) {
   const now = document.activeElement;
-  if (keyboard && el?.isConnected && (!now || now === document.body || !!from?.contains(now))) requestAnimationFrame(() => el.focus({ preventScroll: true }));
+  if (el?.isConnected && (!now || now === document.body || !!from?.contains(now))) requestAnimationFrame(() => el.focus({ preventScroll: true }));
 }
 
 /**

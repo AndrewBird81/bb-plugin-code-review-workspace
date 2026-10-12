@@ -188,8 +188,23 @@ test("a panel left open opens again only where it docks, and a pane too narrow f
   slot.lifecycle.unmount();
 });
 
-test("closing a side from the keyboard gives the focus back to what opened it; a click leaves it, so no tooltip opens there", async () => {
+/** A browser's :focus-visible, which jsdom matches on any focus: focus after a key matches, after a pointer it doesn't. */
+function fakeFocusVisible() {
+  let keyboard = true;
+  const onKey = () => { keyboard = true; };
+  const onPointer = () => { keyboard = false; };
+  document.addEventListener("keydown", onKey, true);
+  document.addEventListener("pointerdown", onPointer, true);
+  const matches = Element.prototype.matches;
+  const spy = vi.spyOn(Element.prototype, "matches").mockImplementation(function (this: Element, selector: string) {
+    return selector === ":focus-visible" ? keyboard && this === document.activeElement : matches.call(this, selector);
+  });
+  restores.push(() => { spy.mockRestore(); document.removeEventListener("keydown", onKey, true); document.removeEventListener("pointerdown", onPointer, true); });
+}
+
+test("closing a side gives the focus back to what opened it, after a click as after a key; only the key's focus opens a tooltip there", async () => {
   fakePane(1400);
+  fakeFocusVisible();
   const { slot, comments } = await renderWorkspace();
   comments.focus();
   fireEvent.keyDown(comments, { key: "Enter" });
@@ -199,14 +214,15 @@ test("closing a side from the keyboard gives the focus back to what opened it; a
   fireEvent.keyDown(close, { key: "Enter" });
   fireEvent.click(close, { detail: 0 });
   await waitFor(() => expect(document.activeElement).toBe(comments));
-  fireEvent.pointerDown(comments);
-  fireEvent.click(comments);
+  expect((await slot.findByRole("tooltip")).textContent).toBe("Comments (c)");
+  // A click presses and lets go on the button.
+  const click = (button: HTMLElement) => { fireEvent.pointerDown(button); fireEvent.pointerUp(button); fireEvent.click(button); };
+  click(comments);
   const again = within(panel(slot)!).getByRole("button", { name: "Close panel" });
   again.focus();
-  fireEvent.pointerDown(again);
-  fireEvent.click(again);
+  click(again);
+  await waitFor(() => expect(document.activeElement).toBe(comments));
   await new Promise((resolve) => setTimeout(resolve, 400));
-  expect(document.activeElement).not.toBe(comments);
   expect(slot.queryByRole("tooltip")).toBeNull();
   slot.lifecycle.unmount();
 });

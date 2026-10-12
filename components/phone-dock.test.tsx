@@ -96,7 +96,7 @@ test("Finish review is part of Comments in the sheet: Comments stays pressed, an
   slot.lifecycle.unmount();
 });
 
-test("Esc, ✕ and a tap on the code above close the sheet; from the keyboard the focus goes back to its tab", async () => {
+test("Esc, ✕ and a tap on the code above close the sheet, and the focus goes back to its tab, after a tap too", async () => {
   const { slot, dock } = await renderPhone();
   const tab = dock.getByRole("button", { name: /^Chapters:/ });
   tab.focus();
@@ -107,9 +107,11 @@ test("Esc, ✕ and a tap on the code above close the sheet; from the keyboard th
   fireEvent.keyDown(sheet, { key: "Escape" });
   expect(slot.queryByRole("dialog")).toBeNull();
   await waitFor(() => expect(document.activeElement).toBe(tab));
-  fireEvent.click(tab);
-  fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Close" }));
+  const tap = (button: HTMLElement) => { fireEvent.pointerDown(button); fireEvent.pointerUp(button); fireEvent.click(button); };
+  tap(tab);
+  tap(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Close" }));
   expect(slot.queryByRole("dialog")).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(tab));
   fireEvent.click(dock.getByRole("button", { name: "Ask agent" }));
   fireEvent.click(slot.container.querySelector<HTMLElement>(".bg-black\\/40")!);
   expect(slot.queryByRole("dialog")).toBeNull();
