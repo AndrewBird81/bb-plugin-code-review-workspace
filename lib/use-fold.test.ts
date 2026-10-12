@@ -1,8 +1,9 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { useFold } from "./use-fold";
 
-afterEach(() => { cleanup(); delete (window as { viewport?: unknown }).viewport; document.body.innerHTML = ""; });
+const restores: (() => void)[] = [];
+afterEach(() => { cleanup(); delete (window as { viewport?: unknown }).viewport; document.body.innerHTML = ""; restores.splice(0).forEach((restore) => restore()); });
 
 /** The Viewport Segments API, as Chrome on a foldable or Safari 27.1 with its flag reports it. */
 function fakeSegments(segments: DOMRect[] | null) {
@@ -52,4 +53,52 @@ test("nothing for a fold across the screen, one outside the workspace, or withou
   const plain = workspace(new DOMRect(0, 48, 951, 541));
   renderHook(() => useFold(plain));
   expect(plain.style.getPropertyValue("--gr-fold-end")).toBe("");
+});
+
+/** No Viewport Segments API, as in Safari 27.1 by default: a window `width` × `height`, touched or not. */
+function fakeWindow(width: number, height: number, coarse = true) {
+  const root = document.documentElement;
+  Object.defineProperty(root, "clientWidth", { configurable: true, get: () => width });
+  Object.defineProperty(root, "clientHeight", { configurable: true, get: () => height });
+  const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(pointer: coarse)" && coarse, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }) as MediaQueryList);
+  restores.push(() => {
+    delete (root as { clientWidth?: number }).clientWidth;
+    delete (root as { clientHeight?: number }).clientHeight;
+    matchMedia.mockRestore();
+  });
+}
+
+test("without the API, the unfolded Duo held sideways takes its window's middle, and 24px either side, for the fold", () => {
+  // A home-screen app on the inner screen: the window is the screen, 951 wide; the fold, about x 455–496.
+  fakeWindow(951, 669);
+  const el = workspace(new DOMRect(0, 0, 951, 669));
+  renderHook(() => useFold(el, true));
+  expect(el.style.getPropertyValue("--gr-fold-end")).toBe("500px");
+});
+
+test("without the API, nothing taken for a fold but on a touch screen whose phone's window is held sideways with a tablet's layout", () => {
+  const fold = (width: number, height: number, unfolded: boolean, coarse = true) => {
+    fakeWindow(width, height, coarse);
+    const el = workspace(new DOMRect(0, 0, width, height));
+    renderHook(() => useFold(el, unfolded));
+    const end = el.style.getPropertyValue("--gr-fold-end");
+    cleanup();
+    restores.splice(0).forEach((restore) => restore());
+    return end;
+  };
+  // A phone held sideways has a short layout: the folded Duo, the 14 Pro Max.
+  expect(fold(594, 386, false)).toBe("");
+  expect(fold(932, 430, false)).toBe("");
+  // Upright, the fold runs across the screen; an iPad's window and a desktop's have none.
+  expect(fold(669, 951, true)).toBe("");
+  expect(fold(1376, 1032, true)).toBe("");
+  expect(fold(951, 589, true, false)).toBe("");
+});
+
+test("where the API says there's no fold, as Chrome does on a phone that doesn't fold, nothing is taken for one", () => {
+  fakeSegments([new DOMRect(0, 0, 951, 589)]);
+  fakeWindow(951, 589);
+  const el = workspace(new DOMRect(0, 48, 951, 541));
+  renderHook(() => useFold(el, true));
+  expect(el.style.getPropertyValue("--gr-fold-end")).toBe("");
 });

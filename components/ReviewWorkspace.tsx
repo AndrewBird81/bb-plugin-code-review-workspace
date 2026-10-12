@@ -492,7 +492,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const canFullscreen = document.fullscreenEnabled || "showPopover" in HTMLElement.prototype;
   useKeyboardInset(rootEl);
   useSafeArea(rootEl);
-  useFold(rootEl);
+  // A tablet's layout in a phone's window held sideways is the unfolded iPhone Duo's: its fold is estimated where the
+  // browser can't say where it is.
+  useFold(rootEl, layout.mode === "tablet");
   useScrollAnchor(scrollEl);
   // While the step bar is over the code's foot, the code ends above it: a chapter's last buttons stay in reach.
   const commentStep = useCommentStep(targetKey);
