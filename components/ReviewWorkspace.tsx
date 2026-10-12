@@ -122,6 +122,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const opened = useRef(false);
   // The saved scroll position, when the review opens where it was saved.
   const restoreScroll = useRef<number | null>(null);
+  // A remounted workspace is putting its line back: that line, not what's at the code's top meanwhile, is the place.
+  const restoringPlace = useRef(false);
   // What the workspace this one took the place of had open, typed, showed and focused, as BB remounts the page when its
   // layout switches (lib/remount.ts); null for a review opened as usual. Read once, as it mounts.
   const [carry] = useState(() => carried(targetKey));
@@ -215,8 +217,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       const focus: KeptFocus | null = active.matches("[data-find-box]") ? { in: "find", caret, typing }
         : active.matches("textarea") && active.closest("[data-keyboard-box]") ? { in: "composer", caret, typing }
         : document.getElementById(sidePanelId(targetKey))?.contains(active) ? { in: "panel" } : null;
-      // Typing in the code, the box is where you are (as on a scroll); elsewhere the code's top stays the place it was.
-      keep(targetKey, scrollBox.current?.contains(active) ? { focus, place: linePlace(scrollBox.current) } : { focus });
+      // Typing in the code, the box is where you are (as on a scroll); elsewhere the code's top stays the place it was, as
+      // it does while a remounted workspace puts its place back, the focus with it.
+      keep(targetKey, scrollBox.current?.contains(active) && !restoringPlace.current ? { focus, place: linePlace(scrollBox.current) } : { focus });
     };
     // Gone from the workspace, not with it: as BB remounts the page, the old one's focus goes with its nodes.
     const left = () => setTimeout(() => { if (rootEl.isConnected && !rootEl.contains(document.activeElement)) keep(targetKey, { focus: null }); });
@@ -648,7 +651,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       if (box.scrollTop < top - 1 && Date.now() < until) frame = requestAnimationFrame(follow);
     };
     box.style.overflowAnchor = "none";
-    const stop = () => { cancelAnimationFrame(frame); clearTimeout(timer); box.style.overflowAnchor = ""; };
+    restoringPlace.current = !!place;
+    const stop = () => { restoringPlace.current = false; cancelAnimationFrame(frame); clearTimeout(timer); box.style.overflowAnchor = ""; };
     const timer = setTimeout(stop, until - Date.now());
     const inputs = ["wheel", "touchstart", "pointerdown"] as const;
     inputs.forEach((type) => box.addEventListener(type, stop, { once: true }));
@@ -868,10 +872,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     });
     if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current);
     const value = box.scrollTop;
+    // Putting a remounted workspace's line back, what's at the code's top may be a line above it that the new width
+    // unwrapped into view: kept, turning back would put that one there instead. The place is yours to move.
+    const restoring = restoringPlace.current;
     scrollSaveTimer.current = setTimeout(() => {
       patchReviewState(targetKey, { scrollTop: value });
       // Under a phone's sheet the code is inert, and what's at its top can't be read: the place stays the one it was.
-      if (!box.closest("[inert]")) keep(targetKey, { place: linePlace(box) });
+      if (!restoring && !box.closest("[inert]")) keep(targetKey, { place: linePlace(box) });
     }, 200);
   }, [targetKey, fileAtTop]);
 

@@ -124,6 +124,22 @@ test("under a phone's sheet the code is inert: a scroll of it keeps the line a r
   slot.lifecycle.unmount();
 });
 
+test("as BB remounts the page, the line put back stays the place while it's put back: what's at the top then isn't kept", async () => {
+  fakeSize(390, 844);
+  let slot = await renderWorkspace();
+  const place = { file: "src/a.ts", index: "1,1", offset: 12 };
+  keep("pr-42", { place });
+  slot.lifecycle.unmount();
+  slot = await renderWorkspace();
+  const code = slot.getByRole("main", { name: "Review" }).querySelector<HTMLElement>(":scope > .overflow-y-auto")!;
+  fireEvent.scroll(code);
+  // Nor where the focus comes back in the code.
+  code.appendChild(document.createElement("textarea")).focus();
+  await new Promise((done) => setTimeout(done, 250));
+  expect(JSON.parse(sessionStorage.getItem("gr:remount")!)["pr-42"].place).toEqual(place);
+  slot.lifecycle.unmount();
+});
+
 test("on a phone the diff's options are behind the chapters sheet's Diff options, without Split, which can't apply there", async () => {
   fakeSize(390, 844);
   const slot = await renderWorkspace();
