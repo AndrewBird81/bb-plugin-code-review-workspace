@@ -164,11 +164,14 @@ const PopoverContent = React.forwardRef<
           <div
             ref={ref}
             className={cn(
-              "overflow-y-auto px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]",
+              "overflow-y-auto px-4 pt-2",
               className,
               // The drawer spans the full viewport width; ignore a desktop
               // width a caller passes so content fills the drawer.
               "w-auto max-w-none",
+              // Its end stays clear of the home indicator, whatever padding a
+              // caller passes for the popover (a menu's p-1).
+              "pb-[max(1rem,env(safe-area-inset-bottom))]",
             )}
             {...domProps}
           >
