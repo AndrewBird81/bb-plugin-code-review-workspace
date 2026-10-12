@@ -59,8 +59,8 @@ const DEVICES = {
 };
 
 describe("the user's phones", () => {
-  const at = (key: keyof typeof DEVICES, state: LayoutState, previous?: WorkspaceLayout, windowResized = false) =>
-    workspaceLayout(DEVICES[key].width, DEVICES[key].height, state, previous, windowResized);
+  const at = (key: keyof typeof DEVICES, state: LayoutState, previous?: WorkspaceLayout, phoneResized = false) =>
+    workspaceLayout(DEVICES[key].width, DEVICES[key].height, state, previous, phoneResized);
 
   test.each(["pm-portrait", "duo-outer", "duo-split"] as const)("%s is a phone: the dock, and one sheet", (key) => {
     expect(at(key, both)).toMatchObject({ mode: "phone", nav: "closed", panel: "closed", navCanDock: false, panelCanDock: false });
@@ -131,6 +131,28 @@ describe("the user's phones", () => {
     const sheet = at("duo-outer", panelOnly, docked, true);
     expect(at("duo-outer", panelOnly, sheet).panel).toBe("overlay");
     expect(at("duo-outer", { ...panelOnly, panelOpen: false }, sheet).panel).toBe("closed");
+  });
+
+  test("typing outside docked Comments, as in a comment in the code, a fold steps it aside rather than cover the box, and it docks again", () => {
+    const docked = at("duo-inner-landscape", panelOnly);
+    for (const typingIn of ["other", "nav"] as const) {
+      const aside = at("duo-outer", { ...panelOnly, typingIn }, docked, true);
+      expect(aside).toMatchObject({ mode: "phone", panel: "closed" });
+      expect(at("duo-inner-portrait", { ...panelOnly, typingIn }, docked, true).panel).toBe("closed");
+      expect(at("duo-inner-landscape", { ...panelOnly, typingIn }, aside, true).panel).toBe("docked");
+    }
+    // Typing in Comments itself, it goes with you.
+    expect(at("duo-outer", { ...panelOnly, typingIn: "panel" }, docked, true).panel).toBe("overlay");
+  });
+
+  test("chapters opened over the code and docked by an unfold go back over it as it folds; BB's pane narrowing, or typing elsewhere, hides them", () => {
+    const opened = { ...navOnly, navOverlay: true };
+    const docked = at("duo-inner-landscape", opened, at("duo-outer", opened), true);
+    expect(docked.nav).toBe("docked");
+    expect(at("duo-outer", opened, docked, true).nav).toBe("overlay");
+    expect(at("duo-outer", { ...opened, typingIn: "nav" }, docked, true).nav).toBe("overlay");
+    expect(at("duo-outer", { ...opened, typingIn: "other" }, docked, true).nav).toBe("closed");
+    expect(workspaceLayout(800, 541, opened, docked)).toMatchObject({ nav: "closed", navCanDock: false });
   });
 });
 
@@ -284,20 +306,61 @@ describe("useWorkspaceLayout", () => {
     expect(result.current.mode).toBe("phone");
   });
 
+  /** A touch screen's pointer, or a desktop's. */
+  function stubPointer(pointer: "coarse" | "fine") {
+    const media = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(pointer: coarse)" && pointer === "coarse", media: query, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList);
+    restores.push(() => media.mockRestore());
+  }
+
   test("folded with Comments docked, the window resizes and Comments becomes the sheet; BB's pane narrowing hides it", () => {
+    stubPointer("coarse");
     const resize = stubResizeObserver({ width: 951, height: 541 });
     const window = stubWindow(951, 589);
     const el = document.createElement("div");
     const { result } = renderHook(() => useWorkspaceLayout(el, panelOnly));
-    expect(result.current).toMatchObject({ panel: "docked", windowResized: false });
+    expect(result.current).toMatchObject({ panel: "docked", phoneResized: false });
     window({ width: 382, height: 598 });
     resize({ width: 382, height: 550 });
-    expect(result.current).toMatchObject({ mode: "phone", panel: "overlay", windowResized: true });
+    expect(result.current).toMatchObject({ mode: "phone", panel: "overlay", phoneResized: true });
     window({ width: 951, height: 589 });
     resize({ width: 951, height: 541 });
     expect(result.current).toMatchObject({ mode: "tablet", panel: "docked" });
     resize({ width: 712, height: 541 });
-    expect(result.current).toMatchObject({ panel: "closed", windowResized: false });
+    expect(result.current).toMatchObject({ panel: "closed", phoneResized: false });
+  });
+
+  test.each([
+    { resize: "a desktop's window narrowing", pointer: "fine", from: { width: 1440, height: 900 }, to: { width: 1000, height: 900 } },
+    { resize: "a desktop's window snapping to a phone's size", pointer: "fine", from: { width: 951, height: 589 }, to: { width: 382, height: 598 } },
+    { resize: "an iPad turning", pointer: "coarse", from: { width: 1376, height: 1032 }, to: { width: 1032, height: 1376 } },
+    { resize: "an iPad going to half its screen in Split View", pointer: "coarse", from: { width: 1376, height: 1032 }, to: { width: 678, height: 1032 } },
+  ] as const)("$resize hides docked Comments, as BB's pane narrowing does, rather than open it over the code", ({ pointer, from, to }) => {
+    stubPointer(pointer);
+    const resize = stubResizeObserver({ width: 1056, height: 984 });
+    const window = stubWindow(from.width, from.height);
+    const el = document.createElement("div");
+    const { result } = renderHook(() => useWorkspaceLayout(el, panelOnly));
+    expect(result.current.panel).toBe("docked");
+    window(to);
+    resize({ width: 600, height: 984 });
+    expect(result.current).toMatchObject({ panel: "closed", phoneResized: false });
+  });
+
+  test("a fold whose pane follows the window a frame late still carries docked Comments over the code", () => {
+    stubPointer("coarse");
+    const size = { width: 951, height: 541 };
+    const resize = stubResizeObserver(size);
+    const window = stubWindow(951, 589);
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () => new DOMRect(0, 48, size.width, size.height);
+    const { result } = renderHook(() => useWorkspaceLayout(el, panelOnly));
+    expect(result.current.panel).toBe("docked");
+    // The window has folded, and is measured as it reports so, while BB's pane is still the size it was.
+    window({ width: 382, height: 598 });
+    act(() => { globalThis.window.dispatchEvent(new Event("resize")); });
+    expect(result.current.panel).toBe("docked");
+    resize({ width: 382, height: 550 });
+    expect(result.current).toMatchObject({ mode: "phone", panel: "overlay" });
   });
 
   test("measures again as the window resizes, before the observer reports, and a frame later", async () => {

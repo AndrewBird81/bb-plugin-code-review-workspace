@@ -6,6 +6,12 @@ import { useLayoutEffect, useReducer, useRef } from "react";
 export const READER_MIN = 560;
 /** A workspace shorter than this is a phone held sideways (`short`). */
 export const SHORT_BELOW = 500;
+/**
+ * A window whose shorter side is under this is a phone's, the iPhone Duo's inner screen's included: the smallest iPad's
+ * screen is 744 on its shorter side. A phone's fold, unfold or rotation keeps what's open (`phoneResized`); an iPad's or
+ * a desktop's window resizing is as BB's pane resizing.
+ */
+export const PHONE_WINDOW_BELOW = 744;
 export const NAV_WIDTH = { initial: 288, min: 200, max: 560 };
 export const PANEL_WIDTH = { initial: 400, min: 320, max: 640 };
 /** How far past a threshold a size must move to undo what it decided, so a size wobbling across it doesn't flip it. */
@@ -25,8 +31,8 @@ export interface LayoutState {
   navOpen: boolean;
   /** The navigator was opened over the code, which only you do; it stays there until closed. */
   navOverlay: boolean;
-  /** You're typing in the navigator (Find in review): docked, a fold or a rotation keeps it open, over the code. */
-  navTyping?: boolean;
+  /** Where you're typing, if you are: in the navigator (Find in review), the panel, or elsewhere, such as the code. */
+  typingIn?: "nav" | "panel" | "other";
   /** A panel view is open, and docks where it fits. */
   panelOpen: boolean;
   /** The panel was opened where it couldn't dock, so it shows over the code. */
@@ -45,8 +51,8 @@ export interface WorkspaceLayout {
   narrowReader: boolean;
   /** The pane is at least 1000px wide: room for the title bar's labeled controls. */
   widePane: boolean;
-  /** It came with the window resizing (a fold, an unfold, a rotation) rather than BB's pane alone. Not compared. */
-  windowResized: boolean;
+  /** It came with a phone's window resizing (a fold, an unfold, a rotation) rather than BB's pane alone. Not compared. */
+  phoneResized: boolean;
 }
 
 /** `value < threshold`, with the threshold moved HYSTERESIS toward what `was` decided; exact without it. */
@@ -70,33 +76,37 @@ export function readerWidth(width: number, state: LayoutState, layout: Pick<Work
 /**
  * The layout for a workspace `width` × `height`, given the layout it had (`previous`) for hysteresis. A side docks only
  * while the code keeps READER_MIN, and the panel gets the room first; overlays never open by themselves. Out of room,
- * a docked panel hides, unless the window itself resized (`windowResized`: a fold, an unfold, a rotation), which
- * takes it over the code instead: what you had open stays open as the screen changes.
+ * a docked panel hides, unless a phone's window resized (`phoneResized`: a fold, an unfold, a rotation), which takes
+ * it over the code instead: what you had open stays open as the screen changes. Not a side you're not typing in,
+ * though: that hides as before, rather than cover the box you're typing in.
  */
-export function workspaceLayout(width: number, height: number, state: LayoutState, previous?: WorkspaceLayout, windowResized = false): WorkspaceLayout {
+export function workspaceLayout(width: number, height: number, state: LayoutState, previous?: WorkspaceLayout, phoneResized = false): WorkspaceLayout {
   const mode: WorkspaceMode = below(height, SHORT_BELOW, previous && previous.mode === "short") ? "short"
     : below(width, 640, previous && previous.mode === "phone") ? "phone" : "tablet";
   // Docked, a side stays docked down to HYSTERESIS under READER_MIN; anything else docks at READER_MIN.
   const fits = (room: number, docked: boolean) => mode === "tablet" && room >= READER_MIN - (docked ? HYSTERESIS : 0);
   const panelWidth = panelDockWidth(width, state.panelWidth);
   const panelCanDock = fits(width - panelWidth, previous?.panel === "docked");
-  // Over the code, it stays there until it closes or docks.
-  const panelOver = state.panelOverlay || previous?.panel === "overlay" || (windowResized && previous?.panel === "docked");
+  const carries = (side: "nav" | "panel") => phoneResized && (!state.typingIn || state.typingIn === side);
+  // Opened over the code and docked since by an unfold, they go back over it as it folds, not as BB's pane narrows.
+  // Docked on their own, they go over the code only with you typing in them.
+  const navOver = (state.navOverlay && (previous?.nav !== "docked" || carries("nav"))) || (phoneResized && previous?.nav === "docked" && state.typingIn === "nav");
+  // Over the code, it stays there until it closes or docks. One side at a time goes there: the chapters, if they do.
+  const panelOver = state.panelOverlay || previous?.panel === "overlay" || (carries("panel") && previous?.panel === "docked" && !navOver);
   const panel: PanelPlacement = state.panelOpen && panelCanDock ? "docked" : state.panelOpen && panelOver ? "overlay" : "closed";
   const navCanDock = fits(width - state.navWidth - (panel === "docked" ? panelWidth : 0), previous?.nav === "docked");
-  const navOver = state.navOverlay || (windowResized && previous?.nav === "docked" && !!state.navTyping);
   const nav: NavPlacement = state.navOpen && navCanDock ? "docked" : navOver ? "overlay"
     : state.navOpen && panel === "docked" ? "suppressed" : "closed";
   return {
     mode, nav, panel, navCanDock, panelCanDock,
     narrowReader: below(readerWidth(width, state, { nav, panel }), 720, previous?.narrowReader),
     widePane: !below(width, 1000, previous && !previous.widePane),
-    windowResized,
+    phoneResized,
   };
 }
 
 function sameLayout(a: WorkspaceLayout, b: WorkspaceLayout): boolean {
-  return (Object.keys(a) as Array<keyof WorkspaceLayout>).every((key) => key === "windowResized" || a[key] === b[key]);
+  return (Object.keys(a) as Array<keyof WorkspaceLayout>).every((key) => key === "phoneResized" || a[key] === b[key]);
 }
 
 /** Without ResizeObserver (jsdom), the window stands in, held to what its media queries say about the mode. */
@@ -120,8 +130,18 @@ function roomOf(el: HTMLElement): { width: number; height: number } {
   return { width: rect.width - px(style.paddingLeft) - px(style.paddingRight), height: rect.height - px(style.paddingTop) };
 }
 
+type Size = { width: number; height: number };
+
 /** The window's size, which a fold, an unfold or a rotation changes, and BB's pane resizing doesn't. */
-const windowKey = () => `${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`;
+const windowNow = (): Size => ({ width: document.documentElement.clientWidth, height: document.documentElement.clientHeight });
+
+/** Whether a window, by default this one, is a phone's (PHONE_WINDOW_BELOW). */
+export const phoneWindow = ({ width, height }: Size = windowNow()) => Math.min(width, height) < PHONE_WINDOW_BELOW;
+
+/** The window resizing from `was` to `is` on a phone's touch screen, a phone's window both before and after. */
+function phoneResize(was: Size, is: Size): boolean {
+  return (was.width !== is.width || was.height !== is.height) && phoneWindow(was) && phoneWindow(is) && !!window.matchMedia?.("(pointer: coarse)").matches;
+}
 
 /**
  * The layout for `el`'s size as it resizes. It re-renders only when the layout changes, not on every frame of a pane
@@ -129,30 +149,31 @@ const windowKey = () => `${document.documentElement.clientWidth}x${document.docu
  * phone the window's new size can arrive after the resize.
  */
 export function useWorkspaceLayout(el: HTMLElement | null, state: LayoutState): WorkspaceLayout {
-  const size = useRef<{ width: number; height: number; windowResized: boolean } | null>(null);
+  const size = useRef<{ width: number; height: number; phoneResized: boolean } | null>(null);
   const latest = useRef(state);
   latest.current = state;
   // The layout last rendered, which hysteresis keeps to.
   const shown = useRef<WorkspaceLayout | undefined>(undefined);
   const [, remeasured] = useReducer((count: number) => count + 1, 0);
-  const { width, height, windowResized } = size.current ?? { ...windowSize(), windowResized: false };
-  const next = workspaceLayout(width, height, state, shown.current, windowResized);
+  const { width, height, phoneResized } = size.current ?? { ...windowSize(), phoneResized: false };
+  const next = workspaceLayout(width, height, state, shown.current, phoneResized);
   const layout = shown.current && sameLayout(next, shown.current) ? shown.current : next;
   useLayoutEffect(() => { shown.current = layout; });
   useLayoutEffect(() => {
     if (!el || typeof ResizeObserver === "undefined") return;
-    let windowWas = windowKey();
-    const measure = ({ width, height: measured }: { width: number; height: number }) => {
+    let windowWas = windowNow();
+    const measure = ({ width, height: measured }: Size) => {
       if (!(width > 0)) return;
       const height = Number.isFinite(measured) ? measured : windowSize().height;
-      const windowIs = windowKey();
-      const windowResized = windowIs !== windowWas;
-      windowWas = windowIs;
       // The first measurement replaces the window's guess outright, rather than keeping to it.
       if (!size.current) shown.current = undefined;
       else if (size.current.width === width && size.current.height === height) return;
-      size.current = { width, height, windowResized };
-      if (!shown.current || !sameLayout(workspaceLayout(width, height, latest.current, shown.current, windowResized), shown.current)) remeasured();
+      // The window as the workspace last resized, rather than as last measured: BB's pane can follow a fold a frame late.
+      const windowIs = windowNow();
+      const phoneResized = phoneResize(windowWas, windowIs);
+      windowWas = windowIs;
+      size.current = { width, height, phoneResized };
+      if (!shown.current || !sameLayout(workspaceLayout(width, height, latest.current, shown.current, phoneResized), shown.current)) remeasured();
     };
     // Before the first paint, rather than when the observer first reports.
     measure(roomOf(el));

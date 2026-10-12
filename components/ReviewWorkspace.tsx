@@ -12,7 +12,7 @@ import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setCommentsFolded, setGithubThreadsInCode, setHideWhitespace, setLastReview, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView } from "../lib/panel-state";
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
-import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout } from "../lib/workspace-layout";
+import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout, type LayoutState } from "../lib/workspace-layout";
 import { useKeyboardInset } from "../lib/use-keyboard-inset";
 import { useFold } from "../lib/use-fold";
 import { useSafeArea } from "../lib/use-safe-area";
@@ -48,7 +48,7 @@ import { PhoneDock } from "./shell/PhoneDock";
 import { returnFocus } from "./shell/side-parts";
 import { ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
 import { SelectionBar } from "./shell/SelectionBar";
-import { SidePanel } from "./shell/SidePanel";
+import { SidePanel, sidePanelId } from "./shell/SidePanel";
 import { TopBand, navigatorId } from "./shell/TopBand";
 import { ReviewMenu } from "./TitleBarControls";
 import { TOUCH_CONTROL } from "./touch";
@@ -68,6 +68,13 @@ const OTHER_FILES = "other-files";
 
 function viewMap(views: { file: string; viewed: boolean; stale: boolean }[]): Map<string, FileViewFlags> {
   return new Map(views.map((v) => [v.file, { viewed: v.viewed, stale: v.stale }]));
+}
+
+/** Where you're typing in the review `targetKey`, if you are: in its chapters (Find in review), its side panel, or elsewhere. */
+function typingIn(targetKey: string): LayoutState["typingIn"] {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement && (active.isContentEditable || active.closest(TEXT_FIELD)))) return undefined;
+  return document.getElementById(navigatorId(targetKey))?.contains(active) ? "nav" : document.getElementById(sidePanelId(targetKey))?.contains(active) ? "panel" : "other";
 }
 
 /** Hands the workspace the lines with draft comments or discussions, which the draft panel provides, without the nits it hides. */
@@ -158,21 +165,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [commentsTab, setCommentsTab] = useState<CommentsTab>("drafts");
   // Comments was to open as the review opened, but couldn't beside the code: the "need you" pill offers it instead.
   const [pill, setPill] = useState(false);
-  // You're typing in the chapters (Find in review): a fold or a rotation keeps them open, over the code if they must.
-  const [navTyping, setNavTyping] = useState(false);
-  useEffect(() => {
-    const update = () => {
-      const active = document.activeElement;
-      setNavTyping(active instanceof HTMLElement && !!document.getElementById(navigatorId(targetKey))?.contains(active) && !!active.closest(TEXT_FIELD));
-    };
-    document.addEventListener("focusin", update);
-    document.addEventListener("focusout", update);
-    return () => {
-      document.removeEventListener("focusin", update);
-      document.removeEventListener("focusout", update);
-    };
-  }, [targetKey]);
-  const layout = useWorkspaceLayout(rootEl, { navWidth, panelWidth, navOpen, navOverlay, navTyping, panelOpen: panelView !== null, panelOverlay });
+  // Where you're typing: a phone's fold or rotation keeps that side open, over the code if it must, and hides the side
+  // you're not typing in rather than cover your box. Read as it renders, as the resize renders it: it's never stale, as
+  // it would be after the box you typed in went away with the focus, which tells no one.
+  const layout = useWorkspaceLayout(rootEl, { navWidth, panelWidth, navOpen, navOverlay, typingIn: typingIn(targetKey), panelOpen: panelView !== null, panelOverlay });
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
   // The panel's view as it shows, docked or over the code.
@@ -181,9 +177,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   shownPanelRef.current = shownPanel;
   const commentsTabRef = useRef(commentsTab);
   commentsTabRef.current = commentsTab;
-  // Overlays don't come back by themselves: once a side docks, it was never opened over the code. Unless the window
-  // itself resized (a fold, an unfold, a rotation): the chapters you had open over the code go back there with it.
-  useEffect(() => { if (layout.nav === "docked" && !layout.windowResized) setNavOverlay(false); }, [layout.nav]);
+  // Overlays don't come back by themselves: once a side docks or hides, it was never opened over the code. Unless a
+  // phone's fold, unfold or rotation docked it: the chapters you had open over the code go back there with the next.
+  useEffect(() => { if (layout.nav === "closed" || layout.nav === "suppressed" || (layout.nav === "docked" && !layout.phoneResized)) setNavOverlay(false); }, [layout.nav]);
   // Over the code after such a resize, they stay there: before paint, while the resize still has them there.
   useLayoutEffect(() => { if (layout.nav === "overlay") setNavOverlay(true); }, [layout.nav]);
   useEffect(() => { if (layout.panel === "docked") setPanelOverlay(false); }, [layout.panel]);
