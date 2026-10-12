@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
-import { getNavWidth, getPanelWidth, patchReviewState } from "../lib/panel-state";
+import { getNavWidth, getPanelWidth, patchReviewState, setPanelWidth } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre data-testid="filediff">{fileDiff.additionLines.join("\n")}</pre> }));
@@ -178,6 +178,28 @@ test("the chapters and the panel resize by dragging or arrow keys, keep the code
   fireEvent.pointerUp(window);
   fireEvent.pointerDown(panelHandle, { button: 0, clientX: 600, timeStamp: 1100 });
   expect(panelHandle.getAttribute("aria-valuenow")).toBe("400");
+  slot.lifecycle.unmount();
+});
+
+test("docked narrower than its width (an unfolded iPhone Duo's 951), a touch of the panel's handle, or a key that can't widen it, saves nothing; a double tap saves its first width", async () => {
+  setPanelWidth(500);
+  fakePane(951);
+  const { slot, comments } = await renderWorkspace();
+  fireEvent.click(comments);
+  const handle = slot.getByRole("separator", { name: "Resize panel" });
+  expect(handle.getAttribute("aria-valuenow")).toBe("391");
+  fireEvent.pointerDown(handle, { button: 0, clientX: 560, timeStamp: 1000 });
+  fireEvent.pointerUp(window);
+  fireEvent.keyDown(handle, { key: "ArrowLeft" });
+  fireEvent.keyDown(handle, { key: "End" });
+  expect(getPanelWidth()).toBe(500);
+  expect(handle.getAttribute("aria-valuenow")).toBe("391");
+  // Its first width, which shows as wide as there's room for.
+  fireEvent.pointerDown(handle, { button: 0, clientX: 560, timeStamp: 5000 });
+  fireEvent.pointerUp(window);
+  fireEvent.pointerDown(handle, { button: 0, clientX: 560, timeStamp: 5100 });
+  expect(getPanelWidth()).toBe(400);
+  expect(handle.getAttribute("aria-valuenow")).toBe("391");
   slot.lifecycle.unmount();
 });
 

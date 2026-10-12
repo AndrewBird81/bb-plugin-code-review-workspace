@@ -46,7 +46,7 @@ export function SidePanel({ targetKey, placement, sheet, view, width, maxWidth, 
   const docked = `min(${width}px, max(${PANEL_WIDTH.min}px, 100cqw - ${READER_MIN}px))`;
   return (
     <>
-      {placement === "docked" && <Resizer label="Resize panel" edge="right" width={Math.min(width, Math.max(PANEL_WIDTH.min, maxWidth))} min={PANEL_WIDTH.min} max={maxWidth} initial={PANEL_WIDTH.initial} onWidth={onWidth} onDone={onWidthDone} />}
+      {placement === "docked" && <Resizer label="Resize panel" edge="right" width={Math.min(width, Math.max(PANEL_WIDTH.min, maxWidth))} min={PANEL_WIDTH.min} max={maxWidth} initial={PANEL_WIDTH.initial} narrows onWidth={onWidth} onDone={onWidthDone} />}
       <aside
         ref={ref}
         id={sidePanelId(targetKey)}
