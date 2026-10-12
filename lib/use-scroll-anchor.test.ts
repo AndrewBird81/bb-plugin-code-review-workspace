@@ -111,6 +111,21 @@ test("with a sheet over the code it reads what's under the sheet, and keeps the 
   expect(under(reading, 0)).toBe(offset);
 });
 
+test("a line of code below what isn't code, such as the chapter's intro, is what stays, as the intro folds away", () => {
+  const resize = stubResizeObserver();
+  const { box, lines, heights } = code();
+  // The chapter's intro at the box's top, light DOM, not lines; the code under it.
+  lines.forEach((line, i) => { if (i < 8) delete line.dataset.line; });
+  box.scrollTop = 280;
+  renderHook(() => useScrollAnchor(box));
+  const reading = lines[8];
+  const offset = under(reading, 0);
+  // Held sideways, the intro folds 30px shorter.
+  heights[7] = 10;
+  resize();
+  expect(under(reading, 0)).toBe(offset);
+});
+
 test("what has the focus in the code, such as the comment you're typing, is what stays where it was", () => {
   const resize = stubResizeObserver();
   const { box, lines, heights } = code();

@@ -37,9 +37,10 @@ function codeTop(box: HTMLElement): number {
 const sizeOf = (box: HTMLElement) => `${box.clientWidth}x${box.clientHeight}`;
 
 /**
- * What has the focus, where it shows, such as the comment you're typing; else the first thing that starts at the top of
- * what shows of the code (a line, where it's one), looking down past what starts above it, such as a comment card half
- * under the header; or, failing that, what's there.
+ * What has the focus, where it shows, such as the comment you're typing; else the first line of code near the top of
+ * what shows, looking down past what starts above it, such as a comment card half under the header, and past what
+ * isn't code, such as the chapter's intro, which may fold away as the screen turns; else the first thing that starts
+ * there; or, failing that, what's there.
  */
 function anchorIn(box: HTMLElement): Anchor | null {
   const rect = box.getBoundingClientRect();
@@ -51,14 +52,18 @@ function anchorIn(box: HTMLElement): Anchor | null {
     const { top: focusTop, bottom } = focused.getBoundingClientRect();
     if (bottom > top && focusTop < rect.bottom) return { el: focused, offset: focusTop - top, size: sizeOf(box) };
   }
-  let el: Element | null = null;
+  let first: Element | null = null;
+  let starting: Element | null = null;
   for (let y = top + 2; y < Math.min(rect.bottom, top + 240); y += 8) {
     const at = deepestAt(box, x, y);
     if (!at) continue;
-    const line = at.closest("[data-line]") ?? at;
-    el ??= line;
-    if (line.getBoundingClientRect().top >= top - 2) { el = line; break; }
+    const line = at.closest("[data-line]");
+    const starts = (line ?? at).getBoundingClientRect().top >= top - 2;
+    if (line && starts) { first = line; starting = line; break; }
+    first ??= line ?? at;
+    if (starts) starting ??= at;
   }
+  const el = starting ?? first;
   return el && { el, offset: el.getBoundingClientRect().top - top, size: sizeOf(box) };
 }
 
