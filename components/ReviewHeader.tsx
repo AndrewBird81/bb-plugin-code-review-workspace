@@ -170,7 +170,7 @@ export const ReviewHeader = memo(function ReviewHeader({ review, checks, readLin
     status.label !== "Ready" && <Fact key="turn" icon={status.icon ? <Icon name={status.icon} className={cn(status.busy && "animate-spin motion-reduce:animate-none")} aria-hidden /> : <Dot tone={status.tone} />} tone={status.tone}>{status.label}</Fact>,
     turn.blocking && <Fact key="blocking" icon={<Icon name="Lock" aria-hidden />} tone="warning" title="Everyone else approved; only your changes requested is left.">Blocks merge</Fact>,
     feedback && (
-      <button key="feedback" type="button" onClick={onShowFeedback} title="Show your feedback in Comments" className={cn("rounded-sm underline decoration-border underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_TEXT)}>
+      <button key="feedback" type="button" onClick={onShowFeedback} title={progress.source === "threads" ? "Resolved or answered. Show your feedback in Comments" : "Show your feedback in Comments"} className={cn("rounded-sm underline decoration-border underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_TEXT)}>
         <Fact icon={<Icon name={progress.source === "assistant" ? "Sparkles" : "MessageSquare"} aria-hidden />} tone={progress.done === progress.total ? "success" : "primary"}>{progressText(progress)}</Fact>
       </button>
     ),

@@ -135,8 +135,10 @@ test("the status line says whose turn it is, how your feedback fared and how the
   const section = within(slot.getByRole("region", { name: "Checks" }));
   expect(section.getAllByRole("listitem").map((item) => item.textContent)).toEqual(["testFailingView check", "lintPending"]);
   expect(section.getByRole("link", { name: "View check" }).getAttribute("href")).toBe("https://ci/1");
-  // Your feedback's progress opens it in Comments.
-  fireEvent.click(status.getByRole("button", { name: "2/2 handled +1 nit" }));
+  // Your feedback's progress says what handled means, and opens it in Comments.
+  const feedback = status.getByRole("button", { name: "2/2 handled +1 nit" });
+  expect(feedback.getAttribute("title")).toBe("Resolved or answered. Show your feedback in Comments");
+  fireEvent.click(feedback);
   expect(within(await slot.findByRole("complementary", { name: "Comments and agent" })).getByRole("button", { name: "Feedback" }).getAttribute("aria-pressed")).toBe("true");
   slot.lifecycle.unmount();
 });
