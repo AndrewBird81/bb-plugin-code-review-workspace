@@ -218,6 +218,23 @@ test("padded clear of a screen edge's inset (a phone's rail), the sides still ke
   slot.lifecycle.unmount();
 });
 
+test("on an iPad as a home-screen app, the workspace keeps its foot clear of the home indicator where the inset reaches it, and not where BB's frame does", async () => {
+  fakePane(1376, 984);
+  const { slot } = await renderWorkspace();
+  const root = slot.getByRole("main").closest<HTMLElement>("[class*='@container/review']")!;
+  // The bottom pads by what of the inset reaches it (lib/use-safe-area.ts), or the keyboard over it: the more of the two.
+  expect(root.className.split(" ")).toContain("pb-[max(var(--gr-safe-bottom,0px),var(--gr-kb,0px))]");
+  const height = Object.getOwnPropertyDescriptor(document.documentElement, "clientHeight");
+  Object.defineProperty(document.documentElement, "clientHeight", { configurable: true, value: 1032 });
+  restores.push(() => { if (height) Object.defineProperty(document.documentElement, "clientHeight", height); else delete (document.documentElement as { clientHeight?: number }).clientHeight; });
+  for (const [bottom, gap] of [[1032, 0], [1012, 20]]) {
+    root.getBoundingClientRect = () => new DOMRect(0, 48, 1376, bottom - 48);
+    act(() => { window.dispatchEvent(new Event("resize")); });
+    expect(root.style.getPropertyValue("--gr-safe-bottom")).toBe(`max(0px, env(safe-area-inset-bottom) - ${gap}px)`);
+  }
+  slot.lifecycle.unmount();
+});
+
 test("a panel left open opens again only where it docks, and a pane too narrow for it doesn't forget it", async () => {
   fakePane(1400);
   let { slot, comments } = await renderWorkspace();
