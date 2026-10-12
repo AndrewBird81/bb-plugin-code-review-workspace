@@ -28,6 +28,15 @@ test("a snoozed tracked review says when it wakes, as the list does", async () =
   slot.lifecycle.unmount();
 });
 
+test("a tracked review says its size once, beside where it is and who wrote it", async () => {
+  const slot = await reviewPage({ status: "tracked", repo: "acme/web", number: 42, author: "alice", prSize: { additions: 120, deletions: 30, files: 8 },
+    signals: { requestPending: true, requestedBy: "alice" } });
+  const section = await slot.findByRole("region", { name: "Tracked pull request" });
+  expect(within(section).getAllByText(/\+120 −30 · 8 files/)).toHaveLength(1);
+  expect(within(section).getByText("Requested by @alice")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("a tracked review's page bar goes back to All reviews and has the review's menu", async () => {
   const slot = await reviewPage({ status: "tracked", signals: { requestPending: true, requestedBy: "alice" } }, { startTrackedReview: () => ({ ok: true }) });
   const bar = within((await slot.findByRole("navigation", { name: "Breadcrumb" })).parentElement!);

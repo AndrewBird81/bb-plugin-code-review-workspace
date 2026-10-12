@@ -24,8 +24,8 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: { r
   const pinnable = useThreadListReviews() === true;
   const [starting, setStarting] = useState(false);
   const kind = kindLook(review);
-  // Its stack and a run that didn't start have their own lines here.
-  const parts = statusLine(review).filter((part) => part.kind !== "stack" && part.kind !== "stack-unreviewed" && part.kind !== "not-run");
+  // Its size, its stack and a run that didn't start have their own lines here.
+  const parts = statusLine(review).filter((part) => part.kind !== "size" && part.kind !== "stack" && part.kind !== "stack-unreviewed" && part.kind !== "not-run");
   const size = review.prSize;
 
   async function build() {
