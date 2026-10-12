@@ -301,6 +301,24 @@ test("your first scroll of the code puts the pill away", async () => {
   slot.lifecycle.unmount();
 });
 
+test("starting a comment on lines puts the pill away: once you're done typing, it doesn't cover the box's buttons", async () => {
+  phone();
+  const slot = await renderWorkspace(backToYou);
+  await slot.findByRole("button", { name: "1 need you" });
+  fireEvent.click(await slot.findByRole("button", { name: /^(Start reading|Review changes|Continue):/ }));
+  const pick = (await slot.findAllByRole("button", { name: "Pick line 1" }))[0]!;
+  expect(slot.getByRole("button", { name: "1 need you" })).toBeTruthy();
+  fireEvent.click(pick);
+  fireEvent.click(await within(await slot.findByRole("group", { name: "Selection" })).findByRole("button", { name: "Comment" }));
+  const box = await slot.findByRole("textbox", { name: "Draft comment" });
+  await waitFor(() => expect(document.activeElement).toBe(box));
+  // Done: the keyboard goes, and what typing put away comes back.
+  act(() => box.blur());
+  await new Promise((done) => setTimeout(done, 50));
+  expect(slot.queryByRole("button", { name: "1 need you" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("✕ puts the pill away", async () => {
   phone();
   const slot = await renderWorkspace(backToYou);

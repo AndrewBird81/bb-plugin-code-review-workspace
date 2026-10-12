@@ -30,10 +30,10 @@ function bringIntoView(field: HTMLElement, viewport: VisualViewport) {
 
 /**
  * While you type, how much of `el` the keyboard covers, as `--gr-kb` on it, for its layout to end above the keyboard;
- * and the box you type in, scrolled into view once it does. 0px while you don't, so zooming doesn't count. And
- * `data-keyboard` on it while the keyboard is up: "short" where it leaves no more room than a phone held sideways has,
- * for what's over the code to give way, as a phone's dock does. Only in a phone's window: an iPad's bars stay over its
- * keyboard, as its own apps' do.
+ * and the box you type in, scrolled into view once it does, and again once the keyboard's gone, for its buttons where
+ * they didn't fit above it. 0px while you don't, so zooming doesn't count. And `data-keyboard` on it while the keyboard
+ * is up: "short" where it leaves no more room than a phone held sideways has, for what's over the code to give way, as a
+ * phone's dock does. Only in a phone's window: an iPad's bars stay over its keyboard, as its own apps' do.
  */
 export function useKeyboardInset(el: HTMLElement | null) {
   useEffect(() => {
@@ -42,23 +42,37 @@ export function useKeyboardInset(el: HTMLElement | null) {
     let frame = 0;
     let timer = 0;
     let shown = false;
+    // The text field you typed in with the keyboard up, until the keyboard's gone.
+    let lastField: HTMLElement | null = null;
+    // Once the workspace's new size is laid out and reported, after the frame: as the code's box resizes,
+    // lib/use-scroll-anchor.ts keeps what was showing where it was.
+    const bringSoon = (field: HTMLElement) => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+      frame = requestAnimationFrame(() => { timer = window.setTimeout(() => bringIntoView(field, viewport)); });
+    };
     const update = () => {
       const active = document.activeElement;
       const typing = active instanceof HTMLElement && el.contains(active) && (active.isContentEditable || !!active.closest(TEXT_FIELD));
       const rect = el.getBoundingClientRect();
       const covered = typing ? Math.max(0, Math.round(rect.bottom - viewport.offsetTop - viewport.height)) : 0;
       // Zoomed in, the visual viewport is smaller by its scale: that isn't a keyboard.
-      const up = covered > 0 || (typing && window.innerHeight - viewport.height * (viewport.scale || 1) >= KEYBOARD_LEAST);
+      const keyboard = window.innerHeight - viewport.height * (viewport.scale || 1) >= KEYBOARD_LEAST;
+      const up = covered > 0 || (typing && keyboard);
       if (!up) el.removeAttribute("data-keyboard");
       else el.setAttribute("data-keyboard", rect.height - covered < SHORT_BELOW && phoneWindow() ? "short" : "up");
+      if (up) lastField = active as HTMLElement;
+      else if (lastField && !keyboard) {
+        // Gone, as with Done: what the keyboard's room hid comes back, and the box may now show whole.
+        if (lastField.isConnected) bringSoon(lastField);
+        lastField = null;
+      }
       if (el.style.getPropertyValue("--gr-kb") === `${covered}px` && up === shown) return;
       shown = up;
       el.style.setProperty("--gr-kb", `${covered}px`);
-      cancelAnimationFrame(frame);
-      clearTimeout(timer);
-      // Once the workspace's new size is laid out and reported, after the frame: as the code's box resizes,
-      // lib/use-scroll-anchor.ts keeps what was showing where it was.
-      if (up) frame = requestAnimationFrame(() => { timer = window.setTimeout(() => bringIntoView(active as HTMLElement, viewport)); });
+      if (up) bringSoon(active as HTMLElement);
+      // Going, not gone yet: the box comes into view once it is.
+      else if (lastField) { cancelAnimationFrame(frame); clearTimeout(timer); }
     };
     update();
     // BB resizing its pane after the keyboard came up, rather than the keyboard covering it.

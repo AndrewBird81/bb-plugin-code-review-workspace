@@ -229,6 +229,24 @@ test("where the box with its buttons is taller than the room above the keyboard,
   expect(whole.scrollIntoView).not.toHaveBeenCalled();
 });
 
+test("where the box with its buttons didn't fit above the keyboard, all of it scrolls into view once the keyboard's gone, as with Done", async () => {
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 598 });
+  restores.push(() => { delete (window as { innerHeight?: number }).innerHeight; });
+  const viewport = fakeViewport(598);
+  const { root, whole, field } = boxWithButtons(270);
+  renderHook(() => useKeyboardInset(root));
+  act(() => field.focus());
+  viewport.show(290);
+  await vi.waitFor(() => expect(field.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+  // Done: the box loses the focus, then the keyboard goes, and the code's box shows 48–546 again.
+  act(() => field.blur());
+  await new Promise((done) => setTimeout(done, 50));
+  expect(whole.scrollIntoView).not.toHaveBeenCalled();
+  whole.parentElement!.getBoundingClientRect = () => new DOMRect(0, 48, 382, 498);
+  viewport.show(0);
+  await vi.waitFor(() => expect(whole.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+});
+
 test("as what holds the workspace scrolls, bringing the box into view, the workspace's end follows", () => {
   const viewport = fakeViewport(598);
   const { root, box } = workspace(598);

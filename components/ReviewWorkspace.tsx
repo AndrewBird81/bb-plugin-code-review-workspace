@@ -898,6 +898,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const side = (range.endSide ?? range.side) === "deletions" ? "LEFT" : "RIGHT";
     setDraftPrefill({ file, line: range.end, side, startLine: range.start, ...(range.side ? { startSide: range.side === "deletions" ? "LEFT" : "RIGHT" } : {}), ask, nonce: Date.now() });
     setLineSel(null);
+    // As your first scroll does: the "need you" pill would cover the box's buttons.
+    setPill(false);
   }
 
   // Asking opens a box at the lines, and the agent answers there. An archived
