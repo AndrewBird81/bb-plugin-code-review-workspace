@@ -3,6 +3,7 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 
 import { cn } from "../../lib/utils";
 import { useFullscreenPortalContainer, usePortalScopeProps } from "../../lib/portal-scope";
+import { phoneWindow } from "../../lib/workspace-layout";
 import {
   type ResponsiveOverlayContextValue,
   useResponsiveRoot,
@@ -118,6 +119,54 @@ PopoverTrigger.displayName = "PopoverTrigger";
 // Content
 // ---------------------------------------------------------------------------
 
+/** The band of the window a popover keeps out of: it ends above `top` or starts below `bottom`. */
+export type FoldBand = { top: number; bottom: number };
+
+/**
+ * The fold running across an iPhone Duo's inner screen held upright, as a band menus keep out of (lanes/00-devices.md,
+ * requirement 6): 8px either side of it where the browser reports it (the Viewport Segments API), else, in Safari on a
+ * touch screen that's a phone's held upright, 40% to 52% of the window, either side of where Safari has it (page
+ * y 373–414 of 869, estimated). Null elsewhere: a home-screen app's menus from the top end above its fold.
+ */
+export function foldBand(): FoldBand | null {
+  const segments = (window as { viewport?: { segments?: ReadonlyArray<DOMRectReadOnly> | null } }).viewport?.segments;
+  const [upper, lower, ...more] = segments ?? [];
+  if (upper && lower && !more.length && lower.top >= upper.bottom) return { top: upper.bottom - 8, bottom: lower.top + 8 };
+  const size = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
+  const matches = (query: string) => !!window.matchMedia?.(query).matches;
+  if (!matches("(pointer: coarse)") || !phoneWindow(size) || size.height <= size.width || matches("(display-mode: standalone)")) return null;
+  return { top: Math.round(size.height * 0.4), bottom: Math.round(size.height * 0.52) };
+}
+
+/**
+ * The edge a popover from `trigger` collides with, as Radix's collision padding, in a window `height` tall: from a
+ * trigger nearer the top it keeps above `band`, else below it.
+ */
+export function foldPadding(trigger: { top: number; bottom: number }, band: FoldBand, height: number): { top: number } | { bottom: number } {
+  return trigger.top + trigger.bottom < band.top + band.bottom ? { bottom: Math.ceil(height - band.top) } : { top: Math.ceil(band.bottom) };
+}
+
+/**
+ * Where an open popover keeps, out of the fold's band (`foldBand()`), as its collision padding; null without one. It
+ * opens on the side of its trigger with more of it in that part of the window, and scrolls what doesn't fit, its cut
+ * falling mid-row, so it reads as more to scroll to.
+ */
+function useFoldPadding(content: HTMLElement | null, open: boolean): { top: number } | { bottom: number } | null {
+  const [padding, setPadding] = React.useState<{ top: number } | { bottom: number } | null>(null);
+  React.useLayoutEffect(() => {
+    if (!open || !content) return;
+    const measure = () => {
+      const trigger = content.id ? Array.from(document.querySelectorAll("[aria-controls]")).find((el) => el.getAttribute("aria-controls") === content.id) : null;
+      const band = foldBand();
+      setPadding(band && trigger ? foldPadding(trigger.getBoundingClientRect(), band, document.documentElement.clientHeight) : null);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [content, open]);
+  return open ? padding : null;
+}
+
 const PopoverContent = React.forwardRef<
   HTMLDivElement,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> & {
@@ -138,6 +187,7 @@ const PopoverContent = React.forwardRef<
       mobileTitle,
       mobileClassName,
       onMobileContentAnimationEnd,
+      style,
       ...props
     },
     ref,
@@ -147,6 +197,13 @@ const PopoverContent = React.forwardRef<
     // compact drawer path is covered by the persistent drawer shell.
     const scopeProps = usePortalScopeProps();
     const portalContainer = useFullscreenPortalContainer();
+    const [content, setContent] = React.useState<HTMLDivElement | null>(null);
+    const fold = useFoldPadding(isCompactViewport ? null : content, open);
+    const contentRef = React.useCallback((el: HTMLDivElement | null) => {
+      setContent(el);
+      if (typeof ref === "function") ref(el);
+      else if (ref) ref.current = el;
+    }, [ref]);
 
     if (isCompactViewport) {
       // Forward DOM-level props (event handlers, data-*, aria-*) but strip
@@ -173,6 +230,7 @@ const PopoverContent = React.forwardRef<
               // caller passes for the popover (a menu's p-1).
               "pb-[max(1rem,env(safe-area-inset-bottom))]",
             )}
+            style={style}
             {...domProps}
           >
             {children}
@@ -184,7 +242,7 @@ const PopoverContent = React.forwardRef<
     return (
       <PopoverPrimitive.Portal container={portalContainer}>
         <PopoverPrimitive.Content
-          ref={ref}
+          ref={contentRef}
           {...scopeProps}
           align={align}
           sideOffset={sideOffset}
@@ -193,6 +251,8 @@ const PopoverContent = React.forwardRef<
             className,
           )}
           {...props}
+          collisionPadding={fold ?? props.collisionPadding}
+          style={fold ? { ...style, maxHeight: "var(--radix-popover-content-available-height)", overflowY: "auto" } : style}
         >
           {children}
         </PopoverPrimitive.Content>
