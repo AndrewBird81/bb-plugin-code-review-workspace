@@ -76,13 +76,13 @@ async function renderReview({ review, rpc, titleBar = true }: { review?: Record<
   return { page, bar, band };
 }
 
-test("BB's title bar shows an open review's commands, and none on the list or Settings", async () => {
+test("BB's title bar shows an open review's commands, and none on Settings (the list's are in list-title-bar.test)", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const { TitleBarControls } = await import("./TitleBarControls");
   expect(app.navPanels[0]!.headerContent).toBe(TitleBarControls);
   // A plain function: the SDK takes no memo object as a slot's component.
   expect(typeof TitleBarControls).toBe("function");
-  for (const subPath of ["", "settings", "settings/pr-42"]) {
+  for (const subPath of ["settings", "settings/pr-42"]) {
     const slot = renderSlot({ component: TitleBarControls }, { subPath }, { rpc: handlers() as any });
     expect(slot.container.innerHTML).toBe("");
     slot.lifecycle.unmount();
@@ -180,7 +180,8 @@ test("Review actions offers Update guide for new commits, else Rebuild guide, th
   let { bar, page } = await renderReview({ rpc: { rereview } });
   fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
   const items = (await bar!.findAllByRole("button", { name: /guide|GitHub|shortcuts|settings/ })).map((item) => item.textContent);
-  expect(items.slice(0, 4)).toEqual(["Rebuild guide", "Open on GitHub", "Keyboard shortcuts", "Review settings…"]);
+  // Snooze, Pin and Archive come between the guide and GitHub; the shortcuts show their key.
+  expect(items.slice(0, 4)).toEqual(["Rebuild guide", "Open on GitHub", "Keyboard shortcuts?", "Review settings…"]);
   fireEvent.click(bar!.getByRole("button", { name: "Keyboard shortcuts" }));
   expect(await page.findByRole("dialog", { name: "Keyboard shortcuts" })).toBeTruthy();
   page.lifecycle.unmount(); bar!.lifecycle.unmount();

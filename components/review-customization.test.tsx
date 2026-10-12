@@ -36,6 +36,57 @@ test("settings have an installed slot, save explicitly, and restore defaults wit
   slot.lifecycle.unmount();
 });
 
+test("Restore defaults keeps the diff layout, which the review sets, not Settings", async () => {
+  const { ReviewSettings } = await import("./ReviewSettings");
+  let record = { preferences: { ...defaultPreferences, diffLayout: "unified" }, revision: 0 };
+  const save = vi.fn(async (input: any) => record = { ...input, revision: input.revision + 1 });
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record, savePreferences: save } });
+  await slot.findByRole("textbox", { name: "Guide instructions" });
+  // What the page shows is already at its defaults.
+  fireEvent.click(slot.getByRole("button", { name: "Restore defaults" }));
+  expect(slot.queryByText("Unsaved changes")).toBeNull();
+  fireEvent.click(slot.getByRole("button", { name: /^Detailed$/ }));
+  fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
+  await slot.findByText("Settings saved");
+  fireEvent.click(slot.getByRole("button", { name: "Restore defaults" }));
+  fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
+  await waitFor(() => expect(record.preferences).toEqual({ ...defaultPreferences, diffLayout: "unified" }));
+  slot.lifecycle.unmount();
+});
+
+test("Settings goes back to where it was opened from, All reviews or the review, once edits are saved or discarded", async () => {
+  const app = await loadPluginApp(() => import("../app"));
+  const rpc = { setReviewPresence: () => ({ ok: true }), getPreferences: () => ({ preferences: { ...defaultPreferences }, revision: 0 }), getGhAccounts: () => ({ active: "me", accounts: [] }) } as any;
+  let slot = renderSlot(app.navPanels[0]!, { subPath: "settings" }, { rpc });
+  const back = await slot.findByRole("button", { name: "All reviews" });
+  expect(slot.getByRole("heading", { level: 1 }).textContent).toBe("Settings");
+  // The diff's layout is in the review's Diff options, not here.
+  await slot.findByRole("textbox", { name: "Guide instructions" });
+  expect(slot.queryByRole("group", { name: "Default diff layout" })).toBeNull();
+  expect(slot.queryByText("Reading layout")).toBeNull();
+  fireEvent.click(slot.getByRole("button", { name: /^Detailed$/ }));
+  expect(back.hasAttribute("disabled")).toBe(true);
+  fireEvent.click(slot.getByRole("button", { name: "Discard edits" }));
+  fireEvent.click(back);
+  expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "" } }]);
+  slot.lifecycle.unmount();
+  slot = renderSlot(app.navPanels[0]!, { subPath: "settings/pr-42" }, { rpc });
+  fireEvent.click(await slot.findByRole("button", { name: "Back to review" }));
+  expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "pr-42" } }]);
+  slot.lifecycle.unmount();
+});
+
+test("in BB's Settings, Settings has no page bar of its own; its setup offers to switch the GitHub account where it's shown", async () => {
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.settingsSections[0]!, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => ({ preferences: { ...defaultPreferences }, revision: 0 }),
+    getGhAccounts: () => ({ active: "me", accounts: [] }), getSetupStatus: () => ({ account: "me", githubCli: true, agentAvailable: true, projectAvailable: true }) } as any });
+  const setup = await slot.findByRole("region", { name: "Setup" });
+  const row = (await within(setup).findByText("@me")).closest("li")!;
+  expect(within(row).getByRole("button", { name: "GitHub account: @me" })).toBeTruthy();
+  expect(slot.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("private notes survive leaving the editor and never use the public summary RPC", async () => {
   await loadPluginApp(() => import("../app"));
   const { ReviewerNotes } = await import("./ReviewerNotes");

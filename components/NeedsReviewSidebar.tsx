@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { experimental_usePluginId, experimental_useSidebarThreads, useBbNavigate, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import { needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
+import { statusWhy } from "../lib/status-line";
 import { usePortalScopeProps } from "../lib/portal-scope";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
@@ -162,16 +163,20 @@ export function NeedsReviewSidebar() {
       const title = review.title ?? review.gitRef ?? review.targetKey;
       const turn = reviewState(review);
       const waited = turn.group === "needs" ? age(turn.at) : null;
+      // Where the PR is, why it's yours, and for how long, in the inbox's words.
+      const where = review.repo ? `${review.repo}${review.number ? ` #${review.number}` : ""}` : null;
+      const tooltip = [where, statusWhy(review)?.text, waited].filter(Boolean).join(" · ") || undefined;
       return <li key={review.targetKey} className="group/row flex h-[var(--bb-sidebar-row-height)] min-w-0 items-center rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground max-md:pointer-coarse:h-[var(--bb-sidebar-row-height-coarse)]">
-        <a href={`/plugins/${pluginId}/review/${review.targetKey}`} title={review.repo ? `${review.repo}${review.number ? ` #${review.number}` : ""}` : undefined} onClick={(event) => open(event, review.targetKey)}
+        <a href={`/plugins/${pluginId}/review/${review.targetKey}`} title={tooltip} onClick={(event) => open(event, review.targetKey)}
           className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md pl-2 pr-1 outline-none ring-sidebar-ring focus-visible:ring-2">
           <Icon name={kindLook(review).icon} className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <span className="min-w-0 flex-1 truncate">{title}</span>
           {waited && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{waited}</span>}
         </a>
-        {/* Shows on hover where there's a pointer, as BB's row actions do, and always on touch. */}
+        {/* Shows on hover where there's a pointer, as BB's row actions do. A touch screen, which can't hover, keeps
+            its rows clear, as BB's own are: the review's menu pins it there. */}
         <button type="button" aria-label={`${isPinned ? "Unpin" : "Pin"} ${title}`} onClick={() => setPinned(review.targetKey, !isPinned)}
-          className="mr-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-subtle-foreground outline-none ring-sidebar-ring hover:bg-state-hover hover:text-muted-foreground focus-visible:opacity-100 focus-visible:ring-2 group-hover/row:opacity-100 max-md:pointer-coarse:size-9 [@media(hover:hover)]:opacity-0">
+          className="mr-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-subtle-foreground outline-none ring-sidebar-ring hover:bg-state-hover hover:text-muted-foreground focus-visible:opacity-100 focus-visible:ring-2 group-hover/row:opacity-100 max-md:pointer-coarse:size-9 [@media(hover:hover)]:opacity-0 [@media(hover:none)]:hidden">
           <Icon name={isPinned ? "PinOff" : "Pin"} className="size-4" aria-hidden />
         </button>
       </li>;

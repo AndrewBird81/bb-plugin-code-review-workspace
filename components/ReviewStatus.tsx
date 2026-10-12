@@ -1,13 +1,15 @@
+import { Fragment, type ReactNode } from "react";
 import { reviewState, type ReviewItem } from "../lib/review-state";
+import type { StatusPart, StatusTone } from "../lib/status-line";
 import { snoozeLabel } from "../lib/turn";
 import { cn } from "../lib/utils";
-import { Badge, type Tone } from "./ui/badge";
+import { Badge, TONE_TEXT, type Tone } from "./ui/badge";
 import { Icon, type IconName } from "./ui/icon";
 
-/** How a review's status reads: GitHub's verdict colors, amber for work in progress, chosen by whose turn it is and why. */
+/** How a review's status reads: GitHub's verdict colors, the agent's for its work, chosen by whose turn it is and why. */
 export function statusLook(review: ReviewItem): { label: string; tone: Tone; icon?: IconName; busy?: boolean } {
   const { label, reason, failed, group } = reviewState(review);
-  if (label === "Generating") return { label, tone: "warning", icon: "Loading", busy: true };
+  if (label === "Generating") return { label, tone: "agent", icon: "Loading", busy: true };
   // A failed guide keeps the reason underneath; the failure is what to show.
   if (failed || label === "Failed") return { label, tone: "danger", icon: "AlertTriangle" };
   switch (reason) {
@@ -50,5 +52,29 @@ export function StatusBadge({ review, className }: { review: ReviewItem; classNa
     <Badge tone={look.tone} className={className} dot={!look.icon} icon={look.icon && <Icon name={look.icon} className={cn(look.busy && "animate-spin motion-reduce:animate-none")} aria-hidden />}>
       {look.label}
     </Badge>
+  );
+}
+
+const STATUS_TEXT: Record<StatusTone, string> = { ...TONE_TEXT, foreground: "text-foreground" };
+
+/**
+ * A status line (lib/status-line.ts) on one line, its parts between dots, each an icon and words in its tone, then
+ * `after` (such as where the PR is, with its class) when there's room. It truncates at the end; a part's `detail` is its
+ * tooltip.
+ */
+export function StatusLine({ parts, after, className }: { parts: StatusPart[]; after?: { content: ReactNode; className?: string }; className?: string }) {
+  const dot = <><span aria-hidden className="text-subtle-foreground"> · </span><span className="sr-only">, </span></>;
+  return (
+    // Relative, so the screen reader's commas, placed absolutely, are clipped with the rest.
+    <span className={cn("relative block min-w-0 truncate", className)}>
+      {parts.map((part, index) => <Fragment key={`${part.kind}-${index}`}>
+        {index > 0 && dot}
+        <span title={part.detail} className={STATUS_TEXT[part.tone]}>
+          {part.icon && <Icon name={part.icon} className={cn("mr-1 inline size-3 align-[-2px]", part.busy && "animate-spin motion-reduce:animate-none")} aria-hidden />}
+          {part.text}
+        </span>
+      </Fragment>)}
+      {after && <span className={after.className}>{parts.length > 0 && dot}{after.content}</span>}
+    </span>
   );
 }

@@ -1,11 +1,9 @@
 import { createHash } from "node:crypto";
+import { PR_URL } from "../lib/pr-link";
 
 export type ReviewTarget =
   | { kind: "pr"; number: number; repo?: string }
   | { kind: "ref"; gitRef: string; base?: string };
-
-// Any page of the PR: /changes, /files/<range>, /commits/<sha>, and so on.
-const PR_URL = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9_.-]+)\/pull\/([1-9]\d*)(?:\/[^?#]*)?(?:[?#].*)?$/i;
 
 export function parseTarget(input: string, base?: string): ReviewTarget {
   const trimmed = input.trim();

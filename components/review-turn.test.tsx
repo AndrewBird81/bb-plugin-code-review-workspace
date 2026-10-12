@@ -212,22 +212,22 @@ test("a new request can be snoozed until a time from the review's Overview", asy
   const { snoozeTimes } = await import("../lib/turn");
   const { slot, rpc } = await renderWorkspace({ turn: turn({ reason: "requested", label: "Review requested" }) });
   fireEvent.click(await slot.findByRole("button", { name: "Snooze" }));
-  const nextMonday = snoozeTimes().nextMonday;
-  fireEvent.click(await slot.findByRole("button", { name: /^Next Monday/ }));
-  await waitFor(() => expect(rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: true, until: nextMonday }));
+  const tomorrow = snoozeTimes().tomorrow;
+  // Tomorrow is always offered; on a Sunday it's Monday too.
+  fireEvent.click(await slot.findByRole("button", { name: /^Tomorrow/ }));
+  await waitFor(() => expect(rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: true, until: tomorrow }));
   slot.lifecycle.unmount();
 });
 
-test("a tracked review offers Start review instead of the guide", async () => {
+test("a tracked review offers Build the guide instead of the guide", async () => {
   const { slot, rpc } = await renderWorkspace({
     status: "tracked", repo: "acme/web", number: 42, author: "octo", url: "https://github.com/acme/web/pull/42",
     turn: turn({ reason: "requested", label: "Review requested" }), signals: { requestedBy: "alice" },
   }, {}, null);
   await slot.findByRole("heading", { name: "Parse rows" });
-  expect(slot.getByText("Review requested")).toBeTruthy();
   expect(slot.getByText("Requested by @alice")).toBeTruthy();
   expect(slot.getByRole("link", { name: "Open on GitHub" }).getAttribute("href")).toBe("https://github.com/acme/web/pull/42");
-  fireEvent.click(slot.getByRole("button", { name: "Start review" }));
+  fireEvent.click(slot.getByRole("button", { name: "Build the guide" }));
   await waitFor(() => expect(rpc.startTrackedReview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   slot.lifecycle.unmount();
 });
@@ -248,7 +248,7 @@ test("a tracked review that can't start says why", async () => {
   const { slot } = await renderWorkspace({ status: "tracked", turn: turn({ reason: "new", label: "Tracked" }) }, {
     startTrackedReview: () => ({ ok: false, error: "No coding agent is set up." }),
   }, null);
-  fireEvent.click(await slot.findByRole("button", { name: "Start review" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Build the guide" }));
   await waitFor(() => expect(toast.error).toHaveBeenCalledWith("No coding agent is set up."));
   slot.lifecycle.unmount();
 });
