@@ -247,6 +247,43 @@ test("where the box with its buttons didn't fit above the keyboard, all of it sc
   await vi.waitFor(() => expect(whole.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
 });
 
+test("where only its text box fit above the keyboard and you've since scrolled the box out of view, nothing scrolls once the keyboard's gone", async () => {
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 598 });
+  restores.push(() => { delete (window as { innerHeight?: number }).innerHeight; });
+  const viewport = fakeViewport(598);
+  const { root, whole, field } = boxWithButtons(270);
+  renderHook(() => useKeyboardInset(root));
+  act(() => field.focus());
+  viewport.show(290);
+  await vi.waitFor(() => expect(field.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+  // You scroll the code on: the box is above what shows of it.
+  whole.getBoundingClientRect = () => new DOMRect(0, -400, 382, 270);
+  field.getBoundingClientRect = () => new DOMRect(10, -390, 362, 80);
+  act(() => field.blur());
+  whole.parentElement!.getBoundingClientRect = () => new DOMRect(0, 48, 382, 498);
+  viewport.show(0);
+  await new Promise((done) => setTimeout(done, 50));
+  expect(whole.scrollIntoView).not.toHaveBeenCalled();
+  expect(field.scrollIntoView).toHaveBeenCalledTimes(1);
+});
+
+test("where the box with its buttons fit above the keyboard, nothing more scrolls once the keyboard's gone", async () => {
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 598 });
+  restores.push(() => { delete (window as { innerHeight?: number }).innerHeight; });
+  const viewport = fakeViewport(598);
+  const { root, whole, field } = boxWithButtons(250);
+  renderHook(() => useKeyboardInset(root));
+  act(() => field.focus());
+  viewport.show(290);
+  await vi.waitFor(() => expect(whole.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+  act(() => field.blur());
+  whole.parentElement!.getBoundingClientRect = () => new DOMRect(0, 48, 382, 498);
+  viewport.show(0);
+  await new Promise((done) => setTimeout(done, 50));
+  expect(whole.scrollIntoView).toHaveBeenCalledTimes(1);
+  expect(field.scrollIntoView).not.toHaveBeenCalled();
+});
+
 test("as what holds the workspace scrolls, bringing the box into view, the workspace's end follows", () => {
   const viewport = fakeViewport(598);
   const { root, box } = workspace(598);

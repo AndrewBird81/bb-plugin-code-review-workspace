@@ -8,24 +8,39 @@ import { SHORT_BELOW, phoneWindow } from "./workspace-layout";
 /** Less than this between the window's height and what shows of it is a browser's bar or a keyboard's shortcuts, not a keyboard. */
 const KEYBOARD_LEAST = 120;
 
-/**
- * Brings the box you type in into view with its buttons (`data-keyboard-box`), all of it where it fits above the
- * keyboard; where it doesn't, the field's top, where you type. Either way not under a sticky header held over what
- * scrolls, such as a file's over the code.
- */
-function bringIntoView(field: HTMLElement, viewport: VisualViewport) {
+/** What scrolls `field` up and down, such as the code's box; null where nothing does. */
+function scrollerOf(field: HTMLElement): HTMLElement | null {
   let scroller = field.parentElement;
   while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
+  return scroller;
+}
+
+/**
+ * Brings the box you type in into view with its buttons (`data-keyboard-box`), all of it where it fits above the
+ * keyboard; where it doesn't, the field's top, where you type, and says so. Either way not under a sticky header held
+ * over what scrolls, such as a file's over the code.
+ */
+function bringIntoView(field: HTMLElement, viewport: VisualViewport): boolean {
+  const scroller = scrollerOf(field);
   const shown = scroller?.getBoundingClientRect();
   const room = Math.min(shown?.bottom ?? Infinity, viewport.offsetTop + viewport.height) - Math.max(shown?.top ?? 0, viewport.offsetTop);
   const whole = field.closest<HTMLElement>("[data-keyboard-box]");
   const box = whole && whole.getBoundingClientRect().height <= room ? whole : field;
   box.scrollIntoView({ block: "nearest" });
+  const settled = !!whole && box === field;
   const { left, top } = box.getBoundingClientRect();
   let cover: Element | null = document.elementsFromPoint?.(left + 8, top + 2)[0] ?? null;
-  if (!cover || box.contains(cover)) return;
+  if (!cover || box.contains(cover)) return settled;
   while (cover && getComputedStyle(cover).position !== "sticky") cover = cover.parentElement;
   if (cover && scroller?.contains(cover)) scroller.scrollTop -= cover.getBoundingClientRect().bottom - top;
+  return settled;
+}
+
+/** Whether any of `field` shows where it scrolls: you haven't moved it out of view. */
+function inView(field: HTMLElement): boolean {
+  const shown = scrollerOf(field)?.getBoundingClientRect();
+  const { top, bottom } = field.getBoundingClientRect();
+  return bottom > (shown?.top ?? 0) && top < (shown?.bottom ?? window.innerHeight);
 }
 
 /**
@@ -42,14 +57,16 @@ export function useKeyboardInset(el: HTMLElement | null) {
     let frame = 0;
     let timer = 0;
     let shown = false;
-    // The text field you typed in with the keyboard up, until the keyboard's gone.
+    // The text field you typed in with the keyboard up, until the keyboard's gone; and the one whose box, brought into
+    // view, had room for the field alone.
     let lastField: HTMLElement | null = null;
+    let squeezed: HTMLElement | null = null;
     // Once the workspace's new size is laid out and reported, after the frame: as the code's box resizes,
     // lib/use-scroll-anchor.ts keeps what was showing where it was.
-    const bringSoon = (field: HTMLElement) => {
+    const soon = (bring: () => void) => {
       cancelAnimationFrame(frame);
       clearTimeout(timer);
-      frame = requestAnimationFrame(() => { timer = window.setTimeout(() => bringIntoView(field, viewport)); });
+      frame = requestAnimationFrame(() => { timer = window.setTimeout(bring); });
     };
     const update = () => {
       const active = document.activeElement;
@@ -63,15 +80,21 @@ export function useKeyboardInset(el: HTMLElement | null) {
       else el.setAttribute("data-keyboard", rect.height - covered < SHORT_BELOW && phoneWindow() ? "short" : "up");
       if (up) lastField = active as HTMLElement;
       else if (lastField && !keyboard) {
-        // Gone, as with Done: what the keyboard's room hid comes back, and the box may now show whole.
-        if (lastField.isConnected) bringSoon(lastField);
+        // Gone, as with Done: what the keyboard's room hid comes back, and a box that had room for its field alone may
+        // now show whole; unless you've moved it out of view since.
+        const field = lastField;
+        if (field === squeezed && field.isConnected) soon(() => { if (inView(field)) bringIntoView(field, viewport); });
         lastField = null;
+        squeezed = null;
       }
       if (el.style.getPropertyValue("--gr-kb") === `${covered}px` && up === shown) return;
       shown = up;
       el.style.setProperty("--gr-kb", `${covered}px`);
-      if (up) bringSoon(active as HTMLElement);
-      // Going, not gone yet: the box comes into view once it is.
+      if (up) {
+        const field = active as HTMLElement;
+        soon(() => { squeezed = bringIntoView(field, viewport) ? field : null; });
+      }
+      // Going, not gone yet: nothing scrolls until it's gone.
       else if (lastField) { cancelAnimationFrame(frame); clearTimeout(timer); }
     };
     update();
