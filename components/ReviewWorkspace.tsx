@@ -18,6 +18,7 @@ import { useFold } from "../lib/use-fold";
 import { useSafeArea } from "../lib/use-safe-area";
 import { useScrollAnchor } from "../lib/use-scroll-anchor";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
+import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { Button } from "./ui/button";
 import type { FileOwners } from "../src/codeowners";
 import { ChapterIntro } from "./ChapterIntro";
@@ -243,6 +244,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (layoutRef.current.panel === "overlay") closePanel();
   }, [closePanel]);
   const fullscreen = isFullscreen || covering;
+  // BB's own layout switches here: its toasts sit at the top of a narrower window.
+  const wideWindow = useMediaQuery("(min-width: 768px)");
   // Without a choice of your own, long lines wrap where the code is narrow, rather than scroll sideways.
   const [chosenWrap, setChosenWrap] = useState(getWrapLines);
   const wrapLines = chosenWrap ?? (layout.mode !== "tablet" || layout.narrowReader);
@@ -1061,8 +1064,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       <SelectionBar lines={lineSel} phone={sheet} onComment={() => commentOnLines()} onAskLines={askAboutLines} onClear={() => setLineSel(null)} />
       <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       {/* In full screen the workspace is over the page, BB's toaster under it: sonner is BB's, so a toaster of its own
-          here shows the same toasts, Undo's among them. */}
-      {fullscreen && <Toaster theme={codeTheme.mode} position="bottom-right" />}
+          here shows the same toasts, Undo's among them, where BB's does: at the top under 768px wide. */}
+      {fullscreen && <Toaster theme={codeTheme.mode} position={wideWindow ? "bottom-right" : "top-center"} />}
     </div>
     </CompactViewportOverrideProvider>
     </DraftProvider>
