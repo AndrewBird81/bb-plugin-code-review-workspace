@@ -12,7 +12,7 @@ import { Icon } from "./ui/icon";
 import { InlineDraftContext } from "./InlineDraft";
 import { CommentCard, whereOf } from "./comments/CommentCard";
 import { CommentPill } from "./comments/CommentPill";
-import { frameOf, itemWords } from "./comments/look";
+import { frameOf, itemWords, ReplyDraftBadge } from "./comments/look";
 import { commentsOf, dropComments, updateComments, useComments, type CommentActions } from "./comments/store";
 
 /** The PR's review threads on GitHub, everyone's, as the diff shows them. The workspace provides it while they're shown. */
@@ -230,6 +230,7 @@ function ThreadInCode({ targetKey, item, className }: { targetKey: string; item:
   if (folded && !opened) {
     return <div ref={ref}>
       <CommentPill frame={frameOf(item)} icon={<Icon name="Github" className="size-3.5 shrink-0" aria-hidden />} who={item.who} words={itemWords(item)} text={item.messages[0]?.body ?? ""}
+        badge={item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} />}
         more={[replies > 0 ? `${replies} repl${replies === 1 ? "y" : "ies"}` : null, item.check ? `✦ ${item.check.label}` : null].filter(Boolean).join(" · ") || null}
         name={`GitHub thread on ${whereOf(item)}`} onShow={() => setCommentOpen(targetKey, item.id, true)} className={className} />
     </div>;

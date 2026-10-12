@@ -9,7 +9,7 @@ import { plainLine } from "./look";
  * what's under it ("2 replies · Resolved"), and Show, which opens it in full. 28px tall, 44px on a coarse pointer; its
  * frame keeps the card's: dashed with an edge while it's only in BB, solid on GitHub, muted when private.
  */
-export function CommentPill({ frame, icon, who, words, tag, text, more, name, onShow, className }: {
+export function CommentPill({ frame, icon, who, words, tag, badge, text, more, name, onShow, className }: {
   /** The card's frame classes (look.tsx). */
   frame: string;
   icon: ReactNode;
@@ -18,6 +18,8 @@ export function CommentPill({ frame, icon, who, words, tag, text, more, name, on
   words: string;
   /** Its severity, in words: "Blocking". */
   tag?: string | null;
+  /** What waits with it and isn't sent: a thread's reply draft. */
+  badge?: ReactNode;
   /** Its first line. */
   text: string;
   /** What's folded under it: "2 replies · Resolved". */
@@ -37,6 +39,7 @@ export function CommentPill({ frame, icon, who, words, tag, text, more, name, on
           <span className="flex max-w-full min-w-0 items-center gap-1.5">
             {who && <span className="shrink-0 font-medium text-foreground">{who}</span>}
             <span className="min-w-0 truncate">{words}{tag && <span className="pointer-coarse:@max-[600px]/review:hidden"> · {tag}</span>}</span>
+            {badge}
           </span>
           <span className="max-w-full min-w-0 flex-1 truncate text-foreground/80 pointer-coarse:@max-[600px]/review:flex-none">
             <span aria-hidden className="mr-1.5 text-subtle-foreground pointer-coarse:@max-[600px]/review:hidden">·</span>

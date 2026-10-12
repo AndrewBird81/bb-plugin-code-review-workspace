@@ -5,7 +5,7 @@ import { InlineCode } from "../ui/inline-code";
 import { Badge } from "../ui/badge";
 import { Icon } from "../ui/icon";
 import { SEVERITY_LABEL } from "../../src/draft";
-import { CheckBadge, frameOf, ItemIcon, itemWords, placeLabel, plainLine, SEVERITY_TONE, TAG_TONE } from "./look";
+import { CheckBadge, frameOf, ItemIcon, itemWords, placeLabel, plainLine, ReplyDraftBadge, SEVERITY_TONE, TAG_TONE } from "./look";
 import { CommentCard, whereOf } from "./CommentCard";
 
 /** A row's second line: its latest message, with who wrote it when that isn't who started it. */
@@ -16,15 +16,20 @@ function latestOf(item: CommentItem): string {
   return (item.kind === "thread" && item.messages.length > 1) || item.kind === "private" ? `${item.latest.who}: ${first}` : first;
 }
 
-/** An item's words for a screen reader: its state, who, its severity and check, its talk with the agent, and where. */
+/** How many messages a draft comment has with the agent. */
+const talkOf = (item: CommentItem) => item.kind === "draft" ? item.discussion?.entries.filter((entry) => entry.kind === "message").length ?? 0 : 0;
+const talkWords = (talk: number) => `${talk} message${talk === 1 ? "" : "s"} with the agent`;
+
+/** An item's words for a screen reader: its state, who, where, its severity and check, its talk with the agent, its reply draft. */
 function nameOf(item: CommentItem): string {
   const parts: Array<string | null> = [item.kind === "draft" ? item.label : item.kind === "thread" ? `${item.who} · ${itemWords(item)}` : itemWords(item), whereOf(item)];
   if (item.kind === "draft") {
     parts.push(item.comment.severity ? SEVERITY_LABEL[item.comment.severity] : null);
-    const talk = item.discussion?.entries.filter((entry) => entry.kind === "message").length ?? 0;
-    parts.push(talk ? `${talk} message${talk === 1 ? "" : "s"} with the agent` : null, item.discussion?.waiting ? "Waiting for agent" : null);
+    const talk = talkOf(item);
+    parts.push(talk ? talkWords(talk) : null, item.discussion?.waiting ? "Waiting for agent" : null);
   } else if (item.kind === "thread") parts.push(item.tag);
   if ((item.kind === "thread" || item.kind === "ask") && item.check) parts.push(`agent's check: ${item.check.label}`);
+  if (item.kind === "thread") parts.push(item.replyDraft?.label ?? null);
   return parts.filter(Boolean).join(" · ");
 }
 
@@ -53,6 +58,7 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
 }) {
   const place = placeLabel(item);
   const severity = item.kind === "draft" ? item.comment.severity : null;
+  const talk = talkOf(item);
   const show = onShow ? () => onShow(item) : () => onExpand(expanded ? null : item.id);
   return (
     <li data-comment-row={item.id} className="group/row">
@@ -71,7 +77,9 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
             {severity && <Badge tone={SEVERITY_TONE[severity]} size="sm">{SEVERITY_LABEL[severity]}</Badge>}
             {item.kind === "thread" && item.tag && <Badge tone={TAG_TONE[item.tag] ?? "neutral"} size="sm">{item.tag}</Badge>}
             {(item.kind === "thread" || item.kind === "ask") && item.check && <CheckBadge check={item.check} />}
-            {item.kind === "draft" && item.discussion?.waiting && <Badge tone="agent" dot pulse size="sm">Waiting for agent</Badge>}
+            {item.kind === "thread" && item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} />}
+            {item.kind === "draft" && item.discussion?.waiting ? <Badge tone="agent" dot pulse size="sm">Waiting for agent</Badge>
+              : talk > 0 && <span title={talkWords(talk)} className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground tabular-nums"><Icon name="MessageSquare" className="size-3" aria-hidden />{talk}</span>}
             {!expanded && <span className="min-w-0 truncate text-[13px] leading-snug text-muted-foreground"><InlineCode text={latestOf(item)} /></span>}
           </span>
         </button>

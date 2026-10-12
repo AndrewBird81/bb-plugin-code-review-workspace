@@ -67,6 +67,12 @@ export function ThreadState({ item, size = "sm" }: { item: ThreadItem; size?: "s
   </>;
 }
 
+/** A thread's reply drafted and not sent yet, yours or the agent's, on its row or pill: dashed, as anything only in BB. */
+export function ReplyDraftBadge({ reply }: { reply: NonNullable<ThreadItem["replyDraft"]> }) {
+  const agent = reply.author === "agent";
+  return <Badge tone={agent ? "agent" : "primary"} size="sm" className="border-dashed" icon={<Icon name={agent ? "Sparkles" : "CircleDashed"} aria-hidden />}>{reply.label}</Badge>;
+}
+
 const CHECK_TONE: Record<AssessmentVerdict, Tone> = { addressed: "success", partial: "warning", not_addressed: "danger", disputed: "warning", unclear: "neutral" };
 
 /** The agent's check of your feedback: "✦ Addressed". */

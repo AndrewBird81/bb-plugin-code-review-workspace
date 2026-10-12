@@ -116,7 +116,7 @@ test("one list: chips count what they show, the groups come in order, and each i
   expect(list.getByText("Yours: 1 of 1 handled")).toBeTruthy();
   expect(rows(list)).toEqual([
     "Older diff · not submitted · src/a.ts:1",
-    "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partial",
+    "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partial · Agent reply draft · not sent",
     "Draft · not submitted · src/a.ts:2 · Blocking",
     "Agent draft · not submitted · src/b.ts:1 · Nit",
     "@carol · Open · File comment · src/b.ts",
@@ -142,7 +142,7 @@ test("a chip shows its group alone: Needs you by urgency, and Not submitted ever
   expect(chip(list, "All").getAttribute("aria-checked")).toBe("true");
   fireEvent.click(chip(list, "Needs you"));
   expect(headings(list)).toEqual(["Needs you · 2"]);
-  expect(rows(list)).toEqual(["Older diff · not submitted · src/a.ts:1", "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partial"]);
+  expect(rows(list)).toEqual(["Older diff · not submitted · src/a.ts:1", "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partial · Agent reply draft · not sent"]);
   fireEvent.click(chip(list, "Not submitted"));
   expect(rows(list)).toEqual(["Older diff · not submitted · src/a.ts:1", "Draft · not submitted · src/a.ts:2 · Blocking", "Agent draft · not submitted · src/b.ts:1 · Nit"]);
   fireEvent.click(chip(list, "On GitHub"));
@@ -170,6 +170,23 @@ test("a row shows its item in the code, switching chapters, and its chevron open
   expect(within(card).getByRole("group", { name: "Agent reply draft · not sent on src/a.ts:2" })).toBeTruthy();
   fireEvent.click(list.getByRole("button", { name: "Collapse GitHub thread on src/a.ts:2" }));
   expect(list.queryByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("a row and a pill show what waits with an item: a thread's reply draft, and a draft's messages with the agent", async () => {
+  const talk = [{ file: "src/a.ts", line: 2, side: "RIGHT", waiting: false, entries: [
+    { author: "reviewer", kind: "message", body: "Is this right?", createdAt: now - HOUR },
+    { author: "agent", kind: "message", body: "Yes.", createdAt: now - HOUR },
+  ] }];
+  const { slot } = await renderWorkspace({ rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: structuredClone(comments) }, stale: [], discussions: talk }) } });
+  const list = await openComments(slot);
+  const row = (id: string) => within(slot.container.querySelector<HTMLElement>(`[data-comment-row="${id}"]`)!);
+  expect(row("t1").getByText("Agent reply draft · not sent")).toBeTruthy();
+  expect(row("draft:src/a.ts:2:RIGHT").getByTitle("2 messages with the agent")).toBeTruthy();
+  expect(list.getByRole("button", { name: /^Draft · not submitted · src\/a\.ts:2 · Blocking · 2 messages with the agent$/ })).toBeTruthy();
+  fireEvent.keyDown(document.body, { key: "i" });
+  const pill = within(await code(slot, "src/a.ts").findByRole("group", { name: "GitHub thread on src/a.ts:2, folded" }));
+  expect(pill.getByText("Agent reply draft · not sent")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
