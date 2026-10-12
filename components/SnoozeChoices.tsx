@@ -51,8 +51,8 @@ export function SnoozeChoices({ onUntilAuthor, onPick, disabled, className }: { 
       ))}
       {onPick && (picking
         ? <form className="flex items-center gap-1.5 px-2 pb-1 pt-1" onSubmit={(e) => { e.preventDefault(); if (picked) onPick(picked); }}>
-          <Input ref={dateBox} type="date" value={date} min={min} onChange={(e) => setDate(e.target.value)} aria-label="Snooze until a date" className="h-8 min-w-0 flex-1 text-sm" />
-          <Button type="submit" variant="outline" size="sm" disabled={disabled || !picked}>Snooze</Button>
+          <Input ref={dateBox} type="date" value={date} min={min} onChange={(e) => setDate(e.target.value)} aria-label="Snooze until a date" className={`h-8 min-w-0 flex-1 text-sm ${TOUCH_CONTROL} max-md:pointer-coarse:h-11`} />
+          <Button type="submit" variant="outline" size="sm" disabled={disabled || !picked} className={TOUCH_CONTROL}>Snooze</Button>
         </form>
         : <Button variant="ghost" size="sm" disabled={disabled} className={MENU_ITEM} onClick={() => setPicking(true)}>
           Pick a date…<Icon name="Calendar" className="ml-auto text-subtle-foreground" aria-hidden />

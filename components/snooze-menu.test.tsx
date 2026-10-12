@@ -82,6 +82,8 @@ test("Pick a date… snoozes until 9 AM on the day picked", async () => {
   const box = await slot.findByLabelText("Snooze until a date");
   await waitFor(() => expect(document.activeElement).toBe(box));
   expect(slot.getByRole("button", { name: "Snooze" }).hasAttribute("disabled")).toBe(true);
+  // 44px targets on touch, an iPad's included.
+  for (const control of [box, slot.getByRole("button", { name: "Snooze" })]) expect(control.className).toContain("pointer-coarse:h-11");
   fireEvent.change(box, { target: { value: "2099-03-02" } });
   fireEvent.click(slot.getByRole("button", { name: "Snooze" }));
   await waitFor(() => expect(calls("snoozeReview")).toEqual([{ targetKey: "fresh", snoozed: true, until: new Date(2099, 2, 2, 9).getTime() }]));
