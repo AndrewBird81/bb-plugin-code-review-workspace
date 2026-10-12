@@ -189,8 +189,10 @@ export function Inbox() {
     setBoxFocused(false);
     setQuery("");
   }, []);
-  useEffect(() => publishInboxBar({ refreshing, health, searchInline, searchOpen: searchOpen || !!query, refresh: () => void refresh(), openSearch }),
-    [refreshing, health, searchInline, searchOpen, query, refresh, openSearch]);
+  // A phone's box sticks above the sections' headers while it's open; folding a Duo with the focus in it keeps it open.
+  const phoneBox = !searchInline && (searchOpen || !!query || boxFocused);
+  useEffect(() => publishInboxBar({ refreshing, health, searchInline, searchOpen: phoneBox, refresh: () => void refresh(), openSearch }),
+    [refreshing, health, searchInline, phoneBox, refresh, openSearch]);
   // Without BB's title bar (an older BB), the page shows the list's controls itself.
   const titleBar = useListTitleBarMounted();
   const [waited, setWaited] = useState(false);
@@ -236,8 +238,6 @@ export function Inbox() {
   const row = (review: ReviewItem) => <InboxRow key={review.targetKey} review={review} pinnable={pinnable} short={short} onOpen={() => open(review.targetKey)} onChanged={relist} />;
   const rows = (list: ReviewItem[]) => withStacks(list).map((group) => group.length === 1 ? row(group[0]!)
     : <div key={group[0]!.targetKey} role="group" aria-label={`Stack of ${group[0]!.stack!.members.length} in ${group[0]!.repo}`} className="ml-3 border-l border-border">{group.map(row)}</div>);
-  // A phone's box sticks above the sections' headers while it's open; folding a Duo with the focus in it keeps it open.
-  const phoneBox = !searchInline && (searchOpen || !!query || boxFocused);
   const omnibox = <Omnibox query={query} onQuery={setQuery} reviews={reviews} onOpen={open} inputRef={findBox} onFocusChange={setBoxFocused}
     placeholder={firstRun ? "Paste a GitHub PR link to review it" : compact ? "Find or paste a PR link" : "Find a review, or paste a PR link"}
     onCancel={phoneBox ? closeSearch : undefined} trailing={searchInline && ownControls ? <ListTitleBar placement="page" /> : undefined} />;

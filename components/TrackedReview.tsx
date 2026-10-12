@@ -47,7 +47,7 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: { r
         <ReviewActions review={review} pinnable={pinnable} trailing={[reviewSettingsItem(navigate, review.targetKey)]} onDeleted={onBack} className={TOUCH_CONTROL} />
       </PageBar>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <section aria-label="Tracked pull request" className="mx-auto flex w-full max-w-xl flex-col items-center gap-5 px-5 py-10 text-center">
+        <section aria-label="Tracked pull request" className="mx-auto flex w-full max-w-xl flex-col items-center gap-4 px-5 py-8 text-center">
           <IconTile tone={kind.tone} icon={kind.icon} className="size-10 rounded-xl" iconClassName="size-5" />
           <div className="w-full space-y-1.5">
             <p className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
