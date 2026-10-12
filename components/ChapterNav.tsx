@@ -126,6 +126,7 @@ export const ChapterNav = memo(function ChapterNav({
     <nav aria-label="Chapters" className="space-y-3">
       <div className="space-y-1.5 px-1">
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
+          {/* On a coarse pointer the track's padding is part of each segment's 44px target. */}
           {onViewChange ? (
             <span className="inline-flex items-center gap-0.5 rounded-md bg-muted/40 p-0.5 ring-1 ring-inset ring-border">
               {(["chapters", "files"] as const).map((value) => (
@@ -134,7 +135,7 @@ export const ChapterNav = memo(function ChapterNav({
                   type="button"
                   aria-pressed={view === value}
                   onClick={() => onViewChange(value)}
-                  className="rounded px-2 py-0.5 font-medium text-muted-foreground hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-xs pointer-coarse:min-h-10 pointer-coarse:px-3"
+                  className="relative rounded px-2 py-0.5 font-medium text-muted-foreground hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-xs pointer-coarse:min-h-10 pointer-coarse:px-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-y-0.5 pointer-coarse:after:inset-x-0 pointer-coarse:after:content-['']"
                 >
                   {value === "chapters" ? "Chapters" : "All files"}
                 </button>
@@ -178,7 +179,7 @@ export const ChapterNav = memo(function ChapterNav({
               >
                 <div className="flex items-start gap-2.5 py-2 pl-[7px] pr-1">
                   <StepMarker index={index} viewed={viewed} total={s.diffs.length} active={active} />
-                  <button onClick={() => onSelect(s.id)} aria-current={active ? "step" : undefined} title={s.overview || undefined} className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <button onClick={() => onSelect(s.id)} aria-current={active ? "step" : undefined} title={s.overview || undefined} className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11">
                     <span className={cn("block text-sm font-medium leading-snug line-clamp-3", active ? "text-foreground" : "text-foreground/90")}>
                       <InlineCode text={s.title} />
                     </span>
