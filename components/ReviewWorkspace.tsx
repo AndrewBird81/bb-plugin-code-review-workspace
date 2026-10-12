@@ -739,9 +739,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     scrollSaveTimer.current = setTimeout(() => patchReviewState(targetKey, { scrollTop: value }), 200);
   }, [targetKey, fileAtTop]);
 
-  // Everyone's GitHub threads, under their lines in the diff unless hidden. Feedback and Threads change them: they're
-  // read again once those close.
-  const diffThreads = useDiffThreads(targetKey, isPr && !(shownPanel === "comments" && commentsTab !== "drafts"));
+  // Everyone's GitHub threads, under their lines in the diff unless hidden, and your feedback and reply drafts: the one
+  // reader for the code and Comments, so it keeps reading while Comments shows.
+  const diffThreads = useDiffThreads(targetKey, isPr);
   const [showThreads, setShowThreadsState] = useState(getGithubThreadsInCode);
   const setShowThreads = useCallback((show: boolean) => { setShowThreadsState(show); setGithubThreadsInCode(show); }, []);
   // A GitHub thread's line, with the threads on so its card shows there.

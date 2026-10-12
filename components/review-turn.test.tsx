@@ -75,6 +75,19 @@ test("a review that came back to you is marked seen and opens on its Overview, w
   slot.lifecycle.unmount();
 });
 
+test("Comments opened on what needs you keeps the one reader of GitHub going: opening it reads nothing again, and news still arrives", async () => {
+  const { slot, rpc } = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({}), progress: { done: 0, total: 1, source: "threads" } });
+  await chosen(slot, "Needs you");
+  await waitFor(() => expect(rpc.getFeedback).toHaveBeenCalledTimes(1));
+  fireEvent.click(panel(slot).getByRole("button", { name: "Close panel" }));
+  fireEvent.click(slot.getByText("0/1 handled"));
+  await chosen(slot, "Needs you");
+  expect(rpc.getFeedback).toHaveBeenCalledTimes(1);
+  await slot.emitRealtime("feedback:pr-42", {});
+  await waitFor(() => expect(rpc.getFeedback).toHaveBeenCalledTimes(2));
+  slot.lifecycle.unmount();
+});
+
 test("opened again in the same turn, a review goes back to where you were; back to you again, to its Overview", async () => {
   const review = { submittedVerdict: "REQUEST_CHANGES", turn: turn({}) };
   let { slot } = await renderWorkspace(review);
