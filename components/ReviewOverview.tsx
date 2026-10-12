@@ -49,7 +49,7 @@ function Requirements({ requirements, onOpen }: { requirements: Requirement[]; o
               <span className="block text-xs leading-5 text-muted-foreground"><InlineCode text={evidence} /></span>
             </span>
             {file && line && (
-              <button type="button" aria-label={`${file}:${line}`} title={`${file}:${line}`} className="col-start-3 row-start-1 justify-self-end rounded-sm font-mono text-xs leading-6 text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring @max-[480px]/overview:col-start-2 pointer-coarse:min-h-11" onClick={() => onOpen(file, line)}>
+              <button type="button" aria-label={`${file}:${line}`} title={`${file}:${line}`} className="col-start-3 row-start-1 justify-self-end rounded-sm font-mono text-xs leading-6 text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring @max-[480px]/overview:col-start-2 pointer-coarse:-my-2.5 pointer-coarse:min-h-11" onClick={() => onOpen(file, line)}>
                 {file.split("/").pop()}:{line}
               </button>
             )}
