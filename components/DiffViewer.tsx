@@ -296,8 +296,9 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
       onComment(lineEnd(path, range));
     },
   }), [darkTheme, lightTheme, themeMode, diffStyle, wrap, path, onLineSelected, onComment, unsafeCSS, wholeFile, commentable]);
+  // A drag the browser takes over as a scroll ends pierre's pick without onLineSelectionEnd: the lines go back.
   return (
-    <div className="overflow-x-auto" onPointerDownCapture={(event) => { pointer.current = event.pointerType || "mouse"; }}>
+    <div className="overflow-x-auto" onPointerDownCapture={(event) => { pointer.current = event.pointerType || "mouse"; }} onPointerCancelCapture={() => setDragging(undefined)}>
       <FileDiff fileDiff={fileDiff} options={options} lineAnnotations={annotations} selectedLines={shown} renderAnnotation={renderAnnotation} />
     </div>
   );

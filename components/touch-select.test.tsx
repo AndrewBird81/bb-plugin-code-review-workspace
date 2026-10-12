@@ -97,6 +97,20 @@ test("a tap on a line's number picks the line once: pierre's own pick of it does
   expect(painted()).toBe("2-4");
 });
 
+test("a finger's drag over the numbers that the browser takes over as a scroll leaves the picked lines as they were", () => {
+  const { picks, painted } = renderDiff();
+  tap(screen.getByText("two"));
+  fireEvent.pointerDown(screen.getByRole("button", { name: "3" }), { pointerType: "touch" });
+  act(() => given.options.onLineSelectionChange({ start: 3, end: 5, side: "additions" }));
+  expect(painted()).toBe("3-5");
+  // pierre lets its pick go without ending it.
+  fireEvent.pointerCancel(screen.getByRole("button", { name: "5" }), { pointerType: "touch" });
+  expect(painted()).toBe("2-2");
+  tap(screen.getByText("four"));
+  expect(painted()).toBe("2-4");
+  expect(picks).toEqual([{ start: 2, end: 2, side: "additions" }, { start: 2, end: 4, side: "additions" }]);
+});
+
 test("a mouse's click on a line picks nothing, and its drag over the numbers picks as before", () => {
   const { picks, painted } = renderDiff();
   tap(screen.getByText("two"), "mouse");
