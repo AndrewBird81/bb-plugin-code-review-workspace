@@ -176,7 +176,7 @@ test("under Since your review, opening a file unchanged since then turns the fil
   // A draft comment's Show in diff does the same.
   fireEvent.click(filter);
   await openDrafts(slot);
-  fireEvent.click(await slot.findByRole("button", { name: /^src\/a\.ts:1/ }));
+  fireEvent.click(await slot.findByRole("button", { name: /^Draft · not submitted · src\/a\.ts:1/ }));
   expect(filter.getAttribute("aria-pressed")).toBe("false");
   slot.lifecycle.unmount();
 }, 15_000);
@@ -188,7 +188,7 @@ test("files no chapter lists show in a last Other files chapter, count toward vi
   await slot.findByText("aa");
   expect(chapters(slot).getByText("0/3 files viewed")).toBeTruthy();
   await openDrafts(slot);
-  fireEvent.click(await slot.findByRole("button", { name: /^src\/c\.ts:1/ }));
+  fireEvent.click(await slot.findByRole("button", { name: /^Draft · not submitted · src\/c\.ts:1/ }));
   await slot.findByText("cc");
   expect(currentChapter(slot)?.textContent).toContain("Other files");
   slot.lifecycle.unmount();
@@ -388,7 +388,8 @@ test("shortcuts wait while you type, and with Ctrl, Meta, or Alt held", async ()
   press("n", { metaKey: true });
   press("n", { altKey: true });
   await openDrafts(slot);
-  fireEvent.click(await slot.findByRole("button", { name: "Add comment" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Comment options" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Add comment by line…" }));
   press("n", {}, slot.getByRole("textbox", { name: "Draft comment" }));
   expect(currentChapter(slot)?.textContent).toContain("Parsing");
   slot.lifecycle.unmount();
@@ -436,7 +437,7 @@ test("u opens the next unviewed file in any chapter", async () => {
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("] and [ go through draft comments and discussions in the guide's order", async () => {
+test("] and [ go through draft comments and discussions in the Comments list's order", async () => {
   const comments = [
     { file: "src/c.ts", line: 1, side: "RIGHT", body: "Third", author: "reviewer" },
     { file: "src/a.ts", line: 1, side: "RIGHT", body: "First", author: "reviewer" },
@@ -447,25 +448,26 @@ test("] and [ go through draft comments and discussions in the guide's order", a
   } });
   await slot.findByText("aa");
   await openDrafts(slot);
-  await slot.findByRole("button", { name: /^src\/a\.ts:1/ });
+  await slot.findByRole("button", { name: /^Draft · not submitted · src\/a\.ts:1/ });
+  // From the file you're on: the comment on a.ts.
   press("]");
   expect(currentChapter(slot)?.textContent).toContain("Parsing");
-  // The discussion on b.ts comes between the two comments.
+  // Then the list's order: the comments not submitted, in reading order, then the private discussion on b.ts.
   press("]");
-  await slot.findByText("bb");
+  await slot.findByText("cc");
   expect(currentChapter(slot)?.textContent).toContain("Caching");
-  await waitFor(() => expect(currentFile(slot)).toBe("b.ts"));
-  press("]");
   await waitFor(() => expect(currentFile(slot)).toBe("c.ts"));
-  press("[");
+  press("]");
   await waitFor(() => expect(currentFile(slot)).toBe("b.ts"));
+  press("[");
+  await waitFor(() => expect(currentFile(slot)).toBe("c.ts"));
   press("[");
   await slot.findByText("aa");
   press("[");
   // Before the first, the last.
-  await slot.findByText("cc");
+  await slot.findByText("bb");
   expect(currentChapter(slot)?.textContent).toContain("Caching");
-  await waitFor(() => expect(currentFile(slot)).toBe("c.ts"));
+  await waitFor(() => expect(currentFile(slot)).toBe("b.ts"));
   slot.lifecycle.unmount();
 }, 15_000);
 
@@ -482,7 +484,7 @@ test("] and [ skip nits while Hide nits is on", async () => {
   } });
   await slot.findByText("aa");
   await openDrafts(slot);
-  await slot.findByRole("button", { name: /^src\/c\.ts:1/ });
+  await slot.findByRole("button", { name: /^Draft · not submitted · src\/c\.ts:1/ });
   press("]");
   await slot.findByText("cc");
   press("]");
@@ -563,7 +565,8 @@ test("a local review's Comments has no Feedback or Threads, and the agent goes b
   await slot.findByText("aa");
   await openDrafts(slot);
   const panel = within(slot.getByRole("complementary", { name: "Comments and agent" }));
-  expect(panel.getByRole("region", { name: "Review draft" })).toBeTruthy();
+  expect(panel.getByRole("region", { name: "Comments" })).toBeTruthy();
+  expect(panel.getByText("Comments on a local review stay in BB.")).toBeTruthy();
   expect(slot.queryByRole("button", { name: "Threads" })).toBeNull();
   expect(slot.queryByRole("button", { name: "Feedback" })).toBeNull();
   expect(slot.queryByRole("button", { name: /assistant/i })).toBeNull();
@@ -580,7 +583,7 @@ test("t shows and hides the chapters, c Comments, and i folds comments in code, 
   expect(slot.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
   press("c");
   expect(slot.getByRole("complementary", { name: "Comments and agent" })).toBeTruthy();
-  expect(slot.getByRole("region", { name: "Review draft" })).toBeTruthy();
+  expect(slot.getByRole("region", { name: "Comments" })).toBeTruthy();
   press("c");
   expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
   // Unfolded where there's room, until you say otherwise.

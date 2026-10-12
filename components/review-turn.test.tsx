@@ -61,15 +61,17 @@ async function renderWorkspace(review: Record<string, unknown>, rpc: Record<stri
 
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
 const panel = (slot: Slot) => within(slot.getByRole("complementary", { name: "Comments and agent" }));
-const tab = (slot: Slot, name: string) => panel(slot).getByRole("button", { name });
+/** Comments' chip: All, Needs you, Not submitted, or On GitHub. */
+const chip = (slot: Slot, name: string) => panel(slot).getByRole("radio", { name: new RegExp(`^${name}, \\d+$`) });
+const chosen = (slot: Slot, name: string) => waitFor(() => expect(chip(slot, name).getAttribute("aria-checked")).toBe("true"));
 
-test("a review that came back to you is marked seen and opens on its Overview, with Comments on your feedback", async () => {
+test("a review that came back to you is marked seen and opens on its Overview, with Comments on what needs you", async () => {
   const { slot, rpc } = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({}) });
-  await slot.findByText("Your feedback");
+  await slot.findByRole("region", { name: "Comments" });
   expect(rpc.markSeen).toHaveBeenCalledTimes(1);
   expect(rpc.markSeen).toHaveBeenCalledWith({ targetKey: "pr-42" });
   expect(slot.getByRole("heading", { name: "Parse rows" })).toBeTruthy();
-  expect(tab(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
+  await chosen(slot, "Needs you");
   slot.lifecycle.unmount();
 });
 
@@ -82,10 +84,11 @@ test("opened again in the same turn, a review goes back to where you were; back 
   slot.lifecycle.unmount();
   ({ slot } = await renderWorkspace(review));
   await slot.findByTestId("filediff");
-  expect(slot.queryByText("Your feedback")).toBeNull();
+  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
   slot.lifecycle.unmount();
   ({ slot } = await renderWorkspace({ ...review, turn: turn({ reason: "question", label: "Question for you", signal: "reply:2" }) }));
-  await slot.findByText("Your feedback");
+  await slot.findByRole("region", { name: "Comments" });
+  await chosen(slot, "Needs you");
   expect(slot.getByRole("heading", { name: "Parse rows" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
@@ -96,7 +99,7 @@ test("a review an older version left on Threads opens Comments there once, where
     getReviewThreads: () => ({ threads: [] }),
   });
   await slot.findByTestId("filediff");
-  await waitFor(() => expect(tab(slot, "Threads").getAttribute("aria-pressed")).toBe("true"));
+  await chosen(slot, "On GitHub");
   expect(JSON.parse(localStorage.getItem("gr:panelstate")!).perReview["pr-42"].view).toBeUndefined();
   slot.lifecycle.unmount();
 });
@@ -107,10 +110,10 @@ test("a review you haven't given ignores the Feedback an older version left it o
   await slot.findByRole("heading", { name: "Parse rows" });
   expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
   fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
-  fireEvent.click(tab(slot, "Feedback"));
-  expect(tab(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(chip(slot, "Needs you"));
+  expect(chip(slot, "Needs you").getAttribute("aria-checked")).toBe("true");
   // A 44px target on a coarse pointer.
-  expect(tab(slot, "Feedback").className.split(" ")).toEqual(expect.arrayContaining(TOUCH_CONTROL.split(" ")));
+  expect(chip(slot, "Needs you").className.split(" ")).toEqual(expect.arrayContaining(TOUCH_CONTROL.split(" ")));
   slot.lifecycle.unmount();
 });
 
@@ -120,7 +123,7 @@ test("a review you haven't given still opens Comments on the Threads an older ve
     getReviewThreads: () => ({ threads: [] }),
   });
   await slot.findByTestId("filediff");
-  await waitFor(() => expect(tab(slot, "Threads").getAttribute("aria-pressed")).toBe("true"));
+  await chosen(slot, "On GitHub");
   slot.lifecycle.unmount();
 });
 
@@ -128,16 +131,20 @@ test("a local review's Comments has only its draft", async () => {
   const { slot } = await renderWorkspace({ kind: "ref", gitRef: "main...x" });
   await slot.findByRole("heading", { name: "Parse rows" });
   fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
-  expect(panel(slot).getByRole("region", { name: "Review draft" })).toBeTruthy();
-  expect(slot.queryByRole("button", { name: "Feedback" })).toBeNull();
+  expect(panel(slot).getByRole("region", { name: "Comments" })).toBeTruthy();
+  // No chips: nothing of it is on GitHub.
+  expect(panel(slot).queryByRole("radio")).toBeNull();
   slot.lifecycle.unmount();
 });
 
 test("Follow up opens the comment box at the thread's line in the diff", async () => {
   const { slot } = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({}) });
-  const card = await slot.findByRole("article", { name: "Handle the empty list" });
   await slot.findByRole("region", { name: "Submitted review", hidden: true });
-  fireEvent.click(within(card).getByRole("button", { name: "Follow up" }));
+  // Your thread waits on its author: it's on GitHub, not in Needs you.
+  fireEvent.click(await panel(slot).findByRole("radio", { name: /^On GitHub,/ }));
+  fireEvent.click(await panel(slot).findByRole("button", { name: "Expand GitHub thread on src/a.ts:2" }));
+  fireEvent.click(panel(slot).getByRole("button", { name: "More on the thread on src/a.ts:2" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Follow up" }));
   const box = await within(await slot.findByTestId("filediff")).findByRole("textbox", { name: "Draft comment" });
   expect(box.closest("[data-draft-at]")?.getAttribute("data-draft-at")).toContain("src/a.ts");
   slot.lifecycle.unmount();
@@ -150,6 +157,8 @@ test("Use as draft opens the draft with the assistant's verdict and summary", as
     useSuggestedVerdict: vi.fn(() => { draft = { ...draft, verdict: "APPROVE", body: "Looks good now." }; return { ok: true }; }),
   });
   await slot.findByRole("region", { name: "Submitted review", hidden: true });
+  // Finish review, from Comments' Finish bar.
+  fireEvent.click(await panel(slot).findByRole("button", { name: "Finish review" }));
   fireEvent.click(await slot.findByRole("button", { name: "Use as draft" }));
   await waitFor(() => expect(rpc.useSuggestedVerdict).toHaveBeenCalledWith({ targetKey: "pr-42", mode: "suggested", revision: "r1" }));
   const summary = await slot.findByRole("region", { name: "Review summary" });
@@ -175,10 +184,10 @@ test("the Overview shows your review rounds, progress, Blocks merge, and Not yet
   expect(slot.getByText("Blocks merge")).toBeTruthy();
   fireEvent.click(slot.getByRole("button", { name: "Not yet" }));
   await waitFor(() => expect(rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: true }));
-  // The progress pill opens Comments on Feedback.
+  // The progress pill opens Comments on what needs you.
   fireEvent.click(panel(slot).getByRole("button", { name: "Close panel" }));
   fireEvent.click(slot.getByText("2/5 addressed"));
-  expect(tab(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
+  await chosen(slot, "Needs you");
   slot.lifecycle.unmount();
 });
 

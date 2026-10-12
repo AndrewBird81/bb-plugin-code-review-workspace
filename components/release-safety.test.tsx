@@ -6,10 +6,10 @@ import { readDraftRecovery } from "../lib/draft-recovery";
 import type { DraftProviderProps } from "./DraftProvider";
 afterEach(() => { cleanup(); sessionStorage.clear(); });
 
-/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+/** The draft's provider with Comments and Finish review after what it wraps, as the side panel shows them. */
 async function draftTray() {
-  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
-  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+  const { DraftTray } = await import("./draft-tray.test-support");
+  return DraftTray;
 }
 
 test("closing a document releases its lease, while a cached page keeps its editors protected", async () => {

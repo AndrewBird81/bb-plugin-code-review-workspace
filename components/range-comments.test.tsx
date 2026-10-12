@@ -20,10 +20,10 @@ vi.mock("@pierre/diffs/react", () => ({
 
 afterEach(() => { cleanup(); sessionStorage.clear(); });
 
-/** The draft's provider with its panel after what it wraps, as the workspace places them. */
+/** The draft's provider with Comments and Finish review after what it wraps, as the side panel shows them. */
 async function draftTray() {
-  const [{ DraftProvider }, { DraftPanel }] = await Promise.all([import("./DraftProvider"), import("./DraftPanel")]);
-  return function DraftTray({ children, ...props }: DraftProviderProps) { return <DraftProvider {...props}>{children}<DraftPanel /></DraftProvider>; };
+  const { DraftTray } = await import("./draft-tray.test-support");
+  return DraftTray;
 }
 
 const patch = [
@@ -49,7 +49,7 @@ async function renderReview(rpc: Record<string, unknown>, prefill?: Record<strin
   );
   const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), ...rpc } as any });
   await slot.findByText("Draft saved");
-  return { slot, diff: () => within(slot.getByTestId("filediff")), panel: () => within(slot.getByRole("region", { name: "Review draft" })) };
+  return { slot, diff: () => within(slot.getByTestId("filediff")), panel: () => within(slot.getByRole("region", { name: "Comments" })) };
 }
 
 test("lines selected upward in the diff make a comment on the range, shown under its last line", async () => {
@@ -59,16 +59,17 @@ test("lines selected upward in the diff make a comment on the range, shown under
     { file: "src/a.ts", line: 2, side: "RIGHT", startLine: 4, startSide: "RIGHT", nonce: 1 });
   const box = await diff().findByRole("textbox", { name: "Draft comment" });
   expect(diff().getByText("Lines 2–4")).toBeTruthy();
-  expect(panel().getByText("Writing a comment on src/a.ts:2–4 in the diff.")).toBeTruthy();
+  expect(panel().getByText("Writing a comment on src/a.ts:2–4")).toBeTruthy();
   fireEvent.change(box, { target: { value: "Fold these." } });
   fireEvent.click(diff().getByRole("button", { name: "Add to draft" }));
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "k", revision: "r1", comment: { file: "src/a.ts", line: 4, side: "RIGHT", startLine: 2, chapterId: "c1", body: "Fold these." } }));
   const card = await diff().findByRole("article", { name: "Draft comment on src/a.ts:2–4" });
   expect(within(card).getByText("Lines 2–4")).toBeTruthy();
-  expect(panel().getByRole("button", { name: "src/a.ts:2–4" })).toBeTruthy();
+  expect(panel().getByRole("button", { name: "Draft · not submitted · src/a.ts:2–4" })).toBeTruthy();
   // Editing it in the panel keeps the range.
+  fireEvent.click(panel().getByRole("button", { name: "Expand Draft comment on src/a.ts:2–4" }));
   fireEvent.click(panel().getByRole("button", { name: "Edit comment on src/a.ts:2–4" }));
-  expect(panel().getByText("2–4").parentElement!.textContent).toBe("Lines2–4");
+  expect(panel().getByText("Lines 2–4")).toBeTruthy();
   expect(panel().queryByRole("spinbutton", { name: "Comment line" })).toBeNull();
   fireEvent.change(panel().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Fold these, please." } });
   fireEvent.click(panel().getByRole("button", { name: "Save comment" }));
@@ -100,7 +101,8 @@ test("a comment's suggestion shows as the code it would put in place", async () 
   const comment = { file: "src/a.ts", line: 4, side: "RIGHT", startLine: 3, body: "Shorter:\n\n```suggestion\n  three(); four;\n```\nThanks." };
   const { slot, diff, panel } = await renderReview({ getDraft: () => ({ draft: draftOf([comment]), stale: [], discussions: [] }) });
   const card = await diff().findByRole("article", { name: "Draft comment on src/a.ts:3–4" });
-  for (const where of [within(card), panel()]) {
+  fireEvent.click(panel().getByRole("button", { name: "Expand Draft comment on src/a.ts:3–4" }));
+  for (const where of [within(card), within(panel().getByRole("article", { name: "Draft comment on src/a.ts:3–4" }))]) {
     const suggestion = where.getByRole("figure", { name: "Suggested change" });
     expect(suggestion.querySelector("pre code")?.textContent).toBe("  three(); four;");
     expect(where.getByText("Shorter:")).toBeTruthy();

@@ -97,8 +97,8 @@ test("draft comments show under their lines with who added them, and the file he
   renderWithDraft({ comments: [comment], stale: [{ file: "src/a.ts", line: 2, side: "RIGHT" }] });
   const shown = screen.getByRole("article", { name: "Draft comment on src/a.ts:2" });
   expect(within(shown).getByText("Is the empty case tested?")).toBeTruthy();
-  expect(within(shown).getByText("Added by agent")).toBeTruthy();
-  expect(within(shown).getByText("Older diff")).toBeTruthy();
+  expect(within(shown).getByText("Older diff · not submitted")).toBeTruthy();
+  expect(within(shown).getByText("Agent")).toBeTruthy();
   expect(screen.getByText("1 draft comment")).toBeTruthy();
 });
 

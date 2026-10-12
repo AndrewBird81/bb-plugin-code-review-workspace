@@ -188,6 +188,11 @@ test("Needs you takes nothing else: your own drafted replies, checks that say ad
   const items = buildItems(sources);
   const quiet = items.filter((item) => !item.needs).map((item) => item.id);
   expect(quiet).toEqual(expect.arrayContaining(["B1", "T3", "summary:2", "private:src/server.ts:39:RIGHT", "draft:src/cache.ts:16:RIGHT"]));
+  // Resolved is settled, whatever an earlier check or a drafted reply says.
+  const settled = buildItems({ ...sources, threads: threads.map((live) => live.id === "T5" || live.id === "T2" ? { ...live, isResolved: true } : live) });
+  expect(settled.filter((item) => item.id === "T5" || item.id === "T2").map((item) => [item.id, item.state, item.needs, item.group])).toEqual([
+    ["T5", "resolved", null, "on-github"], ["T2", "resolved", null, "on-github"],
+  ]);
   // A closed or merged PR: its comments are listed where they live, and nothing needs you.
   const closed = buildItems({ ...sources, closed: true });
   expect(needsYou(closed)).toEqual([]);
@@ -195,17 +200,21 @@ test("Needs you takes nothing else: your own drafted replies, checks that say ad
   expect(closed.find((item) => item.id === "T4")).toMatchObject({ state: "question", group: "on-github" });
 });
 
-test("groups come in order, don't overlap, and count what their chips say", () => {
+test("groups come in order, show each item once under All, and count what their chips show", () => {
   const items = buildItems(sources);
   const list = groups(items);
-  expect(list.map((group) => [group.id, group.title, group.count, group.summary])).toEqual([
-    ["needs-you", "Needs you", 7, null],
-    ["not-submitted", "Not submitted · only in BB", 4, "1 blocking · 1 question · 2 nits"],
-    ["on-github", "On GitHub", 7, "Yours: 2 of 4 handled +2 nits"],
-    ["private", "Private · with the agent", 1, null],
+  // Not submitted counts every draft comment, as Submit does: the one on an older diff too, which All shows in Needs you.
+  expect(list.map((group) => [group.id, group.title, group.count, group.summary, group.elsewhere])).toEqual([
+    ["needs-you", "Needs you", 7, null, 0],
+    ["not-submitted", "Not submitted · only in BB", 5, "1 blocking · 1 should fix · 1 question · 2 nits", 1],
+    ["on-github", "On GitHub", 7, "Yours: 2 of 4 handled +2 nits", 0],
+    ["private", "Private · with the agent", 1, null, 0],
   ]);
-  expect(list.reduce((sum, group) => sum + group.count, 0)).toBe(items.length);
-  expect(new Set(list.flatMap((group) => ids([...group.items, ...group.folded?.items ?? []]))).size).toBe(items.length);
+  expect(list[1].count).toBe(toSend(sources).comments);
+  expect(list[1].summary).toBe(toSend(sources).severities);
+  const shown = list.flatMap((group) => ids([...group.items, ...group.folded?.items ?? []]));
+  expect(shown).toHaveLength(items.length);
+  expect(new Set(shown).size).toBe(items.length);
   expect(ids(list[0].items)).toEqual(ids(needsYou(items)));
   expect(ids(list[1].items)).toEqual(["draft:src/cache.ts:16:RIGHT", "draft:src/server.ts:38:RIGHT", "draft:src/api/handler.ts:5:RIGHT", "draft:README.md:2:RIGHT"]);
   // On GitHub: yours first, then other people's; resolved and outdated threads folded, yours first there too.
@@ -251,8 +260,9 @@ test("] and [ step through the list in its order and filter, with chapters to sw
   const all = commentStops(items);
   expect(all).toHaveLength(16);
   expect(all[0]).toEqual({ id: "draft:src/cache.ts:21:RIGHT", at: { file: "src/cache.ts", line: 21, side: "RIGHT", lines: "21" }, chapterId: "cache", group: "needs-you" });
+  // Not submitted is every draft comment, in reading order: the one on an older diff too.
   expect(commentStops(items, "not-submitted").map((stop) => [stop.id, stop.chapterId])).toEqual([
-    ["draft:src/cache.ts:16:RIGHT", "cache"], ["draft:src/server.ts:38:RIGHT", "cache"], ["draft:src/api/handler.ts:5:RIGHT", "api"], ["draft:README.md:2:RIGHT", "api"],
+    ["draft:src/cache.ts:16:RIGHT", "cache"], ["draft:src/cache.ts:21:RIGHT", "cache"], ["draft:src/server.ts:38:RIGHT", "cache"], ["draft:src/api/handler.ts:5:RIGHT", "api"], ["draft:README.md:2:RIGHT", "api"],
   ]);
   // The whole PR's ask has no place in the code; the list shows it.
   expect(commentStops(items, "on-github").map((stop) => [stop.id, stop.at?.line ?? null])).toEqual([["summary:2", null], ["B1", 14], ["B3", null], ["B5", 1]]);
@@ -317,7 +327,7 @@ test("threads read without the newer fields still build", () => {
 test("a local review has only what's in BB: drafts and private discussions", () => {
   const items = buildItems({ draft: { draft: { ...draft, verdict: "COMMENT", body: "" }, stale: [{ file: "src/cache.ts", line: 21, side: "RIGHT" }], discussions }, threads: [], feedback: null, sections, patch });
   expect(groups(items).map((group) => [group.id, group.count, group.summary])).toEqual([
-    ["needs-you", 1, null], ["not-submitted", 4, "1 blocking · 1 question · 2 nits"], ["on-github", 0, null], ["private", 1, null],
+    ["needs-you", 1, null], ["not-submitted", 5, "1 blocking · 1 should fix · 1 question · 2 nits"], ["on-github", 0, null], ["private", 1, null],
   ]);
   expect(checkTally(items)).toBeNull();
   expect(toSend({ draft: { draft: { ...draft, body: "" }, stale: [] }, threads: [], feedback: null, sections, patch })).toMatchObject({ comments: 5, replyDrafts: 0, summary: null });

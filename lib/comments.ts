@@ -176,8 +176,16 @@ export interface CommentSources {
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 const keyOf = (location: CommentLocation) => `${location.file}:${location.line}:${location.side}`;
+/** The id of the item for the draft comment at a place, and for the private discussion there. */
+export const draftItemId = (at: CommentLocation) => `draft:${keyOf(at)}`;
+export const privateItemId = (at: CommentLocation) => `private:${keyOf(at)}`;
 const speaker = (author: Author) => author === "agent" ? "Agent" : "You";
 const STATE_OF: Record<"open" | "answered" | "question", ThreadItem["state"]> = { open: "waiting", answered: "replied", question: "question" };
+
+/** A draft comment's state: on an older diff whoever wrote it, else the agent's or yours. */
+export function draftState(comment: DraftComment, stale: readonly CommentLocation[]): DraftItem["state"] {
+  return stale.some((location) => sameLocation(location, comment)) ? "older-diff" : comment.author === "agent" ? "agent-draft" : "draft";
+}
 
 function checkOf(feedback: FeedbackItem | null): CommentCheck | null {
   const assessment = feedback?.assessment;
@@ -199,6 +207,8 @@ export function buildItems(sources: CommentSources): CommentItem[] {
   };
   const needing = (needs: NeedReason | null, home: GroupId) => closed || !needs ? { needs: null, group: home } : { needs, group: "needs-you" as const };
   const placed: Array<{ item: CommentItem; place: number; line: number }> = [];
+  // At the same line number, the old line before the new one, as a split diff reads.
+  const sideOf = (item: CommentItem) => item.at?.side === "LEFT" ? 0 : 1;
   const add = (item: CommentItem, line = item.at?.line ?? 0) => placed.push({
     item, line, place: !item.at ? -1 : item.chapterId === null ? order.length : order.indexOf(`${item.chapterId}\0${item.at.file}`),
   });
@@ -207,11 +217,10 @@ export function buildItems(sources: CommentSources): CommentItem[] {
   const stale = draft?.stale ?? [];
   const discussions = draft?.discussions ?? [];
   for (const comment of comments) {
-    const older = stale.some((location) => sameLocation(location, comment));
-    const state = older ? "older-diff" : comment.author === "agent" ? "agent-draft" : "draft";
+    const state = draftState(comment, stale);
     const who = speaker(comment.author ?? "reviewer");
     add({
-      kind: "draft", id: `draft:${keyOf(comment)}`, state, label: STATE_LABEL[state], ...needing(older ? "older-diff" : null, "not-submitted"),
+      kind: "draft", id: draftItemId(comment), state, label: STATE_LABEL[state], ...needing(state === "older-diff" ? "older-diff" : null, "not-submitted"),
       at: { file: comment.file, line: comment.line, side: comment.side, lines: linesOf(comment) }, chapterId: chapterOf(comment.file, comment.line, comment.side),
       who, latest: { who, body: comment.body, at: null }, nonBlocking: comment.severity === "nit",
       comment, discussion: discussions.find((discussion) => sameLocation(discussion, comment)) ?? null,
@@ -222,7 +231,7 @@ export function buildItems(sources: CommentSources): CommentItem[] {
     const { file, line, side, startLine } = discussion;
     const message = discussion.entries.filter((entry) => entry.kind === "message").at(-1);
     add({
-      kind: "private", id: `private:${keyOf(discussion)}`, state: "private", label: STATE_LABEL.private, group: "private", needs: null,
+      kind: "private", id: privateItemId(discussion), state: "private", label: STATE_LABEL.private, group: "private", needs: null,
       // The lines asked about; their start may be either end.
       at: { file, line, side, lines: startLine === undefined || startLine === line ? `${line}` : `${Math.min(startLine, line)}–${Math.max(startLine, line)}` },
       chapterId: chapterOf(file, line, side), who: speaker(discussion.entries[0]?.author ?? "reviewer"),
@@ -262,7 +271,8 @@ export function buildItems(sources: CommentSources): CommentItem[] {
     const shown = line ?? live?.originalLine ?? stored?.originalLine ?? null;
     const reply = replyDrafts ? replyDrafts.get(id) ?? null : item?.replyDraft ?? null;
     const check = checkOf(item);
-    const needs = state === "question" ? "question" : check && UNADDRESSED.has(check.verdict) ? "check" : state === "replied" ? "replied" : reply?.author === "agent" ? "reply-drafted" : null;
+    // Resolved, it's settled, whatever an earlier check said.
+    const needs = state === "resolved" ? null : state === "question" ? "question" : check && UNADDRESSED.has(check.verdict) ? "check" : state === "replied" ? "replied" : reply?.author === "agent" ? "reply-drafted" : null;
     const tag = threadLabel(messages[0]?.body ?? "");
     const replyTo = live?.comments[0]?.databaseId ?? stored?.commentId ?? null;
     const last = messages.at(-1);
@@ -291,7 +301,7 @@ export function buildItems(sources: CommentSources): CommentItem[] {
   }
   // Files no chapter shows come last, by name.
   return placed
-    .sort((a, b) => a.place - b.place || (a.item.at?.file ?? "").localeCompare(b.item.at?.file ?? "") || a.line - b.line)
+    .sort((a, b) => a.place - b.place || (a.item.at?.file ?? "").localeCompare(b.item.at?.file ?? "") || a.line - b.line || sideOf(a.item) - sideOf(b.item))
     .map(({ item }) => item);
 }
 
@@ -303,23 +313,29 @@ export function needsYou(items: readonly CommentItem[]): CommentItem[] {
 export interface CommentGroup {
   id: GroupId;
   title: string;
-  /** Every item in it, folded ones too: its chip's count. */
+  /** What its chip shows, folded items too: its chip's count. Not submitted counts every draft comment, as Submit does. */
   count: number;
   /** The line under its title: "1 blocking · 1 should fix · 2 nits" for drafts, "Yours: 2 of 2 handled +1 nit" on GitHub. */
   summary: string | null;
+  /** What All shows in it, each item once. */
   items: CommentItem[];
+  /** Counted here but shown in Needs you under All: draft comments on an older diff. */
+  elsewhere: number;
   /** On GitHub, its resolved and outdated threads, folded under `label`: "2 resolved · 1 outdated". */
   folded: { label: string; items: CommentItem[] } | null;
 }
 
 /**
- * The list's groups in order, each in its own order, empty ones too so every chip has a count. They don't overlap:
- * Needs you, then drafts, then GitHub (yours first), then private discussions. Pass the items the list shows.
+ * The list's groups in order, each in its own order, empty ones too so every chip has a count. Under All each item
+ * shows once: Needs you, then drafts, then GitHub (yours first), then private discussions. Not submitted's chip also
+ * shows the drafts on an older diff, which All shows under Needs you, so its count is what Submit sends. Pass the
+ * items the list shows.
  */
 export function groups(items: readonly CommentItem[]): CommentGroup[] {
   const home = (id: GroupId) => items.filter((item) => item.group === id);
-  const group = (id: GroupId, shown: CommentItem[], summary: string | null): CommentGroup => ({ id, title: GROUP_TITLE[id], count: shown.length, summary, items: shown, folded: null });
+  const group = (id: GroupId, shown: CommentItem[], summary: string | null): CommentGroup => ({ id, title: GROUP_TITLE[id], count: shown.length, summary, items: shown, elsewhere: 0, folded: null });
   const drafts = home("not-submitted");
+  const everyDraft = items.filter((item) => item.kind === "draft");
   const github = home("on-github");
   const yours = (item: CommentItem) => item.kind === "ask" || item.kind === "thread" && item.mine;
   const folds = (item: CommentItem) => item.kind === "thread" && (item.state === "resolved" || item.outdated);
@@ -328,7 +344,10 @@ export function groups(items: readonly CommentItem[]): CommentGroup[] {
   const resolved = folded.filter((item) => item.state === "resolved").length;
   return [
     group("needs-you", needsYou(items), null),
-    group("not-submitted", drafts, severityCounts(drafts.flatMap((item) => item.kind === "draft" ? [item.comment] : [])) || null),
+    {
+      ...group("not-submitted", drafts, severityCounts(everyDraft.flatMap((item) => item.kind === "draft" ? [item.comment] : [])) || null),
+      count: everyDraft.length, elsewhere: everyDraft.length - drafts.length,
+    },
     {
       ...group("on-github", ordered.filter((item) => !folds(item)), yoursTally(items)), count: github.length,
       folded: folded.length ? { label: [resolved ? `${resolved} resolved` : "", folded.length - resolved ? `${folded.length - resolved} outdated` : ""].filter(Boolean).join(" · "), items: folded } : null,
@@ -404,10 +423,18 @@ export function toSend({ draft, threads, feedback, replyDrafts }: CommentSources
 /** Where ] and [ go: a stop per item, in the list's order and filter. */
 export interface CommentStop { id: string; at: CommentPlace | null; chapterId: string | null; group: GroupId }
 
-/** The list's items in its order, for one chip or all; On GitHub's folded threads only while they show. */
-export function commentStops(items: readonly CommentItem[], filter: CommentFilter = "all", showFolded = false): CommentStop[] {
+/**
+ * What the list shows for one chip, or for All, in its order: All each item once by group; Not submitted every draft
+ * comment in reading order; On GitHub's folded threads only while they show.
+ */
+export function shownItems(items: readonly CommentItem[], filter: CommentFilter = "all", showFolded = false): CommentItem[] {
+  if (filter === "not-submitted") return items.filter((item) => item.kind === "draft");
   return groups(items)
     .filter(({ id }) => filter === "all" || id === filter)
-    .flatMap((group) => [...group.items, ...(showFolded ? group.folded?.items ?? [] : [])])
-    .map(({ id, at, chapterId, group }) => ({ id, at, chapterId, group }));
+    .flatMap((group) => [...group.items, ...(showFolded ? group.folded?.items ?? [] : [])]);
+}
+
+/** The list's items in its order, for one chip or all; On GitHub's folded threads only while they show. */
+export function commentStops(items: readonly CommentItem[], filter: CommentFilter = "all", showFolded = false): CommentStop[] {
+  return shownItems(items, filter, showFolded).map(({ id, at, chapterId, group }) => ({ id, at, chapterId, group }));
 }

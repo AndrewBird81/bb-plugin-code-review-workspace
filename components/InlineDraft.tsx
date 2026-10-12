@@ -1,15 +1,23 @@
-import { createContext, memo, useContext, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { createContext, memo, useContext, type KeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { linesOf, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
+import { draftItemId, draftState, privateItemId, STATE_LABEL } from "../lib/comments";
+import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { Textarea } from "./ui/textarea";
-import { Badge, SpeakerMark, TONE_TEXT, type Tone } from "./ui/badge";
+import { Badge, SpeakerMark, TONE_TEXT } from "./ui/badge";
 import { withLineBreaks } from "../src/line-breaks";
+import { CommentPill } from "./comments/CommentPill";
+import { DraftIcon, draftEdge, notSubmitted, privately, SEVERITY_TONE } from "./comments/look";
+import { useComments } from "./comments/store";
+import { TOUCH_CONTROL } from "./touch";
 
 /** The draft as the diff shows it, under each comment's line. DraftProvider owns the draft and provides this. */
 export interface InlineDraft {
+  /** The review, whose comments' folding and threads the cards read (components/comments/store.ts). */
+  targetKey?: string;
   comments: DraftComment[];
   /** Comments drafted against an older diff, which submitting refuses. */
   stale: CommentLocation[];
@@ -68,31 +76,52 @@ export const InlineComposerContext = createContext<InlineComposer | null>(null);
 export const locationKey = (at: CommentLocation) => `${at.file}:${at.line}:${at.side}`;
 
 // The diff renders these inside its code view, so set the text style instead of inheriting the code's.
-const card = "mx-2 my-2 max-w-3xl overflow-hidden rounded-lg border border-border bg-card font-sans text-sm leading-normal whitespace-normal text-foreground shadow-md";
+const card = "mx-2 my-2 max-w-3xl overflow-hidden rounded-lg bg-card [contain:inline-size] font-sans text-sm leading-normal whitespace-normal text-foreground shadow-md";
 /** A card's title row, and the small actions in it. */
-export const bar = "flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-muted/25 px-3 py-1 text-xs text-muted-foreground";
-export const action = "h-7 px-2 text-xs";
+export const bar = "flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-xs text-muted-foreground";
+export const action = cn("h-7 px-2 text-xs", TOUCH_CONTROL);
 
 /** Who wrote it: the agent, in its own color, or you. */
 function Speaker({ agent, children }: { agent: boolean; children: ReactNode }) {
   return <span className="flex items-center gap-1.5 text-xs font-medium text-foreground"><SpeakerMark agent={agent} />{children}</span>;
 }
 
-/** A line's draft comment, its discussion with the agent, and the comment box while it's open there. */
+/**
+ * A line's draft comment, its discussion with the agent, and the comment box while it's open there. Only in BB, so
+ * dashed, with an edge in its words' color, and its state in words. With comments folded it's a one-line pill, unless
+ * its box is open or you opened it.
+ */
 export const InlineLocation = memo(function InlineLocation({ at }: { at: CommentLocation }) {
   const draft = useContext(InlineDraftContext);
+  const folded = useComments(draft?.targetKey, "folded");
+  const comment = draft?.comments.find((c) => sameLocation(c, at));
+  const id = comment ? draftItemId(at) : privateItemId(at);
+  const opened = useCommentOpen(draft?.targetKey, id);
   if (!draft) return null;
-  const comment = draft.comments.find((c) => sameLocation(c, at));
   const discussion = draft.discussions.find((d) => sameLocation(d, at));
   const composer = draft.composer && sameLocation(draft.composer, at) ? draft.composer : null;
   const box = composer && (composer.editing ? "edit" : composer.asking ? "ask" : "new");
   if (!comment && !discussion && !box) return null;
   if (draft.hideNits && comment?.severity === "nit" && !box) return null;
-  // A colored edge says whose words these are: the agent's, yours, or a question in progress.
-  const edge = box === "ask" || (!comment && discussion) ? "border-l-(--ansi-13)/60" : comment?.author === "agent" ? "border-l-(--ansi-13)/60" : "border-l-primary/60";
+  const edge = comment ? draftEdge(comment, draft.stale) : box === "ask" ? "agent" : "yours";
+  const where = comment ? `${comment.file}:${linesOf(comment)}` : `${at.file}:${discussionLines(discussion ?? { ...at, entries: [], waiting: false })}`;
+  const key = draft.targetKey;
+  if (folded && key && !box && !opened) {
+    const fold = () => setCommentOpen(key, id, true);
+    if (comment) {
+      const words = [STATE_LABEL[draftState(comment, draft.stale)].replace(" · not submitted", ""), comment.severity && SEVERITY_LABEL[comment.severity]].filter(Boolean).join(" · ");
+      const talk = discussion?.entries.filter((entry) => entry.kind === "message").length ?? 0;
+      return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} />} who={null} words={`${words} · not submitted`} text={comment.body}
+        more={talk ? `${talk} message${talk === 1 ? "" : "s"} with the agent` : null} name={`Draft comment on ${where}`} onShow={fold} /></div>;
+    }
+    const last = discussion!.entries.filter((entry) => entry.kind === "message").at(-1);
+    return <div data-draft-at={locationKey(at)}><CommentPill frame={privately} icon={<Icon name="Lock" className="size-3.5 shrink-0 text-subtle-foreground" aria-hidden />} who={null} words={STATE_LABEL.private}
+      text={last?.body ?? ""} name={`Discussion with agent on ${where}`} onShow={fold} /></div>;
+  }
+  const refold = folded && key && opened && !box ? () => setCommentOpen(key, id, false) : null;
   return (
-    <div data-draft-at={locationKey(at)} className={cn(card, "border-l-[3px]", edge)}>
-      {box === "edit" ? <ComposerBox mode="edit" /> : comment ? <CommentView comment={comment} draft={draft} /> : discussion && <DiscussionBar discussion={discussion} draft={draft} boxOpen={!!box} />}
+    <div data-draft-at={locationKey(at)} className={cn(card, comment || box ? notSubmitted(edge) : privately)}>
+      {box === "edit" ? <ComposerBox mode="edit" /> : comment ? <CommentView comment={comment} draft={draft} onFold={refold} /> : discussion && <DiscussionBar discussion={discussion} draft={draft} boxOpen={!!box} onFold={refold} />}
       {discussion && <DiscussionView discussion={discussion} titled={!!comment || box === "edit"} chat={draft.chat} busy={draft.busy} onUndo={draft.editable && !box && !(draft.editingAt && sameLocation(draft.editingAt, at)) ? () => draft.undo(discussion) : undefined} />}
       {box && box !== "edit" && <ComposerBox mode={box} divided={!!(comment || discussion)} />}
     </div>
@@ -100,33 +129,37 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
 });
 InlineLocation.displayName = "InlineLocation";
 
-function CommentView({ comment, draft }: { comment: DraftComment; draft: InlineDraft }) {
-  const stale = draft.stale.some((at) => sameLocation(at, comment));
+/** Folds an opened card back to its pill, while comments are folded. */
+function FoldButton({ onFold }: { onFold: () => void }) {
+  return <Button variant="ghost" size="sm" aria-label="Fold" className={cn(action, "w-7 px-0 text-muted-foreground")} onClick={onFold}><Icon name="ChevronUp" className="size-3.5" aria-hidden /></Button>;
+}
+
+function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft: InlineDraft; onFold: (() => void) | null }) {
+  const state = draftState(comment, draft.stale);
   return (
     <article tabIndex={-1} aria-label={`Draft comment on ${comment.file}:${linesOf(comment)}`} className="outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50">
       <div className={bar}>
-        <Icon name="MessageSquare" className="size-3.5 shrink-0 text-primary" aria-hidden />
-        <span className="font-medium text-foreground">Draft</span>
+        <DraftIcon edge={draftEdge(comment, draft.stale)} />
+        <span className="font-medium text-foreground">{STATE_LABEL[state]}</span>
+        {state === "older-diff" && comment.author === "agent" && <Badge tone="agent" size="sm" icon={<Icon name="Sparkles" aria-hidden />}>Agent</Badge>}
         {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
         {comment.severity && <SeverityBadge severity={comment.severity} />}
-        {comment.author === "agent" && <Badge tone="agent" icon={<Icon name="Sparkles" aria-hidden />}>Added by agent</Badge>}
-        {stale && (
-          <Badge tone="warning" title="Drafted against an older diff. Edit and save it, or remove it, before submitting.">Older diff</Badge>
-        )}
-        {draft.editable && (
-          <span className="ml-auto flex">
-            <Button variant="ghost" size="sm" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={draft.busy || draft.writing} onClick={() => draft.ask(comment)}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
-            <Button variant="ghost" size="sm" className={action} disabled={draft.busy || draft.writing} onClick={() => draft.open(comment)}>Edit</Button>
-            <Button variant="ghost" size="sm" className={cn(action, "hover:text-destructive-text")} disabled={draft.busy} onClick={() => draft.remove(comment)}>Remove</Button>
+        {(draft.editable || onFold) && (
+          <span className="-mr-1.5 ml-auto flex">
+            {draft.editable && <>
+              <Button variant="ghost" size="sm" className={action} disabled={draft.busy || draft.writing} onClick={() => draft.open(comment)}>Edit</Button>
+              <Button variant="ghost" size="sm" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={draft.busy || draft.writing} onClick={() => draft.ask(comment)}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
+              <Button variant="ghost" size="sm" className={cn(action, "hover:text-destructive-text")} disabled={draft.busy} onClick={() => draft.remove(comment)}>Remove</Button>
+            </>}
+            {onFold && <FoldButton onFold={onFold} />}
           </span>
         )}
       </div>
-      <div className="px-3 py-2.5"><CommentBody body={comment.body} /></div>
+      <div className="px-3 pb-2.5"><CommentBody body={comment.body} /></div>
+      {state === "older-diff" && <p className="border-t border-warning/20 bg-warning/10 px-3 py-1.5 text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
     </article>
   );
 }
-
-const SEVERITY_TONE: Record<Severity, Tone> = { blocking: "danger", "should-fix": "warning", question: "primary", nit: "neutral" };
 
 /** How much a comment matters, on its card. */
 export function SeverityBadge({ severity, size }: { severity: Severity; size?: "sm" | "md" }) {
@@ -158,18 +191,21 @@ export function CommentBody({ body }: { body: string }) {
     : part.trim() && <Markdown key={index} content={withLineBreaks(part.trim())} className="text-sm leading-relaxed" />)}</div>;
 }
 
-/** Heads a discussion with no comment: a question about the line, or one whose comment the agent removed. */
-function DiscussionBar({ discussion, draft, boxOpen }: { discussion: Discussion; draft: InlineDraft; boxOpen: boolean }) {
+/** Heads a discussion with no comment: a question about the line, or one whose comment the agent removed. Private: it never leaves BB. */
+function DiscussionBar({ discussion, draft, boxOpen, onFold }: { discussion: Discussion; draft: InlineDraft; boxOpen: boolean; onFold: (() => void) | null }) {
   const removed = discussion.entries.filter((entry) => entry.kind !== "message").slice(-1)[0]?.kind === "removed";
   return (
     <div className={bar}>
-      <Icon name={removed ? "Trash2" : "Sparkles"} className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />
-      <span className="font-medium text-foreground">{removed ? "Removed by agent" : "Discussion with agent"}</span>
+      <Icon name={removed ? "Trash2" : "Lock"} className={cn("size-3.5 shrink-0", removed ? "text-(--ansi-13)" : "text-subtle-foreground")} aria-hidden />
+      <span className="font-medium text-foreground">{removed ? "Removed by agent" : STATE_LABEL.private}</span>
       {discussion.startLine !== undefined && <span className="tabular-nums">Lines {discussionLines(discussion)}</span>}
-      {draft.editable && !boxOpen && (
-        <span className="ml-auto flex">
-          <Button variant="ghost" size="sm" className={action} disabled={draft.busy || draft.writing} onClick={() => draft.ask(discussion)}>Ask agent</Button>
-          <Button variant="ghost" size="sm" className={action} disabled={draft.busy} onClick={() => draft.dismiss(discussion)}>Dismiss</Button>
+      {((draft.editable && !boxOpen) || onFold) && (
+        <span className="-mr-1.5 ml-auto flex">
+          {draft.editable && !boxOpen && <>
+            <Button variant="ghost" size="sm" className={action} disabled={draft.busy || draft.writing} onClick={() => draft.ask(discussion)}>Ask agent</Button>
+            <Button variant="ghost" size="sm" className={action} disabled={draft.busy} onClick={() => draft.dismiss(discussion)}>Dismiss</Button>
+          </>}
+          {onFold && <FoldButton onFold={onFold} />}
         </span>
       )}
     </div>
@@ -193,8 +229,8 @@ export function DiscussionView({ discussion, titled, chat, busy = false, onUndo,
   const unanswered = !discussion.waiting && last?.kind === "message" && last.author === "reviewer";
   const latestChange = discussion.entries.map((entry) => entry.kind !== "message").lastIndexOf(true);
   return (
-    <section aria-label={summary ? "Discussion with agent on the review summary" : `Discussion with agent on ${discussion.file}:${discussionLines(discussion)}`} className={cn("space-y-3 bg-muted/20 px-3 py-2.5", titled && "border-t border-border")}>
-      {titled && <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">Discussion with agent</p>}
+    <section aria-label={summary ? "Discussion with agent on the review summary" : `Discussion with agent on ${discussion.file}:${discussionLines(discussion)}`} className={cn("space-y-3 bg-muted/30 px-3 py-2.5", titled && "border-t border-border")}>
+      {titled && <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Icon name="Lock" className="size-3 shrink-0 text-subtle-foreground" aria-hidden />{STATE_LABEL.private}</p>}
       {discussion.entries.map((entry, index) => entry.kind === "message"
         ? <div key={index} className="space-y-1">
             <Speaker agent={entry.author === "agent"}>{entry.author === "agent" ? "Agent" : "You"}</Speaker>
@@ -246,8 +282,10 @@ function ComposerBox({ mode, divided = false }: { mode: "new" | "edit" | "ask"; 
 }
 
 /** The comment box itself: a line comment's, the summary's, or a message to the agent about either. */
-export function ComposerFields({ mode, subject = "comment", divided = false, busy, composer }: {
+export function ComposerFields({ mode, subject = "comment", divided = false, busy, composer, controlsRef }: {
   mode: "new" | "edit" | "ask"; subject?: "comment" | "summary"; divided?: boolean; busy: boolean; composer: InlineComposer;
+  /** Its buttons' row, which the draft keeps in view while you type. */
+  controlsRef?: Ref<HTMLDivElement>;
 }) {
   const empty = !composer.body.trim();
   const summary = subject === "summary";
@@ -266,7 +304,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
         className={cn("bg-background text-sm", summary && mode !== "ask" ? "min-h-28" : "min-h-20")}
       />
       {mode !== "ask" && <ComposerNotes error={composer.error} rebuilding={composer.rebuilding} keepOnCurrentDiff={composer.keepOnCurrentDiff} />}
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div ref={controlsRef} data-composer-controls className="flex flex-wrap items-center justify-end gap-2">
         {mode === "ask" && <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />Goes to the agent, not GitHub.</span>}
         {mode !== "ask" && (composer.changeSeverity || composer.suggest) && <span className="mr-auto flex flex-wrap gap-2">
           {composer.changeSeverity && <SeveritySelect value={composer.severity} onChange={composer.changeSeverity} disabled={busy} />}

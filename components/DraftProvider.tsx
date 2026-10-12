@@ -106,7 +106,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   // What had focus when the box opened, for focus to return to when it's cancelled.
   const opener = useRef<HTMLElement | null>(null);
-  const listRef = useRef<HTMLUListElement>(null);
+  const listRef = useRef<HTMLElement>(null);
   const mounted = useRef(true);
   const lock = useRef(false);
   const writes = useRef<Promise<unknown>>(Promise.resolve());
@@ -487,10 +487,10 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const chat = useMemo(() => onOpenPanel ? () => onOpenPanel("agent") : null, [onOpenPanel]);
   const editingLine = showComposer && !summaryBox && !asking;
   const inlineDraft = useMemo<InlineDraft>(() => ({
-    comments: draft.comments, stale, discussions: lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undo: undoAt, chat,
+    targetKey, comments: draft.comments, stale, discussions: lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undo: undoAt, chat,
     composer: composerInDiff ? { file, line: Number(line), side, ...(startLine ? { startLine } : {}), editing: editing !== null, asking } : null,
     editingAt: editingLine ? { file, line: Number(line), side } : null,
-  }), [draft.comments, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, chat, composerInDiff, editingLine, file, line, side, startLine, editing, asking]);
+  }), [targetKey, draft.comments, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, chat, composerInDiff, editingLine, file, line, side, startLine, editing, asking]);
   const canSuggest = !!suggestable;
   const inlineComposer = useMemo<InlineComposer | null>(() => composerInDiff ? {
     body, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
@@ -538,6 +538,6 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     showComposer, inline, counts, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, onShowComment, body, removeComment,
     file, boxLines, line, side, files, setFile, editing, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
     ownPr, suggested, chooseVerdict, confirming, setConfirming, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
-    inlineDraft, inlineComposer,
+    inlineDraft, inlineComposer, askAgent, patch, account,
   };
 }

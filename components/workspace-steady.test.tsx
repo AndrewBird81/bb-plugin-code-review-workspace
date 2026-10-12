@@ -125,10 +125,15 @@ test("a failed comparison with your last review says so", async () => {
 test("Follow up on a file outside every chapter says so and offers GitHub, without opening a comment box", async () => {
   const { toast } = await import("sonner");
   const { slot } = await renderWorkspace(() => ({ submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, turn: turn({ group: "needs", reason: "handled", label: "Feedback handled", signal: "handled:1" }) }));
-  const card = await slot.findByRole("article", { name: "Thread T1" });
-  fireEvent.click(within(card).getByRole("button", { name: "Follow up" }));
+  // Your thread waits on its author: it's on GitHub, not in Needs you.
+  const github = await panel(slot).findByRole("radio", { name: /^On GitHub,/ });
+  fireEvent.click(github);
+  fireEvent.click(await panel(slot).findByRole("button", { name: "Expand GitHub thread on src/gone.ts:2" }));
+  fireEvent.click(panel(slot).getByRole("button", { name: "More on the thread on src/gone.ts:2" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Follow up" }));
   expect(toast.info).toHaveBeenCalledWith("src/gone.ts isn’t changed in this PR anymore.", expect.objectContaining({ action: expect.objectContaining({ label: "Open on GitHub" }) }));
-  expect(panel(slot).getByRole("button", { name: "Feedback" }).getAttribute("aria-pressed")).toBe("true");
+  // The list stays as it was.
+  expect(github.getAttribute("aria-checked")).toBe("true");
   fireEvent.click(slot.getByRole("button", { name: "Start reading: Parsing" }));
   await slot.findByTestId("filediff");
   expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull();
