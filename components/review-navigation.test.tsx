@@ -505,6 +505,30 @@ test("a asks the agent, s opens the draft to submit, and ? lists the shortcuts u
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("keys work as soon as Esc closes the shortcuts, while they fade out", async () => {
+  // A browser keeps the help in the page, the focus in it, while it fades out; jsdom has no animations to wait for.
+  const computed = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element, pseudo?: string | null) => {
+    const style = computed(el, pseudo);
+    if (el.getAttribute("role") !== "dialog") return style;
+    const fade = () => el.getAttribute("data-state") === "closed" ? "exit" : "enter";
+    return new Proxy(style, { get: (target, prop) => prop === "animationName" ? fade() : ((value) => typeof value === "function" ? value.bind(target) : value)(Reflect.get(target, prop)) });
+  });
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  press("?");
+  const help = await slot.findByRole("dialog", { name: "Keyboard shortcuts" });
+  fireEvent.keyDown(help, { key: "Escape" });
+  expect(help.isConnected && help.getAttribute("data-state")).toBe("closed");
+  // The help hides the rest from screen readers until it's gone: the chapters' own state says whether t hid them.
+  const navigator = document.getElementById("gr-navigator-pr-42")!;
+  expect(navigator.hidden).toBe(false);
+  press("t", {}, document.activeElement!);
+  expect(navigator.hidden).toBe(true);
+  slot.lifecycle.unmount();
+  vi.mocked(window.getComputedStyle).mockRestore();
+}, 15_000);
+
 test("the toolbar counts the chapter's viewed files as such, and marks the chapter viewed", async () => {
   const { slot, rpc } = await renderWorkspace();
   await slot.findByText("aa");

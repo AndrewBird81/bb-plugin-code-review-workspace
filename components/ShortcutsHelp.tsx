@@ -5,8 +5,13 @@ const GROUPS = [...new Set(SHORTCUTS.map((shortcut) => shortcut.group))];
 
 /** The workspace's keyboard shortcuts, opened with "?", grouped by what they're for. */
 export function ShortcutsHelp({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  // Closing, it fades out with the focus still in it, outside the review, whose keys would wait until it's gone.
+  const change = (next: boolean) => {
+    if (!next) (document.activeElement as HTMLElement | null)?.blur();
+    onOpenChange(next);
+  };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={change}>
       {/* As tall as its list. The dialog is portaled straight into <body>, so a page rule like
           `body > div { height: 100vh }` (the harness's stand-in for BB's base styles has one) made it
           full height, its grid rows spreading an empty band above the list. */}
