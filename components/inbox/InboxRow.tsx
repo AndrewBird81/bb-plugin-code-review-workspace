@@ -39,7 +39,7 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   const quick = "size-7 px-0 text-muted-foreground hover:text-foreground";
   return (
     <div className="group/row relative flex min-w-0 items-center hover:bg-state-hover has-[[data-row]:focus-visible]:bg-state-hover">
-      <button type="button" data-row onClick={onOpen} className={cn("min-w-0 flex-1 px-3 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", short ? "py-1.5" : "pointer-coarse:py-3")}>
+      <button type="button" data-row onClick={onOpen} className={cn("min-w-0 flex-1 px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", short ? "py-1.5" : "py-2 pointer-coarse:py-3")}>
         <span className="flex min-w-0 items-baseline gap-3">
           <span id={titleId} className="min-w-0 flex-1 truncate text-sm font-medium leading-5 text-foreground">
             <InlineCode text={title} />
