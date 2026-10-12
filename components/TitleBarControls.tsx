@@ -58,7 +58,7 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
   }, [placement]);
   return (
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
-      <div role="group" aria-label="Review commands" className="flex shrink-0 items-center gap-1">
+      <div role="group" aria-label="Review commands" data-review-commands={api.targetKey} className="flex shrink-0 items-center gap-1">
         <Hint label="Comments (c)" container={container}>
           <Button variant="ghost" size="sm" aria-label={needsYou ? `Comments, ${needsYou} need you` : "Comments"} aria-pressed={panel.view === "comments"} aria-controls={controls} className={tier === "labeled" ? labeled : cn(icon, needsYou > 0 && "w-auto gap-1 px-2")} onClick={() => panel.toggle("comments")}>
             <Icon name="MessageSquare" aria-hidden />

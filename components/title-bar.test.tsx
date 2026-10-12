@@ -160,6 +160,20 @@ test("Comments counts what needs you, opens and closes the panel, and says so pr
   act(() => setNeedsYou("pr-42", 0));
 });
 
+test("closing the panel a title-bar command opened gives the focus back to the command, where the review's keys still work", async () => {
+  fakeSize(1400, 900);
+  const { bar, page } = await renderReview();
+  const comments = await bar!.findByRole("button", { name: "Comments" });
+  // A click presses, focuses the button, and lets go.
+  const click = (button: HTMLElement) => { fireEvent.pointerDown(button); button.focus(); fireEvent.pointerUp(button); fireEvent.click(button); };
+  click(comments);
+  click(within(page.getByRole("complementary", { name: "Comments and agent" })).getByRole("button", { name: "Close panel" }));
+  await waitFor(() => expect(document.activeElement).toBe(comments));
+  expect(page.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
+  fireEvent.keyDown(comments, { key: "t" });
+  expect(page.queryByRole("navigation", { name: "Chapters" })).toBeNull();
+});
+
 test("Review actions offers Update guide for new commits, else Rebuild guide, then Open on GitHub, Keyboard shortcuts and Review settings", async () => {
   fakeSize(1400, 900);
   const rereview = vi.fn(() => ({ ok: true }));

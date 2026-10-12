@@ -894,7 +894,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     function onKeyDown(event: KeyboardEvent) {
       const key = shortcutKey(event);
       const root = rootRef.current;
-      if (!root || (event.target !== document.body && !root.contains(event.target as Node))) return;
+      const target = event.target as Element;
+      // Its commands in BB's title bar are the review's too: closing what one of them opened gives it the focus.
+      const commands = target.closest?.("[data-review-commands]")?.getAttribute("data-review-commands") === targetKey;
+      if (!root || (target !== document.body && !root.contains(target) && !commands)) return;
       // An Esc a menu or tooltip already took is theirs.
       if (key === "Escape" && event.defaultPrevented) return;
       // Other keys may scroll the diff, which then says which file you're on.
@@ -903,7 +906,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [targetKey]);
 
   const api = useMemo((): WorkspaceApi | null => guide ? {
     targetKey, review: review ?? { targetKey }, guide, sections, activeId, go: selectChapter, layout,
