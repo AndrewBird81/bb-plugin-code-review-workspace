@@ -37,10 +37,11 @@ function codeTop(box: HTMLElement): number {
 const sizeOf = (box: HTMLElement) => `${box.clientWidth}x${box.clientHeight}`;
 
 /**
- * What has the focus, where it shows, such as the comment you're typing; else the first line of code near the top of
- * what shows, looking down past what starts above it, such as a comment card half under the header, and past what
- * isn't code, such as the chapter's intro, which may fold away as the screen turns; else the first thing that starts
- * there; or, failing that, what's there.
+ * What has the focus, where it shows, such as the comment you're typing, unless it's taller than the box, such as a
+ * file whose code has the focus (its shadow root's host); else the first line of code near the top of what shows,
+ * looking down past what starts above it, such as a comment card half under the header, and past what isn't code, such
+ * as the chapter's intro, which may fold away as the screen turns; else the first thing that starts there; or, failing
+ * that, what's there.
  */
 function anchorIn(box: HTMLElement): Anchor | null {
   const rect = box.getBoundingClientRect();
@@ -50,7 +51,7 @@ function anchorIn(box: HTMLElement): Anchor | null {
   const focused = document.activeElement;
   if (focused && focused !== box && box.contains(focused)) {
     const { top: focusTop, bottom } = focused.getBoundingClientRect();
-    if (bottom > top && focusTop < rect.bottom) return { el: focused, offset: focusTop - top, size: sizeOf(box) };
+    if (bottom > top && focusTop < rect.bottom && bottom - focusTop <= rect.height) return { el: focused, offset: focusTop - top, size: sizeOf(box) };
   }
   let first: Element | null = null;
   let starting: Element | null = null;
@@ -78,20 +79,33 @@ export function useScrollAnchor(box: HTMLElement | null) {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => { if (!anchor || anchor.size === sizeOf(box)) anchor = anchorIn(box); });
     };
+    // The box resized (a fold, a side docking beside it): what was at its top goes back there. Only what's in it did (a
+    // comment unfolding, lines expanding above it): you saw that move the place, with no scroll, and it's where it went.
     const observer = new ResizeObserver(() => {
-      if (anchor?.el.isConnected) {
-        const moved = anchor.el.getBoundingClientRect().top - codeTop(box) - anchor.offset;
+      const was = anchor;
+      if (was?.el.isConnected && was.size !== sizeOf(box)) {
+        const moved = was.el.getBoundingClientRect().top - codeTop(box) - was.offset;
         if (Math.abs(moved) >= 1) box.scrollTop += moved;
       }
       // Under a phone's sheet the code is inert, out of reach of a pointer, and of reading what's at one: the place
-      // stays the one it was.
-      anchor = anchorIn(box) ?? (anchor && { ...anchor, size: sizeOf(box) });
+      // stays the one it was, where it is now.
+      anchor = anchorIn(box) ?? (was?.el.isConnected ? { el: was.el, offset: was.el.getBoundingClientRect().top - codeTop(box), size: sizeOf(box) } : null);
     });
     observer.observe(box);
+    // What's in the box too, as it comes and goes with the chapter.
+    for (const child of Array.from(box.children)) observer.observe(child);
+    const content = new MutationObserver((records) => {
+      for (const record of records) {
+        record.removedNodes.forEach((node) => { if (node instanceof Element) observer.unobserve(node); });
+        record.addedNodes.forEach((node) => { if (node instanceof Element) observer.observe(node); });
+      }
+    });
+    content.observe(box, { childList: true });
     box.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      content.disconnect();
       box.removeEventListener("scroll", onScroll);
     };
   }, [box]);

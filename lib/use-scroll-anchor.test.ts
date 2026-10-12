@@ -4,22 +4,24 @@ import { useScrollAnchor } from "./use-scroll-anchor";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); delete (document as { elementsFromPoint?: unknown }).elementsFromPoint; document.body.innerHTML = ""; });
 
-/** A ResizeObserver whose `resize()` reports. */
+/** A ResizeObserver whose `resize()` reports, and the elements it watches (`observed`). */
 function stubResizeObserver() {
   let report: (() => void) | null = null;
+  const observed = new Set<Element>();
   vi.stubGlobal("ResizeObserver", class {
     constructor(private notify: ResizeObserverCallback) {}
-    observe() { report = () => this.notify([], this as unknown as ResizeObserver); }
-    unobserve() {}
-    disconnect() { report = null; }
+    observe(target: Element) { observed.add(target); report = () => this.notify([], this as unknown as ResizeObserver); }
+    unobserve(target: Element) { observed.delete(target); }
+    disconnect() { report = null; observed.clear(); }
   });
-  return () => act(() => report?.());
+  return Object.assign(() => act(() => report?.()), { observed });
 }
 
 /**
- * The code's box at y 100, scrolled to 300: lines 40px tall, under a file header `header` px tall held at its top.
- * jsdom has no layout, so positions come from `scrollTop` and a height per line, which a resize changes as lines
- * rewrap. `cover`: what a sheet over the code puts first at every point; `inert`: the code can't be hit at all.
+ * The code's box at y 100, 380 × 500 (`held.width`, `held.height`) and scrolled to 300: lines 40px tall, under a file
+ * header `header` px tall held at its top. jsdom has no layout, so positions come from `scrollTop` and a height per
+ * line, which a resize changes as lines rewrap. `cover`: what a sheet over the code puts first at every point; `inert`:
+ * the code can't be hit at all.
  */
 function code({ header = 0, cover = null as Element | null, inert = false } = {}) {
   const box = document.body.appendChild(document.createElement("div"));
@@ -31,9 +33,11 @@ function code({ header = 0, cover = null as Element | null, inert = false } = {}
     return line;
   });
   const heights = lines.map(() => 40);
-  const held = { header, inert };
+  const held = { header, inert, width: 380, height: 500 };
   box.scrollTop = 300;
-  box.getBoundingClientRect = () => new DOMRect(0, 100, 380, 500);
+  Object.defineProperty(box, "clientWidth", { get: () => held.width });
+  Object.defineProperty(box, "clientHeight", { get: () => held.height });
+  box.getBoundingClientRect = () => new DOMRect(0, 100, held.width, held.height);
   sticky.getBoundingClientRect = () => new DOMRect(0, 100, 380, held.header);
   const topOf = (index: number) => 100 - box.scrollTop + heights.slice(0, index).reduce((sum, h) => sum + h, 0);
   lines.forEach((line, i) => { line.getBoundingClientRect = () => new DOMRect(0, topOf(i), 380, heights[i]); });
@@ -47,12 +51,13 @@ const under = (el: Element, header: number) => el.getBoundingClientRect().top - 
 
 test("as the box resizes and the lines above rewrap, the line at its top stays where it was", () => {
   const resize = stubResizeObserver();
-  const { box, lines, heights } = code();
+  const { box, lines, heights, held } = code();
   renderHook(() => useScrollAnchor(box));
   const reading = lines[7];
   const offset = under(reading, 0);
   // Unfolded, the lines above unwrap: each of the first seven is 20px shorter.
   for (let i = 0; i < 7; i++) heights[i] = 20;
+  held.width = 900;
   resize();
   expect(box.scrollTop).toBe(160);
   expect(under(reading, 0)).toBe(offset);
@@ -67,6 +72,7 @@ test("it stays as far under the file's sticky header as it was, when the header 
   expect(under(reading, 100)).toBe(0);
   // Wider, the header takes one row instead of three, and the lines above unwrap.
   held.header = 44;
+  held.width = 900;
   for (let i = 0; i < 10; i++) heights[i] = 30;
   resize();
   expect(under(reading, 44)).toBe(0);
@@ -74,15 +80,16 @@ test("it stays as far under the file's sticky header as it was, when the header 
 
 test("a resize that moves nothing, such as the keyboard shortening the box, scrolls nothing", () => {
   const resize = stubResizeObserver();
-  const { box } = code();
+  const { box, held } = code();
   renderHook(() => useScrollAnchor(box));
+  held.height = 210;
   resize();
   expect(box.scrollTop).toBe(300);
 });
 
 test("it reads the place again after you scroll, and keeps that one", async () => {
   const resize = stubResizeObserver();
-  const { box, lines, heights } = code();
+  const { box, lines, heights, held } = code();
   renderHook(() => useScrollAnchor(box));
   box.scrollTop = 400;
   box.dispatchEvent(new Event("scroll"));
@@ -90,6 +97,7 @@ test("it reads the place again after you scroll, and keeps that one", async () =
   const reading = lines[10];
   const offset = under(reading, 0);
   for (let i = 0; i < 10; i++) heights[i] = 60;
+  held.width = 300;
   resize();
   expect(under(reading, 0)).toBe(offset);
 });
@@ -104,16 +112,18 @@ test("with a sheet over the code it reads what's under the sheet, and keeps the 
   // On a phone the code under the sheet is inert: unfolded and folded again, the place is the same line.
   held.inert = true;
   for (let i = 0; i < 7; i++) heights[i] = 20;
+  held.width = 900;
   resize();
   expect(under(reading, 0)).toBe(offset);
   for (let i = 0; i < 7; i++) heights[i] = 40;
+  held.width = 380;
   resize();
   expect(under(reading, 0)).toBe(offset);
 });
 
 test("a line of code below what isn't code, such as the chapter's intro, is what stays, as the intro folds away", () => {
   const resize = stubResizeObserver();
-  const { box, lines, heights } = code();
+  const { box, lines, heights, held } = code();
   // The chapter's intro at the box's top, light DOM, not lines; the code under it.
   lines.forEach((line, i) => { if (i < 8) delete line.dataset.line; });
   box.scrollTop = 280;
@@ -122,34 +132,83 @@ test("a line of code below what isn't code, such as the chapter's intro, is what
   const offset = under(reading, 0);
   // Held sideways, the intro folds 30px shorter.
   heights[7] = 10;
+  Object.assign(held, { width: 900, height: 300 });
   resize();
   expect(under(reading, 0)).toBe(offset);
 });
 
 test("what has the focus in the code, such as the comment you're typing, is what stays where it was", () => {
   const resize = stubResizeObserver();
-  const { box, lines, heights } = code();
+  const { box, lines, heights, held } = code();
   const typing = lines[9].appendChild(document.createElement("textarea"));
   typing.getBoundingClientRect = () => lines[9].getBoundingClientRect();
   act(() => typing.focus());
   renderHook(() => useScrollAnchor(box));
   const offset = under(typing, 0);
   for (let i = 0; i < 9; i++) heights[i] = 25;
+  held.width = 900;
   resize();
   expect(under(typing, 0)).toBe(offset);
 });
 
 test("after the fold, what the new layout redraws, such as comments unfolding, is put right too", () => {
   const resize = stubResizeObserver();
-  const { box, lines, heights } = code();
+  const { box, lines, heights, held } = code();
   renderHook(() => useScrollAnchor(box));
   const reading = lines[7];
   const offset = under(reading, 0);
   for (let i = 0; i < 7; i++) heights[i] = 20;
+  held.width = 900;
   resize();
   expect(under(reading, 0)).toBe(offset);
   // The band appears over the code and a comment above unfolds: the box resizes again.
   heights[3] = 120;
+  held.height = 456;
   resize();
   expect(under(reading, 0)).toBe(offset);
+});
+
+test("what grows above the line at the top with no scroll, such as a comment unfolding, moves it, and that's the place: a resize after it scrolls nothing", () => {
+  const resize = stubResizeObserver();
+  const { box, lines, heights, held } = code();
+  renderHook(() => useScrollAnchor(box));
+  // A comment under line 7 unfolds 150px taller: line 8, at the top, moves down 150px with no scroll.
+  heights[6] += 150;
+  resize();
+  expect(box.scrollTop).toBe(300);
+  const reading = lines[7].getBoundingClientRect().top;
+  // The box resizes and nothing rewraps, as when a phone's dock hides as you tap a line.
+  held.height += 52;
+  resize();
+  expect(box.scrollTop).toBe(300);
+  expect(lines[7].getBoundingClientRect().top).toBe(reading);
+});
+
+test("what has the focus but is taller than the box, such as a file whose code holds it, isn't the place: the line at the top is", () => {
+  const resize = stubResizeObserver();
+  const { box, lines, heights, held } = code();
+  // Inside the diff's shadow DOM, the focus shows as the file's host: all of its code.
+  const file = box.appendChild(document.createElement("div"));
+  file.tabIndex = -1;
+  file.getBoundingClientRect = () => new DOMRect(0, lines[0].getBoundingClientRect().top, 380, 1200);
+  act(() => file.focus());
+  renderHook(() => useScrollAnchor(box));
+  const reading = lines[8];
+  const offset = under(reading, 0);
+  for (let i = 0; i < 7; i++) heights[i] = 20;
+  held.width = 900;
+  resize();
+  expect(under(reading, 0)).toBe(offset);
+});
+
+test("it watches what's in the box as well as the box, as it comes and goes", async () => {
+  const resize = stubResizeObserver();
+  const { box, lines } = code();
+  renderHook(() => useScrollAnchor(box));
+  expect(resize.observed).toEqual(new Set([box, ...Array.from(box.children)]));
+  const added = box.appendChild(document.createElement("div"));
+  lines[0].remove();
+  await act(() => Promise.resolve());
+  expect(resize.observed.has(added)).toBe(true);
+  expect(resize.observed.has(lines[0])).toBe(false);
 });

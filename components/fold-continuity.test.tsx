@@ -356,3 +356,49 @@ test("unfolded, chapters peeked at beside docked Comments: folding shows the one
   expect(dockedPanel(slot)).toBe(panel);
   slot.lifecycle.unmount();
 });
+
+/**
+ * The code in the workspace's scroll `box`, which jsdom doesn't lay out: 30 lines 40px tall in the file's diff, the box
+ * 380 × 500 at y 100 and scrolled to 300, with what's at each point found from those (lib/use-scroll-anchor.ts).
+ */
+function fakeCode(box: HTMLElement, diff: HTMLElement) {
+  const size = { width: 380, height: 500 };
+  const lines = Array.from({ length: 30 }, (_, i) => {
+    const line = diff.appendChild(document.createElement("div"));
+    line.dataset.line = String(i + 1);
+    return line;
+  });
+  const heights = lines.map(() => 40);
+  Object.defineProperty(box, "clientWidth", { configurable: true, get: () => size.width });
+  Object.defineProperty(box, "clientHeight", { configurable: true, get: () => size.height });
+  box.getBoundingClientRect = () => new DOMRect(0, 100, size.width, size.height);
+  box.scrollTop = 300;
+  const topOf = (index: number) => 100 - box.scrollTop + heights.slice(0, index).reduce((sum, h) => sum + h, 0);
+  lines.forEach((line, i) => { line.getBoundingClientRect = () => new DOMRect(0, topOf(i), size.width, heights[i]); });
+  document.elementsFromPoint = (_x: number, y: number) => {
+    const line = lines.find((_, i) => y >= topOf(i) && y < topOf(i) + heights[i]);
+    return [...(line ? [line, box] : [box]), document.body];
+  };
+  restores.push(() => { delete (document as { elementsFromPoint?: unknown }).elementsFromPoint; });
+  return { lines, heights, size };
+}
+
+test("a comment unfolding above the line you read, without a scroll, then the box resizing as the dock hides: the code stays where it is", async () => {
+  const screen = fakeScreen(OUTER.width, OUTER.height);
+  const slot = await renderWorkspace();
+  const box = slot.getByRole("main").querySelector<HTMLElement>(".overflow-y-auto")!;
+  const { lines, heights, size } = fakeCode(box, slot.getByTestId("filediff"));
+  // What's at the top is read as the box reports: line 8.
+  screen.pane(OUTER);
+  // A comment under line 7 unfolds, 150px taller: line 8 and what follows move down, with no scroll.
+  heights[6] += 150;
+  screen.pane(OUTER);
+  expect(box.scrollTop).toBe(300);
+  const reading = lines[7].getBoundingClientRect().top;
+  // Tapping a line hides the dock: the box is 52px taller, and nothing rewraps.
+  size.height += 52;
+  screen.pane(OUTER);
+  expect(box.scrollTop).toBe(300);
+  expect(lines[7].getBoundingClientRect().top).toBe(reading);
+  slot.lifecycle.unmount();
+});
