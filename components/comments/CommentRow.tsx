@@ -63,14 +63,17 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
           <span className="flex min-w-0 items-center gap-1.5 text-xs">
             <ItemIcon item={item} />
             <span className="min-w-0 truncate font-medium text-foreground">{item.kind === "thread" ? `${item.who} · ${itemWords(item)}` : itemWords(item)}</span>
+            {place && <span className="ml-auto shrink-0 pl-1 font-mono text-[11px] text-muted-foreground">{place}</span>}
+          </span>
+          {/* What it is in a word or two, then its latest message. */}
+          <span className="flex min-w-0 items-center gap-1.5">
             {item.at?.side === "LEFT" && item.at.line !== null && <Badge size="sm">Old line</Badge>}
             {severity && <Badge tone={SEVERITY_TONE[severity]} size="sm">{SEVERITY_LABEL[severity]}</Badge>}
             {item.kind === "thread" && item.tag && <Badge tone={TAG_TONE[item.tag] ?? "neutral"} size="sm">{item.tag}</Badge>}
             {(item.kind === "thread" || item.kind === "ask") && item.check && <CheckBadge check={item.check} />}
             {item.kind === "draft" && item.discussion?.waiting && <Badge tone="agent" dot pulse size="sm">Waiting for agent</Badge>}
-            {place && <span className="ml-auto shrink-0 pl-1 font-mono text-[11px] text-muted-foreground">{place}</span>}
+            {!expanded && <span className="min-w-0 truncate text-[13px] leading-snug text-muted-foreground"><InlineCode text={latestOf(item)} /></span>}
           </span>
-          {!expanded && <span className="line-clamp-1 break-all text-[13px] leading-snug text-muted-foreground"><InlineCode text={latestOf(item)} /></span>}
         </button>
         <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${cardName(item)}`} aria-expanded={expanded} onClick={() => onExpand(expanded ? null : item.id)}
           className="flex w-9 shrink-0 items-center justify-center rounded-r-lg text-subtle-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 pointer-coarse:w-11">

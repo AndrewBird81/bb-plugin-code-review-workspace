@@ -134,6 +134,12 @@ test("one list: chips count what they show, the groups come in order, and each i
 test("a chip shows its group alone: Needs you by urgency, and Not submitted every draft comment in reading order", async () => {
   const { slot } = await renderWorkspace();
   const list = await openComments(slot);
+  // A radio group: one Tab stop, and the arrows move the choice.
+  expect(list.getAllByRole("radio").map((radio) => radio.tabIndex)).toEqual([0, -1, -1, -1]);
+  fireEvent.keyDown(chip(list, "All"), { key: "ArrowRight" });
+  expect(chip(list, "Needs you").getAttribute("aria-checked")).toBe("true");
+  fireEvent.keyDown(chip(list, "Needs you"), { key: "ArrowLeft" });
+  expect(chip(list, "All").getAttribute("aria-checked")).toBe("true");
   fireEvent.click(chip(list, "Needs you"));
   expect(headings(list)).toEqual(["Needs you · 2"]);
   expect(rows(list)).toEqual(["Older diff · not submitted · src/a.ts:1", "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partial"]);

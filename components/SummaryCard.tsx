@@ -58,19 +58,19 @@ export function SummaryCard({ cardRef, draft, discussion, editable, busy, writin
       <div className={bar}>
         <DraftIcon edge={agent ? "agent" : "yours"} />
         <span className="font-medium text-foreground">{body ? SUMMARY_LABEL[agent ? "agent" : "reviewer"] : "Summary"}</span>
-        {editable && body && composer?.mode !== "edit" && (
-          <span className="-mr-1.5 ml-auto flex">
-            <Button variant="ghost" size="sm" aria-label="Ask agent about the review summary" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={blocked || !!composer} onClick={onAsk}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
-            <Button variant="ghost" size="sm" aria-label="Edit review summary" className={action} disabled={blocked || !!composer || working} onClick={onEdit}>Edit</Button>
-            <Button variant="ghost" size="sm" aria-label="Remove review summary" className={cn(action, "hover:text-destructive-text")} disabled={busy || working} onClick={onRemove}>Remove</Button>
-          </span>
-        )}
       </div>
       {composer?.mode === "edit" ? <>
           {changedWhileEditing && <p role="status" className="flex items-center gap-1.5 border-b border-warning/20 bg-warning/10 px-3 py-1.5 text-xs text-warning-text"><Icon name="AlertCircle" className="size-3.5 shrink-0" aria-hidden />The summary changed while you were editing. Saving replaces it.</p>}
           <ComposerFields mode="edit" subject="summary" busy={busy} composer={composer} />
         </>
-        : body ? <div className="px-3 pb-2.5"><Markdown content={withLineBreaks(draft.body)} className="text-sm leading-relaxed" /></div>
+        : body ? <div className="space-y-1.5 px-3 pb-2.5">
+            <Markdown content={withLineBreaks(draft.body)} className="text-sm leading-relaxed" />
+            {editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">
+              <Button variant="ghost" size="sm" aria-label="Edit review summary" className={cn(action, "text-muted-foreground")} disabled={blocked || !!composer || working} onClick={onEdit}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
+              <Button variant="ghost" size="sm" aria-label="Ask agent about the review summary" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={blocked || !!composer} onClick={onAsk}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
+              <Button variant="ghost" size="sm" aria-label="Remove review summary" className={cn(action, "text-muted-foreground hover:text-destructive-text")} disabled={busy || working} onClick={onRemove}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove</Button>
+            </div>}
+          </div>
         : <div className="space-y-2.5 px-3 pb-3">
             <p className="text-sm leading-relaxed text-muted-foreground">{isLocal ? "Saved with your local draft." : "What should the author know overall? It goes to GitHub with your verdict, above your line comments."}</p>
             {editable && !discussion?.waiting && !composer && <div className="flex flex-wrap gap-2">

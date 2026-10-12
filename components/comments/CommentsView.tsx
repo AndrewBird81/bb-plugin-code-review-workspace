@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { sameLocation, VERDICT_LABEL } from "../../src/draft";
@@ -250,13 +250,23 @@ function GroupHead({ id, title, count, summary }: { id: string; title: string; c
 /** The chips: All, Needs you, Not submitted, On GitHub, each with its count, as a radio group. */
 function Chips({ groups, total, filter, onFilter }: { groups: CommentGroup[]; total: number; filter: CommentFilter; onFilter: (filter: CommentFilter) => void }) {
   const count = (id: CommentFilter) => id === "all" ? total : groups.find((group) => group.id === id)!.count;
+  // One stop for Tab; the arrows move between the chips, as in any radio group.
+  const arrow = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    const group = event.currentTarget;
+    const next = FILTERS[(FILTERS.indexOf(filter) + step + FILTERS.length) % FILTERS.length];
+    onFilter(next);
+    requestAnimationFrame(() => group.querySelector<HTMLElement>(`[data-filter="${next}"]`)?.focus());
+  };
   return (
-    <div role="radiogroup" aria-label="Show" className="-mx-3 flex gap-1.5 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none]">
+    <div role="radiogroup" aria-label="Show" onKeyDown={arrow} className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none]">
       {FILTERS.map((id) => {
         const on = filter === id;
         return (
-          <button key={id} type="button" role="radio" aria-checked={on} aria-label={`${FILTER_LABEL[id]}, ${count(id)}`} onClick={() => onFilter(id)}
-            className={cn("flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full border px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:px-3.5", TOUCH_CONTROL,
+          <button key={id} type="button" role="radio" aria-checked={on} tabIndex={on ? 0 : -1} data-filter={id} aria-label={`${FILTER_LABEL[id]}, ${count(id)}`} onClick={() => onFilter(id)}
+            className={cn("flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full border px-2 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:px-3.5", TOUCH_CONTROL,
               on ? "border-primary/40 bg-primary/12 text-foreground" : "border-border text-muted-foreground hover:border-input hover:text-foreground")}>
             {FILTER_LABEL[id]}
             <span className={cn("tabular-nums", on ? "text-primary" : "text-subtle-foreground", id === "needs-you" && count(id) > 0 && !on && "text-primary")}>{count(id)}</span>

@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Markdown, useBbNavigate } from "@get-bb/plugin-sdk/app";
-import { linesOf, sameLocation, SEVERITY_LABEL } from "../../src/draft";
+import { linesOf, sameLocation } from "../../src/draft";
 import { withLineBreaks } from "../../src/line-breaks";
 import type { AskItem, CommentItem, DraftItem, PrivateItem, ThreadItem, ThreadMessage } from "../../lib/comments";
 import { cn } from "../../lib/utils";
@@ -236,10 +236,4 @@ function PrivateCard({ item }: { item: PrivateItem }) {
       </div>}
     </article>
   );
-}
-
-/** "Blocking", for a row: a draft's severity, or a thread's label. */
-export function severityWords(item: CommentItem): string | null {
-  if (item.kind === "draft") return item.comment.severity ? SEVERITY_LABEL[item.comment.severity] : null;
-  return item.kind === "thread" ? item.tag : null;
 }

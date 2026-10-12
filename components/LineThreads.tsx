@@ -216,16 +216,16 @@ function useFlash(targetKey: string, id: string) {
   useEffect(() => {
     if (!revealed || revealed.id !== id || revealed.nonce === flashed.current) return;
     flashed.current = revealed.nonce;
-    ref.current?.animate?.([{ outline: "2px solid var(--primary)", outlineOffset: "1px" }, { outline: "2px solid transparent", outlineOffset: "1px" }], { duration: 1600, easing: "ease-in" });
+    ref.current?.firstElementChild?.animate?.([{ outline: "2px solid var(--primary)", outlineOffset: "1px" }, { outline: "2px solid transparent", outlineOffset: "1px" }], { duration: 1600, easing: "ease-in" });
   }, [revealed, id]);
-  return { ref, revealed: revealed?.id === id ? revealed.nonce : 0 };
+  return ref;
 }
 
 /** One GitHub thread in the code: its card, or with comments folded its pill. */
 function ThreadInCode({ targetKey, item, className }: { targetKey: string; item: ThreadItem; className?: string }) {
   const folded = useComments(targetKey, "folded");
   const opened = useCommentOpen(targetKey, item.id);
-  const { ref } = useFlash(targetKey, item.id);
+  const ref = useFlash(targetKey, item.id);
   const replies = item.messages.length - 1;
   if (folded && !opened) {
     return <div ref={ref}>
