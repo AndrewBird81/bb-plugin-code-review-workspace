@@ -153,20 +153,28 @@ async function remountAt(place: { file: string; index: string; offset: number },
   return { slot: again, code: again.getByRole("main", { name: "Review" }).querySelector<HTMLElement>(":scope > .overflow-y-auto")! };
 }
 
-test("as BB remounts the page, a line not drawn yet, as in a large chapter, is looked for where the code was, and gone to once it draws", async () => {
+test("as BB remounts the page, a line not drawn yet, as in a large chapter, is looked for in its file, and gone to once it draws", async () => {
   const { slot, code } = await remountAt({ file: "src/a.ts", index: "1,1", offset: 12 }, 400);
-  await waitFor(() => expect(code.scrollTop).toBe(400));
-  // Its file draws there, the line 1000px down the code.
+  // Its file waits to draw 3000px down the code, not where the saved position is at this width.
+  code.querySelector<HTMLElement>("[data-file='src/a.ts']")!.getBoundingClientRect = () => new DOMRect(0, 3000 - code.scrollTop, 390, 8000);
+  await waitFor(() => expect(code.scrollTop).toBe(3000));
+  // There it draws, the line 600px down it.
   const line = slot.getByTestId("filediff").appendChild(document.createElement("diffs-container")).attachShadow({ mode: "open" }).appendChild(document.createElement("div"));
   line.setAttribute("data-line", "1");
   line.setAttribute("data-line-index", "1,1");
-  line.getBoundingClientRect = () => new DOMRect(0, 1000 - code.scrollTop, 390, 20);
-  await waitFor(() => expect(code.scrollTop).toBe(988));
+  line.getBoundingClientRect = () => new DOMRect(0, 3600 - code.scrollTop, 390, 20);
+  await waitFor(() => expect(code.scrollTop).toBe(3588));
+  slot.lifecycle.unmount();
+});
+
+test("as BB remounts the page, a line whose file has gone from the chapter is looked for where the code was", async () => {
+  const { slot, code } = await remountAt({ file: "src/gone.ts", index: "1,1", offset: 12 }, 400);
+  await waitFor(() => expect(code.scrollTop).toBe(400));
   slot.lifecycle.unmount();
 });
 
 test("as BB remounts the page, a tap outside the code, as on the dock, ends putting the line back: the code stays where it goes, and that's the place", async () => {
-  const { slot, code } = await remountAt({ file: "src/a.ts", index: "1,1", offset: 12 }, 400);
+  const { slot, code } = await remountAt({ file: "src/gone.ts", index: "1,1", offset: 12 }, 400);
   await waitFor(() => expect(code.scrollTop).toBe(400));
   fireEvent.pointerDown(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Chapters:/ }));
   code.scrollTop = 120;
