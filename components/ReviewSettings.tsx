@@ -12,6 +12,8 @@ import { ReleaseSettings, SetupReadiness } from "./ReleaseSettings";
 import { Icon, type IconName } from "./ui/icon";
 import { IconTile } from "./ui/icon-tile";
 import type { Tone } from "./ui/badge";
+import { AccountBar } from "./AccountBar";
+import { PageBar } from "./PageBar";
 
 type AgentUpdate = (agent: AgentExecution | null) => AgentExecution | null;
 /** undefined while loading; null when they couldn't be loaded. */
@@ -149,8 +151,11 @@ function SectionHeading({ icon, tone = "primary", title, description }: { icon: 
   </div>;
 }
 
-// Plain function: the host slot collector requires a component function.
-export function ReviewSettings({ onBack }: { onBack?: () => void }) {
+/**
+ * Review settings, in BB's Settings and as the panel's own page, where `onBack` adds its page bar, back to where you
+ * came from (`back`). Plain function: the host slot collector requires a component function.
+ */
+export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: string }) {
   const rpc = useRpc<typeof rpcContract>();
   const session = useReviewSession();
   const [record, setRecord] = useState<PreferencesRecord | null>(null);
@@ -197,13 +202,13 @@ export function ReviewSettings({ onBack }: { onBack?: () => void }) {
     finally { setBusy(false); }
   }
   if (!session.ready) return <div className="space-y-3 p-6"><p role={session.error ? "alert" : "status"}>{session.error || "Opening settings…"}</p>{session.error && <Button onClick={session.retry}>Try again</Button>}</div>;
-  return <div className="h-full min-w-0 overflow-y-auto" style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
+  return <div className="flex h-full min-h-0 min-w-0 flex-col" style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
+    {/* Back waits for your edits to be saved or discarded. */}
+    {onBack && <PageBar back={back} onBack={onBack} backDisabled={dirty || busy || updating} title="Settings" />}
+    <div className="min-h-0 flex-1 overflow-y-auto">
     <div className="mx-auto w-full max-w-6xl space-y-4 px-4 py-5 sm:px-8">
-      <div className="space-y-4 pb-2">
-        {onBack && <Button variant="ghost" size="sm" onClick={onBack} disabled={dirty || busy || updating}><Icon name="ArrowRight" className="size-4 rotate-180" aria-hidden /> Back to review</Button>}
-        <div className="flex items-center gap-3"><IconTile tone="primary" icon="Settings" className="size-10 rounded-xl" iconClassName="size-5" /><div><h1 className="text-xl font-semibold">Review settings</h1><p className="mt-1 max-w-[75ch] text-sm text-muted-foreground">Shape your guides and how the assistant helps you review. Applies across this BB installation.</p></div></div>
-      </div>
-      <SetupReadiness />
+      <p className="max-w-[75ch] pb-2 text-sm text-muted-foreground">Shape your guides and how the assistant helps you review. Applies across this BB installation.</p>
+      <SetupReadiness account={<AccountBar />} />
       <ReleaseSettings clientId={session.clientId} disabled={dirty || busy} onUpdatingChange={setUpdating} />
       <section className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs">
         <SectionHeading icon="Mail" title="Guide notifications" />
@@ -214,7 +219,7 @@ export function ReviewSettings({ onBack }: { onBack?: () => void }) {
       {!record ? !error && <p role="status">Loading settings…</p> : <>
         <fieldset disabled={busy || updating} className="space-y-4">
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
-            <SectionHeading icon="Route" title="Guide generation" description="Used when starting a guide or running Re-review. Existing guides stay as written." />
+            <SectionHeading icon="Route" title="Guide generation" description="Used to build a guide, and to update or rebuild one. Existing guides stay as written." />
             <AgentSelection label="Guide writer agent" agent={record.preferences.guideAgent} machines={machines} disabled={busy || updating} onCustomize={() => void customize("guideAgent")} onChange={(update) => setAgent("guideAgent", update)} />
             <div className="space-y-2"><p id="guide-detail-label" className="text-sm font-medium">Detail level</p><div role="group" aria-labelledby="guide-detail-label" className="flex flex-wrap gap-2">
               {(["concise", "standard", "detailed"] as const).map((value) => <Button key={value} variant="outline" size="sm" className="aria-pressed:border-primary/50 aria-pressed:bg-primary/10 aria-pressed:text-primary" aria-pressed={record.preferences.guideDetail === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, guideDetail: value } }); }}>{value[0].toUpperCase() + value.slice(1)}</Button>)}
@@ -227,7 +232,7 @@ export function ReviewSettings({ onBack }: { onBack?: () => void }) {
             <AgentSelection label="Review assistant agent" agent={record.preferences.assistantAgent} machines={machines} disabled={busy || updating} note="Used to start new conversations, which stay on the machine they started on. In a conversation, change the model and effort per message." onCustomize={() => void customize("assistantAgent")} onChange={(update) => setAgent("assistantAgent", update)} />
             <label className="block space-y-2"><span className="text-sm font-medium">Assistant instructions</span><Textarea aria-label="Assistant instructions" maxLength={ASSISTANT_INSTRUCTIONS_LIMIT} rows={5} value={record.preferences.assistantInstructions} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, assistantInstructions: event.target.value } }); }} placeholder="Prioritize correctness and security. Show a concrete failure case for suspected bugs. Keep suggestions actionable." /></label>
             <AgentCommentLearning instructions={record.preferences.assistantInstructions} onAdd={(lines) => { setSaved(false); setRecord((current) => current && { ...current, preferences: { ...current.preferences, assistantInstructions: [current.preferences.assistantInstructions.trim(), lines].filter(Boolean).join("\n") } }); }} />
-            <label className="block space-y-2"><span className="text-sm font-medium">Automatic review</span><Textarea aria-label="Automatic review" maxLength={12000} rows={4} value={record.preferences.automaticReview} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, automaticReview: event.target.value } }); }} /><span className="block text-xs text-muted-foreground">Sent to the assistant when a guide is ready and the review has no conversation yet. Its draft comments wait in Draft comments for you to edit and submit. Leave blank to turn the automatic review off.</span></label>
+            <label className="block space-y-2"><span className="text-sm font-medium">Automatic review</span><Textarea aria-label="Automatic review" maxLength={12000} rows={4} value={record.preferences.automaticReview} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, automaticReview: event.target.value } }); }} /><span className="block text-xs text-muted-foreground">Sent to the assistant when a guide is ready and the review has no conversation yet. Its draft comments wait in Comments for you to edit and submit. Leave blank to turn the automatic review off.</span></label>
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="ListTodo" title="Whose turn" description="What brings a review back to Needs review, and which reviews to follow." />
@@ -253,12 +258,8 @@ export function ReviewSettings({ onBack }: { onBack?: () => void }) {
             </div><p id="unattended-authors-help" className="text-xs text-muted-foreground">For other authors, no guide, automatic review, or feedback check starts by itself: the review says why, with a button to run it. Your own PRs and local reviews always run.</p></div>
             <label className="flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 accent-primary" checked={record.preferences.runRepoChecks} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, runRepoChecks: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Let the review agent run the repo’s tests and linters</span><span className="block text-xs text-muted-foreground">This runs the PR’s code on the agent’s machine, in a temporary git worktree, with the check commands the repo documents. Only on your own PRs and PRs from the authors above.</span></span></label>
           </section>
-          <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
-            <SectionHeading icon="Columns2" title="Reading layout" description="Choose the default diff layout. Narrow screens use a single column." />
-            <div role="group" aria-label="Default diff layout" className="flex flex-wrap gap-2">{([ ["split", "Side by side"], ["unified", "Unified"] ] as const).map(([value, label]) => <Button key={value} variant="outline" size="sm" className="aria-pressed:border-primary/50 aria-pressed:bg-primary/10 aria-pressed:text-primary" aria-pressed={record.preferences.diffLayout === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, diffLayout: value } }); }}>{label}</Button>)}</div>
-          </section>
         </fieldset>
-        <div className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-border bg-background/90 py-4 backdrop-blur">
+        <div className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-border bg-background/90 py-2.5 backdrop-blur">
           <Button disabled={!dirty || incomplete || busy || updating} onClick={() => void save()}>{busy ? "Saving…" : "Save settings"}</Button>
           {dirty && <Button variant="ghost" disabled={busy || updating} onClick={() => { setRecord({ ...record, preferences: JSON.parse(baseline) }); setError(""); }}>Discard edits</Button>}
           <span role="status" className="text-xs text-muted-foreground">{saved ? "Settings saved" : dirty ? "Unsaved changes" : ""}</span>
@@ -266,10 +267,12 @@ export function ReviewSettings({ onBack }: { onBack?: () => void }) {
         </div>
       </>}
     </div>
+    </div>
   </div>;
 }
 
+/** Settings as the panel's page: back to the review it was opened from (`returnTo`), or else to All reviews. */
 export function ReviewSettingsPage({ returnTo = "" }: { returnTo?: string }) {
   const navigate = useBbNavigate();
-  return <ReviewSettings onBack={() => navigate.toPluginPanel("review", { subPath: returnTo })} />;
+  return <ReviewSettings back={returnTo ? "Back to review" : "All reviews"} onBack={() => navigate.toPluginPanel("review", { subPath: returnTo })} />;
 }

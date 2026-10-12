@@ -6,9 +6,10 @@ import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Avatar } from "./ui/avatar";
+import { TOUCH_CONTROL } from "./touch";
 
-/** The BB server's GitHub account, and a menu to switch it. `showLabel`: the account's name beside its avatar. */
-export const AccountBar = memo(function AccountBar({ showLabel = false }: { showLabel?: boolean }) {
+/** The BB server's GitHub account as its avatar, and a menu to switch it, beside where the account is named. */
+export const AccountBar = memo(function AccountBar() {
   const rpc = useRpc<typeof rpcContract>();
   const [active, setActive] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<{ login: string; active: boolean }[]>([]);
@@ -57,9 +58,8 @@ export const AccountBar = memo(function AccountBar({ showLabel = false }: { show
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="shrink-0 gap-1.5" aria-label={`GitHub account: ${label}`}>
+        <Button variant="ghost" size="sm" className={`shrink-0 gap-1.5 ${TOUCH_CONTROL}`} aria-label={`GitHub account: ${label}`}>
           {active && !loading && !failed ? <Avatar login={active} size={18} /> : <Icon name="Github" className="size-4" aria-hidden />}
-          {showLabel && <span className="max-w-40 truncate">{label}</span>}
           <Icon name="ChevronDown" className="size-3" aria-hidden />
         </Button>
       </PopoverTrigger>

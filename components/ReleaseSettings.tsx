@@ -63,14 +63,15 @@ export function ReleaseSettings({ clientId, disabled, onUpdatingChange }: { clie
   </section>;
 }
 
-/** One setup check: OK, needs action, or unknown (null). */
-function ReadinessRow({ ok, children }: { ok: boolean | null; children: ReactNode }) {
+/** One setup check: OK, needs action, or unknown (null), with a control at its end (`action`). */
+function ReadinessRow({ ok, children, action }: { ok: boolean | null; children: ReactNode; action?: ReactNode }) {
   const icon: IconName = ok === true ? "CircleCheck" : ok === false ? "AlertTriangle" : "CircleQuestion";
   const color = ok === true ? "text-diff-added" : ok === false ? "text-warning-text" : "text-muted-foreground";
-  return <li className="flex items-start gap-2.5 bg-background/40 px-3 py-2.5"><Icon name={icon} className={cn("mt-0.5 size-4 shrink-0", color)} aria-hidden /><span className="min-w-0">{children}</span></li>;
+  return <li className="flex items-start gap-2.5 bg-background/40 px-3 py-2.5"><Icon name={icon} className={cn("mt-0.5 size-4 shrink-0", color)} aria-hidden /><span className="min-w-0 flex-1">{children}</span>{action && <span className="-my-1.5 shrink-0">{action}</span>}</li>;
 }
 
-export function SetupReadiness() {
+/** What reviewing needs, checked. `account`: the control to switch GitHub accounts, beside the signed-in one. */
+export function SetupReadiness({ account }: { account?: ReactNode }) {
   const rpc = useRpc<typeof rpcContract>();
   const [setup, setSetup] = useState<{ account: string | null; githubCli: boolean; agentAvailable: boolean | null; projectAvailable: boolean | null } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -86,7 +87,7 @@ export function SetupReadiness() {
     <p className="max-w-[75ch] text-sm text-muted-foreground">Connect GitHub on the machine running BB, then paste a PR link. Guides use your BB agent and its normal usage allowance.</p>
     {setup && <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border text-sm">
       <ReadinessRow ok={setup.githubCli}>{setup.githubCli ? "GitHub CLI installed" : "Install GitHub CLI on the BB server."}</ReadinessRow>
-      <ReadinessRow ok={!!setup.account}>{setup.account ? <>GitHub account: <strong>@{setup.account}</strong></> : <>Sign in on the BB server: <code className="break-all text-xs">gh auth login --hostname github.com</code></>}</ReadinessRow>
+      <ReadinessRow ok={!!setup.account} action={setup.account ? account : undefined}>{setup.account ? <>GitHub account: <strong>@{setup.account}</strong></> : <>Sign in on the BB server: <code className="break-all text-xs">gh auth login --hostname github.com</code></>}</ReadinessRow>
       <ReadinessRow ok={setup.agentAvailable}>{setup.agentAvailable === true ? "BB agent available" : setup.agentAvailable === false ? "Connect an agent provider in BB Settings before generating a guide." : "Couldn’t verify the agent provider. Check BB Settings."}</ReadinessRow>
       {setup.projectAvailable !== true && <ReadinessRow ok={setup.projectAvailable}>{setup.projectAvailable === false ? "Add a BB project before starting a review." : "Couldn’t verify the BB project. Check your project list."}</ReadinessRow>}
     </ul>}
