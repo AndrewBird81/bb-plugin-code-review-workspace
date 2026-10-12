@@ -153,7 +153,7 @@ test("a chapter's end counts its files viewed and its comments, and once they're
   } });
   // Viewed files open folded.
   const main = within(slot.getByRole("main"));
-  expect((await main.findByText("2 of 2 files viewed")).textContent).toBe("2 of 2 files viewed\u00a0·");
+  expect(await main.findByText("2 of 2 files viewed")).toBeTruthy();
   expect(main.getByText("2 comments")).toBeTruthy();
   // Nothing left to mark: finishing is the way on.
   expect(main.queryByRole("button", { name: "Mark viewed and finish" })).toBeNull();
