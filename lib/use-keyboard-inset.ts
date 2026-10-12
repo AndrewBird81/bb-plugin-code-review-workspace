@@ -2,7 +2,7 @@
 // what's under it, such as the comment box you're typing in, can't be scrolled into view.
 import { useEffect } from "react";
 import { TEXT_FIELD } from "./review-shortcuts";
-import { SHORT_BELOW } from "./workspace-layout";
+import { SHORT_BELOW, phoneWindow } from "./workspace-layout";
 
 /**
  * Brings the box you type in into view, all of it where it fits; where it doesn't, its top, where you type, and not
@@ -23,7 +23,8 @@ function bringIntoView(box: HTMLElement) {
  * While you type, how much of `el` the keyboard covers, as `--gr-kb` on it, for its layout to end above the keyboard;
  * and the box you type in, scrolled into view once it does. 0px while you don't, so zooming doesn't count. And
  * `data-keyboard` on it while the keyboard is up: "short" where it leaves no more room than a phone held sideways has,
- * for what's over the code to give way, as a phone's dock does.
+ * for what's over the code to give way, as a phone's dock does. Only in a phone's window: an iPad's bars stay over its
+ * keyboard, as its own apps' do.
  */
 export function useKeyboardInset(el: HTMLElement | null) {
   useEffect(() => {
@@ -37,7 +38,7 @@ export function useKeyboardInset(el: HTMLElement | null) {
       const rect = el.getBoundingClientRect();
       const covered = typing ? Math.max(0, Math.round(rect.bottom - viewport.offsetTop - viewport.height)) : 0;
       if (!covered) el.removeAttribute("data-keyboard");
-      else el.setAttribute("data-keyboard", rect.height - covered < SHORT_BELOW ? "short" : "up");
+      else el.setAttribute("data-keyboard", rect.height - covered < SHORT_BELOW && phoneWindow() ? "short" : "up");
       if (el.style.getPropertyValue("--gr-kb") === `${covered}px`) return;
       el.style.setProperty("--gr-kb", `${covered}px`);
       cancelAnimationFrame(frame);

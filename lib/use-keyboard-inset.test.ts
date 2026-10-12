@@ -3,7 +3,16 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { useKeyboardInset } from "./use-keyboard-inset";
 
-afterEach(() => { cleanup(); document.body.innerHTML = ""; delete (window as { visualViewport?: unknown }).visualViewport; });
+const restores: Array<() => void> = [];
+afterEach(() => { cleanup(); document.body.innerHTML = ""; delete (window as { visualViewport?: unknown }).visualViewport; restores.splice(0).forEach((restore) => restore()); });
+
+/** A window `width` × `height`, as documentElement's client size. */
+function stubWindow(width: number, height: number) {
+  const root = document.documentElement;
+  Object.defineProperty(root, "clientWidth", { configurable: true, value: width });
+  Object.defineProperty(root, "clientHeight", { configurable: true, value: height });
+  restores.push(() => { delete (root as { clientWidth?: number }).clientWidth; delete (root as { clientHeight?: number }).clientHeight; });
+}
 
 /** iOS's visual viewport, which an on-screen keyboard shrinks while the page keeps its size. */
 function fakeViewport(page = 844) {
@@ -94,6 +103,7 @@ test("without a visual viewport there's nothing to do", () => {
 
 test("with the keyboard up, the workspace says whether it leaves a phone held sideways' room or less", () => {
   // The Duo folded sideways: 386 tall, less BB's bar, less a 230px keyboard, leaves 108.
+  stubWindow(594, 386);
   const short = fakeViewport(386);
   const { root, box } = workspace(386);
   renderHook(() => useKeyboardInset(root));
@@ -103,6 +113,18 @@ test("with the keyboard up, the workspace says whether it leaves a phone held si
   expect(root.getAttribute("data-keyboard")).toBe("short");
   act(() => box.blur());
   expect(root.hasAttribute("data-keyboard")).toBe(false);
+});
+
+test("held sideways, a 13\" iPad's keyboard leaves less than a phone held sideways has, and the band stays: only a phone's gives way", () => {
+  // Safari's page on the 13" iPad held sideways is about 960 tall; its keyboard, with the suggestions bar, about 440.
+  stubWindow(1376, 960);
+  const viewport = fakeViewport(960);
+  const { root, box } = workspace(960);
+  renderHook(() => useKeyboardInset(root));
+  act(() => box.focus());
+  viewport.show(440);
+  expect(root.style.getPropertyValue("--gr-kb")).toBe("440px");
+  expect(root.getAttribute("data-keyboard")).toBe("up");
 });
 
 test("an iPad's keyboard leaves room to spare", () => {
