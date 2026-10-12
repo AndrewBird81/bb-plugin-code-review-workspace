@@ -118,10 +118,12 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   // Going to an item: its card in the code opens and flashes; from an overlay or sheet on touch, the step bar shows.
   const [current, setCurrent] = useState<string | null>(null);
   const last = useRef<string | null>(null);
-  const live = useRef({ api, stops, filter, coarse, step, onShowThread, visible });
-  live.current = { api, stops, filter, coarse, step, onShowThread, visible };
+  // What the chip counts, which can be more than the list shows.
+  const chipCount = filter === "all" ? items.length : counted.find((group) => group.id === filter)!.count;
+  const live = useRef({ api, stops, chipCount, filter, coarse, step, onShowThread, visible });
+  live.current = { api, stops, chipCount, filter, coarse, step, onShowThread, visible };
   const goTo = useCallback((item: CommentItem, from: "row" | "step") => {
-    const { api, stops, filter, coarse, step, onShowThread } = live.current;
+    const { api, stops, chipCount, filter, coarse, step, onShowThread } = live.current;
     revealComment(targetKey, item.id);
     last.current = item.id;
     setCurrent(item.id);
@@ -136,7 +138,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
     else api.reveal({ file: item.at.file, line: item.at.line ?? 0, side: item.at.side });
     const index = stops.findIndex((stop) => stop.id === item.id);
     if (index < 0) return;
-    const at = { id: item.id, index, total: stops.length, filter: FILTER_LABEL[filter], nonce: Date.now() };
+    const at = { id: item.id, index, total: stops.length, shownOnly: stops.length < chipCount, filter: FILTER_LABEL[filter], nonce: Date.now() };
     if (step?.via === "bar" || (from === "row" && over && coarse)) showCommentStep(targetKey, { ...at, via: "bar" });
     else if (from === "step" && api.panel.view !== "comments") showCommentStep(targetKey, { ...at, via: "hint" });
   }, [targetKey]);

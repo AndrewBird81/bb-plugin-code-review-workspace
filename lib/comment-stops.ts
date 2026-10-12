@@ -30,12 +30,17 @@ export interface CommentStep {
   /** From 0. */
   index: number;
   total: number;
+  /** The chip counts more than the list shows, as resolved threads folded or nits hidden: "of 10 shown". */
+  shownOnly: boolean;
   /** The chip it steps in: "Not submitted". */
   filter: string;
   via: "bar" | "hint";
   /** A new step, even to the same place, shows the hint again. */
   nonce: number;
 }
+
+/** "2 of 5 · Not submitted", or "2 of 5 shown · All" when the chip counts more. */
+export const stepLabel = (step: CommentStep) => `${step.index + 1} of ${step.total}${step.shownOnly ? " shown" : ""} · ${step.filter}`;
 
 const steps = new Map<string, CommentStep>();
 const listeners = new Set<() => void>();

@@ -47,7 +47,7 @@ const guide = { title: "Guide", intent: "Parses rows.", unplacedFiles: [] as str
 ] };
 const backToYou = { submittedVerdict: "REQUEST_CHANGES", submittedAt: 1, turn: { group: "needs", reason: "re-requested", label: "Re-requested", action: "Review changes", signal: "re-requested:1", at: 2, notify: true, blocking: false, updated: true } };
 
-async function renderWorkspace(review: Record<string, unknown> = {}) {
+async function renderWorkspace(review: Record<string, unknown> = {}, moreThreads: unknown[] = []) {
   if (!localStorage.getItem("gr:panelstate")) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
@@ -65,7 +65,7 @@ async function renderWorkspace(review: Record<string, unknown> = {}) {
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
     getSinceReview: () => ({ baseline: null, files: [] }),
     markSeen: () => ({ ok: true }),
-    getReviewThreads: () => ({ threads: [{ id: "t1", isResolved: false, isOutdated: false, path: "src/a.ts", line: 2, side: "RIGHT", comments: [{ id: "c1", databaseId: 1, author: "bob", body: "Why?", createdAt: now }] }] }),
+    getReviewThreads: () => ({ threads: [{ id: "t1", isResolved: false, isOutdated: false, path: "src/a.ts", line: 2, side: "RIGHT", comments: [{ id: "c1", databaseId: 1, author: "bob", body: "Why?", createdAt: now }] }, ...moreThreads] }),
     // Your thread, which alice answered: it needs you.
     getFeedback: () => ({ feedback: { baseline: { sha: "old", at: 1, verdict: "REQUEST_CHANGES" }, head: "new", fetchedAt: now, run: null, suggestionInDraft: false, items: [{
       id: "t9", kind: "thread", title: "Rename it", assessment: null, replyDraft: null,
@@ -106,6 +106,39 @@ test("by touch, a comment tapped in the sheet closes it to show the comment, and
   expect(bar(slot)).toBeNull();
   slot.lifecycle.unmount();
 }, 15_000);
+
+test("the step bar counts the comments the list shows, and says \"shown\" when the chip counts more", async () => {
+  phone();
+  const resolved = { id: "t2", isResolved: true, isOutdated: false, path: "src/b.ts", line: 2, side: "RIGHT", comments: [{ id: "c2", databaseId: 2, author: "carol", body: "Done.", createdAt: now }] };
+  const slot = await renderWorkspace({}, [resolved]);
+  fireEvent.click(await within(slot.getByRole("group", { name: "Review commands" })).findByRole("button", { name: /^Comments/ }));
+  const sheet = within(await slot.findByRole("dialog", { name: "Comments" }));
+  await sheet.findByRole("radio", { name: "All, 5" });
+  fireEvent.click(sheet.getByRole("button", { name: "Draft · not submitted · src/b.ts:2" }));
+  // carol's resolved thread is folded in the list, so the steps leave it out.
+  await waitFor(() => expect(within(bar(slot)!).getByRole("status").textContent).toBe("3 of 4 shown · All"));
+  slot.lifecycle.unmount();
+});
+
+test("beside a docked panel, where ] went shows at the code's corner, not over the panel", async () => {
+  const scrollIntoView = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = () => {};
+  // jsdom lays nothing out: the docked panel is 400px wide.
+  const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    return { width: this.id.startsWith("gr-side-panel-") ? 400 : 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+  });
+  restores.push(() => { Element.prototype.scrollIntoView = scrollIntoView; rect.mockRestore(); });
+  const slot = await renderWorkspace();
+  await slot.findAllByTestId("filediff");
+  fireEvent.click(await slot.findByRole("button", { name: /^Comments/ }));
+  await within(slot.getByRole("region", { name: "Comments" })).findByRole("radio", { name: "All, 4" });
+  fireEvent.keyDown(document.body, { key: "s" });
+  await slot.findByRole("heading", { name: "Finish review" });
+  fireEvent.keyDown(document.body, { key: "]" });
+  const hint = await slot.findByText("2 of 4 · All");
+  expect(hint.style.right).toBe("calc(401px + 1rem)");
+  slot.lifecycle.unmount();
+});
 
 test("the selection bar takes the step bar's place, and Close puts it away", async () => {
   phone();

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { showCommentStep, stepComment, useCommentStep } from "../../lib/comment-stops";
+import { showCommentStep, stepComment, stepLabel, useCommentStep } from "../../lib/comment-stops";
 import { TEXT_FIELD } from "../../lib/review-shortcuts";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
 import { useNeedsYou } from "../../lib/workspace-store";
+import { sidePanelId } from "../shell/SidePanel";
 import { Icon } from "../ui/icon";
 import { NeedsYouPill } from "./NeedsYouPill";
 import { updateComments } from "./store";
@@ -49,6 +50,22 @@ function useTextSelected(): boolean {
   return selected;
 }
 
+/** How far the code's right edge is from the workspace's while a side panel docks there: its width and its 1px resizer. */
+function useDockedPanelWidth(targetKey: string, docked: boolean): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const panel = docked ? document.getElementById(sidePanelId(targetKey)) : null;
+    if (!panel) { setWidth(0); return; }
+    const measure = () => setWidth(Math.round(panel.getBoundingClientRect().width) + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [targetKey, docked]);
+  return width;
+}
+
 const round = "flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-state-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:size-11";
 
 /**
@@ -76,19 +93,23 @@ export function StepBar({ hidden, pill }: {
   }, [step?.via, step?.nonce, targetKey]);
   // Once Comments opens, the pill's job is done.
   useEffect(() => { if (panel.view === "comments") setDismissed(true); }, [panel.view]);
-  // Above a phone's dock, in the middle; elsewhere at the corner, clear of a folding screen's middle.
-  const place = layout.mode === "phone" ? "left-1/2 -translate-x-1/2 bottom-[calc(60px+env(safe-area-inset-bottom))]" : "right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))]";
+  const panelWidth = useDockedPanelWidth(targetKey, layout.panel === "docked");
+  // Above a phone's dock, in the middle; elsewhere at the code's corner, beside a docked panel and clear of a folding
+  // screen's middle.
+  const phone = layout.mode === "phone";
+  const place = phone ? "left-1/2 -translate-x-1/2 bottom-[calc(60px+env(safe-area-inset-bottom))]" : cn("bottom-[max(1rem,env(safe-area-inset-bottom))]", !panelWidth && "right-[max(1rem,env(safe-area-inset-right))]");
+  const beside = !phone && panelWidth ? { right: `calc(${panelWidth}px + 1rem)` } : undefined;
   if (hidden || typing || textSelected || layout.nav === "overlay" || layout.panel === "overlay") return null;
   if (step?.via === "hint") {
-    return <p role="status" className={cn("pointer-events-none absolute z-40 rounded-full border border-border bg-popover px-3 py-1.5 text-xs font-medium tabular-nums shadow-lg animate-in fade-in duration-150 motion-reduce:animate-none", place)}>
-      {step.index + 1} of {step.total} · {step.filter}
+    return <p role="status" style={beside} className={cn("pointer-events-none absolute z-40 rounded-full border border-border bg-popover px-3 py-1.5 text-xs font-medium tabular-nums shadow-lg animate-in fade-in duration-150 motion-reduce:animate-none", place)}>
+      {stepLabel(step)}
     </p>;
   }
   if (step) {
     return (
-      <div role="toolbar" aria-label="Step through comments" className={cn("absolute z-40 flex items-center gap-0.5 rounded-full border border-border bg-popover p-1 shadow-2xl ring-1 ring-primary/10", place)}>
+      <div role="toolbar" aria-label="Step through comments" style={beside} className={cn("absolute z-40 flex items-center gap-0.5 rounded-full border border-border bg-popover p-1 shadow-2xl ring-1 ring-primary/10", place)}>
         <button type="button" aria-label="Previous comment" className={round} onClick={() => stepComment(targetKey, -1, undefined)}><Icon name="ChevronLeft" className="size-4" aria-hidden /></button>
-        <span role="status" className="min-w-0 px-1.5 text-center text-xs font-medium whitespace-nowrap tabular-nums">{step.index + 1} of {step.total} · {step.filter}</span>
+        <span role="status" className="min-w-0 px-1.5 text-center text-xs font-medium whitespace-nowrap tabular-nums">{stepLabel(step)}</span>
         <button type="button" aria-label="Next comment" className={round} onClick={() => stepComment(targetKey, 1, undefined)}><Icon name="ChevronRight" className="size-4" aria-hidden /></button>
         <span aria-hidden className="mx-0.5 h-5 w-px bg-border" />
         <button type="button" aria-label="Show in list" className={round} onClick={() => { updateComments(targetKey, { expanded: step.id }); panel.open("comments"); }}><Icon name="MessageSquare" className="size-4" aria-hidden /></button>
@@ -97,7 +118,7 @@ export function StepBar({ hidden, pill }: {
     );
   }
   if (pill && !dismissed && needsYou > 0 && panel.view !== "comments") {
-    return <NeedsYouPill count={needsYou} className={place} onDismiss={() => setDismissed(true)} onOpen={() => {
+    return <NeedsYouPill count={needsYou} className={place} style={beside} onDismiss={() => setDismissed(true)} onOpen={() => {
       setDismissed(true);
       updateComments(targetKey, { filter: "needs-you", expanded: null });
       panel.open("comments");
