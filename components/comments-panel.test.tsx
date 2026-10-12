@@ -125,10 +125,13 @@ test("one list: chips count what they show, the groups come in order, and each i
   ]);
   // Resolved and outdated threads fold under On GitHub.
   expect(list.getByRole("button", { name: "1 resolved · 1 outdated" }).getAttribute("aria-expanded")).toBe("false");
-  // The same count as Submit's, in the Finish bar.
+  // The same count as Submit's, in the Finish bar and the title bar.
   expect(slot.getByText("3 to send", { exact: false })).toBeTruthy();
+  expect(slot.getByRole("button", { name: "Submit review: Comment, 3 comments" })).toBeTruthy();
   // The title bar's Comments says how many need you.
   expect(slot.getByRole("button", { name: "Comments, 2 need you" })).toBeTruthy();
+  // A file's row counts what the list has at it: a.ts's two drafts, and its threads not resolved, the outdated one too.
+  expect(within(slot.container.querySelector<HTMLElement>('[data-file="src/a.ts"] [data-file-header]')!).getByText("2 not submitted · 2 on GitHub")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
