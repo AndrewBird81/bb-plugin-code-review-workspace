@@ -11,7 +11,8 @@ export function MetaLine({ items, className }: { items: ReactNode[]; className?:
     <span className={cn("block text-xs text-muted-foreground", className)}>
       {shown.map((item, index) => (
         <Fragment key={index}>
-          {index > 0 && <span aria-hidden className="text-subtle-foreground">{"\u00a0· "}</span>}
+          {/* The space stays outside the hidden dot, so a screen reader hears each fact apart. */}
+          {index > 0 && <><span aria-hidden className="text-subtle-foreground">{"\u00a0·"}</span>{" "}</>}
           <span className="whitespace-nowrap">{item}</span>
         </Fragment>
       ))}

@@ -35,6 +35,10 @@ test("shows the full title, a worded risk flag, and a skippable count", () => {
   // Tests aren't skippable; a chapter of only lockfiles reads as one to skim.
   expect(screen.getAllByText(/1 skippable/)).toHaveLength(1);
   expect(screen.getByText(/generated files — skim/)).toBeTruthy();
+  // The dots between facts are hidden from a screen reader, but not the spaces: it hears each fact as its own words.
+  const heard = screen.getByRole("button", { name: /^Auth token refresh/ }).cloneNode(true) as HTMLElement;
+  heard.querySelectorAll("[aria-hidden]").forEach((hidden) => hidden.remove());
+  expect(heard.textContent).toMatch(/High risk 2 files$/);
 });
 
 test("the active chapter expands into a file list with tags and click-to-open", () => {
