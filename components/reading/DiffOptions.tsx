@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
@@ -28,7 +28,8 @@ function Option({ label, on, onChange }: { label: string; on: boolean; onChange:
 function Segmented<T extends string>({ label, value, options, onChange }: {
   label: string;
   value: T;
-  options: { value: T; label: string; disabled?: boolean }[];
+  /** `reason`: the id of the text that says why a choice is off. */
+  options: { value: T; label: string; disabled?: boolean; reason?: string }[];
   onChange: (value: T) => void;
 }) {
   const enabled = options.filter((option) => !option.disabled);
@@ -50,6 +51,7 @@ function Segmented<T extends string>({ label, value, options, onChange }: {
           data-value={option.value}
           aria-checked={option.value === value}
           aria-disabled={option.disabled || undefined}
+          aria-describedby={option.reason}
           tabIndex={option.value === value ? 0 : -1}
           onKeyDown={step}
           onClick={() => { if (!option.disabled && option.value !== value) onChange(option.value); }}
@@ -102,6 +104,7 @@ export function DiffOptions({ threads, compareInBand = false, foldInBand = false
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState<"options" | "compare">("options");
   const content = useRef<HTMLDivElement>(null);
+  const splitReason = useId();
   // A page that opens takes the focus from the row that opened it, which it replaces.
   const turned = useRef(false);
   useEffect(() => {
@@ -142,9 +145,9 @@ export function DiffOptions({ threads, compareInBand = false, foldInBand = false
             {tablet && <div className={cn(row, "hover:bg-transparent")}>
               Layout
               <Segmented label="Layout" value={display.unifiedOnly ? "unified" : display.layout} onChange={display.toggleLayout}
-                options={[{ value: "unified", label: "Unified" }, { value: "split", label: "Split", disabled: display.unifiedOnly }]} />
+                options={[{ value: "unified", label: "Unified" }, { value: "split", label: "Split", disabled: display.unifiedOnly, reason: display.unifiedOnly ? splitReason : undefined }]} />
             </div>}
-            {tablet && display.unifiedOnly && <p className="-mt-1 px-2 pb-1 text-right text-xs text-muted-foreground">Split view needs a wider pane</p>}
+            {tablet && display.unifiedOnly && <p id={splitReason} className="-mt-1 px-2 pb-1 text-right text-xs text-muted-foreground">Split view needs a wider pane</p>}
             <Option label="Wrap long lines" on={display.wrap} onChange={display.setWrap} />
             <Option label="Hide whitespace changes" on={display.hideWhitespace} onChange={display.setHideWhitespace} />
             {isPr && threads && <Option label="GitHub threads in code" on={display.githubThreads} onChange={display.setGithubThreads} />}

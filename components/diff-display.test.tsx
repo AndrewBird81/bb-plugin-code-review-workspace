@@ -195,6 +195,7 @@ test("in a pane too narrow for split, the diff shows unified, and Split is off a
   await waitFor(() => expect(split.getAttribute("aria-disabled")).toBe("true"));
   expect(unified.getAttribute("aria-checked")).toBe("true");
   expect(slot.getByText("Split view needs a wider pane")).toBeTruthy();
+  expect(slot.getByRole("radio", { name: "Split", description: "Split view needs a wider pane" })).toBe(split);
   fireEvent.click(split);
   fireEvent.keyDown(unified, { key: "ArrowRight" });
   expect(savePreferences).not.toHaveBeenCalled();
