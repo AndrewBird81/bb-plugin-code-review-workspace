@@ -44,11 +44,13 @@ export interface CommentsEntry {
   filter: CommentFilter;
   /** The row the list shows as its full card. */
   expanded: string | null;
+  /** What the panel's header calls Finish review while it shows something else: the receipt, or a closed PR's archive. */
+  finishTitle: string | null;
 }
 
 const EMPTY: CommentsEntry = {
   threads: [], threadsError: null, feedback: null, feedbackError: false, replyDrafts: null, loaded: false, busy: null,
-  refreshing: false, checking: false, actions: null, items: [], folded: false, filter: "all", expanded: null,
+  refreshing: false, checking: false, actions: null, items: [], folded: false, filter: "all", expanded: null, finishTitle: null,
 };
 
 const entries = new Map<string, CommentsEntry>();

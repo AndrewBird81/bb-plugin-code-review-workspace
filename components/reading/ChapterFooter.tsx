@@ -23,7 +23,7 @@ export function ChapterFooter({ patch }: {
   /** The diff, to place a comment on a file split across chapters by its hunk. */
   patch: string;
 }) {
-  const { sections, activeId, files, go, openFinish } = useWorkspace();
+  const { review, sections, activeId, files, go, openFinish } = useWorkspace();
   const draft = useContext(InlineDraftContext);
   const index = sections.findIndex((section) => section.id === activeId);
   const chapter = sections[index];
@@ -36,6 +36,8 @@ export function ChapterFooter({ patch }: {
   // across chapters counts in the one with its line.
   const comments = draft?.comments.filter((comment) => own.has(comment.file) && !(draft.hideNits && comment.severity === "nit" && draftState(comment, draft.stale) !== "older-diff") && chapterAt(sections, patch, comment)?.id === chapter.id).length ?? 0;
   const unviewed = next ? [] : [...new Set(sections.flatMap((section) => section.diffs.map((diff) => diff.file)))].filter((file) => !own.has(file) && !files.views.get(file)?.viewed);
+  // A closed PR has nothing to finish: the last chapter leads to its archived review instead.
+  const closed = review.prState === "MERGED" || review.prState === "CLOSED";
   const button = cn("min-w-0 max-w-full @max-[480px]/review:w-full", TOUCH_CONTROL);
   return (
     <div className="mt-6 space-y-3 border-t border-border pt-4">
@@ -44,13 +46,13 @@ export function ChapterFooter({ patch }: {
         {/* Where the pane is phone-sized, each button takes a row of its own. */}
         <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2 @max-[480px]/review:w-full">
           {left && (
-            <Button size="sm" className={button} onClick={() => { files.markChapterViewed(chapter.id); if (next) go(next.id); else openFinish(); }}>
+            <Button size="sm" className={button} onClick={() => { files.markChapterViewed(chapter.id); if (next) go(next.id); else if (!closed) openFinish(); }}>
               <Icon name="CircleCheck" aria-hidden />
-              {next ? "Mark viewed and continue" : "Mark viewed and finish"}
+              {next ? "Mark viewed and continue" : closed ? "Mark viewed" : "Mark viewed and finish"}
             </Button>
           )}
           <Button variant={left ? "ghost" : "default"} size="sm" className={cn(button, left && "text-muted-foreground")} onClick={() => next ? go(next.id) : openFinish()}>
-            <span className="truncate">{next ? <>Next: <InlineCode text={next.title} /></> : "Finish review"}</span>
+            <span className="truncate">{next ? <>Next: <InlineCode text={next.title} /></> : closed ? "Archived review" : "Finish review"}</span>
             <Icon name="ArrowRight" aria-hidden />
           </Button>
         </div>

@@ -208,8 +208,8 @@ test("the agent's sheet has no Pop out, and an agent popped out on a bigger scre
   fireEvent.click(dock.getByRole("button", { name: "Ask agent" }));
   const sheet = within(slot.getByRole("dialog", { name: "Review agent" }));
   expect(await sheet.findByRole("textbox", { name: "Ask the agent" })).toBeTruthy();
-  expect(sheet.queryByRole("button", { name: "Open agent as widget" })).toBeNull();
-  expect(sheet.queryByRole("button", { name: "Dock in review panel" })).toBeNull();
+  expect(sheet.queryByRole("button", { name: "Pop out" })).toBeNull();
+  expect(sheet.queryByRole("button", { name: "Dock" })).toBeNull();
   fireEvent.click(sheet.getByRole("button", { name: "Close" }));
   expect(slot.queryByRole("dialog")).toBeNull();
   // Kept for where it can pop out.

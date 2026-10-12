@@ -245,7 +245,7 @@ export function DiscussionView({ discussion, titled, chat, busy = false, onUndo,
         ? <p role="status" className="flex items-center gap-2 pl-0.5 text-xs text-(--ansi-13)"><span aria-hidden className="flex gap-0.5">{[0, 1, 2].map((dot) => <span key={dot} className="size-1 rounded-full bg-current motion-safe:animate-bounce" style={{ animationDelay: `${dot * 140}ms` }} />)}</span>Waiting for agent…</p>
         : unanswered && <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
             The agent didn’t reply here.
-            {chat && <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={chat}>Open Ask agent</Button>}
+            {chat && <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={chat}>Ask agent</Button>}
           </p>}
     </section>
   );

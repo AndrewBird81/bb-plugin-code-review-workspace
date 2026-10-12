@@ -70,9 +70,9 @@ export function ReviewerNotes({ targetKey }: { targetKey: string }) {
       if (mounted.current) setComparison(saved);
     } catch { if (mounted.current) { setStatus("Couldn’t load the saved version. Your edits are still here."); setError(true); } }
   }
-  return <section aria-label="Private reviewer notes" className="space-y-3 p-3">
+  return <section aria-label="Private notes" className="space-y-3 p-3">
     <p className="flex items-start gap-2 rounded-lg border border-border bg-muted/25 px-3 py-2 text-xs leading-relaxed text-muted-foreground"><Icon name="Lock" className="mt-0.5 size-3.5 shrink-0 text-subtle-foreground" aria-hidden />Your scratchpad for questions, checks, and decisions. Saved in BB, never included in GitHub submissions or assistant prompts.</p>
-    <Textarea aria-label="Private reviewer notes" rows={10} maxLength={100000} disabled={!loaded} value={body} placeholder="What do you want to verify before you finish?" className="rounded-lg bg-surface-raised font-mono text-[13px] leading-relaxed" onChange={(event) => {
+    <Textarea aria-label="Private notes" rows={10} maxLength={100000} disabled={!loaded} value={body} placeholder="What do you want to verify before you finish?" className="rounded-lg bg-surface-raised font-mono text-[13px] leading-relaxed" onChange={(event) => {
       const value = event.target.value;
       setBody(value); state.current.body = value; state.current.dirty = true;
       try { localStorage.setItem(backupKey, JSON.stringify({ body: value, revision: state.current.revision })); } catch { /* best effort */ }
@@ -84,7 +84,7 @@ export function ReviewerNotes({ targetKey }: { targetKey: string }) {
     {(error || state.current.dirty) && <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" disabled={!loaded || saving} onClick={() => void flush().catch(() => {})}>Save notes</Button>{error && <Button variant="ghost" size="sm" disabled={saving} onClick={() => loaded ? void compareSaved() : void load()}>{loaded ? "Compare saved notes" : "Retry notes"}</Button>}</div>}
     {comparison && <div className="space-y-3 border-t border-border pt-3">
       <p className="text-xs text-muted-foreground">Saved version below. Your edits are still in the editor above.</p>
-      <Textarea aria-label="Saved reviewer notes" rows={5} value={comparison.body} readOnly />
+      <Textarea aria-label="Saved private notes" rows={5} value={comparison.body} readOnly />
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" disabled={saving} onClick={() => {
           state.current.revision = comparison.revision; state.current.dirty = true;

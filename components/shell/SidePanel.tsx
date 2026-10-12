@@ -2,6 +2,7 @@ import { createContext, useRef, useState, type ReactNode } from "react";
 import type { PanelView } from "../../lib/panel-state";
 import { cn } from "../../lib/utils";
 import { PANEL_WIDTH, READER_MIN, type PanelPlacement } from "../../lib/workspace-layout";
+import { useComments } from "../comments/store";
 import { Button } from "../ui/button";
 import { Icon } from "../ui/icon";
 import { TOUCH_CONTROL } from "../touch";
@@ -44,6 +45,9 @@ export function SidePanel({ targetKey, placement, sheet, view, width, maxWidth, 
   const inSheet = sheet && overlay;
   const dialog = useSide(ref, { shown, overlay, modal: !sheet, onClose });
   const [actions, setActions] = useState<HTMLElement | null>(null);
+  // Finish review's receipt, or a closed PR's archive, names itself.
+  const finishTitle = useComments(targetKey, "finishTitle");
+  const title = view === "finish" && finishTitle ? finishTitle : view && TITLE[view];
   const button = cn("size-8 shrink-0 px-0 text-muted-foreground", TOUCH_CONTROL);
   // Docked where the code would get under READER_MIN beside it, it narrows, down to its least (lib/workspace-layout.ts);
   // in CSS (100cqw: the workspace's width), so it follows the pane as it resizes.
@@ -55,7 +59,7 @@ export function SidePanel({ targetKey, placement, sheet, view, width, maxWidth, 
         ref={ref}
         id={sidePanelId(targetKey)}
         hidden={!shown}
-        aria-label={overlay && view ? TITLE[view] : "Comments and agent"}
+        aria-label={overlay && title ? title : "Comments and agent"}
         {...dialog}
         className={cn(
           "flex min-h-0 min-w-0 flex-col bg-background outline-none",
@@ -73,7 +77,7 @@ export function SidePanel({ targetKey, placement, sheet, view, width, maxWidth, 
             {view === "finish"
               ? <Button variant="ghost" size="sm" className={cn("h-8 gap-1 px-2 text-muted-foreground", TOUCH_CONTROL)} onClick={onBack}><Icon name="ChevronLeft" aria-hidden />Comments</Button>
               : <Icon name="MessageSquare" className="ml-1.5 size-4 shrink-0 text-primary" aria-hidden />}
-            <h2 className={cn("min-w-0 flex-1 truncate text-sm font-medium", view === "comments" && "ml-1")}>{TITLE[view]}</h2>
+            <h2 className={cn("min-w-0 flex-1 truncate text-sm font-medium", view === "comments" && "ml-1")}>{title}</h2>
             <span ref={setActions} className="flex shrink-0 items-center gap-1" />
             <Button variant="ghost" size="sm" aria-label={inSheet ? "Close" : "Close panel"} className={button} onClick={onClose}><Icon name="X" aria-hidden /></Button>
           </div>

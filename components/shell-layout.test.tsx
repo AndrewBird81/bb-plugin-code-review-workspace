@@ -130,7 +130,7 @@ test("over the code, Tab in Finish review stops at Private notes, and goes past 
   const before = await finish.findByRole("button", { name: "Show the comments to send" });
   const notes = (await finish.findByText("Private notes")).closest("summary")!;
   const submit = finish.getByRole("button", { name: /^Submit to GitHub/ });
-  const box = finish.getByRole("textbox", { name: "Private reviewer notes" }) as HTMLTextAreaElement;
+  const box = finish.getByRole("textbox", { name: "Private notes" }) as HTMLTextAreaElement;
   await waitFor(() => expect(box.disabled).toBe(false));
   // After the summary takes the focus as Finish opens.
   await new Promise((resolve) => setTimeout(resolve, 50));

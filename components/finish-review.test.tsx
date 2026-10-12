@@ -192,6 +192,9 @@ test("after Submit, the receipt says what went where, and offers the next review
   const view = await finish(slot);
   fireEvent.click(submit(view));
   const receipt = within(await slot.findByRole("region", { name: "Submitted review" }));
+  // The panel says it's done, as Comments' foot does.
+  expect(slot.getByRole("heading", { name: "Review submitted" })).toBeTruthy();
+  expect(slot.queryByRole("heading", { name: "Finish review" })).toBeNull();
   expect(receipt.getByText("Commented")).toBeTruthy();
   expect(receipt.getByText(/^Posted to acme\/web#42 as @me · now/)).toBeTruthy();
   expect(receipt.getByText("2 comments")).toBeTruthy();
@@ -271,6 +274,23 @@ test("a closed PR keeps its unsubmitted draft to read, with nothing to submit", 
   fireEvent.click(archived.getByText("Unsubmitted draft"));
   expect(archived.getByText("src/a.ts:2 — Upper case reads as a constant.")).toBeTruthy();
   expect(slot.queryByRole("button", { name: /^Submit to GitHub/ })).toBeNull();
+  // Nothing to finish: the panel calls it the archived review.
+  expect(slot.getByRole("heading", { name: "Archived review" })).toBeTruthy();
+  expect(slot.queryByRole("heading", { name: "Finish review" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("a closed PR's last chapter ends at its archived review, not at finishing it", async () => {
+  const setFilesViewed = vi.fn(() => ({ ok: true, previous: [] }));
+  const { slot } = await renderWorkspace({ review: { prState: "MERGED", archivedAt: 1 }, rpc: { setFilesViewed } });
+  const main = within(slot.getByRole("main", { name: "Review" }));
+  expect(main.queryByRole("button", { name: /Finish review|Mark viewed and finish/ })).toBeNull();
+  // Marking it viewed stays on the chapter; the archived review is the button beside it.
+  fireEvent.click(main.getByRole("button", { name: "Mark viewed" }));
+  await waitFor(() => expect(setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/a.ts"] }));
+  expect(slot.queryByRole("region", { name: "Archived review" })).toBeNull();
+  fireEvent.click(main.getByRole("button", { name: "Archived review" }));
+  expect(within(await slot.findByRole("region", { name: "Archived review" })).getByText("Merged · Archived")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -294,6 +314,6 @@ test("private notes stay in BB, and show only when you have some", async () => {
   view = await finish(slot);
   expect(await view.findByText("Stays in BB")).toBeTruthy();
   fireEvent.click(view.getByText("Private notes"));
-  expect(((await view.findByRole("textbox", { name: "Private reviewer notes" })) as HTMLTextAreaElement).value).toBe("Check the TTL.");
+  expect(((await view.findByRole("textbox", { name: "Private notes" })) as HTMLTextAreaElement).value).toBe("Check the TTL.");
   slot.lifecycle.unmount();
 });

@@ -95,7 +95,7 @@ test("private notes survive leaving the editor and never use the public summary 
   const setVerdict = vi.fn();
   const slot = renderSlot({ component: ReviewerNotes }, { targetKey: "private-notes" }, { rpc: { getReviewerNotes: () => stored, saveReviewerNotes: save, setVerdict } });
   await slot.findByText("Notes saved");
-  fireEvent.change(slot.getByRole("textbox", { name: "Private reviewer notes" }), { target: { value: "Check rollout with my team" } });
+  fireEvent.change(slot.getByRole("textbox", { name: "Private notes" }), { target: { value: "Check rollout with my team" } });
   slot.lifecycle.unmount();
   await waitFor(() => expect(stored.body).toBe("Check rollout with my team"));
   expect(setVerdict).not.toHaveBeenCalled();
@@ -107,14 +107,14 @@ test("failed note writes preserve a recoverable copy after remount", async () =>
   const rpc = { getReviewerNotes: () => ({ body: "", revision: 0 }), saveReviewerNotes: vi.fn(async () => { throw new Error("Offline"); }) };
   let slot = renderSlot({ component: ReviewerNotes }, { targetKey: "recover-notes" }, { rpc });
   await slot.findByText("Notes saved");
-  fireEvent.change(slot.getByRole("textbox", { name: "Private reviewer notes" }), { target: { value: "Do not lose this" } });
-  fireEvent.blur(slot.getByRole("textbox", { name: "Private reviewer notes" }));
+  fireEvent.change(slot.getByRole("textbox", { name: "Private notes" }), { target: { value: "Do not lose this" } });
+  fireEvent.blur(slot.getByRole("textbox", { name: "Private notes" }));
   await slot.findByRole("alert");
   slot.lifecycle.unmount();
   await waitFor(() => expect(rpc.saveReviewerNotes).toHaveBeenCalledTimes(2));
   slot = renderSlot({ component: ReviewerNotes }, { targetKey: "recover-notes" }, { rpc });
   await slot.findByText("Recovered unsaved notes. Save when ready.");
-  expect((slot.getByRole("textbox", { name: "Private reviewer notes" }) as HTMLTextAreaElement).value).toBe("Do not lose this");
+  expect((slot.getByRole("textbox", { name: "Private notes" }) as HTMLTextAreaElement).value).toBe("Do not lose this");
   slot.lifecycle.unmount();
 });
 
@@ -144,13 +144,13 @@ test("comparing conflicting notes preserves edits made while the saved version l
   const save = vi.fn().mockRejectedValueOnce(new Error("Notes changed in another window")).mockResolvedValue({ body: "My newer edits", revision: 3 });
   const slot = renderSlot({ component: ReviewerNotes }, { targetKey: "conflict-notes" }, { rpc: { getReviewerNotes: get, saveReviewerNotes: save } });
   await slot.findByText("Notes saved");
-  const editor = slot.getByRole("textbox", { name: "Private reviewer notes" }) as HTMLTextAreaElement;
+  const editor = slot.getByRole("textbox", { name: "Private notes" }) as HTMLTextAreaElement;
   fireEvent.change(editor, { target: { value: "My edits" } }); fireEvent.blur(editor);
   fireEvent.click(await slot.findByRole("button", { name: "Compare saved notes" }));
   await waitFor(() => expect(complete).toBeTypeOf("function"));
   fireEvent.change(editor, { target: { value: "My newer edits" } });
   complete({ body: "Other window", revision: 2 });
-  await slot.findByRole("textbox", { name: "Saved reviewer notes" });
+  await slot.findByRole("textbox", { name: "Saved private notes" });
   expect(editor.value).toBe("My newer edits");
   fireEvent.click(slot.getByRole("button", { name: "Save my version" }));
   await waitFor(() => expect(save).toHaveBeenLastCalledWith({ targetKey: "conflict-notes", body: "My newer edits", revision: 2 }));
@@ -196,12 +196,12 @@ test("the side panel's views keep what you were writing as it closes and switche
   fireEvent.click(slot.getByRole("button", { name: /^Submit review/ }));
   expect(slot.queryByRole("textbox", { name: "Ask the agent" })).toBeNull();
   fireEvent.click(await panel().findByText("Private notes"));
-  fireEvent.change(await panel().findByRole("textbox", { name: "Private reviewer notes" }), { target: { value: "Keep my notes" } });
+  fireEvent.change(await panel().findByRole("textbox", { name: "Private notes" }), { target: { value: "Keep my notes" } });
   close();
   fireEvent.click(slot.getByRole("button", { name: "Ask agent" }));
   expect((panel().getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("Keep this question");
   fireEvent.click(slot.getByRole("button", { name: /^Submit review/ }));
-  expect((panel().getByRole("textbox", { name: "Private reviewer notes" }) as HTMLTextAreaElement).value).toBe("Keep my notes");
+  expect((panel().getByRole("textbox", { name: "Private notes" }) as HTMLTextAreaElement).value).toBe("Keep my notes");
   fireEvent.click(panel().getByRole("button", { name: "Comments" }));
   expect((panel().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Keep this unfinished comment");
   slot.lifecycle.unmount();

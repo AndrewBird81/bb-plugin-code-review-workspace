@@ -203,7 +203,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
       <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />
       <span className="text-sm font-medium">Review agent</span>
       {(threadId || conversation?.legacy.length) ? <Button variant="ghost" size="icon" className="ml-auto size-7 pointer-coarse:size-11" aria-label="New conversation" onPointerDown={(event) => event.stopPropagation()} onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
-      {popOut && <Button variant="ghost" size="sm" className={cn("pointer-coarse:h-11", !(threadId || conversation?.legacy.length) && "ml-auto")} aria-label={mode === "widget" ? "Dock in review panel" : "Open agent as widget"} onPointerDown={(event) => event.stopPropagation()} onClick={mode === "widget" ? dock : () => setMode("widget")}>
+      {popOut && <Button variant="ghost" size="sm" className={cn("pointer-coarse:h-11", !(threadId || conversation?.legacy.length) && "ml-auto")} onPointerDown={(event) => event.stopPropagation()} onClick={mode === "widget" ? dock : () => setMode("widget")}>
         <Icon name={mode === "widget" ? "Minimize2" : "Maximize2"} className="size-3.5" aria-hidden />{mode === "widget" ? "Dock" : "Pop out"}
       </Button>}
       {mode === "panel" && onCollapse && <Button variant="ghost" size="icon" className={cn("size-8 text-muted-foreground pointer-coarse:size-11", !popOut && !(threadId || conversation?.legacy.length) && "ml-auto")} aria-label={closeLabel} onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}
@@ -225,7 +225,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
   </div>, container ?? document.body);
   return <>
     <section aria-label="Review agent" hidden={!active} className={cn("flex min-h-0 flex-1 flex-col", !active && "hidden")}>
-      {mode === "panel" ? panel : <><div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5"><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /><h2 className="flex-1 text-sm font-medium">Review agent</h2>{onCollapse && <Button variant="ghost" size="icon" className="size-8 text-muted-foreground pointer-coarse:size-11" aria-label={closeLabel} onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}</div><div className="space-y-3 p-3 text-sm"><p className="text-muted-foreground">The agent is open as a widget.</p><Button variant="outline" size="sm" onClick={dock}>Dock in review panel</Button></div></>}
+      {mode === "panel" ? panel : <><div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5"><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /><h2 className="flex-1 text-sm font-medium">Review agent</h2>{onCollapse && <Button variant="ghost" size="icon" className="size-8 text-muted-foreground pointer-coarse:size-11" aria-label={closeLabel} onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}</div><div className="space-y-3 p-3 text-sm"><p className="text-muted-foreground">The agent is popped out.</p><Button variant="outline" size="sm" onClick={dock}>Dock</Button></div></>}
     </section>
     {widget}
   </>;

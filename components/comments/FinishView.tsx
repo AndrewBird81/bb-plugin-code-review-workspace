@@ -70,6 +70,9 @@ export function FinishView({ shown, revision }: {
     : d.closed ? <Archived />
     : d.completed && sent ? <Receipt sent={sent} />
     : null;
+  // The panel's header names what shows, as Comments' foot does.
+  const title = !body ? null : d.closed ? "Archived review" : "Review submitted";
+  useEffect(() => updateComments(targetKey, { finishTitle: title }), [targetKey, title]);
   return (
     <div hidden={!shown} className={cn("flex min-h-0 flex-1 flex-col", !shown && "hidden")}>
       {d.loadError ? <div role="alert" className="space-y-3 p-3 text-sm"><p>Couldn’t load your draft. Editing is paused to protect it.</p><Button variant="outline" onClick={() => void d.load()}>Retry draft</Button></div>
