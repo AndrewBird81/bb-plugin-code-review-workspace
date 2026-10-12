@@ -56,7 +56,7 @@ function useDockedPanelWidth(targetKey: string, docked: boolean): number {
   useEffect(() => {
     const panel = docked ? document.getElementById(sidePanelId(targetKey)) : null;
     if (!panel) { setWidth(0); return; }
-    const measure = () => setWidth(Math.round(panel.getBoundingClientRect().width) + 1);
+    const measure = () => { const { width } = panel.getBoundingClientRect(); setWidth(width ? Math.round(width) + 1 : 0); };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);

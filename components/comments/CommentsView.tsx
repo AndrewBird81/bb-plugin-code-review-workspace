@@ -54,7 +54,8 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const coarse = useMediaQuery("(pointer: coarse)");
   const isPr = review.kind === "pr";
   const visible = shown && !finish;
-  const closed = review.prState === "MERGED" || review.prState === "CLOSED";
+  const merged = review.prState === "MERGED";
+  const closed = merged || review.prState === "CLOSED";
   const threads = useComments(targetKey, "threads");
   const feedback = useComments(targetKey, "feedback");
   const replyDrafts = useComments(targetKey, "replyDrafts");
@@ -242,7 +243,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
       {closed && draft.loaded && !draft.loadError && (
         <div className="flex min-h-14 shrink-0 items-center gap-2 border-t border-border py-2 pl-3 pr-2">
           <p className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
-            <Icon name={review.prState === "MERGED" ? "GitMerge" : "GitPullRequestClosed"} className="size-3.5 shrink-0" aria-hidden />{review.prState === "MERGED" ? "Merged" : "Closed"} · Archived
+            <Icon name={merged ? "GitMerge" : "GitPullRequestClosed"} className="size-3.5 shrink-0" aria-hidden />{merged ? "Merged" : "Closed"} · Archived
           </p>
           <Button size="sm" variant="outline" aria-label="Open the archived review" className={cn("shrink-0", TOUCH_CONTROL)} onClick={() => api.openFinish()}>Open</Button>
         </div>
