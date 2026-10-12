@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/utils";
 import { classifyFile } from "../src/classify";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
@@ -111,6 +111,13 @@ export const ChapterNav = memo(function ChapterNav({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const container = useFullscreenPortalContainer();
   const isExpanded = (id: string) => expanded[id] ?? id === activeId;
+  const chapterButtons = useRef(new Map<string, HTMLButtonElement>());
+  // Marking hides the control that did it: its focus moves to the chapter's own button rather than to the page. A tap
+  // that didn't focus the control (Safari) leaves the focus where it was, such as in a comment being written.
+  const markViewed = (id: string, control: HTMLElement) => {
+    onMarkViewed?.(id);
+    if (document.activeElement === control) chapterButtons.current.get(id)?.focus({ preventScroll: true });
+  };
   // A file split across chapters counts once.
   const allFiles = [...new Set(sections.flatMap((s) => s.diffs.map((d) => d.file)))];
   const viewedAll = allFiles.filter((f) => views.get(f)?.viewed).length;
@@ -179,7 +186,7 @@ export const ChapterNav = memo(function ChapterNav({
               >
                 <div className="flex items-start gap-2.5 py-2 pl-[7px] pr-1">
                   <StepMarker index={index} viewed={viewed} total={s.diffs.length} active={active} />
-                  <button onClick={() => onSelect(s.id)} aria-current={active ? "step" : undefined} title={s.overview || undefined} className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11">
+                  <button ref={(button) => { if (button) chapterButtons.current.set(s.id, button); else chapterButtons.current.delete(s.id); }} onClick={() => onSelect(s.id)} aria-current={active ? "step" : undefined} title={s.overview || undefined} className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11">
                     <span className={cn("block text-sm font-medium leading-snug line-clamp-3", active ? "text-foreground" : "text-foreground/90")}>
                       <InlineCode text={s.title} />
                     </span>
@@ -196,7 +203,7 @@ export const ChapterNav = memo(function ChapterNav({
                   {/* Skipping a chapter without opening it: with a pointer, from its row. A touch opens the row instead. */}
                   {onMarkViewed && !open && !done && (
                     <Hint label={`Mark chapter ${index + 1} viewed`} container={container}>
-                      <Button variant="ghost" size="sm" aria-label={`Mark chapter ${index + 1} viewed`} className="size-7 shrink-0 px-0 text-muted-foreground opacity-0 transition-opacity hover:text-diff-added focus-visible:opacity-100 group-hover/card:opacity-100 pointer-coarse:hidden" onClick={() => onMarkViewed(s.id)}>
+                      <Button variant="ghost" size="sm" aria-label={`Mark chapter ${index + 1} viewed`} className="size-7 shrink-0 px-0 text-muted-foreground opacity-0 transition-opacity hover:text-diff-added focus-visible:opacity-100 group-hover/card:opacity-100 pointer-coarse:hidden" onClick={(event) => markViewed(s.id, event.currentTarget)}>
                         <Icon name="CircleCheck" aria-hidden />
                       </Button>
                     </Hint>
@@ -252,7 +259,7 @@ export const ChapterNav = memo(function ChapterNav({
                       <span className="inline-flex items-center gap-1.5 font-medium text-diff-added"><Icon name="CircleCheck" className="size-3.5" aria-hidden />Chapter viewed</span>
                     ) : <>
                       <span className="tabular-nums text-muted-foreground">{viewed} of {s.diffs.length} viewed</span>
-                      <Button variant="outline" size="sm" className={cn("h-7 gap-1.5 px-2 text-xs [&_svg]:size-3.5", TOUCH_CONTROL)} onClick={() => onMarkViewed(s.id)}>
+                      <Button variant="outline" size="sm" className={cn("h-7 gap-1.5 px-2 text-xs [&_svg]:size-3.5", TOUCH_CONTROL)} onClick={(event) => markViewed(s.id, event.currentTarget)}>
                         <Icon name="CircleCheck" aria-hidden />Mark chapter viewed
                       </Button>
                     </>}

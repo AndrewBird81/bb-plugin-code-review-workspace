@@ -181,3 +181,29 @@ test("a closed chapter's card has a ✓ that marks it viewed without opening it,
   expect(screen.queryByRole("button", { name: "Mark chapter 2 viewed" })).toBeNull();
   expect(screen.getAllByRole("button", { name: "Mark chapter viewed" })).toHaveLength(2);
 });
+
+test("marking a chapter viewed from the keyboard leaves the focus on the chapter, as the control it used goes", () => {
+  const viewed = (...files: string[]) => new Map<string, FileViewFlags>(files.map((file) => [file, { viewed: true, stale: false }]));
+  const nav = (views: Map<string, FileViewFlags>) => <ChapterNav sections={sections} activeId="c1" onSelect={() => {}} views={views} onSelectFile={() => {}} onMarkViewed={() => {}} />;
+  const view = render(nav(viewed()));
+  // A closed chapter's ✓.
+  const check = screen.getByRole("button", { name: "Mark chapter 2 viewed" });
+  check.focus();
+  fireEvent.click(check);
+  view.rerender(nav(viewed("README.md")));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Docs/ }));
+  // The open chapter's button.
+  const mark = screen.getByRole("button", { name: "Mark chapter viewed" });
+  mark.focus();
+  fireEvent.click(mark);
+  view.rerender(nav(viewed("README.md", "src/auth.ts", "src/auth.test.ts")));
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Auth token refresh/ }));
+});
+
+test("marking a chapter viewed with a tap that didn't focus the control leaves the focus where it was", () => {
+  render(<ChapterNav sections={sections} activeId="c1" onSelect={() => {}} views={new Map()} onSelectFile={() => {}} onMarkViewed={() => {}} />);
+  const elsewhere = screen.getByRole("button", { name: /^Dependencies/ });
+  elsewhere.focus();
+  fireEvent.click(screen.getByRole("button", { name: "Mark chapter viewed" }));
+  expect(document.activeElement).toBe(elsewhere);
+});
