@@ -115,6 +115,24 @@ test("with the keyboard up, the workspace says whether it leaves a phone held si
   expect(root.hasAttribute("data-keyboard")).toBe(false);
 });
 
+test("where BB shrinks its pane to what shows above the keyboard, the keyboard is up all the same: the box comes into view", async () => {
+  stubWindow(390, 844);
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 844 });
+  restores.push(() => { delete (window as { innerHeight?: number }).innerHeight; });
+  const viewport = fakeViewport(844);
+  const { root, box } = workspace(844);
+  renderHook(() => useKeyboardInset(root));
+  act(() => box.focus());
+  // BB's pane ends at the keyboard's top: it covers none of the workspace.
+  root.getBoundingClientRect = () => new DOMRect(0, 48, 390, 460);
+  viewport.show(336);
+  expect(root.style.getPropertyValue("--gr-kb")).toBe("0px");
+  expect(root.getAttribute("data-keyboard")).toBe("short");
+  await vi.waitFor(() => expect(box.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+  act(() => box.blur());
+  expect(root.hasAttribute("data-keyboard")).toBe(false);
+});
+
 test("held sideways, a 13\" iPad's keyboard leaves less than a phone held sideways has, and the band stays: only a phone's gives way", () => {
   // Safari's page on the 13" iPad held sideways is about 960 tall; its keyboard, with the suggestions bar, about 440.
   stubWindow(1376, 960);

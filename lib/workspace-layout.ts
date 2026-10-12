@@ -1,6 +1,7 @@
 // Where the review workspace puts its navigator and side panel, decided from the workspace's own size: BB's pane,
 // not the window, so a narrow pane on a wide screen lays out like a small screen.
 import { useLayoutEffect, useReducer, useRef } from "react";
+import { TEXT_FIELD } from "./review-shortcuts";
 
 /** The narrowest the code gets beside docked sides. */
 export const READER_MIN = 560;
@@ -169,7 +170,12 @@ export function useWorkspaceLayout(el: HTMLElement | null, state: LayoutState): 
     let windowWas = windowNow();
     const measure = ({ width, height: measured }: Size) => {
       if (!(width > 0)) return;
-      const height = Number.isFinite(measured) ? measured : windowSize().height;
+      let height = Number.isFinite(measured) ? measured : windowSize().height;
+      // BB shrinks its pane to what shows above an on-screen keyboard: while you type, a pane that only got shorter
+      // keeps the height it had, so the keyboard doesn't turn a phone into a phone held sideways.
+      const active = document.activeElement;
+      const typing = active instanceof HTMLElement && (active.isContentEditable || !!active.closest(TEXT_FIELD));
+      if (typing && size.current && size.current.width === width && height < size.current.height) height = size.current.height;
       // The first measurement replaces the window's guess outright, rather than keeping to it.
       if (!size.current) shown.current = undefined;
       else if (size.current.width === width && size.current.height === height) return;

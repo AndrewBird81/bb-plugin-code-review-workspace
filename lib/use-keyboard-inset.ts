@@ -1,8 +1,12 @@
 // An on-screen keyboard covers the bottom of the page without resizing it (iOS shrinks only the visual viewport), so
-// what's under it, such as the comment box you're typing in, can't be scrolled into view.
+// what's under it, such as the comment box you're typing in, can't be scrolled into view. BB may shrink its pane to
+// what shows above the keyboard itself, so the keyboard covers none of the workspace: it's up all the same.
 import { useEffect } from "react";
 import { TEXT_FIELD } from "./review-shortcuts";
 import { SHORT_BELOW, phoneWindow } from "./workspace-layout";
+
+/** Less than this between the window's height and what shows of it is a browser's bar or a keyboard's shortcuts, not a keyboard. */
+const KEYBOARD_LEAST = 120;
 
 /**
  * Brings the box you type in into view with its buttons (`data-keyboard-box`), all of it where it fits above the
@@ -37,22 +41,29 @@ export function useKeyboardInset(el: HTMLElement | null) {
     if (!el || !viewport) return;
     let frame = 0;
     let timer = 0;
+    let shown = false;
     const update = () => {
       const active = document.activeElement;
       const typing = active instanceof HTMLElement && el.contains(active) && (active.isContentEditable || !!active.closest(TEXT_FIELD));
       const rect = el.getBoundingClientRect();
       const covered = typing ? Math.max(0, Math.round(rect.bottom - viewport.offsetTop - viewport.height)) : 0;
-      if (!covered) el.removeAttribute("data-keyboard");
+      // Zoomed in, the visual viewport is smaller by its scale: that isn't a keyboard.
+      const up = covered > 0 || (typing && window.innerHeight - viewport.height * (viewport.scale || 1) >= KEYBOARD_LEAST);
+      if (!up) el.removeAttribute("data-keyboard");
       else el.setAttribute("data-keyboard", rect.height - covered < SHORT_BELOW && phoneWindow() ? "short" : "up");
-      if (el.style.getPropertyValue("--gr-kb") === `${covered}px`) return;
+      if (el.style.getPropertyValue("--gr-kb") === `${covered}px` && up === shown) return;
+      shown = up;
       el.style.setProperty("--gr-kb", `${covered}px`);
       cancelAnimationFrame(frame);
       clearTimeout(timer);
       // Once the workspace's new size is laid out and reported, after the frame: as the code's box resizes,
       // lib/use-scroll-anchor.ts keeps what was showing where it was.
-      if (covered) frame = requestAnimationFrame(() => { timer = window.setTimeout(() => bringIntoView(active as HTMLElement, viewport)); });
+      if (up) frame = requestAnimationFrame(() => { timer = window.setTimeout(() => bringIntoView(active as HTMLElement, viewport)); });
     };
     update();
+    // BB resizing its pane after the keyboard came up, rather than the keyboard covering it.
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(el);
     viewport.addEventListener("resize", update);
     viewport.addEventListener("scroll", update);
     document.addEventListener("focusin", update);
@@ -62,6 +73,7 @@ export function useKeyboardInset(el: HTMLElement | null) {
     return () => {
       cancelAnimationFrame(frame);
       clearTimeout(timer);
+      observer?.disconnect();
       viewport.removeEventListener("resize", update);
       viewport.removeEventListener("scroll", update);
       document.removeEventListener("focusin", update);

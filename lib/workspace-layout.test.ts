@@ -325,6 +325,25 @@ describe("useWorkspaceLayout", () => {
     expect(result.current.mode).toBe("phone");
   });
 
+  test("BB's pane shrunk above a phone's keyboard while you type stays a phone; a pane shorter otherwise is short", () => {
+    const resize = stubResizeObserver({ width: 390, height: 796 });
+    const el = document.body.appendChild(document.createElement("div"));
+    const box = el.appendChild(document.createElement("textarea"));
+    restores.push(() => el.remove());
+    const { result } = renderHook(() => useWorkspaceLayout(el, both));
+    expect(result.current.mode).toBe("phone");
+    act(() => box.focus());
+    // BB resizes its pane to the 508px above a 336px keyboard: 460 tall.
+    act(() => resize({ width: 390, height: 460 }));
+    expect(result.current.mode).toBe("phone");
+    act(() => box.blur());
+    act(() => resize({ width: 390, height: 796 }));
+    expect(result.current.mode).toBe("phone");
+    // Not typing, a pane that short is a phone held sideways'.
+    act(() => resize({ width: 390, height: 460 }));
+    expect(result.current.mode).toBe("short");
+  });
+
   /** A touch screen's pointer, or a desktop's. */
   function stubPointer(pointer: "coarse" | "fine") {
     const media = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(pointer: coarse)" && pointer === "coarse", media: query, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList);
