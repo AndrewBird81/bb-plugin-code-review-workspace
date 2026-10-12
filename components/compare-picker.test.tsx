@@ -189,6 +189,31 @@ test("on a re-review, All changes lets a picked commit go: the files' badges say
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("opening a file the narrowing hides, or a line from Find, lets a picked commit go as All changes does, so the select and the badges agree", async () => {
+  const { slot } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" });
+  const pick = async () => {
+    fireEvent.click(await (await bandMenu(slot)).findByText("Invalidate on write"));
+    await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
+    // b.ts hasn't changed since c2bbbbb.
+    await waitFor(() => expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeNull());
+  };
+  const letGo = async () => {
+    await waitFor(() => expect(slot.queryAllByTitle("Changed since your review")).toHaveLength(2));
+    expect(slot.getByRole("button", { name: "Show changes: All changes" })).toBeTruthy();
+    expect(slot.queryAllByTitle("Changed since c2bbbbb")).toEqual([]);
+    expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
+  };
+  await pick();
+  fireEvent.click(within(slot.getByRole("navigation", { name: "Chapters" })).getByText("b.ts"));
+  await letGo();
+  await pick();
+  fireEvent.change(slot.getByRole("searchbox", { name: "Find in review" }), { target: { value: "b2" } });
+  const results = within(await slot.findByRole("list", { name: "Results" }));
+  fireEvent.click(results.getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "src/b.ts:1").closest("button")!);
+  await letGo();
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("a comparison that fails says why in the compare menu, not only in the select's tooltip", async () => {
   const { slot } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" }, {
     getSinceReview: () => ({ baseline: null, files: [], error: "gh: not found" }),

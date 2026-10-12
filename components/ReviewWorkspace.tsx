@@ -612,10 +612,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     [reducedMotion],
   );
 
-  // Since your review hides files unchanged since then; showing one turns the filter off.
+  // Since your review hides files unchanged since then; showing one turns the filter off, as All changes does.
   const unhide = useCallback((file: string) => {
-    if (since?.get(file)?.status === "unchanged") setSinceOnly(false);
-  }, [since]);
+    if (since?.get(file)?.status === "unchanged") narrow(false);
+  }, [since, narrow]);
 
   const onSelectFile = useCallback(
     (chapterId: string, file: string) => {
@@ -665,9 +665,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // A line from the Feedback view: the whole diff, so the line is there. Without a line, the file.
   const showLocation = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
     if (outsideGuide(file, url)) return;
-    setSinceOnly(false);
+    narrow(false);
     showComment({ file, line: line ?? 0, side });
-  }, [outsideGuide, showComment]);
+  }, [outsideGuide, narrow, showComment]);
   const openHotspot = useCallback((file: string, line: number) => showLocation(file, line, "RIGHT"), [showLocation]);
   // Find in review's results: a line, a chapter, or a file's summary, in the diff.
   const openFoundFile = useCallback((_chapterId: string, file: string) => showLocation(file, null, "RIGHT"), [showLocation]);
