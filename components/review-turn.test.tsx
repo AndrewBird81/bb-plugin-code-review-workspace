@@ -159,7 +159,7 @@ test("Use as draft opens the draft with the assistant's verdict and summary", as
   slot.lifecycle.unmount();
 });
 
-test("the Overview shows your review rounds, progress, Blocks merge, and Not yet", async () => {
+test("the Overview shows your review rounds, progress, Blocks merge, and snoozes until the author responds", async () => {
   const { slot, rpc } = await renderWorkspace({
     submittedVerdict: "REQUEST_CHANGES",
     submittedAt: now - DAY,
@@ -173,24 +173,26 @@ test("the Overview shows your review rounds, progress, Blocks merge, and Not yet
   const rounds = await slot.findByRole("list", { name: "Your reviews" });
   expect(rounds.textContent).toBe("Changes requested 3d ago→Commented 1d ago");
   expect(slot.getByText("Blocks merge")).toBeTruthy();
-  fireEvent.click(slot.getByRole("button", { name: "Not yet" }));
+  fireEvent.click(slot.getByRole("button", { name: "Snooze" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Until the author responds" }));
   await waitFor(() => expect(rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: true }));
-  // The progress pill opens Comments on Feedback.
+  // Your feedback's progress opens Comments on Feedback.
   fireEvent.click(panel(slot).getByRole("button", { name: "Close panel" }));
   fireEvent.click(slot.getByText("2/5 addressed"));
   expect(tab(slot, "Feedback").getAttribute("aria-pressed")).toBe("true");
   slot.lifecycle.unmount();
 });
 
-test("a snoozed review offers Back to Needs review, and an unreviewed one no Not yet", async () => {
+test("a snoozed review offers Back to Needs review, and an unreviewed one can't wait for the author", async () => {
   const snoozed = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({ group: "waiting", reason: "snoozed", label: "Not yet" }) });
   fireEvent.click(await snoozed.slot.findByRole("button", { name: "Back to Needs review" }));
   await waitFor(() => expect(snoozed.rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: false }));
   snoozed.slot.lifecycle.unmount();
 
   const fresh = await renderWorkspace({ turn: turn({ reason: "requested", label: "Review requested" }) });
-  await fresh.slot.findByRole("heading", { name: "Parse rows" });
-  expect(fresh.slot.queryByRole("button", { name: "Not yet" })).toBeNull();
+  fireEvent.click(await fresh.slot.findByRole("button", { name: "Snooze" }));
+  await fresh.slot.findByRole("button", { name: /Monday/ });
+  expect(fresh.slot.queryByRole("button", { name: "Until the author responds" })).toBeNull();
   fresh.slot.lifecycle.unmount();
 });
 

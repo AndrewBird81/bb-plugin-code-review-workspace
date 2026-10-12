@@ -114,31 +114,67 @@ test("after a chapter's last file, Next opens the next chapter at its top", asyn
   slot.lifecycle.unmount();
 });
 
-test("the last chapter ends on Done, which opens Finish review to submit, marking the chapter viewed if you ask", async () => {
+test("the last chapter ends on Finish review, marking the chapter viewed if you ask", async () => {
   patchReviewState("pr-42", { activeId: "c2" });
   const { slot, rpc } = await renderWorkspace();
   await slot.findByText("bb");
   const main = within(slot.getByRole("main"));
   expect(finishing(slot)).toBe(false);
-  fireEvent.click(main.getByRole("button", { name: "Mark chapter viewed and finish" }));
+  fireEvent.click(main.getByRole("button", { name: "Mark viewed and finish" }));
   expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts", "src/c.ts"] });
   await waitFor(() => expect(finishing(slot)).toBe(true));
   fireEvent.click(slot.getByRole("button", { name: "Close panel" }));
   await waitFor(() => expect(finishing(slot)).toBe(false));
-  fireEvent.click(main.getByRole("button", { name: "Done: Submit review" }));
+  fireEvent.click(main.getByRole("button", { name: "Finish review" }));
   await waitFor(() => expect(finishing(slot)).toBe(true));
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("Mark chapter viewed and continue marks the chapter's files and opens the next", async () => {
+test("Mark viewed and continue marks the chapter's files and opens the next", async () => {
   const { slot, rpc } = await renderWorkspace();
   await slot.findByText("aa");
-  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Mark chapter viewed and continue" }));
+  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Mark viewed and continue" }));
   await slot.findByText("bb");
   expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/a.ts"] });
   expect(currentChapter(slot)?.textContent).toContain("Caching");
   slot.lifecycle.unmount();
 });
+
+test("a chapter's end counts its files viewed and its comments, and once they're all viewed, the way on is its main button", async () => {
+  const comments = [
+    { file: "src/b.ts", line: 1, side: "RIGHT", body: "Why?", author: "reviewer" },
+    { file: "src/c.ts", line: 1, side: "RIGHT", body: "Spacing.", author: "agent", severity: "nit" },
+    { file: "src/a.ts", line: 1, side: "RIGHT", body: "Elsewhere.", author: "reviewer" },
+  ];
+  patchReviewState("pr-42", { activeId: "c2" });
+  const { slot } = await renderWorkspace({ rpc: {
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments } }),
+    getFileViews: () => ({ views: [{ file: "src/b.ts", viewed: true, stale: false }, { file: "src/c.ts", viewed: true, stale: false }] }),
+  } });
+  // Viewed files open folded.
+  const main = within(slot.getByRole("main"));
+  expect((await main.findByText("2 of 2 files viewed")).textContent).toBe("2 of 2 files viewed\u00a0·");
+  expect(main.getByText("2 comments")).toBeTruthy();
+  // Nothing left to mark: finishing is the way on.
+  expect(main.queryByRole("button", { name: "Mark viewed and finish" })).toBeNull();
+  expect(main.getByRole("button", { name: "Finish review" }).className).toContain("bg-primary");
+  slot.lifecycle.unmount();
+});
+
+test("the last chapter's end names the files not viewed yet in the others, and Next unviewed opens the first", async () => {
+  patchReviewState("pr-42", { activeId: "c2" });
+  const { slot } = await renderWorkspace({ rpc: { getFileViews: () => ({ views: [{ file: "src/c.ts", viewed: true, stale: false }] }) } });
+  await slot.findByText("bb");
+  const main = within(slot.getByRole("main"));
+  const left = await main.findByText(/not viewed yet/);
+  expect(left.textContent).toBe("1 file not viewed yet: a.ts");
+  fireEvent.click(main.getByRole("button", { name: "Next unviewed" }));
+  // From b.ts, the chapter's own unviewed file, it goes on to the next: around to a.ts in chapter 1.
+  await slot.findByText("aa");
+  expect(currentChapter(slot)?.textContent).toContain("Parsing");
+  expect(main.queryByText(/not viewed yet/)).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
 
 test("a review back with changes opens on its Overview, which goes on to the first chapter that changed, unless you were reading one", async () => {
   const { interdiff } = await import("../src/interdiff");

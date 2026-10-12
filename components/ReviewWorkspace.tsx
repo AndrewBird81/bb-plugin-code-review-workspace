@@ -51,7 +51,7 @@ import { ReviewMenu } from "./TitleBarControls";
 import { TOUCH_CONTROL } from "./touch";
 import { splitPatchByFile } from "../src/patch";
 import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunks";
-import { changedLines, readingLines } from "../lib/review-size";
+import { changedLines, chapterReadingLines, readingLines } from "../lib/review-size";
 
 /** The guide's chapters, then any changed files they don't list, such as an older guide's unplaced files. */
 function withOtherFiles(sections: any[], patch: string): any[] {
@@ -393,6 +393,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const sections = useMemo(() => guide?.sections ? withOtherFiles(fitHunks(guide.sections, patch), patch) : [], [guide, patch]);
   const lines = useMemo(() => changedLines(patch), [patch]);
   const readLines = useMemo(() => readingLines([...lines.keys()], lines, generated), [lines, generated]);
+  const chapterLines = useMemo(() => chapterReadingLines(sections, patch, lines, generated), [sections, patch, lines, generated]);
   const changedSince = useMemo(() => {
     if (!since || !sections.length) return undefined;
     const texts = new Map(splitPatchByFile(patch).map((f) => [f.path, f.text]));
@@ -674,6 +675,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Read when you ask, so asking doesn't change with each scroll, nor the workspace's api with it.
   const currentFileRef = useRef(currentFile);
   currentFileRef.current = currentFile;
+  // From the file you're on, or the chapter's start; on the Overview, from the first chapter.
+  const nextUnviewed = useCallback(() => {
+    const order = readingOrder(sections);
+    const placeOf = (file: string | undefined) => order.findIndex((entry) => entry.chapter === activeId && entry.file === file);
+    const current = currentFileRef.current;
+    const from = Math.max(current ? placeOf(current) : placeOf(activeFiles[0]) - 1, -1);
+    const next = [...order.slice(from + 1), ...order.slice(0, from + 1)].find((entry) => !views.get(entry.file)?.viewed);
+    if (!next) toast.info("Every file is viewed.");
+    else onSelectFile(next.chapter, next.file);
+  }, [sections, activeId, activeFiles, views, onSelectFile]);
   const chapterId = activeSection?.id as string | undefined;
   const ask = useCallback((context: AgentMessageContext) => { setInjection({ context, nonce: Date.now() }); openPanel("agent"); }, [openPanel]);
   const askAgent = useCallback((context?: AgentMessageContext) => ask(context ?? { file: currentFileRef.current, chapterId }), [ask, chapterId]);
@@ -832,14 +843,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         requestAnimationFrame(() => goToFile(after));
         return true;
       }
-      case "u": {
-        const from = Math.max(currentFile ? placeOf(currentFile) : placeOf(activeFiles[0]) - 1, -1);
-        const rest = [...allFiles.slice(from + 1), ...allFiles.slice(0, from + 1)];
-        const next = rest.find((entry) => !views.get(entry.file)?.viewed);
-        if (!next) toast.info("Every file is viewed.");
-        else onSelectFile(next.chapter, next.file);
-        return true;
-      }
+      case "u": nextUnviewed(); return true;
       case "]": case "[": {
         // The Comments list's order and filter, once it registered them; until then, the draft's lines.
         if (stepComment(targetKey, key === "]" ? 1 : -1, currentFile)) return true;
@@ -912,13 +916,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     targetKey, review: review ?? { targetKey }, guide, sections, activeId, go: selectChapter, layout,
     nav: { open: layout.nav === "docked" || layout.nav === "overlay", toggle: toggleNav, find: findInReview, view: navView, setView: changeNavView },
     panel: { view: shownPanel, open: openPanel, toggle: togglePanel, close: closePanel },
-    files: { views, toggleViewed, markChapterViewed, foldAll: foldAllFiles },
+    files: { views, toggleViewed, markChapterViewed, nextUnviewed, foldAll: foldAllFiles },
     compare: { baseline: baselineSha, head: review?.headSha ?? null, from: compareFrom, pick: pickCompare, since, narrowed: sinceOnly, setNarrowed: setSinceOnly, error: sinceError, what: sinceWhat },
     display: { layout: diffLayout, toggleLayout, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads, commentsFolded, setCommentsFolded: changeCommentsFolded },
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, foldAllFiles, baselineSha, compareFrom, pickCompare, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts]);
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts]);
 
   if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");
@@ -972,7 +976,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
             {activeSection ? (
               <>
-              <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} />
+              <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} />
               <CheckFailuresContext.Provider value={checkFailures}>
               <DiffThreadsContext.Provider value={showThreads ? diffThreads : null}>
               <DiffViewer

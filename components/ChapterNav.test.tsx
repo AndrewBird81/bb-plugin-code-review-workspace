@@ -30,6 +30,8 @@ test("shows the full title, a worded risk flag, and a skippable count", () => {
   );
   expect(screen.getByText("Auth token refresh logic with a deliberately long title")).toBeTruthy();
   expect(screen.getByText("High risk")).toBeTruthy();
+  // Low risk is the usual case: it goes unsaid.
+  expect(screen.queryByText("Low risk")).toBeNull();
   // Tests aren't skippable; a chapter of only lockfiles reads as one to skim.
   expect(screen.getAllByText(/1 skippable/)).toHaveLength(1);
   expect(screen.getByText(/generated files — skim/)).toBeTruthy();
@@ -120,4 +122,58 @@ test("files the repo's .gitattributes marks generated count as skippable, tagged
   expect(screen.getAllByText(/1 skippable/)).toHaveLength(2);
   expect(screen.getByText("generated · skip")).toBeTruthy();
   expect(screen.getByText("40 lines")).toBeTruthy();
+});
+
+test("Chapters and All files read in sentence case, beside the files viewed, with Next unviewed by the progress until all are", () => {
+  const onNextUnviewed = vi.fn();
+  const nav = (views: Map<string, FileViewFlags>) => <ChapterNav sections={sections} activeId="c1" onSelect={() => {}} views={views} onSelectFile={() => {}} onViewChange={() => {}} onNextUnviewed={onNextUnviewed} />;
+  const view = render(nav(new Map([["README.md", { viewed: true, stale: false }]])));
+  for (const name of ["Chapters", "All files"]) expect(screen.getByRole("button", { name }).className).not.toContain("uppercase");
+  expect(screen.getByText("1/4 files viewed")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Next unviewed" }));
+  expect(onNextUnviewed).toHaveBeenCalledOnce();
+  view.rerender(nav(new Map(["src/auth.ts", "src/auth.test.ts", "README.md", "package-lock.json"].map((file) => [file, { viewed: true, stale: false }]))));
+  expect(screen.getByText("4/4 files viewed")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Next unviewed" })).toBeNull();
+});
+
+test("the Overview's row comes before the chapters, and only with them, not All files", () => {
+  const nav = (view: "chapters" | "files") => <ChapterNav sections={sections} activeId="c1" onSelect={() => {}} views={new Map()} onSelectFile={() => {}} view={view} overview={<button type="button">Overview</button>} />;
+  const view = render(nav("chapters"));
+  const chapters = screen.getByRole("navigation", { name: "Chapters" });
+  const buttons = Array.from(chapters.querySelectorAll("button")).map((button) => button.textContent);
+  expect(buttons.indexOf("Overview")).toBeLessThan(buttons.findIndex((text) => text?.startsWith("Auth token refresh")));
+  view.rerender(nav("files"));
+  expect(screen.queryByRole("button", { name: "Overview" })).toBeNull();
+});
+
+test("an open chapter's card ends with how much of it you've viewed and Mark chapter viewed, then Chapter viewed once it's done", () => {
+  const onMarkViewed = vi.fn();
+  const nav = (views: Map<string, FileViewFlags>) => <ChapterNav sections={sections} activeId="c1" onSelect={() => {}} views={views} onSelectFile={() => {}} onMarkViewed={onMarkViewed} />;
+  const view = render(nav(new Map([["src/auth.ts", { viewed: true, stale: false }]])));
+  expect(screen.getByText("1 of 2 viewed")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Mark chapter viewed" }));
+  expect(onMarkViewed).toHaveBeenCalledWith("c1");
+  view.rerender(nav(new Map([["src/auth.ts", { viewed: true, stale: false }], ["src/auth.test.ts", { viewed: true, stale: false }]])));
+  expect(screen.getByText("Chapter viewed")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Mark chapter viewed" })).toBeNull();
+});
+
+test("a closed chapter's card has a ✓ that marks it viewed without opening it, until it's done, and opened it has the button instead", () => {
+  const onMarkViewed = vi.fn();
+  const onSelect = vi.fn();
+  render(<ChapterNav sections={sections} activeId="c1" onSelect={onSelect} views={new Map([["package-lock.json", { viewed: true, stale: false }]])} onSelectFile={() => {}} onMarkViewed={onMarkViewed} />);
+  // Shown on hover or focus: it's there for a pointer and the keyboard, and hidden on touch, where the card opens.
+  const check = screen.getByRole("button", { name: "Mark chapter 2 viewed" });
+  expect(check.className).toContain("group-hover/card:opacity-100");
+  expect(check.className).toContain("pointer-coarse:hidden");
+  fireEvent.click(check);
+  expect(onMarkViewed).toHaveBeenCalledWith("c2");
+  expect(onSelect).not.toHaveBeenCalled();
+  // Chapter 3 is all viewed; the open chapter 1 has its own button.
+  expect(screen.queryByRole("button", { name: "Mark chapter 3 viewed" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Mark chapter 1 viewed" })).toBeNull();
+  fireEvent.click(screen.getAllByRole("button", { name: "Expand chapter" })[0]);
+  expect(screen.queryByRole("button", { name: "Mark chapter 2 viewed" })).toBeNull();
+  expect(screen.getAllByRole("button", { name: "Mark chapter viewed" })).toHaveLength(2);
 });

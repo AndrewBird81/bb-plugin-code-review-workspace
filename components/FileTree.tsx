@@ -93,7 +93,7 @@ export const FileTree = memo(function FileTree({
                 setClosed((c) => ({ ...c, [node.path]: event.key === "ArrowLeft" }));
               } else moveFocus(event, filterRef.current);
             }}
-            className="flex w-full items-center gap-1 rounded-md py-1 pr-1.5 text-left text-subtle-foreground hover:bg-state-hover hover:text-foreground"
+            className="flex w-full items-center gap-1 rounded-md py-1 pr-1.5 text-left text-subtle-foreground hover:bg-state-hover hover:text-foreground pointer-coarse:min-h-11"
             style={indent}
           >
             <Icon name="ChevronDown" className={cn("size-3 shrink-0 transition-transform duration-150", !expanded && "-rotate-90")} aria-hidden />
@@ -121,7 +121,7 @@ export const FileTree = memo(function FileTree({
           onClick={() => open(file)}
           onKeyDown={(event) => moveFocus(event, filterRef.current)}
           aria-current={current ? "true" : undefined}
-          className={cn("flex w-full items-start gap-1.5 rounded-md py-1 pr-1.5 text-left hover:bg-state-hover", current && "bg-state-hover")}
+          className={cn("flex w-full items-start gap-1.5 rounded-md py-1 pr-1.5 text-left hover:bg-state-hover pointer-coarse:min-h-11 pointer-coarse:items-center", current && "bg-state-hover")}
           style={indent}
           title={file}
         >
@@ -169,7 +169,8 @@ export const FileTree = memo(function FileTree({
 
   return (
     <div data-file-tree className="space-y-1.5">
-      <div className="relative px-1">
+      {/* A label, so a tap just above or below the box, within its 44px target on a coarse pointer, still lands in it. */}
+      <label className="relative block px-1 pointer-coarse:py-1">
         <Icon name="Search" className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-subtle-foreground" aria-hidden />
         <Input
           ref={filterRef}
@@ -186,9 +187,9 @@ export const FileTree = memo(function FileTree({
           }}
           placeholder="Filter files"
           aria-label="Filter files"
-          className="h-7 pl-7 text-xs"
+          className="h-7 pl-7 text-xs pointer-coarse:h-9 max-md:pointer-coarse:h-9"
         />
-      </div>
+      </label>
       {filter.trim() && <p className="px-2 text-[11px] text-muted-foreground" role="status">{shown.length ? `${plural(shown.length, "file")} of ${chapterOf.size}` : "No files match."}</p>}
       <ul aria-label="All files" className="space-y-px">{tree.map((node) => row(node, 0))}</ul>
     </div>

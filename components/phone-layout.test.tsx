@@ -75,7 +75,7 @@ test("on a phone the diff's options are behind the chapters sheet's Diff options
   const main = within(slot.getByRole("main"));
   // The chapter's end marks it viewed.
   expect(main.queryByRole("button", { name: "Mark chapter viewed" })).toBeNull();
-  expect(main.getByRole("button", { name: "Mark chapter viewed and finish" })).toBeTruthy();
+  expect(main.getByRole("button", { name: "Mark viewed and finish" })).toBeTruthy();
   fireEvent.click(slot.getByRole("button", { name: /^Chapters:/ }));
   fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Diff options" }));
   const wrap = await slot.findByRole("switch", { name: "Wrap long lines" });

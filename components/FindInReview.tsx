@@ -72,6 +72,8 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
       <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-1.5">
       {leading}
       <div role="search" className="relative min-w-0 flex-1">
+      {/* A label, so a tap just above or below the box, within its 44px target on a coarse pointer, still lands in it. */}
+      <label className="block pointer-coarse:py-1">
         <Icon name="Search" className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle-foreground" aria-hidden />
         <Input
           ref={box}
@@ -94,9 +96,10 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
           }}
           placeholder="Find in review"
           aria-label="Find in review"
-          className="h-8 pl-7 pr-7 text-xs"
+          className="h-8 pl-7 pr-7 text-xs pointer-coarse:h-9 max-md:pointer-coarse:h-9"
         />
-        {!query && <kbd aria-hidden className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1 font-mono text-[10px] leading-4 text-subtle-foreground">/</kbd>}
+        {!query && <kbd aria-hidden className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1 font-mono text-[10px] leading-4 text-subtle-foreground max-md:pointer-coarse:hidden">/</kbd>}
+      </label>
       </div>
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-2">
@@ -116,7 +119,7 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
                     data-hit
                     onClick={() => open(hit)}
                     onKeyDown={(event) => moveFocus(event, box.current)}
-                    className="w-full rounded-md px-2 py-1 text-left hover:bg-state-hover focus-visible:bg-state-hover focus-visible:outline-none"
+                    className="w-full rounded-md px-2 py-1 text-left hover:bg-state-hover focus-visible:bg-state-hover focus-visible:outline-none pointer-coarse:min-h-11"
                   >
                     {hit.kind === "line" ? (
                       <>
