@@ -3,6 +3,7 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 
 import { cn } from "../../lib/utils";
 import { useFullscreenPortalContainer, usePortalScopeProps } from "../../lib/portal-scope";
+import { FOLD_HALF } from "../../lib/use-fold";
 import { phoneWindow } from "../../lib/workspace-layout";
 import {
   type ResponsiveOverlayContextValue,
@@ -124,9 +125,10 @@ export type FoldBand = { top: number; bottom: number };
 
 /**
  * The fold running across an iPhone Duo's inner screen held upright, as a band menus keep out of (lanes/00-devices.md,
- * requirement 6): 8px either side of it where the browser reports it (the Viewport Segments API), else, in Safari on a
- * touch screen that's a phone's held upright, 40% to 52% of the window, either side of where Safari has it (page
- * y 373–414 of 869, estimated). Null elsewhere: a home-screen app's menus from the top end above its fold.
+ * requirement 6): 8px either side of it where the browser reports it (the Viewport Segments API); else, on a touch
+ * screen whose window is a phone's held upright, where it's estimated to be. In a home-screen app, whose window is the
+ * screen, that's the window's middle, FOLD_HALF either side; in Safari, 40% to 52% of the window, either side of where
+ * Safari's toolbars put it (page y 373–414 of 869). Null elsewhere.
  */
 export function foldBand(): FoldBand | null {
   const segments = (window as { viewport?: { segments?: ReadonlyArray<DOMRectReadOnly> | null } }).viewport?.segments;
@@ -134,7 +136,8 @@ export function foldBand(): FoldBand | null {
   if (upper && lower && !more.length && lower.top >= upper.bottom) return { top: upper.bottom - 8, bottom: lower.top + 8 };
   const size = { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
   const matches = (query: string) => !!window.matchMedia?.(query).matches;
-  if (!matches("(pointer: coarse)") || !phoneWindow(size) || size.height <= size.width || matches("(display-mode: standalone)")) return null;
+  if (!matches("(pointer: coarse)") || !phoneWindow(size) || size.height <= size.width) return null;
+  if (matches("(display-mode: standalone)")) return { top: Math.round(size.height / 2 - FOLD_HALF), bottom: Math.round(size.height / 2 + FOLD_HALF) };
   return { top: Math.round(size.height * 0.4), bottom: Math.round(size.height * 0.52) };
 }
 

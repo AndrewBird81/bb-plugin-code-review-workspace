@@ -78,7 +78,7 @@ function fakeWindow(width: number, height: number, { coarse = true, standalone =
   });
 }
 
-test("upright on the Duo's inner screen in Safari, menus keep out of 40% to 52% down the window, either side of the fold; nowhere else, unless a fold is reported", () => {
+test("upright on the Duo's inner screen, menus keep out of the fold: 40% to 52% down the window in Safari, its middle in a home-screen app; nowhere else", () => {
   // Safari on the unfolded Duo held upright: 669 × 869.
   fakeWindow(669, 869);
   expect(foldBand()).toEqual({ top: 348, bottom: 452 });
@@ -87,9 +87,9 @@ test("upright on the Duo's inner screen in Safari, menus keep out of 40% to 52% 
   fakeWindow(951, 589);
   expect(foldBand()).toBeNull();
   cleanupWindow();
-  // A home-screen app upright: menus from the top end above its fold (y 455–496).
+  // A home-screen app upright: its window is the screen, whose middle the fold is (y 455–496), 24px either side.
   fakeWindow(669, 951, { standalone: true });
-  expect(foldBand()).toBeNull();
+  expect(foldBand()).toEqual({ top: 452, bottom: 500 });
   cleanupWindow();
   // The iPad upright, and a desktop's window, have no fold.
   fakeWindow(1032, 1376);

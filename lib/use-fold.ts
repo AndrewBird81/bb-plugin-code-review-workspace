@@ -9,7 +9,7 @@ interface ViewportSegments {
 }
 
 /** Either side of the window's middle, what's taken for the fold where the browser can't say: the Duo's is about 40px. */
-const FOLD_HALF = 24;
+export const FOLD_HALF = 24;
 
 /**
  * Where a fold runs down the window, its edges' x: between two segments side by side, as the browser reports them;
