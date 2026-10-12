@@ -86,8 +86,17 @@ test("the panel docks where the code keeps 560px, and the chapters dock beside i
   fireEvent.click(within(panel(slot)!).getByRole("button", { name: "Close panel" }));
   expect(chapters(slot)).toBeTruthy();
   slot.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore()); localStorage.clear();
-  // 900 - 400 leaves 500: the panel opens over the code, a modal dialog, and the chapters stay docked under it.
+  // 900 - 400 leaves 500: the panel docks narrower, keeping 560 for the code, and the chapters give way to it.
   fakePane(900);
+  ({ slot, comments } = await renderWorkspace());
+  fireEvent.click(comments);
+  expect(panel(slot)).toBeTruthy();
+  expect(chapters(slot)).toBeNull();
+  expect(slot.queryByRole("dialog")).toBeNull();
+  slot.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore()); localStorage.clear();
+  // 860 leaves 540 beside even its narrowest, 320: the panel opens over the code, a modal dialog, and the chapters
+  // stay docked under it.
+  fakePane(860);
   ({ slot, comments } = await renderWorkspace());
   fireEvent.click(comments);
   const dialog = slot.getByRole("dialog", { name: "Comments" });
@@ -97,7 +106,7 @@ test("the panel docks where the code keeps 560px, and the chapters dock beside i
 });
 
 test("over the code, the panel closes on Esc or a tap on the dimmed code, and a pick in it closes it to show what was picked", async () => {
-  fakePane(900);
+  fakePane(860);
   const { slot, comments } = await renderWorkspace();
   fireEvent.click(comments);
   fireEvent.keyDown(slot.getByRole("dialog", { name: "Comments" }), { key: "Escape" });
@@ -113,7 +122,7 @@ test("over the code, the panel closes on Esc or a tap on the dimmed code, and a 
 });
 
 test("over the code, Tab in Finish review stops at Private notes, and goes past its notes while they're closed, to the verdict and Submit", async () => {
-  fakePane(900);
+  fakePane(860);
   const { slot } = await renderWorkspace();
   fireEvent.keyDown(document.body, { key: "s" });
   const finish = within(await slot.findByRole("dialog", { name: "Finish review" }));
