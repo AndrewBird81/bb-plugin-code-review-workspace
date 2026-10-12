@@ -7,7 +7,7 @@ import { Icon } from "../ui/icon";
  */
 export function NeedsYouPill({ count, className, onOpen, onDismiss }: { count: number; className?: string; onOpen: () => void; onDismiss: () => void }) {
   return (
-    <div className={cn("absolute left-1/2 z-40 flex -translate-x-1/2 items-center rounded-full border border-primary/30 bg-popover shadow-xl ring-1 ring-primary/10 animate-in fade-in slide-in-from-bottom-2 duration-200 motion-reduce:animate-none", className)}>
+    <div className={cn("absolute z-40 flex items-center rounded-full border border-primary/30 bg-popover shadow-xl ring-1 ring-primary/10 animate-in fade-in slide-in-from-bottom-2 duration-200 motion-reduce:animate-none", className)}>
       <button type="button" onClick={onOpen} className="flex h-9 items-center gap-1.5 rounded-l-full pl-3.5 pr-2 text-sm font-medium text-primary outline-none hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 pointer-coarse:h-11">
         <Icon name="MessageSquare" className="size-4" aria-hidden />{count} need you<Icon name="ChevronRight" className="size-4" aria-hidden />
       </button>

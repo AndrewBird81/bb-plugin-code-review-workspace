@@ -50,16 +50,17 @@ export function StepBar({ hidden, pill }: {
   }, [step?.via, step?.nonce, targetKey]);
   // Once Comments opens, the pill's job is done.
   useEffect(() => { if (panel.view === "comments") setDismissed(true); }, [panel.view]);
-  const place = layout.mode === "phone" ? "bottom-[calc(60px+env(safe-area-inset-bottom))]" : "bottom-4";
+  // Above a phone's dock, in the middle; elsewhere at the corner, clear of a folding screen's middle.
+  const place = layout.mode === "phone" ? "left-1/2 -translate-x-1/2 bottom-[calc(60px+env(safe-area-inset-bottom))]" : "right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))]";
   if (hidden || typing || layout.nav === "overlay" || layout.panel === "overlay") return null;
   if (step?.via === "hint") {
-    return <p role="status" className={cn("pointer-events-none absolute left-1/2 z-40 -translate-x-1/2 rounded-full border border-border bg-popover px-3 py-1.5 text-xs font-medium tabular-nums shadow-lg animate-in fade-in duration-150 motion-reduce:animate-none", place)}>
+    return <p role="status" className={cn("pointer-events-none absolute z-40 rounded-full border border-border bg-popover px-3 py-1.5 text-xs font-medium tabular-nums shadow-lg animate-in fade-in duration-150 motion-reduce:animate-none", place)}>
       {step.index + 1} of {step.total} · {step.filter}
     </p>;
   }
   if (step) {
     return (
-      <div role="toolbar" aria-label="Step through comments" className={cn("absolute left-1/2 z-40 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-border bg-popover p-1 shadow-2xl ring-1 ring-primary/10", place)}>
+      <div role="toolbar" aria-label="Step through comments" className={cn("absolute z-40 flex items-center gap-0.5 rounded-full border border-border bg-popover p-1 shadow-2xl ring-1 ring-primary/10", place)}>
         <button type="button" aria-label="Previous comment" className={round} onClick={() => stepComment(targetKey, -1, undefined)}><Icon name="ChevronLeft" className="size-4" aria-hidden /></button>
         <span role="status" className="min-w-0 px-1.5 text-center text-xs font-medium whitespace-nowrap tabular-nums">{step.index + 1} of {step.total} · {step.filter}</span>
         <button type="button" aria-label="Next comment" className={round} onClick={() => stepComment(targetKey, 1, undefined)}><Icon name="ChevronRight" className="size-4" aria-hidden /></button>
