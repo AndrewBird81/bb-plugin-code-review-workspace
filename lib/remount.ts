@@ -37,6 +37,18 @@ type Entry = Partial<Kept> & { live: number; gone?: number; doc?: number };
 
 const KEY = "gr:remount";
 const FRESH_MS = 2000;
+/**
+ * How long what's kept waits after the window resizes. BB swaps its layout a few frames after the window crosses 768:
+ * until then the old workspace lays out in BB's old pane at the window's new size, where a side can dock that can't in
+ * the new pane (the unfolded Duo held sideways, beside BB's thread list). The new workspace goes on from what was kept
+ * before the turn instead, so the turn carries what's open as it does in place.
+ */
+const SETTLE_MS = 300;
+
+let resizedAt = -Infinity;
+window.addEventListener("resize", () => { resizedAt = Date.now(); });
+/** Per review, what waits to be kept, until SETTLE_MS after the window last resized. */
+const waiting = new Map<string, { patch: Partial<Kept>; timer: ReturnType<typeof setTimeout> }>();
 
 function read(): Record<string, Entry> {
   try {
@@ -54,16 +66,26 @@ function update(key: string, change: (entry: Entry) => Entry) {
   try { sessionStorage.setItem(KEY, JSON.stringify(all)); } catch { /* storage full or blocked: nothing is carried */ }
 }
 
-/** Keeps `patch` for the review `key`'s next workspace, should one take this one's place. */
+/** Keeps `patch` for the review `key`'s next workspace, should one take this one's place: once the window has settled. */
 export function keep(key: string, patch: Partial<Kept>) {
-  update(key, (entry) => ({ ...entry, ...patch }));
+  const was = waiting.get(key);
+  const all = { ...was?.patch, ...patch };
+  clearTimeout(was?.timer);
+  waiting.delete(key);
+  const wait = resizedAt + SETTLE_MS - Date.now();
+  if (wait <= 0) return update(key, (entry) => ({ ...entry, ...all }));
+  waiting.set(key, { patch: all, timer: setTimeout(() => keep(key, {}), wait) });
 }
 
-/** A workspace of the review `key` is there; the function it returns says it's gone. */
+/** A workspace of the review `key` is there; the function it returns says it's gone, and drops what waits to be kept. */
 export function present(key: string): () => void {
   const doc = performance.timeOrigin;
   update(key, (entry) => ({ ...entry, live: entry.doc === doc ? entry.live + 1 : 1, doc }));
-  return () => update(key, (entry) => ({ ...entry, live: Math.max(0, entry.live - 1), gone: Date.now() }));
+  return () => {
+    clearTimeout(waiting.get(key)?.timer);
+    waiting.delete(key);
+    update(key, (entry) => ({ ...entry, live: Math.max(0, entry.live - 1), gone: Date.now() }));
+  };
 }
 
 /** What the workspace of the review `key` that this one takes the place of kept, if it does; else null. */

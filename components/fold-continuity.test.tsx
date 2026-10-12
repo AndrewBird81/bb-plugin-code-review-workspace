@@ -190,6 +190,28 @@ test("Comments docked unfolded becomes the sheet as it folds, and docks again as
   slot.lifecycle.unmount();
 });
 
+test.each([
+  { open: "Comments", opener: "Comments" },
+  { open: "Chapters", opener: /^Chapters:/ },
+])("unfolding as BB remounts the page beside its thread list, $open open folded stays open over the code", async ({ open, opener }) => {
+  // What's kept waits 300ms after a window resize (lib/remount.ts), such as the test's before.
+  await new Promise((done) => setTimeout(done, 300));
+  const screen = fakeScreen(OUTER.width, OUTER.height);
+  let slot = await renderWorkspace();
+  fireEvent.click(await slot.findByRole("button", { name: opener }));
+  expect(sheet(slot, open)).toBeTruthy();
+  // Until BB swaps its layout, a few frames on, its old one gives the page the window's whole width, where it docks.
+  act(() => { window.dispatchEvent(new Event("resize")); });
+  screen.fold(INNER_LANDSCAPE);
+  expect(slot.queryByRole("dialog")).toBeNull();
+  slot.lifecycle.unmount();
+  // Its new one has the 320px thread list beside a 631px page.
+  screen.pane({ width: 631, height: INNER_LANDSCAPE.height });
+  slot = await renderWorkspace();
+  expect(await slot.findByRole("dialog", { name: open })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("BB's pane narrowing, with the window as it was, still hides docked Comments until there's room", async () => {
   const screen = fakeScreen(INNER_LANDSCAPE.width, INNER_LANDSCAPE.height);
   const slot = await renderWorkspace();

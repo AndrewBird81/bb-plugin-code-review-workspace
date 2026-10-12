@@ -23,6 +23,33 @@ test("within 2 seconds of the last one going, it carries what it kept; later, a 
   expect(carried("pr-42")).toBeNull();
 });
 
+test("what's kept as the window resizes waits 300ms: a workspace that takes this one's place by then goes on from before", () => {
+  vi.useFakeTimers();
+  const gone = present("pr-42");
+  keep("pr-42", { panelOverlay: true });
+  window.dispatchEvent(new Event("resize"));
+  // BB's old pane, at the window's new size, docks what was over the code.
+  keep("pr-42", { panelOverlay: false });
+  expect(carried("pr-42")).toEqual({ panelOverlay: true });
+  vi.advanceTimersByTime(100);
+  gone();
+  expect(carried("pr-42")).toEqual({ panelOverlay: true });
+  vi.advanceTimersByTime(300);
+  expect(carried("pr-42")).toEqual({ panelOverlay: true });
+});
+
+test("with the workspace still there, what waited is kept once the window has settled", () => {
+  vi.useFakeTimers();
+  const gone = present("pr-42");
+  window.dispatchEvent(new Event("resize"));
+  keep("pr-42", { find: "cache" });
+  keep("pr-42", { navOverlay: true });
+  expect(carried("pr-42")).toEqual({});
+  vi.advanceTimersByTime(300);
+  expect(carried("pr-42")).toEqual({ find: "cache", navOverlay: true });
+  gone();
+});
+
 test("kept in another page, as before a reload, nothing is carried", () => {
   const gone = present("pr-42");
   keep("pr-42", { panelOverlay: true });
