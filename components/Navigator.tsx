@@ -30,7 +30,7 @@ export const Navigator = memo(function Navigator({ leading, patch, currentFile, 
   onOpenLine: (file: string, line: number, side: "LEFT" | "RIGHT") => void;
   onOpenFile: (chapterId: string, file: string) => void;
 }) {
-  const { review, sections, activeId, files, nav, compare } = useWorkspace();
+  const { review, sections, activeId, files, nav, compare, layout } = useWorkspace();
   const current = activeId === OVERVIEW;
   // Where the review stands, in All reviews' words; a ready guide that's nobody's news says nothing.
   const status = reviewState(review).label === "Ready" ? null : statusWhy(review)?.text;
@@ -55,6 +55,7 @@ export const Navigator = memo(function Navigator({ leading, patch, currentFile, 
         sinceWhat={compare.what}
         onMarkViewed={files.markChapterViewed}
         onNextUnviewed={files.nextUnviewed}
+        sheet={layout.mode === "phone"}
         overview={
           <button
             type="button"

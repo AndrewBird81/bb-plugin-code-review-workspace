@@ -69,6 +69,21 @@ test("on a phone there's no band: the dock holds the review's commands, and the 
   slot.lifecycle.unmount();
 });
 
+test("on a phone the chapters sheet's header holds Chapters | All files, and the files viewed share the progress's row", async () => {
+  fakeSize(390, 844);
+  const slot = await renderWorkspace();
+  fireEvent.click(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Chapters:/ }));
+  const sheet = within(slot.getByRole("dialog", { name: "Chapters" }));
+  const nav = within(sheet.getByRole("navigation", { name: "Chapters" }));
+  expect(nav.queryByRole("button", { name: "All files" })).toBeNull();
+  const progress = nav.getByRole("progressbar", { name: "Files viewed" }).parentElement!;
+  expect(progress.textContent).toBe("0/1 files viewedNext unviewed");
+  fireEvent.click(sheet.getByRole("button", { name: "All files" }));
+  expect(await sheet.findByRole("list", { name: "All files" })).toBeTruthy();
+  expect(sheet.getByRole("button", { name: "All files" }).getAttribute("aria-pressed")).toBe("true");
+  slot.lifecycle.unmount();
+});
+
 test("on a phone the diff's options are behind the chapters sheet's Diff options, without Split, which can't apply there", async () => {
   fakeSize(390, 844);
   const slot = await renderWorkspace();

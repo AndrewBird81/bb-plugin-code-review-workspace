@@ -21,6 +21,7 @@ import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport
 import { Button } from "./ui/button";
 import type { FileOwners } from "../src/codeowners";
 import { ChapterIntro } from "./ChapterIntro";
+import { ChapterViewSwitch } from "./ChapterNav";
 import { DiffViewer, type FileViewFlags } from "./DiffViewer";
 import { DraftProvider, type CommentPrefill } from "./DraftProvider";
 import { TrackedReview } from "./TrackedReview";
@@ -996,7 +997,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}
     >
       <div className="relative flex min-h-0 flex-1">
-        <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelDockWidth(paneWidth, panelWidth) : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
+        <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetTitle={<ChapterViewSwitch view={navView} onChange={changeNavView} />} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelDockWidth(paneWidth, panelWidth) : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
           <Navigator leading={<TopBand />} patch={patch} currentFile={currentFile} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={owners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} />
         </NavigatorHost>
         <main aria-label="Review" inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">

@@ -56,6 +56,25 @@ export function StepMarker({ index, viewed, total, active }: { index: number; vi
   );
 }
 
+/** Chapters | All files: the navigator's two views. On a coarse pointer the track's padding is part of each 44px target. */
+export function ChapterViewSwitch({ view, onChange }: { view: NavView; onChange: (view: NavView) => void }) {
+  return (
+    <span className="inline-flex items-center gap-0.5 rounded-md bg-muted/40 p-0.5 text-xs ring-1 ring-inset ring-border">
+      {(["chapters", "files"] as const).map((value) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={view === value}
+          onClick={() => onChange(value)}
+          className="relative rounded px-2 py-0.5 font-medium text-muted-foreground hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-xs pointer-coarse:min-h-10 pointer-coarse:px-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-y-0.5 pointer-coarse:after:inset-x-0 pointer-coarse:after:content-['']"
+        >
+          {value === "chapters" ? "Chapters" : "All files"}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 export const ChapterNav = memo(function ChapterNav({
   sections,
   activeId,
@@ -76,6 +95,7 @@ export const ChapterNav = memo(function ChapterNav({
   overview,
   onMarkViewed,
   onNextUnviewed,
+  sheet = false,
 }: {
   sections: Section[];
   activeId: string;
@@ -107,6 +127,8 @@ export const ChapterNav = memo(function ChapterNav({
   onMarkViewed?: (id: string) => void;
   /** Open the next file not viewed yet (u). */
   onNextUnviewed?: () => void;
+  /** In a phone's sheet, whose header holds the switch: the files viewed share the progress's row. */
+  sheet?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const container = useFullscreenPortalContainer();
@@ -132,26 +154,12 @@ export const ChapterNav = memo(function ChapterNav({
   return (
     <nav aria-label="Chapters" className="space-y-3">
       <div className="space-y-1.5 px-1">
-        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
-          {/* On a coarse pointer the track's padding is part of each segment's 44px target. */}
-          {onViewChange ? (
-            <span className="inline-flex items-center gap-0.5 rounded-md bg-muted/40 p-0.5 ring-1 ring-inset ring-border">
-              {(["chapters", "files"] as const).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={view === value}
-                  onClick={() => onViewChange(value)}
-                  className="relative rounded px-2 py-0.5 font-medium text-muted-foreground hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-xs pointer-coarse:min-h-10 pointer-coarse:px-3 pointer-coarse:after:absolute pointer-coarse:after:-inset-y-0.5 pointer-coarse:after:inset-x-0 pointer-coarse:after:content-['']"
-                >
-                  {value === "chapters" ? "Chapters" : "All files"}
-                </button>
-              ))}
-            </span>
-          ) : <span className="font-medium text-foreground">Chapters</span>}
+        {!sheet && <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
+          {onViewChange ? <ChapterViewSwitch view={view} onChange={onViewChange} /> : <span className="font-medium text-foreground">Chapters</span>}
           <span className="tabular-nums text-muted-foreground">{viewedAll}/{allFiles.length} files viewed</span>
-        </div>
+        </div>}
         <div className="flex items-center gap-2">
+          {sheet && <span className="text-xs tabular-nums text-muted-foreground">{viewedAll}/{allFiles.length}<span className="sr-only"> files viewed</span></span>}
           <Progress value={viewedAll} max={allFiles.length} label="Files viewed" className="flex-1" />
           {onNextUnviewed && viewedAll < allFiles.length && (
             <Button variant="ghost" size="sm" className={cn("-mr-1 h-6 shrink-0 gap-0.5 px-1.5 text-xs font-normal text-primary hover:text-primary [&_svg]:size-3.5", TOUCH_COMPACT)} onClick={onNextUnviewed}>

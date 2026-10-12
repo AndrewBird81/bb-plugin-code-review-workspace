@@ -10,13 +10,15 @@ import { navigatorId } from "./TopBand";
 
 /**
  * Where the navigator is: docked at the code's left at its width, over the code (`overlay`), or hidden, suppressed
- * beside the docked panel or closed. On a phone (`sheet`) over the code is the sheet above the dock, headed Chapters
- * with `sheetActions`. It stays mounted throughout, so the chapters keep what's open and Find its query.
+ * beside the docked panel or closed. On a phone (`sheet`) over the code is the sheet above the dock, headed by
+ * `sheetTitle` and `sheetActions`. It stays mounted throughout, so the chapters keep what's open and Find its query.
  */
-export function NavigatorHost({ targetKey, placement, sheet, sheetActions, width, maxWidth, onWidth, onWidthDone, onClose, children }: {
+export function NavigatorHost({ targetKey, placement, sheet, sheetTitle, sheetActions, width, maxWidth, onWidth, onWidthDone, onClose, children }: {
   targetKey: string;
   placement: NavPlacement;
   sheet: boolean;
+  /** The sheet's header, where a title would be: the Chapters | All files switch. */
+  sheetTitle?: ReactNode;
   /** The sheet's buttons, before its ✕. */
   sheetActions?: ReactNode;
   width: number;
@@ -52,9 +54,8 @@ export function NavigatorHost({ targetKey, placement, sheet, sheetActions, width
       >
         {inSheet && <SheetHandle sheet={ref} onClose={onClose} />}
         {inSheet && (
-          <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border pl-1.5 pr-1.5">
-            <Icon name="ListView" className="ml-1.5 size-4 shrink-0 text-primary" aria-hidden />
-            <h2 className="ml-1 min-w-0 flex-1 truncate text-sm font-medium">Chapters</h2>
+          <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border pl-3 pr-1.5">
+            <div className="min-w-0 flex-1">{sheetTitle}</div>
             {sheetActions}
             <Button variant="ghost" size="sm" aria-label="Close" className={cn("size-8 shrink-0 px-0 text-muted-foreground", TOUCH_CONTROL)} onClick={onClose}><Icon name="X" aria-hidden /></Button>
           </div>
