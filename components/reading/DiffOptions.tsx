@@ -90,11 +90,11 @@ function ComparePage({ onBack, onPicked }: { onBack: () => void; onPicked: () =>
 
 /**
  * How the diff draws, behind one button: Layout, Wrap long lines, Hide whitespace changes, GitHub threads in code (the
- * PR has `threads`), and on a phone or one held sideways Fold comments in code; collapsing or expanding the chapter's
- * files; and what the diff compares with, where the band has no compare select (`compareInBand`). A bottom drawer on
- * a phone and on one held sideways.
+ * PR has `threads`), and Fold comments in code on a phone, one held sideways, or where the band has no room for its
+ * own (`foldInBand`); collapsing or expanding the chapter's files; and what the diff compares with, where the band has
+ * no compare select (`compareInBand`). A bottom drawer on a phone and on one held sideways.
  */
-export function DiffOptions({ threads, compareInBand = false, className }: { threads: boolean; compareInBand?: boolean; className?: string }) {
+export function DiffOptions({ threads, compareInBand = false, foldInBand = false, className }: { threads: boolean; compareInBand?: boolean; foldInBand?: boolean; className?: string }) {
   const { review, activeId, layout, compare, display, files, showShortcuts } = useWorkspace();
   const container = useFullscreenPortalContainer();
   const fine = useMediaQuery("(any-pointer: fine)");
@@ -147,8 +147,7 @@ export function DiffOptions({ threads, compareInBand = false, className }: { thr
             <Option label="Wrap long lines" on={display.wrap} onChange={display.setWrap} />
             <Option label="Hide whitespace changes" on={display.hideWhitespace} onChange={display.setHideWhitespace} />
             {isPr && threads && <Option label="GitHub threads in code" on={display.githubThreads} onChange={display.setGithubThreads} />}
-            {/* The band has its own fold toggle where there's a band. */}
-            {!tablet && <Option label="Fold comments in code" on={display.commentsFolded} onChange={display.setCommentsFolded} />}
+            {(!tablet || !foldInBand) && <Option label="Fold comments in code" on={display.commentsFolded} onChange={display.setCommentsFolded} />}
           </div>
           {activeId !== OVERVIEW && <div className="mt-1 border-t border-border px-2 pb-1 pt-2">
             <p className="text-xs font-medium text-muted-foreground">Files in this chapter</p>

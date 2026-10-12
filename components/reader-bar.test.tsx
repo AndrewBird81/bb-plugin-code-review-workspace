@@ -35,20 +35,21 @@ test("narrower, the compare select shortens its label, then moves into Diff opti
   expect(bandFit(1100, 3, 32, null).compare).toBeNull();
 });
 
-test("a phone held sideways, short of room, leaves Fold comments to Diff options, which has it too, before the chapter's title gives way", () => {
-  // Full screen at 594px, its commands beside it.
-  expect(bandFit(310, 5, 36, select, true)).toEqual({ back: false, title: false, compare: null, fold: false });
-  expect(bandFit(512, 5, 36, select, true).fold).toBe(true);
-  // An iPad's band has no Fold in Diff options: it stays.
-  expect(bandFit(310, 5, 44, select).fold).toBe(true);
+test("short of room, Fold comments moves into Diff options before the chapter's title gives way", () => {
+  // Full screen on a phone held sideways, 594px, its commands beside it.
+  expect(bandFit(310, 5, 36, select)).toEqual({ back: false, title: false, compare: null, fold: false });
+  expect(bandFit(512, 5, 36, select).fold).toBe(true);
 });
 
-/** Every ResizeObserver reports this size: the workspace's pane, and the band's room in it. */
-function fakePane(width: number, height = 900) {
+/** Every ResizeObserver reports this size: the workspace's pane, and the band's room in it unless `room` says. */
+function fakePane(width: number, height = 900, room = width) {
   const original = globalThis.ResizeObserver;
   globalThis.ResizeObserver = class {
     constructor(private notify: ResizeObserverCallback) {}
-    observe(target: Element) { this.notify([{ target, contentRect: { width, height } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver); }
+    observe(target: Element) {
+      const band = !!target.querySelector(":scope > nav[aria-label='Breadcrumb']");
+      this.notify([{ target, contentRect: { width: band ? room : width, height } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver);
+    }
     unobserve() {}
     disconnect() {}
   } as unknown as typeof ResizeObserver;
@@ -123,6 +124,17 @@ test("where the band has no room for the compare select, Diff options shows the 
   expect(slot.getByRole("button", { name: "Since a commit…" })).toBeTruthy();
   // Fold comments is here too, where the band can leave it for the chapter's title.
   expect(slot.getByRole("switch", { name: "Fold comments in code" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("a band short of room, as in full screen beside the review's commands, leaves Fold comments and the compare select to Diff options", async () => {
+  fakePane(1000, 900, 220);
+  const slot = await renderWorkspace(rereview);
+  expect(band(slot).queryByRole("button", { name: /^Show changes/ })).toBeNull();
+  expect(band(slot).queryByRole("button", { name: /comments in code$/ })).toBeNull();
+  fireEvent.click(band(slot).getByRole("button", { name: "Diff options" }));
+  expect(await slot.findByRole("switch", { name: "Fold comments in code" })).toBeTruthy();
+  expect(slot.getByRole("radiogroup", { name: "Show changes" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

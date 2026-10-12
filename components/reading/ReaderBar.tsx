@@ -24,7 +24,7 @@ export interface BandFit {
   title: boolean;
   /** "brief": "Since review"; null: the comparison is in Diff options. */
   compare: "full" | "brief" | null;
-  /** Fold comments, which a phone held sideways also has in Diff options. */
+  /** Fold comments; Diff options has it where the band doesn't. */
   fold: boolean;
 }
 
@@ -39,14 +39,13 @@ const TITLE = 160;
 export const selectWidth = (label: string) => Math.ceil(label.length * 6.5) + 34;
 
 /**
- * What fits in `room` px of band beside its `buttons` square buttons of `size` px: the chapter's title first, then the
- * compare select, `compare` px wide with its full or brief label (null: the review has none), then "All reviews" from a
- * reader of 720px, then the review's title. Fold comments, one of the buttons, gives way to the chapter's title where
- * Diff options has it too (`foldable`).
+ * What fits in `room` px of band beside its `buttons` square buttons of `size` px: the chapter's title first, which Fold
+ * comments, one of the buttons, gives way to; then the compare select, `compare` px wide with its full or brief label
+ * (null: the review has none); then "All reviews" from a reader of 720px; then the review's title.
  */
-export function bandFit(room: number, buttons: number, size: number, compare: { full: number; brief: number } | null, foldable = false): BandFit {
+export function bandFit(room: number, buttons: number, size: number, compare: { full: number; brief: number } | null): BandFit {
   let left = room - buttons * (size + 4);
-  const fold = !foldable || left >= CHAPTER.least;
+  const fold = left >= CHAPTER.least;
   if (!fold) left += size + 4;
   // The full label only with room to spare, so the chapter's title doesn't lose what the label gains.
   const select = !compare ? null : left - CHAPTER.least >= compare.full + 60 ? "full" : left - CHAPTER.least >= compare.brief ? "brief" : null;
@@ -114,7 +113,7 @@ export function ReaderBar({ threads }: { threads: boolean }) {
   const longer = (brief: boolean) => [compareLabel(false, null), compareLabel(true, compare.from, brief)].reduce((a, b) => b.length > a.length ? b : a);
   const sized = (brief: boolean) => selectWidth(longer(brief)) + (compare.error ? 18 : 0);
   const buttons = (layout.nav === "docked" ? 0 : 2) + 1 + (chapter ? 2 : 0);
-  const fit = useBandFit(reading, (room) => bandFit(room, buttons, short ? 36 : coarse ? 44 : 32, comparable ? { full: sized(false), brief: sized(true) } : null, short));
+  const fit = useBandFit(reading, (room) => bandFit(room, buttons, short ? 36 : coarse ? 44 : 32, comparable ? { full: sized(false), brief: sized(true) } : null));
   if (layout.mode === "phone") return null;
   const commands = fullscreen.on || (waited && !titleBar);
   const chapterFiles = chapter?.diffs.map((diff) => diff.file) ?? [];
@@ -155,7 +154,7 @@ export function ReaderBar({ threads }: { threads: boolean }) {
               <Icon name={display.commentsFolded ? "ChevronsDown" : "ChevronsUp"} aria-hidden />
             </Button>
           </Hint>}
-          <DiffOptions threads={threads} compareInBand={!!fit.compare} className={touch} />
+          <DiffOptions threads={threads} compareInBand={!!fit.compare} foldInBand={fit.fold} className={touch} />
         </div>}
       </div>
       {commands && <div className="flex shrink-0 items-center">

@@ -91,10 +91,11 @@ export function SelectionBar({ lines, phone, onComment, onAskLines, onClear }: {
     setText(null);
     document.getSelection()?.removeAllRanges();
   };
-  const button = cn("h-8 shrink-0 gap-1.5 px-2 text-xs", TOUCH_CONTROL);
+  // A phone's bar keeps to its width: the file's name and lines get what the buttons leave.
+  const button = cn("h-8 shrink-0 text-xs", phone ? "gap-1 px-1.5" : "gap-1.5 px-2", TOUCH_CONTROL);
   const label = (file: string, at?: string) => (
     <span className="flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
-      <Icon name="File" className="size-3.5 shrink-0" aria-hidden />
+      {!phone && <Icon name="File" className="size-3.5 shrink-0" aria-hidden />}
       <span className="truncate">{file.split("/").pop()}</span>
       {at && <span className="shrink-0 rounded bg-primary/10 px-1 text-primary">{at}</span>}
     </span>
