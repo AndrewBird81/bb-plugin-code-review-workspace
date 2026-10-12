@@ -115,7 +115,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [generated, setGenerated] = useState<Set<string>>(new Set());
   const [injection, setInjection] = useState<DockInjection | undefined>();
   const [currentFile, setCurrentFile] = useState<string | undefined>();
-  const [sel, setSel] = useState<{ x: number; y: number; file: string; code: string } | null>(null);
   const [lineSel, setLineSel] = useState<{ file: string; range: SelectedLineRange } | null>(null);
   const [draftPrefill, setDraftPrefill] = useState<CommentPrefill | undefined>();
   const [showDraft, setShowDraft] = useState<{ at: number; replaced?: boolean } | undefined>();
@@ -681,7 +680,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // The diff remounts after the Overview; it shouldn't jump back to an old comment.
   useEffect(() => { if (activeId === OVERVIEW) setReveal(undefined); }, [activeId]);
   // A selection's actions go with the chapter it was made in.
-  useEffect(() => { setSel(null); setLineSel(null); }, [activeId]);
+  useEffect(() => { setLineSel(null); }, [activeId]);
 
   useEffect(() => {
     if (pendingScroll.current && activeFiles.includes(pendingScroll.current)) {
@@ -717,39 +716,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       const best = pinned.current ? undefined : fileAtTop();
       if (best) setCurrentFile(best);
     });
-    // The popover sits where the text was.
-    setSel(null);
     if (scrollSaveTimer.current) clearTimeout(scrollSaveTimer.current);
     const value = box.scrollTop;
     scrollSaveTimer.current = setTimeout(() => patchReviewState(targetKey, { scrollTop: value }), 200);
   }, [targetKey, fileAtTop]);
-
-  const onMouseUp = useCallback(() => {
-    const s = window.getSelection();
-    const text = s?.toString() ?? "";
-    if (!text.trim() || !s || s.rangeCount === 0) {
-      setSel(null);
-      return;
-    }
-    const range = s.getRangeAt(0);
-    const node = range.commonAncestorContainer;
-    const el = node.nodeType === 3 ? node.parentElement : (node as HTMLElement);
-    const fileEl = el?.closest("[data-file]") as HTMLElement | null;
-    // Text in a draft comment or the comment box isn't code to ask about.
-    if (!fileEl || el?.closest("[data-draft-at]")) {
-      setSel(null);
-      return;
-    }
-    const r = range.getBoundingClientRect();
-    setSel({ x: r.left + r.width / 2, y: r.top, file: fileEl.dataset.file!, code: text.slice(0, 4000) });
-  }, []);
-
-  function askAboutSelection() {
-    if (!sel) return;
-    ask({ file: sel.file, code: sel.code, chapterId });
-    setSel(null);
-    window.getSelection()?.removeAllRanges();
-  }
 
   // Everyone's GitHub threads, under their lines in the diff unless hidden. Feedback and Threads change them: they're
   // read again once those close.
@@ -969,7 +939,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <ReaderBar threads={isPr && diffThreads.threads.length > 0} />
           <ReviewNotices notices={notices} />
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
-          <div ref={scrollBox} onScroll={onScroll} onMouseUp={onMouseUp} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
+          <div ref={scrollBox} onScroll={onScroll} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
             {activeSection ? (
               <>
               <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} />
@@ -1020,7 +990,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       <DraftLines into={draftLines} />
 
       <StepBar hidden={!!lineSel} pill={pill} />
-      <SelectionBar lines={lineSel} text={sel} phone={sheet} onComment={() => commentOnLines()} onAskLines={askAboutLines} onClear={() => setLineSel(null)} onAskText={askAboutSelection} />
+      <SelectionBar lines={lineSel} phone={sheet} onComment={() => commentOnLines()} onAskLines={askAboutLines} onClear={() => setLineSel(null)} />
       <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </div>
     </CompactViewportOverrideProvider>

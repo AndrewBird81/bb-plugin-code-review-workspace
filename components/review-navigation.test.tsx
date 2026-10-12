@@ -203,10 +203,10 @@ test("a line selection's bar and highlight go once it's used, cleared, or its ch
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
   const highlighted = () => slot.getByTestId("filediff").dataset.selected;
-  const bar = () => slot.queryByRole("button", { name: "Clear selection" })?.parentElement ?? null;
+  const bar = () => slot.queryByRole("group", { name: "Selection" });
   fireEvent.click(slot.getByRole("button", { name: "Pick line 1" }));
   expect(highlighted()).toBe("1-1");
-  fireEvent.click(within(bar()!).getByRole("button", { name: "Add comment" }));
+  fireEvent.click(within(bar()!).getByRole("button", { name: "Comment" }));
   expect(bar()).toBeNull();
   await waitFor(() => expect(highlighted()).toBe(""));
   fireEvent.click(slot.getByRole("button", { name: "Pick line 1" }));
@@ -219,20 +219,27 @@ test("a line selection's bar and highlight go once it's used, cleared, or its ch
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("Ask agent about this goes when the diff scrolls away from its text", async () => {
+test("code you select, as a long-press does on touch, offers Ask agent about selection, which asks the agent about it", async () => {
   const { slot } = await renderWorkspace();
   const text = await slot.findByText("aa");
-  const measure = Range.prototype.getBoundingClientRect;
-  Range.prototype.getBoundingClientRect = () => ({ left: 10, top: 10, width: 10, height: 10 }) as DOMRect;
-  const range = document.createRange();
-  range.selectNodeContents(text);
-  window.getSelection()!.removeAllRanges();
-  window.getSelection()!.addRange(range);
-  fireEvent.mouseUp(scroller(slot));
-  expect(slot.getByRole("button", { name: "Ask agent about this" })).toBeTruthy();
-  fireEvent.scroll(scroller(slot));
-  expect(slot.queryByRole("button", { name: "Ask agent about this" })).toBeNull();
-  Range.prototype.getBoundingClientRect = measure;
+  const select = (node: Node | null) => {
+    window.getSelection()!.removeAllRanges();
+    if (node) { const range = document.createRange(); range.selectNodeContents(node); window.getSelection()!.addRange(range); }
+    // A touch selection tells only selectionchange, not mouseup.
+    fireEvent(document, new Event("selectionchange"));
+  };
+  select(text);
+  const bar = within(await slot.findByRole("group", { name: "Selection" }));
+  expect(bar.getByText("a.ts")).toBeTruthy();
+  // Gone with the selection, a moment later: a tap on the bar can clear it before the tap's click.
+  select(null);
+  await waitFor(() => expect(slot.queryByRole("group", { name: "Selection" })).toBeNull());
+  select(text);
+  fireEvent.click(await slot.findByRole("button", { name: "Ask agent about selection" }));
+  expect(await slot.findByRole("textbox", { name: "Ask the agent" })).toBeTruthy();
+  expect(await within(slot.getByRole("complementary", { name: "Comments and agent" })).findByText("a.ts")).toBeTruthy();
+  expect(window.getSelection()!.toString()).toBe("");
+  expect(slot.queryByRole("group", { name: "Selection" })).toBeNull();
   slot.lifecycle.unmount();
 }, 15_000);
 

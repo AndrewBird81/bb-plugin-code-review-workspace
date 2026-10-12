@@ -109,7 +109,7 @@ test("a comment's suggestion shows as the code it would put in place", async () 
   slot.lifecycle.unmount();
 });
 
-test("in the review, Add comment on lines dragged upward comments on them first to last", async () => {
+test("in the review, Comment on lines dragged upward comments on them first to last", async () => {
   // Opened before, on its chapter: a first open shows the Overview.
   patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
@@ -131,7 +131,10 @@ test("in the review, Add comment on lines dragged upward comments on them first 
     saveDraftComment,
   } as any });
   fireEvent.click(await slot.findByRole("button", { name: "Drag lines 4 to 2" }));
-  fireEvent.click(within(slot.getByRole("button", { name: "Clear selection" }).parentElement!).getByRole("button", { name: "Add comment" }));
+  const bar = within(slot.getByRole("group", { name: "Selection" }));
+  // The lines first to last, as the comment will cover them.
+  expect(bar.getByText("L2–4")).toBeTruthy();
+  fireEvent.click(bar.getByRole("button", { name: "Comment" }));
   const box = await within(slot.getByTestId("filediff")).findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
   fireEvent.click(within(slot.getByTestId("filediff")).getByRole("button", { name: "Suggest change" }));
   expect(box.value).toBe("```suggestion\ntwo();\n  three();\n    four;\n```");

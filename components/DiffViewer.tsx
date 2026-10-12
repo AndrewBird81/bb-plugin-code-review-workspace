@@ -198,6 +198,23 @@ function renderAnnotation({ metadata }: DiffLineAnnotation<Annotation>) {
   return <><LineChecks at={metadata} /><LineThreads at={metadata} /><InlineLocation at={metadata} /></>;
 }
 
+// Pierre's styles for how a file's lines take a pointer. The gutter's "+" shows only where there's a fine pointer to aim
+// it, and a code line keeps its text cursor: it takes a tap, which pierre marks with a pointer cursor, not a click.
+const POINTER_CSS = `@media not (any-pointer: fine) { [data-gutter-utility-slot] { display: none; } }
+@media (hover: hover) and (pointer: fine) { [data-interactive-lines] [data-line] { cursor: auto; } }
+`;
+
+/**
+ * Where a tap on a line takes the lines picked in its file: a first tap picks the line, a later one moves the end of the
+ * range there, and one on the first line again clears it.
+ */
+function tapLines(picked: SelectedLineRange | null, line: number, side: AnnotationSide): SelectedLineRange | null {
+  if (!picked) return { start: line, end: line, side };
+  const anchor = picked.side ?? side;
+  if (picked.start === line && anchor === side) return null;
+  return { start: picked.start, end: line, side: anchor, ...(side !== anchor ? { endSide: side } : {}) };
+}
+
 // One file's diff. Pierre redraws a file whenever its options or annotations
 // are new objects, which also takes focus from an open comment box, so both
 // stay the same until something in them changes.
@@ -228,7 +245,13 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
   const shown = dragging !== undefined ? dragging : selected;
   const shownRef = useRef(shown);
   shownRef.current = shown;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   const ended = useRef(false);
+  // What last pressed on the file. A finger or pen picks lines by tapping them (onLineClick); pierre would take a tap on
+  // a line's number as a pick of that line alone, so its picks count only when they're a drag over several lines.
+  const pointer = useRef("mouse");
+  const tapping = () => pointer.current !== "mouse";
   // Lines shown around the diff take no comment: GitHub would refuse it.
   const inDiff = (range: SelectedLineRange) => {
     if (!commentable || commentable(lineEnd(path, range))) return true;
@@ -243,19 +266,26 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
     disableFileHeader: true,
     tokenizeMaxLength: TOKENIZE_MAX_LENGTH,
     overflow: wrap ? "wrap" : "scroll",
-    ...(unsafeCSS ? { unsafeCSS } : {}),
+    unsafeCSS: POINTER_CSS + (unsafeCSS ?? ""),
     expandUnchanged: wholeFile,
     // GitHub-style line picking: drag to select a range to comment on or ask
     // about, or use the gutter "+" to open a comment box at a line.
     enableLineSelection: true,
     enableGutterUtility: true,
-    onLineSelectionStart: (range) => setDragging(range),
+    onLineSelectionStart: (range) => { if (!tapping()) setDragging(range); },
     onLineSelectionChange: (range) => setDragging(range),
     onLineSelectionEnd: () => { ended.current = true; setDragging(undefined); },
     onLineSelected: (range) => {
       const picked = ended.current || !areSelectionsEqual(range ?? undefined, shownRef.current ?? undefined);
       ended.current = false;
-      if (picked && !fromGutter.current && (!range || inDiff(range))) onLineSelected?.(path, range);
+      const tap = tapping() && (!range || range.start === range.end && (range.endSide ?? range.side) === range.side);
+      if (picked && !tap && !fromGutter.current && (!range || inDiff(range))) onLineSelected?.(path, range);
+    },
+    // Touch: tap a line, or its number, to pick it; tap another to make a range.
+    onLineClick: ({ lineNumber, annotationSide }) => {
+      if (!tapping()) return;
+      const range = tapLines(selectedRef.current, lineNumber, annotationSide);
+      if (!range || inDiff(range)) onLineSelected?.(path, range);
     },
     onGutterUtilityClick: (range) => {
       if (!inDiff(range)) return;
@@ -267,7 +297,7 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
     },
   }), [darkTheme, lightTheme, themeMode, diffStyle, wrap, path, onLineSelected, onComment, unsafeCSS, wholeFile, commentable]);
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" onPointerDownCapture={(event) => { pointer.current = event.pointerType || "mouse"; }}>
       <FileDiff fileDiff={fileDiff} options={options} lineAnnotations={annotations} selectedLines={shown} renderAnnotation={renderAnnotation} />
     </div>
   );
