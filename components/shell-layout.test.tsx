@@ -181,6 +181,21 @@ test("the chapters and the panel resize by dragging or arrow keys, keep the code
   slot.lifecycle.unmount();
 });
 
+test("padded clear of a screen edge's inset (a phone's rail), the sides still keep the code at 560px inside the padding", async () => {
+  fakePane(1400);
+  const { slot, comments } = await renderWorkspace();
+  fireEvent.click(comments);
+  slot.getByRole("main").closest<HTMLElement>("[class*='@container/review']")!.style.paddingRight = "84px";
+  const navHandle = slot.getByRole("separator", { name: "Resize chapters" });
+  const panelHandle = slot.getByRole("separator", { name: "Resize panel" });
+  fireEvent.keyDown(navHandle, { key: "ArrowRight" });
+  fireEvent.pointerDown(panelHandle, { button: 0, clientX: 1000 });
+  fireEvent.pointerMove(window, { clientX: 400 });
+  fireEvent.pointerUp(window);
+  expect(panelHandle.getAttribute("aria-valuenow")).toBe(String(1400 - 84 - 560 - 308));
+  slot.lifecycle.unmount();
+});
+
 test("a panel left open opens again only where it docks, and a pane too narrow for it doesn't forget it", async () => {
   fakePane(1400);
   let { slot, comments } = await renderWorkspace();

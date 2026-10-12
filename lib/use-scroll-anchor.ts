@@ -16,7 +16,8 @@ function deepestAt(box: HTMLElement, x: number, y: number): Element | null {
   let el = document.elementsFromPoint(x, y).find((at) => at !== box && box.contains(at)) ?? null;
   while (el?.shadowRoot) {
     const root = el.shadowRoot;
-    const inner = root.elementsFromPoint(x, y).find((at) => at.getRootNode() === root);
+    // Where a shadow root can't list what's at a point, its topmost.
+    const inner = root.elementsFromPoint ? root.elementsFromPoint(x, y).find((at) => at.getRootNode() === root) : root.elementFromPoint(x, y);
     if (!inner) break;
     el = inner;
   }

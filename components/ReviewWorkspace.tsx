@@ -967,7 +967,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review)}.`, action: <NotRunButton review={review} /> }] as const : []),
     ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: "New commits since this guide was written.", action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),
   ];
-  const paneWidth = rootEl?.clientWidth ?? 0;
+  // Inside the padding that keeps the workspace clear of the screen's edges.
+  const rootStyle = rootEl && getComputedStyle(rootEl);
+  const paneWidth = rootEl && rootStyle ? rootEl.clientWidth - (parseFloat(rootStyle.paddingLeft) || 0) - (parseFloat(rootStyle.paddingRight) || 0) : 0;
   // A phone's sides are its one sheet, over the code, which shows nothing else to reach meanwhile.
   const sheet = layout.mode === "phone";
   const sheetOpen = sheet && (layout.nav === "overlay" || layout.panel === "overlay");
