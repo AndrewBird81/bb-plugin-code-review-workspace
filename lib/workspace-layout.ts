@@ -150,6 +150,9 @@ function phoneResize(was: Size, is: Size): boolean {
   return (was.width !== is.width || was.height !== is.height) && phoneWindow(was) && phoneWindow(is) && !!window.matchMedia?.("(pointer: coarse)").matches;
 }
 
+/** How long, once you're done typing, BB's pane may take to grow back as the keyboard goes away. */
+const KEYBOARD_GOING_MS = 1000;
+
 /**
  * The layout for `el`'s size as it resizes. It re-renders only when the layout changes, not on every frame of a pane
  * drag. It measures as `el` resizes, and as the window and its visual viewport do, then again a frame later: on a
@@ -182,14 +185,26 @@ export function useWorkspaceLayout(el: HTMLElement | null, state: LayoutState, c
     if (!el || typeof ResizeObserver === "undefined") return;
     let windowWas = windowLast.current ?? windowNow();
     windowLast.current = windowWas;
+    // Until when the height from before the keyboard is kept: while you type, then KEYBOARD_GOING_MS once you're done.
+    let keptUntil: number | null = null;
+    let release = 0;
     const measure = ({ width, height: measured }: Size) => {
       if (!(width > 0)) return;
       let height = Number.isFinite(measured) ? measured : windowSize().height;
       // BB shrinks its pane to what shows above an on-screen keyboard: while you type, a pane that only got shorter
-      // keeps the height it had, so the keyboard doesn't turn a phone into a phone held sideways.
+      // keeps the height it had, so the keyboard doesn't turn a phone into a phone held sideways; and once you're done,
+      // until BB's pane grows back as the keyboard goes, for up to KEYBOARD_GOING_MS. A new width ends it at once.
       const active = document.activeElement;
       const typing = active instanceof HTMLElement && (active.isContentEditable || !!active.closest(TEXT_FIELD));
-      if (typing && size.current && size.current.width === width && height < size.current.height) height = size.current.height;
+      const shorter = !!size.current && size.current.width === width && height < size.current.height;
+      if (!shorter) keptUntil = null;
+      else if (typing) keptUntil = Infinity;
+      else if (keptUntil === Infinity) {
+        keptUntil = Date.now() + KEYBOARD_GOING_MS;
+        clearTimeout(release);
+        release = window.setTimeout(() => measure(roomOf(el)), KEYBOARD_GOING_MS);
+      } else if (keptUntil !== null && Date.now() >= keptUntil) keptUntil = null;
+      if (keptUntil !== null && size.current) height = size.current.height;
       // The first measurement replaces the window's guess outright, rather than keeping to it.
       if (!size.current) shown.current = undefined;
       else if (size.current.width === width && size.current.height === height) return;
@@ -216,6 +231,7 @@ export function useWorkspaceLayout(el: HTMLElement | null, state: LayoutState, c
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
+      clearTimeout(release);
       window.removeEventListener("resize", remeasure);
       window.visualViewport?.removeEventListener("resize", remeasure);
     };

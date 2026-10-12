@@ -344,6 +344,37 @@ describe("useWorkspaceLayout", () => {
     expect(result.current.mode).toBe("short");
   });
 
+  test("done typing, a phone stays a phone while BB's pane grows back as the keyboard goes, for up to a second; a turn ends that at once", () => {
+    vi.useFakeTimers();
+    restores.push(() => vi.useRealTimers());
+    const resize = stubResizeObserver({ width: 390, height: 796 });
+    const el = document.body.appendChild(document.createElement("div"));
+    const box = el.appendChild(document.createElement("textarea"));
+    restores.push(() => el.remove());
+    const { result } = renderHook(() => useWorkspaceLayout(el, both));
+    const typeThenDone = () => {
+      act(() => box.focus());
+      act(() => resize({ width: 390, height: 460 }));
+      act(() => box.blur());
+      // The keyboard goes: the visual viewport resizes before BB's pane follows it.
+      act(() => resize({ width: 390, height: 460 }));
+    };
+    typeThenDone();
+    expect(result.current.mode).toBe("phone");
+    act(() => resize({ width: 390, height: 796 }));
+    expect(result.current.mode).toBe("phone");
+    // BB's pane still short a second on: it's a phone held sideways' after all.
+    typeThenDone();
+    el.getBoundingClientRect = () => new DOMRect(0, 48, 390, 460);
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(result.current.mode).toBe("short");
+    // Turned as the keyboard goes: the new size counts at once.
+    act(() => resize({ width: 390, height: 796 }));
+    typeThenDone();
+    act(() => resize({ width: 844, height: 342 }));
+    expect(result.current.mode).toBe("short");
+  });
+
   /** A touch screen's pointer, or a desktop's. */
   function stubPointer(pointer: "coarse" | "fine") {
     const media = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(pointer: coarse)" && pointer === "coarse", media: query, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList);
