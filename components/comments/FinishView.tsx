@@ -56,6 +56,8 @@ export function FinishView({ shown, revision }: {
     if (confirmed || !(d.doubts.length || d.approvingBlocked)) setSent({ comments: d.draft.comments.length, at: Date.now() });
     void d.submit(confirmed);
   };
+  // It didn't go: there's no receipt to show.
+  useEffect(() => { if (d.status.error) setSent(null); }, [d.status.error]);
   const openList = (filter: CommentFilter, id: string | null = null) => {
     updateComments(targetKey, { filter, expanded: id });
     api.panel.open("comments");
@@ -305,10 +307,10 @@ function Receipt({ sent }: { sent: { comments: number; at: number } | null }) {
   return <>
     <section aria-label="Submitted review" className="space-y-3 rounded-lg border border-success/25 bg-success/10 p-3">
       <p className="flex items-center gap-2 text-sm font-medium text-diff-added"><Icon name="BadgeCheck" className="size-5" aria-hidden />{RECEIPT_LABEL[verdict]}</p>
-      <p className="text-xs text-muted-foreground">
-        {where ? <>Posted to {where}{d.account ? <> as @{d.account}</> : null}</> : "Review submitted to GitHub"}{age(when) && ` · ${age(when)}`}
-        {sent && <><br />{plural(sent.comments, "comment")}</>}
-      </p>
+      <div className="space-y-0.5 text-xs text-muted-foreground">
+        <p>{where ? <>Posted to {where}{d.account ? <> as @{d.account}</> : null}</> : "Review submitted to GitHub"}{age(when) && ` · ${age(when)}`}</p>
+        {sent && <p>{plural(sent.comments, "comment")}</p>}
+      </div>
       <div className="flex flex-wrap gap-2">
         {url && <UrlLink href={url} className={cn(buttonVariants({ variant: "outline", size: "sm" }), TOUCH_CONTROL)}><Icon name="Github" className="size-4" aria-hidden />View on GitHub</UrlLink>}
         <Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={() => d.setWriteAnother(true)}>Add another review</Button>
