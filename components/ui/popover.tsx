@@ -170,6 +170,48 @@ function useFoldPadding(content: HTMLElement | null, open: boolean): { top: numb
   return open ? padding : null;
 }
 
+type Sides = { top: number; right: number; bottom: number; left: number };
+const NO_SIDES: Sides = { top: 0, right: 0, bottom: 0, left: 0 };
+
+/** The window's safe areas (env(safe-area-inset-*)): the status bar, a notch, the home indicator, in a home-screen app. */
+function safeAreaInsets(): Sides {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)";
+  document.body.append(probe);
+  const style = getComputedStyle(probe);
+  const insets = { top: parseFloat(style.paddingTop) || 0, right: parseFloat(style.paddingRight) || 0, bottom: parseFloat(style.paddingBottom) || 0, left: parseFloat(style.paddingLeft) || 0 };
+  probe.remove();
+  return insets;
+}
+
+/** An open popover's safe areas, which Radix's collision padding doesn't know; measured again as the window resizes. */
+function useSafeAreaInsets(open: boolean): Sides {
+  const [insets, setInsets] = React.useState(NO_SIDES);
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    const measure = () => setInsets((current) => {
+      const next = safeAreaInsets();
+      return (Object.keys(next) as Array<keyof Sides>).every((side) => next[side] === current[side]) ? current : next;
+    });
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [open]);
+  return insets;
+}
+
+/** Collision padding that keeps each of the paddings asked for: the caller's, the fold's and the safe areas'. */
+function collisionSides(...paddings: Array<number | Partial<Sides> | null | undefined>): Sides {
+  const sides = { ...NO_SIDES };
+  for (const padding of paddings) {
+    for (const side of Object.keys(sides) as Array<keyof Sides>) {
+      const value = typeof padding === "number" ? padding : padding?.[side] ?? 0;
+      sides[side] = Math.max(sides[side], value);
+    }
+  }
+  return sides;
+}
+
 const PopoverContent = React.forwardRef<
   HTMLDivElement,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> & {
@@ -202,6 +244,9 @@ const PopoverContent = React.forwardRef<
     const portalContainer = useFullscreenPortalContainer();
     const [content, setContent] = React.useState<HTMLDivElement | null>(null);
     const fold = useFoldPadding(isCompactViewport ? null : content, open);
+    const insets = useSafeAreaInsets(!isCompactViewport && open);
+    // Inside the window's safe areas, out of the fold's band; what doesn't fit scrolls.
+    const kept = fold || insets.top || insets.right || insets.bottom || insets.left ? collisionSides(props.collisionPadding, fold, insets) : null;
     const contentRef = React.useCallback((el: HTMLDivElement | null) => {
       setContent(el);
       if (typeof ref === "function") ref(el);
@@ -254,8 +299,8 @@ const PopoverContent = React.forwardRef<
             className,
           )}
           {...props}
-          collisionPadding={fold ?? props.collisionPadding}
-          style={fold ? { ...style, maxHeight: "var(--radix-popover-content-available-height)", overflowY: "auto" } : style}
+          collisionPadding={kept ?? props.collisionPadding}
+          style={kept ? { ...style, maxHeight: "var(--radix-popover-content-available-height)", overflowY: "auto" } : style}
         >
           {children}
         </PopoverPrimitive.Content>

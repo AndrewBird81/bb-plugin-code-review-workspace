@@ -134,3 +134,22 @@ test("with a fold to keep out of, a popover scrolls what doesn't fit; without on
   menu();
   expect((await screen.findByRole("button", { name: "Delete…" })).parentElement!.style.maxHeight).toBe("");
 });
+
+test("in a home-screen app a popover keeps clear of the status bar and the home indicator, scrolling what doesn't fit", async () => {
+  // An iPad, with no fold: only the safe areas, which env() gives and jsdom can't, so they're stubbed.
+  fakeWindow(1376, 1032);
+  const real = window.getComputedStyle.bind(window);
+  const insets = vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => {
+    const probe = el instanceof HTMLElement && el.style.position === "fixed" && el.style.visibility === "hidden" && el.style.pointerEvents === "none";
+    return probe ? { paddingTop: "24px", paddingRight: "0px", paddingBottom: "20px", paddingLeft: "0px" } as CSSStyleDeclaration : real(el, pseudo);
+  });
+  restores.push(() => insets.mockRestore());
+  render(
+    <Popover open onOpenChange={() => {}}>
+      <PopoverTrigger>More</PopoverTrigger>
+      <PopoverContent className="w-64 p-1"><button>Delete…</button></PopoverContent>
+    </Popover>,
+  );
+  const kept = (await screen.findByRole("button", { name: "Delete…" })).parentElement!;
+  expect([kept.style.maxHeight, kept.style.overflowY]).toEqual(["var(--radix-popover-content-available-height)", "auto"]);
+});
