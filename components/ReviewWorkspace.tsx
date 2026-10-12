@@ -625,9 +625,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const reviewFiles: string[] = useMemo(() => [...new Set<string>(sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)))], [sections]);
 
   // Restore the saved scroll position once the page it was saved on shows. The diff draws its files a moment later, so
-  // it follows them down until it gets there, for a few seconds, or until you scroll yourself. Meanwhile the browser's
-  // scroll anchoring is off: when a diff above the place draws, it would keep what shows on screen, off the place. A
-  // remounted workspace goes back to the line that was at the top instead, which a new width wraps elsewhere.
+  // it follows them down until it gets there, for a few seconds, or until you scroll or tap yourself. Meanwhile the
+  // browser's scroll anchoring is off: when a diff above the place draws, it would keep what shows on screen, off the
+  // place. A remounted workspace goes back to the line that was at the top instead, which a new width wraps elsewhere:
+  // to the saved position until that line draws, as in a large chapter, whose files draw as they come near.
   useEffect(() => {
     const box = scrollBox.current;
     const top = restoreScroll.current;
@@ -643,6 +644,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       if (place) {
         // On its line for a few frames running, as what's above it finishes drawing.
         const off = goToPlace(box, place);
+        if (off === null && top) box.scrollTop = top;
         settled = off !== null && off < 2 ? settled + 1 : 0;
         if (settled < 6 && Date.now() < until) frame = requestAnimationFrame(follow);
         return;
@@ -654,13 +656,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     restoringPlace.current = !!place;
     const stop = () => { restoringPlace.current = false; cancelAnimationFrame(frame); clearTimeout(timer); box.style.overflowAnchor = ""; };
     const timer = setTimeout(stop, until - Date.now());
-    const inputs = ["wheel", "touchstart", "pointerdown"] as const;
+    const inputs = ["wheel", "touchstart"] as const;
     inputs.forEach((type) => box.addEventListener(type, stop, { once: true }));
+    // A tap anywhere, as on a file in a sheet or a comment in the dock, goes where it says.
+    window.addEventListener("pointerdown", stop, { capture: true, once: true });
     window.addEventListener("keydown", stop, { once: true });
     follow();
     return () => {
       stop();
       inputs.forEach((type) => box.removeEventListener(type, stop));
+      window.removeEventListener("pointerdown", stop, { capture: true });
       window.removeEventListener("keydown", stop);
     };
   }, [activeId, patch]);

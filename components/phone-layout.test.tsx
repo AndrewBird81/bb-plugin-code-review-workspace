@@ -8,6 +8,8 @@ import { keep } from "../lib/remount";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
+// Before pierre defines its own, which needs stylesheets jsdom lacks: a test draws a file's lines in its shadow root.
+customElements.define("diffs-container", class extends HTMLElement {});
 
 const restores: (() => void)[] = [];
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); restores.splice(0).forEach((restore) => restore()); });
@@ -137,6 +139,42 @@ test("as BB remounts the page, the line put back stays the place while it's put 
   code.appendChild(document.createElement("textarea")).focus();
   await new Promise((done) => setTimeout(done, 250));
   expect(JSON.parse(sessionStorage.getItem("gr:remount")!)["pr-42"].place).toEqual(place);
+  slot.lifecycle.unmount();
+});
+
+/** The review remounted by BB, as a phone turns, with `place` carried and the code last saved scrolled to `top`: its code's box. */
+async function remountAt(place: { file: string; index: string; offset: number }, top: number) {
+  fakeSize(390, 844);
+  const slot = await renderWorkspace();
+  keep("pr-42", { place });
+  patchReviewState("pr-42", { scrollTop: top });
+  slot.lifecycle.unmount();
+  const again = await renderWorkspace();
+  return { slot: again, code: again.getByRole("main", { name: "Review" }).querySelector<HTMLElement>(":scope > .overflow-y-auto")! };
+}
+
+test("as BB remounts the page, a line not drawn yet, as in a large chapter, is looked for where the code was, and gone to once it draws", async () => {
+  const { slot, code } = await remountAt({ file: "src/a.ts", index: "1,1", offset: 12 }, 400);
+  await waitFor(() => expect(code.scrollTop).toBe(400));
+  // Its file draws there, the line 1000px down the code.
+  const line = slot.getByTestId("filediff").appendChild(document.createElement("diffs-container")).attachShadow({ mode: "open" }).appendChild(document.createElement("div"));
+  line.setAttribute("data-line", "1");
+  line.setAttribute("data-line-index", "1,1");
+  line.getBoundingClientRect = () => new DOMRect(0, 1000 - code.scrollTop, 390, 20);
+  await waitFor(() => expect(code.scrollTop).toBe(988));
+  slot.lifecycle.unmount();
+});
+
+test("as BB remounts the page, a tap outside the code, as on the dock, ends putting the line back: the code stays where it goes, and that's the place", async () => {
+  const { slot, code } = await remountAt({ file: "src/a.ts", index: "1,1", offset: 12 }, 400);
+  await waitFor(() => expect(code.scrollTop).toBe(400));
+  fireEvent.pointerDown(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Chapters:/ }));
+  code.scrollTop = 120;
+  fireEvent.scroll(code);
+  await new Promise((done) => setTimeout(done, 250));
+  expect(code.scrollTop).toBe(120);
+  // What's at the top, which jsdom can't lay out.
+  expect(JSON.parse(sessionStorage.getItem("gr:remount")!)["pr-42"].place).toBeNull();
   slot.lifecycle.unmount();
 });
 
