@@ -687,6 +687,9 @@ export function PersistentResponsiveDrawerShell({
         className={cn(
           "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto max-h-[92dvh] flex-col rounded-t-xl border bg-background outline-none",
           contentClassName,
+          // Across the window, its content keeps clear of each side's safe area (the Duo's rail, a notch held
+          // sideways), whatever padding a caller asks for.
+          "pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]",
         )}
         style={{
           transform: open ? "translate3d(0, 0, 0)" : "translate3d(0, 100%, 0)",

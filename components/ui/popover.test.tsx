@@ -42,3 +42,16 @@ test("a menu's sheet keeps its end clear of the home indicator whatever padding 
   expect(popover).toContain("p-1");
   expect(popover.some((name) => name.startsWith("pb-"))).toBe(false);
 });
+
+test("a menu's sheet keeps its content clear of each side's safe area, the Duo's rail or a notch held sideways, whatever padding it asks for", async () => {
+  render(
+    <CompactViewportOverrideProvider isCompactViewport>
+      <Popover open onOpenChange={() => {}}>
+        <PopoverTrigger>More</PopoverTrigger>
+        <PopoverContent mobileTitle="Review actions" className="w-64 p-1"><button>Archive</button></PopoverContent>
+      </Popover>
+    </CompactViewportOverrideProvider>,
+  );
+  const sheet = (await screen.findByRole("dialog", { name: "Review actions" })).className.split(" ");
+  expect(sheet).toEqual(expect.arrayContaining(["pl-[env(safe-area-inset-left)]", "pr-[env(safe-area-inset-right)]", "inset-x-0"]));
+});
