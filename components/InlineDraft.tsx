@@ -109,9 +109,9 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
   if (folded && key && !box && !opened) {
     const fold = () => setCommentOpen(key, id, true);
     if (comment) {
-      const words = [STATE_LABEL[draftState(comment, draft.stale)].replace(" · not submitted", ""), comment.severity && SEVERITY_LABEL[comment.severity]].filter(Boolean).join(" · ");
       const talk = discussion?.entries.filter((entry) => entry.kind === "message").length ?? 0;
-      return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} />} who={null} words={`${words} · not submitted`} text={comment.body}
+      return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} />} who={null} words={STATE_LABEL[draftState(comment, draft.stale)]}
+        tag={comment.severity && SEVERITY_LABEL[comment.severity]} text={comment.body}
         more={talk ? `${talk} message${talk === 1 ? "" : "s"} with the agent` : null} name={`Draft comment on ${where}`} onShow={fold} /></div>;
     }
     const last = discussion!.entries.filter((entry) => entry.kind === "message").at(-1);

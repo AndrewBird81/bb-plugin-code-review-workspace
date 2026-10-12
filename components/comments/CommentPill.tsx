@@ -9,13 +9,15 @@ import { plainLine } from "./look";
  * what's under it ("2 replies · Resolved"), and Show, which opens it in full. 28px tall, 44px on a coarse pointer; its
  * frame keeps the card's: dashed with an edge while it's only in BB, solid on GitHub, muted when private.
  */
-export function CommentPill({ frame, icon, who, words, text, more, name, onShow, className }: {
+export function CommentPill({ frame, icon, who, words, tag, text, more, name, onShow, className }: {
   /** The card's frame classes (look.tsx). */
   frame: string;
   icon: ReactNode;
   who: string | null;
-  /** Its state or severity, in words: "Agent draft · Blocking". */
+  /** Its state, in words: "Agent draft · not submitted". */
   words: string;
+  /** Its severity, in words: "Blocking". */
+  tag?: string | null;
   /** Its first line. */
   text: string;
   /** What's folded under it: "2 replies · Resolved". */
@@ -27,15 +29,26 @@ export function CommentPill({ frame, icon, who, words, text, more, name, onShow,
 }) {
   const first = plainLine(text);
   return (
-    <div role="group" aria-label={`${name}, folded`} className={cn("mx-2 my-1 flex h-7 max-w-3xl min-w-0 items-center [contain:inline-size] gap-1.5 overflow-hidden rounded-md bg-card pl-2 font-sans text-xs leading-none whitespace-nowrap text-muted-foreground shadow-xs pointer-coarse:h-11", frame, className)}>
-      {icon}
-      {who && <span className="shrink-0 font-medium text-foreground">{who}</span>}
-      <span className="shrink-0">{words}</span>
-      <span aria-hidden className="shrink-0 text-subtle-foreground">·</span>
-      <span className="min-w-0 flex-1 truncate text-foreground/80"><InlineCode text={first} /></span>
-      {more && <span className="hidden shrink-0 text-subtle-foreground @min-[520px]/review:inline">{more}</span>}
+    <div role="group" aria-label={`${name}, folded`} className={cn("mx-2 my-1 flex h-7 max-w-3xl min-w-0 items-center [contain:inline-size] gap-1.5 rounded-md bg-card font-sans text-xs leading-none whitespace-nowrap text-muted-foreground shadow-xs pointer-coarse:h-11", frame, className)}>
+      <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden pl-2">
+        {icon}
+        {/* On a phone, two lines, as in the list's rows: who and state, then severity and the first line. */}
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 pointer-coarse:@max-[600px]/review:flex-col pointer-coarse:@max-[600px]/review:items-start pointer-coarse:@max-[600px]/review:gap-1">
+          <span className="flex max-w-full min-w-0 items-center gap-1.5">
+            {who && <span className="shrink-0 font-medium text-foreground">{who}</span>}
+            <span className="min-w-0 truncate">{words}{tag && <span className="pointer-coarse:@max-[600px]/review:hidden"> · {tag}</span>}</span>
+          </span>
+          <span className="max-w-full min-w-0 flex-1 truncate text-foreground/80 pointer-coarse:@max-[600px]/review:flex-none">
+            <span aria-hidden className="mr-1.5 text-subtle-foreground pointer-coarse:@max-[600px]/review:hidden">·</span>
+            {tag && <span className="hidden font-medium text-muted-foreground pointer-coarse:@max-[600px]/review:inline">{tag} · </span>}
+            <InlineCode text={first} />
+          </span>
+        </span>
+        {more && <span className="hidden shrink-0 text-subtle-foreground @min-[520px]/review:inline">{more}</span>}
+      </span>
+      {/* Over the frame's border, so on a coarse pointer it's the pill's full 44px. */}
       <button type="button" aria-label={`Show ${name}`} onClick={onShow}
-        className="flex h-full shrink-0 items-center gap-1 px-2 font-medium text-primary outline-none hover:bg-state-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 pointer-coarse:min-w-11 pointer-coarse:justify-center">
+        className="-my-px -mr-px flex h-[calc(100%+2px)] shrink-0 items-center gap-1 rounded-r-md px-2 font-medium text-primary outline-none hover:bg-state-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 pointer-coarse:min-w-11 pointer-coarse:justify-center">
         Show<Icon name="ChevronDown" className="size-3" aria-hidden />
       </button>
     </div>

@@ -58,7 +58,7 @@ test("i folds every card in the code to a pill that says who, its state, its fir
   const { slot, diff } = await renderWorkspace();
   press("i");
   const draft = await diff().findByRole("group", { name: "Draft comment on src/a.ts:2, folded" });
-  expect(draft.textContent).toContain("Agent draft · Blocking · not submitted");
+  expect(draft.textContent).toContain("Agent draft · not submitted · Blocking");
   expect(draft.textContent).toContain("An entry that expires now is still served.");
   const thread = diff().getByRole("group", { name: "GitHub thread on src/a.ts:2, folded" });
   expect(thread.textContent).toContain("@bob");
