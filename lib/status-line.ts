@@ -6,7 +6,7 @@ import type { IconName } from "../components/ui/icon";
 import { timeAgo } from "../components/time-ago";
 import { reviewState, type ReviewItem } from "./review-state";
 import { notRunReason } from "./trust";
-import { baselineOf, progressText, snoozeLabel } from "./turn";
+import { baselineOf, progressText, snoozeLabel, type TurnSignals } from "./turn";
 
 /** foreground: plain text that stands out, for what came back to you; the tones color only what changes your next move. */
 export type StatusTone = Tone | "foreground";
@@ -85,9 +85,9 @@ const CHECKS: Record<"pass" | "fail" | "pending" | "expected", Pick<StatusPart, 
 /**
  * The status line, in order: Blocks merge, why, then a run that didn't start on its own, GitHub not reading the PR,
  * your feedback's progress, new commits, checks, size, and its place in a stack. Passing checks say nothing unless
- * `passingChecks`.
+ * `passingChecks`. `ci` is the checks as just read, where a page has them, in place of the last sync's.
  */
-export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks = false }: { now?: number; passingChecks?: boolean } = {}): StatusPart[] {
+export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks = false, ci = review.signals?.ci }: { now?: number; passingChecks?: boolean; ci?: TurnSignals["ci"] } = {}): StatusPart[] {
   const turn = reviewState(review);
   const s = review.signals ?? {};
   const parts: StatusPart[] = [];
@@ -102,7 +102,7 @@ export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks
   if (review.progress) parts.push({ kind: "progress", text: progressText(review.progress), tone: "neutral", ...(review.progress.source === "threads" ? { detail: "Resolved or answered" } : {}) });
   const commits = s.commitsSince ?? 0;
   if (commits > 0) parts.push({ kind: "commits", text: `+${commits} ${commits === 1 ? "commit" : "commits"}`, tone: "neutral", detail: "Since your review" });
-  if (!done && s.ci && s.ci !== "none" && (s.ci !== "pass" || passingChecks)) parts.push({ kind: "checks", ...CHECKS[s.ci] });
+  if (!done && ci && ci !== "none" && (ci !== "pass" || passingChecks)) parts.push({ kind: "checks", ...CHECKS[ci] });
   if (review.prSize) {
     const { additions, deletions, files } = review.prSize;
     parts.push({ kind: "size", text: `+${additions.toLocaleString()} −${deletions.toLocaleString()} · ${files} ${files === 1 ? "file" : "files"}`, tone: "neutral" });

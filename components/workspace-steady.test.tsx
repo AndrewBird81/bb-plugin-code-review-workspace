@@ -148,7 +148,7 @@ test("Follow up on a file outside every chapter says so and offers GitHub, witho
 test("a failed review offers no Snooze, in the Overview or the menu", async () => {
   patchReviewState("pr-42", { activeId: "overview" });
   const { slot } = await renderWorkspace(() => ({ status: "error", submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, turn: turn({ group: "needs", reason: "re-requested", label: "Failed", action: "Retry review", failed: true }) }));
-  await slot.findByText("Failed");
+  await slot.findByText("Guide failed");
   expect(slot.queryByRole("button", { name: "Snooze" })).toBeNull();
   fireEvent.click(await slot.findByRole("button", { name: "Review actions" }));
   await slot.findByRole("button", { name: /Delete/ });

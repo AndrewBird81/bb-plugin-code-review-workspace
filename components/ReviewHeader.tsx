@@ -6,15 +6,16 @@ import type { CheckItem } from "../src/threads";
 import type { StackMember, StackPlace } from "../lib/stacks";
 import { LINES_PER_HOUR, readingTime } from "../lib/review-size";
 import { reviewState, type ReviewItem } from "../lib/review-state";
-import { canSnooze, canSnoozeUntil, progressText, type ReviewRound } from "../lib/turn";
+import { statusLine, type StatusKind, type StatusTone } from "../lib/status-line";
+import { canSnooze, canSnoozeUntil, type ReviewRound } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
-import { Dot, TONE_TEXT, type Tone } from "./ui/badge";
+import { TONE_TEXT } from "./ui/badge";
 import { Avatar } from "./ui/avatar";
 import { InlineCode } from "./ui/inline-code";
 import { Button } from "./ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { kindLook, statusLook } from "./ReviewStatus";
+import { kindLook, STATUS_TEXT } from "./ReviewStatus";
 import { MetaLine } from "./MetaLine";
 import { SnoozeChoices } from "./SnoozeChoices";
 import { TOUCH_CONTROL } from "./touch";
@@ -103,19 +104,12 @@ export function UnreviewedParent({ stack, className }: { stack: StackPlace | nul
 export type Checks = { bucket: string; checks: CheckItem[] };
 
 /** One fact of the status line: its icon in its tone, then its words. */
-function Fact({ icon, tone, title, children }: { icon: ReactNode; tone: Tone; title?: string; children: ReactNode }) {
-  return <span title={title} className="inline-flex items-center gap-1.5"><span className={cn("flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3.5", TONE_TEXT[tone])}>{icon}</span>{children}</span>;
+function Fact({ icon, tone, title, children }: { icon?: ReactNode; tone: StatusTone; title?: string; children: ReactNode }) {
+  return <span title={title} className="inline-flex items-center gap-1.5">{icon && <span className={cn("flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3.5", STATUS_TEXT[tone])}>{icon}</span>}{children}</span>;
 }
 
-/** The PR's checks as one fact: what's failing, else what's pending, else passing. Hovering lists them. */
-function ChecksFact({ checks }: { checks: Checks }) {
-  const title = checks.checks.map((check) => `${check.name}: ${check.bucket}`).join("\n");
-  const count = (bucket: string) => checks.checks.filter((check) => check.bucket === bucket).length;
-  const checksWord = (n: number) => `${n} ${n === 1 ? "check" : "checks"}`;
-  if (checks.bucket === "fail") return <Fact icon={<Icon name="CircleX" aria-hidden />} tone="danger" title={title}>{checksWord(count("fail"))} failing</Fact>;
-  if (checks.bucket === "pending") return <Fact icon={<Dot tone="warning" pulse />} tone="warning" title={title}>{checksWord(count("pending"))} pending</Fact>;
-  return <Fact icon={<Icon name="CircleCheck" aria-hidden />} tone="success" title={title}>Checks passing</Fact>;
-}
+/** The status line's facts the hero shows (lib/status-line.ts): the size, the stack and a run that didn't start have their own places on the page. */
+const HERO_FACTS: ReadonlySet<StatusKind> = new Set(["blocking", "why", "unreachable", "progress", "checks"]);
 
 /** Snooze while it's your turn: until the author responds, or until a time. A snoozed review offers to come back. */
 function Snooze({ review, snoozing, onSnooze }: { review: ReviewItem; snoozing: boolean; onSnooze: (snoozed: boolean, until?: number) => void }) {
@@ -133,11 +127,7 @@ function Snooze({ review, snoozing, onSnooze }: { review: ReviewItem; snoozing: 
         <Button variant="ghost" size="sm" className={button} disabled={snoozing}><Icon name="Clock" aria-hidden />Snooze<Icon name="ChevronDown" className="text-subtle-foreground" aria-hidden /></Button>
       </PopoverTrigger>
       <PopoverContent align="start" mobileTitle="Snooze" className="w-64 max-w-[calc(100vw-24px)] p-1">
-        {responds && <>
-          <Button variant="ghost" size="sm" disabled={snoozing} className={cn("w-full justify-start text-muted-foreground hover:text-foreground", TOUCH_CONTROL)} onClick={() => pick()}>Until the author responds</Button>
-          <p className="px-3 pb-2 text-xs text-subtle-foreground">Back when they re-request, answer, or ask you.</p>
-        </>}
-        {timed && <SnoozeChoices disabled={snoozing} onPick={pick} />}
+        <SnoozeChoices disabled={snoozing} onUntilAuthor={responds ? () => pick() : undefined} onPick={timed ? pick : undefined} />
       </PopoverContent>
     </Popover>
   );
@@ -161,21 +151,22 @@ export const ReviewHeader = memo(function ReviewHeader({ review, checks, readLin
 }) {
   const kind = kindLook(review);
   const turn = reviewState(review);
-  const status = statusLook(review);
   const rounds: ReviewRound[] = review.signals?.rounds ?? [];
   const progress = review.progress ?? null;
   const stack = review.stack ?? null;
-  const feedback = progress && progress.total > 0;
-  const facts = [
-    status.label !== "Ready" && <Fact key="turn" icon={status.icon ? <Icon name={status.icon} className={cn(status.busy && "animate-spin motion-reduce:animate-none")} aria-hidden /> : <Dot tone={status.tone} />} tone={status.tone}>{status.label}</Fact>,
-    turn.blocking && <Fact key="blocking" icon={<Icon name="Lock" aria-hidden />} tone="warning" title="Everyone else approved; only your changes requested is left.">Blocks merge</Fact>,
-    feedback && (
-      <button key="feedback" type="button" onClick={onShowFeedback} title={progress.source === "threads" ? "Resolved or answered. Show your feedback in Comments" : "Show your feedback in Comments"} className={cn("rounded-sm underline decoration-border underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_TEXT)}>
-        <Fact icon={<Icon name={progress.source === "assistant" ? "Sparkles" : "MessageSquare"} aria-hidden />} tone={progress.done === progress.total ? "success" : "primary"}>{progressText(progress)}</Fact>
+  // The checks as just read, once they are; until then, as the last sync saw them.
+  const ci = checks ? (checks.bucket === "fail" || checks.bucket === "pending" || checks.bucket === "pass" ? checks.bucket : "none") : undefined;
+  const facts = statusLine(review, { passingChecks: true, ci })
+    // A review that's simply ready has nothing to say about whose turn it is.
+    .filter((part) => HERO_FACTS.has(part.kind) && !(part.kind === "why" && turn.label === "Ready"))
+    .map((part) => part.kind === "progress" && progress ? (
+      <button key={part.kind} type="button" onClick={onShowFeedback} title={part.detail ? `${part.detail}. Show your feedback in Comments` : "Show your feedback in Comments"} className={cn("rounded-sm underline decoration-border underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_TEXT)}>
+        <Fact icon={<Icon name={progress.source === "assistant" ? "Sparkles" : "MessageSquare"} aria-hidden />} tone={progress.done === progress.total ? "success" : "primary"}>{part.text}</Fact>
       </button>
-    ),
-    checks && checks.bucket !== "none" && <ChecksFact key="checks" checks={checks} />,
-  ].filter(Boolean);
+    ) : (
+      // Hovering the checks lists them.
+      <Fact key={part.kind} icon={part.icon && <Icon name={part.icon} className={cn(part.busy && "animate-spin motion-reduce:animate-none")} aria-hidden />} tone={part.tone} title={part.kind === "checks" && checks ? checks.checks.map((check) => `${check.name}: ${check.bucket}`).join("\n") : part.detail}>{part.text}</Fact>
+    ));
   const snooze = onSnooze && <Snooze review={review} snoozing={snoozing} onSnooze={onSnooze} />;
   return (
     <header className="space-y-2.5">

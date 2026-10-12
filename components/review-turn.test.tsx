@@ -183,7 +183,10 @@ test("the Overview shows your review rounds, progress, Blocks merge, and snoozes
   expect(rounds.textContent).toBe("Changes requested 3d ago→Commented 1d ago");
   expect(slot.getByText("Blocks merge")).toBeTruthy();
   fireEvent.click(slot.getByRole("button", { name: "Snooze" }));
-  const responds = await slot.findByRole("button", { name: "Until the author responds" });
+  // The same Snooze choices as the review's ⋯, waiting for the author first.
+  const choices = within(await slot.findByRole("group", { name: "Snooze" }));
+  const responds = choices.getByRole("button", { name: "Until the author responds" });
+  expect(choices.getAllByRole("button")[0]).toBe(responds);
   // A 44px row on a touch screen.
   expect(responds.className).toContain("pointer-coarse:h-11");
   fireEvent.click(responds);
@@ -203,7 +206,8 @@ test("a snoozed review offers Back to Needs review, and an unreviewed one can't 
 
   const fresh = await renderWorkspace({ turn: turn({ reason: "requested", label: "Review requested" }) });
   fireEvent.click(await fresh.slot.findByRole("button", { name: "Snooze" }));
-  await fresh.slot.findByRole("button", { name: /Monday/ });
+  // Tomorrow is always offered (Monday isn't on a Sunday).
+  await fresh.slot.findByRole("button", { name: /^Tomorrow/ });
   expect(fresh.slot.queryByRole("button", { name: "Until the author responds" })).toBeNull();
   fresh.slot.lifecycle.unmount();
 });

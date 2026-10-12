@@ -55,7 +55,8 @@ export function StatusBadge({ review, className }: { review: ReviewItem; classNa
   );
 }
 
-const STATUS_TEXT: Record<StatusTone, string> = { ...TONE_TEXT, foreground: "text-foreground" };
+/** A status part's tone as its text color: the kit's tones, and foreground. */
+export const STATUS_TEXT: Record<StatusTone, string> = { ...TONE_TEXT, foreground: "text-foreground" };
 
 /**
  * A status line (lib/status-line.ts) on one line, its parts between dots, each an icon and words in its tone, then

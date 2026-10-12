@@ -69,6 +69,9 @@ test("the line puts Blocks merge first, then why, then only the facts that chang
   expect(line(passing)).toEqual(["Review requested", "+2 −0 · 1 file"]);
   expect(line(passing, true)).toEqual(["Review requested", "Checks passing", "+2 −0 · 1 file"]);
   expect(line(review(turn("needs", "requested"), { signals: { ci: "expected", commitsSince: 1 } }))).toEqual(["Review requested", "+1 commit", "Checks expected"]);
+  // Checks just read, as the Overview has them, say what they say now, not what the last sync saw.
+  expect(statusLine(passing, { now, passingChecks: true, ci: "fail" }).map((part) => part.text)).toEqual(["Review requested", "Checks failing", "+2 −0 · 1 file"]);
+  expect(statusLine(passing, { now, passingChecks: true, ci: "none" }).map((part) => part.text)).toEqual(["Review requested", "+2 −0 · 1 file"]);
   // Archived, checks don't matter any more.
   expect(line(review(turn("archive", "merged"), { signals: { ci: "fail" } }))).toEqual(["Merged"]);
 });
