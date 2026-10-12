@@ -30,7 +30,7 @@ import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { AccountBar } from "./AccountBar";
 import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
 import { TEXT_FIELD, inDiffOrder, readingOrder, shortcutKey } from "../lib/review-shortcuts";
-import { stepComment } from "../lib/comment-stops";
+import { stepComment, useCommentStep } from "../lib/comment-stops";
 import { InlineDraftContext } from "./InlineDraft";
 import { DiffThreadsContext, useDiffThreads } from "./LineThreads";
 import { CheckFailuresContext, useCheckFailures } from "./CheckFailures";
@@ -494,6 +494,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useSafeArea(rootEl);
   useFold(rootEl);
   useScrollAnchor(scrollEl);
+  // While the step bar is over the code's foot, the code ends above it: a chapter's last buttons stay in reach.
+  const commentStep = useCommentStep(targetKey);
   useLayoutEffect(() => {
     if (!covering || !rootEl) return;
     rootEl.setAttribute("popover", "manual");
@@ -978,7 +980,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
             <ReviewNotices notices={notices} />
           </div>
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
-          <div ref={(el) => { scrollBox.current = el; setScrollEl(el); }} onScroll={onScroll} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
+          <div ref={(el) => { scrollBox.current = el; setScrollEl(el); }} onScroll={onScroll} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className={cn("min-h-0 flex-1 overflow-y-auto px-4 before:block before:h-4 before:content-['']", commentStep ? "pb-24" : "pb-6")}>
             {activeSection ? (
               <>
               <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} />

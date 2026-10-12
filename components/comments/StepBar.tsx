@@ -5,6 +5,7 @@ import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
 import { useNeedsYou } from "../../lib/workspace-store";
 import { sidePanelId } from "../shell/SidePanel";
+import { useMediaQuery } from "../ui/hooks/use-media-query";
 import { Icon } from "../ui/icon";
 import { NeedsYouPill } from "./NeedsYouPill";
 import { updateComments } from "./store";
@@ -50,20 +51,29 @@ function useTextSelected(): boolean {
   return selected;
 }
 
-/** How far the code's right edge is from the workspace's while a side panel docks there: its width and its 1px resizer. */
-function useDockedPanelWidth(targetKey: string, docked: boolean): number {
-  const [width, setWidth] = useState(0);
+/**
+ * While a side panel docks at the code's right: how far the code's right edge is from the workspace's (`width`: the
+ * panel's and its 1px resizer's), and the code's width beside it (`code`).
+ */
+function useDockedPanel(targetKey: string, docked: boolean): { width: number; code: number } {
+  const [size, setSize] = useState({ width: 0, code: 0 });
   useEffect(() => {
     const panel = docked ? document.getElementById(sidePanelId(targetKey)) : null;
-    if (!panel) { setWidth(0); return; }
-    const measure = () => { const { width } = panel.getBoundingClientRect(); setWidth(width ? Math.round(width) + 1 : 0); };
+    const main = panel?.parentElement?.querySelector<HTMLElement>(":scope > main");
+    if (!panel || !main) { setSize({ width: 0, code: 0 }); return; }
+    const measure = () => {
+      const width = Math.round(panel.getBoundingClientRect().width);
+      const code = Math.round(main.getBoundingClientRect().width);
+      setSize((was) => was.width === (width ? width + 1 : 0) && was.code === code ? was : { width: width ? width + 1 : 0, code });
+    };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(panel);
+    observer.observe(main);
     return () => observer.disconnect();
   }, [targetKey, docked]);
-  return width;
+  return size;
 }
 
 const round = "flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-state-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:size-11";
@@ -93,12 +103,17 @@ export function StepBar({ hidden, pill }: {
   }, [step?.via, step?.nonce, targetKey]);
   // Once Comments opens, the pill's job is done.
   useEffect(() => { if (panel.view === "comments") setDismissed(true); }, [panel.view]);
-  const panelWidth = useDockedPanelWidth(targetKey, layout.panel === "docked");
+  const coarse = useMediaQuery("(pointer: coarse)");
+  const docked = useDockedPanel(targetKey, layout.panel === "docked");
   // Above a phone's dock, in the middle; elsewhere at the code's corner, beside a docked panel and clear of a folding
-  // screen's middle.
+  // screen's middle: beside a docked panel in under 600px of code on touch, as on an unfolded iPhone Duo held sideways,
+  // the fold runs through the code's right part, so the bar keeps to its left. Each side clear of what of its safe area
+  // reaches the workspace (lib/use-safe-area.ts), whose padding doesn't move what's absolute in it.
   const phone = layout.mode === "phone";
-  const place = phone ? "left-1/2 -translate-x-1/2 bottom-[calc(60px+env(safe-area-inset-bottom))]" : cn("bottom-[max(1rem,env(safe-area-inset-bottom))]", !panelWidth && "right-[max(1rem,env(safe-area-inset-right))]");
-  const beside = !phone && panelWidth ? { right: `calc(${panelWidth}px + 1rem)` } : undefined;
+  const besideFold = coarse && layout.nav !== "docked" && docked.width > 0 && docked.code < 600;
+  const place = phone ? "left-1/2 -translate-x-1/2 bottom-[calc(60px+var(--gr-safe-bottom,0px))]" : cn("bottom-[max(1rem,var(--gr-safe-bottom,0px))]", !docked.width && "right-[max(1rem,var(--gr-safe-right,0px))]");
+  const beside = phone || !docked.width ? undefined
+    : besideFold ? { left: "calc(1rem + var(--gr-safe-left, 0px))" } : { right: `calc(${docked.width}px + 1rem + var(--gr-safe-right, 0px))` };
   if (hidden || typing || textSelected || layout.nav === "overlay" || layout.panel === "overlay") return null;
   if (step?.via === "hint") {
     return <p role="status" style={beside} className={cn("pointer-events-none absolute z-40 rounded-full border border-border bg-popover px-3 py-1.5 text-xs font-medium tabular-nums shadow-lg animate-in fade-in duration-150 motion-reduce:animate-none", place)}>

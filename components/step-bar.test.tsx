@@ -136,7 +136,51 @@ test("beside a docked panel, where ] went shows at the code's corner, not over t
   await slot.findByRole("heading", { name: "Finish review" });
   fireEvent.keyDown(document.body, { key: "]" });
   const hint = await slot.findByText("2 of 4 · All");
-  expect(hint.style.right).toBe("calc(401px + 1rem)");
+  expect(hint.style.right).toBe("calc(401px + 1rem + var(--gr-safe-right, 0px))");
+  slot.lifecycle.unmount();
+});
+
+test("beside a docked panel in under 600px of code on touch, as on an unfolded iPhone Duo held sideways, where ] went shows at the code's left, off the fold", async () => {
+  const scrollIntoView = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = () => {};
+  // The Duo's pane, touched; jsdom lays nothing out: Comments docks at 391 beside 560px of code.
+  const original = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    constructor(private notify: ResizeObserverCallback) {}
+    observe(target: Element) { this.notify([{ target, contentRect: { width: 951, height: 541 } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver); }
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(pointer: coarse)", media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }) as MediaQueryList);
+  const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const width = this.id.startsWith("gr-side-panel-") ? 391 : this.tagName === "MAIN" ? 560 : 0;
+    return { width, height: 0, top: 0, left: 0, right: width, bottom: 0, x: 0, y: 0, toJSON() {} } as DOMRect;
+  });
+  restores.push(() => { Element.prototype.scrollIntoView = scrollIntoView; globalThis.ResizeObserver = original; matchMedia.mockRestore(); rect.mockRestore(); });
+  const slot = await renderWorkspace();
+  await slot.findAllByTestId("filediff");
+  fireEvent.click(await slot.findByRole("button", { name: /^Comments/ }));
+  await within(slot.getByRole("region", { name: "Comments" })).findByRole("radio", { name: "All, 4" });
+  fireEvent.keyDown(document.body, { key: "s" });
+  await slot.findByRole("heading", { name: "Finish review" });
+  fireEvent.keyDown(document.body, { key: "]" });
+  const hint = await slot.findByText("2 of 4 · All");
+  expect([hint.style.left, hint.style.right]).toEqual(["calc(1rem + var(--gr-safe-left, 0px))", ""]);
+  slot.lifecycle.unmount();
+});
+
+test("while the step bar shows, the code ends above it, so a chapter's last buttons stay in reach", async () => {
+  phone();
+  const slot = await renderWorkspace();
+  const code = slot.getByRole("main", { name: "Review" }).querySelector(".overflow-y-auto")!;
+  expect(code.className.split(" ")).toContain("pb-6");
+  fireEvent.click(await within(slot.getByRole("group", { name: "Review commands" })).findByRole("button", { name: /^Comments/ }));
+  fireEvent.click(await within(await slot.findByRole("dialog", { name: "Comments" })).findByRole("button", { name: "Draft · not submitted · src/a.ts:2" }));
+  await waitFor(() => expect(bar(slot)).toBeTruthy());
+  expect(code.className.split(" ")).toEqual(expect.arrayContaining(["pb-24"]));
+  expect(code.className.split(" ")).not.toContain("pb-6");
+  fireEvent.click(within(bar(slot)!).getByRole("button", { name: "Close" }));
+  expect(code.className.split(" ")).toContain("pb-6");
   slot.lifecycle.unmount();
 });
 
