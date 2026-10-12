@@ -156,21 +156,28 @@ describe("the user's phones", () => {
   });
 });
 
-test("modes switch at 640 wide and 500 tall, and only 16px past that once decided", () => {
-  expect(workspaceLayout(639, 800, closed).mode).toBe("phone");
-  expect(workspaceLayout(640, 800, closed).mode).toBe("tablet");
+test("modes switch at 600 wide and 500 tall, and only 16px past that once decided", () => {
+  expect(workspaceLayout(599, 800, closed).mode).toBe("phone");
+  expect(workspaceLayout(600, 800, closed).mode).toBe("tablet");
   expect(workspaceLayout(1200, 499, closed).mode).toBe("short");
   expect(workspaceLayout(1200, 500, closed).mode).toBe("tablet");
   const tablet = workspaceLayout(700, 800, closed);
-  expect(workspaceLayout(630, 800, closed, tablet).mode).toBe("tablet");
-  expect(workspaceLayout(623, 800, closed, tablet).mode).toBe("phone");
-  const phone = workspaceLayout(600, 800, closed);
-  expect(workspaceLayout(650, 800, closed, phone).mode).toBe("phone");
-  expect(workspaceLayout(656, 800, closed, phone).mode).toBe("tablet");
+  expect(workspaceLayout(590, 800, closed, tablet).mode).toBe("tablet");
+  expect(workspaceLayout(583, 800, closed, tablet).mode).toBe("phone");
+  const phone = workspaceLayout(560, 800, closed);
+  expect(workspaceLayout(610, 800, closed, phone).mode).toBe("phone");
+  expect(workspaceLayout(616, 800, closed, phone).mode).toBe("tablet");
   const short = workspaceLayout(1200, 400, closed);
   expect(workspaceLayout(1200, 510, closed, short).mode).toBe("short");
   expect(workspaceLayout(1200, 516, closed, short).mode).toBe("tablet");
   expect(workspaceLayout(1200, 490, closed, tablet).mode).toBe("tablet");
+  // The unfolded Duo held sideways beside BB's thread list is a tablet, whatever it was before; the phones stay phones,
+  // and held sideways, short.
+  expect(workspaceLayout(631, 541, closed).mode).toBe("tablet");
+  expect(workspaceLayout(631, 541, closed, phone).mode).toBe("tablet");
+  for (const width of [382, 385, 390, 430]) expect(workspaceLayout(width, 550, closed).mode).toBe("phone");
+  expect(workspaceLayout(594, 338, closed).mode).toBe("short");
+  expect(workspaceLayout(612, 382, closed).mode).toBe("short");
 });
 
 test("the panel docks narrower, down to 320, rather than squeeze the code under 560", () => {
@@ -391,7 +398,7 @@ describe("useWorkspaceLayout", () => {
   test("without ResizeObserver, the window's media queries decide the mode", () => {
     vi.stubGlobal("ResizeObserver", undefined);
     restores.push(() => vi.unstubAllGlobals());
-    const phone = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(max-width: 639px)", media: query, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList);
+    const phone = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(max-width: 599px)", media: query, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList);
     restores.push(() => phone.mockRestore());
     const el = document.createElement("div");
     expect(renderHook(() => useWorkspaceLayout(el, both)).result.current.mode).toBe("phone");

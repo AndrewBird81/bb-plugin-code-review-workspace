@@ -7,6 +7,11 @@ export const READER_MIN = 560;
 /** A workspace shorter than this is a phone held sideways (`short`). */
 export const SHORT_BELOW = 500;
 /**
+ * A workspace narrower than this is a phone's (`phone`): the iPhone Duo unfolded and held sideways, beside BB's thread
+ * list, leaves 631, which is a tablet's.
+ */
+export const PHONE_BELOW = 600;
+/**
  * A window whose shorter side is under this is a phone's, the iPhone Duo's inner screen's included: the smallest iPad's
  * screen is 744 on its shorter side. A phone's fold, unfold or rotation keeps what's open (`phoneResized`); an iPad's or
  * a desktop's window resizing is as BB's pane resizing.
@@ -82,7 +87,7 @@ export function readerWidth(width: number, state: LayoutState, layout: Pick<Work
  */
 export function workspaceLayout(width: number, height: number, state: LayoutState, previous?: WorkspaceLayout, phoneResized = false): WorkspaceLayout {
   const mode: WorkspaceMode = below(height, SHORT_BELOW, previous && previous.mode === "short") ? "short"
-    : below(width, 640, previous && previous.mode === "phone") ? "phone" : "tablet";
+    : below(width, PHONE_BELOW, previous && previous.mode === "phone") ? "phone" : "tablet";
   // Docked, a side stays docked down to HYSTERESIS under READER_MIN; anything else docks at READER_MIN.
   const fits = (room: number, docked: boolean) => mode === "tablet" && room >= READER_MIN - (docked ? HYSTERESIS : 0);
   const panelWidth = panelDockWidth(width, state.panelWidth);
@@ -113,7 +118,7 @@ function sameLayout(a: WorkspaceLayout, b: WorkspaceLayout): boolean {
 function windowSize(): { width: number; height: number } {
   const matches = (query: string) => window.matchMedia?.(query).matches ?? false;
   return {
-    width: matches("(max-width: 639px)") ? Math.min(window.innerWidth, 639) : Math.max(window.innerWidth, 640),
+    width: matches(`(max-width: ${PHONE_BELOW - 1}px)`) ? Math.min(window.innerWidth, PHONE_BELOW - 1) : Math.max(window.innerWidth, PHONE_BELOW),
     height: matches("(max-height: 499px)") ? Math.min(window.innerHeight, 499) : Math.max(window.innerHeight, 500),
   };
 }
