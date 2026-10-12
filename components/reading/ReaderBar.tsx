@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react"
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
+import { phoneWindow } from "../../lib/workspace-layout";
 import { useTitleBarMounted } from "../../lib/workspace-store";
 import { compareLabel, ComparePicker, lastReviewed } from "../ComparePicker";
 import { ChapterStep } from "../shell/ChapterStep";
@@ -35,9 +36,10 @@ const CHAPTER = { least: 120, usual: 180 };
 const BACK = 82;
 const TITLE = 160;
 /**
- * Under this much room on touch, the band ends with Diff options alone: on an unfolded iPhone Duo held sideways, the
- * fold (x 455–496) runs where the compare select and Fold comments would be, beside docked Comments (the band's 0–560)
- * or before the review's commands in full screen (lanes/00-devices.md, requirement 6).
+ * Under this much room on a phone's touch screen, the band ends with Diff options alone: on an unfolded iPhone Duo held
+ * sideways, the fold (x 455–496) runs where the compare select and Fold comments would be, beside docked Comments (the
+ * band's 0–560) or before the review's commands in full screen (lanes/00-devices.md, requirement 6). An iPad has no
+ * fold: its band fits as a mouse's does.
  */
 const OPTIONS_ALONE_BELOW = 600;
 
@@ -48,8 +50,8 @@ export const selectWidth = (label: string) => Math.ceil(label.length * 6.5) + 34
  * What fits in `room` px of band beside its `buttons` square buttons of `size` px: the chapter's title first, then the
  * compare select, `compare` px wide with its full or brief label (null: the review has none), then "All reviews" from a
  * reader of 720px, then the review's title. Fold comments, one of the buttons, is a setting Diff options has too: it
- * gives way to the chapter's title and to the compare select, a state you must see. On `touch`, under 600px of room,
- * both are in Diff options.
+ * gives way to the chapter's title and to the compare select, a state you must see. On a phone's touch screen
+ * (`touch`), under 600px of room, both are in Diff options.
  */
 export function bandFit(room: number, buttons: number, size: number, compare: { full: number; brief: number } | null, touch = false): BandFit {
   if (touch && room < OPTIONS_ALONE_BELOW) return { back: false, title: false, compare: null, fold: false };
@@ -124,7 +126,7 @@ export function ReaderBar({ threads, onCompareShown }: { threads: boolean; onCom
   const longer = (brief: boolean) => [compareLabel(false, null), compareLabel(true, compare.from, brief)].reduce((a, b) => b.length > a.length ? b : a);
   const sized = (brief: boolean) => selectWidth(longer(brief)) + (compare.error ? 18 : 0);
   const buttons = (layout.nav === "docked" ? 0 : 2) + 1 + (chapter ? 2 : 0);
-  const fit = useBandFit(reading, (room) => bandFit(room, buttons, short ? 36 : coarse ? 44 : 32, comparable ? { full: sized(false), brief: sized(true) } : null, coarse));
+  const fit = useBandFit(reading, (room) => bandFit(room, buttons, short ? 36 : coarse ? 44 : 32, comparable ? { full: sized(false), brief: sized(true) } : null, coarse && phoneWindow()));
   // Before the paint, so a narrowed diff's own note doesn't flash as the select comes and goes.
   useLayoutEffect(() => onCompareShown?.(!!fit.compare), [fit.compare, onCompareShown]);
   if (layout.mode === "phone") return null;

@@ -72,6 +72,15 @@ function fakePane(width: number, height = 900, room = width) {
   restores.push(() => { globalThis.ResizeObserver = original; });
 }
 
+/** A touch screen's window `width` × `height`: the pointer is coarse, and the window's size says if it's a phone's. */
+function touchWindow(width: number, height: number) {
+  const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(pointer: coarse)", media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }) as MediaQueryList);
+  const root = document.documentElement;
+  Object.defineProperty(root, "clientWidth", { configurable: true, value: width });
+  Object.defineProperty(root, "clientHeight", { configurable: true, value: height });
+  restores.push(() => { matchMedia.mockRestore(); delete (root as { clientWidth?: number }).clientWidth; delete (root as { clientHeight?: number }).clientHeight; });
+}
+
 const file = (path: string, line: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-x\n+${line}\n`;
 const patch = file("src/a.ts", "aa") + file("src/b.ts", "bb");
 const reviewed = file("src/a.ts", "a0") + file("src/b.ts", "bb");
@@ -155,8 +164,7 @@ test("where the band has no room for the compare select, Diff options shows the 
 
 test("on touch, the band beside Comments docked on an unfolded iPhone Duo held sideways leaves the compare select and Fold comments to Diff options", async () => {
   fakePane(951, 541, 547);
-  const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: query === "(pointer: coarse)", media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }) as MediaQueryList);
-  restores.push(() => matchMedia.mockRestore());
+  touchWindow(951, 589);
   const slot = await renderWorkspace(rereview);
   const controls = band(slot).getAllByRole("button").filter((button) => !button.closest("[data-review-commands]")).map((button) => button.getAttribute("aria-label"));
   expect(controls.at(-1)).toBe("Diff options");
@@ -164,6 +172,17 @@ test("on touch, the band beside Comments docked on an unfolded iPhone Duo held s
   fireEvent.click(band(slot).getByRole("button", { name: "Diff options" }));
   expect(await slot.findByRole("switch", { name: "Fold comments in code" })).toBeTruthy();
   expect(slot.getByRole("radiogroup", { name: "Show changes" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("on an iPad, which has no fold, a band with under 600px of room keeps the compare select and Fold comments, as with a mouse", async () => {
+  // The 13" iPad held upright, Comments docked in BB's 978px pane: 578px of band.
+  fakePane(978, 1376, 578);
+  touchWindow(1032, 1376);
+  const slot = await renderWorkspace(rereview);
+  const controls = band(slot).getAllByRole("button").filter((button) => !button.closest("[data-review-commands]")).map((button) => button.getAttribute("aria-label"));
+  expect(controls.filter((label) => /^Show changes|comments in code$/.test(label ?? ""))).toHaveLength(2);
+  expect(controls.at(-1)).toBe("Diff options");
   slot.lifecycle.unmount();
 });
 
