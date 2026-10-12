@@ -27,7 +27,7 @@ const REQUIREMENT_LOOK: Record<Requirement["status"], { tone: Tone; icon: IconNa
 function Section({ title, children }: { title: ReactNode; children: ReactNode }) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className="grid gap-x-6 gap-y-2 py-4 @min-[640px]/overview:grid-cols-[9rem_minmax(0,1fr)]">
+    <section aria-labelledby={id} className="grid gap-x-6 gap-y-2 py-4 @min-[560px]/overview:grid-cols-[9rem_minmax(0,1fr)]">
       <h3 id={id} className="text-sm font-medium leading-6 text-muted-foreground">{title}</h3>
       <div className="min-w-0">{children}</div>
     </section>

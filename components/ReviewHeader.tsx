@@ -20,21 +20,25 @@ import { SnoozeChoices } from "./SnoozeChoices";
 import { TOUCH_CONTROL } from "./touch";
 import { timeAgo } from "./time-ago";
 
-/** A text button's target grows to 44px on a coarse pointer, without moving the text around it. */
-export const TOUCH_TEXT = "relative pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1 pointer-coarse:after:-inset-y-3.5 pointer-coarse:after:content-['']";
+/** A text button in a line of text is 44px tall on a coarse pointer, its words centred in it. */
+const TOUCH_TEXT = "pointer-coarse:min-h-11";
 
 /** A branch name, GitHub-style. */
 export function BranchChip({ children, className }: { children: ReactNode; className?: string }) {
   return <span className={cn("max-w-56 truncate rounded-md bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-primary", className)}>{children}</span>;
 }
 
-/** Review title that opens its GitHub PR when one is known, its ↗ after its last word. */
-export function ReviewTitleLink({ url, children }: { url?: string; children: ReactNode }) {
-  if (!url) return <>{children}</>;
+/** Review title that opens its GitHub PR when one is known. Its ↗ stays on the line with its last word. */
+export function ReviewTitleLink({ url, text }: { url?: string; text: string }) {
+  if (!url) return <InlineCode text={text} />;
+  const icon = <Icon name="ArrowUpRight" className="ml-1 inline size-[1em] align-[-0.125em] text-muted-foreground transition-colors group-hover:text-primary" aria-hidden />;
+  // Not inside `code`: an odd count of the parts before the last space means its backticks pair up.
+  const at = text.lastIndexOf(" ");
+  const split = at > 0 && text.slice(0, at).split("`").length % 2 === 1;
   return (
-    <UrlLink href={url} title="Open on GitHub" className="group rounded-sm decoration-primary/50 underline-offset-4 hover:underline">
-      {children}
-      <Icon name="ArrowUpRight" className="ml-1 inline size-[1em] align-[-0.125em] text-muted-foreground transition-colors group-hover:text-primary" aria-hidden />
+    // Inline, so its padding makes a 44px target on a coarse pointer without moving the lines.
+    <UrlLink href={url} title="Open on GitHub" className="group rounded-sm decoration-primary/50 underline-offset-4 hover:underline pointer-coarse:py-2.5">
+      {split ? <><InlineCode text={text.slice(0, at + 1)} /><span className="whitespace-nowrap"><InlineCode text={text.slice(at + 1)} />{icon}</span></> : <><InlineCode text={text} />{icon}</>}
     </UrlLink>
   );
 }
@@ -176,7 +180,7 @@ export const ReviewHeader = memo(function ReviewHeader({ review, checks, readLin
   return (
     <header className="space-y-2.5">
       <h2 className="text-base font-semibold leading-snug text-foreground @min-[640px]/overview:text-xl">
-        <ReviewTitleLink url={review.url}><InlineCode text={review.title ?? review.gitRef ?? review.targetKey} /></ReviewTitleLink>
+        <ReviewTitleLink url={review.url} text={review.title ?? review.gitRef ?? review.targetKey} />
       </h2>
       <MetaLine className="leading-6" items={[
         review.author && <span className="inline-flex items-center gap-1.5 align-top"><Avatar login={review.author} size={16} /><span className="text-foreground/90">@{review.author}</span></span>,
