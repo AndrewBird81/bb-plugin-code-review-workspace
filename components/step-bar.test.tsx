@@ -122,6 +122,27 @@ test("the selection bar takes the step bar's place, and Close puts it away", asy
   slot.lifecycle.unmount();
 });
 
+test("text selected, as a long-press selects it, puts the step bar away until it's cleared", async () => {
+  phone();
+  const slot = await renderWorkspace();
+  fireEvent.click(await within(slot.getByRole("group", { name: "Review commands" })).findByRole("button", { name: /^Comments/ }));
+  fireEvent.click(await within(await slot.findByRole("dialog", { name: "Comments" })).findByRole("button", { name: "Draft · not submitted · src/a.ts:2" }));
+  await waitFor(() => expect(bar(slot)).toBeTruthy());
+  // The slot's tree isn't the document's here, so the text is beside it.
+  const text = document.body.appendChild(document.createElement("p"));
+  text.textContent = "return entry.value;";
+  restores.push(() => text.remove());
+  document.getSelection()!.selectAllChildren(text);
+  act(() => { document.dispatchEvent(new Event("selectionchange")); });
+  expect(bar(slot)).toBeNull();
+  document.getSelection()!.removeAllRanges();
+  act(() => { document.dispatchEvent(new Event("selectionchange")); });
+  // It waits as long as the selection bar stays, for a tap on it.
+  expect(bar(slot)).toBeNull();
+  await waitFor(() => expect(bar(slot)).toBeTruthy());
+  slot.lifecycle.unmount();
+});
+
 test("with keys and the list closed, ] and [ show where they went for 2 seconds", async () => {
   // jsdom can't scroll: the diff lands on the comment's file when it can't find the line drawn.
   const scrollIntoView = Element.prototype.scrollIntoView;

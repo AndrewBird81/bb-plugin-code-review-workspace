@@ -24,13 +24,38 @@ function useTyping(): boolean {
   return now;
 }
 
+/** How long the step bar waits once text is no longer selected: the selection bar stays that long, for a tap on it. */
+const TEXT_GONE_MS = 300;
+
+/**
+ * Whether text is selected, as a long-press selects it on a phone: the selection bar shows for text in the code where
+ * the step bar sits, so the step bar keeps out of its way, for any text.
+ */
+function useTextSelected(): boolean {
+  const [selected, setSelected] = useState(false);
+  useEffect(() => {
+    let gone: ReturnType<typeof setTimeout> | undefined;
+    const update = () => {
+      clearTimeout(gone);
+      if (document.getSelection()?.toString().trim()) setSelected(true);
+      else gone = setTimeout(() => setSelected(false), TEXT_GONE_MS);
+    };
+    document.addEventListener("selectionchange", update);
+    return () => {
+      clearTimeout(gone);
+      document.removeEventListener("selectionchange", update);
+    };
+  }, []);
+  return selected;
+}
+
 const round = "flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-state-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:size-11";
 
 /**
  * Over the code, at the workspace's bottom (above a phone's dock): the step bar, after you go to a comment from an
  * overlay or sheet by touch, which steps through the list's filter there (‹ 2 of 5 · Not submitted › ▤ ✕); the 2 s hint
- * a step by key shows with the list closed; or the "need you" pill. The selection bar takes its place while lines are
- * selected (`hidden`), as the keyboard and what's over the code do.
+ * a step by key shows with the list closed; or the "need you" pill. The selection bar takes its place while lines or
+ * text are selected, as the keyboard and what's over the code do.
  */
 export function StepBar({ hidden, pill }: {
   /** Lines are selected: the selection bar is in its place. */
@@ -42,6 +67,7 @@ export function StepBar({ hidden, pill }: {
   const step = useCommentStep(targetKey);
   const needsYou = useNeedsYou(targetKey);
   const typing = useTyping();
+  const textSelected = useTextSelected();
   const [dismissed, setDismissed] = useState(false);
   useEffect(() => {
     if (step?.via !== "hint") return;
@@ -52,7 +78,7 @@ export function StepBar({ hidden, pill }: {
   useEffect(() => { if (panel.view === "comments") setDismissed(true); }, [panel.view]);
   // Above a phone's dock, in the middle; elsewhere at the corner, clear of a folding screen's middle.
   const place = layout.mode === "phone" ? "left-1/2 -translate-x-1/2 bottom-[calc(60px+env(safe-area-inset-bottom))]" : "right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))]";
-  if (hidden || typing || layout.nav === "overlay" || layout.panel === "overlay") return null;
+  if (hidden || typing || textSelected || layout.nav === "overlay" || layout.panel === "overlay") return null;
   if (step?.via === "hint") {
     return <p role="status" className={cn("pointer-events-none absolute z-40 rounded-full border border-border bg-popover px-3 py-1.5 text-xs font-medium tabular-nums shadow-lg animate-in fade-in duration-150 motion-reduce:animate-none", place)}>
       {step.index + 1} of {step.total} · {step.filter}
