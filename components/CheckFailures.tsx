@@ -4,6 +4,7 @@ import type { z } from "zod";
 import type { rpcContract } from "../src/rpc-contract";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
+import { TOUCH_TARGET } from "./touch";
 import { Icon } from "./ui/icon";
 import { InlineDraftContext } from "./InlineDraft";
 import { CommentPill } from "./comments/CommentPill";
@@ -53,7 +54,7 @@ export const LineChecks = memo(function LineChecks({ at }: { at: CommentLocation
             {failure.title && <span className="font-medium"> · {failure.title}</span>}
             <span className="whitespace-pre-wrap text-muted-foreground"> {failure.message}</span>
           </p>
-          <UrlLink href={failure.url} className="shrink-0 text-primary hover:underline">View check</UrlLink>
+          <UrlLink href={failure.url} className={`relative shrink-0 text-primary hover:underline ${TOUCH_TARGET}`}>View check</UrlLink>
         </div>
       ))}
     </div>

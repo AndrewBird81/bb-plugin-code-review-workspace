@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import { linesOf, type DraftComment } from "../src/draft";
+import { TOUCH_TARGET } from "./touch";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { locationKey } from "./InlineDraft";
@@ -28,7 +29,7 @@ export function FixHandoff({ targetKey, comments }: { targetKey: string; comment
     } finally { setBusy(false); }
   }
   return <section aria-label="Fix in a new thread" className="space-y-2 border-t border-border pt-3">
-    {started && <p role="status" className="text-xs text-muted-foreground">Started a thread: <span className="text-foreground">{started.title}</span> · <button type="button" className="rounded-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50" onClick={() => navigate.toThread(started.threadId)}>Open</button></p>}
+    {started && <p role="status" className="text-xs text-muted-foreground">Started a thread: <span className="text-foreground">{started.title}</span> · <button type="button" className={`relative rounded-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${TOUCH_TARGET}`} onClick={() => navigate.toThread(started.threadId)}>Open</button></p>}
     {error && <p role="alert" className="text-xs text-destructive-text">{error}</p>}
     {choosing ? <fieldset className="space-y-2">
       <legend className="mb-2 text-xs font-medium">Comments to fix</legend>

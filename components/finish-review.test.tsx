@@ -232,6 +232,8 @@ test("an earlier review is a line above the next one's draft, so Finish stays op
   const last = within(await slot.findByRole("region", { name: "Submitted review" }));
   expect(last.getByText("Changes requested")).toBeTruthy();
   expect(last.getByText("· your last review, 2d ago")).toBeTruthy();
+  // Its link is a line of text, with a 44px target on a touch screen.
+  expect(last.getByRole("link", { name: "View on GitHub" }).className.split(" ")).toEqual(expect.arrayContaining(["relative", "pointer-coarse:after:h-11"]));
   expect(slot.getByRole("group", { name: "Review verdict" })).toBeTruthy();
   slot.lifecycle.unmount();
 });

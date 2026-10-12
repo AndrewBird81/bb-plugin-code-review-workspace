@@ -14,7 +14,7 @@ import { FixHandoff } from "../FixHandoff";
 import { ReviewerNotes } from "../ReviewerNotes";
 import { SummaryCard } from "../SummaryCard";
 import { age } from "../time-ago";
-import { TOUCH_CONTROL } from "../touch";
+import { TOUCH_CONTROL, TOUCH_TARGET } from "../touch";
 import { Button, buttonVariants } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Icon } from "../ui/icon";
@@ -287,7 +287,7 @@ function LastReview() {
       <Icon name="BadgeCheck" className="size-4 shrink-0 text-diff-added" aria-hidden />
       <span className="font-medium text-diff-added">{RECEIPT_LABEL[d.submittedVerdict!]}</span>
       {age(review.submittedAt) && <span className="text-muted-foreground">· your last review, {age(review.submittedAt)} ago</span>}
-      {url && <UrlLink href={url} className="ml-auto text-primary hover:underline">View on GitHub</UrlLink>}
+      {url && <UrlLink href={url} className={cn("relative ml-auto text-primary hover:underline", TOUCH_TARGET)}>View on GitHub</UrlLink>}
     </section>
   );
 }

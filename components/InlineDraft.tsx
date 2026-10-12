@@ -12,7 +12,7 @@ import { withLineBreaks } from "../src/line-breaks";
 import { CommentPill } from "./comments/CommentPill";
 import { DraftIcon, draftEdge, notSubmitted, privately, SEVERITY_TONE } from "./comments/look";
 import { useComments } from "./comments/store";
-import { TOUCH_CONTROL } from "./touch";
+import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 
 /** The draft as the diff shows it, under each comment's line. DraftProvider owns the draft and provides this. */
 export interface InlineDraft {
@@ -239,13 +239,13 @@ export function DiscussionView({ discussion, titled, chat, busy = false, onUndo,
           </div>
         : <p key={index} className="flex flex-wrap items-center gap-x-1.5 pl-0.5 text-xs italic text-muted-foreground">
             <Icon name={changeIcons[entry.kind]} className="size-3 text-(--ansi-13)" aria-hidden />{changeText(entry.kind, summary)}
-            {index === latestChange && discussion.undoable && onUndo && <Button variant="link" size="sm" className="h-auto p-0 text-xs not-italic" disabled={busy} onClick={onUndo}>Undo</Button>}
+            {index === latestChange && discussion.undoable && onUndo && <Button variant="link" size="sm" className={cn("relative h-auto p-0 text-xs not-italic", TOUCH_TARGET)} disabled={busy} onClick={onUndo}>Undo</Button>}
           </p>)}
       {discussion.waiting
         ? <p role="status" className="flex items-center gap-2 pl-0.5 text-xs text-(--ansi-13)"><span aria-hidden className="flex gap-0.5">{[0, 1, 2].map((dot) => <span key={dot} className="size-1 rounded-full bg-current motion-safe:animate-bounce" style={{ animationDelay: `${dot * 140}ms` }} />)}</span>Waiting for agent…</p>
         : unanswered && <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
             The agent didn’t reply here.
-            {chat && <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={chat}>Ask agent</Button>}
+            {chat && <Button variant="link" size="sm" className={cn("relative h-auto p-0 text-xs", TOUCH_TARGET)} onClick={chat}>Ask agent</Button>}
           </p>}
     </section>
   );
@@ -264,7 +264,7 @@ export function ComposerNotes({ error, rebuilding, keepOnCurrentDiff }: Pick<Inl
     {rebuilding && <p className="text-xs text-muted-foreground">The guide is rebuilding for new commits; your text is kept. Save when it’s ready.</p>}
     {keepOnCurrentDiff && <p role="alert" className="flex flex-wrap items-center gap-x-2 text-xs text-warning-text">
       Written against an older diff. Check it still fits.
-      <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={keepOnCurrentDiff}>Keep on current diff</Button>
+      <Button variant="link" size="sm" className={cn("relative h-auto p-0 text-xs", TOUCH_TARGET)} onClick={keepOnCurrentDiff}>Keep on current diff</Button>
     </p>}
     {error && <p role="alert" className="text-xs text-destructive-text">{error}</p>}
   </>;

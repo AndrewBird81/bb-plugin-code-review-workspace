@@ -7,7 +7,7 @@ import { Badge, TONE_TEXT, type Tone } from "./ui/badge";
 import { Icon, type IconName } from "./ui/icon";
 import { IconTile } from "./ui/icon-tile";
 import { cn } from "../lib/utils";
-import { TOUCH_CONTROL } from "./touch";
+import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 
 const descriptions: Record<ReleaseStatus["outcome"], string> = {
   unchecked: "Check for a compatible release.",
@@ -55,7 +55,7 @@ export function ReleaseSettings({ clientId, disabled, onUpdatingChange }: { clie
     <div className="flex flex-wrap gap-2">
       <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={!!busy} onClick={() => void perform("check")}>{busy === "check" ? "Checking…" : "Check for updates"}</Button>
       {status?.outcome === "update-available" && <Button size="sm" className={TOUCH_CONTROL} disabled={!!busy || disabled} onClick={() => void perform("update")}>{busy === "update" ? "Updating…" : "Update now"}</Button>}
-      <a className="self-center text-xs text-muted-foreground underline underline-offset-4" href="https://github.com/notpritam/bb-plugin-guided-review/releases" target="_blank" rel="noreferrer">Release notes</a>
+      <a className={cn("relative self-center text-xs text-muted-foreground underline underline-offset-4", TOUCH_TARGET)} href="https://github.com/notpritam/bb-plugin-guided-review/releases" target="_blank" rel="noreferrer">Release notes</a>
     </div>
     {disabled && <p className="text-xs text-muted-foreground">Save or discard your settings edits before updating.</p>}
     <label className="flex items-start gap-3 text-sm"><input type="checkbox" className="mt-1 size-4 accent-(--primary)" checked={status?.automatic ?? false} disabled={!status || !!busy || (status.outcome === "pinned" && !status.automatic)} onChange={() => void perform("toggle")} /><span><span className="font-medium">Update automatically when idle</span><span className="mt-1 block text-xs leading-relaxed text-muted-foreground">Off by default. Checks hourly after five idle minutes, once all review and Settings pages are closed. Installs the latest compatible release through BB; saved reviews, drafts, notes, and preferences stay in place.</span></span></label>

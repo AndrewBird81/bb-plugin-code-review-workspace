@@ -34,3 +34,9 @@ test("the shortcuts are grouped by what they're for, with Shift and Esc written 
   expect(row("View", "Fold or unfold comments in code")).toBe("i");
   expect(row("View", "Full screen on or off")).toBe("⇧F");
 });
+
+test("its ✕ keeps its size but has a 44px target on a touch screen, an iPad's included", () => {
+  render(<ShortcutsHelp open onOpenChange={() => {}} />);
+  const close = within(screen.getByRole("dialog", { name: "Keyboard shortcuts" })).getByRole("button", { name: "Close" });
+  expect(close.className.split(" ")).toEqual(expect.arrayContaining(["pointer-coarse:after:h-11", "pointer-coarse:after:min-w-11"]));
+});
