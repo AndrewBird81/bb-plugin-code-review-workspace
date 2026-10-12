@@ -175,6 +175,16 @@ test("with your last review at the head there's nothing to compare it with, so i
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("a comparison that fails says why in the compare menu, not only in the select's tooltip", async () => {
+  const { slot } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" }, {
+    getSinceReview: () => ({ baseline: null, files: [], error: "gh: not found" }),
+  });
+  const menu = await bandMenu(slot, "Show changes: All changes. Couldn’t compare with your last review: gh: not found");
+  await menu.findByText("Invalidate on write");
+  expect(menu.getByRole("status").textContent).toBe("Couldn’t compare with your last review: gh: not found");
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("on a PR you haven't reviewed, a picked commit can be cleared", async () => {
   const { slot, rpc } = await renderWorkspace({});
   fireEvent.click(await (await commitsInOptions(slot)).findByText("Add cache"));

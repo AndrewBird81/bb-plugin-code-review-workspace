@@ -99,7 +99,8 @@ function Choice({ checked, label, detail, onSelect }: { checked: boolean; label:
 
 /**
  * What the diff can show: all of the PR, what changed since your review, or since one of its commits, newest first.
- * Your reviewed commit is listed once, as your review. `onPicked` runs after a choice.
+ * Your reviewed commit is listed once, as your review; a comparison that failed says why. `onPicked` runs after a
+ * choice.
  */
 export function CompareMenu({ commits, error, onPicked }: { commits: PrCommit[] | null; error: string | null; onPicked: () => void }) {
   const { review, compare } = useWorkspace();
@@ -108,11 +109,13 @@ export function CompareMenu({ commits, error, onPicked }: { commits: PrCommit[] 
   const reviewedAt = timeAgo(baselineOf(review).at);
   const choices = commits?.filter((commit) => commit.sha !== compare.head && commit.sha !== lastReview) ?? [];
   const choose = (act: () => void) => () => { act(); onPicked(); };
+  const problem = compareProblem(compare);
   return (
     <div role="menu" aria-label="Show changes" className="flex flex-col">
       <p aria-hidden className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground">Show changes</p>
       <Choice checked={!compare.narrowed} label="All changes in this PR" onSelect={choose(() => showAllChanges(compare))} />
       {lastReview && <Choice checked={compare.narrowed && !compare.from} label="Since your review" detail={[short(lastReview), reviewedAt].filter(Boolean).join(" · ")} onSelect={choose(() => compare.pick(null))} />}
+      {problem && <p role="status" className="flex items-start gap-2 px-2 py-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-px size-3.5 shrink-0" aria-hidden />{problem}</p>}
       {pickable && (
         <div role="group" aria-label="Since a commit" className="mt-1 border-t border-border pt-1">
           <p aria-hidden className="px-2 pb-1 pt-1.5 text-xs font-medium text-muted-foreground">Since a commit</p>
