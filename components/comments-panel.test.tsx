@@ -219,6 +219,19 @@ test("GitHub threads show at their lines with every message; a resolved one fold
   slot.lifecycle.unmount();
 });
 
+test("leaving a review forgets the comment last gone to, so reopening it doesn't open its fold again", async () => {
+  let { slot } = await renderWorkspace();
+  const list = await openComments(slot);
+  fireEvent.click(list.getByRole("button", { name: "1 resolved · 1 outdated" }));
+  fireEvent.click(list.getByRole("button", { name: /^@dave · / }));
+  await waitFor(() => expect(code(slot, "src/a.ts").getByText("This moved.")).toBeTruthy());
+  slot.lifecycle.unmount();
+  ({ slot } = await renderWorkspace());
+  await openComments(slot);
+  expect(code(slot, "src/a.ts").getByRole("button", { name: "Outdated (1)" }).getAttribute("aria-expanded")).toBe("false");
+  slot.lifecycle.unmount();
+});
+
 test("Reply posts now: on your thread through your feedback, on someone else's as a reply; both read again after", async () => {
   const { slot, rpc } = await renderWorkspace();
   const card = await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" });

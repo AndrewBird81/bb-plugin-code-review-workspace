@@ -122,6 +122,19 @@ test("the selection bar takes the step bar's place, and Close puts it away", asy
   slot.lifecycle.unmount();
 });
 
+test("leaving a review puts its step bar away, so it doesn't come back with an old step when the review opens again", async () => {
+  phone();
+  let slot = await renderWorkspace();
+  fireEvent.click(await within(slot.getByRole("group", { name: "Review commands" })).findByRole("button", { name: /^Comments/ }));
+  fireEvent.click(await within(await slot.findByRole("dialog", { name: "Comments" })).findByRole("button", { name: "Draft · not submitted · src/a.ts:2" }));
+  await waitFor(() => expect(bar(slot)).toBeTruthy());
+  slot.lifecycle.unmount();
+  slot = await renderWorkspace();
+  await slot.findAllByTestId("filediff");
+  expect(bar(slot)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("text selected, as a long-press selects it, puts the step bar away until it's cleared", async () => {
   phone();
   const slot = await renderWorkspace();

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { sameLocation, VERDICT_LABEL } from "../../src/draft";
 import { buildItems, checkTally, FILTER_LABEL, groups, needsYou, shownItems, toSend, type CommentFilter, type CommentGroup, type CommentItem, type CommentSources } from "../../lib/comments";
-import { clearOpenComments, revealComment } from "../../lib/comments-fold";
+import { clearOpenComments, forgetOpenComments, revealComment } from "../../lib/comments-fold";
 import { registerCommentStepper, showCommentStep, useCommentStep } from "../../lib/comment-stops";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
@@ -90,7 +90,12 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
     clearOpenComments(targetKey);
   }, [targetKey, display.commentsFolded]);
   useEffect(() => { setNeedsYou(targetKey, needing); }, [targetKey, needing]);
-  useEffect(() => () => setNeedsYou(targetKey, 0), [targetKey]);
+  // Leaving the review: nothing it showed over the code comes back when it opens again.
+  useEffect(() => () => {
+    setNeedsYou(targetKey, 0);
+    showCommentStep(targetKey, null);
+    forgetOpenComments(targetKey);
+  }, [targetKey]);
   // Opened on what needs you, or on GitHub's threads: the chip, once. Then the workspace's tab is back to the list.
   useEffect(() => {
     if (tab === "drafts") return;

@@ -50,6 +50,14 @@ export function setReplyWriting(targetKey: string, id: string, open: boolean) {
   if (open) setCommentOpen(targetKey, id, true);
 }
 
+/** The review closed: the comments opened and the one gone to last are forgotten, so it opens again as new. */
+export function forgetOpenComments(targetKey: string) {
+  if (!opened.has(targetKey) && !revealed.has(targetKey)) return;
+  opened.delete(targetKey);
+  revealed.delete(targetKey);
+  notify();
+}
+
 /** Went to a comment, from the list or with ] and [: it opens, and shows where it is. */
 export function revealComment(targetKey: string, id: string) {
   setCommentOpen(targetKey, id, true);
