@@ -121,6 +121,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [since, setSince] = useState<Map<string, FileInterdiff> | null>(null);
   const [sinceError, setSinceError] = useState<string | null>(null);
   const [sinceOnly, setSinceOnly] = useState(false);
+  // Whether the band has room for the compare select: where it hasn't, the diff says it's narrowed.
+  const [compareShown, setCompareShown] = useState(true);
   // A commit picked to compare from, instead of your last review.
   const [compareFrom, setCompareFrom] = useState<string | null>(null);
   const narrowOnLoad = useRef(false);
@@ -941,7 +943,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <Navigator leading={<TopBand />} patch={patch} currentFile={currentFile} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={owners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} />
         </NavigatorHost>
         <main aria-label="Review" inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
-          <ReaderBar threads={isPr && diffThreads.threads.length > 0} />
+          <ReaderBar threads={isPr && diffThreads.threads.length > 0} onCompareShown={setCompareShown} />
           <ReviewNotices notices={notices} />
           {/* A spacer, not top padding: padding would hold sticky file headers 16px down, with code showing above them. */}
           <div ref={scrollBox} onScroll={onScroll} onWheel={unpin} onTouchMove={unpin} onPointerDown={unpin} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 before:block before:h-4 before:content-['']">
@@ -974,7 +976,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 sinceWhat={sinceWhat}
                 owners={owners}
                 foldAll={foldAll}
-                onSinceOnly={sheet ? narrow : undefined}
+                onSinceOnly={sheet || !compareShown ? narrow : undefined}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>

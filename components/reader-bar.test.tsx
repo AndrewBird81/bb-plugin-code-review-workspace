@@ -142,6 +142,27 @@ test("a band short of room, as in full screen beside the review's commands, leav
   slot.lifecycle.unmount();
 });
 
+test("where the band has no room for the compare select, as in full screen beside the review's commands, a narrowed diff says so above its files", async () => {
+  fakePane(1000, 900, 220);
+  const slot = await renderWorkspace(rereview);
+  expect(band(slot).queryByRole("button", { name: /^Show changes/ })).toBeNull();
+  fireEvent.click(band(slot).getByRole("button", { name: "Diff options" }));
+  fireEvent.click(within(await slot.findByRole("radiogroup", { name: "Show changes" })).getByRole("radio", { name: "Since your review" }));
+  expect((await slot.findByText(/^Showing changes since your review/)).textContent).toBe("Showing changes since your review · 1 of 2 files");
+  slot.lifecycle.unmount();
+});
+
+test("with the compare select in the band, a narrowed diff says so there alone", async () => {
+  fakePane(1400);
+  const slot = await renderWorkspace(rereview);
+  fireEvent.click(await band(slot).findByRole("button", { name: "Show changes: All changes" }));
+  fireEvent.click(await slot.findByRole("menuitemradio", { name: /^Since your review/ }));
+  expect(await band(slot).findByRole("button", { name: "Show changes: Since your review" })).toBeTruthy();
+  expect(slot.getAllByTestId("filediff")).toHaveLength(1);
+  expect(slot.queryByText(/^Showing changes since/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("Fold comments in the band folds every comment in the code to a marker, and unfolds them, for every review", async () => {
   fakePane(1400);
   const slot = await renderWorkspace();

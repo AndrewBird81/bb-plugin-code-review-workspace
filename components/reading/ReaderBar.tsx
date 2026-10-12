@@ -94,9 +94,9 @@ function useBandFit(el: HTMLElement | null, fitIn: (room: number) => BandFit): B
  * the review, its chapter), and how the diff draws: the compare select on a re-review, Fold comments, and Diff options.
  * What shows depends on the band's room. The review's commands end it in full screen, which hides BB's title bar, and
  * where the title bar didn't take them. A phone has no band: its dock and sheet hold all this. `threads`: the PR has
- * GitHub threads to show.
+ * GitHub threads to show. `onCompareShown` is told whether the band shows the compare select.
  */
-export function ReaderBar({ threads }: { threads: boolean }) {
+export function ReaderBar({ threads, onCompareShown }: { threads: boolean; onCompareShown?: (shown: boolean) => void }) {
   const { targetKey, review, guide, sections, activeId, go, layout, compare, display, files, fullscreen, leave } = useWorkspace();
   const container = useFullscreenPortalContainer();
   const titleBar = useTitleBarMounted(targetKey);
@@ -117,6 +117,8 @@ export function ReaderBar({ threads }: { threads: boolean }) {
   const sized = (brief: boolean) => selectWidth(longer(brief)) + (compare.error ? 18 : 0);
   const buttons = (layout.nav === "docked" ? 0 : 2) + 1 + (chapter ? 2 : 0);
   const fit = useBandFit(reading, (room) => bandFit(room, buttons, short ? 36 : coarse ? 44 : 32, comparable ? { full: sized(false), brief: sized(true) } : null));
+  // Before the paint, so a narrowed diff's own note doesn't flash as the select comes and goes.
+  useLayoutEffect(() => onCompareShown?.(!!fit.compare), [fit.compare, onCompareShown]);
   if (layout.mode === "phone") return null;
   const commands = fullscreen.on || (waited && !titleBar);
   const chapterFiles = chapter?.diffs.map((diff) => diff.file) ?? [];
