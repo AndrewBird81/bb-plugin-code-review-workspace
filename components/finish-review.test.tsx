@@ -244,6 +244,14 @@ test("a local review hands its comments to a new thread instead of Submit", asyn
   slot.lifecycle.unmount();
 });
 
+test("a local review's private notes stay in BB under the one heading, with the rest that stays", async () => {
+  const { slot } = await renderWorkspace({ review: { kind: "ref", gitRef: "main...x" }, rpc: { getReviewerNotes: () => ({ body: "Check the TTL.", revision: 1 }) } });
+  const view = await finish(slot);
+  expect(await view.findByText("Private notes")).toBeTruthy();
+  expect(view.getAllByRole("heading", { name: "Stays in BB" })).toHaveLength(1);
+  slot.lifecycle.unmount();
+});
+
 test("on your own PR it offers Comment only, and Fix in a new thread beside Submit", async () => {
   const { slot } = await renderWorkspace({ review: { ownPr: true } });
   const view = await finish(slot);
@@ -262,6 +270,17 @@ test("a closed PR keeps its unsubmitted draft to read, with nothing to submit", 
   fireEvent.click(archived.getByText("Unsubmitted draft"));
   expect(archived.getByText("src/a.ts:2 — Upper case reads as a constant.")).toBeTruthy();
   expect(slot.queryByRole("button", { name: /^Submit to GitHub/ })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("a closed PR's Comments offers its archived review by touch, where the Finish bar was", async () => {
+  const { slot } = await renderWorkspace({ review: { prState: "MERGED", archivedAt: 1 } });
+  fireEvent.click(await slot.findByRole("button", { name: /^Comments/ }));
+  const list = await slot.findByRole("region", { name: "Comments" });
+  expect(slot.queryByRole("button", { name: /^Finish review/ })).toBeNull();
+  const archived = within(list.parentElement!).getByText("Merged · Archived").closest("div")!;
+  fireEvent.click(within(archived).getByRole("button", { name: "Open the archived review" }));
+  expect(within(await slot.findByRole("region", { name: "Archived review" })).getByText("Merged · Archived")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

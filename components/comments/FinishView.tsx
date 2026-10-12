@@ -87,9 +87,9 @@ export function FinishView({ shown, revision }: {
             </Part>
             {isPr && <Verdicts revision={revision} />}
             {isPr ? <GoesToGitHub items={items} replyDrafts={replyDrafts?.length ?? feedback?.items.filter((item) => item.replyDraft).length ?? 0} onList={openList} />
-              : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p></Part>}
+              : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p>{notes.show && <PrivateNotes targetKey={targetKey} />}</Part>}
             {(d.isLocal || d.ownPr) && <FixHandoff targetKey={targetKey} comments={d.sortedComments} />}
-            {notes.show && <Part title="Stays in BB"><PrivateNotes targetKey={targetKey} /></Part>}
+            {isPr && notes.show && <Part title="Stays in BB"><PrivateNotes targetKey={targetKey} /></Part>}
           </div>
           {!d.isLocal && <SubmitFoot onSubmit={submit} />}
         </section>}
