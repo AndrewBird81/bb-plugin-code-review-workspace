@@ -680,8 +680,9 @@ export const DiffViewer = memo(function DiffViewer({
               viewed && folded && "opacity-75 focus-within:opacity-100 hover:opacity-100",
             )}
           >
-            {/* The file's row, which sticks while its code scrolls: what it is, how it changed, its comments, Viewed. */}
-            <div data-file-header className={cn("sticky top-0 z-10 flex h-9 items-center gap-1.5 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] pl-1 pr-1.5 pointer-coarse:h-11", (details || !folded) && "border-b border-border")}>
+            {/* The file's row, which sticks while its code scrolls: what it is, how it changed, its comments, Viewed.
+                Not with the keyboard up leaving a phone held sideways' room or less: the box you type in gets it. */}
+            <div data-file-header className={cn("sticky top-0 z-10 flex h-9 [[data-keyboard=short]_&]:relative items-center gap-1.5 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] pl-1 pr-1.5 pointer-coarse:h-11", (details || !folded) && "border-b border-border")}>
               <button
                 type="button"
                 aria-label={`${folded ? "Expand" : "Collapse"} ${path}`}

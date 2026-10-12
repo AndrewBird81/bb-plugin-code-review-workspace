@@ -170,6 +170,47 @@ test("a box taller than the room above the keyboard shows its top, where you typ
   }
 });
 
+/** A comment box with its buttons (`data-keyboard-box`) `height` tall, in the code's box showing 48–308 above the folded Duo's keyboard. */
+function boxWithButtons(height: number) {
+  const root = document.createElement("div");
+  const scroller = root.appendChild(document.createElement("div"));
+  scroller.style.overflowY = "auto";
+  Object.defineProperty(scroller, "scrollHeight", { value: 2000 });
+  Object.defineProperty(scroller, "clientHeight", { value: 260 });
+  const whole = scroller.appendChild(document.createElement("div"));
+  whole.setAttribute("data-keyboard-box", "");
+  const field = whole.appendChild(document.createElement("textarea"));
+  whole.appendChild(document.createElement("button"));
+  document.body.append(root);
+  root.getBoundingClientRect = () => new DOMRect(0, 48, 382, 550);
+  scroller.getBoundingClientRect = () => new DOMRect(0, 48, 382, 260);
+  whole.getBoundingClientRect = () => new DOMRect(0, 200, 382, height);
+  field.getBoundingClientRect = () => new DOMRect(10, 210, 362, 80);
+  whole.scrollIntoView = vi.fn();
+  field.scrollIntoView = vi.fn();
+  return { root, whole, field };
+}
+
+test("where the box fits above the keyboard with its buttons, all of it scrolls into view", async () => {
+  const viewport = fakeViewport(598);
+  const { root, whole, field } = boxWithButtons(250);
+  renderHook(() => useKeyboardInset(root));
+  act(() => field.focus());
+  viewport.show(290);
+  await vi.waitFor(() => expect(whole.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+  expect(field.scrollIntoView).not.toHaveBeenCalled();
+});
+
+test("where the box with its buttons is taller than the room above the keyboard, its text box shows", async () => {
+  const viewport = fakeViewport(598);
+  const { root, whole, field } = boxWithButtons(270);
+  renderHook(() => useKeyboardInset(root));
+  act(() => field.focus());
+  viewport.show(290);
+  await vi.waitFor(() => expect(field.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" }));
+  expect(whole.scrollIntoView).not.toHaveBeenCalled();
+});
+
 test("as what holds the workspace scrolls, bringing the box into view, the workspace's end follows", () => {
   const viewport = fakeViewport(598);
   const { root, box } = workspace(598);

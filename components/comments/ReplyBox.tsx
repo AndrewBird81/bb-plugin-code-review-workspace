@@ -133,7 +133,7 @@ export function ReplyBox({ targetKey, item, where, actions, busy, writing, onClo
   const label = REPLY_DRAFT_LABEL[agent ? "agent" : "reviewer"];
   const action = cn("h-7 px-2 text-xs", TOUCH_CONTROL);
   return (
-    <div ref={card} role="group" aria-label={`${label} on ${where}`} className={cn("space-y-2 rounded-md bg-background/60 px-2.5 py-2", notSubmitted(agent ? "agent" : "yours"))}>
+    <div ref={card} role="group" aria-label={`${label} on ${where}`} data-keyboard-box className={cn("space-y-2 rounded-md bg-background/60 px-2.5 py-2", notSubmitted(agent ? "agent" : "yours"))}>
       <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
         <Icon name={agent ? "Sparkles" : "CircleDashed"} className={cn("size-3.5 shrink-0", agent ? "text-(--ansi-13)" : "text-primary")} aria-hidden />{label}
       </p>

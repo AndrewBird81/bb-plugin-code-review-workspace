@@ -513,11 +513,12 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     : "Drafts stay in BB until you submit.";
   const suggested = draft.suggestedVerdict;
   const changes = summaryChanges(draft);
-  // A longer hint grows the footer over the end of the draft: keep the buttons of the box you're typing in above it.
+  // A longer hint grows the footer over the end of the draft: keep the box you're typing in above it, its buttons
+  // included where it all fits, else its top, as with the keyboard up (lib/use-keyboard-inset.ts).
   const composerControls = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const controls = composerControls.current;
-    if (controls?.parentElement?.contains(document.activeElement)) controls.scrollIntoView?.({ block: "nearest" });
+    const box = composerControls.current?.parentElement;
+    if (box?.contains(document.activeElement)) box.scrollIntoView?.({ block: "nearest" });
   }, [hint]);
   // Why Submit asks once more: the agent suggested another verdict, or its summary no longer fits.
   const doubts = [

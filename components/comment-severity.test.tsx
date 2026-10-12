@@ -109,7 +109,7 @@ test("the comment box sets a comment's severity, in the panel and the diff, and 
   slot.lifecycle.unmount();
 });
 
-test("typing in Comments' comment box keeps its buttons in view as Finish's hint changes", async () => {
+test("typing in Comments' comment box keeps it in view with its buttons as Finish's hint changes", async () => {
   const scrolled = vi.fn();
   const scrollIntoView = Element.prototype.scrollIntoView;
   Element.prototype.scrollIntoView = function (this: Element) { scrolled(this); };
@@ -123,7 +123,9 @@ test("typing in Comments' comment box keeps its buttons in view as Finish's hint
     expect(slot.getByText("Add the comment you’re writing to the draft before submitting.")).toBeTruthy();
     const controls = panel().getByRole("combobox", { name: "Severity" }).closest("[data-composer-controls]");
     expect(controls).toBeTruthy();
-    expect(scrolled).toHaveBeenCalledWith(controls);
+    // The whole box, nearest: all of it where it fits, else its top, where you type.
+    expect(scrolled).toHaveBeenCalledWith(controls!.closest("[data-keyboard-box]"));
+    expect(controls!.closest("[data-keyboard-box]")!.contains(box)).toBe(true);
     slot.lifecycle.unmount();
   } finally {
     Element.prototype.scrollIntoView = scrollIntoView;

@@ -5,17 +5,22 @@ import { TEXT_FIELD } from "./review-shortcuts";
 import { SHORT_BELOW, phoneWindow } from "./workspace-layout";
 
 /**
- * Brings the box you type in into view, all of it where it fits; where it doesn't, its top, where you type, and not
- * under a sticky header held over what scrolls, such as a file's over the code.
+ * Brings the box you type in into view with its buttons (`data-keyboard-box`), all of it where it fits above the
+ * keyboard; where it doesn't, the field's top, where you type. Either way not under a sticky header held over what
+ * scrolls, such as a file's over the code.
  */
-function bringIntoView(box: HTMLElement) {
+function bringIntoView(field: HTMLElement, viewport: VisualViewport) {
+  let scroller = field.parentElement;
+  while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
+  const shown = scroller?.getBoundingClientRect();
+  const room = Math.min(shown?.bottom ?? Infinity, viewport.offsetTop + viewport.height) - Math.max(shown?.top ?? 0, viewport.offsetTop);
+  const whole = field.closest<HTMLElement>("[data-keyboard-box]");
+  const box = whole && whole.getBoundingClientRect().height <= room ? whole : field;
   box.scrollIntoView({ block: "nearest" });
   const { left, top } = box.getBoundingClientRect();
   let cover: Element | null = document.elementsFromPoint?.(left + 8, top + 2)[0] ?? null;
   if (!cover || box.contains(cover)) return;
   while (cover && getComputedStyle(cover).position !== "sticky") cover = cover.parentElement;
-  let scroller = box.parentElement;
-  while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
   if (cover && scroller?.contains(cover)) scroller.scrollTop -= cover.getBoundingClientRect().bottom - top;
 }
 
@@ -45,7 +50,7 @@ export function useKeyboardInset(el: HTMLElement | null) {
       clearTimeout(timer);
       // Once the workspace's new size is laid out and reported, after the frame: as the code's box resizes,
       // lib/use-scroll-anchor.ts keeps what was showing where it was.
-      if (covered) frame = requestAnimationFrame(() => { timer = window.setTimeout(() => bringIntoView(active as HTMLElement)); });
+      if (covered) frame = requestAnimationFrame(() => { timer = window.setTimeout(() => bringIntoView(active as HTMLElement, viewport)); });
     };
     update();
     viewport.addEventListener("resize", update);

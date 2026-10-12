@@ -229,8 +229,9 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
             : shownGroups.map((group) => groupBody(group, filter === "not-submitted" ? stops : group.items, counted.find((entry) => entry.id === group.id)!))}
         </>}
       </section>
+      {/* With the keyboard up leaving a phone held sideways' room or less, it gives way to the box you type in. */}
       {!closed && draft.loaded && !draft.loadError && (
-        <div className="flex min-h-14 shrink-0 items-center gap-2 border-t border-border py-2 pl-3 pr-2">
+        <div className="flex min-h-14 shrink-0 items-center gap-2 border-t border-border py-2 pl-3 pr-2 [[data-keyboard=short]_&]:hidden">
           <p role="status" className={cn("min-w-0 flex-1 truncate text-xs", draft.status.error ? "text-destructive-text" : "text-muted-foreground")}>
             {draft.status.error ?? (draft.status.saving ? "Saving…" : draft.completed ? "Review submitted"
               : !isPr ? `${sending.comments} comment${sending.comments === 1 ? "" : "s"} · stay in BB`
@@ -241,7 +242,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
       )}
       {/* Closed, there's nothing to finish: the archived review, with its unsubmitted draft and notes, is a tap away. */}
       {closed && draft.loaded && !draft.loadError && (
-        <div className="flex min-h-14 shrink-0 items-center gap-2 border-t border-border py-2 pl-3 pr-2">
+        <div className="flex min-h-14 shrink-0 items-center gap-2 border-t border-border py-2 pl-3 pr-2 [[data-keyboard=short]_&]:hidden">
           <p className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-foreground">
             <Icon name={merged ? "GitMerge" : "GitPullRequestClosed"} className="size-3.5 shrink-0" aria-hidden />{merged ? "Merged" : "Closed"} · Archived
           </p>

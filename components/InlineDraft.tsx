@@ -293,7 +293,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
   const primary = mode === "ask" ? composer.askAgent : composer.save;
   const held = busy || empty || mode !== "ask" && !!composer.rebuilding;
   return (
-    <div className={cn("space-y-2 p-2.5", divided && "border-t border-border")}>
+    <div data-keyboard-box className={cn("space-y-2 p-2.5", divided && "border-t border-border")}>
       <Textarea
         ref={composer.textareaRef}
         aria-label={mode === "ask" ? "Message to agent" : summary ? "Review summary" : "Draft comment"}
