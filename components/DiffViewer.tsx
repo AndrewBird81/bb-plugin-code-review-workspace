@@ -600,7 +600,7 @@ export const DiffViewer = memo(function DiffViewer({
   }, [reveal]);
 
   // Each file's ▤ n, counted as the comments list counts: its drafts and its threads on GitHub that aren't resolved. In a
-  // split file, those in this chapter's part; without the nits Hide nits hides.
+  // split file, those in this chapter's part; without the nits Hide nits hides (never one that needs you).
   const counts = useMemo(() => {
     const parts = new Map(perFile.map((f) => [f.path, f]));
     const items = buildItems({
@@ -609,7 +609,7 @@ export const DiffViewer = memo(function DiffViewer({
     });
     return fileCounts(items.filter((item) => {
       const part = item.at && parts.get(item.at.file);
-      if (!item.at || !part || item.kind === "draft" && draft?.hideNits && item.comment.severity === "nit") return false;
+      if (!item.at || !part || item.kind === "draft" && draft?.hideNits && item.comment.severity === "nit" && !item.needs) return false;
       return item.at.line === null ? part.first : part.inPart?.({ file: item.at.file, line: item.at.line, side: item.at.side }) ?? true;
     }));
   }, [draft?.comments, draft?.stale, draft?.hideNits, github?.threads, perFile]);

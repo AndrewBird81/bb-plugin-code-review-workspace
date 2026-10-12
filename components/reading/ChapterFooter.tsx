@@ -1,5 +1,6 @@
 import { useContext } from "react";
 import { chapterAt } from "../../src/hunks";
+import { draftState } from "../../lib/comments";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
 import { InlineDraftContext } from "../InlineDraft";
@@ -31,8 +32,9 @@ export function ChapterFooter({ patch }: {
   const own = new Set(chapter.diffs.map((diff) => diff.file));
   const viewed = [...own].filter((file) => files.views.get(file)?.viewed).length;
   const left = viewed < own.size;
-  // Hidden nits count nowhere, as in the files' headers. A comment on a file split across chapters counts in the one with its line.
-  const comments = draft?.comments.filter((comment) => own.has(comment.file) && !(draft.hideNits && comment.severity === "nit") && chapterAt(sections, patch, comment)?.id === chapter.id).length ?? 0;
+  // Hidden nits count nowhere, as in the files' headers (a nit on an older diff isn't hidden). A comment on a file split
+  // across chapters counts in the one with its line.
+  const comments = draft?.comments.filter((comment) => own.has(comment.file) && !(draft.hideNits && comment.severity === "nit" && draftState(comment, draft.stale) !== "older-diff") && chapterAt(sections, patch, comment)?.id === chapter.id).length ?? 0;
   const unviewed = next ? [] : [...new Set(sections.flatMap((section) => section.diffs.map((diff) => diff.file)))].filter((file) => !own.has(file) && !files.views.get(file)?.viewed);
   const button = cn("min-w-0 max-w-full @max-[480px]/review:w-full", TOUCH_CONTROL);
   return (

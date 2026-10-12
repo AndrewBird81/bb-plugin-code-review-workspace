@@ -5,6 +5,7 @@ import type { FileInterdiff } from "../src/interdiff";
 import type { ReviewThread } from "../src/threads";
 import type { FileOwners } from "../src/codeowners";
 import type { FileViewFlags } from "./DiffViewer";
+import { draftState } from "../lib/comments";
 import { InlineDraftContext } from "./InlineDraft";
 import { FileTag } from "./FileTag";
 import { Icon } from "./ui/icon";
@@ -68,8 +69,8 @@ export const FileTree = memo(function FileTree({
 
   const shown = useMemo(() => filterPaths([...chapterOf.keys()], filter), [chapterOf, filter]);
   const tree = useMemo(() => fileTree(shown), [shown]);
-  // Hidden nits count nowhere, as in the file's header.
-  const comments = useMemo(() => count(draft?.comments.filter((c) => !(draft.hideNits && c.severity === "nit"))), [draft?.comments, draft?.hideNits]);
+  // Hidden nits count nowhere, as in the file's header; a nit on an older diff holds Submit, so it isn't hidden.
+  const comments = useMemo(() => count(draft?.comments.filter((c) => !(draft.hideNits && c.severity === "nit" && draftState(c, draft.stale) !== "older-diff"))), [draft?.comments, draft?.stale, draft?.hideNits]);
   const discussions = useMemo(() => count(draft?.discussions), [draft?.discussions]);
   const openThreads = useMemo(() => count(threads?.filter((thread) => !thread.isResolved)), [threads]);
 

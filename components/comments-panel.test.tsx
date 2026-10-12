@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
-import { patchReviewState } from "../lib/panel-state";
+import { patchReviewState, setHideNits } from "../lib/panel-state";
 import type { FeedbackItem, FeedbackView } from "../lib/feedback";
 import { TOUCH_CONTROL } from "./touch";
 
@@ -399,6 +399,28 @@ test("Hide nits never hides a nit that needs you, and Not submitted keeps its he
   expect(rows(list)).toEqual([expect.stringMatching(/^Older diff · not submitted · src\/a\.ts:1/)]);
   expect(code(slot, "src/a.ts").getByText("Drafted before the last push.")).toBeTruthy();
   expect(list.queryByText(/hidden/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("with Hide nits on, a nit on an older diff counts wherever comments are counted: the file's row, All files and the chapter's end", async () => {
+  setHideNits(true);
+  const { slot } = await renderWorkspace({ rpc: {
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [
+      { file: "src/a.ts", line: 1, side: "RIGHT", severity: "nit", body: "Drafted before the last push." },
+      { file: "src/a.ts", line: 2, side: "RIGHT", severity: "nit", body: "Name it." },
+    ] }, stale: [{ file: "src/a.ts", line: 1, side: "RIGHT" }], discussions: [] }),
+    getReviewThreads: () => ({ threads: [] }),
+    getFeedback: () => ({ feedback: feedbackOf([]) }),
+    getReplyDrafts: () => ({ drafts: [] }),
+  } });
+  // The older diff's nit holds Submit, so it shows and counts; the other nit is hidden and doesn't.
+  await code(slot, "src/a.ts").findByText("Drafted before the last push.");
+  expect(code(slot, "src/a.ts").queryByText("Name it.")).toBeNull();
+  expect(within(slot.container.querySelector<HTMLElement>('[data-file="src/a.ts"] [data-file-header]')!).getByText("1 not submitted")).toBeTruthy();
+  expect(within(slot.getByRole("main")).getByText("1 comment")).toBeTruthy();
+  const nav = within(slot.getByRole("navigation", { name: "Chapters" }).parentElement!);
+  fireEvent.click(nav.getByRole("button", { name: "All files" }));
+  expect(within((await slot.findByRole("list", { name: "All files" })).querySelector<HTMLElement>('[title="src/a.ts"]')!.closest("li")!).getByText("1 draft comment")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
