@@ -187,7 +187,8 @@ test("a row and a pill show what waits with an item: a thread's reply draft, and
   expect(list.getByRole("button", { name: /^Draft · not submitted · src\/a\.ts:2 · Blocking · 2 messages with the agent$/ })).toBeTruthy();
   fireEvent.keyDown(document.body, { key: "i" });
   const pill = within(await code(slot, "src/a.ts").findByRole("group", { name: "GitHub thread on src/a.ts:2, folded" }));
-  expect(pill.getByText("Agent reply draft · not sent")).toBeTruthy();
+  // After its state, and on a phone ahead of its first line: CSS shows one of the two.
+  expect(pill.getAllByText("Agent reply draft · not sent")).toHaveLength(2);
   slot.lifecycle.unmount();
 });
 

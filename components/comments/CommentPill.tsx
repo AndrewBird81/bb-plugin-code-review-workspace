@@ -18,7 +18,7 @@ export function CommentPill({ frame, icon, who, words, tag, badge, text, more, n
   words: string;
   /** Its severity, in words: "Blocking". */
   tag?: string | null;
-  /** What waits with it and isn't sent: a thread's reply draft. */
+  /** What waits with it and isn't sent: a thread's reply draft. After its state; on a phone, ahead of its first line. */
   badge?: ReactNode;
   /** Its first line. */
   text: string;
@@ -39,11 +39,12 @@ export function CommentPill({ frame, icon, who, words, tag, badge, text, more, n
           <span className="flex max-w-full min-w-0 items-center gap-1.5">
             {who && <span className="shrink-0 font-medium text-foreground">{who}</span>}
             <span className="min-w-0 truncate">{words}{tag && <span className="pointer-coarse:@max-[600px]/review:hidden"> · {tag}</span>}</span>
-            {badge}
+            {badge && <span className="flex shrink-0 pointer-coarse:@max-[600px]/review:hidden">{badge}</span>}
           </span>
           <span className="max-w-full min-w-0 flex-1 truncate text-foreground/80 pointer-coarse:@max-[600px]/review:flex-none">
             <span aria-hidden className="mr-1.5 text-subtle-foreground pointer-coarse:@max-[600px]/review:hidden">·</span>
             {tag && <span className="hidden font-medium text-muted-foreground pointer-coarse:@max-[600px]/review:inline">{tag} · </span>}
+            {badge && <span className="mr-1.5 hidden align-middle pointer-coarse:@max-[600px]/review:inline-flex">{badge}</span>}
             <InlineCode text={first} />
           </span>
         </span>

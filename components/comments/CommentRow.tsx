@@ -59,6 +59,7 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
   const place = placeLabel(item);
   const severity = item.kind === "draft" ? item.comment.severity : null;
   const talk = talkOf(item);
+  const latest = latestOf(item);
   const show = onShow ? () => onShow(item) : () => onExpand(expanded ? null : item.id);
   return (
     <li data-comment-row={item.id} className="group/row">
@@ -71,8 +72,8 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
             <span className="min-w-0 truncate font-medium text-foreground">{item.kind === "thread" ? `${item.who} · ${itemWords(item)}` : itemWords(item)}</span>
             {place && <span className="ml-auto shrink-0 pl-1 font-mono text-[11px] text-muted-foreground">{place}</span>}
           </span>
-          {/* What it is in a word or two, then its latest message. */}
-          <span className="flex min-w-0 items-center gap-1.5">
+          {/* What it is in a word or two, then its latest message: on the next line when the words leave it no room. */}
+          <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
             {item.at?.side === "LEFT" && item.at.line !== null && <Badge size="sm">Old line</Badge>}
             {severity && <Badge tone={SEVERITY_TONE[severity]} size="sm">{SEVERITY_LABEL[severity]}</Badge>}
             {item.kind === "thread" && item.tag && <Badge tone={TAG_TONE[item.tag] ?? "neutral"} size="sm">{item.tag}</Badge>}
@@ -80,7 +81,7 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
             {item.kind === "thread" && item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} />}
             {item.kind === "draft" && item.discussion?.waiting ? <Badge tone="agent" dot pulse size="sm">Waiting for agent</Badge>
               : talk > 0 && <span title={talkWords(talk)} className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground tabular-nums"><Icon name="MessageSquare" className="size-3" aria-hidden />{talk}</span>}
-            {!expanded && <span className="min-w-0 truncate text-[13px] leading-snug text-muted-foreground"><InlineCode text={latestOf(item)} /></span>}
+            {!expanded && latest && <span className="min-w-0 grow basis-24 truncate text-[13px] leading-snug text-muted-foreground"><InlineCode text={latest} /></span>}
           </span>
         </button>
         <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${cardName(item)}`} aria-expanded={expanded} onClick={() => onExpand(expanded ? null : item.id)}
