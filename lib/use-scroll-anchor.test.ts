@@ -78,6 +78,28 @@ test("it stays as far under the file's sticky header as it was, when the header 
   expect(under(reading, 44)).toBe(0);
 });
 
+test("turned and turned back, the line you read comes back where it was, though a line above it unwrapped into view meanwhile", async () => {
+  const resize = stubResizeObserver();
+  const { box, lines, heights, held } = code();
+  // A long line wrapped to three rows, its first under the box's top: the first line wholly in view is the next.
+  heights[7] = 120;
+  renderHook(() => useScrollAnchor(box));
+  const reading = lines[8];
+  const offset = under(reading, 0);
+  // Turned, it unwraps, and the lines above it are now first in view; turned back, it wraps again.
+  heights[7] = 40;
+  held.width = 900;
+  resize();
+  expect(under(reading, 0)).toBe(offset);
+  // The scroll that put it back tells the box, as a scroll of yours would, a frame later.
+  box.dispatchEvent(new Event("scroll"));
+  await act(() => new Promise((done) => requestAnimationFrame(() => done(undefined))));
+  heights[7] = 120;
+  held.width = 380;
+  resize();
+  expect(under(reading, 0)).toBe(offset);
+});
+
 test("a resize that moves nothing, such as the keyboard shortening the box, scrolls nothing", () => {
   const resize = stubResizeObserver();
   const { box, held } = code();

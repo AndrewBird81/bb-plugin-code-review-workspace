@@ -74,10 +74,12 @@ export function useScrollAnchor(box: HTMLElement | null) {
     if (!box || typeof ResizeObserver === "undefined") return;
     let anchor = anchorIn(box);
     let frame = 0;
+    // Where the last correction left the box: its scroll event is this, not yours.
+    let corrected: number | null = null;
     // A scroll the browser makes as the box resizes comes before the resize is reported: the place is still the old one.
     const onScroll = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => { if (!anchor || anchor.size === sizeOf(box)) anchor = anchorIn(box); });
+      frame = requestAnimationFrame(() => { if ((!anchor || anchor.size === sizeOf(box)) && box.scrollTop !== corrected) anchor = anchorIn(box); });
     };
     // The box resized (a fold, a side docking beside it): what was at its top goes back there. Only what's in it did (a
     // comment unfolding, lines expanding above it): you saw that move the place, with no scroll, and it's where it went.
@@ -85,7 +87,11 @@ export function useScrollAnchor(box: HTMLElement | null) {
       const was = anchor;
       if (was?.el.isConnected && was.size !== sizeOf(box)) {
         const moved = was.el.getBoundingClientRect().top - codeTop(box) - was.offset;
-        if (Math.abs(moved) >= 1) box.scrollTop += moved;
+        if (Math.abs(moved) >= 1) { box.scrollTop += moved; corrected = box.scrollTop; }
+        // Still the place, where it now is: read again, a line above it that unwrapped into view would take its place,
+        // and turning back would keep that one there instead.
+        anchor = { el: was.el, offset: was.el.getBoundingClientRect().top - codeTop(box), size: sizeOf(box) };
+        return;
       }
       // Under a phone's sheet the code is inert, out of reach of a pointer, and of reading what's at one: the place
       // stays the one it was, where it is now.
