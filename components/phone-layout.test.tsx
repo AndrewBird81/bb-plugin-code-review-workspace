@@ -64,7 +64,10 @@ test("on a phone there's no band: the dock holds the review's commands, and the 
   fireEvent.click(dock.getByRole("button", { name: /^Chapters:/ }));
   const sheet = within(slot.getByRole("dialog", { name: "Chapters" }));
   fireEvent.click(sheet.getByRole("button", { name: "Review actions" }));
-  fireEvent.click(await slot.findByRole("button", { name: "Review settings…" }));
+  // Without a keyboard, no Keyboard shortcuts.
+  expect(await slot.findByRole("button", { name: "Review settings…" })).toBeTruthy();
+  expect(slot.queryByRole("button", { name: /^Keyboard shortcuts/ })).toBeNull();
+  fireEvent.click(slot.getByRole("button", { name: "Review settings…" }));
   await waitFor(() => expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review", options: { subPath: "settings/pr-42" } }));
   slot.lifecycle.unmount();
 });

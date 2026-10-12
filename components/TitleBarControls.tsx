@@ -3,11 +3,13 @@ import { VERDICT_LABEL } from "../src/draft";
 import { useDraftStatus } from "../lib/draft-status";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
 import { cn } from "../lib/utils";
+import { phoneWindow } from "../lib/workspace-layout";
 import { mountTitleBar, panelPage, useNeedsYou, useWorkspaceFor } from "../lib/workspace-store";
 import type { WorkspaceApi } from "../lib/workspace-context";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { Button } from "./ui/button";
 import { Hint } from "./ui/hint";
+import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { Icon } from "./ui/icon";
 import { ReviewActions, type ReviewMenuItem } from "./ReviewActions";
 import { ListTitleBar } from "./inbox/ListTitleBar";
@@ -109,12 +111,14 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
 
 /**
  * Review actions (⋯): the workspace's Update or Rebuild guide first, then the review's own, with the workspace's Keyboard
- * shortcuts and Review settings… after Open on GitHub. An archived review's guide isn't rebuilt.
+ * shortcuts and Review settings… after Open on GitHub. An archived review's guide isn't rebuilt. A phone, without a
+ * mouse to say a keyboard may be there, has no Keyboard shortcuts; an iPad keeps them, for its keyboard.
  */
 export function ReviewMenu({ api, className }: { api: WorkspaceApi; className?: string }) {
+  const keys = useMediaQuery("(any-pointer: fine)") || !phoneWindow();
   const items: ReviewMenuItem[] = api.review.archivedAt ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() }];
   const trailing: ReviewMenuItem[] = [
-    { label: "Keyboard shortcuts", icon: "CircleQuestion", keys: "?", onSelect: api.showShortcuts },
+    ...(keys ? [{ label: "Keyboard shortcuts", icon: "CircleQuestion", keys: "?", onSelect: api.showShortcuts } satisfies ReviewMenuItem] : []),
     { label: "Review settings…", icon: "Settings", onSelect: () => void api.leave(`settings/${api.targetKey}`) },
   ];
   return <ReviewActions review={api.review} className={className} pinnable={api.pinnable} items={items} trailing={trailing} onChanged={() => void api.reload()} onDeleted={() => void api.leave()} />;

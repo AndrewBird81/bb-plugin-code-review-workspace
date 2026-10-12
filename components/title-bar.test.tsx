@@ -27,7 +27,11 @@ function fakeSize(width: number, height: number) {
     const matches = !!max && (max[1] === "width" ? width : height) <= Number(max[2]);
     return { matches, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false } as MediaQueryList;
   });
-  restores.push(() => { globalThis.ResizeObserver = original; matchMedia.mockRestore(); });
+  // The window is the screen: jsdom's is 0 × 0, a phone's.
+  const root = document.documentElement;
+  Object.defineProperty(root, "clientWidth", { configurable: true, value: width });
+  Object.defineProperty(root, "clientHeight", { configurable: true, value: height });
+  restores.push(() => { globalThis.ResizeObserver = original; matchMedia.mockRestore(); delete (root as { clientWidth?: number }).clientWidth; delete (root as { clientHeight?: number }).clientHeight; });
 }
 
 /** The browser's Fullscreen API, which jsdom lacks: requests and exits take effect at once. */
@@ -191,6 +195,13 @@ test("Review actions offers Update guide for new commits, else Rebuild guide, th
   // The menu's, not the notice's.
   fireEvent.click((await bar!.findAllByRole("button", { name: "Update guide" })).find((item) => !item.closest("[role=status]"))!);
   await waitFor(() => expect(rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+});
+
+test("an iPad without a mouse keeps Keyboard shortcuts in Review actions, for its keyboard", async () => {
+  fakeSize(1032, 1376);
+  const { bar } = await renderReview();
+  fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+  expect(await bar!.findByRole("button", { name: "Keyboard shortcuts" })).toBeTruthy();
 });
 
 test("an archived review's actions don't offer to rebuild its guide, which the server would refuse", async () => {
