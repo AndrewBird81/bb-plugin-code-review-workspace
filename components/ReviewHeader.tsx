@@ -134,7 +134,7 @@ function Snooze({ review, snoozing, onSnooze }: { review: ReviewItem; snoozing: 
       </PopoverTrigger>
       <PopoverContent align="start" mobileTitle="Snooze" className="w-64 max-w-[calc(100vw-24px)] p-1">
         {responds && <>
-          <Button variant="ghost" size="sm" disabled={snoozing} className="w-full justify-start text-muted-foreground hover:text-foreground" onClick={() => pick()}>Until the author responds</Button>
+          <Button variant="ghost" size="sm" disabled={snoozing} className={cn("w-full justify-start text-muted-foreground hover:text-foreground", TOUCH_CONTROL)} onClick={() => pick()}>Until the author responds</Button>
           <p className="px-3 pb-2 text-xs text-subtle-foreground">Back when they re-request, answer, or ask you.</p>
         </>}
         {timed && <SnoozeChoices disabled={snoozing} onPick={pick} />}

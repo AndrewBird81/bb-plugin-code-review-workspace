@@ -174,7 +174,10 @@ test("the Overview shows your review rounds, progress, Blocks merge, and snoozes
   expect(rounds.textContent).toBe("Changes requested 3d ago→Commented 1d ago");
   expect(slot.getByText("Blocks merge")).toBeTruthy();
   fireEvent.click(slot.getByRole("button", { name: "Snooze" }));
-  fireEvent.click(await slot.findByRole("button", { name: "Until the author responds" }));
+  const responds = await slot.findByRole("button", { name: "Until the author responds" });
+  // A 44px row on a touch screen.
+  expect(responds.className).toContain("pointer-coarse:h-11");
+  fireEvent.click(responds);
   await waitFor(() => expect(rpc.snoozeReview).toHaveBeenCalledWith({ targetKey: "pr-42", snoozed: true }));
   // Your feedback's progress opens Comments on Feedback.
   fireEvent.click(panel(slot).getByRole("button", { name: "Close panel" }));
