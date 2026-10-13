@@ -514,17 +514,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const lines = useMemo(() => changedLines(patch), [patch]);
   const readLines = useMemo(() => readingLines([...lines.keys()], lines, generated), [lines, generated]);
   const chapterLines = useMemo(() => chapterReadingLines(sections, patch, lines, generated), [sections, patch, lines, generated]);
-  const changedSince = useMemo(() => {
-    if (!since || !sections.length) return undefined;
-    const texts = new Map(splitPatchByFile(patch).map((f) => [f.path, f.text]));
-    return Object.fromEntries(sections.map((section: any) => [section.id, section.diffs.filter((diff: any) => {
-      const change = since.get(diff.file);
-      if (!diff.hunks || change?.status !== "changed") return change?.status === "changed" || change?.status === "added";
-      // A split file counts where its hunks changed, or changes gone from it were.
-      const text = texts.get(diff.file) ?? "";
-      return !!hunksIn(change.patch, filePart(text, diff.hunks)) || !!droppedNear(change.dropped, text, diff.hunks);
-    }).length]));
-  }, [since, sections, patch]);
+  // Whether a chapter's file changed since, and so shows narrowed.
+  const texts = useMemo(() => new Map(splitPatchByFile(patch).map((f) => [f.path, f.text])), [patch]);
+  const changedIn = useCallback((diff: any) => {
+    const change = since?.get(diff.file);
+    if (!diff.hunks || change?.status !== "changed") return change?.status === "changed" || change?.status === "added";
+    // A split file counts where its hunks changed, or changes gone from it were.
+    const text = texts.get(diff.file) ?? "";
+    return !!hunksIn(change.patch, filePart(text, diff.hunks)) || !!droppedNear(change.dropped, text, diff.hunks);
+  }, [since, texts]);
+  const changedSince = useMemo(() => since && sections.length ? Object.fromEntries(sections.map((section: any) => [section.id, section.diffs.filter(changedIn).length])) : undefined, [since, sections, changedIn]);
 
   const snooze = useCallback(async (snoozed: boolean, until?: number) => {
     setSnoozing(true);
@@ -835,18 +834,20 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     [reducedMotion],
   );
 
-  // Since your review hides files unchanged since then, and a changed file's hunks that didn't change: showing one, or a
-  // line there, turns the filter off, as All changes does. Says whether it did.
-  const unhide = useCallback((file: string, at?: CommentLocation) => {
+  // Since your review hides files unchanged since then, a split file's part in a chapter that didn't change, and a changed
+  // file's hunks that didn't change: showing one, or a line there, turns the filter off, as All changes does. Says
+  // whether it did.
+  const unhide = useCallback((file: string, at?: CommentLocation, chapterId?: string) => {
     const change = sinceOnly ? since?.get(file) : undefined;
-    const hidden = change?.status === "unchanged" || (!!at && at.line > 0 && change?.status === "changed" && !diffLines(change.patch)(at));
+    const part = sinceOnly && chapterId ? sections.find((section: any) => section.id === chapterId)?.diffs.find((diff: any) => diff.file === file) : undefined;
+    const hidden = change?.status === "unchanged" || (!!part && !changedIn(part)) || (!!at && at.line > 0 && change?.status === "changed" && !diffLines(change.patch)(at));
     if (hidden) narrow(false);
     return hidden;
-  }, [sinceOnly, since, narrow]);
+  }, [sinceOnly, since, sections, changedIn, narrow]);
 
   const onSelectFile = useCallback(
     (chapterId: string, file: string) => {
-      const hidden = unhide(file);
+      const hidden = unhide(file, undefined, chapterId);
       if (chapterId !== activeId) {
         pendingScroll.current = file;
         setActiveId(chapterId);

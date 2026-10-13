@@ -129,6 +129,24 @@ test("since your review, a split file counts and shows only in the chapters whos
   slot.lifecycle.unmount();
 });
 
+test("since your review, a split file whose hunks here didn't change, picked in the chapters list, shows all changes there", async () => {
+  const { interdiff } = await import("../src/interdiff");
+  const reviewed = patch.replace("+CACHE", "+CACHED");
+  const slot = await renderWorkspace({
+    review: { signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" },
+    rpc: { getSinceReview: () => ({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(reviewed, patch) }) },
+  });
+  const nav = within(slot.getByRole("navigation", { name: "Chapters" }));
+  await waitFor(() => expect(nav.getByText("1 changed")).toBeTruthy());
+  fireEvent.click(nav.getByText("Parsing"));
+  expect(await slot.findByRole("button", { name: "Show changes: Since your review" })).toBeTruthy();
+  await waitFor(() => expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeNull());
+  fireEvent.click(nav.getAllByRole("button").find((button) => button.title.startsWith("src/a.ts"))!);
+  expect(await slot.findByRole("button", { name: "Show changes: All changes" })).toBeTruthy();
+  expect(card(slot).getByText(/PARSE/)).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 const currentFile = (slot: Awaited<ReturnType<typeof renderWorkspace>>) => within(slot.getByRole("navigation", { name: "Chapters" })).getAllByRole("button").find((button) => button.getAttribute("aria-current") === "true")?.textContent;
 const currentChapter = (slot: Awaited<ReturnType<typeof renderWorkspace>>) => within(slot.getByRole("navigation", { name: "Chapters" })).getAllByRole("button").find((button) => button.getAttribute("aria-current") === "step")?.textContent;
 const press = (key: string) => fireEvent.keyDown(document.body, { key });
