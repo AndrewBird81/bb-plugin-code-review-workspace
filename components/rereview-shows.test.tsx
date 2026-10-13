@@ -254,6 +254,17 @@ test("flipped to Since your review partway into a file it shows, the code keeps 
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("flipped with the chapter's intro still partly on screen, the code stays put", async () => {
+  const { slot, scroll, code } = await narrowedToB();
+  scroll(100);
+  // The intro's foot still shows at the code's top.
+  within(slot.getByRole("main")).getByRole("region", { name: "Parsing" }).getBoundingClientRect = () => new DOMRect(0, -50, 0, 120);
+  await pick(slot, "All changes in this PR");
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
+  expect(code.scrollTop).toBe(100);
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("flipped to Since your review from partway into a file it hides, the next file it shows comes to the top, current", async () => {
   const { slot, current, scroll, code } = await narrowedToB();
   fireEvent.click(choice(slot, "All changes"));

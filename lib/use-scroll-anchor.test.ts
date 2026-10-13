@@ -313,6 +313,41 @@ function chapterCode() {
   return { box, fill };
 }
 
+test("a flip keeps the line at the code's top as far under it as it was, by its numbers, as files and hunks come above it", () => {
+  const { box, fill } = chapterCode();
+  fill([{ file: "b", top: 0, rows: numbered(1, 30) }]);
+  // Line 10 is the first wholly under the code's top, 15px under it.
+  box.scrollTop = 205;
+  const place = flipPlace(box)!;
+  expect(place).toMatchObject({ file: "b", offset: 15 });
+  // All changes: a's 1000px above b, and a row above line 10 in b.
+  fill([{ file: "a", top: 0, rows: numbered(1, 40) }, { file: "b", top: 1000, rows: [["change-deletion", "1", null], ...numbered(1, 30)] }]);
+  goToFlipPlace(box, place);
+  expect(box.scrollTop).toBe(1225);
+  // Back: line 10 is gone, and the next line in its column takes its place.
+  fill([{ file: "b", top: 0, rows: numbered(11, 30) }]);
+  goToFlipPlace(box, place);
+  expect(box.scrollTop).toBe(25);
+});
+
+test("a flip that hides the file at the top lands on the next file after it still shown, else the last shown, else the chapter's top", () => {
+  const { box, fill } = chapterCode();
+  fill([{ file: "a", top: 200, rows: numbered(1, 40) }, { file: "b", top: 1100, rows: numbered(1, 10) }, { file: "c", top: 1400, rows: numbered(1, 10) }]);
+  box.scrollTop = 500;
+  const place = flipPlace(box)!;
+  expect(place).toMatchObject({ file: "a", after: ["b", "c"] });
+  fill([{ file: "c", top: 200, rows: numbered(1, 10) }]);
+  goToFlipPlace(box, place);
+  expect(box.scrollTop).toBe(200);
+  box.scrollTop = 500;
+  fill([{ file: "z", top: 200, rows: numbered(1, 10) }, { file: "y", top: 500, rows: numbered(1, 10) }]);
+  goToFlipPlace(box, place);
+  expect(box.scrollTop).toBe(500);
+  fill([]);
+  goToFlipPlace(box, place);
+  expect(box.scrollTop).toBe(0);
+});
+
 test("in a large chapter, a flip that leaves your file still to draw goes to it, for it to draw, then puts the line back", () => {
   const { box, fill } = chapterCode();
   fill([{ file: "b", top: 0, rows: numbered(1, 30) }]);
