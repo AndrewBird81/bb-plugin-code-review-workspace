@@ -140,8 +140,8 @@ test("the switch is read where a narrow card draws it: after the title and the o
   const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
   expect(follows(toggle, group)).toBe(true);
   expect(follows(group, within(intro).getByText("Reads rows."))).toBe(true);
-  // Nothing in the card is drawn out of its DOM order.
-  expect(intro.querySelector("[class*='order-']")).toBeNull();
+  // Narrow, nothing in the card is drawn out of its DOM order: no order-* class, unlike border-*.
+  expect(Array.from(intro.querySelectorAll("*")).flatMap((el) => Array.from(el.classList)).filter((name) => /(^|:)order-/.test(name))).toEqual([]);
   slot.lifecycle.unmount();
 }, 15_000);
 
@@ -277,6 +277,19 @@ test("a file the narrowing hides, picked in the chapters list, is gone to once A
   await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
   // a.ts's top at the code's.
   await waitFor(() => expect(code.scrollTop).toBe(500));
+  expect(current()).toEqual(["src/a.ts"]);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a comment's line the narrowing hides stays the current file as All changes shows it, not the file then at the top", async () => {
+  const { slot, current, scroll } = await narrowedToB();
+  scroll(1800);
+  await openDrafts(slot);
+  fireEvent.click(await slot.findByRole("button", { name: /^Draft · not submitted · src\/a\.ts:1/ }));
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
+  // b.ts is at the code's top until the comment's line is shown. Comments took the chapters' room.
+  await new Promise((done) => setTimeout(done, 100));
+  fireEvent.click(slot.getByRole("button", { name: "Close panel" }));
   expect(current()).toEqual(["src/a.ts"]);
   slot.lifecycle.unmount();
 }, 15_000);
