@@ -145,6 +145,17 @@ test("the switch is read where a narrow card draws it: after the title and the o
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("beside the switch, the chapter's facts keep to one line, cut short at the end, and their title has them whole", async () => {
+  const { slot } = await renderWorkspace();
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  const intro = within(slot.getByRole("main")).getByRole("region", { name: "Parsing" });
+  const facts = within(intro).getByText("Chapter 1 of 3").parentElement!;
+  expect(facts.className).toContain("@min-[494px]/intro:group-has-[[role=radiogroup]]/intro:truncate");
+  expect(intro.className).toContain("group/intro");
+  expect(facts.title).toBe("Chapter 1 of 3 · 2 files · 4 lines · 0 of 2 viewed");
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("the intro's columns are spaced by margins, so an empty switch slot costs the facts no width", async () => {
   const { slot } = await renderWorkspace();
   await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));

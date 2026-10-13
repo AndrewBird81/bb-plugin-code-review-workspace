@@ -55,6 +55,15 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
     observer.observe(el);
     return () => observer.disconnect();
   }, [clamp, overview, collapsed]);
+  // Low risk is the usual case: only Medium and High say so.
+  const riskLabel = risk && risk !== "low" ? RISK_LABEL[risk] ?? risk : "";
+  const facts = [
+    `Chapter ${index + 1} of ${total}`,
+    riskLabel,
+    `${chapterFiles.length} ${chapterFiles.length === 1 ? "file" : "files"}`,
+    lines > 0 && `${lines.toLocaleString()} ${lines === 1 ? "line" : "lines"}`,
+    `${viewed} of ${chapterFiles.length} viewed`,
+  ];
   const checks = focus ?? [];
   const listed = checks.length > 0 && (!brief || verifying);
   function toggle() {
@@ -62,15 +71,14 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
     setCollapsed(!collapsed);
   }
   return (
-    <section aria-labelledby={titleId} className="@container/intro mb-4 grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-0 rounded-lg border border-border bg-card px-4 py-3 shadow-xs">
+    <section aria-labelledby={titleId} className="group/intro @container/intro mb-4 grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-0 rounded-lg border border-border bg-card px-4 py-3 shadow-xs">
       <div className="col-start-1 row-start-1 min-w-0">
-        <MetaLine className="tabular-nums" items={[
-          `Chapter ${index + 1} of ${total}`,
-          // Low risk is the usual case: only Medium and High say so.
-          risk && risk !== "low" && <Badge tone={RISK_TONE[risk] ?? "neutral"} size="sm" className="align-[-2px]">{RISK_LABEL[risk] ?? risk}</Badge>,
-          `${chapterFiles.length} ${chapterFiles.length === 1 ? "file" : "files"}`,
-          lines > 0 && `${lines.toLocaleString()} ${lines === 1 ? "line" : "lines"}`,
-          `${viewed} of ${chapterFiles.length} viewed`,
+        {/* Beside the switch, one line cut short at its end (its title has it whole), not lines that push the code
+            down. */}
+        <MetaLine className="tabular-nums @min-[494px]/intro:group-has-[[role=radiogroup]]/intro:truncate" title={facts.filter(Boolean).join(" · ")} items={[
+          facts[0],
+          riskLabel && <Badge tone={RISK_TONE[risk ?? ""] ?? "neutral"} size="sm" className="align-[-2px]">{riskLabel}</Badge>,
+          ...facts.slice(2),
         ]} />
         <h3 id={titleId} className="mt-1 text-sm font-semibold leading-snug text-foreground"><InlineCode text={title} /></h3>
       </div>

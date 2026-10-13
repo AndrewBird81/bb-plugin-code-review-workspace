@@ -5,10 +5,10 @@ import { cn } from "../lib/utils";
  * Facts on a line of small text, "a · b · c", leaving out empty ones. A long line breaks only after a dot: never inside a
  * fact, nor before a dot.
  */
-export function MetaLine({ items, className }: { items: ReactNode[]; className?: string }) {
+export function MetaLine({ items, className, title }: { items: ReactNode[]; className?: string; title?: string }) {
   const shown = items.filter((item) => item !== null && item !== undefined && item !== false && item !== "");
   return (
-    <span className={cn("block text-xs text-muted-foreground", className)}>
+    <span title={title} className={cn("block text-xs text-muted-foreground", className)}>
       {shown.map((item, index) => (
         <Fragment key={index}>
           {/* The space stays outside the hidden dot, so a screen reader hears each fact apart. */}
