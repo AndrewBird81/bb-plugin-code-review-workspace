@@ -131,6 +131,15 @@ test("the switch sits in the chapter's intro card, not in a block of its own ove
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("narrowed, the chapters list marks the first file the diff shows, not the chapter's first file it hides", async () => {
+  // Since your review, b.ts changed and a.ts didn't.
+  const { slot } = await renderWorkspace({ then: at({ a: "aa", b: "b0", c: "cc", d: "dd", e: "e0" }) });
+  await waitFor(() => expect(shown(slot)).toEqual(["src/b.ts"]));
+  const current = () => chapters(slot).getAllByRole("button").filter((button) => button.getAttribute("aria-current") === "true").map((button) => button.title);
+  await waitFor(() => expect(current()).toEqual(["src/b.ts"]));
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("a diff that didn't change since your review, as after a rebase, opens on all of it", async () => {
   const { slot } = await renderWorkspace({ rpc: { getSinceReview: () => ({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(patch, patch) }) } });
   await waitFor(() => expect(checked(slot, "All changes")).toBe(true));

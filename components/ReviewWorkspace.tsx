@@ -604,9 +604,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [switchSlot, setSwitchSlot] = useState<HTMLDivElement | null>(null);
   useEffect(() => { if (activeSection) setLastChapter(activeSection.id); }, [activeSection]);
 
+  // Else the first file the reader shows: narrowed, a chapter's first file may be hidden.
   useEffect(() => {
-    setCurrentFile((current) => current && activeFiles.includes(current) ? current : activeFiles[0]);
-  }, [activeFiles]);
+    const shown = Array.from(scrollBox.current?.querySelectorAll<HTMLElement>("[data-file]") ?? [], (el) => el.dataset.file!);
+    setCurrentFile((current) => current && shown.includes(current) ? current : shown[0]);
+  }, [activeFiles, sinceOnly, since]);
   // A file a key or click went to stays current until you scroll yourself: it may not reach the top.
   const pinned = useRef(false);
   const unpin = useCallback(() => { pinned.current = false; }, []);
