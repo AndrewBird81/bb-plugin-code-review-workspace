@@ -679,6 +679,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       window.removeEventListener("keydown", stop);
     };
   }, [activeId, patch, compared, dropRestore]);
+  // Also once the page shows: a guide built while the comparison loads sets the place to go back to only then.
   useEffect(() => {
     const box = scrollBox.current;
     if (compared || !box || !restoreScroll.current) return;
@@ -691,7 +692,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       window.removeEventListener("pointerdown", dropRestore, { capture: true });
       window.removeEventListener("keydown", dropRestore);
     };
-  }, [compared, dropRestore]);
+  }, [compared, activeId, dropRestore]);
 
   const toggleViewed = useCallback(
     (file: string, viewed: boolean) => {

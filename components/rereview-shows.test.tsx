@@ -31,15 +31,18 @@ const guide = {
 };
 const comment = (file: string) => ({ file, line: 1, side: "RIGHT", body: `Why ${file}?`, author: "reviewer" });
 
-/** A re-review: you reviewed "old", the diff is at "new" (`now`, `then` at your review). Settings' re-review choice is `shows`. */
-async function renderWorkspace({ rpc = {}, opened = true, shows = "since", now = patch, then = reviewed }: { rpc?: Record<string, unknown>; opened?: boolean; shows?: "since" | "all"; now?: string; then?: string } = {}) {
+/**
+ * A re-review: you reviewed "old", the diff is at "new" (`now`, `then` at your review). Settings' re-review choice is
+ * `shows`. With `building`, its guide is still being built, until `build()`.
+ */
+async function renderWorkspace({ rpc = {}, opened = true, shows = "since", now = patch, then = reviewed, building = false }: { rpc?: Record<string, unknown>; opened?: boolean; shows?: "since" | "all"; now?: string; then?: string; building?: boolean } = {}) {
   // Opened before, on its first chapter, unless `opened` is false: a first open shows the Overview.
   if (opened && !getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
-  const pr = { headSha: "new", revision: "r1" };
+  const pr = { headSha: "new", revision: "r1", built: !building };
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
-    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: pr.headSha, signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" }, guide: structuredClone(guide), patch: now, revision: pr.revision }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: pr.built ? "ready" : "generating", createdAt: 1, title: "Parse rows", headSha: pr.headSha, signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" }, guide: pr.built ? structuredClone(guide) : null, patch: now, revision: pr.revision }),
     getChecks: () => ({ bucket: "none", checks: [] }),
     getPreferences: () => ({ preferences: { ...defaultPreferences, rereviewShows: shows }, revision: 0 }),
     getFileViews: () => ({ views: [] }),
@@ -55,10 +58,13 @@ async function renderWorkspace({ rpc = {}, opened = true, shows = "since", now =
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  if (pr.built) await slot.findByRole("main", { name: "Review" });
+  else await slot.findByRole("status", { name: "Building the guide" });
   /** The author pushes, and the review is rebuilt on the new head. */
   const push = async () => { Object.assign(pr, { headSha: "newer", revision: "r2" }); await slot.emitRealtime("review:pr-42", {}); };
-  return { slot, rpc: handlers, push };
+  /** The guide is built. */
+  const build = async () => { pr.built = true; await slot.emitRealtime("review:pr-42", {}); };
+  return { slot, rpc: handlers, push, build };
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
 /** The chapter's files the diff shows. */
@@ -325,6 +331,24 @@ test("while the comparison loads, another chapter, or your own scroll, drops goi
   ({ slot, code, answer } = await reopenedWaiting());
   fireEvent.wheel(code);
   answer();
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(code.scrollTop).toBe(0);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a guide built while the comparison loads waits for it too, and your own scroll meanwhile drops going back to where you were", async () => {
+  patchReviewState("pr-42", { activeId: "c1", scrollTop: 300 });
+  let answer: (() => void) | undefined;
+  const { slot, build } = await renderWorkspace({ building: true, rpc: {
+    getSinceReview: () => new Promise((resolve) => { answer = () => resolve({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(reviewed, patch) }); }),
+  } });
+  await waitFor(() => expect(answer).toBeDefined());
+  await build();
+  await slot.findAllByTestId("filediff");
+  const code = slot.getByRole("main").querySelector<HTMLElement>(".overflow-y-auto")!;
+  fireEvent.wheel(code);
+  answer!();
   await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(code.scrollTop).toBe(0);
