@@ -82,6 +82,8 @@ test("a chapter's intro says where it is, its risk, its size and how much of it 
   const meta = intro.getByText("Chapter 1 of 2").parentElement!;
   // Each dot binds to the fact after it, so a wrapped line starts with one.
   expect(meta.textContent).toBe("Chapter 1 of 2 ·\u00a0High risk ·\u00a01 file ·\u00a02 lines ·\u00a00 of 1 viewed");
+  // Each fact is still an element of its own, its dot outside it.
+  expect(intro.getByText("0 of 1 viewed").textContent).toBe("0 of 1 viewed");
   expect(intro.getByText("High risk").className).toContain("rounded-full");
   fireEvent.keyDown(document.body, { key: "n" });
   const next = within(await slot.findByRole("region", { name: "Caching" }));
