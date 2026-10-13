@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 — 2026-10-12
+## 0.6.0 — 2026-10-13
 
 A new review workspace, built so the code owns the screen on a desktop, an iPad, and a phone, with every capability kept but starting new private notes. What gets posted to GitHub doesn't change, and your reviews, drafts, notes, and layout carry over: a review left on Feedback or Threads reopens with Comments open there.
 
