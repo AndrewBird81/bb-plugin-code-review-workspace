@@ -604,10 +604,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [switchSlot, setSwitchSlot] = useState<HTMLDivElement | null>(null);
   useEffect(() => { if (activeSection) setLastChapter(activeSection.id); }, [activeSection]);
 
-  // Else the first file the reader shows: narrowed, a chapter's first file may be hidden.
+  // Else the first file the reader shows: narrowed, a chapter's first file may be hidden. Showing more or fewer of the
+  // same chapter's files, the file at the reader's top, unless a key or click went to one: the one narrowed to may now
+  // be its last, and j would go nowhere.
+  const filesWere = useRef(activeFiles);
   useEffect(() => {
     const shown = Array.from(scrollBox.current?.querySelectorAll<HTMLElement>("[data-file]") ?? [], (el) => el.dataset.file!);
-    setCurrentFile((current) => current && shown.includes(current) ? current : shown[0]);
+    const top = filesWere.current === activeFiles && !pinned.current ? fileAtTop() : undefined;
+    filesWere.current = activeFiles;
+    setCurrentFile((current) => top && shown.includes(top) ? top : current && shown.includes(current) ? current : shown[0]);
   }, [activeFiles, sinceOnly, since]);
   // A file a key or click went to stays current until you scroll yourself: it may not reach the top.
   const pinned = useRef(false);

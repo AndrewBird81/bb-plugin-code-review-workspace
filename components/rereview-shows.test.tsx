@@ -176,6 +176,29 @@ test("narrowed, the chapters list marks the first file the diff shows, not the c
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("flipped to All changes on a chapter's intro, j and k step from the file at the top, not the one narrowed to", async () => {
+  // No layout in jsdom: the chapter's files sit below its intro, in order, 1000px each.
+  const measure = Element.prototype.getBoundingClientRect;
+  restores.push(() => { Element.prototype.getBoundingClientRect = measure; });
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    const i = Array.from(document.querySelectorAll("[data-file]")).indexOf(this);
+    return i < 0 ? new DOMRect() : new DOMRect(0, 500 + i * 1000, 0, 1000);
+  };
+  // Since your review, b.ts changed and a.ts didn't.
+  const { slot } = await renderWorkspace({ then: at({ a: "aa", b: "b0", c: "cc", d: "dd", e: "e0" }) });
+  await waitFor(() => expect(shown(slot)).toEqual(["src/b.ts"]));
+  const current = () => chapters(slot).getAllByRole("button").filter((button) => button.getAttribute("aria-current") === "true").map((button) => button.title);
+  await waitFor(() => expect(current()).toEqual(["src/b.ts"]));
+  fireEvent.click(choice(slot, "All changes"));
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
+  await waitFor(() => expect(current()).toEqual(["src/a.ts"]));
+  fireEvent.keyDown(document.body, { key: "j" });
+  await waitFor(() => expect(current()).toEqual(["src/b.ts"]));
+  fireEvent.keyDown(document.body, { key: "k" });
+  await waitFor(() => expect(current()).toEqual(["src/a.ts"]));
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("a diff that didn't change since your review, as after a rebase, opens on all of it", async () => {
   const { slot } = await renderWorkspace({ rpc: { getSinceReview: () => ({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(patch, patch) }) } });
   await waitFor(() => expect(checked(slot, "All changes")).toBe(true));
