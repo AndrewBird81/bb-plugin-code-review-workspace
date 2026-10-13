@@ -465,6 +465,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       if (result.error) failed(result.error);
       else if (!cancelled && result.baseline) {
         setSinceRead({ key: sinceKey, files: new Map((result.files as FileInterdiff[]).map((file) => [file.file, file])) });
+        setSinceFailed(null);
       }
     }).catch((error) => failed(error instanceof Error ? error.message : undefined));
     return () => { cancelled = true; };

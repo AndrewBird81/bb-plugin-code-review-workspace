@@ -387,6 +387,27 @@ test("a commit picked never shows with the comparison it replaces, not even for 
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("a comparison that failed stops saying so once it arrives: a commit picked, then your review again", async () => {
+  let failing = true;
+  const { slot } = await renderWorkspace({ rpc: {
+    getSinceReview: vi.fn(({ from }: { from?: string }) => {
+      if (!from && failing) { failing = false; return { baseline: null, files: [], error: "timed out" }; }
+      return { baseline: { sha: from ?? "old", at: from ? null : 1, verdict: from ? null : "COMMENT" }, files: interdiff(from ? atCommit : reviewed, patch) };
+    }),
+  } });
+  await waitFor(() => expect(select(slot)).toBe("Show changes: All changes. Couldn’t compare with your last review: timed out"));
+  const pick = async (name: string) => {
+    fireEvent.click(slot.getByRole("button", { name: /^Show changes: / }));
+    fireEvent.click(await within(await slot.findByRole("menu", { name: "Show changes" })).findByText(name));
+  };
+  await pick("Cache rows");
+  await waitFor(() => expect(shown(slot)).toEqual(["src/b.ts"]));
+  await pick("Since your review");
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  expect(select(slot)).toBe("Show changes: Since your review");
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("a line from Find under Settings' All changes leaves the review to Settings: nothing was narrowed to let go", async () => {
   let shows = "all";
   const { slot } = await renderWorkspace({ rpc: { getPreferences: () => ({ preferences: { ...defaultPreferences, rereviewShows: shows }, revision: 0 }) } });
