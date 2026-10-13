@@ -188,6 +188,24 @@ test("what has the focus in the code, such as the comment you're typing, is what
   expect(under(typing, 0)).toBe(offset);
 });
 
+test("put back where that unsticks its file's header, the comment you're typing is as far under the code's top as it was, not the header's height lower", () => {
+  const resize = stubResizeObserver();
+  const { box, lines, held } = code();
+  // The file starts 200px down: its 44px header sticks at the box's top once that's scrolled past.
+  box.querySelector("[data-file-header]")!.getBoundingClientRect = () => new DOMRect(0, Math.max(100, 300 - box.scrollTop), 380, 44);
+  box.scrollTop = 150;
+  const typing = lines[9].appendChild(document.createElement("textarea"));
+  typing.getBoundingClientRect = () => lines[9].getBoundingClientRect();
+  act(() => typing.focus());
+  renderHook(() => useScrollAnchor(box));
+  const offset = under(typing, 0);
+  // Turned, the browser's own scroll anchoring first scrolls the box far down, where the header is stuck.
+  box.scrollTop = 600;
+  held.width = 900;
+  resize();
+  expect(under(typing, 0)).toBe(offset);
+});
+
 test("after the fold, what the new layout redraws, such as comments unfolding, is put right too", () => {
   const resize = stubResizeObserver();
   const { box, lines, heights, held } = code();

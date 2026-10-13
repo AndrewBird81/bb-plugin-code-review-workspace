@@ -117,8 +117,13 @@ export function useScrollAnchor(box: HTMLElement | null) {
     const observer = new ResizeObserver(() => {
       const was = anchor;
       if (was?.el.isConnected && was.size !== sizeOf(box)) {
-        const moved = was.el.getBoundingClientRect().top - codeTop(box) - was.offset;
-        if (Math.abs(moved) >= 1) { box.scrollTop += moved; corrected = box.scrollTop; }
+        // Twice: putting it back can stick or unstick a file's header at the top, which moves the code's top.
+        for (let pass = 0; pass < 2; pass++) {
+          const moved = was.el.getBoundingClientRect().top - codeTop(box) - was.offset;
+          if (Math.abs(moved) < 1) break;
+          box.scrollTop += moved;
+          corrected = box.scrollTop;
+        }
         // Still the place, where it now is: read again, a line above it that unwrapped into view would take its place,
         // and turning back would keep that one there instead.
         anchor = { el: was.el, offset: was.el.getBoundingClientRect().top - codeTop(box), size: sizeOf(box) };
