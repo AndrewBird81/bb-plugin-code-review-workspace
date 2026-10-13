@@ -10,12 +10,16 @@ import { MetaLine } from "./MetaLine";
 import { RISK_LABEL, RISK_TONE } from "./ChapterNav";
 import { TOUCH_CONTROL } from "./touch";
 
+/** The card's width from which a re-review's switch sits on its first row: a pane about 560px wide. */
+const SWITCH_BESIDE = 528;
+
 /**
  * The open chapter above its diff: where it is in the guide, its risk and size, its title, full overview, and what to
  * verify. Hiding the overview sticks in this browser. On a phone (`brief`) the overview shows three lines until More,
- * and what to verify one line until you open it, so the code starts on screen.
+ * and what to verify one line until you open it, so the code starts on screen. A re-review's switch goes in it
+ * (`switchSlot`): on its first row where there's room, else as its last row, so it costs the code no block of its own.
  */
-export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk, focus, lines, collapsedByDefault = false, brief = false }: {
+export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk, focus, lines, collapsedByDefault = false, brief = false, switchSlot }: {
   index: number;
   total: number;
   title: string;
@@ -29,6 +33,8 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
   collapsedByDefault?: boolean;
   /** A phone's: the overview cut to three lines, and what to verify to one. */
   brief?: boolean;
+  /** Takes the element the diff puts its switch in. */
+  switchSlot?: (el: HTMLDivElement | null) => void;
 }) {
   const { sections, files } = useWorkspace();
   const [chosen, setCollapsed] = useState(getIntroCollapsed);
@@ -52,6 +58,18 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
     observer.observe(el);
     return () => observer.disconnect();
   }, [clamp, overview, collapsed]);
+  const card = useRef<HTMLElement>(null);
+  const [roomy, setRoomy] = useState(false);
+  useLayoutEffect(() => {
+    const el = card.current;
+    if (!el || !switchSlot) return;
+    const measure = () => setRoomy(el.getBoundingClientRect().width >= SWITCH_BESIDE);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [switchSlot]);
   const checks = focus ?? [];
   const listed = checks.length > 0 && (!brief || verifying);
   function toggle() {
@@ -59,7 +77,7 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
     setCollapsed(!collapsed);
   }
   return (
-    <section aria-labelledby={titleId} className="mb-4 rounded-lg border border-border bg-card px-4 py-3 shadow-xs">
+    <section ref={card} aria-labelledby={titleId} className="mb-4 rounded-lg border border-border bg-card px-4 py-3 shadow-xs">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <MetaLine className="tabular-nums" items={[
@@ -72,6 +90,7 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
           ]} />
           <h3 id={titleId} className="mt-1 text-sm font-semibold leading-snug text-foreground"><InlineCode text={title} /></h3>
         </div>
+        {switchSlot && roomy && <div ref={switchSlot} className="shrink-0 empty:hidden" />}
         {overview && (
           <button
             type="button"
@@ -106,6 +125,7 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
           </ul>
         </div>
       )}
+      {switchSlot && !roomy && <div ref={switchSlot} className="mt-2 empty:hidden" />}
     </section>
   );
 });

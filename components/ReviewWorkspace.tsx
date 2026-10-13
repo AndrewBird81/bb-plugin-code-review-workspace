@@ -600,6 +600,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }) ?? []), [sections, activeSection]);
   // The chapter you were reading, which the Overview offers to continue.
   const [lastChapter, setLastChapter] = useState<string | undefined>();
+  // In the chapter's intro, where the diff puts a re-review's switch.
+  const [switchSlot, setSwitchSlot] = useState<HTMLDivElement | null>(null);
   useEffect(() => { if (activeSection) setLastChapter(activeSection.id); }, [activeSection]);
 
   useEffect(() => {
@@ -1136,7 +1138,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           <div ref={(el) => { scrollBox.current = el; setScrollEl(el); }} onScroll={onScroll} onWheel={scrolledByYou} onTouchMove={scrolledByYou} onPointerDown={unpin} className={cn("min-h-0 flex-1 overflow-y-auto px-4 before:block before:h-4 before:content-['']", commentStep ? "pb-24" : "pb-6")}>
             {activeSection ? (
               <>
-              <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} brief={layout.mode !== "tablet"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} />
+              <ChapterIntro key={activeSection.id} collapsedByDefault={layout.mode === "short"} brief={layout.mode !== "tablet"} index={activeIndex} total={sections.length} title={activeSection.title} overview={activeSection.overview} risk={activeSection.risk} focus={activeSection.focus} lines={chapterLines.get(activeSection.id) ?? 0} switchSlot={setSwitchSlot} />
               <CheckFailuresContext.Provider value={checkFailures}>
               <DiffThreadsContext.Provider value={showThreads ? diffThreads : null}>
               <DiffViewer
@@ -1164,6 +1166,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 owners={owners}
                 foldAll={foldAll}
                 onSinceOnly={rereview || sheet || !compareShown ? narrow : undefined}
+                switchSlot={switchSlot}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>

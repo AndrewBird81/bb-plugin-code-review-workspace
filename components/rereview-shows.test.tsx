@@ -120,6 +120,17 @@ test("only leaving the narrowing holds the review at All changes: opening a file
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("the switch sits in the chapter's intro card, not in a block of its own over the files", async () => {
+  const { slot } = await renderWorkspace();
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  const intro = within(slot.getByRole("main")).getByRole("region", { name: "Parsing" });
+  expect(within(intro).getByRole("radiogroup", { name: "Changes shown" })).toBeTruthy();
+  fireEvent.click(choice(slot, "All changes"));
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
+  expect(within(intro).getByRole("radio", { name: "All changes" }).getAttribute("aria-checked")).toBe("true");
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("a diff that didn't change since your review, as after a rebase, opens on all of it", async () => {
   const { slot } = await renderWorkspace({ rpc: { getSinceReview: () => ({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(patch, patch) }) } });
   await waitFor(() => expect(checked(slot, "All changes")).toBe(true));

@@ -1,4 +1,5 @@
 import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { z } from "zod";
 import { areSelectionsEqual, parsePatchFiles, processFile } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
@@ -331,6 +332,7 @@ export const DiffViewer = memo(function DiffViewer({
   owners,
   foldAll,
   onSinceOnly,
+  switchSlot,
 }: {
   diffLayout?: "split" | "unified";
   /** Wrap long lines instead of scrolling them sideways. */
@@ -372,6 +374,8 @@ export const DiffViewer = memo(function DiffViewer({
   foldAll?: { folded: boolean; nonce: number };
   /** Narrows the diff to what changed since, or shows it all. Given, the diff's top switches between them. */
   onSinceOnly?: (sinceOnly: boolean) => void;
+  /** Where that switch goes, in the chapter's intro: else it's above the files. */
+  switchSlot?: HTMLElement | null;
 }) {
   const theme = useTheme();
   // A phone's, or one held sideways: the workspace's layout says, not the window's width.
@@ -623,12 +627,13 @@ export const DiffViewer = memo(function DiffViewer({
   const count = `${changed} of ${total} file${total === 1 ? "" : "s"}`;
   const [switchEl, setSwitchEl] = useState<HTMLDivElement | null>(null);
   useOffFold(switchEl, !compact);
-  const compareSwitch = since && onSinceOnly && (
+  const segmented = since && onSinceOnly && (
     <div ref={setSwitchEl} className="flex">
       <Segmented label="Changes shown" value={filtering ? "since" : "all"} onChange={(value) => onSinceOnly(value === "since")}
         options={[{ value: "since", label: `Since ${sinceWhat} · ${count}` }, { value: "all", label: "All changes" }]} />
     </div>
   );
+  const compareSwitch = segmented && switchSlot ? createPortal(segmented, switchSlot) : segmented;
   // The diff narrows by itself as a re-review's comparison arrives: that's said, by a status there before it arrives.
   const narrowedStatus = onSinceOnly && <span role="status" className="sr-only">{filtering ? `Showing changes since ${sinceWhat} · ${count}` : ""}</span>;
   const unchangedNote = unchanged > 0 && <p className="text-center text-xs text-muted-foreground">{unchanged} file{unchanged === 1 ? "" : "s"} unchanged since {sinceWhat}</p>;
