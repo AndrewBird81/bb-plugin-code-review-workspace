@@ -186,19 +186,31 @@ test("narrowed, the chapters list marks the first file the diff shows, not the c
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("flipped to All changes on a chapter's intro, j and k step from the file at the top, not the one narrowed to", async () => {
-  // No layout in jsdom: the chapter's files sit below its intro, in order, 1000px each.
+// No layout in jsdom: the chapter's files sit below its intro, in order, 1000px each, as far up as the code is scrolled.
+function fakeLayout() {
   const measure = Element.prototype.getBoundingClientRect;
   restores.push(() => { Element.prototype.getBoundingClientRect = measure; });
   Element.prototype.getBoundingClientRect = function (this: Element) {
     const i = Array.from(document.querySelectorAll("[data-file]")).indexOf(this);
-    return i < 0 ? new DOMRect() : new DOMRect(0, 500 + i * 1000, 0, 1000);
+    const scrolled = this.closest<HTMLElement>(".overflow-y-auto")?.scrollTop ?? 0;
+    return i < 0 ? new DOMRect() : new DOMRect(0, 500 + i * 1000 - scrolled, 0, 1000);
   };
-  // Since your review, b.ts changed and a.ts didn't.
+}
+/** Since your review, b.ts changed and a.ts didn't: narrowed, chapter 1 shows b.ts alone. */
+async function narrowedToB() {
+  fakeLayout();
   const { slot } = await renderWorkspace({ then: at({ a: "aa", b: "b0", c: "cc", d: "dd", e: "e0" }) });
   await waitFor(() => expect(shown(slot)).toEqual(["src/b.ts"]));
   const current = () => chapters(slot).getAllByRole("button").filter((button) => button.getAttribute("aria-current") === "true").map((button) => button.title);
   await waitFor(() => expect(current()).toEqual(["src/b.ts"]));
+  const code = slot.getByRole("main", { name: "Review" }).querySelector<HTMLElement>(":scope > .overflow-y-auto")!;
+  /** Your own scroll to `top`. */
+  const scroll = (top: number) => { code.scrollTop = top; fireEvent.wheel(code); fireEvent.scroll(code); };
+  return { slot, current, scroll };
+}
+
+test("flipped to All changes on a chapter's intro, j and k step from the file at the top, not the one narrowed to", async () => {
+  const { slot, current } = await narrowedToB();
   fireEvent.click(choice(slot, "All changes"));
   await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
   await waitFor(() => expect(current()).toEqual(["src/a.ts"]));
@@ -206,6 +218,33 @@ test("flipped to All changes on a chapter's intro, j and k step from the file at
   await waitFor(() => expect(current()).toEqual(["src/b.ts"]));
   fireEvent.keyDown(document.body, { key: "k" });
   await waitFor(() => expect(current()).toEqual(["src/a.ts"]));
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("flipped to All changes partway into the file narrowed to, that file stays current once its place is kept", async () => {
+  const { slot, current, scroll } = await narrowedToB();
+  scroll(800);
+  fireEvent.click(choice(slot, "All changes"));
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
+  // The browser keeps b.ts's line where it was, a.ts's 1000px further down the code.
+  scroll(1800);
+  await waitFor(() => expect(current()).toEqual(["src/b.ts"]));
+  fireEvent.keyDown(document.body, { key: "k" });
+  await waitFor(() => expect(current()).toEqual(["src/a.ts"]));
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("flipped to Since your review from partway into a file it hides, the first file it shows is current", async () => {
+  const { slot, current, scroll } = await narrowedToB();
+  fireEvent.click(choice(slot, "All changes"));
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
+  scroll(800);
+  await waitFor(() => expect(current()).toEqual(["src/a.ts"]));
+  fireEvent.click(choice(slot, /^Since your review/));
+  await waitFor(() => expect(shown(slot)).toEqual(["src/b.ts"]));
+  await waitFor(() => expect(current()).toEqual(["src/b.ts"]));
+  fireEvent.keyDown(document.body, { key: "k" });
+  await waitFor(() => expect(current()).toEqual(["src/b.ts"]));
   slot.lifecycle.unmount();
 }, 15_000);
 
