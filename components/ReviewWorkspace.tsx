@@ -836,18 +836,23 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   );
 
   // Since your review hides files unchanged since then, and a changed file's hunks that didn't change: showing one, or a
-  // line there, turns the filter off, as All changes does.
+  // line there, turns the filter off, as All changes does. Says whether it did.
   const unhide = useCallback((file: string, at?: CommentLocation) => {
     const change = sinceOnly ? since?.get(file) : undefined;
-    if (change?.status === "unchanged" || (at && at.line > 0 && change?.status === "changed" && !diffLines(change.patch)(at))) narrow(false);
+    const hidden = change?.status === "unchanged" || (!!at && at.line > 0 && change?.status === "changed" && !diffLines(change.patch)(at));
+    if (hidden) narrow(false);
+    return hidden;
   }, [sinceOnly, since, narrow]);
 
   const onSelectFile = useCallback(
     (chapterId: string, file: string) => {
-      unhide(file);
+      const hidden = unhide(file);
       if (chapterId !== activeId) {
         pendingScroll.current = file;
         setActiveId(chapterId);
+      } else if (hidden) {
+        // It's there once the flip shows it: its top goes to the top then.
+        flipFrom.current = { place: { file, after: [], lines: [], offset: 0 } };
       } else {
         scrollToFile(file);
       }

@@ -270,6 +270,17 @@ test("flipped to Since your review from partway into a file it hides, the next f
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("a file the narrowing hides, picked in the chapters list, is gone to once All changes shows it, and is current", async () => {
+  const { slot, current, scroll, code } = await narrowedToB();
+  scroll(800);
+  fireEvent.click(chapters(slot).getByText("a.ts"));
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
+  // a.ts's top at the code's.
+  await waitFor(() => expect(code.scrollTop).toBe(500));
+  expect(current()).toEqual(["src/a.ts"]);
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("a diff that didn't change since your review, as after a rebase, opens on all of it", async () => {
   const { slot } = await renderWorkspace({ rpc: { getSinceReview: () => ({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(patch, patch) }) } });
   await waitFor(() => expect(checked(slot, "All changes")).toBe(true));
