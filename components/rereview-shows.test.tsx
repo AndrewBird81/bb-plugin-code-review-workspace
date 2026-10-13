@@ -145,6 +145,17 @@ test("the switch is read where a narrow card draws it: after the title and the o
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("the intro's columns are spaced by margins, so an empty switch slot costs the facts no width", async () => {
+  const { slot } = await renderWorkspace();
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  const intro = within(slot.getByRole("main")).getByRole("region", { name: "Parsing" });
+  // A grid keeps its gaps around an empty track: none, and a margin before the toggle, and before the switch beside it.
+  expect(intro.className).toContain("gap-x-0");
+  expect(within(intro).getByRole("button", { name: "Hide chapter overview" }).className).toContain("ml-2");
+  expect(within(intro).getByRole("radiogroup", { name: "Changes shown" }).parentElement!.parentElement!.className).toContain("@min-[494px]/intro:ml-2");
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("narrowed, the chapters list marks the first file the diff shows, not the chapter's first file it hides", async () => {
   // Since your review, b.ts changed and a.ts didn't.
   const { slot } = await renderWorkspace({ then: at({ a: "aa", b: "b0", c: "cc", d: "dd", e: "e0" }) });

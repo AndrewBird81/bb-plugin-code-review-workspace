@@ -62,7 +62,7 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
     setCollapsed(!collapsed);
   }
   return (
-    <section aria-labelledby={titleId} className="@container/intro mb-4 grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-2 rounded-lg border border-border bg-card px-4 py-3 shadow-xs">
+    <section aria-labelledby={titleId} className="@container/intro mb-4 grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-0 rounded-lg border border-border bg-card px-4 py-3 shadow-xs">
       <div className="col-start-1 row-start-1 min-w-0">
         <MetaLine className="tabular-nums" items={[
           `Chapter ${index + 1} of ${total}`,
@@ -79,15 +79,16 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
           type="button"
           aria-label={collapsed ? "Show chapter overview" : "Hide chapter overview"}
           aria-expanded={!collapsed}
-          className={cn("col-start-3 row-start-1 -mr-1 -mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-state-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_CONTROL)}
+          className={cn("col-start-3 row-start-1 -mr-1 -mt-0.5 ml-2 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-state-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_CONTROL)}
           onClick={toggle}
         >
           <Icon name="ChevronDown" className={cn("size-3.5 transition-transform duration-150", collapsed && "-rotate-90")} aria-hidden />
         </button>
       )}
       {/* By CSS, so it moves in the same layout as a turn: the scroll anchor puts your place back after both. From a
-          card about 528px wide (a pane about 560px), on the first row; else under the title, where it's read. */}
-      {switchSlot && <div ref={switchSlot} className="col-span-full mt-2 empty:hidden @min-[494px]/intro:mt-0 @min-[494px]/intro:[grid-column:2] @min-[494px]/intro:[grid-row:1]" />}
+          card about 528px wide (a pane about 560px), on the first row; else under the title, where it's read. Margins,
+          not the grid's gap, space the columns, so an empty slot costs the facts no width. */}
+      {switchSlot && <div ref={switchSlot} className="col-span-full mt-2 empty:hidden @min-[494px]/intro:ml-2 @min-[494px]/intro:mt-0 @min-[494px]/intro:[grid-column:2] @min-[494px]/intro:[grid-row:1]" />}
       {overview && !collapsed && <div ref={overviewBox} className={cn("col-span-full mt-2 max-w-[80ch]", clamp && "max-h-[4.25rem] overflow-hidden", clamp && clipped && "[mask-image:linear-gradient(to_bottom,black_2.75rem,transparent)]")}>
         <Markdown content={overview} className="text-sm leading-relaxed text-foreground/90" />
       </div>}
