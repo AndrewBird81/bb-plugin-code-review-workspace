@@ -621,8 +621,8 @@ export const DiffViewer = memo(function DiffViewer({
     }));
   }, [draft?.comments, draft?.stale, draft?.hideNits, github?.threads, perFile]);
 
-  // Above the files, what the diff shows, with how many of them changed since, and the other a tap away: past a fold
-  // down the screen.
+  // In the chapter's intro, else above the files, what the diff shows, with how many of them changed since, and the
+  // other a tap away: past a fold down the screen.
   const total = perFile.length + unchanged;
   const count = `${changed} of ${total} file${total === 1 ? "" : "s"}`;
   const [switchEl, setSwitchEl] = useState<HTMLDivElement | null>(null);

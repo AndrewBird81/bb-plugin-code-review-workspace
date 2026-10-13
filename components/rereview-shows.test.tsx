@@ -206,7 +206,12 @@ async function narrowedToB() {
   const code = slot.getByRole("main", { name: "Review" }).querySelector<HTMLElement>(":scope > .overflow-y-auto")!;
   /** Your own scroll to `top`. */
   const scroll = (top: number) => { code.scrollTop = top; fireEvent.wheel(code); fireEvent.scroll(code); };
-  return { slot, current, scroll };
+  return { slot, current, scroll, code };
+}
+/** A choice in the band's compare select, which shows wherever you are in the code. */
+async function pick(slot: Slot, name: string | RegExp) {
+  fireEvent.click(slot.getByRole("button", { name: /^Show changes: / }));
+  fireEvent.click(await slot.findByRole("menuitemradio", { name }));
 }
 
 test("flipped to All changes on a chapter's intro, j and k step from the file at the top, not the one narrowed to", async () => {
@@ -221,27 +226,44 @@ test("flipped to All changes on a chapter's intro, j and k step from the file at
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("flipped to All changes partway into the file narrowed to, that file stays current once its place is kept", async () => {
-  const { slot, current, scroll } = await narrowedToB();
+test("flipped to All changes partway into the file narrowed to, the code keeps your place: that file stays current, and k goes to the one above", async () => {
+  const { slot, current, scroll, code } = await narrowedToB();
   scroll(800);
-  fireEvent.click(choice(slot, "All changes"));
+  await pick(slot, "All changes in this PR");
   await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
-  // The browser keeps b.ts's line where it was, a.ts's 1000px further down the code.
-  scroll(1800);
+  // b.ts's top stays 300px above the code's, a.ts's 1000px above it.
+  expect(code.scrollTop).toBe(1800);
   await waitFor(() => expect(current()).toEqual(["src/b.ts"]));
   fireEvent.keyDown(document.body, { key: "k" });
   await waitFor(() => expect(current()).toEqual(["src/a.ts"]));
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("flipped to Since your review from partway into a file it hides, the first file it shows is current", async () => {
-  const { slot, current, scroll } = await narrowedToB();
+test("flipped to Since your review partway into a file it shows, the code keeps your place; on the intro it stays put", async () => {
+  const { slot, current, scroll, code } = await narrowedToB();
+  await pick(slot, "All changes in this PR");
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
+  expect(code.scrollTop).toBe(0);
+  scroll(1800);
+  await waitFor(() => expect(current()).toEqual(["src/b.ts"]));
+  await pick(slot, /^Since your review/);
+  await waitFor(() => expect(shown(slot)).toEqual(["src/b.ts"]));
+  // b.ts's top stays 300px above the code's, with a.ts gone from above it.
+  expect(code.scrollTop).toBe(800);
+  expect(current()).toEqual(["src/b.ts"]);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("flipped to Since your review from partway into a file it hides, the next file it shows comes to the top, current", async () => {
+  const { slot, current, scroll, code } = await narrowedToB();
   fireEvent.click(choice(slot, "All changes"));
   await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
   scroll(800);
   await waitFor(() => expect(current()).toEqual(["src/a.ts"]));
-  fireEvent.click(choice(slot, /^Since your review/));
+  await pick(slot, /^Since your review/);
   await waitFor(() => expect(shown(slot)).toEqual(["src/b.ts"]));
+  // b.ts's top at the code's.
+  expect(code.scrollTop).toBe(500);
   await waitFor(() => expect(current()).toEqual(["src/b.ts"]));
   fireEvent.keyDown(document.body, { key: "k" });
   await waitFor(() => expect(current()).toEqual(["src/b.ts"]));

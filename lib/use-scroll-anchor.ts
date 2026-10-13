@@ -1,7 +1,7 @@
 // When the code's box resizes (a fold, an unfold, a rotation, a side docking beside it), the lines above the one you're
 // reading rewrap and move it on screen, as does its file's sticky header. The browser's own scroll anchoring doesn't
 // reach into the diff's shadow DOM, so this keeps that line where it was: as far under the header as it was.
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { LinePlace } from "./remount";
 
 interface Anchor {
@@ -99,11 +99,68 @@ export function goToPlace(box: HTMLElement, place: LinePlace): number | null {
   return Math.abs(target.getBoundingClientRect().top - codeTop(box) - place.offset);
 }
 
-/** Keeps what's at the top of the code in its scroll `box` in its place on screen as the box resizes. */
+/** A line of code by its numbers, which hold as a flip shows or hides the hunks above it: its index doesn't. */
+const lineKey = (line: Element) => ["data-line-type", "data-line", "data-alt-line"].map((name) => line.getAttribute(name)).join(" ");
+
+/** The lines of code `file` draws, in order down each column. */
+const linesOf = (file: Element) => Array.from(file.querySelectorAll("diffs-container"), (host) => Array.from(host.shadowRoot?.querySelectorAll("[data-line]") ?? [])).flat();
+
+/**
+ * Where you are in the code as a chapter flips between Since your review and All changes, which shows more or fewer of
+ * its files and hunks: the file at the box's top and the files after it; in it, the line at the top of what shows of
+ * the code and the lines after it in its column, by their numbers, and how far under that top. Where the file has no
+ * lines drawn (folded, or waiting to draw), how far under the box's top the file's own top is.
+ */
+export interface FlipPlace { file: string; after: string[]; lines: string[]; offset: number }
+
+export function flipPlace(box: HTMLElement): FlipPlace | null {
+  const boxTop = box.getBoundingClientRect().top;
+  const files = Array.from(box.querySelectorAll<HTMLElement>("[data-file]"));
+  const at = files.findIndex((el) => el.getBoundingClientRect().bottom > boxTop);
+  if (at < 0) return null;
+  const file = files[at];
+  const place = { file: file.dataset.file!, after: files.slice(at + 1).map((el) => el.dataset.file!) };
+  const top = codeTop(box);
+  const lines = linesOf(file).filter((el) => el.getBoundingClientRect().height);
+  // The first that starts at that top or under it; past the last, the last.
+  const line = lines.find((el) => el.getBoundingClientRect().top >= top - 2) ?? lines.at(-1);
+  if (!line) return { ...place, lines: [], offset: file.getBoundingClientRect().top - boxTop };
+  const column = Array.from(line.parentElement!.children).filter((el) => el.hasAttribute("data-line"));
+  return { ...place, lines: column.slice(column.indexOf(line)).map(lineKey), offset: line.getBoundingClientRect().top - top };
+}
+
+/**
+ * Scrolls `box` to put a flip's `place` back: the first of its lines still shown, as far under the code's top as it
+ * was; else the top of the first file after it still shown, or of the last file shown; or the chapter's top. Its file
+ * shown but not drawn yet, it waits.
+ */
+export function goToFlipPlace(box: HTMLElement, place: FlipPlace) {
+  const boxTop = box.getBoundingClientRect().top;
+  const files = Array.from(box.querySelectorAll<HTMLElement>("[data-file]"));
+  const file = files.find((el) => el.dataset.file === place.file);
+  if (file && !place.lines.length) return void (box.scrollTop += file.getBoundingClientRect().top - boxTop - place.offset);
+  if (file) {
+    const drawn = new Map(linesOf(file).map((el) => [lineKey(el), el]));
+    if (!drawn.size) return;
+    const line = place.lines.map((key) => drawn.get(key)).find((el) => el);
+    // Twice: putting it back can stick or unstick a file's header at the top, which moves the code's top.
+    if (line) return void [0, 1].forEach(() => { box.scrollTop += line.getBoundingClientRect().top - codeTop(box) - place.offset; });
+  }
+  const next = place.after.map((name) => files.find((el) => el.dataset.file === name)).find((el) => el) ?? files.at(-1);
+  if (next) box.scrollTop += next.getBoundingClientRect().top - boxTop;
+  else box.scrollTop = 0;
+}
+
+/**
+ * Keeps what's at the top of the code in its scroll `box` in its place on screen as the box resizes. Returns what takes
+ * what's at the top now as that place, where the code changed under it without a scroll.
+ */
 export function useScrollAnchor(box: HTMLElement | null) {
+  const reanchor = useRef(() => {});
   useEffect(() => {
     if (!box || typeof ResizeObserver === "undefined") return;
     let anchor = anchorIn(box);
+    reanchor.current = () => { anchor = anchorIn(box); };
     let frame = 0;
     // Where the last correction left the box: its scroll event is this, not yours.
     let corrected: number | null = null;
@@ -145,10 +202,12 @@ export function useScrollAnchor(box: HTMLElement | null) {
     content.observe(box, { childList: true });
     box.addEventListener("scroll", onScroll, { passive: true });
     return () => {
+      reanchor.current = () => {};
       cancelAnimationFrame(frame);
       observer.disconnect();
       content.disconnect();
       box.removeEventListener("scroll", onScroll);
     };
   }, [box]);
+  return useCallback(() => reanchor.current(), []);
 }

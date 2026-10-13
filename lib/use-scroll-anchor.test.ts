@@ -239,6 +239,18 @@ test("what grows above the line at the top with no scroll, such as a comment unf
   expect(lines[7].getBoundingClientRect().top).toBe(reading);
 });
 
+test("taken anew after the code changed under it, as a flip on the chapter's intro shows more files, the place is what's at the top now: a scrollbar coming with them scrolls nothing", () => {
+  const resize = stubResizeObserver();
+  const { box, heights, held } = code();
+  const { result } = renderHook(() => useScrollAnchor(box));
+  // Files shown above the line at the top, 300px of them, with no scroll; then a classic scrollbar narrows the box.
+  for (let i = 0; i < 3; i++) heights[i] = 140;
+  act(() => result.current());
+  held.width = 365;
+  resize();
+  expect(box.scrollTop).toBe(300);
+});
+
 test("what has the focus but is taller than the box, such as a file whose code holds it, isn't the place: the line at the top is", () => {
   const resize = stubResizeObserver();
   const { box, lines, heights, held } = code();

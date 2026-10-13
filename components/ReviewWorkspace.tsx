@@ -16,7 +16,7 @@ import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout,
 import { useKeyboardInset } from "../lib/use-keyboard-inset";
 import { useFold } from "../lib/use-fold";
 import { useSafeArea } from "../lib/use-safe-area";
-import { goToPlace, linePlace, useScrollAnchor } from "../lib/use-scroll-anchor";
+import { flipPlace, goToFlipPlace, goToPlace, linePlace, useScrollAnchor, type FlipPlace } from "../lib/use-scroll-anchor";
 import { carried, keep, present, type KeptFocus } from "../lib/remount";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
@@ -483,9 +483,25 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setChosen(next);
     patchReviewState(targetKey, { compare: next });
   }, [targetKey, head]);
-  const pickCompare = useCallback((sha: string | null) => choose(sha, true), [choose]);
   // All changes lets a picked commit go.
   const narrow = useCallback((narrowed: boolean) => choose(narrowed ? compareFrom : null, narrowed), [choose, compareFrom]);
+  // A flip you make between them (the switch, the band's select, Diff options) keeps your place in the code, read before
+  // the diff shows more or fewer files and hunks; null on the chapter's intro, where the code stays put, the files it
+  // shows under it.
+  const flipFrom = useRef<{ place: FlipPlace | null } | null>(null);
+  const flip = useCallback((narrowed: boolean) => {
+    const box = scrollBox.current;
+    if (box && since && narrowed !== sinceOnly) {
+      const intro = box.querySelector(":scope > section");
+      const place = !box.scrollTop || (intro && intro.getBoundingClientRect().bottom > box.getBoundingClientRect().top) ? null : flipPlace(box);
+      flipFrom.current = { place };
+      // What's at the top is current, as after your own scroll.
+      if (place) pinned.current = false;
+    }
+    narrow(narrowed);
+  }, [since, sinceOnly, narrow]);
+  // Another commit is another comparison, which arrives later: picking the one shown again is a flip.
+  const pickCompare = useCallback((sha: string | null) => sha === compareFrom ? flip(true) : choose(sha, true), [compareFrom, flip, choose]);
   const sinceWhat = compareFrom ? compareFrom.slice(0, 7) : "your review";
   // Who owns each file, by CODEOWNERS on a PR's base branch, or a local review's new side.
   useEffect(() => {
@@ -573,7 +589,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // A tablet's layout in a phone's window held sideways is the unfolded iPhone Duo's: its fold is estimated where the
   // browser can't say where it is.
   useFold(rootEl, layout.mode === "tablet");
-  useScrollAnchor(scrollEl);
+  const reanchor = useScrollAnchor(scrollEl);
   // While the step bar is over the code's foot, the code ends above it: a chapter's last buttons stay in reach.
   const commentStep = useCommentStep(targetKey);
   useLayoutEffect(() => {
@@ -702,6 +718,44 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       window.removeEventListener("keydown", dropRestore);
     };
   }, [compared, activeId, dropRestore]);
+  // Your place after a flip, put back before it paints, then as the files it shows draw, for a few seconds, or until you
+  // scroll, tap or press a key. Meanwhile the browser's scroll anchoring is off, as it would keep what shows on screen;
+  // Safari has none. Either way, the resize anchor takes what's at the top now: a scrollbar coming or going with the
+  // files resizes the box, and it would put back what was at the top before the flip.
+  useLayoutEffect(() => {
+    const box = scrollBox.current;
+    const flipped = flipFrom.current;
+    flipFrom.current = null;
+    if (!box || !flipped) return;
+    const { place } = flipped;
+    if (!place) return reanchor();
+    let frame = 0;
+    const until = Date.now() + 3000;
+    const inputs = ["wheel", "touchstart"] as const;
+    const stop = () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(listen);
+      box.style.overflowAnchor = "";
+      inputs.forEach((type) => box.removeEventListener(type, stop));
+      window.removeEventListener("pointerdown", stop, { capture: true });
+      window.removeEventListener("keydown", stop);
+    };
+    const follow = () => {
+      goToFlipPlace(box, place);
+      if (Date.now() < until) frame = requestAnimationFrame(follow);
+      else stop();
+    };
+    box.style.overflowAnchor = "none";
+    // Once the key that flipped it, if one did, has reached the window.
+    const listen = setTimeout(() => {
+      inputs.forEach((type) => box.addEventListener(type, stop, { once: true }));
+      window.addEventListener("pointerdown", stop, { capture: true, once: true });
+      window.addEventListener("keydown", stop, { once: true });
+    });
+    follow();
+    reanchor();
+    return stop;
+  }, [sinceOnly, reanchor]);
 
   const toggleViewed = useCallback(
     (file: string, viewed: boolean) => {
@@ -1081,12 +1135,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     nav: { open: layout.nav === "docked" || layout.nav === "overlay", toggle: toggleNav, find: findInReview, view: navView, setView: changeNavView },
     panel: { view: shownPanel, open: openPanel, toggle: togglePanel, close: closePanel },
     files: { views, toggleViewed, markChapterViewed, nextUnviewed, foldAll: foldAllFiles },
-    compare: { baseline: baselineSha, head: review?.headSha ?? null, from: compareFrom, pick: pickCompare, since, narrowed: sinceOnly, setNarrowed: narrow, error: sinceError, what: sinceWhat },
+    compare: { baseline: baselineSha, head: review?.headSha ?? null, from: compareFrom, pick: pickCompare, since, narrowed: sinceOnly, setNarrowed: flip, error: sinceError, what: sinceWhat },
     display: { layout: diffLayout, toggleLayout, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads, commentsFolded, setCommentsFolded: changeCommentsFolded },
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, narrow, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts]);
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts]);
 
   if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");
@@ -1172,7 +1226,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 sinceWhat={sinceWhat}
                 owners={owners}
                 foldAll={foldAll}
-                onSinceOnly={rereview || sheet || !compareShown ? narrow : undefined}
+                onSinceOnly={rereview || sheet || !compareShown ? flip : undefined}
                 switchSlot={switchSlot}
               />
               </DiffThreadsContext.Provider>
