@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { useScrollAnchor } from "./use-scroll-anchor";
+import { flipPlace, goToFlipPlace, useScrollAnchor } from "./use-scroll-anchor";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); delete (document as { elementsFromPoint?: unknown }).elementsFromPoint; document.body.innerHTML = ""; });
 
@@ -278,4 +278,51 @@ test("it watches what's in the box as well as the box, as it comes and goes", as
   await act(() => Promise.resolve());
   expect(resize.observed.has(added)).toBe(true);
   expect(resize.observed.has(lines[0])).toBe(false);
+});
+
+type Row = [type: string, line: string, alt: string | null];
+const numbered = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i): Row => ["context", String(from + i), String(from + i)]);
+
+/**
+ * The code's box at y 100, 380 × 500, and `fill`, which draws a chapter's files in it, as a flip draws them anew: each
+ * `top` px down the code, with its rows 20px tall from 40px down its card in a diffs-container's shadow root, as pierre
+ * draws them, or a placeholder for a file still to draw. Positions follow `scrollTop`.
+ */
+function chapterCode() {
+  const box = document.body.appendChild(document.createElement("div"));
+  box.getBoundingClientRect = () => new DOMRect(0, 100, 380, 500);
+  const at = (top: number, height: number) => () => new DOMRect(0, 100 + top - box.scrollTop, 380, height);
+  const fill = (files: { file: string; top: number; rows?: Row[]; pending?: boolean }[]) => {
+    box.replaceChildren();
+    for (const { file, top, rows = [], pending = false } of files) {
+      const card = box.appendChild(document.createElement("div"));
+      card.dataset.file = file;
+      card.getBoundingClientRect = at(top, 40 + rows.length * 20);
+      if (pending) card.appendChild(document.createElement("div")).setAttribute("data-pending-diff", "");
+      if (!rows.length) continue;
+      const column = card.appendChild(document.createElement("diffs-container")).attachShadow({ mode: "open" }).appendChild(document.createElement("div"));
+      rows.forEach(([type, line, alt], i) => {
+        const row = column.appendChild(document.createElement("div"));
+        row.setAttribute("data-line-type", type);
+        row.setAttribute("data-line", line);
+        if (alt) row.setAttribute("data-alt-line", alt);
+        row.getBoundingClientRect = at(top + 40 + i * 20, 20);
+      });
+    }
+  };
+  return { box, fill };
+}
+
+test("in a large chapter, a flip that leaves your file still to draw goes to it, for it to draw, then puts the line back", () => {
+  const { box, fill } = chapterCode();
+  fill([{ file: "b", top: 0, rows: numbered(1, 30) }]);
+  box.scrollTop = 205;
+  const place = flipPlace(box)!;
+  // All changes draws only the files near the screen: b, 5000px down, waits.
+  fill([{ file: "a", top: 0, rows: numbered(1, 200) }, { file: "b", top: 5000, pending: true }]);
+  goToFlipPlace(box, place);
+  expect(box.scrollTop).toBe(5000);
+  fill([{ file: "a", top: 0, rows: numbered(1, 200) }, { file: "b", top: 5000, rows: numbered(1, 30) }]);
+  goToFlipPlace(box, place);
+  expect(box.scrollTop).toBe(5205);
 });

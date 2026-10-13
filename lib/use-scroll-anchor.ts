@@ -132,7 +132,7 @@ export function flipPlace(box: HTMLElement): FlipPlace | null {
 /**
  * Scrolls `box` to put a flip's `place` back: the first of its lines still shown, as far under the code's top as it
  * was; else the top of the first file after it still shown, or of the last file shown; or the chapter's top. Its file
- * shown but not drawn yet, it waits.
+ * shown but not drawn yet, it waits, at the file.
  */
 export function goToFlipPlace(box: HTMLElement, place: FlipPlace) {
   const boxTop = box.getBoundingClientRect().top;
@@ -141,7 +141,11 @@ export function goToFlipPlace(box: HTMLElement, place: FlipPlace) {
   if (file && !place.lines.length) return void (box.scrollTop += file.getBoundingClientRect().top - boxTop - place.offset);
   if (file) {
     const drawn = new Map(linesOf(file).map((el) => [lineKey(el), el]));
-    if (!drawn.size) return;
+    // Not drawn yet: a large chapter draws a file only as it nears the screen, so it's gone to, to draw.
+    if (!drawn.size) {
+      if (file.querySelector("[data-pending-diff]")) box.scrollTop += file.getBoundingClientRect().top - boxTop;
+      return;
+    }
     const line = place.lines.map((key) => drawn.get(key)).find((el) => el);
     // Twice: putting it back can stick or unstick a file's header at the top, which moves the code's top.
     if (line) return void [0, 1].forEach(() => { box.scrollTop += line.getBoundingClientRect().top - codeTop(box) - place.offset; });
