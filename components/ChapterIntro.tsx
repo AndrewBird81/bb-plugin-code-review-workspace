@@ -10,9 +10,6 @@ import { MetaLine } from "./MetaLine";
 import { RISK_LABEL, RISK_TONE } from "./ChapterNav";
 import { TOUCH_CONTROL } from "./touch";
 
-/** The card's width from which a re-review's switch sits on its first row: a pane about 560px wide. */
-const SWITCH_BESIDE = 528;
-
 /**
  * The open chapter above its diff: where it is in the guide, its risk and size, its title, full overview, and what to
  * verify. Hiding the overview sticks in this browser. On a phone (`brief`) the overview shows three lines until More,
@@ -58,18 +55,6 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
     observer.observe(el);
     return () => observer.disconnect();
   }, [clamp, overview, collapsed]);
-  const card = useRef<HTMLElement>(null);
-  const [roomy, setRoomy] = useState(false);
-  useLayoutEffect(() => {
-    const el = card.current;
-    if (!el || !switchSlot) return;
-    const measure = () => setRoomy(el.getBoundingClientRect().width >= SWITCH_BESIDE);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [switchSlot]);
   const checks = focus ?? [];
   const listed = checks.length > 0 && (!brief || verifying);
   function toggle() {
@@ -77,37 +62,37 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
     setCollapsed(!collapsed);
   }
   return (
-    <section ref={card} aria-labelledby={titleId} className="mb-4 rounded-lg border border-border bg-card px-4 py-3 shadow-xs">
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <MetaLine className="tabular-nums" items={[
-            `Chapter ${index + 1} of ${total}`,
-            // Low risk is the usual case: only Medium and High say so.
-            risk && risk !== "low" && <Badge tone={RISK_TONE[risk] ?? "neutral"} size="sm" className="align-[-2px]">{RISK_LABEL[risk] ?? risk}</Badge>,
-            `${chapterFiles.length} ${chapterFiles.length === 1 ? "file" : "files"}`,
-            lines > 0 && `${lines.toLocaleString()} ${lines === 1 ? "line" : "lines"}`,
-            `${viewed} of ${chapterFiles.length} viewed`,
-          ]} />
-          <h3 id={titleId} className="mt-1 text-sm font-semibold leading-snug text-foreground"><InlineCode text={title} /></h3>
-        </div>
-        {switchSlot && roomy && <div ref={switchSlot} className="shrink-0 empty:hidden" />}
-        {overview && (
-          <button
-            type="button"
-            aria-label={collapsed ? "Show chapter overview" : "Hide chapter overview"}
-            aria-expanded={!collapsed}
-            className={cn("-mr-1 -mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-state-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_CONTROL)}
-            onClick={toggle}
-          >
-            <Icon name="ChevronDown" className={cn("size-3.5 transition-transform duration-150", collapsed && "-rotate-90")} aria-hidden />
-          </button>
-        )}
+    <section aria-labelledby={titleId} className="@container/intro mb-4 grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-2 rounded-lg border border-border bg-card px-4 py-3 shadow-xs">
+      <div className="col-start-1 row-start-1 min-w-0">
+        <MetaLine className="tabular-nums" items={[
+          `Chapter ${index + 1} of ${total}`,
+          // Low risk is the usual case: only Medium and High say so.
+          risk && risk !== "low" && <Badge tone={RISK_TONE[risk] ?? "neutral"} size="sm" className="align-[-2px]">{RISK_LABEL[risk] ?? risk}</Badge>,
+          `${chapterFiles.length} ${chapterFiles.length === 1 ? "file" : "files"}`,
+          lines > 0 && `${lines.toLocaleString()} ${lines === 1 ? "line" : "lines"}`,
+          `${viewed} of ${chapterFiles.length} viewed`,
+        ]} />
+        <h3 id={titleId} className="mt-1 text-sm font-semibold leading-snug text-foreground"><InlineCode text={title} /></h3>
       </div>
-      {overview && !collapsed && <div ref={overviewBox} className={cn("mt-2 max-w-[80ch]", clamp && "max-h-[4.25rem] overflow-hidden", clamp && clipped && "[mask-image:linear-gradient(to_bottom,black_2.75rem,transparent)]")}>
+      {/* By CSS, so it moves in the same layout as a turn: the scroll anchor puts your place back after both. From a
+          card about 528px wide (a pane about 560px), on the first row; else the last. */}
+      {switchSlot && <div ref={switchSlot} className="order-last col-span-full mt-2 empty:hidden @min-[494px]/intro:order-none @min-[494px]/intro:mt-0 @min-[494px]/intro:[grid-column:2] @min-[494px]/intro:[grid-row:1]" />}
+      {overview && (
+        <button
+          type="button"
+          aria-label={collapsed ? "Show chapter overview" : "Hide chapter overview"}
+          aria-expanded={!collapsed}
+          className={cn("col-start-3 row-start-1 -mr-1 -mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-state-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_CONTROL)}
+          onClick={toggle}
+        >
+          <Icon name="ChevronDown" className={cn("size-3.5 transition-transform duration-150", collapsed && "-rotate-90")} aria-hidden />
+        </button>
+      )}
+      {overview && !collapsed && <div ref={overviewBox} className={cn("col-span-full mt-2 max-w-[80ch]", clamp && "max-h-[4.25rem] overflow-hidden", clamp && clipped && "[mask-image:linear-gradient(to_bottom,black_2.75rem,transparent)]")}>
         <Markdown content={overview} className="text-sm leading-relaxed text-foreground/90" />
       </div>}
       {brief && !collapsed && (checks.length > 0 || clipped) && (
-        <div className="mt-1 flex flex-wrap items-center gap-x-4 text-xs pointer-coarse:-mb-2">
+        <div className="col-span-full mt-1 flex flex-wrap items-center gap-x-4 text-xs pointer-coarse:-mb-2">
           {checks.length > 0 && <button type="button" aria-expanded={verifying} onClick={() => setVerifying(!verifying)} className={cn("flex items-center gap-1.5 rounded-sm font-medium text-foreground", TOUCH_CONTROL)}>
             <Icon name="ListTodo" className="size-3.5 text-primary" aria-hidden />What to verify<span className="font-normal text-muted-foreground"> · {checks.length}</span>
             <Icon name="ChevronRight" className={cn("size-3.5 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none", verifying && "rotate-90")} aria-hidden />
@@ -118,14 +103,13 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
         </div>
       )}
       {listed && !collapsed && (
-        <div className={cn("max-w-[80ch] text-xs", brief ? "mt-1" : "mt-2.5")}>
+        <div className={cn("col-span-full max-w-[80ch] text-xs", brief ? "mt-1" : "mt-2.5")}>
           {!brief && <p className="flex items-center gap-1.5 font-medium text-foreground"><Icon name="ListTodo" className="size-3.5 text-primary" aria-hidden />What to verify</p>}
           <ul aria-label="What to verify" className={cn("list-disc space-y-0.5 pl-5 text-foreground/90 marker:text-subtle-foreground", !brief && "mt-1")}>
             {checks.map((item) => <li key={item}><InlineCode text={item} /></li>)}
           </ul>
         </div>
       )}
-      {switchSlot && !roomy && <div ref={switchSlot} className="mt-2 empty:hidden" />}
     </section>
   );
 });
