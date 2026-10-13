@@ -24,8 +24,10 @@ A new review workspace, built so the code owns the screen on a desktop, an iPad,
 - The chapters list reads **Chapters | All files**, with the Overview first, saying where the review stands, and **Next unviewed** beside the progress bar. On a phone the switch heads the chapters sheet, and the files viewed share the progress bar's row, so the chapters start higher.
 - A chapter's intro is one line ("Chapter 1 of 3 · Medium risk · 3 files · 27 lines · 0 of 3 viewed"); on a phone its overview shows three lines until **More**, and **What to verify · 2 ›** is one line that opens the list. Its end says what you've viewed and commented, with **Next: …**, or on the last chapter **Finish review** and the files you haven't viewed yet.
 - Only a slim row sticks above each file's code (path, comment count, size, Viewed); the summary, owners, Renamed, Also in, Expand, and Whole file scroll away with the code. A file's count includes its unresolved GitHub threads, and a viewed file that changed again says "Changed since you viewed it".
-- One compare select says what the diff shows: **All changes**, **Since your review**, or since a commit. Where the band has no room for it, Diff options has it, and a narrowed diff says "Showing changes since your review · 1 of 3 files" with **Show all**. A comparison that fails says why.
-- A picked commit lets go when you choose All changes or Show all, open a file it hid, follow a Find result, or the author pushes, so the select and the files' badges agree.
+- A re-review opens on what changed since your review, however you get to a chapter. **Settings → Re-reviews** can open it on **All changes** instead. Review changes still goes to the first chapter that changed.
+- A switch above each chapter's files flips between **Since your review** and **All changes** in one tap, on every device, and keeps the count ("Since your review · 1 of 3 files"). It replaces the phone's "Showing changes since your review" note with Show all. A chapter with nothing new says "Nothing changed in this chapter since your review".
+- One compare select says what the diff shows: **All changes**, **Since your review**, or since a commit. Where the band has no room for it, Diff options has it. A comparison that fails says why.
+- What you choose holds for the review in this browser until the author pushes and its guide updates, across chapters, leaving and coming back, and BB's layout switches. A picked commit is now remembered too. After a push, the review opens on your Settings choice again, from your last review, so the select and the files' badges agree. Opening a file or a line the comparison hides, from the chapters, a comment, or a Find result, shows all changes, and that holds too.
 
 ### Comments
 
@@ -69,6 +71,7 @@ A new review workspace, built so the code owns the screen on a desktop, an iPad,
 - Refresh and Settings moved to BB's title bar; Refresh's tooltip says when GitHub was last read. With no reviews, a first-run panel checks your setup and says how to start.
 - A PR found on GitHub, a guide being built, and a failed guide have a page bar with All reviews and the review's menu. **Start review** is now **Build the guide**.
 - Settings goes back where you opened it from (**All reviews** or **Back to review**), and the GitHub account switcher is under Ready to review.
+- **Re-reviews** in Settings chooses what a re-review opens on: **Changes since your review** (the default) or **All changes**.
 - In BB's thread list, pin buttons show on hover with a mouse, so touch screens keep the rows clear (pin from ⋯), and a row's tooltip says why it's yours.
 
 ### Keys and accessibility
