@@ -167,6 +167,16 @@ test("the intro's columns are spaced by margins, so an empty switch slot costs t
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("in a card under 340px the switch's segments pad less, so BB's larger phone text fits a folded Duo's", async () => {
+  const { slot } = await renderWorkspace();
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  const group = within(slot.getByRole("main")).getByRole("radiogroup", { name: "Changes shown" });
+  expect(group.parentElement!.parentElement!.className).toContain("@max-[340px]/intro:[&_[role=radio]]:px-1.5");
+  // Its labels stay whole.
+  expect(within(group).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["Since your review · 1 of 2 files", "All changes"]);
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("narrowed, the chapters list marks the first file the diff shows, not the chapter's first file it hides", async () => {
   // Since your review, b.ts changed and a.ts didn't.
   const { slot } = await renderWorkspace({ then: at({ a: "aa", b: "b0", c: "cc", d: "dd", e: "e0" }) });

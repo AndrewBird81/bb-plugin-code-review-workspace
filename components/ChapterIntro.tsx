@@ -95,8 +95,10 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
       )}
       {/* By CSS, so it moves in the same layout as a turn: the scroll anchor puts your place back after both. From a
           card about 528px wide (a pane about 560px), on the first row; else under the title, where it's read. Margins,
-          not the grid's gap, space the columns, so an empty slot costs the facts no width. */}
-      {switchSlot && <div ref={switchSlot} className="col-span-full mt-2 empty:hidden @min-[494px]/intro:ml-2 @min-[494px]/intro:mt-0 @min-[494px]/intro:[grid-column:2] @min-[494px]/intro:[grid-row:1]" />}
+          not the grid's gap, space the columns, so an empty slot costs the facts no width. Under a 340px card its
+          segments pad less: BB's small text is 14px in a window under 768px, and the switch then fits the 316px of a
+          folded Duo. */}
+      {switchSlot && <div ref={switchSlot} className="col-span-full mt-2 empty:hidden @max-[340px]/intro:[&_[role=radio]]:px-1.5 @min-[494px]/intro:ml-2 @min-[494px]/intro:mt-0 @min-[494px]/intro:[grid-column:2] @min-[494px]/intro:[grid-row:1]" />}
       {overview && !collapsed && <div ref={overviewBox} className={cn("col-span-full mt-2 max-w-[80ch]", clamp && "max-h-[4.25rem] overflow-hidden", clamp && clipped && "[mask-image:linear-gradient(to_bottom,black_2.75rem,transparent)]")}>
         <Markdown content={overview} className="text-sm leading-relaxed text-foreground/90" />
       </div>}
