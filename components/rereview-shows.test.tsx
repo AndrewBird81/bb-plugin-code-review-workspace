@@ -131,6 +131,20 @@ test("the switch sits in the chapter's intro card, not in a block of its own ove
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("the switch is read where a narrow card draws it: after the title and the overview's toggle, before the overview", async () => {
+  const { slot } = await renderWorkspace();
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  const intro = within(slot.getByRole("main")).getByRole("region", { name: "Parsing" });
+  const toggle = within(intro).getByRole("button", { name: "Hide chapter overview" });
+  const group = within(intro).getByRole("radiogroup", { name: "Changes shown" });
+  const follows = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(follows(toggle, group)).toBe(true);
+  expect(follows(group, within(intro).getByText("Reads rows."))).toBe(true);
+  // Nothing in the card is drawn out of its DOM order.
+  expect(intro.querySelector("[class*='order-']")).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("narrowed, the chapters list marks the first file the diff shows, not the chapter's first file it hides", async () => {
   // Since your review, b.ts changed and a.ts didn't.
   const { slot } = await renderWorkspace({ then: at({ a: "aa", b: "b0", c: "cc", d: "dd", e: "e0" }) });

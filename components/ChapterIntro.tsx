@@ -14,7 +14,7 @@ import { TOUCH_CONTROL } from "./touch";
  * The open chapter above its diff: where it is in the guide, its risk and size, its title, full overview, and what to
  * verify. Hiding the overview sticks in this browser. On a phone (`brief`) the overview shows three lines until More,
  * and what to verify one line until you open it, so the code starts on screen. A re-review's switch goes in it
- * (`switchSlot`): on its first row where there's room, else as its last row, so it costs the code no block of its own.
+ * (`switchSlot`): on its first row where there's room, else under the title, so it costs the code no block of its own.
  */
 export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk, focus, lines, collapsedByDefault = false, brief = false, switchSlot }: {
   index: number;
@@ -74,9 +74,6 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
         ]} />
         <h3 id={titleId} className="mt-1 text-sm font-semibold leading-snug text-foreground"><InlineCode text={title} /></h3>
       </div>
-      {/* By CSS, so it moves in the same layout as a turn: the scroll anchor puts your place back after both. From a
-          card about 528px wide (a pane about 560px), on the first row; else the last. */}
-      {switchSlot && <div ref={switchSlot} className="order-last col-span-full mt-2 empty:hidden @min-[494px]/intro:order-none @min-[494px]/intro:mt-0 @min-[494px]/intro:[grid-column:2] @min-[494px]/intro:[grid-row:1]" />}
       {overview && (
         <button
           type="button"
@@ -88,6 +85,9 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
           <Icon name="ChevronDown" className={cn("size-3.5 transition-transform duration-150", collapsed && "-rotate-90")} aria-hidden />
         </button>
       )}
+      {/* By CSS, so it moves in the same layout as a turn: the scroll anchor puts your place back after both. From a
+          card about 528px wide (a pane about 560px), on the first row; else under the title, where it's read. */}
+      {switchSlot && <div ref={switchSlot} className="col-span-full mt-2 empty:hidden @min-[494px]/intro:mt-0 @min-[494px]/intro:[grid-column:2] @min-[494px]/intro:[grid-row:1]" />}
       {overview && !collapsed && <div ref={overviewBox} className={cn("col-span-full mt-2 max-w-[80ch]", clamp && "max-h-[4.25rem] overflow-hidden", clamp && clipped && "[mask-image:linear-gradient(to_bottom,black_2.75rem,transparent)]")}>
         <Markdown content={overview} className="text-sm leading-relaxed text-foreground/90" />
       </div>}
