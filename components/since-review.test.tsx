@@ -113,16 +113,17 @@ test("the diff offers Since your review only when you reviewed another commit", 
   same.slot.lifecycle.unmount();
 
   const { slot, getSinceReview } = await renderWorkspace({ headSha: "new", signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" });
-  const select = await slot.findByRole("button", { name: "Show changes: All changes" });
+  // It opens on what changed since then.
+  const select = await slot.findByRole("button", { name: "Show changes: Since your review" });
   expect(getSinceReview).toHaveBeenCalledWith({ targetKey: "pr-42" });
   // Each chapter counts its files changed since your review.
   const chapters = within(slot.getByRole("navigation", { name: "Chapters" }));
   await waitFor(() => expect(chapters.getAllByText("1 changed")).toHaveLength(2));
-  expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
-  fireEvent.click(select);
-  fireEvent.click(await slot.findByRole("menuitemradio", { name: /^Since your review/ }));
-  expect(await slot.findByRole("button", { name: "Show changes: Since your review" })).toBeTruthy();
   expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeNull();
   expect(slot.getByText("1 file unchanged since your review")).toBeTruthy();
+  fireEvent.click(select);
+  fireEvent.click(await slot.findByRole("menuitemradio", { name: "All changes in this PR" }));
+  expect(await slot.findByRole("button", { name: "Show changes: All changes" })).toBeTruthy();
+  expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
   slot.lifecycle.unmount();
 });

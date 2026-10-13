@@ -87,7 +87,8 @@ async function renderWorkspace() {
     setReviewPresence: () => ({ ok: true }),
     getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Cache rows", headSha: "new", signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" }, guide: structuredClone(guide), patch, revision: "r1" }),
     getChecks: () => ({ bucket: "none", checks: [] }),
-    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    // Every file shows, as Settings' All changes has it: chapter 1 has nothing changed since your review.
+    getPreferences: () => ({ preferences: { ...defaultPreferences, rereviewShows: "all" }, revision: 0 }),
     getFileViews: () => ({ views: [{ file: "src/api.ts", viewed: true, stale: false }] }),
     getGeneratedFiles: () => ({ files: ["dist/bundle.js"] }),
     checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),

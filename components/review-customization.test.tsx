@@ -54,6 +54,23 @@ test("Restore defaults keeps the diff layout, which the review sets, not Setting
   slot.lifecycle.unmount();
 });
 
+test("what a re-review shows starts on Changes since your review, saves All changes, and Restore defaults goes back", async () => {
+  const { ReviewSettings } = await import("./ReviewSettings");
+  let record = { preferences: { ...defaultPreferences }, revision: 0 };
+  const save = vi.fn(async (input: any) => record = { ...input, revision: input.revision + 1 });
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record, savePreferences: save } });
+  const choices = within(await slot.findByRole("group", { name: "On a re-review, show" }));
+  const pressed = () => choices.getAllByRole("button").filter((button) => button.getAttribute("aria-pressed") === "true").map((button) => button.textContent);
+  expect(pressed()).toEqual(["Changes since your review"]);
+  fireEvent.click(choices.getByRole("button", { name: "All changes" }));
+  fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
+  await slot.findByText("Settings saved");
+  expect(record.preferences.rereviewShows).toBe("all");
+  fireEvent.click(slot.getByRole("button", { name: "Restore defaults" }));
+  expect(pressed()).toEqual(["Changes since your review"]);
+  slot.lifecycle.unmount();
+});
+
 test("Settings goes back to where it was opened from, All reviews or the review, once edits are saved or discarded", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const rpc = { setReviewPresence: () => ({ ok: true }), getPreferences: () => ({ preferences: { ...defaultPreferences }, revision: 0 }), getGhAccounts: () => ({ active: "me", accounts: [] }) } as any;

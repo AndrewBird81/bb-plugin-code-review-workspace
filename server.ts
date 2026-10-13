@@ -368,7 +368,7 @@ export default async function plugin(bb: BbPluginApi) {
     getPreferences() { return store.getPreferences(); },
     savePreferences({ preferences, revision }) {
       const before = store.getPreferences().preferences;
-      const result = store.savePreferences({ ...preferences, threadListReviews: preferences.threadListReviews ?? before.threadListReviews }, revision);
+      const result = store.savePreferences({ ...preferences, threadListReviews: preferences.threadListReviews ?? before.threadListReviews, rereviewShows: preferences.rereviewShows ?? before.rereviewShows }, revision);
       bb.realtime.publish("preferences", {});
       // These are in the assistants' instructions; whether they may run the repo's checks depends on the last two.
       if ((["assistantInstructions", "runRepoChecks", "unattendedAuthors"] as const).some((key) => result.preferences[key] !== before[key])) void refreshAssistants(bb, store);

@@ -101,8 +101,6 @@ test("a background reload keeps the diff the server leaves out, and reads the ch
 test("Since your review follows the review you just submitted here, before GitHub reports it", async () => {
   let review: Record<string, unknown> = { submittedVerdict: "REQUEST_CHANGES", submittedAt: now - 3 * DAY, submittedHeadSha: "old", signals: { lastReviewAt: now - 3 * DAY, lastReviewSha: "old" }, turn: turn() };
   const { slot, rpc } = await renderWorkspace(() => review);
-  fireEvent.click(await slot.findByRole("button", { name: "Show changes: All changes" }));
-  fireEvent.click(await slot.findByRole("menuitemradio", { name: /^Since your review/ }));
   expect(await slot.findByRole("button", { name: "Show changes: Since your review" })).toBeTruthy();
   // You submit on the new head; GitHub still reports the old review.
   review = { ...review, submittedAt: now, submittedHeadSha: "new" };

@@ -116,12 +116,12 @@ test("on a phone Diff options is a drawer from the chapters sheet, with Fold com
   fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Diff options" }));
   expect(await slot.findByRole("switch", { name: "Fold comments in code" })).toBeTruthy();
   expect(slot.queryByRole("radiogroup", { name: "Layout" })).toBeNull();
-  fireEvent.click(within(slot.getByRole("radiogroup", { name: "Show changes" })).getByRole("radio", { name: "Since your review" }));
-  const note = await slot.findByText(/^Showing changes since your review/);
-  expect(note.textContent).toBe("Showing changes since your review · 1 of 2 files");
-  await waitFor(() => expect(slot.getAllByTestId("filediff")).toHaveLength(1));
-  fireEvent.click(within(note.closest<HTMLElement>("[role=status]")!).getByRole("button", { name: "Show all" }));
+  fireEvent.click(within(slot.getByRole("radiogroup", { name: "Show changes" })).getByRole("radio", { name: "All" }));
   await waitFor(() => expect(slot.getAllByTestId("filediff")).toHaveLength(2));
-  expect(slot.queryByText(/^Showing changes since/)).toBeNull();
+  const shown = within(slot.getByRole("radiogroup", { name: "Changes shown" }));
+  expect(shown.getByRole("radio", { name: "All changes" }).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(shown.getByRole("radio", { name: "Since your review · 1 of 2 files" }));
+  await waitFor(() => expect(slot.getAllByTestId("filediff")).toHaveLength(1));
+  expect(within(slot.getByRole("radiogroup", { name: "Show changes" })).getByRole("radio", { name: "Since your review" }).getAttribute("aria-checked")).toBe("true");
   slot.lifecycle.unmount();
 });

@@ -35,6 +35,17 @@ async function inbox(reviews: unknown[], rpc: Record<string, (input: any) => unk
   return { slot, calls, header, titles };
 }
 
+test("listing the reviews forgets what a deleted one's diff compared with", async () => {
+  const { patchReviewState, getReviewState } = await import("../lib/panel-state");
+  patchReviewState("pr-7", { compare: { head: "h7", from: null, narrowed: false } });
+  patchReviewState("pr-gone", { activeId: "c1", compare: { head: "h1", from: null, narrowed: true } });
+  const { slot } = await inbox([{ targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/app", title: "Fix", status: "ready" }]);
+  await slot.findByText("Fix");
+  expect(getReviewState("pr-gone")).toEqual({ activeId: "c1" });
+  expect(getReviewState("pr-7").compare).toEqual({ head: "h7", from: null, narrowed: false });
+  slot.lifecycle.unmount();
+});
+
 test("a row shows its title, where the PR is, how long it's been your turn, and why it's yours", async () => {
   const { slot } = await inbox([{ targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/app", title: "Fix", author: "alice", status: "ready",
     signals: { requestedBy: "alice" }, turn: turn("needs", "requested", "Review requested", { at: now - 3 * 3_600_000 }) }]);

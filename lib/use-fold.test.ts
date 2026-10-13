@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { useFold } from "./use-fold";
+import { useFold, useOffFold } from "./use-fold";
 
 const restores: (() => void)[] = [];
 afterEach(() => { cleanup(); delete (window as { viewport?: unknown }).viewport; document.body.innerHTML = ""; restores.splice(0).forEach((restore) => restore()); });
@@ -101,4 +101,21 @@ test("where the API says there's no fold, as Chrome does on a phone that doesn't
   const el = workspace(new DOMRect(0, 48, 951, 541));
   renderHook(() => useFold(el, true));
   expect(el.style.getPropertyValue("--gr-fold-end")).toBe("");
+});
+
+test("what keeps off the fold starts past it where it would cross it and there's room past it, and stays put elsewhere", () => {
+  fakeSegments([LEFT, RIGHT]);
+  // A row at the reader's start beside the docked chapters, x 304 on, its switch 282px wide.
+  const row = (left: number, right: number) => {
+    const el = workspace(new DOMRect(left, 0, right - left, 40));
+    const child = el.appendChild(document.createElement("div"));
+    child.getBoundingClientRect = () => new DOMRect(left + (parseFloat(el.style.paddingLeft) || 0), 0, 282, 40);
+    renderHook(() => useOffFold(el, true));
+    return el.style.paddingLeft;
+  };
+  expect(row(304, 935)).toBe("192px");
+  // Beside Comments docked, the reader x 16–544: the switch is clear of the fold already.
+  expect(row(16, 544)).toBe("");
+  // Without room past the fold, it stays where it is.
+  expect(row(300, 700)).toBe("");
 });

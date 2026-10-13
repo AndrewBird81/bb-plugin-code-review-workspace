@@ -136,10 +136,10 @@ test("where the band has room for the review's title, it goes to the Overview, a
 test("on a re-review the band ends with the compare select, Fold comments and Diff options; on a first review, without the select", async () => {
   fakePane(1400);
   let slot = await renderWorkspace(rereview);
-  expect(await band(slot).findByRole("button", { name: "Show changes: All changes" })).toBeTruthy();
+  expect(await band(slot).findByRole("button", { name: "Show changes: Since your review" })).toBeTruthy();
   // Before the review's commands, which join the band where BB's title bar didn't take them.
   const controls = () => band(slot).getAllByRole("button").filter((button) => !button.closest("[data-review-commands]")).map((button) => button.getAttribute("aria-label") ?? button.textContent).slice(-3);
-  expect(controls()).toEqual(["Show changes: All changes", "Fold comments in code", "Diff options"]);
+  expect(controls()).toEqual(["Show changes: Since your review", "Fold comments in code", "Diff options"]);
   slot.lifecycle.unmount();
   slot = await renderWorkspace();
   expect(controls()).toEqual(["Parse rows", "Fold comments in code", "Diff options"]);
@@ -153,9 +153,9 @@ test("where the band has no room for the compare select, Diff options shows the 
   expect(band(slot).queryByRole("button", { name: /^Show changes/ })).toBeNull();
   fireEvent.click(band(slot).getByRole("button", { name: "Diff options" }));
   const changes = within(await slot.findByRole("radiogroup", { name: "Show changes" }));
-  expect(changes.getByRole("radio", { name: "All" }).getAttribute("aria-checked")).toBe("true");
-  fireEvent.click(changes.getByRole("radio", { name: "Since your review" }));
   expect(changes.getByRole("radio", { name: "Since your review" }).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(changes.getByRole("radio", { name: "All" }));
+  expect(changes.getByRole("radio", { name: "All" }).getAttribute("aria-checked")).toBe("true");
   expect(slot.getByRole("button", { name: "Since a commit…" })).toBeTruthy();
   // Fold comments is here too, where the band can leave it for the chapter's title.
   expect(slot.getByRole("switch", { name: "Fold comments in code" })).toBeTruthy();
@@ -201,20 +201,24 @@ test("where the band has no room for the compare select, as in full screen besid
   fakePane(1000, 900, 220);
   const slot = await renderWorkspace(rereview);
   expect(band(slot).queryByRole("button", { name: /^Show changes/ })).toBeNull();
-  fireEvent.click(band(slot).getByRole("button", { name: "Diff options" }));
-  fireEvent.click(within(await slot.findByRole("radiogroup", { name: "Show changes" })).getByRole("radio", { name: "Since your review" }));
-  expect((await slot.findByText(/^Showing changes since your review/)).textContent).toBe("Showing changes since your review · 1 of 2 files");
+  const shown = within(await slot.findByRole("radiogroup", { name: "Changes shown" }));
+  expect(shown.getByRole("radio", { name: "Since your review · 1 of 2 files" }).getAttribute("aria-checked")).toBe("true");
   slot.lifecycle.unmount();
 });
 
-test("with the compare select in the band, a narrowed diff says so there alone", async () => {
+test("with the compare select in the band, a re-review's diff still says what it shows above its files, and either switches it", async () => {
   fakePane(1400);
   const slot = await renderWorkspace(rereview);
-  fireEvent.click(await band(slot).findByRole("button", { name: "Show changes: All changes" }));
-  fireEvent.click(await slot.findByRole("menuitemradio", { name: /^Since your review/ }));
   expect(await band(slot).findByRole("button", { name: "Show changes: Since your review" })).toBeTruthy();
   expect(slot.getAllByTestId("filediff")).toHaveLength(1);
-  expect(slot.queryByText(/^Showing changes since/)).toBeNull();
+  const shown = within(slot.getByRole("radiogroup", { name: "Changes shown" }));
+  fireEvent.click(shown.getByRole("radio", { name: "All changes" }));
+  expect(await band(slot).findByRole("button", { name: "Show changes: All changes" })).toBeTruthy();
+  expect(slot.getAllByTestId("filediff")).toHaveLength(2);
+  fireEvent.click(await band(slot).findByRole("button", { name: "Show changes: All changes" }));
+  fireEvent.click(await slot.findByRole("menuitemradio", { name: /^Since your review/ }));
+  expect(shown.getByRole("radio", { name: "Since your review · 1 of 2 files" }).getAttribute("aria-checked")).toBe("true");
+  expect(slot.getAllByTestId("filediff")).toHaveLength(1);
   slot.lifecycle.unmount();
 });
 

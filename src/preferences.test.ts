@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
-import { AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_SUMMARY, VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, defaultPreferences } from "./preferences";
+import { AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_SUMMARY, VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, defaultPreferences, readPreferences } from "./preferences";
 import { buildGenerationPrompt } from "./generate";
 import { generateGuide } from "./generate";
 import { startConversation } from "./agent";
@@ -31,6 +31,18 @@ test("a page from before 0.5.1 saves settings without the thread-list setting, w
   const saved = await harness.behavior.callRpc("savePreferences", { preferences: older, revision: off.revision }) as any;
   expect(saved.preferences).toMatchObject({ guideDetail: "detailed", threadListReviews: false });
   expect(createStore(bb).getPreferences().preferences.threadListReviews).toBe(false);
+});
+
+test("a re-review shows what changed since your review unless Settings says All changes, which a page from before 0.6.0 keeps", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const { rereviewShows: _omitted, ...older } = { ...defaultPreferences, guideDetail: "detailed" as const };
+  // Saved before 0.6.0, without it.
+  expect(readPreferences(older).rereviewShows).toBe("since");
+  const all = await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, rereviewShows: "all" }, revision: 0 }) as any;
+  const saved = await harness.behavior.callRpc("savePreferences", { preferences: older, revision: all.revision }) as any;
+  expect(saved.preferences).toMatchObject({ guideDetail: "detailed", rereviewShows: "all" });
+  await expect(harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, rereviewShows: "latest" }, revision: saved.revision })).rejects.toThrow();
 });
 
 test("an automatic review saved with the default from before the review summary reads as the current default; a custom one stays", async () => {

@@ -10,6 +10,7 @@ import type { FileInterdiff } from "../src/interdiff";
 import type { FileOwners } from "../src/codeowners";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import { cn } from "../lib/utils";
+import { useOffFold } from "../lib/use-fold";
 import { buildItems, fileCounts } from "../lib/comments";
 import { classifyFile } from "../src/classify";
 import { Button } from "./ui/button";
@@ -21,6 +22,7 @@ import { InlineCode } from "./ui/inline-code";
 import { FileTag } from "./FileTag";
 import { useIsCompactViewport } from "./ui/hooks/use-compact-viewport";
 import { TOUCH_COMPACT } from "./touch";
+import { Segmented } from "./reading/DiffOptions";
 import { InlineDraftContext, InlineLocation, locationKey } from "./InlineDraft";
 import { DiffThreadsContext, LineThreads, OutdatedThreads, threadLocation } from "./LineThreads";
 import { CheckFailuresContext, LineChecks, failureLocation } from "./CheckFailures";
@@ -368,7 +370,7 @@ export const DiffViewer = memo(function DiffViewer({
   owners?: ReadonlyMap<string, FileOwners>;
   /** A new value folds every file, or unfolds them all. */
   foldAll?: { folded: boolean; nonce: number };
-  /** Narrows the diff to what changed since, or shows it all. Given, a narrowed diff says so at its top, with Show all. */
+  /** Narrows the diff to what changed since, or shows it all. Given, the diff's top switches between them. */
   onSinceOnly?: (sinceOnly: boolean) => void;
 }) {
   const theme = useTheme();
@@ -381,7 +383,7 @@ export const DiffViewer = memo(function DiffViewer({
   const filtering = sinceOnly && !!since;
   // The chapter's files by value: a reload's new array with the same files mustn't re-parse every diff.
   const fileKey = files.join("\0");
-  const { perFile, unchanged } = useMemo(() => {
+  const { perFile, unchanged, changed } = useMemo(() => {
     // In the guide's order, which reads the chapter's files on purpose.
     const order = new Map(fileKey.split("\0").map((path, index) => [path, index]));
     const chapter = splitPatchByFile(patch).filter((f) => order.has(f.path)).sort((a, b) => order.get(a.path)! - order.get(b.path)!);
@@ -427,7 +429,8 @@ export const DiffViewer = memo(function DiffViewer({
         inPart: split ? diffLines(own) : undefined,
       }];
     });
-    return { perFile, unchanged: chapter.length - shown.length + partsUnchanged };
+    // How many files changed since, as the filtered diff shows them: the switch counts them unfiltered too.
+    return { perFile, unchanged: chapter.length - shown.length + partsUnchanged, changed: filtering ? perFile.length : perFile.filter((f) => f.changedHere).length };
   }, [patch, fileKey, since, filtering, generated, splitFiles, hideWhitespace]);
   // Files loaded in full, each with the diff it was read for, and those showing every line. A new diff starts over.
   const [contents, setContents] = useState<Record<string, { text: string; result: "loading" | FileContentsResult }>>({});
@@ -614,13 +617,16 @@ export const DiffViewer = memo(function DiffViewer({
     }));
   }, [draft?.comments, draft?.stale, draft?.hideNits, github?.threads, perFile]);
 
-  // Where nothing else says the diff is narrowed, as on a phone, it says so above its files.
-  const narrowedNote = filtering && onSinceOnly && (
-    <p role="status" className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-lg border border-primary/25 bg-primary/10 py-1 pl-3 pr-1 text-xs text-primary">
-      <Icon name="GitCommit" className="size-3.5 shrink-0" aria-hidden />
-      <span className="min-w-0 flex-1">Showing changes since {sinceWhat} · <span className="whitespace-nowrap">{perFile.length} of {perFile.length + unchanged} file{perFile.length + unchanged === 1 ? "" : "s"}</span></span>
-      <Button variant="ghost" size="sm" className={cn("h-7 px-2 text-xs font-medium text-primary hover:text-primary", TOUCH_COMPACT)} onClick={() => onSinceOnly(false)}>Show all</Button>
-    </p>
+  // Above the files, what the diff shows, with how many of them changed since, and the other a tap away: past a fold
+  // down the screen.
+  const total = perFile.length + unchanged;
+  const [switchEl, setSwitchEl] = useState<HTMLDivElement | null>(null);
+  useOffFold(switchEl, !compact);
+  const compareSwitch = since && onSinceOnly && (
+    <div ref={setSwitchEl} className="flex">
+      <Segmented label="Changes shown" value={filtering ? "since" : "all"} onChange={(value) => onSinceOnly(value === "since")}
+        options={[{ value: "since", label: `Since ${sinceWhat} · ${changed} of ${total} file${total === 1 ? "" : "s"}` }, { value: "all", label: "All changes" }]} />
+    </div>
   );
   const unchangedNote = unchanged > 0 && <p className="text-center text-xs text-muted-foreground">{unchanged} file{unchanged === 1 ? "" : "s"} unchanged since {sinceWhat}</p>;
   const removedCards = removed.map((file) => (
@@ -638,8 +644,8 @@ export const DiffViewer = memo(function DiffViewer({
   if (perFile.length === 0) {
     return (
       <div className="space-y-4">
-        {narrowedNote}
-        <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">{filtering ? `No changes in this chapter since ${sinceWhat}.` : "No changes in this chapter."}</p>
+        {compareSwitch}
+        <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">{filtering ? `Nothing changed in this chapter since ${sinceWhat}.` : "No changes in this chapter."}</p>
         {removedCards}
         {unchangedNote}
       </div>
@@ -648,7 +654,7 @@ export const DiffViewer = memo(function DiffViewer({
 
   return (
     <div ref={root} className="space-y-4">
-      {narrowedNote}
+      {compareSwitch}
       {perFile.map(({ path, oldPath, stats, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, noisy: noise }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;

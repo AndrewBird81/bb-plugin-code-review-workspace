@@ -25,7 +25,7 @@ function Option({ label, on, onChange }: { label: string; on: boolean; onChange:
 }
 
 /** Choices side by side, one of them on: a radio group, whose arrow keys move the choice. */
-function Segmented<T extends string>({ label, value, options, onChange }: {
+export function Segmented<T extends string>({ label, value, options, onChange }: {
   label: string;
   value: T;
   /** `reason`: the id of the text that says why a choice is off. */

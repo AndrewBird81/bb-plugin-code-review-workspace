@@ -17,12 +17,23 @@ export interface ReviewUiState {
   panel?: PanelView | null;
   /** The turn the review last opened in, so it opens on its Overview only when it comes back to you. */
   turnSignal?: string;
+  /**
+   * What the diff compares with as you left it, for the head it was chosen at: a commit picked (`from`), or your last
+   * review, and whether it shows only what changed since. A new head goes back to Settings' choice.
+   */
+  compare?: ReviewCompare;
   // Before 0.6.0; only migrateLayoutState reads them.
   sidebarWidth?: number;
   /** Not `focus`: before 0.5.0 every review opened saved Focus off, which kept phones on the full header. */
   headerCollapsed?: boolean;
   toolsOpen?: boolean;
   activeTool?: "draft" | "notes" | "agent";
+}
+
+export interface ReviewCompare {
+  head: string;
+  from: string | null;
+  narrowed: boolean;
 }
 
 interface PanelState {
@@ -128,6 +139,15 @@ export function getReviewState(targetKey: string): ReviewUiState {
 export function patchReviewState(targetKey: string, patch: Partial<ReviewUiState>) {
   const s = read();
   s.perReview[targetKey] = { ...s.perReview[targetKey], ...patch };
+  write(s);
+}
+
+/** Forgets what the diff compared with in each review not among `targetKeys`, all the reviews there are. */
+export function forgetCompares(targetKeys: ReadonlySet<string>) {
+  const s = read();
+  const gone = Object.entries(s.perReview).filter(([key, review]) => review.compare && !targetKeys.has(key));
+  if (!gone.length) return;
+  for (const [key, { compare: _compare, ...rest }] of gone) s.perReview[key] = rest;
   write(s);
 }
 

@@ -143,12 +143,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [showDraft, setShowDraft] = useState<{ at: number; replaced?: boolean } | undefined>();
   const [since, setSince] = useState<Map<string, FileInterdiff> | null>(null);
   const [sinceError, setSinceError] = useState<string | null>(null);
-  const [sinceOnly, setSinceOnly] = useState(false);
-  // Whether the band has room for the compare select: where it hasn't, the diff says it's narrowed.
+  // Whether the band has room for the compare select: where it hasn't, the diff says what it shows, and switches it.
   const [compareShown, setCompareShown] = useState(true);
-  // A commit picked to compare from, instead of your last review.
-  const [compareFrom, setCompareFrom] = useState<string | null>(null);
-  const narrowOnLoad = useRef(false);
+  // What you chose to compare with, as you left the review: a commit picked, or your last review, narrowed or not.
+  const [chosen, setChosen] = useState(() => persisted.compare ?? null);
   const [owners, setOwners] = useState<Map<string, FileOwners>>(new Map());
   // Chapters or All files, in every review.
   const [navView, setNavViewState] = useState(getNavView);
@@ -444,8 +442,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   // What changed since your last review, when the diff shown isn't the one you reviewed.
   const baselineSha = review ? baselineOf(review).sha : null;
+  const head: string | null = review?.headSha ?? null;
+  const rereview = !!baselineSha && baselineSha !== head;
+  // Your choice holds at the head you made it at: a new push ends it, and the diff shows Settings' choice again.
+  const choice = chosen?.head === head ? chosen : null;
+  const compareFrom = choice?.from ?? null;
   const fromSha = compareFrom ?? baselineSha;
-  const sinceKey = fromSha && review?.headSha && fromSha !== review.headSha ? `${fromSha}..${review.headSha}` : null;
+  const sinceKey = fromSha && head && fromSha !== head ? `${fromSha}..${head}` : null;
   useEffect(() => {
     setSince(null);
     setSinceError(null);
@@ -456,36 +459,26 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       if (result.error) failed(result.error);
       else if (!cancelled && result.baseline) {
         setSince(new Map((result.files as FileInterdiff[]).map((file) => [file.file, file])));
-        // A commit you just picked shows its changes.
-        if (narrowOnLoad.current) setSinceOnly(true);
-        narrowOnLoad.current = false;
       }
     }).catch((error) => failed(error instanceof Error ? error.message : undefined));
     return () => { cancelled = true; };
   }, [rpc, targetKey, sinceKey, compareFrom]);
-  const pickCompare = useCallback((sha: string | null) => {
-    // Only a comparison narrows the diff: no commit picked, with your review at the head or none, has none.
-    // Picked again while it loads, it narrows once it arrives.
-    if (sha === compareFrom) { if (since) setSinceOnly(true); else narrowOnLoad.current = !!sinceKey; return; }
-    const from = sha ?? baselineSha;
-    narrowOnLoad.current = !!from && from !== review?.headSha;
-    setCompareFrom(sha);
-  }, [compareFrom, since, sinceKey, baselineSha, review?.headSha]);
-  // All changes lets a picked commit go, and a comparison still loading doesn't narrow the diff when it arrives.
-  const narrow = useCallback((narrowed: boolean) => {
-    if (!narrowed) { narrowOnLoad.current = false; setCompareFrom(null); }
-    setSinceOnly(narrowed);
-  }, []);
-  // A new push ends the comparison, and with it the narrowing: it lets a picked commit go too, as All changes does, so
-  // the select and the files' badges count from your review again. A pick still loading is a new comparison, not this.
-  const comparedHead = useRef(review?.headSha);
-  useEffect(() => {
-    const head = review?.headSha;
-    if (!head || head === comparedHead.current) return;
-    const pushed = !!comparedHead.current;
-    comparedHead.current = head;
-    if (pushed) narrow(false);
-  }, [review?.headSha, narrow]);
+  // Without a choice of yours, a re-review shows Settings' choice: by default only what changed since your review, once
+  // anything has. Only a comparison that has arrived narrows the diff.
+  const rereviewShows = preferences?.preferences.rereviewShows ?? defaultPreferences.rereviewShows;
+  const sinceOnly = !!since && (choice ? choice.narrowed : rereviewShows === "since" && [...since.values()].some((file) => file.status !== "unchanged"));
+  // The diff opens on what it compares with: until that's known, where you were in it isn't there to go back to.
+  const compared = !sinceKey || !!sinceError || (!!since && (!!choice || !!preferences));
+  // Kept for the review, and for its next workspace: what you pick narrows the diff once its comparison arrives.
+  const choose = useCallback((from: string | null, narrowed: boolean) => {
+    if (!head) return;
+    const next = { head, from, narrowed };
+    setChosen(next);
+    patchReviewState(targetKey, { compare: next });
+  }, [targetKey, head]);
+  const pickCompare = useCallback((sha: string | null) => choose(sha, true), [choose]);
+  // All changes lets a picked commit go.
+  const narrow = useCallback((narrowed: boolean) => choose(narrowed ? compareFrom : null, narrowed), [choose, compareFrom]);
   const sinceWhat = compareFrom ? compareFrom.slice(0, 7) : "your review";
   // Who owns each file, by CODEOWNERS on a PR's base branch, or a local review's new side.
   useEffect(() => {
@@ -494,7 +487,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     rpc.call("getCodeOwners", { targetKey }).then((result) => { if (!cancelled) setOwners(new Map(result.files.map((entry) => [entry.file, entry]))); }, () => {});
     return () => { cancelled = true; };
   }, [rpc, targetKey, revision]);
-  useEffect(() => { if (!since) setSinceOnly(false); }, [since]);
   const sections = useMemo(() => guide?.sections ? withOtherFiles(fitHunks(guide.sections, patch), patch) : [], [guide, patch]);
   const lines = useMemo(() => changedLines(patch), [patch]);
   const readLines = useMemo(() => readingLines([...lines.keys()], lines, generated), [lines, generated]);
@@ -629,11 +621,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // it follows them down until it gets there, for a few seconds, or until you scroll or tap yourself. Meanwhile the
   // browser's scroll anchoring is off: when a diff above the place draws, it would keep what shows on screen, off the
   // place. A remounted workspace goes back to the line that was at the top instead, which a new width wraps elsewhere.
-  // Until that line draws, it goes to the line's file: a large chapter draws a file only as it comes near.
+  // Until that line draws, it goes to the line's file: a large chapter draws a file only as it comes near. Either waits
+  // for the comparison the diff showed then.
   useEffect(() => {
     const box = scrollBox.current;
     const top = restoreScroll.current;
-    if (top === null || !activeId || !box) return;
+    if (top === null || !activeId || !box || !compared) return;
     restoreScroll.current = null;
     const place = carriedPlace.current;
     carriedPlace.current = null;
@@ -674,7 +667,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       window.removeEventListener("pointerdown", stop, { capture: true });
       window.removeEventListener("keydown", stop);
     };
-  }, [activeId, patch]);
+  }, [activeId, patch, compared]);
 
   const toggleViewed = useCallback(
     (file: string, viewed: boolean) => {
@@ -756,8 +749,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   // Since your review hides files unchanged since then; showing one turns the filter off, as All changes does.
   const unhide = useCallback((file: string) => {
-    if (since?.get(file)?.status === "unchanged") narrow(false);
-  }, [since, narrow]);
+    if (sinceOnly && since?.get(file)?.status === "unchanged") narrow(false);
+  }, [sinceOnly, since, narrow]);
 
   const onSelectFile = useCallback(
     (chapterId: string, file: string) => {
@@ -1142,7 +1135,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 sinceWhat={sinceWhat}
                 owners={owners}
                 foldAll={foldAll}
-                onSinceOnly={sheet || !compareShown ? narrow : undefined}
+                onSinceOnly={rereview || sheet || !compareShown ? narrow : undefined}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>

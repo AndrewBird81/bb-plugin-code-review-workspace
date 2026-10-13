@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { getCommentsFolded, getGithubThreadsInCode, getHideNits, getHideWhitespace, getIntroCollapsed, getLastReview, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, migrateLayoutState, patchReviewState, setNavWidth, setPanelWidth } from "./panel-state";
+import { forgetCompares, getCommentsFolded, getGithubThreadsInCode, getHideNits, getHideWhitespace, getIntroCollapsed, getLastReview, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, migrateLayoutState, patchReviewState, setNavWidth, setPanelWidth } from "./panel-state";
 
 afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 
@@ -71,4 +71,14 @@ test("a fresh state starts at the defaults, and widths save within their ranges"
   setNavWidth(120);
   setPanelWidth(700);
   expect([getNavWidth(), getPanelWidth()]).toEqual([200, 640]);
+});
+
+test("what each review's diff compared with goes with the review once it's gone, and nothing else does", () => {
+  patchReviewState("pr-1", { activeId: "c1", compare: { head: "h1", from: null, narrowed: false } });
+  patchReviewState("pr-2", { activeId: "c2", scrollTop: 40, compare: { head: "h2", from: "abc1234", narrowed: true } });
+  patchReviewState("pr-3", { activeId: "c3" });
+  forgetCompares(new Set(["pr-1"]));
+  expect(getReviewState("pr-1")).toEqual({ activeId: "c1", compare: { head: "h1", from: null, narrowed: false } });
+  expect(getReviewState("pr-2")).toEqual({ activeId: "c2", scrollTop: 40 });
+  expect(getReviewState("pr-3")).toEqual({ activeId: "c3" });
 });

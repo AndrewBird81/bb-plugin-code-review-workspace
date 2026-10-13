@@ -59,3 +59,34 @@ export function useFold(el: HTMLElement | null, unfolded = false) {
     };
   }, [el, unfolded]);
 }
+
+/**
+ * Keeps `el`'s first child off a fold running down the screen: past it, where `el` has room for it there, as for the
+ * switch at a chapter's top beside the docked chapters on an unfolded iPhone Duo held sideways. `unfolded`: as useFold's.
+ */
+export function useOffFold(el: HTMLElement | null, unfolded = false) {
+  useLayoutEffect(() => {
+    if (!el) return;
+    const update = () => {
+      el.style.removeProperty("padding-left");
+      const fold = foldDown(unfolded);
+      const child = el.firstElementChild?.getBoundingClientRect();
+      const box = el.getBoundingClientRect();
+      if (!fold || !child || child.right <= fold.start || child.left >= fold.end || box.right - fold.end < child.width) return;
+      el.style.paddingLeft = `${Math.ceil(fold.end - box.left)}px`;
+    };
+    update();
+    const posture = (navigator as { devicePosture?: EventTarget }).devicePosture;
+    window.addEventListener("resize", update);
+    posture?.addEventListener("change", update);
+    // Its border box, which the padding doesn't change.
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(el, { box: "border-box" });
+    return () => {
+      window.removeEventListener("resize", update);
+      posture?.removeEventListener("change", update);
+      observer?.disconnect();
+      el.style.removeProperty("padding-left");
+    };
+  }, [el, unfolded]);
+}

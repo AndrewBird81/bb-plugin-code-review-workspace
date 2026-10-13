@@ -74,11 +74,12 @@ const choices = (menu: ReturnType<typeof within>) => menu.getAllByRole("menuitem
 
 test("the compare select's label says what the diff shows; its menu lists your review once, then the earlier commits, newest first", async () => {
   const { slot, rpc } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" });
-  let menu = await bandMenu(slot, "Show changes: All changes");
+  // A re-review opens on what changed since your review.
+  let menu = await bandMenu(slot, "Show changes: Since your review");
   await menu.findByText("Invalidate on write");
   // All of the PR, then your last review, then the commits before the diff shown: the head and your review's aren't again.
   expect(choices(menu).map((item) => item.textContent)).toEqual(["All changes in this PR", "Since your reviewc1aaaaa", "Invalidate on writec2bbbbb · 2d ago"]);
-  expect(choices(menu).map((item) => item.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
+  expect(choices(menu).map((item) => item.getAttribute("aria-checked"))).toEqual(["false", "true", "false"]);
   expect(rpc.getPrCommits).toHaveBeenCalledWith({ targetKey: "pr-42" });
   fireEvent.click(menu.getByRole("menuitemradio", { name: /^Invalidate on write/ }));
   await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
@@ -145,20 +146,21 @@ test("after a new push and rebuild, the commit list and how many commits ago are
   const { slot, rpc, push } = await renderWorkspace({ signals: { lastReviewSha: "c1aaaaa" }, submittedVerdict: "COMMENT" });
   fireEvent.click(await (await bandMenu(slot)).findByText("Invalidate on write"));
   await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
-  // A new diff shows all of its changes again.
+  // A new diff shows what changed since your review again, as Settings has it.
   await push();
-  await slot.findByRole("button", { name: "Show changes: All changes" });
-  await waitFor(() => expect(rpc.getPrCommits).toHaveBeenCalledTimes(2));
+  await slot.findByRole("button", { name: "Show changes: Since your review" });
+  // Read again as the menu opens, with the new commit.
   const menu = await bandMenu(slot);
   expect(await menu.findByText("Rename key")).toBeTruthy();
+  expect(rpc.getPrCommits).toHaveBeenCalledTimes(2);
   fireEvent.click(menu.getByText("Invalidate on write"));
   expect(await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 2 commits ago" })).toBeTruthy();
   expect(rpc.getPrCommits).toHaveBeenCalledTimes(2);
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("with your last review at the head there's nothing to compare it with, so it isn't offered and nothing narrows later", async () => {
-  const { slot, push } = await renderWorkspace({ signals: { lastReviewSha: "c3ccccc" }, submittedVerdict: "COMMENT" });
+test("with your last review at the head there's nothing to compare it with, so it isn't offered, and with Settings on All changes nothing narrows later", async () => {
+  const { slot, push } = await renderWorkspace({ signals: { lastReviewSha: "c3ccccc" }, submittedVerdict: "COMMENT" }, { getPreferences: () => ({ preferences: { ...defaultPreferences, rereviewShows: "all" }, revision: 0 }) });
   expect(slot.queryByRole("button", { name: /^Show changes/ })).toBeNull();
   const menu = await commitsInOptions(slot);
   await menu.findByText("Add cache");
@@ -195,7 +197,7 @@ test("a new push lets a picked commit go, as All changes does, so the select and
   await slot.findByRole("button", { name: "Show changes: Since c2bbbbb, 1 commit ago" });
   await waitFor(() => expect(slot.queryAllByTitle("Changed since c2bbbbb")).not.toEqual([]));
   await push();
-  await slot.findByRole("button", { name: "Show changes: All changes" });
+  await slot.findByRole("button", { name: "Show changes: Since your review" });
   // The badges count from your review again, not from the commit the select no longer names.
   await waitFor(() => expect(slot.queryAllByTitle("Changed since your review")).toHaveLength(2));
   expect(slot.queryAllByTitle("Changed since c2bbbbb")).toEqual([]);

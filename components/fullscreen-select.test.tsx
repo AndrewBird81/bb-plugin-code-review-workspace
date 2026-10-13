@@ -60,7 +60,7 @@ test("in full screen, the compare select's menu and Diff options open inside the
   fireEvent.keyDown(document.body, { key: "F", shiftKey: true });
   const root = document.fullscreenElement!;
   expect(root).toBeTruthy();
-  fireEvent.click(await slot.findByRole("button", { name: "Show changes: All changes" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Show changes: Since your review" }));
   expect(root.contains(await slot.findByRole("menu", { name: "Show changes" }))).toBe(true);
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   // The focus goes back to the select a moment after its menu closes.
