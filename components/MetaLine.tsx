@@ -3,7 +3,8 @@ import { cn } from "../lib/utils";
 
 /**
  * Facts on a line of small text, "a · b · c", leaving out empty ones. A long line breaks only before a dot: never inside
- * a fact, nor after a dot, so a dot starts the next line rather than dangling at the end of one.
+ * a fact, nor after a dot, so a dot starts the next line rather than dangling at the end of one. Except before a chip (an
+ * inline box, such as a badge): the browser may break before one whatever comes before it.
  */
 export function MetaLine({ items, className, title }: { items: ReactNode[]; className?: string; title?: string }) {
   const shown = items.filter((item) => item !== null && item !== undefined && item !== false && item !== "");
