@@ -24,7 +24,7 @@ import { Button } from "./ui/button";
 import type { FileOwners } from "../src/codeowners";
 import { ChapterIntro } from "./ChapterIntro";
 import { ChapterViewSwitch } from "./ChapterNav";
-import { DiffViewer, type FileViewFlags } from "./DiffViewer";
+import { DiffViewer, diffLines, type FileViewFlags } from "./DiffViewer";
 import { DraftProvider, type CommentPrefill } from "./DraftProvider";
 import { TrackedReview } from "./TrackedReview";
 import { NotRunButton } from "./NotRunBanner";
@@ -120,9 +120,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // A chapter's id or OVERVIEW, which the review's first load picks (the opening rules); until then it's empty.
   const [activeId, setActiveId] = useState("");
   const opened = useRef(false);
-  // The saved scroll position, when the review opens where it was saved.
-  const restoreScroll = useRef<number | null>(null);
-  // A remounted workspace is putting its line back: that line, not what's at the code's top meanwhile, is the place.
+  // The saved scroll position, and the page it was saved on, when the review opens where it was saved.
+  const restoreScroll = useRef<{ id: string; top: number } | null>(null);
+  // A remounted workspace is putting its line back, or waiting to: that line, not what's at the code's top meanwhile, is
+  // the place.
   const restoringPlace = useRef(false);
   // What the workspace this one took the place of had open, typed, showed and focused, as BB remounts the page when its
   // layout switches (lib/remount.ts); null for a review opened as usual. Read once, as it mounts.
@@ -141,8 +142,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [lineSel, setLineSel] = useState<{ file: string; range: SelectedLineRange } | null>(null);
   const [draftPrefill, setDraftPrefill] = useState<CommentPrefill | undefined>();
   const [showDraft, setShowDraft] = useState<{ at: number; replaced?: boolean } | undefined>();
-  const [since, setSince] = useState<Map<string, FileInterdiff> | null>(null);
-  const [sinceError, setSinceError] = useState<string | null>(null);
+  // What changed since what the diff compares with, or why that couldn't be read, with the comparison it's for.
+  const [sinceRead, setSinceRead] = useState<{ key: string; files: Map<string, FileInterdiff> } | null>(null);
+  const [sinceFailed, setSinceFailed] = useState<{ key: string; error: string } | null>(null);
   // Whether the band has room for the compare select: where it hasn't, the diff says what it shows, and switches it.
   const [compareShown, setCompareShown] = useState(true);
   // What you chose to compare with, as you left the review: a commit picked, or your last review, narrowed or not.
@@ -325,8 +327,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useEffect(() => setLastReview(targetKey), [targetKey]);
   // Opening the review clears its Needs You alert.
   useEffect(() => { void rpc.call("markSeen", { targetKey }).catch(() => {}); }, [rpc, targetKey]);
+  // Unread, the settings are their defaults: a re-review opens on Settings' default.
+  const [preferencesFailed, setPreferencesFailed] = useState(false);
   const loadPreferences = useCallback(() => {
-    void rpc.call("getPreferences", null).then(setPreferences).catch(() => {});
+    void rpc.call("getPreferences", null).then(setPreferences).catch(() => setPreferencesFailed(true));
   }, [rpc]);
   useEffect(loadPreferences, [loadPreferences]);
   useRealtime("preferences", loadPreferences);
@@ -410,7 +414,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       const back = review.kind === "pr" && turn.group === "needs" && FEEDBACK_FIRST.has(turn.reason) && !!turn.signal && turn.signal !== saved.turnSignal;
       const resumable = saved.activeId === OVERVIEW || chapters.some((section) => section.id === saved.activeId);
       const start = !back && resumable ? saved.activeId! : OVERVIEW;
-      restoreScroll.current = start === saved.activeId ? saved.scrollTop ?? 0 : null;
+      restoreScroll.current = start === saved.activeId ? { id: start, top: saved.scrollTop ?? 0 } : null;
+      restoringPlace.current = !!restoreScroll.current && !!carriedPlace.current;
       setActiveId(start);
       // Before 0.6.0 a review was left on Feedback or Threads, which Comments shows now: once, if it docks. Feedback
       // only once you've reviewed it, as 0.5 did.
@@ -449,16 +454,17 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const compareFrom = choice?.from ?? null;
   const fromSha = compareFrom ?? baselineSha;
   const sinceKey = fromSha && head && fromSha !== head ? `${fromSha}..${head}` : null;
+  // Only the comparison read for this one: a push or a pick never shows the last one's, not even for a frame.
+  const since = sinceRead?.key === sinceKey ? sinceRead.files : null;
+  const sinceError = sinceFailed?.key === sinceKey ? sinceFailed.error : null;
   useEffect(() => {
-    setSince(null);
-    setSinceError(null);
     if (!sinceKey) return;
     let cancelled = false;
-    const failed = (error?: string) => { if (!cancelled) setSinceError(error ?? "Couldn’t compare with your last review."); };
+    const failed = (error?: string) => { if (!cancelled) setSinceFailed({ key: sinceKey, error: error ?? "Couldn’t compare with your last review." }); };
     rpc.call("getSinceReview", { targetKey, ...(compareFrom ? { from: compareFrom } : {}) }).then((result) => {
       if (result.error) failed(result.error);
       else if (!cancelled && result.baseline) {
-        setSince(new Map((result.files as FileInterdiff[]).map((file) => [file.file, file])));
+        setSinceRead({ key: sinceKey, files: new Map((result.files as FileInterdiff[]).map((file) => [file.file, file])) });
       }
     }).catch((error) => failed(error instanceof Error ? error.message : undefined));
     return () => { cancelled = true; };
@@ -468,7 +474,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const rereviewShows = preferences?.preferences.rereviewShows ?? defaultPreferences.rereviewShows;
   const sinceOnly = !!since && (choice ? choice.narrowed : rereviewShows === "since" && [...since.values()].some((file) => file.status !== "unchanged"));
   // The diff opens on what it compares with: until that's known, where you were in it isn't there to go back to.
-  const compared = !sinceKey || !!sinceError || (!!since && (!!choice || !!preferences));
+  const compared = !sinceKey || !!sinceError || (!!since && (!!choice || !!preferences || preferencesFailed));
   // Kept for the review, and for its next workspace: what you pick narrows the diff once its comparison arrives.
   const choose = useCallback((from: string | null, narrowed: boolean) => {
     if (!head) return;
@@ -622,12 +628,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // browser's scroll anchoring is off: when a diff above the place draws, it would keep what shows on screen, off the
   // place. A remounted workspace goes back to the line that was at the top instead, which a new width wraps elsewhere.
   // Until that line draws, it goes to the line's file: a large chapter draws a file only as it comes near. Either waits
-  // for the comparison the diff showed then.
+  // for the comparison the diff showed then; meanwhile another chapter, or your own scroll, tap or key, drops it.
+  const dropRestore = useCallback(() => { restoreScroll.current = null; carriedPlace.current = null; restoringPlace.current = false; }, []);
   useEffect(() => {
     const box = scrollBox.current;
-    const top = restoreScroll.current;
-    if (top === null || !activeId || !box || !compared) return;
+    const pending = restoreScroll.current;
+    if (!pending || !activeId || !box) return;
+    if (pending.id !== activeId) return dropRestore();
+    if (!compared) return;
     restoreScroll.current = null;
+    const top = pending.top;
     const place = carriedPlace.current;
     carriedPlace.current = null;
     if (!top && !place) return;
@@ -667,7 +677,20 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       window.removeEventListener("pointerdown", stop, { capture: true });
       window.removeEventListener("keydown", stop);
     };
-  }, [activeId, patch, compared]);
+  }, [activeId, patch, compared, dropRestore]);
+  useEffect(() => {
+    const box = scrollBox.current;
+    if (compared || !box || !restoreScroll.current) return;
+    const inputs = ["wheel", "touchstart"] as const;
+    inputs.forEach((type) => box.addEventListener(type, dropRestore, { once: true }));
+    window.addEventListener("pointerdown", dropRestore, { capture: true, once: true });
+    window.addEventListener("keydown", dropRestore, { once: true });
+    return () => {
+      inputs.forEach((type) => box.removeEventListener(type, dropRestore));
+      window.removeEventListener("pointerdown", dropRestore, { capture: true });
+      window.removeEventListener("keydown", dropRestore);
+    };
+  }, [compared, dropRestore]);
 
   const toggleViewed = useCallback(
     (file: string, viewed: boolean) => {
@@ -747,9 +770,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     [reducedMotion],
   );
 
-  // Since your review hides files unchanged since then; showing one turns the filter off, as All changes does.
-  const unhide = useCallback((file: string) => {
-    if (sinceOnly && since?.get(file)?.status === "unchanged") narrow(false);
+  // Since your review hides files unchanged since then, and a changed file's hunks that didn't change: showing one, or a
+  // line there, turns the filter off, as All changes does.
+  const unhide = useCallback((file: string, at?: CommentLocation) => {
+    const change = sinceOnly ? since?.get(file) : undefined;
+    if (change?.status === "unchanged" || (at && at.line > 0 && change?.status === "changed" && !diffLines(change.patch)(at))) narrow(false);
   }, [sinceOnly, since, narrow]);
 
   const onSelectFile = useCallback(
@@ -772,7 +797,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const showComment = useCallback((at: CommentLocation) => {
     const chapter = chapterAt(sections, patch, at);
     if (!chapter) return;
-    unhide(at.file);
+    unhide(at.file, at);
     if (chapter.id !== activeId) jumping.current = true;
     setActiveId(chapter.id);
     closeOverlays();
@@ -797,12 +822,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     toast.info(`${file} isn’t changed in this PR anymore.`, url ? { action: { label: "Open on GitHub", onClick: () => navigateRef.current.openUrl(url) } } : undefined);
     return true;
   }, [sections]);
-  // A line from Comments, a thread, Find or Start here: the whole diff, so the line is there. Without a line, the file.
+  // A line from Comments, a thread, Find or Start here: the whole diff, so the line is there, unless it wasn't narrowed,
+  // nor about to be. Without a line, the file.
   const showLocation = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {
     if (outsideGuide(file, url)) return;
-    narrow(false);
+    if (sinceOnly || !compared) narrow(false);
     showComment({ file, line: line ?? 0, side });
-  }, [outsideGuide, narrow, showComment]);
+  }, [outsideGuide, sinceOnly, compared, narrow, showComment]);
   const openHotspot = useCallback((file: string, line: number) => showLocation(file, line, "RIGHT"), [showLocation]);
   // Find in review's results: a line, a chapter, or a file's summary, in the diff.
   const openFoundFile = useCallback((_chapterId: string, file: string) => showLocation(file, null, "RIGHT"), [showLocation]);

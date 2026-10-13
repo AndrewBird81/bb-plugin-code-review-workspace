@@ -37,12 +37,15 @@ function codeTop(box: HTMLElement): number {
 
 const sizeOf = (box: HTMLElement) => `${box.clientWidth}x${box.clientHeight}`;
 
+/** How far down the top of what shows of the code a line of code is looked for: past a chapter's intro and its switch. */
+const LOOK_DOWN = 300;
+
 /**
  * What has the focus, where it shows, such as the comment you're typing, unless it's taller than the box, such as a
  * file whose code has the focus (its shadow root's host); else the first line of code near the top of what shows,
  * looking down past what starts above it, such as a comment card half under the header, and past what isn't code, such
- * as the chapter's intro, which may fold away as the screen turns; else the first thing that starts there; or, failing
- * that, what's there.
+ * as the chapter's intro, which may fold away as the screen turns, and a re-review's switch over its files; else the
+ * first thing that starts there; or, failing that, what's there.
  */
 function anchorIn(box: HTMLElement, focus = true): Anchor | null {
   const rect = box.getBoundingClientRect();
@@ -56,7 +59,7 @@ function anchorIn(box: HTMLElement, focus = true): Anchor | null {
   }
   let first: Element | null = null;
   let starting: Element | null = null;
-  for (let y = top + 2; y < Math.min(rect.bottom, top + 240); y += 8) {
+  for (let y = top + 2; y < Math.min(rect.bottom, top + LOOK_DOWN); y += 8) {
     const at = deepestAt(box, x, y);
     if (!at) continue;
     const line = at.closest("[data-line]");

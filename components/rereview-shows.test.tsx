@@ -5,6 +5,7 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { interdiff } from "../src/interdiff";
 import { getReviewState, patchReviewState } from "../lib/panel-state";
+import { keep } from "../lib/remount";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre data-testid="filediff">{fileDiff.additionLines.join("\n")}</pre> }));
@@ -30,15 +31,15 @@ const guide = {
 };
 const comment = (file: string) => ({ file, line: 1, side: "RIGHT", body: `Why ${file}?`, author: "reviewer" });
 
-/** A re-review: you reviewed "old", the diff is at "new". Settings' re-review choice is `shows`. */
-async function renderWorkspace({ rpc = {}, opened = true, shows = "since" }: { rpc?: Record<string, unknown>; opened?: boolean; shows?: "since" | "all" } = {}) {
+/** A re-review: you reviewed "old", the diff is at "new" (`now`, `then` at your review). Settings' re-review choice is `shows`. */
+async function renderWorkspace({ rpc = {}, opened = true, shows = "since", now = patch, then = reviewed }: { rpc?: Record<string, unknown>; opened?: boolean; shows?: "since" | "all"; now?: string; then?: string } = {}) {
   // Opened before, on its first chapter, unless `opened` is false: a first open shows the Overview.
   if (opened && !getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const pr = { headSha: "new", revision: "r1" };
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
-    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: pr.headSha, signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" }, guide: structuredClone(guide), patch, revision: pr.revision }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: pr.headSha, signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" }, guide: structuredClone(guide), patch: now, revision: pr.revision }),
     getChecks: () => ({ bucket: "none", checks: [] }),
     getPreferences: () => ({ preferences: { ...defaultPreferences, rereviewShows: shows }, revision: 0 }),
     getFileViews: () => ({ views: [] }),
@@ -50,7 +51,7 @@ async function renderWorkspace({ rpc = {}, opened = true, shows = "since" }: { r
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
     markSeen: () => ({ ok: true }),
     getPrCommits: () => ({ commits: [{ sha: "c2bbbbb", headline: "Cache rows", committedAt: Date.now() - 86_400_000 }] }),
-    getSinceReview: vi.fn(({ from }: { from?: string }): unknown => ({ baseline: { sha: from ?? "old", at: from ? null : 1, verdict: from ? null : "COMMENT" }, files: interdiff(from ? atCommit : reviewed, patch) })),
+    getSinceReview: vi.fn(({ from }: { from?: string }): unknown => ({ baseline: { sha: from ?? "old", at: from ? null : 1, verdict: from ? null : "COMMENT" }, files: interdiff(from ? atCommit : then, now) })),
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
@@ -296,5 +297,122 @@ test("a chapter with nothing changed since your review says so plainly, All chan
   expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/c.ts", "src/d.ts"] });
   await waitFor(() => expect(shown(slot)).toEqual(["src/e.ts"]));
   expect(checked(slot, "Since your review · 1 of 1 file")).toBe(true);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+/** The review opened where it was left, scrolled to 300 in Parsing, its comparison held until `answer()`. */
+async function reopenedWaiting(rpc: Record<string, unknown> = {}) {
+  patchReviewState("pr-42", { activeId: "c1", scrollTop: 300 });
+  let answer!: () => void;
+  const opened = await renderWorkspace({ rpc: {
+    getSinceReview: () => new Promise((resolve) => { answer = () => resolve({ baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(reviewed, patch) }); }),
+    ...rpc,
+  } });
+  await opened.slot.findAllByTestId("filediff");
+  const code = opened.slot.getByRole("main").querySelector<HTMLElement>(".overflow-y-auto")!;
+  return { ...opened, code, answer: () => answer() };
+}
+
+test("while the comparison loads, another chapter, or your own scroll, drops going back to where you were", async () => {
+  let { slot, code, answer } = await reopenedWaiting();
+  fireEvent.click(chapters(slot).getByText("Logging"));
+  await waitFor(() => expect(within(slot.getByRole("main")).getByRole("region", { name: "Logging" })).toBeTruthy());
+  answer();
+  await waitFor(() => expect(shown(slot)).toEqual(["src/e.ts"]));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(code.scrollTop).toBe(0);
+  slot.lifecycle.unmount();
+  ({ slot, code, answer } = await reopenedWaiting());
+  fireEvent.wheel(code);
+  answer();
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(code.scrollTop).toBe(0);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("as BB remounts the page, the line it carries stays the place while the comparison loads: what's at the top meanwhile isn't kept", async () => {
+  let { slot } = await renderWorkspace();
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  const place = { file: "src/a.ts", index: "1,1", offset: 12 };
+  keep("pr-42", { place });
+  slot.lifecycle.unmount();
+  const reopened = await reopenedWaiting();
+  fireEvent.scroll(reopened.code);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  expect(JSON.parse(sessionStorage.getItem("gr:remount")!)["pr-42"].place).toEqual(place);
+  reopened.slot.lifecycle.unmount();
+}, 15_000);
+
+test("a comment on a line that didn't change since your review, in a file that did, shows all changes, so it lands on its line", async () => {
+  const twoHunks = (first: string) => `diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-x\n+${first}\n@@ -20 +20 @@\n-y\n+yy\n`;
+  const now = twoHunks("aa") + at({ b: "bb", c: "cc", d: "dd", e: "ee" });
+  const { slot } = await renderWorkspace({ now, then: twoHunks("a0") + at({ b: "bb", c: "cc", d: "dd", e: "e0" }), rpc: {
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [{ ...comment("src/a.ts"), line: 20 }] } }),
+  } });
+  // Since your review, a.ts shows only its first hunk.
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  expect(slot.getByTestId("filediff").textContent).not.toContain("yy");
+  await openDrafts(slot);
+  fireEvent.click(await slot.findByRole("button", { name: /^Draft · not submitted · src\/a\.ts:20/ }));
+  await waitFor(() => expect(select(slot)).toBe("Show changes: All changes"));
+  expect(slot.getAllByTestId("filediff")[0].textContent).toContain("yy");
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a commit picked never shows with the comparison it replaces, not even for a render", async () => {
+  let answer!: () => void;
+  const { slot } = await renderWorkspace({ rpc: {
+    getSinceReview: vi.fn(({ from }: { from?: string }) => from
+      ? new Promise((resolve) => { answer = () => resolve({ baseline: { sha: from, at: null, verdict: null }, files: interdiff(atCommit, patch) }); })
+      : { baseline: { sha: "old", at: 1, verdict: "COMMENT" }, files: interdiff(reviewed, patch) }),
+  } });
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  fireEvent.click(slot.getByRole("button", { name: /^Show changes: / }));
+  const pick = await within(await slot.findByRole("menu", { name: "Show changes" })).findByText("Cache rows");
+  // Every text the code's column showed meanwhile.
+  const texts: string[] = [];
+  const note = (records: MutationRecord[]) => records.forEach((record) => texts.push(record.target.textContent ?? "", ...Array.from(record.addedNodes, (node) => node.textContent ?? "")));
+  const seen = new MutationObserver(note);
+  seen.observe(slot.getByRole("main"), { subtree: true, childList: true, characterData: true });
+  fireEvent.click(pick);
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
+  note(seen.takeRecords());
+  seen.disconnect();
+  // Until its own comparison arrives, nothing says "Since c2bbbbb": the files your review's comparison picked never
+  // show under the commit's name.
+  expect(texts.some((text) => text.includes("Since c2bbbbb"))).toBe(false);
+  answer();
+  await waitFor(() => expect(shown(slot)).toEqual(["src/b.ts"]));
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a line from Find under Settings' All changes leaves the review to Settings: nothing was narrowed to let go", async () => {
+  let shows = "all";
+  const { slot } = await renderWorkspace({ rpc: { getPreferences: () => ({ preferences: { ...defaultPreferences, rereviewShows: shows }, revision: 0 }) } });
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
+  fireEvent.change(slot.getByRole("searchbox", { name: "Find in review" }), { target: { value: "aa" } });
+  const results = within(await slot.findByRole("list", { name: "Results" }));
+  fireEvent.click(results.getByText((_, el) => el?.tagName === "SPAN" && el.textContent === "src/a.ts:1").closest("button")!);
+  shows = "since";
+  await slot.emitRealtime("preferences", {});
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("without Settings to read, a re-review opens on Settings' default, and back where you were", async () => {
+  const { slot, code, answer } = await reopenedWaiting({ getPreferences: () => { throw new Error("offline"); } });
+  answer();
+  await waitFor(() => expect(code.scrollTop).toBe(300));
+  expect(shown(slot)).toEqual(["src/a.ts"]);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("the diff narrowing by itself as the comparison arrives says so to screen readers", async () => {
+  const { slot, answer } = await reopenedWaiting();
+  const status = slot.getAllByRole("status").find((el) => el.classList.contains("sr-only"))!;
+  expect(status.textContent).toBe("");
+  answer();
+  await waitFor(() => expect(status.textContent).toBe("Showing changes since your review · 1 of 2 files"));
   slot.lifecycle.unmount();
 }, 15_000);

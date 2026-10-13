@@ -146,7 +146,7 @@ function parseFileDiff(text: string): FileDiffMetadata | null {
 }
 
 /** Whether GitHub takes a comment at a line: only lines the diff shows. */
-function diffLines(text: string): (at: CommentLocation) => boolean {
+export function diffLines(text: string): (at: CommentLocation) => boolean {
   const right = new Set<number>(), left = new Set<number>();
   for (const row of patchRows(text)) {
     if (row.kind === "+" || row.kind === " ") right.add(row.newLine);
@@ -620,14 +620,17 @@ export const DiffViewer = memo(function DiffViewer({
   // Above the files, what the diff shows, with how many of them changed since, and the other a tap away: past a fold
   // down the screen.
   const total = perFile.length + unchanged;
+  const count = `${changed} of ${total} file${total === 1 ? "" : "s"}`;
   const [switchEl, setSwitchEl] = useState<HTMLDivElement | null>(null);
   useOffFold(switchEl, !compact);
   const compareSwitch = since && onSinceOnly && (
     <div ref={setSwitchEl} className="flex">
       <Segmented label="Changes shown" value={filtering ? "since" : "all"} onChange={(value) => onSinceOnly(value === "since")}
-        options={[{ value: "since", label: `Since ${sinceWhat} · ${changed} of ${total} file${total === 1 ? "" : "s"}` }, { value: "all", label: "All changes" }]} />
+        options={[{ value: "since", label: `Since ${sinceWhat} · ${count}` }, { value: "all", label: "All changes" }]} />
     </div>
   );
+  // The diff narrows by itself as a re-review's comparison arrives: that's said, by a status there before it arrives.
+  const narrowedStatus = onSinceOnly && <span role="status" className="sr-only">{filtering ? `Showing changes since ${sinceWhat} · ${count}` : ""}</span>;
   const unchangedNote = unchanged > 0 && <p className="text-center text-xs text-muted-foreground">{unchanged} file{unchanged === 1 ? "" : "s"} unchanged since {sinceWhat}</p>;
   const removedCards = removed.map((file) => (
     <section key={file.file} aria-label={`${file.file} removed`} className="overflow-clip rounded-lg border border-dashed border-border bg-card">
@@ -644,6 +647,7 @@ export const DiffViewer = memo(function DiffViewer({
   if (perFile.length === 0) {
     return (
       <div className="space-y-4">
+        {narrowedStatus}
         {compareSwitch}
         <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">{filtering ? `Nothing changed in this chapter since ${sinceWhat}.` : "No changes in this chapter."}</p>
         {removedCards}
@@ -654,6 +658,7 @@ export const DiffViewer = memo(function DiffViewer({
 
   return (
     <div ref={root} className="space-y-4">
+      {narrowedStatus}
       {compareSwitch}
       {perFile.map(({ path, oldPath, stats, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, noisy: noise }) => {
         const flags = views.get(path);
