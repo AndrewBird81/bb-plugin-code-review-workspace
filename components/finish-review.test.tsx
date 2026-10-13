@@ -95,7 +95,7 @@ test("it lists what goes to GitHub: the comments and their severities, who wrote
   const { slot } = await renderWorkspace();
   const view = await finish(slot);
   // Each count keeps its noun on its line.
-  expect(view.getByText("2 comments").parentElement!.textContent).toBe("2 comments\u00a0· 1 blocking\u00a0· 1 nit");
+  expect(view.getByText("2 comments").parentElement!.textContent).toBe("2 comments ·\u00a01 blocking ·\u00a01 nit");
   expect(view.getByText("1 blocking").parentElement!.className).toContain("whitespace-nowrap");
   expect(view.getByText("1 written by the agent")).toBeTruthy();
   expect(view.getByText("1 reply draft not sent: replies post on their own")).toBeTruthy();

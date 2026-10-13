@@ -80,11 +80,12 @@ test("a chapter's intro says where it is, its risk, its size and how much of it 
   await slot.findByText("aa");
   const intro = within(slot.getByRole("region", { name: "Parsing" }));
   const meta = intro.getByText("Chapter 1 of 2").parentElement!;
-  expect(meta.textContent).toBe("Chapter 1 of 2\u00a0· High risk\u00a0· 1 file\u00a0· 2 lines\u00a0· 0 of 1 viewed");
+  // Each dot binds to the fact after it, so a wrapped line starts with one.
+  expect(meta.textContent).toBe("Chapter 1 of 2 ·\u00a0High risk ·\u00a01 file ·\u00a02 lines ·\u00a00 of 1 viewed");
   expect(intro.getByText("High risk").className).toContain("rounded-full");
   fireEvent.keyDown(document.body, { key: "n" });
   const next = within(await slot.findByRole("region", { name: "Caching" }));
-  expect(next.getByText("Chapter 2 of 2").parentElement!.textContent).toBe("Chapter 2 of 2\u00a0· 1 file\u00a0· 2 lines\u00a0· 0 of 1 viewed");
+  expect(next.getByText("Chapter 2 of 2").parentElement!.textContent).toBe("Chapter 2 of 2 ·\u00a01 file ·\u00a02 lines ·\u00a00 of 1 viewed");
   slot.lifecycle.unmount();
 }, 15_000);
 
