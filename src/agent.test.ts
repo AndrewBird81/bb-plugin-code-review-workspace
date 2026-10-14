@@ -175,19 +175,30 @@ const risky = {
 test("the assistant sees each chapter's risk and where to start, as the default review's \"high-risk chapters first\" needs", () => {
   expect(defaultPreferences.automaticReview).toContain("high-risk chapters first");
   const text = assistantInstructions("pr-1", risky as any, defaultPreferences);
-  expect(text).toContain("<guide>\nChange intent: Add caching\nStart here:\n- src/auth.ts:42 — expiry compared with < instead of <=\nChapters:\n- [high risk] Auth middleware: Changes token checks.\n- [low risk] Docs: Readme.\n</guide>");
+  expect(text).toContain("<guide>\nChange intent: Add caching\nChapters:\n- [high risk] Auth middleware: Changes token checks.\n- [low risk] Docs: Readme.\nStart here:\n- src/auth.ts:42 — expiry compared with < instead of <=\n</guide>");
 });
 
 test("the longest preferences, with the repo's checks and requirements, leave the guide's intent, start, and chapters", () => {
   const withAsks = { ...risky, requirements: [{ text: "Cache for 5 minutes", status: "missing", evidence: "No TTL." }] };
   const text = assistantInstructions("pr-1", withAsks as any, { ...defaultPreferences, assistantInstructions: "x".repeat(2000) }, 123);
   expect(text.length).toBeLessThanOrEqual(4000);
-  expect(text).toContain("Change intent: Add caching\nStart here:\n- src/auth.ts:42");
-  expect(text).toMatch(/- \[high risk\] Auth middleware.*\n- \[low risk\] Docs/);
+  expect(text).toMatch(/Change intent: Add caching\nChapters:\n- \[high risk\] Auth middleware.*\n- \[low risk\] Docs.*\nStart here:\n- src\/auth.ts:42/);
   // The preferences gave way, and say so.
   expect(text).toMatch(/x…\nThe guide, written by an agent/);
   // Shorter preferences aren't cut.
   expect(assistantInstructions("pr-1", withAsks as any, { ...defaultPreferences, assistantInstructions: "x".repeat(1000) }, 123)).toContain(`${"x".repeat(1000)}\nThe guide`);
+});
+
+test("long hotspot reasons don't crowd out chapter titles under the longest preferences", () => {
+  const big = {
+    title: "T", intent: "Adds rate limiting to the public API so a single client can't starve the others; per-key buckets live in Redis with a sliding window.", unplacedFiles: [],
+    sections: Array.from({ length: 8 }, (_, i) => ({ id: `c${i}`, title: `Rate limiter middleware part ${i}`, overview: "o".repeat(300), risk: i < 2 ? "high" : "medium", diffs: [] })),
+    hotspots: [1, 2, 3].map((i) => ({ file: `src/middleware/rate-limit${i}.ts`, line: 42, why: "The window boundary uses > instead of >=, so a burst at the edge may double the allowed rate." })),
+    requirements: [{ status: "covered", text: "Limit per API key", evidence: "rate-limit.ts:42" }],
+  };
+  const text = assistantInstructions("github:acme/web#1", big as any, { ...defaultPreferences, assistantInstructions: "p".repeat(2000) }, 42);
+  expect(text.length).toBeLessThanOrEqual(4000);
+  expect(text.match(/^- \[(high|medium) risk\] Rate limiter middleware part \d$/gm)).toHaveLength(8);
 });
 
 function reviewAgentContext(pluginMetadata: Record<string, string>): PluginAgentConfigurationContext {

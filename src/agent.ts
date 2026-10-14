@@ -12,7 +12,7 @@ import { spawningFor } from "./thread-review";
 export const ASSISTANT_TITLE = "Review agent: ";
 // bb truncates configure instructions at 4,096 characters.
 const INSTRUCTIONS_LIMIT = 4000;
-/** Room the guide's core keeps, at most, however long the reviewer's preferences: its intent, where to start, and its chapters with their risk. */
+/** Room the guide's core keeps, at most, however long the reviewer's preferences: its intent, its chapters with their risk, and where to start. */
 const GUIDE_RESERVE = 800;
 
 /** A conversation's first agent; the permission mode comes from the Settings default. */
@@ -43,16 +43,18 @@ export function assistantInstructions(targetKey: string, guide: Guide | null, pr
   const start = (guide.hotspots ?? []).map((h) => `- ${h.file}:${h.line} — ${h.why}`);
   const chapters = (overviews: boolean) => guide.sections.length ? ["Chapters:", ...guide.sections.map((s) => `- ${s.risk ? `[${s.risk} risk] ` : ""}${s.title}${overviews ? `: ${s.overview}` : ""}`)] : [];
   const requirements = (guide.requirements ?? []).map((r) => `- ${r.status}: ${r.text} — ${r.evidence}${r.file ? ` (${r.file}:${r.line})` : ""}`);
-  const lead = [`Change intent: ${guide.intent}`, ...(start.length ? ["Start here:", ...start] : [])];
+  const intent = `Change intent: ${guide.intent}`;
+  const here = start.length ? ["Start here:", ...start] : [];
   const rest = requirements.length ? ["Requirements:", ...requirements] : [];
-  const core = fence([...lead, ...chapters(false)]);
+  // The chapters before where to start, so long hotspot reasons are what the reserve cuts, not the map of the change.
+  const core = fence([intent, ...chapters(false), ...here]);
   const room = INSTRUCTIONS_LIMIT - rules.length - 1 - open.length - close.length;
   // Long preferences are cut before they crowd out the guide's core, and the mark of a cut after it.
   const keep = room - Math.min(core.length + "\n…".length, GUIDE_RESERVE);
   const said = wanted.length > keep ? `${wanted.slice(0, keep - 1)}…` : wanted;
   const left = room - said.length;
   // Chapters before requirements, so a long requirements list is what gets cut; without room for the overviews, the chapters go without them.
-  const body = fence([...lead, ...chapters(fence([...lead, ...chapters(true)]).length <= left), ...rest]);
+  const body = fence([intent, ...chapters(fence([intent, ...chapters(true), ...here]).length <= left), ...here, ...rest]);
   return `${rules}\n${said}${open}${body.length > left ? `${body.slice(0, left - 1)}…` : body}${close}`;
 }
 
