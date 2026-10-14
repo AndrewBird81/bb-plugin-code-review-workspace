@@ -312,12 +312,13 @@ test("each agent uses project defaults until customized with bb's pickers", asyn
   slot.lifecycle.unmount();
 });
 
-test("a custom guide writer starts at auto when its provider has no accept-edits, else at the project's mode", async () => {
+test("a custom guide writer starts at auto when its provider has no accept-edits, else at the project's mode, and at accept-edits without defaults", async () => {
   await loadPluginApp(() => import("../app"));
   const { ReviewSettings } = await import("./ReviewSettings");
   const record = { preferences: { ...defaultPreferences }, revision: 0 };
   const defaults = { providerId: "other", model: "m", reasoningLevel: "low", permissionMode: "full" };
-  const getAgentDefaults = vi.fn().mockResolvedValueOnce({ defaults, guideWriterMode: "auto" }).mockResolvedValueOnce({ defaults });
+  const getAgentDefaults = vi.fn().mockResolvedValueOnce({ defaults, guideWriterMode: "auto" }).mockResolvedValueOnce({ defaults })
+    .mockResolvedValueOnce({ defaults: null }).mockRejectedValueOnce(new Error("Offline"));
   const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record, getAgentDefaults } });
   const guide = await slot.findByRole("group", { name: "Guide writer agent" });
   const mode = () => (slot.getByRole("combobox", { name: "Permission mode" }) as HTMLSelectElement).value;
@@ -327,6 +328,13 @@ test("a custom guide writer starts at auto when its provider has no accept-edits
   fireEvent.click(within(guide).getByRole("button", { name: "Custom" }));
   await waitFor(() => expect(getAgentDefaults).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(mode()).toBe("full"));
+  // No defaults, or none to be had: bb's lowest mode.
+  for (const calls of [3, 4]) {
+    fireEvent.click(within(guide).getByRole("button", { name: "Project defaults" }));
+    fireEvent.click(within(guide).getByRole("button", { name: "Custom" }));
+    await waitFor(() => expect(getAgentDefaults).toHaveBeenCalledTimes(calls));
+    await waitFor(() => expect(mode()).toBe("accept-edits"));
+  }
   slot.lifecycle.unmount();
 });
 

@@ -211,7 +211,8 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
   const knob = (id: KnobId) => record && <KnobControl id={id} record={record.preferences} onChange={setKnob} numberText={numberText}
     onNumberText={(key, text) => { setSaved(false); setNumberText(({ [key]: _previous, ...rest }) => text === undefined ? rest : { ...rest, [key]: text }); }} />;
   async function customize(key: "guideAgent" | "assistantAgent") {
-    let seed: AgentExecution = { providerId: "", model: "", reasoningLevel: "medium", permissionMode: "auto" };
+    // Without defaults, the guide writer starts at bb's lowest mode.
+    let seed: AgentExecution = { providerId: "", model: "", reasoningLevel: "medium", permissionMode: key === "guideAgent" ? "accept-edits" : "auto" };
     try {
       const { defaults, guideWriterMode } = await rpc.call("getAgentDefaults", null);
       seed = defaults ?? seed;
