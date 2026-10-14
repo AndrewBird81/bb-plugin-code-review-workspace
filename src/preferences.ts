@@ -80,6 +80,14 @@ export function readKnobs(saved: unknown): Knobs {
   })) as unknown as Knobs;
 }
 
+/** The knobs in the column's JSON text that this version doesn't know, as saved. */
+export function unknownKnobs(saved: string | null): Record<string, unknown> {
+  let value: unknown = null;
+  try { value = saved === null ? null : JSON.parse(saved); } catch { /* none */ }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !Object.hasOwn(knobsSchema.shape, key)));
+}
+
 /**
  * Saved settings as they read now: missing or invalid fields take their defaults, unknown ones are dropped, and older
  * defaults read as the current ones. `knobs` is the column; without it, `saved.knobs` is read.

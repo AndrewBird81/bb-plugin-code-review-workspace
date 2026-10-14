@@ -64,6 +64,14 @@ test("missing and invalid knobs read at their defaults, and unknown ones are dro
   expect(readKnobs({ approveGuardPace: 100 }).approveGuardPace).toBe(100);
 });
 
+test("a save keeps knobs a newer version saved, so a rollback and a settings save don't erase them", async () => {
+  const { call, db, row } = await host();
+  db.prepare(`INSERT INTO review_preferences (id,value,revision,knobs) VALUES (1,?,1,?)`).run(JSON.stringify({}), JSON.stringify({ codeOwners: false, futureKnob: 7, __proto__x: true }));
+  await call("savePreferences", { preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, requirements: false } }, revision: 1 });
+  expect(JSON.parse(row().knobs!)).toEqual({ ...defaultKnobs, requirements: false, futureKnob: 7, __proto__x: true });
+  expect((await call("getPreferences", null)).preferences.knobs).toEqual({ ...defaultKnobs, requirements: false });
+});
+
 test("a save without knobs keeps the saved ones, a partial one merges, and an invalid one is rejected", async () => {
   const { call } = await host();
   let saved = await call("savePreferences", { preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, mentionsWake: false } }, revision: 0 });

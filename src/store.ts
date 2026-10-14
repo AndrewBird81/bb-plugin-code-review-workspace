@@ -2,7 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Guide } from "./guide";
 import { sameLocation, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type Severity, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
-import { preferencesSchema, readPreferences, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
+import { preferencesSchema, readPreferences, unknownKnobs, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
 import type { AssessmentItem, AssessmentRun, ReplyDraft } from "../lib/feedback";
 import type { FeedbackThread } from "./github/types";
@@ -424,7 +424,9 @@ export function createStore(bb: BbPluginApi): Store {
     savePreferences(preferences, revision) {
       const parsed = preferencesSchema.parse(preferences);
       const { knobs, ...rest } = parsed;
-      const value = JSON.stringify(rest), saved = JSON.stringify(knobs);
+      // Knobs this version doesn't know, saved by a newer one before a rollback, stay for it.
+      const raw = (db.prepare(`SELECT knobs FROM review_preferences WHERE id=1`).get() as { knobs: string | null } | undefined)?.knobs;
+      const value = JSON.stringify(rest), saved = JSON.stringify({ ...unknownKnobs(raw ?? null), ...knobs });
       const result = revision === 0
         ? db.prepare(`INSERT OR IGNORE INTO review_preferences (id,value,revision,knobs) VALUES (1,?,1,?)`).run(value, saved)
         : db.prepare(`UPDATE review_preferences SET value=?,knobs=?,revision=revision+1 WHERE id=1 AND revision=?`).run(value, saved, revision);
