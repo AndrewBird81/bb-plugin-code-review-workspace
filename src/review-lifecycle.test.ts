@@ -868,6 +868,26 @@ test("with the re-review check off, an outside author's settled pushes record no
   expect(s.store.getReview("pr-1")?.skippedRun).toBeUndefined();
 });
 
+test("with Run the re-review check off, an outside author's re-request and settled pushes record no skipped check", async () => {
+  const off = { pushChecks: "progress" as const, knobs: { ...defaultPreferences.knobs, runReReviewCheck: false } };
+  const s = setup({ reviewed: true, preferences: off, pr: { authorAssociation: "CONTRIBUTOR" } });
+  await s.sync.all();
+  s.pr({ requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")?.skippedRun).toBeUndefined();
+
+  const pushed = setup({ reviewed: true, preferences: off, pr: { authorAssociation: "NONE" } });
+  await pushed.sync.all();
+  pushed.pr({ headSha: "sha2", commits: ["sha1", "sha2"] });
+  pushed.at(0.1);
+  await pushed.sync.all(true);
+  pushed.at(0.5);
+  await pushed.sync.all(true);
+  expect(pushed.store.getReview("pr-1")).toMatchObject({ autoRunHead: "sha2" });
+  expect(pushed.store.getReview("pr-1")?.skippedRun).toBeUndefined();
+});
+
 test("an outside author's settled pushes aren't checked on their own; the review says so once", async () => {
   const s = setup({ reviewed: true, preferences: { pushChecks: "progress" }, pr: { authorAssociation: "NONE" } });
   await s.sync.all();

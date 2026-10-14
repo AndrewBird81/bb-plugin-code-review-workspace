@@ -188,6 +188,14 @@ test("a check records verdicts for the commit it started on, even after a push",
   expect(store.getAssessment("pr-1", "sha3").items).toHaveLength(0);
 });
 
+test("with Run the re-review check off, Check again says so and sends the assistant nothing", async () => {
+  const { call, store, harness } = await setup();
+  const { defaultPreferences } = await import("./preferences");
+  store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, runReReviewCheck: false } }, 0);
+  expect(await call("checkFeedback", { targetKey: "pr-1" })).toEqual({ ok: false, error: "The re-review check is off. Turn it on in Review settings." });
+  expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
+});
+
 test("read_file only reads repo-relative paths", async () => {
   const { tool } = await setup();
   for (const path of ["../../user", "a/../../b", "/etc/passwd", "a//b", "./a.ts"]) {

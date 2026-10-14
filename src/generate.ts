@@ -1,7 +1,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store } from "./store";
 import { completionNotifications } from "./completion-notifications";
-import { defaultPreferences, guidePreferencesPrompt, spawnExecution, type ReviewPreferences } from "./preferences";
+import { defaultPreferences, guidePreferencesPrompt, reReviewCheckPrompt, spawnExecution, type ReviewPreferences } from "./preferences";
 import { refreshAssistants, skipRun, startAutomaticReview } from "./agent";
 import { agentPlacement, machineUnavailable } from "./machines";
 import { startVerification } from "./verification";
@@ -140,7 +140,7 @@ export async function generateGuide(
     // An untrusted author's check waits for your click; the automatic review gates itself.
     const preferences = store.getPreferences().preferences;
     const trusted = !!review && mayRunUnattended(review, preferences, review.headSha);
-    if (ok && review && baselineOf(review).at && !trusted && preferences.verificationPrompt.trim()) skipRun(bb, store, targetKey, "check", review.headSha ?? null);
+    if (ok && review && baselineOf(review).at && !trusted && reReviewCheckPrompt(preferences)) skipRun(bb, store, targetKey, "check", review.headSha ?? null);
     const checking = ok && !!review && !!baselineOf(review).at && trusted && await startVerification(bb, store, targetKey, "the guide was rebuilt for the PR's new commits");
     const newCommits = before && review?.headSha && before !== review.headSha ? { from: before, to: review.headSha } : undefined;
     if (ok && !checking && !(review && baselineOf(review).at)) await startAutomaticReview(bb, store, targetKey, newCommits).catch((error) => {

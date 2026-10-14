@@ -4,6 +4,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store, ReviewMeta } from "./store";
 import { ghErrorMessage, type runGh, type runGit } from "./gh";
 import { messageAssistant } from "./agent";
+import { reReviewCheckPrompt } from "./preferences";
 import { baselineOf, diffAt, feedbackView, headOf, isSummaryItem, summarize } from "./feedback-view";
 import { describeInterdiff, interdiff } from "./interdiff";
 import type { AssessmentItem, AssessmentVerdict } from "../lib/feedback";
@@ -32,7 +33,7 @@ export function verificationContext(review: ReviewMeta, reason: string): string 
 
 /** Ask the review's assistant to check your feedback. False when it's turned off or can't start. */
 export async function startVerification(bb: BbPluginApi, store: Store, targetKey: string, reason: string): Promise<boolean> {
-  const prompt = store.getPreferences().preferences.verificationPrompt.trim();
+  const prompt = reReviewCheckPrompt(store.getPreferences().preferences);
   const review = store.getReview(targetKey);
   if (!prompt || !review || review.kind !== "pr" || !baselineOf(review).at) return false;
   try {

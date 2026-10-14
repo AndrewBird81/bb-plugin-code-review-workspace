@@ -59,6 +59,7 @@ import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
 import { threadSignals, turnOptions } from "./src/turn-signals";
 import { mayRunChecks } from "./lib/trust";
+import { reReviewCheckPrompt } from "./src/preferences";
 import { createInstructionSuggester, describeRemovals, learningStats, noteReviewerRemoval, noteReviewerSave, recordOutcomes, removalWarning } from "./src/learning";
 
 export { rpcContract } from "./src/rpc-contract";
@@ -266,7 +267,7 @@ export default async function plugin(bb: BbPluginApi) {
         const review = store.getReview(targetKey);
         if (!review) return { ok: false, error: "This review no longer exists." };
         if (!baselineOf(review).at) return { ok: false, error: "Submit a review first; then the assistant can check your feedback." };
-        if (!store.getPreferences().preferences.verificationPrompt.trim()) return { ok: false, error: "The re-review check is off. Turn it on in Review settings." };
+        if (!reReviewCheckPrompt(store.getPreferences().preferences)) return { ok: false, error: "The re-review check is off. Turn it on in Review settings." };
         if (await isAssistantAnswering(bb, store, targetKey)) return { ok: false, error: "The assistant is still answering. Try again when it finishes." };
         await refreshThreads(review).catch(() => {});
         if (!await startVerification(bb, store, targetKey, "the reviewer asked for a check")) return { ok: false, error: "The assistant couldn't start. Open Ask agent to choose its agent." };
