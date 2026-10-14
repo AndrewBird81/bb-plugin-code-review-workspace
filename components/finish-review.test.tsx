@@ -11,6 +11,8 @@ import type { FeedbackView } from "../lib/feedback";
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
 const { toast } = await import("sonner");
+// jsdom has no scrollIntoView, which Show's reveal lands with.
+Element.prototype.scrollIntoView ??= () => {};
 
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); });
 
@@ -151,6 +153,52 @@ test("doubts sit above Submit beside their fixes, and Submit still asks once mor
   fireEvent.click(view.getByRole("button", { name: "Switch to Request changes" }));
   await waitFor(() => expect(rpc.setVerdict).toHaveBeenCalledWith({ targetKey: "pr-42", verdict: "REQUEST_CHANGES", revision: "r1" }));
   expect(view.queryByText("The agent suggested Request changes.")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("approving with a high-risk file not viewed, or a chapter marked viewed too fast, says so and asks once more, never blocking", async () => {
+  const lines = (file: string, n: number) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -0,0 +1,${n} @@\n${Array.from({ length: n }, (_, i) => `+row ${i}`).join("\n")}\n`;
+  const risky = { ...guide, sections: [
+    { id: "c1", title: "Parsing", overview: "Reads rows.", risk: "medium", diffs: [{ file: "src/b.ts" }, { file: "src/d.ts" }] },
+    { id: "c2", title: "Auth", overview: "Checks tokens.", risk: "high", diffs: [{ file: "src/a.ts" }] },
+    { id: "c3", title: "Docs", overview: "Says how.", risk: "low", diffs: [{ file: "src/c.ts" }] },
+  ] };
+  let draft = draftOf({ verdict: "APPROVE", verdictChosen: true, body: "Fine.", comments: [] });
+  const { slot, rpc } = await renderWorkspace({ rpc: {
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", url: "https://github.com/acme/web/pull/42", repo: "acme/web", number: 42 }, guide: risky, patch: lines("src/a.ts", 5) + lines("src/b.ts", 60) + lines("src/c.ts", 5) + lines("src/d.ts", 5), revision: "r1" }),
+    // The docs, then Parsing's 60 lines a minute later.
+    getFileViews: () => ({ views: [{ file: "src/c.ts", viewed: true, stale: false, viewedAt: now - 120_000 }, { file: "src/b.ts", viewed: true, stale: false, viewedAt: now - 60_000 }] }),
+    getDraft: vi.fn(() => ({ draft, stale: [] })),
+    getFeedback: () => ({ feedback: feedbackOf({ items: [] }) }),
+    submitReview: vi.fn(() => { draft = draftOf({ comments: [] }); return { ok: true }; }),
+  } });
+  const view = await finish(slot);
+  expect(view.getByText("1 file in a high-risk chapter not viewed.")).toBeTruthy();
+  expect(view.getByText("Chapter 1 (medium risk): 60 lines marked viewed in 1 min.")).toBeTruthy();
+  fireEvent.click(submit(view));
+  expect((await view.findByRole("alert")).textContent).toContain("Submit Approve? 1 file in a high-risk chapter not viewed. Chapter 1 (medium risk): 60 lines marked viewed in 1 min.");
+  expect(rpc.submitReview).not.toHaveBeenCalled();
+  fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+  // Show opens the file, in its chapter.
+  expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Show" }));
+  await waitFor(() => expect(slot.container.querySelector('[data-file="src/a.ts"]')).toBeTruthy());
+  fireEvent.click(submit(view));
+  fireEvent.click(await view.findByRole("button", { name: "Submit anyway" }));
+  await waitFor(() => expect(rpc.submitReview).toHaveBeenCalledWith(expect.objectContaining({ verdict: "APPROVE" })));
+  slot.lifecycle.unmount();
+});
+
+test("only Approve asks about what you didn't view", async () => {
+  const unread = { ...guide, sections: [{ ...guide.sections[0], risk: "high" }] };
+  const { slot } = await renderWorkspace({ rpc: {
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", repo: "acme/web", number: 42 }, guide: unread, patch, revision: "r1" }),
+    getDraft: () => ({ draft: draftOf({ verdict: "COMMENT", body: "Fine.", comments: [] }), stale: [] }),
+  } });
+  const view = await finish(slot);
+  expect(view.queryByText(/not viewed/)).toBeNull();
+  fireEvent.click(within(view.getByRole("group", { name: "Review verdict" })).getByRole("button", { name: /^Approve/ }));
+  expect(await view.findByText("1 file in a high-risk chapter not viewed.")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

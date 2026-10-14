@@ -207,7 +207,7 @@ export const rpcContract = defineRpcContract({
   getFileViews: {
     input: targetKey,
     output: z.object({
-      views: z.array(z.object({ file: z.string(), viewed: z.boolean(), stale: z.boolean() })),
+      views: z.array(z.object({ file: z.string(), viewed: z.boolean(), stale: z.boolean(), viewedAt: z.number() })),
     }),
   },
   setFileViewed: {

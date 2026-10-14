@@ -37,6 +37,8 @@ export type FileContentsResult = z.infer<typeof rpcContract.getFileContents.outp
 export interface FileViewFlags {
   viewed: boolean;
   stale: boolean;
+  /** When it was marked viewed, once the server says. */
+  viewedAt?: number;
 }
 
 /** A line pierre shows CI failures, GitHub threads, a draft comment, a discussion, or the comment box under. Its content comes from CheckFailuresContext, DiffThreadsContext, and InlineDraftContext. */

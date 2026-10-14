@@ -6,6 +6,7 @@ import type { ReviewItem } from "../lib/review-state";
 import { commentsKey, isSummary, linesOf, rangeOf, sameLocation, SEVERITIES, severityCounts, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { diffPositions, orderRange } from "../src/review-positions";
 import { getHideNits, setHideNits, type PanelView } from "../lib/panel-state";
+import { approveDoubts, type ApproveGuard } from "../lib/approve-guard";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
 import { setDraftStatus } from "../lib/draft-status";
 import { InlineComposerContext, InlineDraftContext, locationKey, type InlineComposer, type InlineDraft } from "./InlineDraft";
@@ -28,6 +29,8 @@ export interface DraftProviderProps {
   rebuilding?: boolean;
   /** The signed-in account wrote the PR, so GitHub allows only a Comment review. */
   ownPr?: boolean;
+  /** What an approval leaves unread or read too fast (lib/approve-guard.ts); without it, approving asks nothing more. */
+  approveGuard?: ApproveGuard;
   /** A new value focuses the summary, which Finish review shows. `replaced`: you agreed the assistant's suggestion replaces your summary. */
   showDraft?: { at: number; replaced?: boolean };
   /** Show the side panel's view of the draft: its comments, its summary and Submit (`finish`), or the agent's chat. */
@@ -58,7 +61,7 @@ export const DraftProvider = memo(function DraftProvider({ children, ...props }:
 });
 DraftProvider.displayName = "DraftProvider";
 
-function useDraftState({ targetKey, activeChapterId, activeFiles, files = activeFiles, prefill, isLocal = false, review, onSubmitted, onOpenPanel, reviewRevision, rebuilding = false, ownPr = false, account, showDraft, patch = "" }: Omit<DraftProviderProps, "children">) {
+function useDraftState({ targetKey, activeChapterId, activeFiles, files = activeFiles, prefill, isLocal = false, review, onSubmitted, onOpenPanel, reviewRevision, rebuilding = false, ownPr = false, approveGuard, account, showDraft, patch = "" }: Omit<DraftProviderProps, "children">) {
   const rpc = useRpc<typeof rpcContract>();
   const [draft, setDraft] = useState<Draft>({ targetKey, verdict: "COMMENT", body: "", comments: [] });
   const [loaded, setLoaded] = useState(false);
@@ -541,12 +544,15 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     const box = composerControls.current?.parentElement;
     if (box?.contains(document.activeElement)) box.scrollIntoView?.({ block: "nearest" });
   }, [hint]);
-  // Why Submit asks once more: the agent suggested another verdict, or its summary no longer fits.
+  // Approving with high-risk files not viewed, or chapters marked viewed faster than they read.
+  const approval = draft.verdict === "APPROVE" && approveGuard && (approveGuard.unviewed.length || approveGuard.rushed.length) ? approveGuard : null;
+  // Why Submit asks once more: the agent suggested another verdict, its summary no longer fits, or what an approval skipped.
   const doubts = [
     ...(suggested && suggested !== draft.verdict && !ownPr ? [`The agent suggested ${VERDICT_LABEL[suggested]}.`] : []),
     ...(changes.comments && changes.verdict ? [`Your comments changed, and the summary was written for ${VERDICT_LABEL[changes.verdict]}.`]
       : changes.comments ? ["Your comments changed since the agent wrote the summary."]
       : changes.verdict ? [`The summary was written for ${VERDICT_LABEL[changes.verdict]}.`] : []),
+    ...(approval ? approveDoubts(approval) : []),
   ];
   const commentCount = draft.comments.length;
   const blockingCount = draft.comments.filter((comment) => comment.severity === "blocking").length;
@@ -559,7 +565,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     summaryRef, summaryDiscussion, editable, busy, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
     showComposer, inline, edited, replacing, counts, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment,
     file, boxLines, line, side, files, setFile, editing, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
-    ownPr, suggested, chooseVerdict, confirming, setConfirming, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
+    ownPr, suggested, chooseVerdict, confirming, setConfirming, approval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
     inlineDraft, inlineComposer, askAgent, patch, account,
   };
 }

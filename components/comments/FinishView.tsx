@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
 import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "../../src/draft";
 import type { CommentFilter, CommentItem } from "../../lib/comments";
+import { rushedDoubt, unviewedDoubt } from "../../lib/approve-guard";
 import { readDraftRecovery } from "../../lib/draft-recovery";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
 import { statusWhy } from "../../lib/status-line";
@@ -204,7 +205,7 @@ function Row({ icon, tone = "neutral", children, action }: { icon: ReactNode; to
 /** Goes to GitHub: the comments and their severities, who wrote them, what holds Submit back, and the reply drafts that post on their own. */
 function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentItem[]; replyDrafts: number; onList: (filter: CommentFilter, id?: string | null) => void }) {
   const d = useDraft();
-  const { reveal } = useWorkspace();
+  const { reveal, showLocation } = useWorkspace();
   const comments = d.draft.comments;
   const agent = comments.filter((comment) => comment.author === "agent").length;
   const older = items.filter((item) => item.kind === "draft" && item.state === "older-diff");
@@ -234,6 +235,10 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
         {d.approvingBlocked && <Row tone="warning" icon={<Icon name="AlertTriangle" className="size-4 shrink-0" aria-hidden />} action={blocking && fix("Show", () => onList("not-submitted", blocking.id))}>
           Approving with {plural(d.blockingCount, "blocking comment")}.
         </Row>}
+        {d.approval && d.approval.unviewed.length > 0 && <Row tone="warning" icon={<Icon name="EyeOff" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(d.approval!.unviewed[0], null, "RIGHT"))}>
+          {unviewedDoubt(d.approval.unviewed)}
+        </Row>}
+        {d.approval?.rushed.map((chapter) => <Row key={chapter.id} tone="warning" icon={<Icon name="Clock" className="size-4 shrink-0" aria-hidden />}>{rushedDoubt(chapter)}</Row>)}
       </ul>
     </Part>
   );

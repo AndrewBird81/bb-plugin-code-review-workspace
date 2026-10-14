@@ -8,6 +8,8 @@ export interface FileViewState {
   viewed: boolean;
   /** Was marked viewed but the diff changed since (re-review moved it). */
   stale: boolean;
+  /** When it was marked viewed. */
+  viewedAt: number;
 }
 
 /** Current content hash of each of these files, keyed by path; files not in the patch are left out. */
@@ -33,6 +35,6 @@ export function computeFileViewState(stored: FileView[], patch: string): FileVie
   return stored.map((v) => {
     const cur = current.get(v.file);
     const matches = cur != null && cur.includes(v.hash);
-    return { file: v.file, viewed: matches, stale: cur != null && !matches };
+    return { file: v.file, viewed: matches, stale: cur != null && !matches, viewedAt: v.viewedAt };
   });
 }

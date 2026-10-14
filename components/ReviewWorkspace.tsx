@@ -57,6 +57,7 @@ import { ReviewMenu } from "./TitleBarControls";
 import { TOUCH_CONTROL } from "./touch";
 import { splitPatchByFile } from "../src/patch";
 import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunks";
+import { approveGuard } from "../lib/approve-guard";
 import { changedLines, chapterReadingLines, readingLines } from "../lib/review-size";
 
 /** The guide's chapters, then any changed files they don't list, such as an older guide's unplaced files. */
@@ -69,8 +70,8 @@ function withOtherFiles(sections: any[], patch: string): any[] {
 }
 const OTHER_FILES = "other-files";
 
-function viewMap(views: { file: string; viewed: boolean; stale: boolean }[]): Map<string, FileViewFlags> {
-  return new Map(views.map((v) => [v.file, { viewed: v.viewed, stale: v.stale }]));
+function viewMap(views: { file: string; viewed: boolean; stale: boolean; viewedAt?: number }[]): Map<string, FileViewFlags> {
+  return new Map(views.map((v) => [v.file, { viewed: v.viewed, stale: v.stale, viewedAt: v.viewedAt }]));
 }
 
 /** Where you're typing in the review `targetKey`, if you are: in its chapters (Find in review), its side panel, or elsewhere. */
@@ -513,6 +514,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const lines = useMemo(() => changedLines(patch), [patch]);
   const readLines = useMemo(() => readingLines([...lines.keys()], lines, generated), [lines, generated]);
   const chapterLines = useMemo(() => chapterReadingLines(sections, patch, lines, generated), [sections, patch, lines, generated]);
+  // What Finish review asks about when you approve.
+  const guard = useMemo(() => approveGuard(sections, views, patch, lines, generated), [sections, views, patch, lines, generated]);
   // Whether a chapter's file changed since, and so shows narrowed.
   const texts = useMemo(() => new Map(splitPatchByFile(patch).map((f) => [f.path, f.text])), [patch]);
   const changedIn = useCallback((diff: any) => {
@@ -1177,7 +1180,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   return (
     <WorkspaceProvider api={api}>
     {/* The draft's provider shares it with the diff, which shows each comment under its line, and with its panel. */}
-    <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={() => { void load(); }} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
+    <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} approveGuard={guard} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={() => { void load(); }} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
     {/* Kit popovers open as bottom drawers where the workspace is phone-sized or short. */}
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
     {/* It keeps clear of the screen's edges where it reaches them (--gr-safe-*: the notch, the Duo's rail, the home
