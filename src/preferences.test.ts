@@ -109,10 +109,14 @@ test("agent selections default to project defaults, persist, and validate", asyn
   expect(createStore(bb).getPreferences()).toEqual({ preferences, revision: 2 });
 });
 
+/** A provider as bb lists it, running in `modes`. */
+const provider = (id: string, modes: string[]) => ({ id, available: true, capabilities: { permissionModes: modes } });
+
 test("each agent starts with its own selection, sourced as the user's choice; on the defaults, the hidden guide writer at bb's lowest permission mode", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), wait: async () => {}, output: async () => "Answer", stop: async () => {}, archive: async () => {},
-  } } });
+  }, projects: { defaultExecutionOptions: async () => ({ providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "full" }) },
+  providers: { list: async () => [provider("claude-code", ["accept-edits", "auto", "full"])] } } as any });
   const store = createStore(bb);
   store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1, projectId: "project" });
   await generateGuide(bb, store, "target", "project");
@@ -129,6 +133,35 @@ test("each agent starts with its own selection, sourced as the user's choice; on
   expect(assistant).toMatchObject({ title: "Review agent: target", ...claude, executionInputSources: explicit });
   expect(assistant).not.toHaveProperty("serviceTier");
   expect(assistant.executionInputSources).not.toHaveProperty("serviceTier");
+});
+
+test("on the defaults, the guide writer runs at accept-edits, else auto, where the project's provider runs in it, else at the project's mode", async () => {
+  let defaults: unknown = { providerId: "other", model: "m", reasoningLevel: "high", permissionMode: "full" };
+  let providers: () => Promise<unknown[]> = async () => [provider("claude-code", ["accept-edits", "auto", "full"]), provider("other", ["auto", "full"])];
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: async () => ({ id: "worker" }), wait: async () => {}, stop: async () => {}, archive: async () => {},
+  }, projects: { defaultExecutionOptions: async ({ projectId }: { projectId: string }) => projectId === "project" ? defaults : null },
+  providers: { list: () => providers() } } as any });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1, projectId: "project" });
+  const mode = async () => {
+    await generateGuide(bb, store, "target", "project");
+    const spawn = harness.inspection.sdk.callsTo("threads.spawn").at(-1)![0] as any;
+    return spawn.permissionMode ? [spawn.permissionMode, spawn.executionInputSources.permissionMode] : [spawn.executionInputSources?.permissionMode ?? null];
+  };
+  // A provider without accept-edits gets auto.
+  expect(await mode()).toEqual(["auto", "explicit"]);
+  // One that runs only at full, one bb doesn't list, a list that fails, and a project with no defaults: the project's mode.
+  providers = async () => [provider("other", ["full"])];
+  expect(await mode()).toEqual([null]);
+  providers = async () => [provider("claude-code", ["accept-edits"])];
+  expect(await mode()).toEqual([null]);
+  providers = async () => { throw new Error("Connection unavailable"); };
+  expect(await mode()).toEqual([null]);
+  providers = async () => [provider("other", ["accept-edits", "auto", "full"])];
+  expect(await mode()).toEqual(["accept-edits", "explicit"]);
+  defaults = null;
+  expect(await mode()).toEqual([null]);
 });
 
 test("custom selections start from the personal project's remembered defaults", async () => {

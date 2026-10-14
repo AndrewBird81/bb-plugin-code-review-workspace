@@ -37,6 +37,22 @@ export function guideWriterUnavailable(bb: BbPluginApi, store: Store): Promise<s
   return machineUnavailable(bb, store.getPreferences().preferences.guideAgent, "guide writer");
 }
 
+/**
+ * The writer's permission mode on the project's defaults. Not the project's, as its tools need no shell or edits:
+ * accept-edits where the project's provider runs in it, else auto, whose approvals bb reviews itself, so the hidden
+ * writer waits on no one. Unset, so the project's own, when the provider runs in neither or can't be read.
+ */
+async function guideWriterMode(bb: BbPluginApi, projectId: string): Promise<{ permissionMode?: "accept-edits" | "auto"; executionInputSources?: { permissionMode: "explicit" } }> {
+  try {
+    const [defaults, providers] = await Promise.all([bb.sdk.projects.defaultExecutionOptions({ projectId }), bb.sdk.providers.list()]);
+    const modes = providers.find((provider) => provider.id === defaults?.providerId)?.capabilities.permissionModes ?? [];
+    const mode = (["accept-edits", "auto"] as const).find((candidate) => modes.includes(candidate));
+    return mode ? { permissionMode: mode, executionInputSources: { permissionMode: "explicit" } } : {};
+  } catch {
+    return {};
+  }
+}
+
 export function buildGenerationPrompt(targetKey: string, generationId?: string, preferences: ReviewPreferences = defaultPreferences, earlier?: { guide: Guide | null; reviewed: boolean }): string {
   const chapters = earlier?.guide?.sections.map((s) => `- ${s.id}: ${s.title} (${s.diffs.map((d) => d.hunks ? `${d.file} hunks ${d.hunks.join(", ")}` : d.file).join(", ")})`) ?? [];
   return [
@@ -82,6 +98,7 @@ export async function generateGuide(
     const preferences = store.getPreferences().preferences;
     const title = `${GUIDE_WORKER_TITLE}${targetKey}`;
     const placement = await agentPlacement(bb, preferences.guideAgent, projectId);
+    const execution = preferences.guideAgent ? spawnExecution(preferences.guideAgent) : await guideWriterMode(bb, projectId);
     const id = generationId;
     const worker = await spawningFor(bb, title, targetKey, async () => {
       const worker = await bb.sdk.threads.spawn({
@@ -89,8 +106,7 @@ export async function generateGuide(
         prompt: buildGenerationPrompt(targetKey, id, preferences, earlier),
         title,
         visibility: "hidden",
-        // On the project's defaults, the writer still gets bb's lowest mode, not the project's: its tools need no shell or edits.
-        ...(preferences.guideAgent ? spawnExecution(preferences.guideAgent) : { permissionMode: "accept-edits", executionInputSources: { permissionMode: "explicit" } }),
+        ...execution,
       });
       store.setGenerationWorker(targetKey, id, worker.id);
       return worker;
