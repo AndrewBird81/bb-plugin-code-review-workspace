@@ -242,6 +242,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
       <p className="max-w-[75ch] pb-2 text-sm text-muted-foreground">Shape your guides, how the assistant helps, and how reviews read. Applies across this BB installation.</p>
       <SetupReadiness account={<AccountBar />} />
       <ReleaseSettings clientId={session.clientId} disabled={dirty || busy} onUpdatingChange={setUpdating} />
+      {error && <div role="alert" className="space-y-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><p className="flex items-start gap-2"><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />{error}</p><Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy || updating} onClick={() => void load()}>Reload saved settings</Button></div>}
       {/* How to set up Needs You shows while settings load, or when they can't; the toggles once they have. */}
       <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
         <SectionHeading icon="Mail" title="Notifications" description="What Needs You alerts you about." />
@@ -252,7 +253,6 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
         <p className="max-w-[75ch] text-sm text-muted-foreground">Alerts go to Needs You. Each links back to the review and clears when you open it. Install or update Needs You to 0.2.0-beta.3 or later, then enable Extension activity in its Settings. Telegram is optional.</p>
         <a className={`relative inline-block text-sm text-primary underline underline-offset-4 ${TOUCH_TARGET}`} href="/plugins/inbox/inbox/settings" target="_blank" rel="noreferrer">Open Needs You settings</a>
       </section>
-      {error && <div role="alert" className="space-y-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><p className="flex items-start gap-2"><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />{error}</p><Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy || updating} onClick={() => void load()}>Reload saved settings</Button></div>}
       {!record ? !error && <p role="status">Loading settings…</p> : <>
         {/* min-w-0: a fieldset is otherwise as wide as its widest line, past a phone's edge. */}
         <fieldset disabled={busy || updating} className="min-w-0 space-y-4">

@@ -550,9 +550,11 @@ test("how to set up Needs You shows while settings load and when they can't, and
     if (fail) throw new Error("Offline");
     return new Promise((resolve) => { answer = resolve; });
   } } });
-  await slot.findByText("Couldn’t load settings. Try again.");
+  const error = (await slot.findByText("Couldn’t load settings. Try again.")).closest("[role=alert]");
   expect(slot.getByRole("link", { name: "Open Needs You settings" })).toBeTruthy();
   expect(slot.queryByRole("checkbox", { name: /^A guide is ready or failed/ })).toBeNull();
+  // The error and Reload saved settings sit directly under Plugin updates, above Notifications.
+  expect(slot.getByRole("region", { name: "Plugin updates" }).nextElementSibling).toBe(error);
   fail = false;
   fireEvent.click(slot.getByRole("button", { name: "Reload saved settings" }));
   await waitFor(() => expect(answer).toBeTypeOf("function"));
