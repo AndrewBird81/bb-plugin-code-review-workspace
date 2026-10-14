@@ -4,6 +4,7 @@ import type { z } from "zod";
 import type { rpcContract } from "../src/rpc-contract";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
+import { useKnob } from "../lib/settings";
 import { TOUCH_TARGET } from "./touch";
 import { Icon } from "./ui/icon";
 import { InlineDraftContext } from "./InlineDraft";
@@ -17,17 +18,18 @@ export const CheckFailuresContext = createContext<CheckFailure[]>([]);
 
 export const failureLocation = (failure: CheckFailure): CommentLocation => ({ file: failure.file, line: failure.line, side: "RIGHT" });
 
-/** Reads a PR's CI failures once per reviewed head. */
+/** Reads a PR's CI failures once per reviewed head, while Settings shows them in the code. */
 export function useCheckFailures(targetKey: string, headSha: string | null): CheckFailure[] {
   const rpc = useRpc<typeof rpcContract>();
+  const on = useKnob("ciInCode");
   const [failures, setFailures] = useState<CheckFailure[]>([]);
   useEffect(() => {
     setFailures([]);
-    if (!headSha) return;
+    if (!headSha || !on) return;
     let cancelled = false;
     rpc.call("getCheckFailures", { targetKey }).then(({ failures }) => { if (!cancelled) setFailures(failures); }).catch(() => {});
     return () => { cancelled = true; };
-  }, [rpc, targetKey, headSha]);
+  }, [rpc, targetKey, headSha, on]);
   return failures;
 }
 

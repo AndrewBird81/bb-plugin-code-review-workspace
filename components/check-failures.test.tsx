@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, within } from "@testing-library/react";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { getReviewState, patchReviewState } from "../lib/panel-state";
+import { defaultKnobs, type Knobs } from "../lib/knobs";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({
@@ -47,5 +48,48 @@ test("CI failures show on their lines in the diff, with a link to the check", as
   expect(within(failure).getByText("Lower-case it.", { exact: false })).toBeTruthy();
   expect(within(failure).getByRole("link", { name: "View check" }).getAttribute("href")).toBe("https://github.com/acme/web/runs/1");
   expect(file.queryByText("Not in the diff.", { exact: false })).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+/** The review, opened on its Overview or on `activeId`, with the knobs `getPreferences` returns at each load. */
+async function renderReview(knobs: () => Knobs, activeId?: string) {
+  if (activeId) patchReviewState("pr-42", { activeId });
+  const app = await loadPluginApp(() => import("../app"));
+  return renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: structuredClone(guide), patch, revision: "r1" }),
+    getChecks: () => ({ bucket: "fail", checks: [{ name: "lint", bucket: "fail", state: "FAILURE", link: "https://github.com/acme/web/runs/1" }] }),
+    getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: knobs() }, revision: 0 }),
+    getFileViews: () => ({ views: [] }),
+    checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
+    checkForUpdates: () => ({ hasNewCommits: false }),
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }),
+    getReviewerNotes: () => ({ body: "", revision: 0 }),
+    getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
+    markSeen: () => ({ ok: true }),
+    getCheckFailures: () => ({ failures: [{ file: "src/a.ts", line: 2, check: "lint", title: "no-shout", message: "Lower-case it.", url: "https://github.com/acme/web/runs/1" }] }),
+  } as any });
+}
+
+test("with CI failures in the code off in Settings, failures aren't read and no line shows one, while the Overview still lists the failing check", async () => {
+  const slot = await renderReview(() => ({ ...defaultKnobs, ciInCode: false }));
+  const checks = within(await slot.findByRole("region", { name: "Checks" }));
+  expect(checks.getByText("lint")).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: "Start reading: Parsing" }));
+  await slot.findByTestId("filediff");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(slot.queryByRole("note", { name: "CI failure on src/a.ts:2" })).toBeNull();
+  expect(slot.inspection.rpcCalls.some((call) => call.method === "getCheckFailures")).toBe(false);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("turning CI failures in the code off in Settings takes a shown failure off its line", async () => {
+  let knobs: Knobs = defaultKnobs;
+  const slot = await renderReview(() => knobs, "c1");
+  await slot.findByRole("note", { name: "CI failure on src/a.ts:2" });
+  knobs = { ...defaultKnobs, ciInCode: false };
+  await slot.emitRealtime("preferences", {});
+  await waitFor(() => expect(slot.queryByRole("note", { name: "CI failure on src/a.ts:2" })).toBeNull());
+  expect(slot.getByTestId("filediff")).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
