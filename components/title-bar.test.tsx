@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
-import { act } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { defaultKnobs } from "../lib/knobs";
