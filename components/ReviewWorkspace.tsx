@@ -95,6 +95,8 @@ function DraftLines({ into }: { into: MutableRefObject<CommentLocation[]> }) {
 
 /** Turns where what matters first is whether the author addressed your feedback. */
 const FEEDBACK_FIRST = new Set<TurnReason>(["re-requested", "handled", "looks-ready", "question", "mentioned"]);
+/** No file's owners: what the code shows with Settings' Code owners off. */
+const NO_OWNERS: ReadonlyMap<string, FileOwners> = new Map();
 
 export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { targetKey: string }) {
   const rpc = useRpc<typeof rpcContract>();
@@ -505,12 +507,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const pickCompare = useCallback((sha: string | null) => sha === compareFrom ? flip(true) : choose(sha, true), [compareFrom, flip, choose]);
   const sinceWhat = compareFrom ? compareFrom.slice(0, 7) : "your review";
   // Who owns each file, by CODEOWNERS on a PR's base branch, or a local review's new side.
+  // Settings → Reading can turn them off, which takes them away at once.
+  const codeOwners = useKnob("codeOwners");
   useEffect(() => {
-    if (!revision) return;
+    if (!revision || !codeOwners) return;
     let cancelled = false;
     rpc.call("getCodeOwners", { targetKey }).then((result) => { if (!cancelled) setOwners(new Map(result.files.map((entry) => [entry.file, entry]))); }, () => {});
     return () => { cancelled = true; };
-  }, [rpc, targetKey, revision]);
+  }, [rpc, targetKey, revision, codeOwners]);
+  const shownOwners = codeOwners ? owners : NO_OWNERS;
   const sections = useMemo(() => guide?.sections ? withOtherFiles(fitHunks(guide.sections, patch), patch) : [], [guide, patch]);
   const lines = useMemo(() => changedLines(patch), [patch]);
   const readLines = useMemo(() => readingLines([...lines.keys()], lines, generated), [lines, generated]);
@@ -1199,7 +1204,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     >
       <div className="relative flex min-h-0 flex-1">
         <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetTitle={<ChapterViewSwitch view={navView} onChange={changeNavView} />} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelDockWidth(paneWidth, panelWidth) : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
-          <Navigator leading={<TopBand />} patch={patch} currentFile={currentFile} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={owners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} initialFind={carry?.find} onFind={keepFind} />
+          <Navigator leading={<TopBand />} patch={patch} currentFile={currentFile} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={shownOwners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} initialFind={carry?.find} onFind={keepFind} />
         </NavigatorHost>
         <main aria-label="Review" inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
           {/* With the keyboard up leaving a phone held sideways' room or less, the band and notices give way to the code. */}
@@ -1236,7 +1241,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 readContents={readContents}
                 generated={generated}
                 sinceWhat={sinceWhat}
-                owners={owners}
+                owners={shownOwners}
                 foldAll={foldAll}
                 onSinceOnly={rereview || sheet || !compareShown ? flip : undefined}
                 switchSlot={switchSlot}
