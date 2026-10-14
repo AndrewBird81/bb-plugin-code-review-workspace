@@ -17,7 +17,7 @@ import { validateGuide, checkCoverage, checkHotspots, checkRequirements, GuideIn
 import { hunkCounts } from "./src/hunks";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
-import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startAutomaticReview, startConversation } from "./src/agent";
+import { ASSISTANT_TITLE, assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startAutomaticReview, startConversation } from "./src/agent";
 import { startFixThread } from "./src/fix-handoff";
 import { listMachines } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
@@ -44,7 +44,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
-import { stopGuideGenerations, hasGuideGenerations, guideWorkerFailed } from "./src/generate";
+import { GUIDE_WORKER_TITLE, stopGuideGenerations, hasGuideGenerations, guideWorkerFailed } from "./src/generate";
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { rerunReview } from "./src/rereview";
 import { getGhAccounts, switchGhAccount, checkRepoAccess } from "./src/gh-accounts";
@@ -938,7 +938,7 @@ export default async function plugin(bb: BbPluginApi) {
   /** The review a guide-writing worker is generating, from its title. */
   async function generationReview(threadId: string): Promise<string | null> {
     const title = await bb.sdk.threads.get({ threadId }).then((thread) => thread.title ?? "", () => "");
-    return title.startsWith("Generate guide: ") ? title.slice("Generate guide: ".length) : null;
+    return title.startsWith(GUIDE_WORKER_TITLE) ? title.slice(GUIDE_WORKER_TITLE.length) : null;
   }
 
   // A discussion the assistant didn't answer by the end of its turn stops waiting for it.
@@ -1013,14 +1013,14 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.configure((context) => {
     if (context.origin?.pluginId !== bb.pluginId) return { tools: [], skills: [] };
     const title = context.thread?.title ?? "";
-    if (title.startsWith("Generate guide:")) {
+    if (title.startsWith(GUIDE_WORKER_TITLE)) {
       return { tools: ["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"], skills: ["guided-review-generate"] };
     }
     // The review assistant can read any file's diff on demand, so the chat
     // works across the whole review, and change its own review's local draft
     // comments — but it never gets the guide-writing tool or the generation
     // skill. Its review context arrives as instructions.
-    if (title.startsWith("Review agent:")) {
+    if (title.startsWith(ASSISTANT_TITLE)) {
       const { targetKey } = context.pluginMetadata;
       const review = typeof targetKey === "string" ? store.getReview(targetKey) : null;
       return {

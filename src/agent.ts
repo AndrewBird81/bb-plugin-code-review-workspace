@@ -7,6 +7,8 @@ import { assistantPreferencesPrompt, spawnExecution, type AgentExecution, type R
 import { mayRunChecks, mayRunUnattended } from "../lib/trust";
 import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
 
+/** Starts an assistant thread's title; `agents.configure` grants it the review tools by it. */
+export const ASSISTANT_TITLE = "Review agent: ";
 // bb truncates configure instructions at 4,096 characters.
 const INSTRUCTIONS_LIMIT = 4000;
 
@@ -120,7 +122,7 @@ async function spawnConversation(bb: BbPluginApi, store: Store, args: { targetKe
       ...(args.context ? [{ type: "text" as const, text: args.context, mentions: [], visibility: "agent-only" as const }] : []),
       ...(legacy ? [{ type: "text" as const, text: `Previous review conversation:\n${legacy}`, mentions: [], visibility: "agent-only" as const }] : []),
     ],
-    title: `Review agent: ${args.targetKey}`,
+    title: `${ASSISTANT_TITLE}${args.targetKey}`,
     visibility: "hidden",
     pluginMetadata: { targetKey: args.targetKey },
     // The default's permission mode applies only to the provider it was chosen for.

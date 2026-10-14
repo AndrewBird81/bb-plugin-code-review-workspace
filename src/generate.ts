@@ -10,6 +10,9 @@ import type { Guide } from "./guide";
 import { mayRunUnattended } from "../lib/trust";
 import { fitHunks } from "./hunks";
 
+/** Starts a guide-writing worker's title; `agents.configure` grants it the guide tools by it. */
+export const GUIDE_WORKER_TITLE = "Generate guide: ";
+
 const preparedListeners = new WeakMap<BbPluginApi, (targetKey: string) => void>();
 /** Told when a guide's automatic follow-up (the review or the feedback check) has started or can't. */
 export function onPrepared(bb: BbPluginApi, listener: (targetKey: string) => void) { preparedListeners.set(bb, listener); }
@@ -79,7 +82,7 @@ export async function generateGuide(
     const worker = await threads.spawn({
       ...(await agentPlacement(bb, preferences.guideAgent, projectId)),
       prompt: buildGenerationPrompt(targetKey, generationId, preferences, earlier),
-      title: `Generate guide: ${targetKey}`,
+      title: `${GUIDE_WORKER_TITLE}${targetKey}`,
       visibility: "hidden",
       ...spawnExecution(preferences.guideAgent),
     });
