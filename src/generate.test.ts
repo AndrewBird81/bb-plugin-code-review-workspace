@@ -312,3 +312,10 @@ test("the guide writer lists the files first, and patch pages end on file bounda
   const page = text(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", limit: patch.length + 20 }));
   expect(page).toBe(`${patch}\n\n[${patch.length}/${patch.length + second.length} bytes — call again with offset=${patch.length}]`);
 });
+
+test("the guide-writing skill lets the writer read a linked ticket, as its first step asks, and nothing else beyond the plugin's tools", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const skill = await readFile(new URL("../skills/guided-review-generate/SKILL.md", import.meta.url), "utf8");
+  expect(skill).toMatch(/ticket \(like ABC-123\) and you have a tool that reads it, read it/);
+  expect(skill).toContain("Use only this plugin's tools, and a tool that reads a linked ticket (step 1); never run shell commands or edit files.");
+});
