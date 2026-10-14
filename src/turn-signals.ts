@@ -15,7 +15,7 @@ function foreignHeadOwner(facts: PrFacts, viewer: string): string | null {
 }
 
 export function turnOptions(preferences: ReviewPreferences): TurnOptions {
-  return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks, teamRequests: preferences.trackTeamRequests };
+  return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks, teamRequests: preferences.trackTeamRequests, mentions: preferences.knobs.mentionsWake };
 }
 
 /**

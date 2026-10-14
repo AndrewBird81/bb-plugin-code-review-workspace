@@ -125,6 +125,8 @@ export interface TurnOptions {
   quietMs?: number;
   /** false: a PR found on GitHub only through a team request leaves your list. */
   teamRequests?: boolean;
+  /** false: a mention doesn't make it your turn. */
+  mentions?: boolean;
 }
 
 export interface Turn {
@@ -246,7 +248,7 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
       const question = replyAt === s.questionAt;
       return needs("question", question ? "Question for you" : "Author replied", `reply:${replyAt}`, replyAt, true);
     }
-    if (after(s.mentionAt, lastReviewAt, snoozedAt)) {
+    if (options.mentions !== false && after(s.mentionAt, lastReviewAt, snoozedAt)) {
       return needs("mentioned", "Mentioned you", `mention:${s.mentionAt}`, s.mentionAt, true);
     }
     if (s.isDraft) return make(verdict === "APPROVE" ? "reviewed" : "waiting", "draft", "Draft", { updated });

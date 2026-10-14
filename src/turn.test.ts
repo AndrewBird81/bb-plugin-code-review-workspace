@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { baselineOf, canSnooze, canSnoozeUntil, computeTurn, feedbackProgress, progressText, QUIET_MS, snoozeLabel, snoozeTimes, type TurnInput, type TurnOptions } from "../lib/turn";
-import { threadSignals } from "./turn-signals";
+import { threadSignals, turnOptions } from "./turn-signals";
+import { defaultPreferences } from "./preferences";
 import type { FeedbackThread } from "./github/types";
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
@@ -161,6 +162,13 @@ test("a question on your thread wakes the review; other replies only if you choo
 
 test("a mention after your review wakes it", () => {
   expect(turn(changesRequested({}, { mentionAt: t(1), mentionBy: "alice" }))).toMatchObject({ group: "needs", reason: "mentioned", notify: true });
+});
+
+test("with Come back when you're mentioned off, a mention after your review leaves it waiting", () => {
+  const mentioned = changesRequested({}, { mentionAt: t(1), mentionBy: "alice" });
+  expect(turn(mentioned, { mentions: false })).toMatchObject({ group: "waiting", notify: false });
+  expect(turnOptions({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, mentionsWake: false } })).toMatchObject({ mentions: false });
+  expect(turn(mentioned, turnOptions(defaultPreferences))).toMatchObject({ group: "needs", reason: "mentioned" });
 });
 
 test("feedback handled: every thread resolved or answered, new commits, CI settled, author quiet", () => {
