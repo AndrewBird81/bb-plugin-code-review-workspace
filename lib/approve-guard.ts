@@ -13,7 +13,7 @@ const PACE_MIN_LINES = 50;
 export interface ApproveGuard {
   /** Files to read in high-risk chapters that aren't viewed, in reading order. */
   unviewed: string[];
-  /** Medium- and high-risk chapters whose files were marked viewed faster than MAX_LINES_PER_HOUR. */
+  /** Medium- and high-risk chapters whose files were marked viewed faster than `linesPerHour` (Settings' pace). */
   rushed: Array<{ id: string; number: number; risk: "medium" | "high"; lines: number; minutes: number }>;
 }
 
@@ -21,7 +21,7 @@ export interface ApproveGuard {
  * A chapter's reading time runs from the last mark before its first one, in any chapter, to its last mark. With no
  * mark before it, the files marked first have no reading time to measure, so they don't count.
  */
-export function approveGuard(sections: readonly Chapter[], views: ReadonlyMap<string, FileViewFlags>, patch: string, lines: ReadonlyMap<string, number>, generated?: ReadonlySet<string>): ApproveGuard {
+export function approveGuard(sections: readonly Chapter[], views: ReadonlyMap<string, FileViewFlags>, patch: string, lines: ReadonlyMap<string, number>, generated?: ReadonlySet<string>, linesPerHour = MAX_LINES_PER_HOUR): ApproveGuard {
   const toRead = (file: string) => !classifyFile(file, generated?.has(file)).skippable;
   const markOf = (file: string) => { const view = views.get(file); return view?.viewed ? view.viewedAt : undefined; };
   const marks = [...views.values()].flatMap((view) => view.viewed && view.viewedAt !== undefined ? [view.viewedAt] : []);
@@ -41,7 +41,7 @@ export function approveGuard(sections: readonly Chapter[], views: ReadonlyMap<st
   const counts = chapterReadingLines(timed.map(({ section }) => section), patch, lines, generated);
   const rushed = timed.flatMap(({ section, number, risk, ms }) => {
     const count = counts.get(section.id) ?? 0;
-    return count >= PACE_MIN_LINES && count > MAX_LINES_PER_HOUR * ms / 3_600_000 ? [{ id: section.id, number, risk, lines: count, minutes: ms / 60_000 }] : [];
+    return count >= PACE_MIN_LINES && count > linesPerHour * ms / 3_600_000 ? [{ id: section.id, number, risk, lines: count, minutes: ms / 60_000 }] : [];
   });
   return { unviewed, rushed };
 }

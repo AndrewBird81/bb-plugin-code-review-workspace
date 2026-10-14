@@ -58,6 +58,7 @@ import { TOUCH_CONTROL } from "./touch";
 import { splitPatchByFile } from "../src/patch";
 import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunks";
 import { approveGuard } from "../lib/approve-guard";
+import { useKnob } from "../lib/settings";
 import { changedLines, chapterReadingLines, readingLines } from "../lib/review-size";
 
 /** The guide's chapters, then any changed files they don't list, such as an older guide's unplaced files. */
@@ -515,7 +516,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const readLines = useMemo(() => readingLines([...lines.keys()], lines, generated), [lines, generated]);
   const chapterLines = useMemo(() => chapterReadingLines(sections, patch, lines, generated), [sections, patch, lines, generated]);
   // What Finish review asks about when you approve.
-  const guard = useMemo(() => approveGuard(sections, views, patch, lines, generated), [sections, views, patch, lines, generated]);
+  const guardOn = useKnob("approveGuard");
+  const pace = useKnob("approveGuardPace");
+  const guard = useMemo(() => guardOn ? approveGuard(sections, views, patch, lines, generated, pace) : undefined,
+    [sections, views, patch, lines, generated, guardOn, pace]);
   // Whether a chapter's file changed since, and so shows narrowed.
   const texts = useMemo(() => new Map(splitPatchByFile(patch).map((f) => [f.path, f.text])), [patch]);
   const changedIn = useCallback((diff: any) => {

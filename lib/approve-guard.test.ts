@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import type { FileViewFlags } from "../components/DiffViewer";
-import { approveDoubts, approveGuard } from "./approve-guard";
+import { approveDoubts, approveGuard, MAX_LINES_PER_HOUR } from "./approve-guard";
+import { defaultKnobs } from "./knobs";
 import { changedLines } from "./review-size";
 import type { Chapter } from "./workspace-context";
 
@@ -46,4 +47,13 @@ test("the review's first marks have no reading time to measure, so they don't co
 test("a chapter with under 50 lines to read isn't judged on pace", () => {
   const small = [chapter("tiny", "high", "README.md")];
   expect(approveGuard(small, viewed({ "src/ui.ts": 0, "README.md": 1000 }), patch, lines).rushed).toEqual([]);
+});
+
+test("Settings' pace sets how fast a chapter can be read before it's a doubt, 500 lines an hour by default", () => {
+  // auth's 500 lines in 37.5 minutes: 800 an hour.
+  const marks = { "README.md": 0, "src/auth.ts": 20 * MINUTE, "src/session.ts": 37.5 * MINUTE };
+  expect(guard(marks).rushed.map((chapter) => chapter.id)).toEqual(["auth"]);
+  expect(approveGuard(sections, viewed(marks), patch, lines, undefined, 1000).rushed).toEqual([]);
+  expect(approveGuard(sections, viewed(marks), patch, lines, undefined, 700).rushed.map((chapter) => chapter.id)).toEqual(["auth"]);
+  expect(defaultKnobs.approveGuardPace).toBe(MAX_LINES_PER_HOUR);
 });

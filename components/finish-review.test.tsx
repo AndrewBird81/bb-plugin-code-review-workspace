@@ -5,6 +5,8 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import { defaultKnobs } from "../lib/knobs";
+import { commentsKey } from "../src/draft";
 import { patchReviewState } from "../lib/panel-state";
 import type { FeedbackView } from "../lib/feedback";
 
@@ -199,6 +201,62 @@ test("only Approve asks about what you didn't view", async () => {
   expect(view.queryByText(/not viewed/)).toBeNull();
   fireEvent.click(within(view.getByRole("group", { name: "Review verdict" })).getByRole("button", { name: /^Approve/ }));
   expect(await view.findByText("1 file in a high-risk chapter not viewed.")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+/** Settings with Check before you approve off. */
+const guardOff = () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, approveGuard: false } }, revision: 1 });
+const unreadHighRisk = (review: Record<string, unknown> = {}) => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", repo: "acme/web", number: 42, ...review }, guide: { ...guide, sections: [{ ...guide.sections[0], risk: "high" }] }, patch, revision: "r1" });
+
+test("with Check before you approve off, approving with a high-risk file not viewed says nothing and submits in one click", async () => {
+  const { slot, rpc } = await renderWorkspace({ rpc: {
+    getPreferences: guardOff,
+    getReviewBundle: () => unreadHighRisk(),
+    getDraft: () => ({ draft: draftOf({ verdict: "APPROVE", verdictChosen: true, body: "Fine.", comments: [] }), stale: [] }),
+    getFeedback: () => ({ feedback: feedbackOf({ items: [] }) }),
+  } });
+  const view = await finish(slot);
+  expect(view.queryByText(/not viewed/)).toBeNull();
+  fireEvent.click(submit(view));
+  await waitFor(() => expect(rpc.submitReview).toHaveBeenCalledWith(expect.objectContaining({ verdict: "APPROVE" })));
+  expect(view.queryByRole("alert")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("with Check before you approve off, every other doubt and row still shows", async () => {
+  // The agent's summary was written for Comment, before the blocking comment was added.
+  const agentSummary = (written: Record<string, unknown>) => draftOf({ verdict: "APPROVE", verdictChosen: true, suggestedVerdict: "REQUEST_CHANGES", body: "Fine.", bodyAuthor: "agent", written });
+  let draft = agentSummary({ verdict: "COMMENT", comments: "0:0" });
+  let stale: unknown[] = [];
+  const { slot } = await renderWorkspace({ rpc: {
+    getPreferences: guardOff,
+    getReviewBundle: () => unreadHighRisk(),
+    getDraft: () => ({ draft, stale }),
+    setVerdict: vi.fn(({ verdict }: any) => ({ draft: draftOf({ verdict, verdictChosen: true, body: "" }) })),
+  } });
+  const view = await finish(slot);
+  expect(view.getByText("The agent suggested Request changes.")).toBeTruthy();
+  expect(view.getByText("Approving with 1 blocking comment.")).toBeTruthy();
+  expect(view.queryByText(/not viewed/)).toBeNull();
+  const ask = async () => {
+    fireEvent.click(submit(view));
+    const text = (await view.findByRole("alert")).textContent;
+    fireEvent.click(view.getByRole("button", { name: "Cancel" }));
+    return text;
+  };
+  expect(await ask()).toContain("Approve with 1 blocking comment? The agent suggested Request changes. Your comments changed, and the summary was written for Comment.");
+  draft = agentSummary({ verdict: "APPROVE", comments: "0:0" });
+  await slot.emitRealtime("draft:pr-42", {});
+  await waitFor(() => expect(view.queryByText("Approving with 1 blocking comment.")).toBeTruthy());
+  await waitFor(async () => expect(await ask()).toContain("Your comments changed since the agent wrote the summary."));
+  draft = agentSummary({ verdict: "COMMENT", comments: commentsKey(comments as Parameters<typeof commentsKey>[0]) });
+  await slot.emitRealtime("draft:pr-42", {});
+  await waitFor(async () => expect(await ask()).toContain("The summary was written for Comment."));
+  stale = [{ file: "src/a.ts", line: 1, side: "RIGHT" }];
+  await slot.emitRealtime("draft:pr-42", {});
+  expect(await view.findByText("1 comment on an older diff: edit or remove it")).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Switch to Request changes" }));
+  expect(await view.findByText("Request changes needs a summary: say what has to change.")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
