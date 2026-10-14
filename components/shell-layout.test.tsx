@@ -66,17 +66,20 @@ type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
 const panel = (slot: Slot) => slot.queryByRole("complementary", { name: "Comments and agent" });
 const chapters = (slot: Slot) => slot.queryByRole("navigation", { name: "Chapters" });
 
-test("the panel docks where the code keeps 560px, and the chapters dock beside it only with room for both", async () => {
+test("the panel docks where the code keeps 560px, and the chapters dock beside it with room for both", async () => {
   fakePane(1400);
-  let { slot, comments } = await renderWorkspace();
+  const { slot, comments } = await renderWorkspace();
   fireEvent.click(comments);
   expect(panel(slot)).toBeTruthy();
   expect(chapters(slot)).toBeTruthy();
   expect(slot.queryByRole("dialog")).toBeNull();
-  slot.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore()); localStorage.clear();
+  slot.lifecycle.unmount();
+});
+
+test("with room for the docked panel but not the chapters too, the chapters give way to it until it closes", async () => {
   // 1056 - 400 leaves 656 for the code: the panel docks, and the chapters give way to it.
   fakePane(1056);
-  ({ slot, comments } = await renderWorkspace());
+  const { slot, comments } = await renderWorkspace();
   expect(chapters(slot)).toBeTruthy();
   fireEvent.click(comments);
   expect(panel(slot)).toBeTruthy();
@@ -85,19 +88,25 @@ test("the panel docks where the code keeps 560px, and the chapters dock beside i
   // Closing the panel docks them again.
   fireEvent.click(within(panel(slot)!).getByRole("button", { name: "Close panel" }));
   expect(chapters(slot)).toBeTruthy();
-  slot.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore()); localStorage.clear();
+  slot.lifecycle.unmount();
+});
+
+test("the panel docks narrower to keep 560px for the code, and the chapters give way to it", async () => {
   // 900 - 400 leaves 500: the panel docks narrower, keeping 560 for the code, and the chapters give way to it.
   fakePane(900);
-  ({ slot, comments } = await renderWorkspace());
+  const { slot, comments } = await renderWorkspace();
   fireEvent.click(comments);
   expect(panel(slot)).toBeTruthy();
   expect(chapters(slot)).toBeNull();
   expect(slot.queryByRole("dialog")).toBeNull();
-  slot.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore()); localStorage.clear();
+  slot.lifecycle.unmount();
+});
+
+test("without 560px beside even its narrowest, the panel opens over the code, and the chapters stay docked under it", async () => {
   // 860 leaves 540 beside even its narrowest, 320: the panel opens over the code, a modal dialog, and the chapters
   // stay docked under it.
   fakePane(860);
-  ({ slot, comments } = await renderWorkspace());
+  const { slot, comments } = await renderWorkspace();
   fireEvent.click(comments);
   const dialog = slot.getByRole("dialog", { name: "Comments" });
   expect(dialog.getAttribute("aria-modal")).toBe("true");
