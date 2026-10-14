@@ -12,7 +12,7 @@ import { readPrContext } from "./src/pr-context";
 import { readFileContents, readGeneratedFiles } from "./src/file-contents";
 import { codeOwners, describeOwnership } from "./src/codeowners";
 import { readCheckFailures } from "./src/check-annotations";
-import { validateGuide, checkCoverage, checkHotspots, checkRequirements, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
+import { validateGuide, checkCoverage, checkHotspots, checkRequirements, checkUnplaced, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { hunkCounts } from "./src/hunks";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
@@ -990,12 +990,16 @@ export default async function plugin(bb: BbPluginApi) {
       if (!v.ok) return failed("Invalid guide:\n" + v.errors.join("\n"));
       const patch = store.patch(targetKey);
       const files = changedFiles(patch);
-      const cov = checkCoverage(v.guide, files, hunkCounts(patch));
-      if (!cov.ok) return failed("Coverage errors:\n" + cov.errors.join("\n"));
-      const spots = checkHotspots(v.guide, patch);
-      if (!spots.ok) return failed("Hotspot errors:\n" + spots.errors.join("\n"));
-      const asked = checkRequirements(v.guide, patch);
-      if (!asked.ok) return failed("Requirement errors:\n" + asked.errors.join("\n"));
+      // Every category's errors in one answer, so one more call can fix them all.
+      const errors = ([
+        ["Coverage errors", [checkCoverage(v.guide, files, hunkCounts(patch)), checkUnplaced(v.guide, patch)]],
+        ["Hotspot errors", [checkHotspots(v.guide, patch)]],
+        ["Requirement errors", [checkRequirements(v.guide, patch)]],
+      ] as const).flatMap(([heading, checks]) => {
+        const found = checks.flatMap((check) => check.ok ? [] : check.errors);
+        return found.length ? [`${heading}:\n${found.join("\n")}`] : [];
+      });
+      if (errors.length) return failed(errors.join("\n\n"));
       // Stamp the store's authoritative gitRef/base over whatever the agent
       // submitted — the guide must never carry a wrong or stale review ref.
       const meta = store.getReview(targetKey);

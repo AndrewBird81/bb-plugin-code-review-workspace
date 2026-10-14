@@ -262,7 +262,7 @@ test("generate_review_guide advertises the guide's schema and accepts a guide wi
 
 test("files the guide leaves unplaced get a final low-risk chapter, so the reviewer sees them", async () => {
   const { harness, store, generationId } = await host();
-  store.savePatch("pr-1", patch + patch.replaceAll("a.ts", "logo.png"));
+  store.savePatch("pr-1", patch + "diff --git a/logo.png b/logo.png\nindex 1..2 100644\nBinary files a/logo.png and b/logo.png differ\n");
   const out = await harness.behavior.callAgentTool("generate_review_guide", {
     targetKey: "pr-1", generationId,
     guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: ["logo.png"] },
@@ -271,6 +271,33 @@ test("files the guide leaves unplaced get a final low-risk chapter, so the revie
   const saved = store.getGuide("pr-1");
   expect(saved?.unplacedFiles).toEqual([]);
   expect(saved?.sections.at(-1)).toMatchObject({ id: "other-files", title: "Other files", risk: "low", diffs: [{ file: "logo.png", summary: expect.any(String) }] });
+});
+
+test("generate_review_guide refuses to leave a file with changed lines unplaced", async () => {
+  const { harness, store, generationId } = await host();
+  const removedCheck = (name: string) => `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1,2 +1,2 @@\n-if (!isAdmin(user)) throw denied();\n+// auth check removed\n ok();\n`;
+  store.savePatch("pr-1", patch + removedCheck("src/auth.ts"));
+  const out = await harness.behavior.callAgentTool("generate_review_guide", {
+    targetKey: "pr-1", generationId,
+    guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", risk: "high", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: ["src/auth.ts"] },
+  });
+  if (typeof out === "string") throw new Error(`expected an error, got ${out}`);
+  expect(out.isError).toBe(true);
+  expect(out.content[0]).toEqual({ type: "text", text: expect.stringContaining("unplaced: src/auth.ts has changed lines; put it in a chapter") });
+  expect(store.getGuide("pr-1")).toBeNull();
+});
+
+test("generate_review_guide reports every category of error in one answer", async () => {
+  const { harness, generationId } = await host();
+  const out = await harness.behavior.callAgentTool("generate_review_guide", {
+    targetKey: "pr-1", generationId,
+    guide: {
+      title: "T", intent: "I", sections: [{ id: "s", title: "S", overview: "o", diffs: [{ file: "ghost.ts", summary: "x" }] }],
+      hotspots: [{ file: "ghost.ts", line: 9, why: "w" }], requirements: [{ text: "Cache", status: "covered", evidence: "e" }],
+    },
+  });
+  if (typeof out === "string") throw new Error(`expected errors, got ${out}`);
+  expect(out.content[0].type === "text" && out.content[0].text).toMatch(/^Coverage errors:\nextra: ghost\.ts .*\nmissing: a\.ts .*\n\nHotspot errors:\nhotspots\.0: ghost\.ts isn't in the diff\n\nRequirement errors:\nrequirements\.0: a covered requirement needs/s);
 });
 
 test("the guide writer lists the files first, and patch pages end on file boundaries", async () => {

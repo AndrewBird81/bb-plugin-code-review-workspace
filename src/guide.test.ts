@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { validateGuide, checkCoverage, placeUnplacedFiles } from "./guide";
+import { validateGuide, checkCoverage, GuideInputSchema, placeUnplacedFiles } from "./guide";
 
 const good = {
   title: "T", intent: "I",
@@ -72,4 +72,14 @@ test("placeUnplacedFiles sums up each unplaced file from the patch", () => {
     { file: "src/new.ts", summary: "Renamed from `src/old.ts`." },
     { file: ".keep", summary: "New empty file." },
   ]);
+});
+
+test("validateGuide takes an empty hotspots, requirements, or focus list as none", () => {
+  const r = validateGuide({ ...good, sections: [{ ...good.sections[0], risk: "high", focus: [] }], hotspots: [], requirements: [] });
+  expect(r.ok).toBe(true);
+  if (!r.ok) return;
+  expect(r.guide).not.toHaveProperty("hotspots");
+  expect(r.guide).not.toHaveProperty("requirements");
+  expect(r.guide.sections[0]).not.toHaveProperty("focus");
+  expect(GuideInputSchema.safeParse({ title: "T", intent: "I", sections: [], hotspots: [] }).success).toBe(true);
 });

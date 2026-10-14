@@ -21,7 +21,8 @@ test("a guide takes optional requirements, each with a status and evidence, and 
   expect(validateGuide(guide({ requirements: [{ ...covered, status: "done" }] })).ok).toBe(false);
   expect(validateGuide(guide({ requirements: [{ text: "x", status: "unclear" }] })).ok).toBe(false);
   expect(validateGuide(guide({ sections: [{ ...section, focus: ["a", "b", "c", "d"] }] })).ok).toBe(false);
-  expect(validateGuide(guide({ sections: [{ ...section, focus: [] }] })).ok).toBe(false);
+  // An empty focus is none (src/guide.test.ts).
+  expect(validateGuide(guide({ sections: [{ ...section, focus: [] }] })).ok).toBe(true);
 });
 
 test("guides saved before requirements and focus still load as they were", () => {

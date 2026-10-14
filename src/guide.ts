@@ -13,7 +13,7 @@ export const SectionSchema = z.object({
   title: z.string().min(1).describe("The chapter's concept, briefly."),
   overview: z.string().min(1).describe("2–6 sentences of Markdown on what the chapter changes and what to check."),
   risk: z.enum(["low", "medium", "high"]).optional().describe("How closely to read this chapter; see the skill's rubric."),
-  focus: z.array(z.string().min(1)).min(1).max(3).optional().describe("On medium- and high-risk chapters: 1–3 short things to verify, each starting \"Check that\"."),
+  focus: z.array(z.string().min(1)).max(3).optional().describe("On medium- and high-risk chapters: 1–3 short things to verify, each starting \"Check that\"."),
   diffs: z.array(DiffRefSchema).min(1).describe("The chapter's files, each in exactly one chapter, or each of a split file's hunks in exactly one chapter."),
 });
 export const HotspotSchema = z.object({
@@ -32,9 +32,9 @@ export const GuideSchema = z.object({
   title: z.string().min(1).describe("The change, in one line."),
   intent: z.string().min(1).describe("Why the change exists, in 1–2 sentences."),
   sections: z.array(SectionSchema).describe("Chapters, in reading order."),
-  unplacedFiles: z.array(z.string()).default([]).describe("Files with nothing to review (binary, mode-only, pure rename). Usually empty."),
-  hotspots: z.array(HotspotSchema).min(1).max(3).optional().describe("The 1–3 places most likely to hide a defect, highest risk first."),
-  requirements: z.array(RequirementSchema).min(1).optional().describe("What the PR description and its linked tickets ask for, each checked against the diff. Leave out when the PR doesn't say what it should do."),
+  unplacedFiles: z.array(z.string()).default([]).describe("Files with nothing to review (binary, mode-only, pure rename): never a file with changed lines. Usually empty."),
+  hotspots: z.array(HotspotSchema).max(3).optional().describe("The 1–3 places most likely to hide a defect, highest risk first."),
+  requirements: z.array(RequirementSchema).optional().describe("What the PR description and its linked tickets ask for, each checked against the diff. Leave out when the PR doesn't say what it should do."),
   /** What changed since the reviewer's last review, on a re-review. */
   sinceReview: z.string().optional().describe("On a re-review only: what changed since the reviewer's last review, in 2–4 sentences."),
   review: z.object({ gitRef: z.string().min(1), base: z.string().optional() }).optional(),
@@ -79,8 +79,27 @@ export function validateGuide(raw: unknown):
       seen.add(section.id);
     }
   }).safeParse(raw);
-  if (parsed.success) return { ok: true, guide: parsed.data };
-  return { ok: false, errors: parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`) };
+  if (!parsed.success) return { ok: false, errors: parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`) };
+  // An empty list means none, as leaving it out does.
+  const { hotspots, requirements, ...guide } = parsed.data;
+  return { ok: true, guide: {
+    ...guide,
+    sections: guide.sections.map(({ focus, ...section }) => focus?.length ? { ...section, focus } : section),
+    ...(hotspots?.length ? { hotspots } : {}),
+    ...(requirements?.length ? { requirements } : {}),
+  } };
+}
+
+const changedLines = (file: PatchFile) => patchRows(file.text).filter((row) => row.kind === "+" || row.kind === "-").length;
+
+/** Unplaced files the guide may leave out of its chapters: none with changed lines, which a reviewer must read in one. */
+export function checkUnplaced(guide: Guide, patch: string): { ok: true } | { ok: false; errors: string[] } {
+  const files = new Map(splitPatchByFile(patch).map((file) => [file.path, file]));
+  const errors = guide.unplacedFiles.flatMap((path) => {
+    const file = files.get(path);
+    return file && changedLines(file) ? [`unplaced: ${path} has changed lines; put it in a chapter`] : [];
+  });
+  return errors.length ? { ok: false, errors } : { ok: true };
 }
 
 /** Every changed file in exactly one chapter, or each of a split file's hunks in exactly one; `hunks` is each file's hunk count. */
@@ -115,12 +134,10 @@ function unplacedSummary(file: PatchFile | undefined): string {
   const rows = patchRows(file.text);
   const header = (prefix: string) => rows.find((row) => row.kind === "header" && row.text.startsWith(prefix))?.text.slice(prefix.length).trim();
   const [oldMode, newMode] = [header("old mode "), header("new mode ")];
-  const changed = rows.filter((row) => row.kind === "+" || row.kind === "-").length;
   const parts = [
     file.oldPath && `Renamed from \`${file.oldPath}\`.`,
     rows.some((row) => /^Binary files |^GIT binary patch/.test(row.text)) && "Binary file.",
     oldMode && newMode && (newMode === "100755" ? "Made executable." : oldMode === "100755" ? "No longer executable." : `Mode changed from ${oldMode} to ${newMode}.`),
-    changed > 0 && `${changed} changed line${changed === 1 ? "" : "s"}.`,
   ].filter(Boolean);
   if (parts.length) return parts.join(" ");
   return header("new file mode") ? "New empty file." : header("deleted file mode") ? "Deleted empty file." : "No content changes.";
