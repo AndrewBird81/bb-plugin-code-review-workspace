@@ -519,6 +519,27 @@ test("a pace that isn't a whole number from 100 to 2,000 holds Save, and Discard
   slot.lifecycle.unmount();
 });
 
+test("how to set up Needs You shows while settings load and when they can't, and its toggles once they have", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  let fail = true;
+  let answer!: (record: unknown) => void;
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => {
+    if (fail) throw new Error("Offline");
+    return new Promise((resolve) => { answer = resolve; });
+  } } });
+  await slot.findByText("Couldn’t load settings. Try again.");
+  expect(slot.getByRole("link", { name: "Open Needs You settings" })).toBeTruthy();
+  expect(slot.queryByRole("checkbox", { name: /^A guide is ready or failed/ })).toBeNull();
+  fail = false;
+  fireEvent.click(slot.getByRole("button", { name: "Reload saved settings" }));
+  await waitFor(() => expect(answer).toBeTypeOf("function"));
+  expect(slot.getByRole("link", { name: "Open Needs You settings" })).toBeTruthy();
+  answer({ preferences: { ...defaultPreferences }, revision: 1 });
+  await slot.findByRole("checkbox", { name: /^A guide is ready or failed/ });
+  slot.lifecycle.unmount();
+});
+
 test("a pace being typed goes when Check before you approve is turned off, so Save keeps the other edits", async () => {
   const { slot, saved, toggle, pace, saveButton } = await renderSettings();
   fireEvent.change(pace(), { target: { value: "50" } });
