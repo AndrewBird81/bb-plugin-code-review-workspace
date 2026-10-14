@@ -606,20 +606,19 @@ test("a pace being typed goes when Check before you approve is turned off, so Sa
 
 test("Save keeps keyboard focus as it saves; with nothing to save it's announced unavailable, and does nothing", async () => {
   const { slot, save, toggle, saveButton } = await renderSettings();
-  // Unavailable, not disabled, so it stays focusable.
-  expect({ disabled: saveButton().disabled, unavailable: saveButton().getAttribute("aria-disabled") }).toEqual({ disabled: false, unavailable: "true" });
-  saveButton().focus();
+  // Unavailable, not disabled, so it stays focusable. jsdom keeps focus on a button that becomes disabled, so it can't
+  // show focus being lost; a browser drops it to <body>. What keeps it is that Save never gets the disabled attribute.
+  expect({ disabled: saveButton().hasAttribute("disabled"), unavailable: saveButton().getAttribute("aria-disabled") }).toEqual({ disabled: false, unavailable: "true" });
   fireEvent.click(saveButton());
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(toggle("Code owners"));
   expect(saveButton().getAttribute("aria-disabled")).toBe("false");
   const button = saveButton();
-  button.focus();
   fireEvent.click(button);
-  // Saving, it's unavailable too, but keeps focus.
-  expect({ label: button.textContent, unavailable: button.getAttribute("aria-disabled"), focused: document.activeElement === button }).toEqual({ label: "Saving…", unavailable: "true", focused: true });
+  // Saving, it's unavailable too, but not disabled.
+  expect({ label: button.textContent, disabled: button.hasAttribute("disabled"), unavailable: button.getAttribute("aria-disabled") }).toEqual({ label: "Saving…", disabled: false, unavailable: "true" });
   await slot.findByText("Settings saved");
-  expect({ disabled: saveButton().disabled, unavailable: saveButton().getAttribute("aria-disabled"), focused: document.activeElement === saveButton() }).toEqual({ disabled: false, unavailable: "true", focused: true });
+  expect({ disabled: saveButton().hasAttribute("disabled"), unavailable: saveButton().getAttribute("aria-disabled") }).toEqual({ disabled: false, unavailable: "true" });
   fireEvent.click(saveButton());
   expect(save).toHaveBeenCalledTimes(1);
   slot.lifecycle.unmount();
