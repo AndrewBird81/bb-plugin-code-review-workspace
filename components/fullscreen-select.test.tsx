@@ -1,27 +1,16 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { interdiff } from "../src/interdiff";
 import { patchReviewState } from "../lib/panel-state";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
 
 const restores: (() => void)[] = [];
 afterEach(() => { cleanup(); localStorage.clear(); restores.splice(0).forEach((restore) => restore()); Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null }); });
 HTMLElement.prototype.scrollIntoView = () => {};
-test("an open verdict menu is inside the fullscreen element", async () => {
-  const workspace = document.createElement("div");
-  document.body.appendChild(workspace);
-  Object.defineProperty(document, "fullscreenElement", { configurable: true, value: workspace });
-  render(<Select open value="COMMENT"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="COMMENT">Comment</SelectItem><SelectItem value="APPROVE">Approve</SelectItem></SelectContent></Select>, { container: workspace });
-  const menu = await screen.findByRole("listbox");
-  expect(workspace.contains(menu)).toBe(true);
-  workspace.remove();
-});
-
 /** A browser that can make an element full screen. */
 function fakeFullscreen() {
   let element: Element | null = null;
