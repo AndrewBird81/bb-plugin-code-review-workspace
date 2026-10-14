@@ -48,5 +48,5 @@ export function approveGuard(sections: readonly Chapter[], views: ReadonlyMap<st
 
 /** The doubts in words, as Finish review lists them and Submit asks about them. */
 export const unviewedDoubt = (unviewed: readonly string[]) => unviewed.length === 1 ? "1 file in a high-risk chapter not viewed." : `${unviewed.length} files in high-risk chapters not viewed.`;
-export const rushedDoubt = ({ number, risk, lines, minutes }: ApproveGuard["rushed"][number]) => `Chapter ${number} (${risk} risk): ${lines} lines marked viewed in ${minutes < 1 ? "under a minute" : `${Math.round(minutes)} min`}.`;
+export const rushedDoubt = ({ number, risk, lines, minutes }: ApproveGuard["rushed"][number]) => `Chapter ${number} (${risk} risk): ${lines.toLocaleString()} lines marked viewed in ${minutes < 1 ? "under a minute" : `${Math.round(minutes)} min`}.`;
 export const approveDoubts = ({ unviewed, rushed }: ApproveGuard) => [...(unviewed.length ? [unviewedDoubt(unviewed)] : []), ...rushed.map(rushedDoubt)];
