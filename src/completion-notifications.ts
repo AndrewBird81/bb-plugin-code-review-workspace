@@ -132,12 +132,12 @@ function createNotifications(bb: BbPluginApi, store: Store) {
       });
     },
     async queue(record: Omit<Pending, "occurredAt" | "kind" | "body">) {
-      if (disposed || !store.isCurrentGeneration(record.targetKey, record.generationId)) return;
+      if (disposed || !store.getPreferences().preferences.knobs.alertGuides || !store.isCurrentGeneration(record.targetKey, record.generationId)) return;
       await enqueue({ ...record, kind: "generation" });
     },
     /** Alert that a review became your turn; `signal` identifies the event, so it alerts once. */
     async queueTurn(record: { targetKey: string; signal: string; projectId: string; body: string }) {
-      if (disposed) return;
+      if (disposed || !store.getPreferences().preferences.knobs.alertTurns) return;
       await enqueue({ kind: "turn", generationId: record.signal, targetKey: record.targetKey, projectId: record.projectId, status: "ready", body: record.body });
     },
     /** You acted on the review: clear its inbox item and anything queued for it. */

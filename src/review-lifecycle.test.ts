@@ -185,6 +185,19 @@ test("with Get a review ready off, a re-request on an out-of-date review alerts 
   expect(s.store.getReview("pr-1")).toMatchObject({ preparedSignal: `re-requested:${T0 + 0.1 * HOUR}`, pendingAlert: null });
 });
 
+test("with A review becomes your turn off, a re-request sends no alert but still counts as alerted", async () => {
+  const s = setup({ reviewed: true, preferences: { knobs: { ...defaultPreferences.knobs, alertTurns: false } } });
+  await s.sync.all();
+  s.pr({ requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.actions.prepare).toHaveBeenCalledWith("pr-1", "re-requested");
+  s.at(0.5);
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")).toMatchObject({ notifiedSignal: `re-requested:${T0 + 0.1 * HOUR}`, pendingAlert: null });
+  expect(s.published).toEqual([]);
+});
+
 test("an alert goes out anyway when preparing takes too long", async () => {
   const s = setup({ reviewed: true });
   await s.sync.all();

@@ -4,6 +4,7 @@ import { createStore } from "./store";
 import { generateGuide, stopGuideGenerations } from "./generate";
 import { completionNotifications } from "./completion-notifications";
 import plugin from "../server";
+import { defaultPreferences } from "./preferences";
 
 const guide = { title: "Improve sign-in", intent: "I", sections: [], unplacedFiles: [] };
 function fixture() {
@@ -32,6 +33,29 @@ test("a completed guide notifies through Needs You with its review destination a
   expect(JSON.stringify(f.delivered)).not.toContain("worker");
   await completionNotifications(f.bb, f.store).flush();
   expect(f.delivered).toHaveLength(1);
+  await f.harness.lifecycle.dispose();
+});
+
+test("with A guide is ready or failed off, a finished guide queues and sends nothing", async () => {
+  const f = fixture();
+  f.store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, alertGuides: false } }, 0);
+  await generateGuide(f.bb, f.store, "target", "p1");
+  expect(f.store.getReview("target")?.status).toBe("ready");
+  await completionNotifications(f.bb, f.store).flush();
+  expect(await f.bb.storage.kv.get("needs-you:pending:target")).toBeFalsy();
+  expect(f.delivered).toEqual([]);
+  await f.harness.lifecycle.dispose();
+});
+
+test("with A review becomes your turn off, a turn queues and sends nothing", async () => {
+  const f = fixture();
+  f.store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, alertTurns: false } }, 0);
+  const notifications = completionNotifications(f.bb, f.store);
+  notifications.useTurns(() => "re-requested:1");
+  await notifications.queueTurn({ targetKey: "target", signal: "re-requested:1", projectId: "p1", body: "@alice re-requested your review" });
+  await notifications.flush();
+  expect(await f.bb.storage.kv.get("needs-you:pending:target")).toBeFalsy();
+  expect(f.delivered).toEqual([]);
   await f.harness.lifecycle.dispose();
 });
 
