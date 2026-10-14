@@ -1,8 +1,8 @@
 // Per-review UI state persisted to localStorage so the Guided Review panel
-// survives tab switches / remounts: which review you were on, the chapter or
-// Overview, the scroll position, the side panel, and the turn it last opened in;
-// and the layout's widths and toggles, in every review. The floating agent dock
-// persists its own geometry separately (see AgentDock).
+// survives tab switches / remounts: the chapter or Overview, the scroll
+// position, the side panel, and the turn it last opened in; and the layout's
+// widths and toggles, in every review. The floating agent dock persists its own
+// geometry separately (see AgentDock).
 import { NAV_WIDTH, PANEL_WIDTH } from "./workspace-layout";
 
 export type PanelView = "comments" | "agent" | "finish";
@@ -24,8 +24,6 @@ export interface ReviewUiState {
   compare?: ReviewCompare;
   // Before 0.6.0; only migrateLayoutState reads them.
   sidebarWidth?: number;
-  /** Not `focus`: before 0.5.0 every review opened saved Focus off, which kept phones on the full header. */
-  headerCollapsed?: boolean;
   toolsOpen?: boolean;
   activeTool?: "draft" | "notes" | "agent";
 }
@@ -47,7 +45,6 @@ interface PanelState {
   commentsFolded?: boolean;
   /** The diff shows GitHub's threads under their lines. */
   githubThreadsInCode?: boolean;
-  lastTargetKey?: string;
   /** The chapter intro's overview is hidden, in every review. */
   introCollapsed?: boolean;
   /** The diff wraps long lines instead of scrolling them; unset follows the workspace's width. */
@@ -117,18 +114,6 @@ export function migrateLayoutState(stored: unknown): PanelState {
   const last = typeof state.lastTargetKey === "string" ? perReview[state.lastTargetKey] : undefined;
   const navWidth = typeof last?.sidebarWidth === "number" && state.navWidth === undefined ? { navWidth: savedWidth(last.sidebarWidth, NAV_WIDTH) } : {};
   return { ...state, ...navWidth, perReview, layoutVersion: LAYOUT_VERSION };
-}
-
-/** The most recently opened review, for a "Resume" affordance on the list. */
-export function getLastReview(): { targetKey: string } | null {
-  const key = read().lastTargetKey;
-  return key ? { targetKey: key } : null;
-}
-
-export function setLastReview(targetKey: string) {
-  const s = read();
-  s.lastTargetKey = targetKey;
-  write(s);
 }
 
 export function getReviewState(targetKey: string): ReviewUiState {

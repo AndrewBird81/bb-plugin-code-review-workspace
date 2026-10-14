@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { forgetCompares, getCommentsFolded, getGithubThreadsInCode, getHideNits, getHideWhitespace, getIntroCollapsed, getLastReview, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, migrateLayoutState, patchReviewState, setNavWidth, setPanelWidth } from "./panel-state";
+import { forgetCompares, getCommentsFolded, getGithubThreadsInCode, getHideNits, getHideWhitespace, getIntroCollapsed, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, migrateLayoutState, patchReviewState, setNavWidth, setPanelWidth } from "./panel-state";
 
 afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 
@@ -32,7 +32,7 @@ test("0.5.2's state opens each review at its chapter and scroll position, with i
   expect(getReviewState("pr-old").panel).toBeUndefined();
   // The last review's sidebar width is the navigator's in every review.
   expect(getNavWidth()).toBe(340);
-  expect([getLastReview(), getIntroCollapsed(), getWrapLines(), getHideNits(), getNavView(), getHideWhitespace()]).toEqual([{ targetKey: "pr-86f279ce9c29f106-42" }, true, false, true, "files", true]);
+  expect([getIntroCollapsed(), getWrapLines(), getHideNits(), getNavView(), getHideWhitespace()]).toEqual([true, false, true, "files", true]);
   // The new layout's own toggles start at their defaults.
   expect([getNavOpen(), getPanelWidth(), getCommentsFolded(), getGithubThreadsInCode()]).toEqual([true, 400, undefined, true]);
 });
