@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.7.0 — 2026-10-14
+
+Settings can now turn off what you don't use, Finish review checks an approval against what you read, and the agent shows how it checked each comment. Every setting starts on, so nothing changes until you change it. Agents are held tighter to their own review, and several ways to lose your place or your words are fixed. Guided Review now needs **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; BB older than 0.45 won't install it. Rolling back to 0.6.0 keeps your reviews and settings, and the new switches come back with the next update.
+
+### Settings
+
+- 18 switches turn features off, each saying what stays when it's off, in two new sections, **Reading** and **Comments and Finish review**, and in Notifications (was Guide notifications), Review assistant, Whose turn, and Trust. A setting that depends on another is indented, and disabled while that one is off.
+- **Notifications:** **A guide is ready or failed** and **A review becomes your turn** each stop their Needs You alerts.
+- **Review assistant:** **Run the automatic review**, and **Re-check the agent's comments after new commits**. Off keeps the automatic review's prompt for later.
+- **Whose turn:** **Come back when you're mentioned**; **Get a review ready before alerting you**, which off alerts at once, with Update guide and Check again a click away; **Run the re-review check**, which off keeps its prompt; and **Include PRs you've reviewed**, which off finds only requests for you.
+- **Reading:** **Open on the Overview when a review comes back**, **Single-key shortcuts** (off, only Esc works, and the key hints go), **Fold files you've viewed**, **Fold lockfiles and generated files** (diffs over 1,500 lines still fold), **Requirements**, **Code owners**, and **CI failures in the code**. With Requirements or Code owners off the assistant still knows them, and the Overview lists failing checks either way.
+- **Comments and Finish review:** **Ask agent about selected text**, which off leaves Comment and Ask agent on selected lines; **Check before you approve**, with its pace, 100 to 2,000 lines an hour (500 by default).
+- **Trust:** **Start agents on their own**. Off, other people's PRs wait for your click whoever wrote them, and say "Start agents on their own is off in Settings"; the authors setting still decides whose PRs the repo's checks run on.
+- A review opens within about a second when settings are slow or can't load, with the defaults until they arrive.
+- One invalid saved setting falls back to its default instead of failing every read of settings.
+
+### Before you approve
+
+- With Approve picked, Finish review's Goes to GitHub flags files in high-risk chapters you haven't viewed ("2 files in high-risk chapters not viewed", with **Show**), and each medium- or high-risk chapter of 50 lines or more marked viewed faster than 500 lines an hour ("Chapter 2 (high risk): 1,200 lines marked viewed in 3 min"). Submit asks once more, and **Submit anyway** sends. Lockfiles and generated files don't count.
+
+### How the agent checked
+
+- An agent's draft comment can carry what it read or ran to confirm the problem, with file:line, folded under **How the agent checked** on its card, in the code and in Comments. It stays in BB: submitting never sends it, and your edit drops it.
+- The automatic review asks for it, and `bb review comment add` and `edit` take `--evidence`, up to 600 characters.
+
+### Agents and trust
+
+- The assistant and the guide writer read only their own review's diff and PR context. Before, a PR's text could steer them into reading any other review, private ones included, and renaming their thread or editing its metadata could point them at another review's guide.
+- A PR whose branch is in someone else's fork no longer runs agents or the repo's checks on its own, even when it's yours or a member's: that fork's owner can push to it. The review says whose fork, with one click to run it. **Anyone** under Trust still runs it.
+- The hidden guide writer no longer runs at the project's permission mode, possibly Full Access, on **Project defaults**: it runs at Accept Edits where its provider allows, else Auto, and its skill tells it to use only the plugin's tools and one that reads a linked ticket. **Custom** starts it at Accept Edits too.
+- A guide that leaves changed code out of every chapter is refused, so a change can't hide in a low-risk "Other files"; binary, rename-only, and mode-only files still go there. The guide writer hears every error at once.
+- The assistant knows each chapter's risk and where to start, and keeps the guide's chapters in its instructions however long your instructions are.
+
+### Fixes
+
+- Esc in a comment, summary, or agent-message box leaves it with your text in it; **Cancel** discards.
+- If a comment lands on the line while you write, the box says so and its button reads **Replace comment**; a comment written after the box last heard is never replaced unseen, and the next try goes through.
+- A comment box whose line left the diff, after a reload or a guide update, moves to Comments, where you can finish it, instead of staying open where you can't see it and holding Submit.
+- Docking or closing a side panel keeps your line in place when the diff redraws to wrap or go unified.
+- A comment's discussion with the agent, and its Undo, move with it when Update guide puts it on a new line.
+- A review snoozed until a time alerts in Needs You when it comes back, once.
+- A stacked PR retargeted to a new base offers **Update guide** ("The PR's base changed from parent to main since this guide was written."), and Submit waits for it.
+
+### Installing
+
+- Install, update, and read release notes from this fork's Git repository, at `^0.7.0`; there's no marketplace.
+- Removed six server calls nothing in the panel made (`ping`, `getReview`, `getGuide`, `getPatch`, `getPr`, `getThreads`), and `setVerdict`'s `body`, which no panel since 0.4 sends.
+- The plugin builds, tests, and typechecks against the SDK BB runs (0.6.37), and typechecking covers the server's tests, the browser tests, and the vitest config.
+
 ## 0.6.0 — 2026-10-13
 
 A new review workspace, built so the code owns the screen on a desktop, an iPad, and a phone, with every capability kept but starting new private notes. What gets posted to GitHub doesn't change, and your reviews, drafts, notes, and layout carry over: a review left on Feedback or Threads reopens with Comments open there.
