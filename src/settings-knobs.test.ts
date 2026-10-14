@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
-import { automaticReviewPrompt, defaultPreferences, preferencesSchema, reReviewCheckPrompt, readKnobs } from "./preferences";
+import { AUTOMATIC_REVIEW_BEFORE_PRECISION, VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, automaticReviewPrompt, defaultPreferences, preferencesSchema, reReviewCheckPrompt, readKnobs } from "./preferences";
 import { defaultKnobs } from "../lib/knobs";
 
 async function host() {
@@ -87,4 +87,23 @@ test("the automatic review and re-review check prompts are blank when their knob
   expect(automaticReviewPrompt(off)).toBe("");
   expect(reReviewCheckPrompt(off)).toBe("");
   expect(automaticReviewPrompt({ ...preferences, automaticReview: "  " })).toBe("");
+});
+
+test("one invalid saved setting reads at its default, and the rest keep their saved values", async () => {
+  const { bb, db } = await host();
+  db.prepare(`INSERT INTO review_preferences (id,value,revision) VALUES (1,?,1)`).run(JSON.stringify({
+    ...defaultPreferences, knobs: undefined, guideDetail: "verbose", guideInstructions: "Explain migrations", autoStartRepos: ["acme/web", "not a repo", 7, " Acme/* "], bogus: true,
+    automaticReview: AUTOMATIC_REVIEW_BEFORE_PRECISION, verificationPrompt: VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, assistantInstructions: "x".repeat(2500),
+  }));
+  const { preferences } = createStore(bb).getPreferences();
+  expect(preferences).toEqual({ ...defaultPreferences, guideInstructions: "Explain migrations", autoStartRepos: ["acme/web", "acme/*"], assistantInstructions: "x".repeat(2000) });
+  expect(preferences).not.toHaveProperty("bogus");
+  db.prepare(`UPDATE review_preferences SET value=?`).run(JSON.stringify({ guideDetail: "concise", autoStartRepos: "acme/web", wakeOnReplies: null }));
+  expect(createStore(bb).getPreferences().preferences).toEqual({ ...defaultPreferences, guideDetail: "concise" });
+  for (const value of ["{not json", "[1]", "null", "3"]) {
+    db.prepare(`UPDATE review_preferences SET value=?`).run(value);
+    expect(createStore(bb).getPreferences().preferences).toEqual(defaultPreferences);
+  }
+  // A fallback is a fresh copy, which a caller can't change for everyone.
+  expect(createStore(bb).getPreferences().preferences.autoStartRepos).not.toBe(defaultPreferences.autoStartRepos);
 });

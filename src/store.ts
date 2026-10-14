@@ -413,8 +413,10 @@ export function createStore(bb: BbPluginApi): Store {
     ...agentCommentStore(db),
     getPreferences() {
       const row = db.prepare(`SELECT value,revision,knobs FROM review_preferences WHERE id=1`).get() as { value: string; revision: number; knobs: string | null } | undefined;
-      // No row: defaults, as fresh copies.
-      const preferences = readPreferences(row ? JSON.parse(row.value) : {}, row?.knobs ?? null);
+      // No row, or a value that won't parse: defaults, as fresh copies.
+      let value = {};
+      try { if (row) value = JSON.parse(row.value); } catch { /* reads as defaults */ }
+      const preferences = readPreferences(value, row?.knobs ?? null);
       return { preferences, revision: row?.revision ?? 0 };
     },
     savePreferences(preferences, revision) {

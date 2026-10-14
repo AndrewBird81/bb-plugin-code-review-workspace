@@ -80,10 +80,24 @@ export function readKnobs(saved: unknown): Knobs {
   })) as unknown as Knobs;
 }
 
-/** Saved settings as they read now: missing fields take their defaults, and older defaults the current ones. `knobs` is the column; without it, `saved.knobs` is read. */
+/**
+ * Saved settings as they read now: missing or invalid fields take their defaults, unknown ones are dropped, and older
+ * defaults read as the current ones. `knobs` is the column; without it, `saved.knobs` is read.
+ */
 export function readPreferences(saved: Partial<ReviewPreferences>, knobs?: unknown): ReviewPreferences {
-  // Assistant instructions saved before their cap are cut to fit it.
-  const preferences = preferencesSchema.parse({ ...defaultPreferences, ...saved, assistantInstructions: (saved.assistantInstructions ?? "").slice(0, ASSISTANT_INSTRUCTIONS_LIMIT), knobs: readKnobs(knobs !== undefined ? knobs : saved.knobs) });
+  const record: Record<string, unknown> = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  const shape = preferencesSchema.shape;
+  const fields = Object.keys(shape).filter((key) => key !== "knobs") as Exclude<keyof ReviewPreferences, "knobs">[];
+  // Each field on its own, so one invalid value doesn't break every read of settings.
+  const preferences = { ...Object.fromEntries(fields.map((key) => {
+    let value = record[key];
+    // Assistant instructions saved before their cap are cut to fit it.
+    if (key === "assistantInstructions" && typeof value === "string") value = value.slice(0, ASSISTANT_INSTRUCTIONS_LIMIT);
+    // One bad repository pattern drops only itself.
+    if (key === "autoStartRepos" && Array.isArray(value)) value = value.flatMap((item) => { const parsed = shape.autoStartRepos.element.safeParse(item); return parsed.success ? [parsed.data] : []; }).slice(0, 50);
+    const parsed = shape[key].safeParse(value);
+    return [key, parsed.success ? parsed.data : shape[key].parse(defaultPreferences[key])];
+  })), knobs: readKnobs(knobs !== undefined ? knobs : record.knobs) } as ReviewPreferences;
   if ([AUTOMATIC_REVIEW_BEFORE_SUMMARY, AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_EVIDENCE].includes(preferences.automaticReview)) preferences.automaticReview = defaultPreferences.automaticReview;
   if (preferences.verificationPrompt === VERIFICATION_PROMPT_BEFORE_OPEN_THREADS) preferences.verificationPrompt = defaultPreferences.verificationPrompt;
   return preferences;
