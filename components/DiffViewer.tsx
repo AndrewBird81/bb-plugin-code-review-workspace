@@ -14,6 +14,7 @@ import { cn } from "../lib/utils";
 import { useOffFold } from "../lib/use-fold";
 import { buildItems, fileCounts } from "../lib/comments";
 import { classifyFile } from "../src/classify";
+import { useKnob } from "../lib/settings";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { Badge } from "./ui/badge";
@@ -70,9 +71,9 @@ const LARGE_DIFF = 1500;
 /** Pierre highlights a file up to this many lines, and shows longer ones as plain text. */
 const TOKENIZE_MAX_LENGTH = 5000;
 
-/** Lockfiles, generated output, and huge diffs: noise to fold until asked for. */
-function startsFolded(path: string, stats: { add: number; del: number }, declared: boolean): boolean {
-  const { category } = classifyFile(path, declared);
+/** Lockfiles and generated output, while Settings folds them (`foldGenerated`), and huge diffs: noise to fold until asked for. */
+function startsFolded(path: string, stats: { add: number; del: number }, declared: boolean, foldGenerated: boolean): boolean {
+  const category = foldGenerated ? classifyFile(path, declared).category : null;
   return category === "lockfile" || category === "generated" || stats.add + stats.del > LARGE_DIFF;
 }
 
@@ -389,6 +390,7 @@ export const DiffViewer = memo(function DiffViewer({
   const filtering = sinceOnly && !!since;
   // The chapter's files by value: a reload's new array with the same files mustn't re-parse every diff.
   const fileKey = files.join("\0");
+  const foldGenerated = useKnob("foldGeneratedFiles");
   const { perFile, unchanged, changed } = useMemo(() => {
     // In the guide's order, which reads the chapter's files on purpose.
     const order = new Map(fileKey.split("\0").map((path, index) => [path, index]));
@@ -418,7 +420,7 @@ export const DiffViewer = memo(function DiffViewer({
         path: f.path,
         oldPath: f.oldPath,
         stats,
-        noisy: startsFolded(f.path, stats, generated.has(f.path)),
+        noisy: startsFolded(f.path, stats, generated.has(f.path), foldGenerated),
         fileDiff,
         shown,
         whitespaceOnly: stats.add + stats.del > 0 && shownStats.add + shownStats.del === 0,
@@ -437,7 +439,7 @@ export const DiffViewer = memo(function DiffViewer({
     });
     // How many files changed since, as the filtered diff shows them: the switch counts them unfiltered too.
     return { perFile, unchanged: chapter.length - shown.length + partsUnchanged, changed: filtering ? perFile.length : perFile.filter((f) => f.changedHere).length };
-  }, [patch, fileKey, since, filtering, generated, splitFiles, hideWhitespace]);
+  }, [patch, fileKey, since, filtering, generated, splitFiles, hideWhitespace, foldGenerated]);
   // Files loaded in full, each with the diff it was read for, and those showing every line. A new diff starts over.
   const [contents, setContents] = useState<Record<string, { text: string; result: "loading" | FileContentsResult }>>({});
   const [wholeFile, setWholeFile] = useState<Record<string, boolean>>({});

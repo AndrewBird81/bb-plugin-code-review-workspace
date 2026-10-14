@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import { defaultKnobs } from "../lib/knobs";
 import { getReviewState, patchReviewState } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
@@ -83,6 +84,19 @@ test("files the repo's .gitattributes marks generated start folded and tagged, w
   const header = within(slot.container.querySelector<HTMLElement>('[data-file="src/b.ts"]')!);
   expect(header.getByText("generated · skip")).toBeTruthy();
   expect(header.getByRole("button", { name: "Show diff of src/b.ts" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("with Fold lockfiles and generated files off, a lockfile starts open, and a diff over 1,500 lines still starts folded", async () => {
+  const big = file("src/big.ts", `@@ -0,0 +1,1600 @@\n${Array.from({ length: 1600 }, (_, i) => `+row ${i}`).join("\n")}\n`);
+  const noisy = { ...guide, sections: [{ id: "c1", title: "Parsing", overview: "Reads rows.", diffs: [{ file: "src/a.ts" }, { file: "package-lock.json" }, { file: "src/big.ts" }] }] };
+  const { slot } = await renderWorkspace({ rpc: {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, foldGeneratedFiles: false } }, revision: 1 }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: noisy, patch: patch + file("package-lock.json", "@@ -1 +1 @@\n-{}\n+{ }\n") + big, revision: "r1" }),
+  } });
+  await slot.findByText("{ }");
+  expect(drawn.map((d) => d.name)).not.toContain("src/big.ts");
+  expect(within(slot.container.querySelector<HTMLElement>('[data-file="src/big.ts"]')!).getByRole("button", { name: "Show diff of src/big.ts" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
