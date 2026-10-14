@@ -70,15 +70,18 @@ export function KnobControl({ id, record, onChange, numberText, onNumberText }: 
     return <div className={`space-y-1 ${control.enabledWhen ? "ml-6" : ""}`}>
       <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
         <span id={`${ids}-label`}>{control.label}</span>
-        <Input type="number" inputMode="numeric" min={min} max={max} className="h-8 w-20 tabular-nums" disabled={!enabled}
-          aria-labelledby={`${ids}-label ${ids}-unit`} aria-describedby={`${ids}-description ${ids}-error`} aria-invalid={text !== undefined}
-          value={text ?? String(value)}
-          onChange={(event) => {
-            const next = readNumber(numberId, event.target.value);
-            if (next === null) onNumberText(numberId, event.target.value);
-            else { onNumberText(numberId, undefined); onChange(numberId, next); }
-          }} />
-        <span id={`${ids}-unit`}>{control.unit}</span>
+        {/* The number and its unit wrap together, so the unit never sits alone on a line. */}
+        <span className="inline-flex items-center gap-2 whitespace-nowrap">
+          <Input type="number" inputMode="numeric" min={min} max={max} className="h-8 w-20 tabular-nums" disabled={!enabled}
+            aria-labelledby={`${ids}-label ${ids}-unit`} aria-describedby={`${ids}-description ${ids}-error`} aria-invalid={text !== undefined}
+            value={text ?? String(value)}
+            onChange={(event) => {
+              const next = readNumber(numberId, event.target.value);
+              if (next === null) onNumberText(numberId, event.target.value);
+              else { onNumberText(numberId, undefined); onChange(numberId, next); }
+            }} />
+          <span id={`${ids}-unit`}>{control.unit}</span>
+        </span>
       </p>
       <span id={`${ids}-description`} className="block text-xs text-muted-foreground">{control.description}</span>
       <span id={`${ids}-error`} className="block text-xs text-destructive-text">{text !== undefined ? `Use a whole number from ${min.toLocaleString("en-US")} to ${max.toLocaleString("en-US")}.` : ""}</span>

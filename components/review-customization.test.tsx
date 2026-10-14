@@ -552,6 +552,14 @@ test("every settings checkbox keeps its size beside a description that wraps", a
   slot.lifecycle.unmount();
 });
 
+test("the pace's number and its unit wrap as one, so the unit never sits alone on a phone", async () => {
+  const { slot, pace } = await renderSettings();
+  const unit = slot.getByText("lines an hour");
+  expect(unit.parentElement).toBe(pace().parentElement);
+  expect(unit.parentElement!.classList.contains("whitespace-nowrap")).toBe(true);
+  slot.lifecycle.unmount();
+});
+
 test("a pace being typed goes when Check before you approve is turned off, so Save keeps the other edits", async () => {
   const { slot, saved, toggle, pace, saveButton } = await renderSettings();
   fireEvent.change(pace(), { target: { value: "50" } });
