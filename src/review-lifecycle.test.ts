@@ -200,6 +200,39 @@ test("snoozing until the author responds clears the alert, and leaving Needs rev
   expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "waiting", reason: "snoozed" });
 });
 
+test("a review snoozed until a time alerts again when it wakes, once, but not when it's unsnoozed early", async () => {
+  const s = setup({ reviewed: true });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  vi.mocked(s.actions.prepare).mockResolvedValue(false);
+  s.at(0.2);
+  await s.sync.all(true);
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+
+  // What snoozeReview does for Unsnooze, before the time: the alert was seen, so it stays quiet.
+  s.store.setLifecycle("pr-1", { snoozedAt: T0 + 0.3 * HOUR, snoozedUntil: T0 + HOUR });
+  s.at(0.3);
+  await s.sync.evaluate("pr-1");
+  s.store.setLifecycle("pr-1", { snoozedAt: null, snoozedUntil: null });
+  await s.sync.evaluate("pr-1");
+  expect(s.published).toHaveLength(1);
+
+  // What snoozeReview does for "Snooze until T0+1h".
+  s.store.setLifecycle("pr-1", { snoozedAt: T0 + 0.4 * HOUR, snoozedUntil: T0 + HOUR });
+  s.at(0.4);
+  await s.sync.evaluate("pr-1");
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "waiting", reason: "snoozed" });
+
+  s.at(1.1);
+  await s.sync.all();
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs" });
+  await vi.waitFor(() => expect(s.published).toHaveLength(2));
+  s.at(1.2);
+  await s.sync.all();
+  expect(s.published).toHaveLength(2);
+  expect(s.store.getReview("pr-1")).toMatchObject({ snoozedUntil: null, notifiedSignal: `re-requested:${T0 + 0.1 * HOUR}` });
+});
+
 test("feedback handled: every thread resolved or answered alerts once the author has been quiet", async () => {
   const s = setup({ reviewed: true, threads: [thread("t1", "open"), thread("t2", "open")] });
   await s.sync.all();

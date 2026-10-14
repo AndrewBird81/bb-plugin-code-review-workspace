@@ -285,6 +285,11 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     let review = store.getReview(key);
     if (!review || disposed) return;
     const now = clock();
+    // A snooze until a time ends then; the turn it set aside alerts again, once.
+    if (review.snoozedUntil != null && now >= review.snoozedUntil) {
+      store.setLifecycle(key, { snoozedAt: null, snoozedUntil: null, notifiedSignal: null, pendingAlert: null });
+      review = store.getReview(key)!;
+    }
     const preferences = store.getPreferences().preferences;
     const turn = turnOf(review, now);
     const head = review.latestHeadSha ?? review.headSha ?? null;
