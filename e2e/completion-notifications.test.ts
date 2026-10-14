@@ -28,7 +28,7 @@ test.skipIf(!process.env.BB_ACTIVITY_E2E_URL)("guide completion → Needs You po
   store.saveReview({ targetKey: key, kind: "ref", gitRef: "feature", title: "Notification integration check", status: "generating", createdAt: Date.now(), projectId: "test-project" });
   store.savePatch(key, 'diff --git a/example.ts b/example.ts\n--- a/example.ts\n+++ b/example.ts\n@@ -1 +1 @@\n-old();\n+newCall();\n');
   harness.inspection.sdk.stub("threads.wait", async () => {
-    store.saveGuide(key, { title: "Notification integration check", intent: "Read the completed guide.", sections: [{ id: "entry", title: "Entry point", overview: "Update the call.", diffs: [{ file: "example.ts", description: "New call" }] }], unplacedFiles: [] } as any);
+    store.saveGuide(key, { title: "Notification integration check", intent: "Read the completed guide.", sections: [{ id: "entry", title: "Entry point", overview: "Update the call.", diffs: [{ file: "example.ts", summary: "New call" }] }], unplacedFiles: [] });
     return { matched: true };
   });
   const browser = await chromium.launch({ headless: true });
@@ -48,9 +48,9 @@ test.skipIf(!process.env.BB_ACTIVITY_E2E_URL)("guide completion → Needs You po
     const open = page.getByRole("button", { name: "Open review", exact: true });
     await open.waitFor();
     expect(await page.locator("[data-sonner-toast]").filter({ hasText: "Notification integration check" }).count()).toBe(1);
-    await mkdir("docs/verification/2026-09-09", { recursive: true });
+    await mkdir("docs/verification", { recursive: true });
     await page.waitForTimeout(350); // Let the native toast entrance settle for the artifact.
-    await page.screenshot({ path: "docs/verification/2026-09-09/needs-you-guide-ready.png" });
+    await page.screenshot({ path: "docs/verification/needs-you-guide-ready.png" });
     await open.click();
     await page.waitForURL(`${base}/plugins/guided-review/review/${key}`);
     await page.getByText("Read the completed guide.", { exact: true }).waitFor();
