@@ -42,7 +42,7 @@ function renderWorkspace(review: Record<string, unknown>, rpc: Record<string, (i
     markSeen: () => ({ ok: true }),
     snoozeReview: () => ({ ok: true }),
   } as any,
-  // BB takes a link's URL, as it does; unhandled, the link navigates, which jsdom doesn't implement.
+  // Like BB, the host opens the link's URL itself; otherwise the link navigates, which jsdom doesn't implement.
   openUrl: () => true }));
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>;
