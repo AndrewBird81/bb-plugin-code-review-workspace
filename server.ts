@@ -203,7 +203,7 @@ export default async function plugin(bb: BbPluginApi) {
     if (patch) bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
   }
   /** The review's changed files with CODEOWNERS owners, marking yours. */
-  const reviewOwners = (review: ReviewMeta) => codeOwners({ runGh, runGit }, review, changedFiles(store.readPatch(review.targetKey, 0, store.readPatch(review.targetKey, 0, 0).total).text),
+  const reviewOwners = (review: ReviewMeta) => codeOwners({ runGh, runGit }, review, changedFiles(store.patch(review.targetKey)),
     async () => ({ login: await sync.login(), teams: await sync.teams() }));
   const view = (targetKey: string) => {
     const review = store.getReview(targetKey);
@@ -360,7 +360,7 @@ export default async function plugin(bb: BbPluginApi) {
       const diffError = await rereadPrunedDiff(targetKey);
       const revision = reviewRevision(store, targetKey);
       return { review: decorate(await withOwnPr(store.getReview(targetKey))), guide: store.getGuide(targetKey),
-        patch: revision === knownRevision ? null : store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, revision,
+        patch: revision === knownRevision ? null : store.patch(targetKey), revision,
         ...(diffError ? { diffError } : {}) };
     },
     getPreferences() { return store.getPreferences(); },
@@ -433,7 +433,7 @@ export default async function plugin(bb: BbPluginApi) {
     async getGeneratedFiles({ targetKey }) {
       const review = store.getReview(targetKey);
       if (!review) return { files: [] };
-      return { files: await readGeneratedFiles({ runGh, runGit }, review, changedFiles(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text)) };
+      return { files: await readGeneratedFiles({ runGh, runGit }, review, changedFiles(store.patch(targetKey))) };
     },
     async getCodeOwners({ targetKey }) {
       const review = store.getReview(targetKey);
@@ -444,7 +444,7 @@ export default async function plugin(bb: BbPluginApi) {
     async getFileContents({ targetKey, file }) {
       const review = store.getReview(targetKey);
       if (!review) return { ok: false as const, error: "This review no longer exists." };
-      const patchFile = splitPatchByFile(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text).find((f) => f.path === file);
+      const patchFile = splitPatchByFile(store.patch(targetKey)).find((f) => f.path === file);
       if (!patchFile) return { ok: false as const, error: `${file} isn’t in this review’s diff.` };
       return readFileContents({ runGh, runGit }, review, patchFile);
     },
@@ -552,7 +552,7 @@ export default async function plugin(bb: BbPluginApi) {
         throw new Error(`${comment.file}:${comment.line} isn’t in the current diff. Choose a line the diff shows.`);
       }
       // Only a range needs the diff's rows.
-      const range = comment.startLine === undefined ? null : rangeProblem(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, comment);
+      const range = comment.startLine === undefined ? null : rangeProblem(store.patch(targetKey), comment);
       if (range) throw new Error(range);
       // Your words now, and an ask on the comment is over.
       setAsk(store, targetKey, comment, null);
@@ -613,7 +613,7 @@ export default async function plugin(bb: BbPluginApi) {
         bb.realtime.publish(`draft:${targetKey}`, {});
         const review = store.getReview(targetKey)!;
         // The diff you reviewed is what "since your review" compares against.
-        if (review.headSha) store.saveSnapshot(targetKey, review.headSha, store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text);
+        if (review.headSha) store.saveSnapshot(targetKey, review.headSha, store.patch(targetKey));
         pruneDiffs(store, review);
         // Your review answers whatever turn was holding, and what didn't run on its own for it.
         store.setLifecycle(targetKey, { heldTurn: null, skippedRun: null });
@@ -627,8 +627,7 @@ export default async function plugin(bb: BbPluginApi) {
 
     // Feature 1: per-file "Viewed" state (viewed/stale computed against the patch)
     getFileViews({ targetKey }) {
-      const total = store.readPatch(targetKey, 0, 0).total;
-      const patch = store.readPatch(targetKey, 0, total).text;
+      const patch = store.patch(targetKey);
       return { views: computeFileViewState(store.getFileViews(targetKey), patch) };
     },
     setFileViewed({ targetKey, file, viewed }) {
@@ -636,8 +635,7 @@ export default async function plugin(bb: BbPluginApi) {
         store.unsetFileViewed(targetKey, file);
         return { ok: true };
       }
-      const total = store.readPatch(targetKey, 0, 0).total;
-      const hash = hashForFile(store.readPatch(targetKey, 0, total).text, file);
+      const hash = hashForFile(store.patch(targetKey), file);
       if (!hash) return { ok: false };
       store.setFileViewed(targetKey, file, hash);
       return { ok: true };
@@ -652,8 +650,7 @@ export default async function plugin(bb: BbPluginApi) {
         }
         return { ok: true };
       }
-      const total = store.readPatch(targetKey, 0, 0).total;
-      const hashes = fileHashes(store.readPatch(targetKey, 0, total).text, files);
+      const hashes = fileHashes(store.patch(targetKey), files);
       const replaced = store.getFileViews(targetKey).filter((view) => hashes.has(view.file));
       for (const [file, hash] of hashes) store.setFileViewed(targetKey, file, hash);
       return { ok: hashes.size === new Set(files).size, previous: replaced };
@@ -716,7 +713,7 @@ export default async function plugin(bb: BbPluginApi) {
     }),
     async execute({ targetKey, file, offset, limit }) {
       if (file !== undefined) {
-        const files = splitPatchByFile(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text);
+        const files = splitPatchByFile(store.patch(targetKey));
         // A renamed file is keyed by its new path; its old one finds it too.
         const diff = files.find((f) => f.path === file) ?? files.find((f) => f.oldPath === file);
         if (!diff) return { content: [{ type: "text", text: `This review has no diff for ${file}.` }], isError: true };
@@ -724,7 +721,7 @@ export default async function plugin(bb: BbPluginApi) {
         const end = (offset ?? 0) + text.length;
         return text + (end < diff.text.length ? `\n\n[${end}/${diff.text.length} bytes — call again with offset=${end}]` : "");
       }
-      const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
+      const patch = store.patch(targetKey);
       const { text, end } = patchPage(patch, offset ?? 0, limit ?? 200_000);
       const more = end < patch.length ? `\n\n[${end}/${patch.length} bytes — call again with offset=${end}]` : "";
       return text + more;
@@ -735,7 +732,7 @@ export default async function plugin(bb: BbPluginApi) {
     description: "List a Guided Review target's changed files: path, status (added, deleted, modified, renamed), lines added and removed, diff size, and kind (code, test, docs, config, lockfile, generated).",
     parameters: z.object({ targetKey: z.string() }),
     execute: async ({ targetKey }) => {
-      const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
+      const patch = store.patch(targetKey);
       const review = store.getReview(targetKey);
       return describeReviewFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : []);
     },
@@ -860,7 +857,7 @@ export default async function plugin(bb: BbPluginApi) {
       const targetKey = assistantReview(store, threadId) ?? (await generationReview(threadId));
       const review = targetKey ? store.getReview(targetKey) : null;
       if (!review) return failed("There's no review to read the context of.");
-      const files = changedFiles(store.readPatch(review.targetKey, 0, store.readPatch(review.targetKey, 0, 0).total).text);
+      const files = changedFiles(store.patch(review.targetKey));
       try {
         const [context, owned] = await Promise.all([readPrContext({ runGh, runGit }, review, files, store.getReviewContext(review.targetKey)), reviewOwners(review).catch(() => [])]);
         const ownership = describeOwnership(owned);
@@ -994,8 +991,7 @@ export default async function plugin(bb: BbPluginApi) {
       }
       const v = validateGuide(guide);
       if (!v.ok) return { content: [{ type: "text", text: "Invalid guide:\n" + v.errors.join("\n") }], isError: true };
-      const total = store.readPatch(targetKey, 0, 0).total;
-      const patch = store.readPatch(targetKey, 0, total).text;
+      const patch = store.patch(targetKey);
       const files = changedFiles(patch);
       const cov = checkCoverage(v.guide, files, hunkCounts(patch));
       if (!cov.ok) return { content: [{ type: "text", text: "Coverage errors:\n" + cov.errors.join("\n") }], isError: true };

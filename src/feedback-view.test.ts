@@ -85,7 +85,7 @@ test("diffs of reviews out of play for a month are dropped, keeping the guide, t
   }
   store.upsertDraftComment("commented", { file: "a.ts", line: 1, side: "RIGHT", body: "x" });
   expect(pruneOldDiffs(store, now)).toEqual(["merged", "closed"]);
-  expect(store.readPatch("merged").total).toBe(0);
+  expect(store.patch("merged")).toBe("");
   expect(store.hasPatch("merged")).toBe(false);
   // Since your review compares with the diff you reviewed.
   expect(store.getSnapshot("merged", "sha0")).toBe("then");

@@ -58,7 +58,7 @@ test("createPrReview stores the review + patch and returns ok with a targetKey",
   expect(meta?.title).toBe("Fix the thing");
   expect(meta?.headSha).toBe("abc123");
   expect(meta?.projectId).toBe("p1");
-  expect(store.readPatch(key).text).toContain("diff --git a/a.ts");
+  expect(store.patch(key)).toContain("diff --git a/a.ts");
 });
 
 test("starting an archived PR's review again returns it to the queue", async () => {

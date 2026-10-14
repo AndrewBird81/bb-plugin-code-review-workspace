@@ -38,7 +38,7 @@ test("rerunReview re-fetches a PR diff, re-saves patch, sets generating, and ret
   const res = await rerunReview({ bb, store, gh }, "pr-7");
 
   expect(res).toEqual({ ok: true });
-  expect(store.readPatch("pr-7").text).toContain("diff --git a/a.ts");
+  expect(store.patch("pr-7")).toContain("diff --git a/a.ts");
   const meta = store.getReview("pr-7");
   expect(meta?.headSha).toBe("newsha");
 });
@@ -55,7 +55,7 @@ test("rerunReview re-fetches a local-ref diff via git when cwd is present", asyn
   const res = await rerunReview({ bb, store, gh }, "ref-abc");
 
   expect(res).toEqual({ ok: true });
-  expect(store.readPatch("ref-abc").text).toContain("diff --git a/b.ts");
+  expect(store.patch("ref-abc")).toContain("diff --git a/b.ts");
   expect(store.getReview("ref-abc")?.status).toBe("generating");
 });
 
@@ -88,7 +88,7 @@ test("rerunReview leaves the review as it was when the guide writer's machine is
   store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
   expect(await rerunReview({ bb, store, gh }, "pr-7")).toEqual({ ok: false, error: "FloMac is offline. Wake it, or choose another machine for the guide writer in Review settings." });
   expect(store.getReview("pr-7")).toMatchObject({ status: "ready", headSha: "oldsha" });
-  expect(store.readPatch("pr-7").text).toBe("stale patch");
+  expect(store.patch("pr-7")).toBe("stale patch");
 });
 
 test("a review deleted while its PR loads isn't brought back", async () => {

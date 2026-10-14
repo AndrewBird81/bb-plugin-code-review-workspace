@@ -26,7 +26,7 @@ export async function diffAt(store: Store, run: Run, review: ReviewMeta, sha: st
   const saved = store.getSnapshot(review.targetKey, sha);
   if (saved !== null) return saved;
   if (sha === review.headSha) {
-    const patch = store.readPatch(review.targetKey, 0, store.readPatch(review.targetKey, 0, 0).total).text;
+    const patch = store.patch(review.targetKey);
     if (patch) { store.saveSnapshot(review.targetKey, sha, patch); return patch; }
   }
   if (!review.repo || !review.number) throw new Error("This review has no GitHub PR.");
@@ -109,7 +109,7 @@ export async function sinceReview(store: Store, run: Run, review: ReviewMeta, fr
     return hit.since;
   }
   const reviewed = await diffAt(store, run, review, baseline.sha);
-  const current = store.readPatch(review.targetKey, 0, store.readPatch(review.targetKey, 0, 0).total).text;
+  const current = store.patch(review.targetKey);
   const files = interdiff(reviewed, current).map((f) => (f.status === "added" ? { ...f, patch: "" } : f));
   const since = { baseline: { ...baseline, sha: baseline.sha }, files };
   cache.set(slot, { key, since });

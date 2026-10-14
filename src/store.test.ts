@@ -16,12 +16,11 @@ test("review round-trips and lists newest first", () => {
   expect(s.listReviews().map((r) => r.targetKey)).toEqual(["pr-2", "pr-1"]);
 });
 
-test("patch paginates", () => {
+test("a saved patch reads back whole", () => {
   const s = store();
   s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
   s.savePatch("pr-1", "abcdef");
-  expect(s.readPatch("pr-1", 0, 3)).toEqual({ text: "abc", total: 6 });
-  expect(s.readPatch("pr-1", 3, 10)).toEqual({ text: "def", total: 6 });
+  expect(s.patch("pr-1")).toBe("abcdef");
 });
 
 test("saveReview round-trips headSha and cwd", () => {
@@ -266,7 +265,7 @@ test("a failed or interrupted rebuild puts the previous guide and diff back", ()
   expect(s.getGuide("pr-1")).toBeNull();
   s.interruptGenerations();
   expect(s.getGuide("pr-1")?.title).toBe("Old");
-  expect(s.readPatch("pr-1").text).toBe("old patch");
+  expect(s.patch("pr-1")).toBe("old patch");
   expect(s.getReview("pr-1")).toMatchObject({ headSha: "sha1", status: "error" });
   expect(s.restoreGuide("pr-1")).toBe(false);
 });

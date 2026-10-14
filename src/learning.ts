@@ -140,7 +140,7 @@ const indent = (text: string) => text.split("\n").map((line) => `  ${line}`).joi
 export function describeRemovals(store: Store, targetKey: string): string {
   const removed = removals(store, targetKey).slice(-20);
   if (!removed.length) return "";
-  const positions = diffPositions(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text);
+  const positions = diffPositions(store.patch(targetKey));
   return [
     "",
     "The reviewer removed these comments an agent wrote. Don't raise them again unless their code changed:",

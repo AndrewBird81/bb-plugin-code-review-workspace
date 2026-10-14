@@ -219,7 +219,7 @@ test("a failed rebuild keeps the guide you had", async () => {
   await generateGuide(bb, store, "pr-1", "p1", { notify: false });
   expect(store.getReview("pr-1")?.status).toBe("error");
   expect(store.getGuide("pr-1")?.title).toBe("Kept");
-  expect(store.readPatch("pr-1").text).toBe(patch);
+  expect(store.patch("pr-1")).toBe(patch);
 });
 
 test("generate_review_guide advertises the guide's schema and accepts a guide without unplacedFiles", async () => {

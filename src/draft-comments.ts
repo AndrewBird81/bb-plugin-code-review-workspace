@@ -81,7 +81,7 @@ function placeProblem(store: Store, targetKey: string, at: CommentLocation, rang
   const start = positions[startSide === "RIGHT" ? "right" : "left"].get(range.startLine);
   if (start === undefined) return `Line ${range.startLine} isn't on the ${startSide} side of ${at.file} in this diff.`;
   if (normalize(start) !== normalize(sent[0] ?? "")) return `Line ${range.startLine} on the ${startSide} side of ${at.file} is \`${start.trim().slice(0, 500)}\`, not the first line of the code you sent.`;
-  return rangeProblem(store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text, { ...at, ...range });
+  return rangeProblem(store.patch(targetKey), { ...at, ...range });
 }
 
 /** Add an agent's comment. It must sit on lines of the current diff whose text matches `code`, where the draft has no comment yet. */

@@ -27,7 +27,7 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       if (draft.comments.some((c) => !c.body.trim())) return { ok: false, error: "Draft comments cannot be blank." };
       const stale = store.staleDraftComments(targetKey);
       if (stale.length) return { ok: false, error: `The diff changed after these comments were drafted. Edit and save, or remove: ${stale.map((c) => `${c.file}:${c.line}`).join(", ")}` };
-      const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
+      const patch = store.patch(targetKey);
       const bad = invalidComments(patch, draft.comments);
       if (bad.length) return { ok: false, error: `These comments are outside the current diff: ${bad.map((c) => `${c.file}:${c.line}`).join(", ")}. Remove them and add any replacement comments on lines in the current diff.` };
       const authenticatedRun = account ? await bindGhAccount(run, account) : run;

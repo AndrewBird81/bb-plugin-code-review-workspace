@@ -149,7 +149,7 @@ export interface Store extends AgentCommentStore {
   /** Remove the review and everything stored for it. */
   deleteReview(targetKey: string): void;
   savePatch(targetKey: string, patch: string): void;
-  readPatch(targetKey: string, offset?: number, limit?: number): { text: string; total: number };
+  patch(targetKey: string): string;
   /** Whether the review has a diff stored; pruneOldDiffs drops it. */
   hasPatch(targetKey: string): boolean;
   /** Forget the review's diff and any guide kept for a rebuild, to read the diff again when it's opened. */
@@ -477,10 +477,9 @@ export function createStore(bb: BbPluginApi): Store {
          ON CONFLICT(target_key) DO UPDATE SET patch=excluded.patch, hash=excluded.hash`,
       ).run(k, patch, patchHash(patch));
     },
-    readPatch(k, offset = 0, limit = 200_000) {
+    patch(k) {
       const row: any = db.prepare(`SELECT patch FROM patches WHERE target_key=?`).get(k);
-      const text = row?.patch ?? "";
-      return { text: text.slice(offset, offset + limit), total: text.length };
+      return row?.patch ?? "";
     },
     hasPatch(k) {
       return !!db.prepare(`SELECT 1 FROM patches WHERE target_key=? AND patch != ''`).get(k);
@@ -544,7 +543,7 @@ export function createStore(bb: BbPluginApi): Store {
       const guide = this.getGuide(k);
       const review = this.getReview(k);
       if (!guide || !review) return;
-      const patch = this.readPatch(k, 0, this.readPatch(k, 0, 0).total).text;
+      const patch = this.patch(k);
       db.prepare(`INSERT INTO guide_backups VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET data=excluded.data`)
         .run(k, JSON.stringify({ guide, patch, headSha: review.headSha ?? null, base: review.base ?? null, head: review.head ?? null, gitRef: review.gitRef ?? null }));
     },
@@ -557,7 +556,7 @@ export function createStore(bb: BbPluginApi): Store {
         return false;
       }
       const kept = JSON.parse(row.data);
-      const replaced = this.readPatch(k, 0, this.readPatch(k, 0, 0).total).text;
+      const replaced = this.patch(k);
       db.transaction(() => {
         this.savePatch(k, kept.patch);
         this.saveGuide(k, kept.guide);

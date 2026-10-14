@@ -41,7 +41,7 @@ export function discussionMessage(store: Store, targetKey: string, input: AskInp
   const from = input.startLine ?? discussion?.startLine ?? at.line;
   const lines = from === at.line ? `${at.line}` : `${Math.min(from, at.line)}–${Math.max(from, at.line)}`;
   const comment = store.getDraft(targetKey).comments.find((c) => sameLocation(c, at));
-  const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
+  const patch = store.patch(targetKey);
   const code = extractSelectedLines(patch, at.file, from, at.line, at.side === "LEFT" ? "deletions" : "additions");
   const context = [
     `This message comes from the reviewer's discussion at ${at.file}:${lines} (${at.side} side) in the diff, not from the chat. They read replies there.`,

@@ -32,7 +32,7 @@ test("bb review <number> fetches, stores patch+meta, and kicks generation", asyn
   expect(res.exitCode).toBe(0);
   const meta = store.getReview(key);
   expect(meta?.repo).toBe("acme/web");
-  expect(store.readPatch(key).text).toContain("diff --git a/a.ts");
+  expect(store.patch(key)).toContain("diff --git a/a.ts");
 });
 
 test("bb review reports an offline guide writer machine without starting a review", async () => {

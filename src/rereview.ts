@@ -70,7 +70,7 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
 /** Rebuild an existing review's guide for a new diff, keeping the current guide in case it fails and moving the draft comments. */
 export function rebuildReview(deps: Pick<Deps, "bb" | "store">, m: ReviewMeta & { projectId: string }, patch: string, options: { notify?: boolean; unattended?: boolean } = {}) {
   const targetKey = m.targetKey;
-  const previous = deps.store.readPatch(targetKey, 0, deps.store.readPatch(targetKey, 0, 0).total).text;
+  const previous = deps.store.patch(targetKey);
   // If the new guide fails, the current one comes back.
   deps.store.backupGuide(targetKey);
   const next = ensureGitHeaders(patch);
@@ -86,5 +86,5 @@ export function rebuildReview(deps: Pick<Deps, "bb" | "store">, m: ReviewMeta & 
 /** Whether a review already shows this diff: its guide is ready, at the same head, for the same patch. */
 export function upToDate(store: Store, m: ReviewMeta, headSha: string | undefined, patch: string): boolean {
   return m.status === "ready" && !!store.getGuide(m.targetKey) && m.headSha === headSha
-    && store.readPatch(m.targetKey, 0, store.readPatch(m.targetKey, 0, 0).total).text === ensureGitHeaders(patch);
+    && store.patch(m.targetKey) === ensureGitHeaders(patch);
 }

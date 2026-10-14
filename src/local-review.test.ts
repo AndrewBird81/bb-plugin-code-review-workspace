@@ -35,8 +35,8 @@ test("two repositories reviewed at HEAD retain separate local patches and drafts
   expect((await runReviewCommand(deps, ["HEAD"], { projectId: "p1", cwd: second })).exitCode).toBe(0);
   const reviews = deps.store.listReviews();
   expect(reviews).toHaveLength(2);
-  expect(deps.store.readPatch(reviews.find((r) => r.cwd === first)!.targetKey).text).toContain("+after");
-  expect(deps.store.readPatch(reviews.find((r) => r.cwd === second)!.targetKey).text).toContain("+other repository");
+  expect(deps.store.patch(reviews.find((r) => r.cwd === first)!.targetKey)).toContain("+after");
+  expect(deps.store.patch(reviews.find((r) => r.cwd === second)!.targetKey)).toContain("+other repository");
   expect(deps.gh.runGh).not.toHaveBeenCalled();
 });
 

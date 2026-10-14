@@ -71,7 +71,7 @@ export async function generateGuide(
     if (!options.unattended && review?.headSha) store.setLifecycle(targetKey, { approvedHead: review.headSha, skippedRun: null });
     // The diff is already the new one: hunks of the earlier guide that no longer fit it show as whole files.
     const kept = store.getGuide(targetKey);
-    const patch = store.readPatch(targetKey, 0, store.readPatch(targetKey, 0, 0).total).text;
+    const patch = store.patch(targetKey);
     const earlier = { guide: kept && { ...kept, sections: fitHunks(kept.sections, patch) }, reviewed: !!(review && baselineOf(review).at) };
     generationId = store.beginGeneration(targetKey);
     threads = bb.sdk.threads;
@@ -90,7 +90,7 @@ export async function generateGuide(
     failures.set(bb, watched);
     watched.set(worker.id, failed);
     try {
-      const deadline = Date.now() + waitCap(store.readPatch(targetKey, 0, 0).total);
+      const deadline = Date.now() + waitCap(store.patch(targetKey).length);
       const signal = AbortSignal.any([controller.signal, failed.signal]);
       for (;;) {
         const started = Date.now();
