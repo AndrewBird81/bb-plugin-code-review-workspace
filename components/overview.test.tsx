@@ -41,7 +41,9 @@ function renderWorkspace(review: Record<string, unknown>, rpc: Record<string, (i
     getFeedback: () => ({ feedback: { baseline: { sha: "old", at: 1, verdict: "REQUEST_CHANGES" }, head: "new", fetchedAt: 1, suggestionInDraft: false, run: null, items: [] } }),
     markSeen: () => ({ ok: true }),
     snoozeReview: () => ({ ok: true }),
-  } as any }));
+  } as any,
+  // BB takes a link's URL, as it does; unhandled, the link navigates, which jsdom doesn't implement.
+  openUrl: () => true }));
 }
 type Slot = Awaited<ReturnType<typeof renderWorkspace>>;
 const main = (slot: Slot) => within(slot.getByRole("main"));
