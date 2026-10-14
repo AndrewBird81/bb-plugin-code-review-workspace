@@ -88,18 +88,40 @@ test("a review opens, with default settings, when its settings won't load", asyn
 
 test("with every knob off, the Overview, a chapter, Comments, Finish review, the title bar and All reviews still render", async () => {
   restores.push(desktopWindow());
-  const { page, bar, main } = await renderReview(allKnobsOff);
+  const setVerdict = vi.fn(({ verdict }: { verdict: string }) => ({ draft: { targetKey: "pr-42", verdict, verdictChosen: true, body: "", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", severity: "blocking", body: "Upper case reads as a constant." }] } }));
+  const rpc = { setFileViewed: vi.fn(() => ({ ok: true })), setVerdict };
+  const { page, bar, main } = await renderReview(allKnobsOff, rpc);
   await page.findByRole("heading", { name: "Parse rows" });
   const commands = within(await bar.findByRole("group", { name: "Review commands" }));
   fireEvent.click(await main().findByRole("button", { name: "Start reading: Parsing" }));
-  await page.findAllByTestId("filediff");
+  // The lockfile opens like any other file, and marking a file viewed leaves it open.
+  await waitFor(() => expect(page.getAllByTestId("filediff")).toHaveLength(2));
+  fireEvent.click(page.getByRole("checkbox", { name: "Viewed src/a.ts" }));
+  await waitFor(() => expect((page.getByRole("checkbox", { name: "Viewed src/a.ts" }) as HTMLInputElement).checked).toBe(true));
+  expect(page.getAllByTestId("filediff")).toHaveLength(2);
+  fireEvent.click(page.getByRole("checkbox", { name: "Viewed src/a.ts" }));
+  await waitFor(() => expect((page.getByRole("checkbox", { name: "Viewed src/a.ts" }) as HTMLInputElement).checked).toBe(false));
+  expect(page.queryByText(/Owned by/)).toBeNull();
+  expect(page.inspection.rpcCalls.some((call) => call.method === "getCodeOwners")).toBe(false);
+  // No key does anything, and none is named.
+  for (const key of ["j", "n", "c", "?"]) fireEvent.keyDown(document.body, { key });
+  expect(page.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(page.queryByRole("dialog", { name: "Keyboard shortcuts" })).toBeNull();
+  expect(Array.from(page.baseElement.querySelectorAll("kbd")).filter((key) => key.textContent === "/")).toHaveLength(0);
   fireEvent.click(commands.getByRole("button", { name: "Comments" }));
   const panel = within(await page.findByRole("complementary", { name: "Comments and agent" }));
   await panel.findByText("Upper case reads as a constant.");
   fireEvent.click(await commands.findByRole("button", { name: /^Submit review/ }));
   await page.findByRole("heading", { name: "Finish review" });
+  // Approving with the high-risk chapter's src/a.ts not viewed: no guard row, but the blocking comment's still.
+  fireEvent.click(within(page.getByRole("group", { name: "Review verdict" })).getByRole("button", { name: /^Approve/ }));
+  await page.findByText("Approving with 1 blocking comment.");
+  expect(page.queryByText(/not viewed/)).toBeNull();
   page.lifecycle.unmount(); bar.lifecycle.unmount();
   const inbox = await renderInbox(allKnobsOff);
   expect(inbox.getByText("Parse rows")).toBeTruthy();
+  fireEvent.keyDown(document.body, { key: "/" });
+  expect(document.activeElement).toBe(document.body);
+  expect(Array.from(inbox.container.querySelectorAll("kbd")).filter((key) => key.textContent === "/")).toHaveLength(0);
   inbox.lifecycle.unmount();
 });
