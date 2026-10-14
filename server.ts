@@ -580,10 +580,8 @@ export default async function plugin(bb: BbPluginApi) {
       return draftState(targetKey);
     },
     // The summary and verdict don't depend on the diff, so they save while it changes; submit checks everything.
-    setVerdict({ targetKey, verdict, body }) {
-      // A summary you wrote yourself ends an ask on it.
-      if (body !== undefined && body !== store.getDraft(targetKey).body) store.setLifecycle(targetKey, { summaryAsk: null });
-      const draft = store.setVerdict(targetKey, verdict, body);
+    setVerdict({ targetKey, verdict }) {
+      const draft = store.setVerdict(targetKey, verdict);
       bb.realtime.publish(`draft:${targetKey}`, {});
       return { draft };
     },

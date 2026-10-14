@@ -35,7 +35,8 @@ test("draft comment then submit builds a batched review", async () => {
     targetKey: "pr-1",
     comment: { file: "a.ts", line: 1, side: "RIGHT", body: "nit" },
   });
-  await harness.behavior.callRpc("setVerdict", { targetKey: "pr-1", revision, verdict: "COMMENT", body: "ok" });
+  await harness.behavior.callRpc("saveSummary", { targetKey: "pr-1", revision, body: "ok" });
+  await harness.behavior.callRpc("setVerdict", { targetKey: "pr-1", revision, verdict: "COMMENT" });
   store.addDiscussionMessage("pr-1", { file: "a.ts", line: 1, side: "RIGHT" }, "reviewer", "Too picky?");
   const res = await harness.behavior.callRpc("submitReview", { targetKey: "pr-1", revision, account: "casey" });
   expect((res as any).ok).toBe(true);
@@ -52,7 +53,8 @@ test("submitting a review clears what didn't run on its own", async () => {
   store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
   store.setLifecycle("pr-1", { skippedRun: { run: "review", head: "sha123", at: 1 } });
   const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" }) as any;
-  await harness.behavior.callRpc("setVerdict", { targetKey: "pr-1", revision, verdict: "COMMENT", body: "ok" });
+  await harness.behavior.callRpc("saveSummary", { targetKey: "pr-1", revision, body: "ok" });
+  await harness.behavior.callRpc("setVerdict", { targetKey: "pr-1", revision, verdict: "COMMENT" });
   expect(await harness.behavior.callRpc("submitReview", { targetKey: "pr-1", revision, account: "casey" })).toMatchObject({ ok: true });
   expect(store.getReview("pr-1")?.skippedRun).toBeNull();
 });

@@ -174,14 +174,13 @@ export const rpcContract = defineRpcContract({
   dismissDiscussion: { input: z.object({ targetKey: z.string(), ...location }).strict(), output: draftOutput },
   /** Undo the agent's latest change in the discussion at a line, or the summary's. */
   undoAgentChange: { input: z.object({ targetKey: z.string(), ...location }).strict(), output: draftOutput },
-  /** The reviewer picks a verdict. With body, from panels before the summary had its own box, it also saves the summary as theirs. */
+  /** The reviewer picks a verdict. */
   setVerdict: {
     input: z
       .object({
         targetKey: z.string(),
         revision: z.string().optional(),
         verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
-        body: z.string().optional(),
       })
       .strict(),
     output: z.object({ draft: z.any() }),
