@@ -39,10 +39,7 @@ test("prFactsQuery aliases each PR and passes owner, name, and number as variabl
 
 test("parsePrFacts says who owns the fork a PR's head branch is in", () => {
   expect(prFactsQuery([ref(1)]).query).toContain("isCrossRepository headRepositoryOwner{login}");
-  const fork = (node: unknown) => {
-    const facts = one(node);
-    return facts === "forbidden" ? facts : facts.headForkOwner;
-  };
+  const fork = (node: unknown) => one(node).headForkOwner;
   expect(fork(pr({ isCrossRepository: true, headRepositoryOwner: { login: "mallory" } }))).toBe("mallory");
   // A deleted fork.
   expect(fork(pr({ isCrossRepository: true, headRepositoryOwner: null }))).toBe("");
