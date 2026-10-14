@@ -98,7 +98,7 @@ function ComparePage({ onBack, onPicked }: { onBack: () => void; onPicked: () =>
  * no compare select (`compareInBand`). A bottom drawer on a phone and on one held sideways.
  */
 export function DiffOptions({ threads, compareInBand = false, foldInBand = false, className }: { threads: boolean; compareInBand?: boolean; foldInBand?: boolean; className?: string }) {
-  const { review, activeId, layout, compare, display, files, showShortcuts } = useWorkspace();
+  const { review, activeId, layout, compare, display, files, showShortcuts, shortcuts } = useWorkspace();
   const container = useFullscreenPortalContainer();
   const fine = useMediaQuery("(any-pointer: fine)");
   const [open, setOpen] = useState(false);
@@ -161,9 +161,9 @@ export function DiffOptions({ threads, compareInBand = false, foldInBand = false
               ))}
             </div>
           </div>}
-          {(picking || fine) && <div className="mt-1 border-t border-border pt-1">
+          {(picking || (fine && shortcuts)) && <div className="mt-1 border-t border-border pt-1">
             {picking && <Link label="Compare with a commit…" end={<Icon name="ChevronRight" className="size-4" aria-hidden />} onSelect={() => turn("compare")} />}
-            {fine && <Link label="Keyboard shortcuts" end={<kbd className="font-mono text-xs">?</kbd>} onSelect={() => { close(); showShortcuts(); }} />}
+            {fine && shortcuts && <Link label="Keyboard shortcuts" end={<kbd className="font-mono text-xs">?</kbd>} onSelect={() => { close(); showShortcuts(); }} />}
           </div>}
         </>}
       </PopoverContent>

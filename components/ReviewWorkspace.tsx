@@ -1136,9 +1136,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     }
     return false;
   };
+  // Settings → Reading can turn the keys off, all but Esc.
+  const shortcutsOn = useKnob("singleKeyShortcuts");
+  const shortcutsRef = useRef(shortcutsOn);
+  shortcutsRef.current = shortcutsOn;
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      const key = shortcutKey(event);
+      const typed = shortcutKey(event);
+      const key = typed === "Escape" || shortcutsRef.current ? typed : null;
       const root = rootRef.current;
       const target = event.target as Element;
       // Its commands in BB's title bar are the review's too: closing what one of them opened gives it the focus.
@@ -1164,7 +1169,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts]);
+    shortcuts: shortcutsOn,
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn]);
 
   if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
+import { keyHint } from "../../lib/review-shortcuts";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
 import { phoneWindow } from "../../lib/workspace-layout";
@@ -107,7 +108,7 @@ function useBandFit(el: HTMLElement | null, fitIn: (room: number) => BandFit): B
  * GitHub threads to show. `onCompareShown` is told whether the band shows the compare select.
  */
 export function ReaderBar({ threads, onCompareShown }: { threads: boolean; onCompareShown?: (shown: boolean) => void }) {
-  const { targetKey, review, guide, sections, activeId, go, layout, compare, display, files, fullscreen, leave } = useWorkspace();
+  const { targetKey, review, guide, sections, activeId, go, layout, compare, display, files, fullscreen, leave, shortcuts } = useWorkspace();
   const container = useFullscreenPortalContainer();
   const titleBar = useTitleBarMounted(targetKey);
   const coarse = useMediaQuery("(pointer: coarse)");
@@ -165,7 +166,7 @@ export function ReaderBar({ threads, onCompareShown }: { threads: boolean; onCom
         </nav>
         {chapter && <div className="flex shrink-0 items-center gap-1">
           {fit.compare && <ComparePicker brief={fit.compare === "brief"} />}
-          {fit.fold && <Hint label="Fold comments (i)" container={container}>
+          {fit.fold && <Hint label={keyHint("Fold comments", "i", shortcuts)} container={container}>
             <Button variant="ghost" size="sm" aria-label={display.commentsFolded ? "Unfold comments in code" : "Fold comments in code"} className={cn(icon, display.commentsFolded && "text-primary hover:text-primary")} onClick={() => display.setCommentsFolded(!display.commentsFolded)}>
               <Icon name={display.commentsFolded ? "ChevronsDown" : "ChevronsUp"} aria-hidden />
             </Button>

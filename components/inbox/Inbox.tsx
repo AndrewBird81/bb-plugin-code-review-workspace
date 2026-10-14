@@ -6,6 +6,7 @@ import type { SyncHealth } from "../../src/review-lifecycle";
 import { forgetCompares } from "../../lib/panel-state";
 import { parsePrLink } from "../../lib/pr-link";
 import { needsGroup, needsOrder, reviewState, type NeedsGroup, type ReviewItem } from "../../lib/review-state";
+import { useKnob } from "../../lib/settings";
 import { lastActivity } from "../../lib/status-line";
 import type { TurnGroup } from "../../lib/turn";
 import { cn } from "../../lib/utils";
@@ -209,8 +210,10 @@ export function Inbox() {
     return () => clearTimeout(timer);
   }, []);
   const ownControls = waited && !titleBar;
-  // / finds a review, from anywhere on the page but a text box.
+  // / finds a review, from anywhere on the page but a text box, while single-key shortcuts are on.
+  const shortcuts = useKnob("singleKeyShortcuts");
   useEffect(() => {
+    if (!shortcuts) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
       const target = event.target as HTMLElement;
@@ -222,7 +225,7 @@ export function Inbox() {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [pageEl, searchInline, openSearch]);
+  }, [pageEl, searchInline, openSearch, shortcuts]);
 
   const link = parsePrLink(query);
   const searching = !!query.trim();

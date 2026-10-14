@@ -1,6 +1,7 @@
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { searchIndex, searchReview, type SearchHit } from "../lib/review-search";
+import { useKnob } from "../lib/settings";
 import { Icon } from "./ui/icon";
 import { Input } from "./ui/input";
 import { InlineCode } from "./ui/inline-code";
@@ -49,6 +50,7 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
 }) {
   const [query, setQuery] = useState(initialQuery);
   useEffect(() => onQuery?.(query), [query, onQuery]);
+  const shortcuts = useKnob("singleKeyShortcuts");
   const box = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
   // "clearfind" empties the box at once, so what the results hide can take focus.
@@ -102,7 +104,7 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
           aria-label="Find in review"
           className="h-8 pl-7 pr-7 text-xs pointer-coarse:h-9 max-md:pointer-coarse:h-9"
         />
-        {!query && <kbd aria-hidden className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1 font-mono text-[10px] leading-4 text-subtle-foreground max-md:pointer-coarse:hidden">/</kbd>}
+        {!query && shortcuts && <kbd aria-hidden className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1 font-mono text-[10px] leading-4 text-subtle-foreground max-md:pointer-coarse:hidden">/</kbd>}
       </label>
       </div>
       </div>

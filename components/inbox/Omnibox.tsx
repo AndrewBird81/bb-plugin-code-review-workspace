@@ -4,6 +4,7 @@ import type { rpcContract } from "../../src/rpc-contract";
 import { parsePrLink } from "../../lib/pr-link";
 import type { ReviewItem } from "../../lib/review-state";
 import { statusWhy } from "../../lib/status-line";
+import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
@@ -35,6 +36,7 @@ export function Omnibox({ query, onQuery, reviews, onOpen, placeholder, onCancel
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
+  const shortcuts = useKnob("singleKeyShortcuts");
   const suggestionId = useId(), errorId = useId(), hintId = useId();
   const link = parsePrLink(query);
   const listed = link ? reviews.find((review) => review.repo?.toLowerCase() === link.repo && review.number === link.number) : undefined;
@@ -87,7 +89,7 @@ export function Omnibox({ query, onQuery, reviews, onOpen, placeholder, onCancel
             // Room on the right for the / hint; typed into, the browser's own ✕ takes the end.
             className={cn("h-10 rounded-lg border-border bg-surface-raised pl-9 shadow-xs hover:border-input focus-visible:border-primary/60 focus-visible:ring-[3px] focus-visible:ring-primary/20 aria-invalid:border-destructive/60 pointer-coarse:h-11 max-md:pointer-coarse:h-11", query ? "pr-2" : "pr-9")}
           />
-          {!query && !focused && <kbd aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded border border-border px-1.5 font-sans text-[11px] leading-4 text-subtle-foreground pointer-fine:block">/</kbd>}
+          {!query && !focused && shortcuts && <kbd aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded border border-border px-1.5 font-sans text-[11px] leading-4 text-subtle-foreground pointer-fine:block">/</kbd>}
         </div>
         {onCancel && <Button type="button" variant="ghost" size="sm" className={cn("h-10 shrink-0 px-2.5 text-muted-foreground", TOUCH_CONTROL)} onClick={onCancel}>Cancel</Button>}
         {trailing}

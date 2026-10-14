@@ -110,6 +110,8 @@ export interface WorkspaceApi {
   /** Reviews show in BB's thread list, so they can be pinned there. */
   pinnable: boolean;
   showShortcuts(): void;
+  /** Single-key shortcuts are on (Settings → Reading). */
+  shortcuts: boolean;
 }
 
 /** The `activeId` of the review's Overview, which comes before its chapters. */

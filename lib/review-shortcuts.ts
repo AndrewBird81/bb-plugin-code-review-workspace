@@ -21,6 +21,9 @@ export const SHORTCUTS = [
   { group: "View", keys: ["?"], label: "Show these shortcuts" },
 ] as const;
 
+/** A control's tooltip, naming its key while single-key shortcuts are on. */
+export const keyHint = (label: string, key: string, on: boolean) => on ? `${label} (${key})` : label;
+
 /** How the help sheet writes the keys that aren't what they type. */
 export const KEY_LABEL: Partial<Record<string, string>> = { V: "⇧V", F: "⇧F", Escape: "Esc" };
 

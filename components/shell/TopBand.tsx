@@ -1,5 +1,6 @@
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { cn } from "../../lib/utils";
+import { keyHint } from "../../lib/review-shortcuts";
 import { useWorkspace } from "../../lib/workspace-context";
 import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
@@ -15,19 +16,19 @@ export const navigatorId = (targetKey: string) => `gr-navigator-${targetKey}`;
  * navigator's own are over them, kept so the focus can come back to them. A phone's are in its dock.
  */
 export function TopBand({ find = false, hidden = false }: { find?: boolean; hidden?: boolean }) {
-  const { nav, targetKey, layout } = useWorkspace();
+  const { nav, targetKey, layout, shortcuts } = useWorkspace();
   const container = useFullscreenPortalContainer();
   if (layout.mode === "phone") return null;
   const button = cn("size-8 shrink-0 px-0 text-muted-foreground", layout.mode === "short" ? TOUCH_COMPACT : TOUCH_CONTROL);
   return (
     <div hidden={hidden} className={cn("flex shrink-0 items-center gap-0.5", hidden && "hidden")}>
-      <Hint label="Chapters (t)" container={container}>
+      <Hint label={keyHint("Chapters", "t", shortcuts)} container={container}>
         {/* Its label says whether they show, so it isn't a pressed toggle too: it only looks pressed. */}
         <Button variant="ghost" size="sm" aria-label={nav.open ? "Hide chapters" : "Show chapters"} aria-controls={navigatorId(targetKey)} className={cn(button, nav.open && "bg-state-active text-foreground hover:bg-state-active")} onClick={nav.toggle}>
           <Icon name="ListView" aria-hidden />
         </Button>
       </Hint>
-      {find && <Hint label="Find in review (/)" container={container}>
+      {find && <Hint label={keyHint("Find in review", "/", shortcuts)} container={container}>
         <Button variant="ghost" size="sm" aria-label="Find in review" className={button} onClick={nav.find}>
           <Icon name="Search" aria-hidden />
         </Button>

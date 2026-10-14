@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 import { VERDICT_LABEL } from "../src/draft";
 import { useDraftStatus } from "../lib/draft-status";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
+import { keyHint } from "../lib/review-shortcuts";
 import { cn } from "../lib/utils";
 import { phoneWindow } from "../lib/workspace-layout";
 import { mountTitleBar, panelPage, useNeedsYou, useWorkspaceFor } from "../lib/workspace-store";
@@ -63,20 +64,20 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
   return (
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
       <div role="group" aria-label="Review commands" data-review-commands={api.targetKey} className="flex shrink-0 items-center gap-1">
-        <Hint label="Comments (c)" container={container}>
+        <Hint label={keyHint("Comments", "c", api.shortcuts)} container={container}>
           <Button variant="ghost" size="sm" aria-label={needsYou ? `Comments, ${needsYou} need you` : "Comments"} aria-pressed={panel.view === "comments"} aria-controls={controls} className={tier === "labeled" ? labeled : cn(icon, needsYou > 0 && "w-auto gap-1 px-2")} onClick={() => panel.toggle("comments")}>
             <Icon name="MessageSquare" aria-hidden />
             {tier === "labeled" && "Comments"}
             {needsYou > 0 && <span aria-hidden className="min-w-4 rounded-full bg-primary px-1 text-center text-[10px] font-semibold leading-4 text-primary-foreground tabular-nums">{needsYou}</span>}
           </Button>
         </Hint>
-        <Hint label="Ask agent (a)" container={container}>
+        <Hint label={keyHint("Ask agent", "a", api.shortcuts)} container={container}>
           <Button variant="ghost" size="sm" aria-label="Ask agent" aria-pressed={panel.view === "agent"} aria-controls={controls} className={tier === "icons" ? icon : labeled} onClick={() => panel.view === "agent" ? panel.close() : api.askAgent()}>
             <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />
             {tier !== "icons" && "Ask agent"}
           </Button>
         </Hint>
-        {status && <Hint label="Finish and submit (s)" container={container}>
+        {status && <Hint label={keyHint("Finish and submit", "s", api.shortcuts)} container={container}>
           <Button variant="ghost" size="sm" aria-label={`Submit review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`} aria-pressed={panel.view === "finish"} aria-controls={controls} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
             <Icon name="Github" aria-hidden />
             {/* A band under 720px (full screen on a phone) keeps its room for where you are: the icon and the count. */}
@@ -86,7 +87,7 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
           </Button>
         </Hint>}
         <ReviewMenu api={api} className={icon} />
-        {api.fullscreen.available && <Hint label={`${api.fullscreen.on ? "Exit full screen" : "Full screen"} (⇧F)`} container={container}>
+        {api.fullscreen.available && <Hint label={keyHint(api.fullscreen.on ? "Exit full screen" : "Full screen", "⇧F", api.shortcuts)} container={container}>
           <Button
             ref={fullscreenRef}
             variant="ghost"
@@ -111,10 +112,12 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
 /**
  * Review actions (⋯): the workspace's Update or Rebuild guide first, then the review's own, with the workspace's Keyboard
  * shortcuts and Review settings… after Open on GitHub. An archived review's guide isn't rebuilt. A phone, without a
- * mouse to say a keyboard may be there, has no Keyboard shortcuts; an iPad keeps them, for its keyboard.
+ * mouse to say a keyboard may be there, has no Keyboard shortcuts; an iPad keeps them, for its keyboard. Neither has
+ * them while Settings turns single-key shortcuts off.
  */
 export function ReviewMenu({ api, className }: { api: WorkspaceApi; className?: string }) {
-  const keys = useMediaQuery("(any-pointer: fine)") || !phoneWindow();
+  const fine = useMediaQuery("(any-pointer: fine)");
+  const keys = api.shortcuts && (fine || !phoneWindow());
   const items: ReviewMenuItem[] = api.review.archivedAt ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() }];
   const trailing: ReviewMenuItem[] = [
     ...(keys ? [{ label: "Keyboard shortcuts", icon: "CircleQuestion", keys: "?", onSelect: api.showShortcuts } satisfies ReviewMenuItem] : []),

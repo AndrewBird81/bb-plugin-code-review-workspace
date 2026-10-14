@@ -5,6 +5,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { toast } from "sonner";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import { defaultKnobs } from "../lib/knobs";
 import { getCommentsFolded, getReviewState, patchReviewState, setHideNits } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
@@ -586,6 +587,39 @@ test("keys work as soon as Esc closes the shortcuts, while they fade out", async
   expect(navigator.hidden).toBe(true);
   slot.lifecycle.unmount();
   vi.mocked(window.getComputedStyle).mockRestore();
+}, 15_000);
+
+test("with single-key shortcuts off, keys do nothing, but Esc still closes what's over the code", async () => {
+  const request = vi.fn(() => Promise.resolve());
+  Object.defineProperty(document, "fullscreenEnabled", { configurable: true, value: true });
+  Object.defineProperty(HTMLElement.prototype, "requestFullscreen", { configurable: true, value: request });
+  const off = { preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, singleKeyShortcuts: false } }, revision: 1 };
+  const { slot, rpc } = await renderWorkspace({ rpc: { getPreferences: () => off } });
+  await slot.findByText("aa");
+  for (const key of ["j", "n", "v", "t", "c", "a", "s", "?"]) press(key);
+  press("V", { shiftKey: true });
+  press("F", { shiftKey: true });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(currentChapter(slot)?.textContent).toContain("Parsing");
+  expect(slot.queryByText("bb")).toBeNull();
+  expect(slot.getByRole("navigation", { name: "Chapters" })).toBeTruthy();
+  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(slot.queryByRole("dialog", { name: "Keyboard shortcuts" })).toBeNull();
+  expect(rpc.setFileViewed).not.toHaveBeenCalled();
+  expect(rpc.setFilesViewed).not.toHaveBeenCalled();
+  expect(request).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+  delete (document as { fullscreenEnabled?: boolean }).fullscreenEnabled;
+  delete (HTMLElement.prototype as { requestFullscreen?: unknown }).requestFullscreen;
+  // Too narrow for the chapters to dock: they open over the code, and Esc closes them.
+  window.innerWidth = 700;
+  const narrow = await renderWorkspace({ rpc: { getPreferences: () => off } });
+  await narrow.slot.findByText("aa");
+  fireEvent.click(narrow.slot.getByRole("button", { name: "Show chapters" }));
+  expect(narrow.slot.getByRole("dialog", { name: "Chapters" })).toBeTruthy();
+  press("Escape");
+  await waitFor(() => expect(narrow.slot.queryByRole("dialog", { name: "Chapters" })).toBeNull());
+  narrow.slot.lifecycle.unmount();
 }, 15_000);
 
 test("the band names the chapter with its files viewed as such, and ⇧V marks the chapter viewed", async () => {

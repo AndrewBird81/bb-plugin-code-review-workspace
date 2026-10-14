@@ -4,6 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { toast } from "sonner";
 import { defaultPreferences } from "../src/preferences";
+import { defaultKnobs } from "../lib/knobs";
 import type { Turn } from "../lib/turn";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
@@ -262,6 +263,23 @@ test("focused and empty, the box says how to review a local branch; / focuses it
   fireEvent.focus(find);
   expect(slot.getByText(/For a local branch, run/).textContent).toBe("For a local branch, run bb review in a BB thread.");
   slot.lifecycle.unmount();
+});
+
+test("with single-key shortcuts off, / focuses nothing and the box shows no / key", async () => {
+  const kbd = (slot: Awaited<ReturnType<typeof inbox>>["slot"]) => Array.from(slot.container.querySelectorAll("kbd")).filter((key) => key.textContent === "/");
+  const { slot } = await inbox([{ targetKey: "a", title: "A change", status: "ready" }], {
+    getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, singleKeyShortcuts: false } }, revision: 1 }),
+  });
+  await slot.findByText("A change");
+  await waitFor(() => expect(kbd(slot)).toHaveLength(0));
+  fireEvent.keyDown(document.body, { key: "/" });
+  expect(document.activeElement).toBe(document.body);
+  slot.lifecycle.unmount();
+  // On, the key shows.
+  const on = await inbox([{ targetKey: "a", title: "A change", status: "ready" }]);
+  await on.slot.findByText("A change");
+  expect(kbd(on.slot)).toHaveLength(1);
+  on.slot.lifecycle.unmount();
 });
 
 test("a stack's reviews sit together, bottom first, each saying where it stands", async () => {

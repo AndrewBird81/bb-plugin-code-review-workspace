@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import { defaultKnobs } from "../lib/knobs";
 import { patchReviewState } from "../lib/panel-state";
 import { setNeedsYou } from "../lib/workspace-store";
 
@@ -202,6 +203,36 @@ test("an iPad without a mouse keeps Keyboard shortcuts in Review actions, for it
   const { bar } = await renderReview();
   fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
   expect(await bar!.findByRole("button", { name: "Keyboard shortcuts" })).toBeTruthy();
+});
+
+test("with single-key shortcuts off, the commands' tooltips name no key, and Review actions has no Keyboard shortcuts", async () => {
+  fakeSize(1400, 900);
+  fakeFullscreen();
+  // A tooltip opens on the focus a key gives.
+  const matches = Element.prototype.matches;
+  const focusVisible = vi.spyOn(Element.prototype, "matches").mockImplementation(function (this: Element, selector: string) {
+    return selector === ":focus-visible" ? this === document.activeElement : matches.call(this, selector);
+  });
+  restores.push(() => focusVisible.mockRestore());
+  const off = { preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, singleKeyShortcuts: false } }, revision: 1 };
+  const { bar, page } = await renderReview({ rpc: { getPreferences: () => off } });
+  const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+  await commands.findByRole("button", { name: /^Submit review/ });
+  await waitFor(() => expect(page.inspection.rpcCalls.filter((call) => call.method === "getPreferences")).toHaveLength(2));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const tips: string[] = [];
+  for (const name of ["Comments", "Ask agent", /^Submit review/, "Full screen"]) {
+    const button = commands.getByRole("button", { name });
+    button.focus();
+    tips.push((await bar!.findByRole("tooltip")).textContent!);
+    button.blur();
+    await waitFor(() => expect(bar!.queryByRole("tooltip")).toBeNull());
+  }
+  expect(tips).toEqual(["Comments", "Ask agent", "Finish and submit", "Full screen"]);
+  fireEvent.click(commands.getByRole("button", { name: "Review actions" }));
+  await bar!.findByRole("button", { name: "Review settings…" });
+  expect(bar!.queryByRole("button", { name: "Keyboard shortcuts" })).toBeNull();
+  page.lifecycle.unmount(); bar!.lifecycle.unmount();
 });
 
 test("an archived review's actions don't offer to rebuild its guide, which the server would refuse", async () => {
