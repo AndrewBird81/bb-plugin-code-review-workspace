@@ -205,7 +205,7 @@ export interface Store extends AgentCommentStore {
   clearDiscussions(targetKey: string): void;
   /** Stop waiting for answers, for example once the assistant finishes. False when none were waiting. */
   stopWaiting(targetKey: string): boolean;
-  // Per-file "Viewed" state (Feature 1).
+  // Per-file "Viewed" state.
   getFileViews(targetKey: string): FileView[];
   /** `viewedAt`, when Undo puts back a view as it was; otherwise now. */
   setFileViewed(targetKey: string, file: string, hash: string, viewedAt?: number): void;

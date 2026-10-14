@@ -5,8 +5,7 @@ import { SEVERITIES } from "./draft";
 import { agentChoiceSchema, agentExecutionSchema, preferencesSchema } from "./preferences";
 
 // The RPC data plane between the panel (app.tsx) and the backend (server.ts).
-// Extended task-by-task (reads, draft/submit, viewed-state, agent). app.tsx imports the TYPE
-// of this contract only; the backend module never enters the frontend bundle.
+// app.tsx imports the TYPE of this contract only; the backend module never enters the frontend bundle.
 const targetKey = z.object({ targetKey: z.string() }).strict();
 
 const commentShape = z
@@ -97,7 +96,7 @@ export const rpcContract = defineRpcContract({
     output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }),
   },
 
-  // Task 10: read data plane. sync: how reading GitHub went (src/review-lifecycle.ts SyncHealth).
+  // Read. sync: how reading GitHub went (src/review-lifecycle.ts SyncHealth).
   listReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
   /** force: false reads only what's due, as the background sync does; true or null reads everything now. */
   refreshReviews: { input: z.object({ force: z.boolean() }).strict().nullable(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
@@ -120,7 +119,7 @@ export const rpcContract = defineRpcContract({
     output: z.union([z.object({ ok: z.literal(true), old: z.string().nullable(), new: z.string().nullable() }), z.object({ ok: z.literal(false), error: z.string() })]),
   },
 
-  // Phase 2: review threads, reply/resolve, staleness, re-review
+  // GitHub threads, reply/resolve, staleness, re-review
   /** error: GitHub couldn't be read, or not every page; threads holds what was. */
   getReviewThreads: { input: targetKey, output: z.object({ threads: z.array(z.any()), error: z.string().optional() }) },
   /** With threadId, a posted reply also clears that thread's drafted reply. */
@@ -156,7 +155,7 @@ export const rpcContract = defineRpcContract({
   },
   deleteReview: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
 
-  // Task 11: draft + submit
+  // Draft and submit
   getDraft: { input: targetKey, output: draftOutput },
   saveDraftComment: {
     input: z.object({ targetKey: z.string(), revision: z.string().optional(), comment: commentShape }).strict(),
@@ -202,7 +201,7 @@ export const rpcContract = defineRpcContract({
     output: z.object({ ok: z.boolean(), error: z.string().optional(), url: z.string().optional() }),
   },
 
-  // Feature 1: per-file "Viewed" state
+  // Per-file "Viewed" state
   getFileViews: {
     input: targetKey,
     output: z.object({

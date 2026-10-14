@@ -2,7 +2,6 @@
 //
 // Turns a GitHub PR (or local git ref) into an agent-authored chaptered
 // walkthrough, rendered and reviewed in a bb panel, submitted back to GitHub.
-// This factory is extended task-by-task (store, cli, tools, rpc, realtime).
 import type { BbPluginApi, PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { rpcContract } from "./src/rpc-contract";
@@ -405,11 +404,8 @@ export default async function plugin(bb: BbPluginApi) {
       return createPrReview(deps, { input, projectId });
     },
 
-    // Task 10: read data plane
+    // Read
     async listReviews() {
-      // ReviewMeta rows carry optional fields as literal `undefined` own
-      // properties (store.ts's rowToMeta), which the rpc layer's strict JSON
-      // output check rejects; round-trip through JSON to drop them.
       return { reviews: await listed(), sync: sync.health() };
     },
     async refreshReviews(input) {
@@ -446,7 +442,7 @@ export default async function plugin(bb: BbPluginApi) {
       return readFileContents({ runGh, runGit }, review, patchFile);
     },
 
-    // Phase 2: review threads, reply/resolve, staleness, re-review
+    // GitHub threads, reply/resolve, staleness, re-review
     async getReviewThreads({ targetKey }) {
       const m = store.getReview(targetKey);
       if (!m || m.kind !== "pr" || !m.number || !m.repo) return { threads: [] };
@@ -535,7 +531,7 @@ export default async function plugin(bb: BbPluginApi) {
       return { ok: true };
     },
 
-    // Task 11: draft + submit
+    // Draft and submit
     getDraft({ targetKey }) {
       return draftState(targetKey);
     },
@@ -617,7 +613,7 @@ export default async function plugin(bb: BbPluginApi) {
       return result;
     },
 
-    // Feature 1: per-file "Viewed" state (viewed/stale computed against the patch)
+    // Per-file "Viewed" state (viewed/stale computed against the patch)
     getFileViews({ targetKey }) {
       const patch = store.patch(targetKey);
       return { views: computeFileViewState(store.getFileViews(targetKey), patch) };
