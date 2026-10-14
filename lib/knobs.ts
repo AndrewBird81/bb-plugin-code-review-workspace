@@ -1,0 +1,29 @@
+// Switches, and one number, that turn the plugin's features off or tune them: each default is 0.6.0's behavior.
+
+/** Settings → Reading, Comments and Finish review, Review assistant, Whose turn, Notifications, and Trust. */
+export interface Knobs {
+  singleKeyShortcuts: boolean; returnToOverview: boolean; foldViewedFiles: boolean; foldGeneratedFiles: boolean;
+  requirements: boolean; codeOwners: boolean; ciInCode: boolean;
+  askAboutSelection: boolean; approveGuard: boolean;
+  /** Changed lines an hour past which a chapter counts as read too fast. */
+  approveGuardPace: number;
+  runAutomaticReview: boolean; recheckOnNewCommits: boolean;
+  mentionsWake: boolean; prepareOnReturn: boolean; runReReviewCheck: boolean; trackReviewedPrs: boolean;
+  alertGuides: boolean; alertTurns: boolean;
+  unattendedAgents: boolean;
+}
+export type KnobId = keyof Knobs;
+
+/** Every toggle on; the pace is lib/approve-guard.ts's MAX_LINES_PER_HOUR. */
+export const defaultKnobs: Knobs = {
+  singleKeyShortcuts: true, returnToOverview: true, foldViewedFiles: true, foldGeneratedFiles: true,
+  requirements: true, codeOwners: true, ciInCode: true,
+  askAboutSelection: true, approveGuard: true, approveGuardPace: 500,
+  runAutomaticReview: true, recheckOnNewCommits: true,
+  mentionsWake: true, prepareOnReturn: true, runReReviewCheck: true, trackReviewedPrs: true,
+  alertGuides: true, alertTurns: true,
+  unattendedAgents: true,
+};
+
+/** The number knobs' whole-number ranges. */
+export const KNOB_RANGES = { approveGuardPace: { min: 100, max: 2000 } } as const;

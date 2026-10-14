@@ -1,6 +1,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { ASSISTANT_INSTRUCTIONS_LIMIT, defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
+import { KNOB_RANGES, defaultKnobs, type KnobId, type Knobs } from "../lib/knobs";
 export { defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
 
 /** The automatic review's default before the review summary; saved settings that kept it read as the current default. */
@@ -36,6 +37,17 @@ const REPO_PATTERN = /^(\*|[a-z0-9-]+\/(\*|[a-z0-9_.-]+))$/;
 
 export const agentChoiceSchema = agentExecutionSchema.omit({ permissionMode: true });
 
+export const knobsSchema = z.object({
+  singleKeyShortcuts: z.boolean(), returnToOverview: z.boolean(), foldViewedFiles: z.boolean(), foldGeneratedFiles: z.boolean(),
+  requirements: z.boolean(), codeOwners: z.boolean(), ciInCode: z.boolean(),
+  askAboutSelection: z.boolean(), approveGuard: z.boolean(),
+  approveGuardPace: z.number().int().min(KNOB_RANGES.approveGuardPace.min).max(KNOB_RANGES.approveGuardPace.max),
+  runAutomaticReview: z.boolean(), recheckOnNewCommits: z.boolean(),
+  mentionsWake: z.boolean(), prepareOnReturn: z.boolean(), runReReviewCheck: z.boolean(), trackReviewedPrs: z.boolean(),
+  alertGuides: z.boolean(), alertTurns: z.boolean(),
+  unattendedAgents: z.boolean(),
+}).strict();
+
 export const preferencesSchema = z.object({
   guideDetail: z.enum(["concise", "standard", "detailed"]),
   guideInstructions: z.string().max(12000),
@@ -54,15 +66,37 @@ export const preferencesSchema = z.object({
   unattendedAuthors: z.enum(["members", "anyone"]),
   runRepoChecks: z.boolean(),
   threadListReviews: z.boolean(),
+  knobs: knobsSchema,
 }).strict();
 
-/** Saved settings as they read now: missing fields take their defaults, and older defaults the current ones. */
-export function readPreferences(saved: Partial<ReviewPreferences>): ReviewPreferences {
+/** Saved knobs as they read now: each missing or invalid one takes its default, and unknown ones are dropped. Takes the column's JSON text, an object, or null. */
+export function readKnobs(saved: unknown): Knobs {
+  let value = saved;
+  if (typeof value === "string") { try { value = JSON.parse(value); } catch { value = {}; } }
+  const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return Object.fromEntries(Object.entries(knobsSchema.shape).map(([key, schema]) => {
+    const parsed = schema.safeParse(record[key]);
+    return [key, parsed.success ? parsed.data : defaultKnobs[key as KnobId]];
+  })) as unknown as Knobs;
+}
+
+/** Saved settings as they read now: missing fields take their defaults, and older defaults the current ones. `knobs` is the column; without it, `saved.knobs` is read. */
+export function readPreferences(saved: Partial<ReviewPreferences>, knobs?: unknown): ReviewPreferences {
   // Assistant instructions saved before their cap are cut to fit it.
-  const preferences = preferencesSchema.parse({ ...defaultPreferences, ...saved, assistantInstructions: (saved.assistantInstructions ?? "").slice(0, ASSISTANT_INSTRUCTIONS_LIMIT) });
+  const preferences = preferencesSchema.parse({ ...defaultPreferences, ...saved, assistantInstructions: (saved.assistantInstructions ?? "").slice(0, ASSISTANT_INSTRUCTIONS_LIMIT), knobs: readKnobs(knobs !== undefined ? knobs : saved.knobs) });
   if ([AUTOMATIC_REVIEW_BEFORE_SUMMARY, AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_EVIDENCE].includes(preferences.automaticReview)) preferences.automaticReview = defaultPreferences.automaticReview;
   if (preferences.verificationPrompt === VERIFICATION_PROMPT_BEFORE_OPEN_THREADS) preferences.verificationPrompt = defaultPreferences.verificationPrompt;
   return preferences;
+}
+
+/** The automatic review's prompt, or "" when the knob or a blank prompt turns it off. */
+export function automaticReviewPrompt(preferences: ReviewPreferences): string {
+  return preferences.knobs.runAutomaticReview ? preferences.automaticReview.trim() : "";
+}
+
+/** The re-review check's prompt, or "" when the knob or a blank prompt turns it off. */
+export function reReviewCheckPrompt(preferences: ReviewPreferences): string {
+  return preferences.knobs.runReReviewCheck ? preferences.verificationPrompt.trim() : "";
 }
 
 export interface PreferencesRecord { preferences: ReviewPreferences; revision: number; }

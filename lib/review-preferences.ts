@@ -1,4 +1,5 @@
 // Shared defaults have no validation/runtime dependencies in the app bundle.
+import { defaultKnobs, type Knobs } from "./knobs";
 
 /** A custom agent selection, in bb's terms. Service tiers are provider-defined ids. */
 export interface AgentExecution {
@@ -41,6 +42,8 @@ export interface ReviewPreferences {
   runRepoChecks: boolean;
   /** Needs review and pinned reviews in BB's thread list, which Guided Review adds to by hand. */
   threadListReviews: boolean;
+  /** Feature switches and tuning (lib/knobs.ts), saved apart from the rest. */
+  knobs: Knobs;
 }
 
 /** Assistant instructions share bb's 4,096-character instructions with the fixed rules and the guide. */
@@ -61,4 +64,5 @@ export const defaultPreferences: ReviewPreferences = {
   wakeOnReplies: "questions", pushChecks: "off", trackGithubReviews: true, trackTeamRequests: false, autoStartRepos: [],
   verificationPrompt: "Check whether the author properly addressed each piece of my earlier feedback. Start with list_feedback and read_changes_since_review, and read files with read_file when you need context.\nRecord a verdict with one line of evidence for every item with assess_feedback.\nThen look for new problems the fix commits introduce, and add each as an inline draft comment.\nDraft a reply with draft_thread_reply only on open threads where one adds something: what's still missing, or a short thanks naming the fixing commit. Keep everything terse.",
   unattendedAuthors: "members", runRepoChecks: false, threadListReviews: true,
+  knobs: defaultKnobs,
 };

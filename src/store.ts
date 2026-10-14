@@ -2,7 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Guide } from "./guide";
 import { sameLocation, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type Severity, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
-import { defaultPreferences, preferencesSchema, readPreferences, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
+import { preferencesSchema, readPreferences, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
 import type { AssessmentItem, AssessmentRun, ReplyDraft } from "../lib/feedback";
 import type { FeedbackThread } from "./github/types";
@@ -343,6 +343,8 @@ export function createStore(bb: BbPluginApi): Store {
     `CREATE TABLE IF NOT EXISTS agent_comment_outcomes (
       id INTEGER PRIMARY KEY AUTOINCREMENT, repo TEXT NOT NULL, file TEXT NOT NULL, outcome TEXT NOT NULL, body TEXT NOT NULL, edited TEXT, at INTEGER NOT NULL)`,
     `CREATE INDEX IF NOT EXISTS discussion_entries_location ON discussion_entries (target_key, file, line, side)`,
+    // Settings knobs as JSON, kept out of value so an older release's strict read of value still parses.
+    `ALTER TABLE review_preferences ADD COLUMN knobs TEXT`,
   ]);
   const at = (k: string, { file, line, side }: CommentLocation) => [k, file, line, side] as const;
   const hasDiscussion = (k: string, location: CommentLocation) =>
@@ -410,17 +412,20 @@ export function createStore(bb: BbPluginApi): Store {
   return {
     ...agentCommentStore(db),
     getPreferences() {
-      const row = db.prepare(`SELECT value,revision FROM review_preferences WHERE id=1`).get() as { value: string; revision: number } | undefined;
-      const preferences = row ? readPreferences(JSON.parse(row.value)) : { ...defaultPreferences };
+      const row = db.prepare(`SELECT value,revision,knobs FROM review_preferences WHERE id=1`).get() as { value: string; revision: number; knobs: string | null } | undefined;
+      // No row: defaults, as fresh copies.
+      const preferences = readPreferences(row ? JSON.parse(row.value) : {}, row?.knobs ?? null);
       return { preferences, revision: row?.revision ?? 0 };
     },
     savePreferences(preferences, revision) {
-      const value = JSON.stringify(preferencesSchema.parse(preferences));
+      const parsed = preferencesSchema.parse(preferences);
+      const { knobs, ...rest } = parsed;
+      const value = JSON.stringify(rest), saved = JSON.stringify(knobs);
       const result = revision === 0
-        ? db.prepare(`INSERT OR IGNORE INTO review_preferences (id,value,revision) VALUES (1,?,1)`).run(value)
-        : db.prepare(`UPDATE review_preferences SET value=?,revision=revision+1 WHERE id=1 AND revision=?`).run(value, revision);
+        ? db.prepare(`INSERT OR IGNORE INTO review_preferences (id,value,revision,knobs) VALUES (1,?,1,?)`).run(value, saved)
+        : db.prepare(`UPDATE review_preferences SET value=?,knobs=?,revision=revision+1 WHERE id=1 AND revision=?`).run(value, saved, revision);
       if (!result.changes) throw new Error("Settings changed in another window. Reload settings before saving.");
-      return { preferences: JSON.parse(value), revision: revision + 1 };
+      return { preferences: parsed, revision: revision + 1 };
     },
     getReviewerNotes(targetKey) {
       return (db.prepare(`SELECT body,revision FROM reviewer_notes WHERE target_key=?`).get(targetKey) as ReviewerNotesRecord | undefined) ?? { body: "", revision: 0 };
