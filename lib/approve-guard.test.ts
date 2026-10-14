@@ -32,7 +32,8 @@ test("a chapter is read from the mark before it to its last mark, and over 500 l
   // Mark chapter viewed, at once, after an hour in it.
   expect(guard({ "README.md": 0, "src/auth.ts": 60 * MINUTE, "src/session.ts": 60 * MINUTE }).rushed).toEqual([]);
   // ...or as soon as the docs were done.
-  expect(approveDoubts(guard({ "README.md": 0, "src/auth.ts": 10_000, "src/session.ts": 10_000 }))).toEqual(["Chapter 1 (high risk): 500 lines marked viewed in under a minute."]);  // Its count reads as the chapter header shows it.
+  expect(approveDoubts(guard({ "README.md": 0, "src/auth.ts": 10_000, "src/session.ts": 10_000 }))).toEqual(["Chapter 1 (high risk): 500 lines marked viewed in under a minute."]);
+  // Its count reads as the chapter header shows it.
   expect(rushedDoubt({ id: "c", number: 1, risk: "medium", lines: 24_196, minutes: 0.5 })).toBe("Chapter 1 (medium risk): 24,196 lines marked viewed in under a minute.");
 });
 
