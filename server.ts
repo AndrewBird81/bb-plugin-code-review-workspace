@@ -379,7 +379,7 @@ export default async function plugin(bb: BbPluginApi) {
         const projectId = await personalProjectId(bb);
         const d = projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }) : null;
         // A custom guide writer starts at the mode it runs at on the defaults.
-        const { permissionMode: writerMode } = projectId && d ? await guideWriterMode(bb, projectId) : {};
+        const { permissionMode: writerMode } = projectId && d ? await guideWriterMode(bb, projectId, d) : {};
         return { defaults: d && { providerId: d.providerId, model: d.model, reasoningLevel: d.reasoningLevel, permissionMode: d.permissionMode, serviceTier: d.serviceTier }, ...(writerMode ? { guideWriterMode: writerMode } : {}) };
       } catch {
         return { defaults: null };

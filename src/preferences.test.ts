@@ -173,6 +173,8 @@ test("custom selections start from the personal project's remembered defaults, w
   }, providers: { list: async () => providers } } as any });
   await plugin(bb);
   expect(await harness.behavior.callRpc("getAgentDefaults", null)).toEqual({ defaults, guideWriterMode: "accept-edits" });
+  // The defaults are read once, for both.
+  expect(harness.inspection.sdk.callsTo("projects.defaultExecutionOptions")).toHaveLength(1);
   providers = [provider("codex", ["auto", "full"])];
   expect(await harness.behavior.callRpc("getAgentDefaults", null)).toEqual({ defaults, guideWriterMode: "auto" });
   // A provider that runs in neither: the project's own mode.
