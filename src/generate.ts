@@ -84,7 +84,8 @@ export async function generateGuide(
       prompt: buildGenerationPrompt(targetKey, generationId, preferences, earlier),
       title: `${GUIDE_WORKER_TITLE}${targetKey}`,
       visibility: "hidden",
-      ...spawnExecution(preferences.guideAgent),
+      // On the project's defaults, the writer still gets bb's lowest mode, not the project's: its tools need no shell or edits.
+      ...(preferences.guideAgent ? spawnExecution(preferences.guideAgent) : { permissionMode: "accept-edits", executionInputSources: { permissionMode: "explicit" } }),
     });
     workerId = worker.id;
     store.setGenerationWorker(targetKey, generationId, worker.id);

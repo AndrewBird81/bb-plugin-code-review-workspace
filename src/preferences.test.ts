@@ -109,15 +109,17 @@ test("agent selections default to project defaults, persist, and validate", asyn
   expect(createStore(bb).getPreferences()).toEqual({ preferences, revision: 2 });
 });
 
-test("each agent starts with its own selection, sourced as the user's choice", async () => {
+test("each agent starts with its own selection, sourced as the user's choice; on the defaults, the hidden guide writer at bb's lowest permission mode", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), wait: async () => {}, output: async () => "Answer", stop: async () => {}, archive: async () => {},
   } } });
   const store = createStore(bb);
   store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1, projectId: "project" });
   await generateGuide(bb, store, "target", "project");
-  const execution = ["providerId", "model", "reasoningLevel", "permissionMode", "serviceTier", "executionInputSources"];
+  // On the project's defaults, only the guide writer's permission mode is set (src/generate.ts).
+  const execution = ["providerId", "model", "reasoningLevel", "serviceTier"];
   for (const key of execution) expect(harness.inspection.sdk.callsTo("threads.spawn")[0][0]).not.toHaveProperty(key);
+  expect(harness.inspection.sdk.callsTo("threads.spawn")[0][0]).toMatchObject({ permissionMode: "accept-edits", executionInputSources: { permissionMode: "explicit" } });
 
   store.savePreferences({ ...defaultPreferences, guideAgent: codex, assistantAgent: claude }, 0);
   await generateGuide(bb, store, "target", "project");
