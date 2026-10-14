@@ -5,11 +5,15 @@ import type { ReviewPreferences } from "./review-preferences";
 /** GitHub's author associations for the repository's owner, its organization's members, and its collaborators. */
 const MEMBERS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 
-type Trust = Pick<ReviewMeta, "kind" | "ownPr" | "authorAssociation" | "approvedHead">;
+type Trust = Pick<ReviewMeta, "kind" | "ownPr" | "authorAssociation" | "approvedHead" | "foreignHeadOwner">;
 
-/** Whether the PR's author is trusted by the setting. Your own PRs and local reviews are; an association not read yet isn't. */
+/**
+ * Whether the PR's author is trusted by the setting. Your own PRs and local reviews are; an association not read yet isn't.
+ * A head branch in someone else's fork isn't, whoever opened the PR: that fork's owner can push to it.
+ */
 export function trustedAuthor(review: Trust, preferences: Pick<ReviewPreferences, "unattendedAuthors">): boolean {
-  return review.kind !== "pr" || review.ownPr === true || preferences.unattendedAuthors === "anyone" || MEMBERS.has(review.authorAssociation ?? "");
+  if (review.kind !== "pr" || preferences.unattendedAuthors === "anyone") return true;
+  return typeof review.foreignHeadOwner !== "string" && (review.ownPr === true || MEMBERS.has(review.authorAssociation ?? ""));
 }
 
 /** Whether agents may start on the review at `head` with no click: a trusted author, or you started agents on that head. */
@@ -23,7 +27,8 @@ export function mayRunChecks(review: Trust, preferences: Pick<ReviewPreferences,
 }
 
 /** Why a run didn't start on its own. A member's run skipped before the sync read the association was skipped for that. */
-export function notRunReason(review: Pick<ReviewMeta, "author" | "repo" | "authorAssociation">): string {
+export function notRunReason(review: Pick<ReviewMeta, "author" | "repo" | "authorAssociation" | "foreignHeadOwner">): string {
+  if (typeof review.foreignHeadOwner === "string") return `Not run automatically: this PR’s branch is in ${review.foreignHeadOwner ? `@${review.foreignHeadOwner}’s` : "someone else’s"} fork`;
   if (review.authorAssociation === undefined || MEMBERS.has(review.authorAssociation ?? "")) return "Not run automatically: GitHub hadn’t said who wrote this PR yet";
   return `Not run automatically: ${review.author ? `@${review.author}` : "the author"} isn’t a member of ${review.repo?.split("/")[0] ?? "the repository"}`;
 }

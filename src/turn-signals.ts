@@ -6,6 +6,14 @@ import { feedbackProgress, type Turn, type TurnOptions, type TurnSignals } from 
 import { verdictFromMine } from "./review-verdict";
 import { threadLabel } from "./github/threads";
 
+/** The head branch's fork owner, when that's someone other than the PR's author and you. */
+function foreignHeadOwner(facts: PrFacts, viewer: string): string | null {
+  const owner = facts.headForkOwner;
+  if (owner == null) return null;
+  const login = owner.toLowerCase();
+  return login && (login === facts.author?.toLowerCase() || login === viewer.toLowerCase()) ? null : owner;
+}
+
 export function turnOptions(preferences: ReviewPreferences): TurnOptions {
   return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks, teamRequests: preferences.trackTeamRequests };
 }
@@ -18,6 +26,7 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
   const s = previous.signals ?? {};
   const update: ReviewLifecycle = {
     prState: facts.state, latestHeadSha: facts.headSha, unreachable: null, prSize: facts.size ?? null, stackParent: facts.stackParent ?? null, ownPr: !!facts.author && facts.author.toLowerCase() === viewer.toLowerCase(), authorAssociation: facts.authorAssociation ?? null,
+    foreignHeadOwner: foreignHeadOwner(facts, viewer),
     archivedAt: facts.state === "OPEN" ? null : previous.archivedAt ?? now,
   };
   const own = verdictFromMine(facts.myReviews);

@@ -6,7 +6,7 @@ export const BATCH_SIZE = 10;
 
 const REVIEWER = "__typename ... on User{login} ... on Team{slug organization{login}}";
 const FRAGMENT = `fragment F on PullRequest{
-  number state isDraft updatedAt title url baseRefName headRefName headRefOid author{login} authorAssociation additions deletions changedFiles
+  number state isDraft updatedAt title url baseRefName headRefName headRefOid isCrossRepository headRepositoryOwner{login} author{login} authorAssociation additions deletions changedFiles
   baseRef{associatedPullRequests(states:OPEN,first:1){nodes{number title url}}} baseRepository{defaultBranchRef{name}}
   commits(last:100){nodes{commit{oid}}}
   head:commits(last:1){nodes{commit{statusCheckRollup{state}}}}
@@ -171,6 +171,7 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
     targetKey: ref.targetKey, repo: ref.repo, number: pr.number ?? ref.number,
     state: pr.state, isDraft: !!pr.isDraft, title: pr.title ?? "", url: pr.url ?? "", author: pr.author?.login ?? null, authorAssociation: pr.authorAssociation ?? null,
     baseRefName: pr.baseRefName ?? "", headRefName: pr.headRefName ?? "", headSha: pr.headRefOid ?? "",
+    headForkOwner: pr.isCrossRepository ? pr.headRepositoryOwner?.login ?? "" : null,
     updatedAt: time(pr.updatedAt),
     stackParent: parent?.number ? { number: parent.number, title: parent.title ?? "", url: parent.url ?? "" } : null,
     size: typeof pr.additions === "number" ? { additions: pr.additions, deletions: pr.deletions ?? 0, files: pr.changedFiles ?? 0 } : null,

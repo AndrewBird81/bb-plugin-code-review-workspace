@@ -355,6 +355,14 @@ test("an outside author's rebuilt guide doesn't start the feedback check on its 
   expect(store.getReview("pr-1")?.verifyingSince).toBeFalsy();
 });
 
+test("your own PR whose branch is in someone else's fork doesn't start the automatic review on its own", async () => {
+  const { bb, store, titles } = outsider();
+  store.setLifecycle("pr-1", { authorAssociation: "MEMBER", ownPr: true, foreignHeadOwner: "mallory" });
+  await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
+  expect(titles()).toEqual(["Generate guide: pr-1"]);
+  expect(store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "review", head: "sha1" });
+});
+
 test("no automatic review is recorded as skipped when it's turned off", async () => {
   const { bb, store, titles } = outsider("sha1", { automaticReview: "" });
   await generateGuide(bb, store, "pr-1", "p1", { unattended: true });

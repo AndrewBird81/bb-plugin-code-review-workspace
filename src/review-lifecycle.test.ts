@@ -701,6 +701,17 @@ test("the sync keeps the author's association with the repository", async () => 
   expect(s.store.getReview("pr-1")?.authorAssociation).toBe("CONTRIBUTOR");
 });
 
+test("the sync keeps who owns the head branch's fork when that's neither the author nor you", async () => {
+  const s = setup({ pr: { authorAssociation: "MEMBER", author: "alice", headForkOwner: "mallory" } });
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.foreignHeadOwner).toBe("mallory");
+  for (const owner of ["Alice", "me", null]) {
+    s.pr({ headForkOwner: owner });
+    await s.sync.all(true);
+    expect(s.store.getReview("pr-1")?.foreignHeadOwner).toBeNull();
+  }
+});
+
 test("a request from an author outside the organization doesn't start the guide; it records why, and alerts now", async () => {
   const s = setup({ preferences: { autoStartRepos: ["acme/*"] } });
   s.store.setStatus("pr-1", "tracked");

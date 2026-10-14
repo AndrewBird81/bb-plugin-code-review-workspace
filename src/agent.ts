@@ -167,8 +167,8 @@ export async function startAutomaticReview(bb: BbPluginApi, store: Store, target
   // The sync knows once it has read the PR; before that, ask gh who you are.
   const login = review?.kind === "pr" && review.author && typeof review.ownPr !== "boolean" ? await runGh(["api", "user", "--jq", ".login"]).then((r) => r.code === 0 ? r.stdout.trim() : "", () => "") : "";
   const own = review?.ownPr === true || (!!login && login.toLowerCase() === review?.author?.toLowerCase());
-  // An untrusted author's PR waits for your click.
-  if (review && !own && !mayRunUnattended(review, preferences, review.headSha)) return skipRun(bb, store, targetKey, "review", review.headSha ?? null);
+  // An untrusted author's PR waits for your click, as does your own whose branch is in someone else's fork.
+  if (review && !(own && typeof review.foreignHeadOwner !== "string") && !mayRunUnattended(review, preferences, review.headSha)) return skipRun(bb, store, targetKey, "review", review.headSha ?? null);
   // A conversation the reviewer is starting comes first.
   if (starting(bb, targetKey)) return;
   // The instructions describe the checks from the stored review, so asking for them goes by it too.

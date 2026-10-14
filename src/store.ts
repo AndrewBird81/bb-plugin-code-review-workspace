@@ -74,6 +74,8 @@ export interface ReviewLifecycle {
   ownPr?: boolean | null;
   /** How the PR's author is related to its repository, as GitHub last said (OWNER, MEMBER, …). Unset until read. */
   authorAssociation?: string | null;
+  /** Who owns the fork the head branch is in, when that's neither the author nor you: they can push to it (lib/trust.ts). "" for a fork GitHub no longer shows; null for none. */
+  foreignHeadOwner?: string | null;
   /** The head commit you started agents on (lib/trust.ts): runs that follow on it start with no click, whoever the author. */
   approvedHead?: string | null;
   /** A run that didn't start on its own because the author isn't trusted, for the reviewer to start with one click. */

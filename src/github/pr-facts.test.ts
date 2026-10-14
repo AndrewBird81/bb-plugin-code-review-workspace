@@ -37,6 +37,18 @@ test("prFactsQuery aliases each PR and passes owner, name, and number as variabl
   expect(variables).toEqual({ o0: "cli", r0: "cli", n0: 1, o1: "acme", r1: "web", n1: 2 });
 });
 
+test("parsePrFacts says who owns the fork a PR's head branch is in", () => {
+  expect(prFactsQuery([ref(1)]).query).toContain("isCrossRepository headRepositoryOwner{login}");
+  const fork = (node: unknown) => {
+    const facts = one(node);
+    return facts === "forbidden" ? facts : facts.headForkOwner;
+  };
+  expect(fork(pr({ isCrossRepository: true, headRepositoryOwner: { login: "mallory" } }))).toBe("mallory");
+  // A deleted fork.
+  expect(fork(pr({ isCrossRepository: true, headRepositoryOwner: null }))).toBe("");
+  expect(fork(pr({ isCrossRepository: false, headRepositoryOwner: { login: "acme" } }))).toBeNull();
+});
+
 test("parsePrFacts normalizes a captured cli/cli response, dropping reply-only reviews", () => {
   const facts = factsOf(parsePrFacts(cli9083, [ref(9083)], "andyfeller", noTeams).get("pr-9083"));
   expect(facts).toMatchObject({

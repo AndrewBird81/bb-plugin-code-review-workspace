@@ -47,6 +47,21 @@ test("the repo's checks run only when turned on, on a trusted author's PR; appro
   expect(mayRunChecks(pr({ authorAssociation: "FIRST_TIME_CONTRIBUTOR" }), { ...on, unattendedAuthors: "anyone" })).toBe(true);
 });
 
+test("a head branch in someone else's fork isn't trusted, even on a member's or your own PR, unless the setting is anyone", () => {
+  const on = { ...defaultPreferences, runRepoChecks: true };
+  for (const owner of ["mallory", ""]) for (const review of [pr({ authorAssociation: "MEMBER", foreignHeadOwner: owner }), pr({ authorAssociation: "NONE", ownPr: true, foreignHeadOwner: owner })]) {
+    expect(trustedAuthor(review, defaultPreferences)).toBe(false);
+    expect(mayRunChecks(review, on)).toBe(false);
+    expect(mayRunUnattended(review, defaultPreferences, "sha1")).toBe(false);
+    expect(mayRunUnattended({ ...review, approvedHead: "sha1" }, defaultPreferences, "sha1")).toBe(true);
+    expect(mayRunChecks({ ...review, approvedHead: "sha1" }, on)).toBe(false);
+    expect(trustedAuthor(review, { ...defaultPreferences, unattendedAuthors: "anyone" })).toBe(true);
+  }
+  expect(trustedAuthor(pr({ authorAssociation: "MEMBER", foreignHeadOwner: null }), defaultPreferences)).toBe(true);
+  expect(notRunReason(pr({ authorAssociation: "MEMBER", foreignHeadOwner: "mallory" }))).toBe("Not run automatically: this PR’s branch is in @mallory’s fork");
+  expect(notRunReason(pr({ authorAssociation: "MEMBER", foreignHeadOwner: "" }))).toBe("Not run automatically: this PR’s branch is in someone else’s fork");
+});
+
 test("the reason names the author and the repository's owner", () => {
   expect(notRunReason(pr({ authorAssociation: "NONE" }))).toBe("Not run automatically: @mallory isn’t a member of acme");
   expect(notRunReason(pr({ authorAssociation: null, author: undefined }))).toBe("Not run automatically: the author isn’t a member of acme");
