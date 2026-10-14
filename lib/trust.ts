@@ -1,11 +1,13 @@
 // Whose PRs agents read, and run, with no click from the reviewer: a PR's text and code can try to steer them.
 import type { ReviewMeta } from "../src/store";
 import type { ReviewPreferences } from "./review-preferences";
+import type { Knobs } from "./knobs";
 
 /** GitHub's author associations for the repository's owner, its organization's members, and its collaborators. */
 const MEMBERS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 
 type Trust = Pick<ReviewMeta, "kind" | "ownPr" | "authorAssociation" | "approvedHead" | "foreignHeadOwner">;
+type TrustSettings = Pick<ReviewPreferences, "unattendedAuthors"> & { knobs?: Pick<Knobs, "unattendedAgents"> };
 
 /**
  * Whether the PR's author is trusted by the setting. Your own PRs and local reviews are; an association not read yet isn't.
@@ -17,8 +19,17 @@ export function trustedAuthor(review: Trust, preferences: Pick<ReviewPreferences
 }
 
 /** Whether agents may start on the review at `head` with no click: a trusted author, or you started agents on that head. */
-export function mayRunUnattended(review: Trust, preferences: Pick<ReviewPreferences, "unattendedAuthors">, head: string | null | undefined): boolean {
-  return trustedAuthor(review, preferences) || !!head && review.approvedHead === head;
+export function mayRunUnattended(review: Trust, preferences: TrustSettings, head: string | null | undefined): boolean {
+  // Off, only your own PRs and local reviews start without a click.
+  const trusted = preferences.knobs?.unattendedAgents === false
+    ? review.kind !== "pr" || review.ownPr === true && typeof review.foreignHeadOwner !== "string"
+    : trustedAuthor(review, preferences);
+  return trusted || !!head && review.approvedHead === head;
+}
+
+/** Why a run waits for your click when the author is trusted: Start agents on their own is off. */
+export function skipWhy(review: Trust, preferences: TrustSettings): { why?: "settings" } {
+  return preferences.knobs?.unattendedAgents === false && trustedAuthor(review, preferences) ? { why: "settings" } : {};
 }
 
 /** Whether the review agent may run the repo's checks, which runs the PR's code: turned on, and a trusted author. A click never allows it. */
@@ -27,7 +38,8 @@ export function mayRunChecks(review: Trust, preferences: Pick<ReviewPreferences,
 }
 
 /** Why a run didn't start on its own. A member's run skipped before the sync read the association was skipped for that. */
-export function notRunReason(review: Pick<ReviewMeta, "author" | "repo" | "authorAssociation" | "foreignHeadOwner">): string {
+export function notRunReason(review: Pick<ReviewMeta, "author" | "repo" | "authorAssociation" | "foreignHeadOwner" | "skippedRun">): string {
+  if (review.skippedRun?.why === "settings") return "Not run automatically: Start agents on their own is off in Settings";
   if (typeof review.foreignHeadOwner === "string") return `Not run automatically: this PR’s branch is in ${review.foreignHeadOwner ? `@${review.foreignHeadOwner}’s` : "someone else’s"} fork`;
   if (review.authorAssociation === undefined || MEMBERS.has(review.authorAssociation ?? "")) return "Not run automatically: GitHub hadn’t said who wrote this PR yet";
   return `Not run automatically: ${review.author ? `@${review.author}` : "the author"} isn’t a member of ${review.repo?.split("/")[0] ?? "the repository"}`;

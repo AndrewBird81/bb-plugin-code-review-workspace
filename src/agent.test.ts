@@ -431,6 +431,14 @@ test("your own PR whose branch is in someone else's fork doesn't start the autom
   expect(store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "review", head: "sha1" });
 });
 
+test("with Start agents on their own off, a member's guide that started on its own records why the automatic review didn't", async () => {
+  const { bb, store, titles } = outsider("sha1", { knobs: { ...defaultPreferences.knobs, unattendedAgents: false } });
+  store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
+  await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
+  expect(titles()).toEqual(["Generate guide: pr-1"]);
+  expect(store.getReview("pr-1")?.skippedRun).toEqual({ run: "review", head: "sha1", at: expect.any(Number), why: "settings" });
+});
+
 test("no automatic review is recorded as skipped when it's turned off", async () => {
   const { bb, store, titles } = outsider("sha1", { automaticReview: "" });
   await generateGuide(bb, store, "pr-1", "p1", { unattended: true });

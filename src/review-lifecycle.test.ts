@@ -860,6 +860,17 @@ test("an outside author's re-request doesn't start the feedback check, unless yo
   expect(s.store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "check", head: "sha2" });
 });
 
+test("with Start agents on their own off, a member's re-request starts nothing and records why", async () => {
+  const s = setup({ reviewed: true, preferences: { knobs: { ...defaultPreferences.knobs, unattendedAgents: false } } });
+  await s.sync.all();
+  s.pr({ requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.actions.prepare).not.toHaveBeenCalled();
+  expect(s.store.getReview("pr-1")?.skippedRun).toEqual({ run: "check", head: "sha1", at: T0 + 0.2 * HOUR, why: "settings" });
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+});
+
 test("with the re-review check off, an outside author's re-request records no skipped check, unless the guide is behind", async () => {
   const s = setup({ reviewed: true, preferences: { verificationPrompt: " " }, pr: { authorAssociation: "CONTRIBUTOR" } });
   await s.sync.all();

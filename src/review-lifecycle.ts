@@ -6,7 +6,7 @@ import { ciSettled, computeTurn, type Turn, type TurnReason } from "../lib/turn"
 import { alertBody, factsUpdate, threadSignals, turnOptions } from "./turn-signals";
 import { completionNotifications } from "./completion-notifications";
 import { matchesRepo, reReviewCheckPrompt } from "./preferences";
-import { mayRunUnattended } from "../lib/trust";
+import { mayRunUnattended, skipWhy } from "../lib/trust";
 import { targetKey as keyFor } from "./targets";
 import { fetchPrFacts } from "./github/pr-facts";
 import { guideBehind } from "./feedback-view";
@@ -335,7 +335,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       store.setLifecycle(key, { autoRunHead: head });
       // An untrusted author's pushes wait for your click, when the check is on.
       if (!mayRunUnattended(review, preferences, head)) {
-        if (reReviewCheckPrompt(preferences)) store.setLifecycle(key, { skippedRun: { run: "check", head, at: now } });
+        if (reReviewCheckPrompt(preferences)) store.setLifecycle(key, { skippedRun: { run: "check", head, at: now, ...skipWhy(review, preferences) } });
       } else if (!await actions.checkPushes(key).catch(() => false) && store.getReview(key)) store.setLifecycle(key, { autoRunHead: review.autoRunHead ?? null });
     }
     if (review.turnGroup === "needs" && turn.group !== "needs") void notifications.dismiss(key);
@@ -364,7 +364,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       // A check that's turned off wouldn't have run; the guide behind it still needed rebuilding.
       const check = !!reReviewCheckPrompt(preferences);
       const skipped = request || review.status === "tracked" || guideBehind(review) || check;
-      store.setLifecycle(key, { preparedSignal: turn.signal, ...(skipped ? { skippedRun: { run: request || !check ? "guide" : "check", head, at: clock() } } : {}) });
+      store.setLifecycle(key, { preparedSignal: turn.signal, ...(skipped ? { skippedRun: { run: request || !check ? "guide" : "check", head, at: clock(), ...skipWhy(review, preferences) } } : {}) });
       return false;
     }
     const previous = review.autoRunHead ?? null;

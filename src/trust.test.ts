@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "./store";
 import { defaultPreferences, readPreferences } from "./preferences";
-import { mayRunChecks, mayRunUnattended, notRunReason, trustedAuthor } from "../lib/trust";
+import { mayRunChecks, mayRunUnattended, notRunReason, skipWhy, trustedAuthor } from "../lib/trust";
 import type { ReviewMeta } from "./store";
 
 const pr = (extra: Partial<ReviewMeta> = {}): ReviewMeta => ({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, author: "mallory", headSha: "sha1", status: "ready", createdAt: 1, ...extra });
@@ -71,4 +71,30 @@ test("before the sync read who wrote the PR, the reason says so, even once it re
   expect(notRunReason(pr())).toBe("Not run automatically: GitHub hadn’t said who wrote this PR yet");
   expect(notRunReason(pr({ authorAssociation: "MEMBER" }))).toBe("Not run automatically: GitHub hadn’t said who wrote this PR yet");
   expect(trustedAuthor(pr(), defaultPreferences)).toBe(false);
+});
+
+test("with Start agents on their own off, only your own PRs, local reviews and heads you started run with no click; the repo's checks are unchanged", () => {
+  const off = { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, unattendedAgents: false } };
+  const member = pr({ authorAssociation: "MEMBER" });
+  const local: ReviewMeta = { targetKey: "ref-1", kind: "ref", gitRef: "main...feature", status: "ready", createdAt: 1 };
+  for (const settings of [off, { ...off, unattendedAuthors: "anyone" as const }]) {
+    expect(mayRunUnattended(member, settings, "sha1")).toBe(false);
+    expect(mayRunUnattended({ ...member, approvedHead: "sha1" }, settings, "sha1")).toBe(true);
+    expect(mayRunUnattended(local, settings, null)).toBe(true);
+    expect(mayRunUnattended(pr({ authorAssociation: "NONE", ownPr: true }), settings, "sha1")).toBe(true);
+    expect(mayRunUnattended(pr({ authorAssociation: "NONE", ownPr: true, foreignHeadOwner: "mallory" }), settings, "sha1")).toBe(false);
+  }
+  const checks = { ...off, runRepoChecks: true };
+  expect(mayRunChecks(member, checks)).toBe(true);
+  expect(mayRunChecks(pr({ authorAssociation: "NONE" }), checks)).toBe(false);
+});
+
+test("a run skipped only because Start agents on their own is off says so; an untrusted author's skip keeps its reason", () => {
+  const off = { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, unattendedAgents: false } };
+  const member = pr({ authorAssociation: "MEMBER" });
+  expect(skipWhy(member, off)).toEqual({ why: "settings" });
+  expect(skipWhy(member, defaultPreferences)).toEqual({});
+  expect(skipWhy(pr({ authorAssociation: "NONE" }), off)).toEqual({});
+  expect(notRunReason({ ...member, skippedRun: { run: "guide", head: "sha1", at: 1, why: "settings" } })).toBe("Not run automatically: Start agents on their own is off in Settings");
+  expect(notRunReason({ ...member, skippedRun: { run: "guide", head: "sha1", at: 1 } })).toBe("Not run automatically: GitHub hadn’t said who wrote this PR yet");
 });

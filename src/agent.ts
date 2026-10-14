@@ -4,7 +4,7 @@ import type { Guide } from "./guide";
 import { isMissingThread } from "./thread-errors";
 import { runGh } from "./gh";
 import { assistantPreferencesPrompt, automaticReviewPrompt, spawnExecution, type AgentExecution, type ReviewPreferences } from "./preferences";
-import { mayRunChecks, mayRunUnattended } from "../lib/trust";
+import { mayRunChecks, mayRunUnattended, skipWhy } from "../lib/trust";
 import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
 
 /** Starts an assistant thread's title; `agents.configure` grants it the review tools by it. */
@@ -187,9 +187,11 @@ export async function startAutomaticReview(bb: BbPluginApi, store: Store, target
   await startConversation(bb, store, { targetKey, text, agent: defaults, ...(notes ? { context: notes } : {}) });
 }
 
-/** Record a run that didn't start on its own because of the PR's author, for the reviewer to start with one click. */
+/** Record a run that didn't start on its own because of the PR's author or Settings, for the reviewer to start with one click. */
 export function skipRun(bb: BbPluginApi, store: Store, targetKey: string, run: "guide" | "review" | "check", head: string | null): void {
-  store.setLifecycle(targetKey, { skippedRun: { run, head, at: Date.now() } });
+  const review = store.getReview(targetKey);
+  const why = review ? skipWhy(review, store.getPreferences().preferences) : {};
+  store.setLifecycle(targetKey, { skippedRun: { run, head, at: Date.now(), ...why } });
   bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
   bb.realtime.publish("reviews", { ts: Date.now() });
 }
