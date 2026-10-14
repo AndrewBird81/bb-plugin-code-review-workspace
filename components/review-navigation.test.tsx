@@ -168,12 +168,21 @@ test("the last chapter's end names the files not viewed yet in the others, and N
   const main = within(slot.getByRole("main"));
   const left = await main.findByText(/not viewed yet/);
   expect(left.textContent).toBe("1 file not viewed yet: a.ts");
-  fireEvent.click(main.getByRole("button", { name: "Next unviewed" }));
-  // From b.ts, the chapter's own unviewed file, it goes on to the next: around to a.ts in chapter 1.
-  await slot.findByText("aa");
-  expect(currentChapter(slot)?.textContent).toContain("Parsing");
-  expect(main.queryByText(/not viewed yet/)).toBeNull();
-  slot.lifecycle.unmount();
+  // jsdom has no scrollIntoView: record the file the chapter switch scrolls to, a frame later.
+  const scrollIntoView = Element.prototype.scrollIntoView;
+  const scrolled: (string | undefined)[] = [];
+  Element.prototype.scrollIntoView = function (this: Element) { scrolled.push((this as HTMLElement).dataset.file); };
+  try {
+    fireEvent.click(main.getByRole("button", { name: "Next unviewed" }));
+    // From b.ts, the chapter's own unviewed file, it goes on to the next: around to a.ts in chapter 1.
+    await slot.findByText("aa");
+    expect(currentChapter(slot)?.textContent).toContain("Parsing");
+    expect(main.queryByText(/not viewed yet/)).toBeNull();
+    await waitFor(() => expect(scrolled).toContain("src/a.ts"));
+    slot.lifecycle.unmount();
+  } finally {
+    Element.prototype.scrollIntoView = scrollIntoView;
+  }
 }, 15_000);
 
 test("a review back with changes opens on its Overview, which goes on to the first chapter that changed, unless you were reading one", async () => {
