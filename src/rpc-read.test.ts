@@ -11,6 +11,6 @@ test("seed then read", async () => {
   store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n");
   const list = await harness.behavior.callRpc("listReviews", null);
   expect((list as any).reviews.map((r: any) => r.targetKey)).toContain("pr-1");
-  const p = await harness.behavior.callRpc("getPatch", { targetKey: "pr-1" });
+  const p = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" });
   expect((p as any).patch).toContain("diff --git");
 });

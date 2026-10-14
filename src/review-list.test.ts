@@ -28,5 +28,5 @@ test("reviews leave the server with their place in a stack, in the list and alon
   expect(reviews.find((r: any) => r.targetKey === "pr-2").stack).toMatchObject({ index: 1, parent: { number: 1, targetKey: "pr-1" } });
   const { review } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" }) as any;
   expect(review.stack).toMatchObject({ index: 0, children: [{ number: 2, targetKey: "pr-2", status: "tracked" }] });
-  expect((await harness.behavior.callRpc("getReview", { targetKey: "pr-1" }) as any).review.stack.members).toHaveLength(2);
+  expect(review.stack.members).toHaveLength(2);
 });

@@ -60,16 +60,16 @@ test("reviews leave the server with whose turn they are", async () => {
   const { call } = await setup();
   const { reviews } = await call("listReviews", null);
   expect(reviews[0].turn).toMatchObject({ group: "needs", reason: "re-requested", label: "Re-requested" });
-  expect((await call("getReview", { targetKey: "pr-1" })).review.turn.group).toBe("needs");
+  expect((await call("getReviewBundle", { targetKey: "pr-1" })).review.turn.group).toBe("needs");
 });
 
 test("snoozing until the author responds moves a review to Waiting on author and clears its alert", async () => {
   const { call, published } = await setup();
   expect(await call("snoozeReview", { targetKey: "pr-1", snoozed: true })).toEqual({ ok: true });
-  expect((await call("getReview", { targetKey: "pr-1" })).review.turn).toMatchObject({ group: "waiting", reason: "snoozed" });
+  expect((await call("getReviewBundle", { targetKey: "pr-1" })).review.turn).toMatchObject({ group: "waiting", reason: "snoozed" });
   expect(published.some((p) => p.method === "dismissActivity" && p.input.id === "activity:guided-review:pr-1")).toBe(true);
   await call("snoozeReview", { targetKey: "pr-1", snoozed: false });
-  expect((await call("getReview", { targetKey: "pr-1" })).review.turn.group).toBe("needs");
+  expect((await call("getReviewBundle", { targetKey: "pr-1" })).review.turn.group).toBe("needs");
 });
 
 test("Snooze until keeps a review in Waiting on author until its time, and snoozing until the author responds clears the time", async () => {
@@ -77,10 +77,10 @@ test("Snooze until keeps a review in Waiting on author until its time, and snooz
   const until = Date.now() + 3_600_000;
   expect(await call("snoozeReview", { targetKey: "pr-1", snoozed: true, until })).toEqual({ ok: true });
   expect(store.getReview("pr-1")).toMatchObject({ snoozedUntil: until });
-  expect((await call("getReview", { targetKey: "pr-1" })).review.turn).toMatchObject({ group: "waiting", reason: "snoozed", label: "Snoozed" });
+  expect((await call("getReviewBundle", { targetKey: "pr-1" })).review.turn).toMatchObject({ group: "waiting", reason: "snoozed", label: "Snoozed" });
   // Its time comes.
   store.setLifecycle("pr-1", { snoozedUntil: Date.now() - 1 });
-  expect((await call("getReview", { targetKey: "pr-1" })).review.turn).toMatchObject({ group: "needs", reason: "re-requested" });
+  expect((await call("getReviewBundle", { targetKey: "pr-1" })).review.turn).toMatchObject({ group: "needs", reason: "re-requested" });
   await call("snoozeReview", { targetKey: "pr-1", snoozed: true });
   expect(store.getReview("pr-1")?.snoozedUntil).toBeNull();
   expect(await call("snoozeReview", { targetKey: "pr-1", snoozed: true, until: Date.now() - 1 })).toEqual({ ok: false, error: "Pick a time in the future." });
@@ -117,7 +117,7 @@ test("the assistant lists your feedback, reads what changed, and records its che
   expect(feedback.items.map((i: any) => [i.id, i.kind, i.assessment?.verdict])).toEqual([["t1", "thread", "addressed"], ["summary:1", "summary", "not_addressed"]]);
   expect(feedback.items[0]).toMatchObject({ replyDraft: { body: "Fixed in sha2, thanks.", author: "agent" }, thread: { url: "https://github.com/acme/web/pull/1#discussion_r11" } });
   expect(feedback.run).toMatchObject({ current: true, suggestedVerdict: "REQUEST_CHANGES" });
-  expect((await call("getReview", { targetKey: "pr-1" })).review.progress).toEqual({ done: 1, total: 2, source: "assistant" });
+  expect((await call("getReviewBundle", { targetKey: "pr-1" })).review.progress).toEqual({ done: 1, total: 2, source: "assistant" });
 });
 
 test("the suggested verdict and what's left fill the draft, bound to the displayed revision", async () => {

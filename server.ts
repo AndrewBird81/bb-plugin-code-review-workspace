@@ -30,8 +30,6 @@ import { runCommentCommand } from "./src/comment-command";
 import { isMissingThread } from "./src/thread-errors";
 import { computeFileViewState, fileHashes, hashForFile } from "./src/file-views";
 import {
-  ghPrViewArgs,
-  ghPrCommentsArgs,
   ghPrChecksJsonArgs,
   ghReviewThreadsArgs,
   ghReplyThreadArgs,
@@ -393,9 +391,6 @@ export default async function plugin(bb: BbPluginApi) {
     dismissInstructionSuggestion() { suggester.dismiss(); return { ok: true }; },
     getReviewerNotes({ targetKey }) { return store.getReviewerNotes(targetKey); },
     saveReviewerNotes({ targetKey, body, revision }) { return store.saveReviewerNotes(targetKey, body, revision); },
-    ping() {
-      return { ok: true };
-    },
 
     // Panel: start a review by pasting a GitHub PR URL. The nav panel isn't
     // project-scoped, so the frontend can't reliably supply a projectId —
@@ -423,28 +418,6 @@ export default async function plugin(bb: BbPluginApi) {
     async refreshReviews(input) {
       await sync.all(input?.force ?? true);
       return { reviews: await listed(), sync: sync.health() };
-    },
-    getReview({ targetKey }) {
-      return { review: decorate(store.getReview(targetKey)) };
-    },
-    getGuide({ targetKey }) {
-      return { guide: store.getGuide(targetKey), status: store.getReview(targetKey)?.status ?? "error" };
-    },
-    getPatch({ targetKey }) {
-      const total = store.readPatch(targetKey, 0, 0).total;
-      return { patch: store.readPatch(targetKey, 0, total).text };
-    },
-    async getPr({ targetKey }) {
-      const m = store.getReview(targetKey);
-      if (!m || m.kind !== "pr" || !m.number) return { pr: null };
-      const r = await runGh(ghPrViewArgs(m.number, m.repo));
-      return { pr: r.code === 0 ? JSON.parse(r.stdout) : null };
-    },
-    async getThreads({ targetKey }) {
-      const m = store.getReview(targetKey);
-      if (!m || m.kind !== "pr" || !m.number || !m.repo) return { comments: [] };
-      const r = await runGh(ghPrCommentsArgs(m.repo, m.number));
-      return { comments: r.code === 0 ? JSON.parse(r.stdout) : [] };
     },
     async getChecks({ targetKey }) {
       const m = store.getReview(targetKey);

@@ -14,9 +14,6 @@ export function ghPrDiffArgs(number: number, repo?: string): string[] {
 export function ghRepoViewArgs(): string[] {
   return ["repo", "view", "--json", "nameWithOwner"];
 }
-export function ghPrCommentsArgs(repo: string, number: number): string[] {
-  return ["api", `repos/${repo}/pulls/${number}/comments`];
-}
 export function ghSubmitReviewArgs(repo: string, number: number): string[] {
   return ["api", "-X", "POST", `repos/${repo}/pulls/${number}/reviews`, "--input", "-"];
 }

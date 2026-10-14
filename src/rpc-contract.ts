@@ -90,7 +90,6 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), body: z.string().max(100000), revision: z.number().int().min(0) }).strict(),
     output: z.object({ body: z.string(), revision: z.number().int() }),
   },
-  ping: { input: z.null(), output: z.object({ ok: z.boolean() }) },
 
   // Panel: start a review by pasting a GitHub PR URL
   startReview: {
@@ -102,11 +101,6 @@ export const rpcContract = defineRpcContract({
   listReviews: { input: z.null(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
   /** force: false reads only what's due, as the background sync does; true or null reads everything now. */
   refreshReviews: { input: z.object({ force: z.boolean() }).strict().nullable(), output: z.object({ reviews: z.array(z.any()), sync: syncHealth.optional() }) },
-  getReview: { input: targetKey, output: z.object({ review: z.any().nullable() }) },
-  getGuide: { input: targetKey, output: z.object({ guide: z.any().nullable(), status: z.string() }) },
-  getPatch: { input: targetKey, output: z.object({ patch: z.string() }) },
-  getPr: { input: targetKey, output: z.object({ pr: z.any().nullable() }) },
-  getThreads: { input: targetKey, output: z.object({ comments: z.array(z.any()) }) },
   getChecks: { input: targetKey, output: z.object({ bucket: z.string(), checks: z.array(z.any()) }) },
   /** Failure annotations of the reviewed head's failed check runs, to show on their lines. */
   getCheckFailures: {
