@@ -5,7 +5,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../lib/review-preferences";
 import { defaultKnobs } from "../lib/knobs";
-import { allKnobsOff, desktopWindow, renderInbox, renderReview } from "./settings-off.test-support";
+import { allKnobsOff, desktopWindow, renderInbox, renderReview, settingsOffRpc } from "./settings-off.test-support";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
@@ -56,6 +56,19 @@ test("a reload that lands after a newer one is dropped", async () => {
   slot.lifecycle.unmount();
 });
 
+test("the first load settles from an answer a newer reload overtook", async () => {
+  const pending: ((record: unknown) => void)[] = [];
+  const slot = await renderProbe(() => new Promise((resolve) => pending.push(resolve)));
+  await waitFor(() => expect(pending).toHaveLength(1));
+  await slot.emitRealtime("preferences", {});
+  await waitFor(() => expect(pending).toHaveLength(2));
+  pending[0]!(off);
+  await slot.findByText("Settled false");
+  // Only the newest load sets what the views read.
+  expect(slot.getByText("Code owners true")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("settings that won't load read as defaults, a failed reload keeps the last good ones, and missing knobs read at their defaults", async () => {
   let fail = true;
   let record: unknown = off;
@@ -85,6 +98,44 @@ test("a review opens, with default settings, when its settings won't load", asyn
   expect(page.inspection.rpcCalls.filter((call) => call.method === "getPreferences").length).toBeGreaterThanOrEqual(2);
   page.lifecycle.unmount();
 });
+
+/** The review's page alone, whose settings load however `getPreferences` answers. */
+async function openReview(getPreferences: () => unknown) {
+  const app = await loadPluginApp(() => import("../app"));
+  return renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: settingsOffRpc(defaultKnobs, { getPreferences }) as any });
+}
+const requirementsOff = { preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, requirements: false } }, revision: 1 };
+
+test("a settings load that never answers opens the review with default settings after a second", async () => {
+  const page = await openReview(() => new Promise(() => {}));
+  await page.findByRole("main", { name: "Review" }, { timeout: 4000 });
+  await page.findByRole("region", { name: /^Requirements/ });
+  page.lifecycle.unmount();
+}, 15_000);
+
+test("a first settings load overtaken by a reload that never answers still opens the review", async () => {
+  const pending: ((record: unknown) => void)[] = [];
+  const page = await openReview(() => new Promise((resolve) => pending.push(resolve)));
+  // The provider's load and the workspace's own preferences read.
+  await waitFor(() => expect(pending.length).toBeGreaterThanOrEqual(2));
+  const before = pending.length;
+  await page.emitRealtime("preferences", {});
+  await waitFor(() => expect(pending.length).toBeGreaterThan(before));
+  // Every load but the newest answers.
+  pending.slice(0, -1).forEach((resolve) => resolve(requirementsOff));
+  await page.findByRole("main", { name: "Review" }, { timeout: 4000 });
+  page.lifecycle.unmount();
+}, 15_000);
+
+test("a slow settings load doesn't hold the review, and its settings apply once they arrive", async () => {
+  let answer!: (record: unknown) => void;
+  const page = await openReview(() => new Promise((resolve) => { answer = resolve; }));
+  await page.findByRole("main", { name: "Review" }, { timeout: 4000 });
+  await page.findByRole("region", { name: /^Requirements/ });
+  answer(requirementsOff);
+  await waitFor(() => expect(page.queryByRole("region", { name: /^Requirements/ })).toBeNull());
+  page.lifecycle.unmount();
+}, 15_000);
 
 test("with every knob off, the Overview, a chapter, Comments, Finish review, the title bar and All reviews still render", async () => {
   restores.push(desktopWindow());

@@ -33,7 +33,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const load = useCallback(() => {
     const request = ++latest.current;
     void Promise.resolve().then(() => rpc.call("getPreferences", null)).then((result) => withDefaults(result.preferences), () => null).then((loaded) => {
-      if (request !== latest.current) return;
+      // The first load settles from any answer, so a newer reload that hangs can't hold it.
+      if (request !== latest.current) { first.settle(loaded ?? good.current); return; }
       if (loaded) { good.current = loaded; setPreferences(loaded); }
       first.settle(good.current);
     });

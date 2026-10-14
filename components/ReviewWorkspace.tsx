@@ -93,6 +93,8 @@ function DraftLines({ into }: { into: MutableRefObject<CommentLocation[]> }) {
   return null;
 }
 
+/** How long opening a review waits for its first settings before it opens with the defaults. */
+const SETTINGS_WAIT_MS = 1000;
 /** Turns where what matters first is whether the author addressed your feedback. */
 const FEEDBACK_FIRST = new Set<TurnReason>(["re-requested", "handled", "looks-ready", "question", "mentioned"]);
 /** No file's owners: what the code shows with Settings' Code owners off. */
@@ -382,8 +384,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         rpc.call("getFileViews", { targetKey }).catch(() => null),
         // Like views, so files the repo marks generated are folded before the diff draws.
         rpc.call("getGeneratedFiles", { targetKey }).catch(() => null),
-        // Settings, which say where a review that came back opens.
-        settledRef.current,
+        // Settings, which say where a review that came back opens. A slow or hung load opens it with the defaults.
+        Promise.race([settledRef.current, new Promise<ReviewPreferences>((resolve) => setTimeout(() => resolve(defaultPreferences), SETTINGS_WAIT_MS))]),
       ]);
       if (id !== request.current) return;
       // A deleted review shows "Review not found" rather than a pending regeneration.
