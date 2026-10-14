@@ -14,7 +14,7 @@ const descriptions: Record<ReleaseStatus["outcome"], string> = {
   current: "You’re on the latest compatible release.",
   "update-available": "A compatible release is available.",
   incompatible: "A newer release needs a newer BB or Node version. Update your BB server, then check again.",
-  pinned: "This is a local or pinned installation. Marketplace installations can follow compatible releases.",
+  pinned: "This is a local or pinned installation. Installations from a Git version range can follow compatible releases.",
   unavailable: "Updates could not be resolved. Check your connection and try again.",
 };
 
