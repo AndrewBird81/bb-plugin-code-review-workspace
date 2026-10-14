@@ -54,7 +54,7 @@
     "build": "bb plugin build",
     "check": "npm test && npm run typecheck && bb plugin types --check && npm run build"
   },
-  "description": "Chaptered pull-request reviews inside BB, with private notes and a review assistant.",
+  "description": "Chaptered pull-request reviews inside BB, with a review assistant.",
   "author": "Pritam Sharma",
   "homepage": "https://notpritam.in/plugins/guided-review",
   "repository": {

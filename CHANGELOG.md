@@ -12,7 +12,7 @@ A new review workspace, built so the code owns the screen on a desktop, an iPad,
 - The chapters toggle sits beside Find in review and never moves; `t` shows and hides the chapters.
 - The chapters and the side panel dock only while the code keeps 560px; otherwise they slide over it, and Esc, a tap on the code, ✕, or a pick closes them. The diff is never squeezed to 380px again: with Comments open in BB's 1120px pane it's 687px wide, where it was 415.
 - The side panel docks narrower, down to 320px, before it covers the code, so it stays beside the code at more widths.
-- **Diff options** (⚙) replaces Split view, Wrap lines, Hide whitespace, and the GitHub threads toggle: Layout, Wrap long lines, Hide whitespace changes, GitHub threads in code (now remembered), Collapse all, Expand all, and Keyboard shortcuts. The diff layout moved here from Settings.
+- **Diff options** (the sliders icon) replaces Split view, Wrap lines, Hide whitespace, and the GitHub threads toggle: Layout, Wrap long lines, Hide whitespace changes, GitHub threads in code (now remembered), Collapse all, Expand all, and Keyboard shortcuts. The diff layout moved here from Settings.
 - One notice strip under the band replaces the header's banners: new commits say "New commits since this guide was written." with **Update guide**, and **Rebuild guide** is in ⋯.
 - ⋯ **Review actions** has one order everywhere: Update or Rebuild guide, Snooze, Pin, Archive, Open on GitHub, Keyboard shortcuts (not on a phone), Review settings…, Delete….
 - A guide update that didn't run on its own, for an untrusted author's push, offers **Update guide** (was Re-review), and Submit, refused for new commits, says to update the guide.
@@ -71,7 +71,6 @@ A new review workspace, built so the code owns the screen on a desktop, an iPad,
 - Refresh and Settings moved to BB's title bar; Refresh's tooltip says when GitHub was last read. With no reviews, a first-run panel checks your setup and says how to start.
 - A PR found on GitHub, a guide being built, and a failed guide have a page bar with All reviews and the review's menu. **Start review** is now **Build the guide**.
 - Settings goes back where you opened it from (**All reviews** or **Back to review**), and the GitHub account switcher is under Ready to review.
-- **Re-reviews** in Settings chooses what a re-review opens on: **Changes since your review** (the default) or **All changes**.
 - In BB's thread list, pin buttons show on hover with a mouse, so touch screens keep the rows clear (pin from ⋯), and a row's tooltip says why it's yours.
 
 ### Keys and accessibility
