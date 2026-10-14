@@ -69,6 +69,16 @@ test("read_review_patch and list_review_files read only the calling thread's own
   expect(text(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-2" }, { threadId: "assistant-of-2" }))).toContain("PRIVATE_TOKEN");
 });
 
+test("read_review_patch and list_review_files say they read your own review, not any target", async () => {
+  const writer = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate"] });
+  await plugin(writer.bb);
+  const { tools } = await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("guided-review", "Generate guide: pr-1"));
+  for (const name of ["read_review_patch", "list_review_files"]) {
+    const description = tools.find((tool) => tool.name === name)!.description;
+    expect({ name, own: description.includes("your own review"), any: description.includes("a Guided Review target") }).toEqual({ name, own: true, any: false });
+  }
+});
+
 test("generate_review_guide rejects incomplete coverage then accepts a full guide", async () => {
   const { harness, generationId } = await host();
   const bad = await harness.behavior.callAgentTool("generate_review_guide", {

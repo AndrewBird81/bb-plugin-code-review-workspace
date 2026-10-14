@@ -705,7 +705,7 @@ export default async function plugin(bb: BbPluginApi) {
   }
   bb.agents.registerTool({
     name: "read_review_patch",
-    description: "Return the diff text for a Guided Review target (paginated). Pass file to read one file's diff.",
+    description: "Return the diff text of your own review, by the targetKey you were given (paginated). Pass file to read one file's diff.",
     parameters: z.object({
       targetKey: z.string(),
       file: z.string().optional(),
@@ -732,7 +732,7 @@ export default async function plugin(bb: BbPluginApi) {
   });
   bb.agents.registerTool({
     name: "list_review_files",
-    description: "List a Guided Review target's changed files: path, status (added, deleted, modified, renamed), lines added and removed, diff size, and kind (code, test, docs, config, lockfile, generated).",
+    description: "List your own review's changed files, by the targetKey you were given: path, status (added, deleted, modified, renamed), lines added and removed, diff size, and kind (code, test, docs, config, lockfile, generated).",
     parameters: z.object({ targetKey: z.string() }),
     execute: async ({ targetKey }, { threadId }) => {
       const refused = await notOwnReview(threadId, targetKey);
