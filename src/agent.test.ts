@@ -109,10 +109,16 @@ test("instructions carry the review's current guide and preferences, trimmed to 
   const text = assistantInstructions("pr-1", guide("Retries failed refreshes") as any, { ...defaultPreferences, assistantInstructions: "Focus on security" });
   for (const part of ['"pr-1"', "read_review_patch", "add_draft_comment", "Never post to GitHub", "untrusted", "Focus on security", "Retries failed refreshes", "- Retry: Retries once."]) expect(text).toContain(part);
   expect(text).not.toContain("Do not publish");
-  const long = assistantInstructions("pr-1", { ...guide("Big"), sections: Array.from({ length: 200 }, (_, i) => ({ id: `s${i}`, title: `Chapter ${i}`, overview: "x".repeat(100), diffs: [] })) } as any, defaultPreferences);
+  const chapters = (count: number) => ({ ...guide("Big"), sections: Array.from({ length: count }, (_, i) => ({ id: `s${i}`, title: `Chapter ${i}`, overview: "x".repeat(100), diffs: [] })) }) as any;
+  // Without room for every overview, every chapter is still listed, without them.
+  const long = assistantInstructions("pr-1", chapters(200), defaultPreferences);
   expect(long.length).toBeLessThanOrEqual(4000);
-  expect(long).toMatch(/…\n<\/guide>$/);
+  expect(long).toMatch(/- Chapter 0\n[\s\S]*- Chapter 199\n<\/guide>$/);
+  expect(long).not.toContain("xxxx");
   expect(long).toContain("Answer concisely");
+  const longer = assistantInstructions("pr-1", chapters(400), defaultPreferences);
+  expect(longer.length).toBeLessThanOrEqual(4000);
+  expect(longer).toMatch(/…\n<\/guide>$/);
 });
 
 test("long preferences can't push the fixed rules or the guide out of the instructions", () => {
@@ -155,6 +161,33 @@ test("a long requirements list can't push the chapters out of the instructions",
   expect(text.length).toBeLessThanOrEqual(4000);
   expect(text).toContain("Chapters:\n- Retry: Retries once.");
   expect(text).toMatch(/…\n<\/guide>$/);
+});
+
+const risky = {
+  title: "T", intent: "Add caching", unplacedFiles: [],
+  sections: [
+    { id: "auth", title: "Auth middleware", overview: "Changes token checks.", risk: "high", diffs: [{ file: "src/auth.ts", summary: "s" }] },
+    { id: "docs", title: "Docs", overview: "Readme.", risk: "low", diffs: [{ file: "README.md", summary: "s" }] },
+  ],
+  hotspots: [{ file: "src/auth.ts", line: 42, why: "expiry compared with < instead of <=" }],
+} as const;
+
+test("the assistant sees each chapter's risk and where to start, as the default review's \"high-risk chapters first\" needs", () => {
+  expect(defaultPreferences.automaticReview).toContain("high-risk chapters first");
+  const text = assistantInstructions("pr-1", risky as any, defaultPreferences);
+  expect(text).toContain("<guide>\nChange intent: Add caching\nStart here:\n- src/auth.ts:42 — expiry compared with < instead of <=\nChapters:\n- [high risk] Auth middleware: Changes token checks.\n- [low risk] Docs: Readme.\n</guide>");
+});
+
+test("the longest preferences, with the repo's checks and requirements, leave the guide's intent, start, and chapters", () => {
+  const withAsks = { ...risky, requirements: [{ text: "Cache for 5 minutes", status: "missing", evidence: "No TTL." }] };
+  const text = assistantInstructions("pr-1", withAsks as any, { ...defaultPreferences, assistantInstructions: "x".repeat(2000) }, 123);
+  expect(text.length).toBeLessThanOrEqual(4000);
+  expect(text).toContain("Change intent: Add caching\nStart here:\n- src/auth.ts:42");
+  expect(text).toMatch(/- \[high risk\] Auth middleware.*\n- \[low risk\] Docs/);
+  // The preferences gave way, and say so.
+  expect(text).toMatch(/x…\nThe guide, written by an agent/);
+  // Shorter preferences aren't cut.
+  expect(assistantInstructions("pr-1", withAsks as any, { ...defaultPreferences, assistantInstructions: "x".repeat(1000) }, 123)).toContain(`${"x".repeat(1000)}\nThe guide`);
 });
 
 function reviewAgentContext(pluginMetadata: Record<string, string>): PluginAgentConfigurationContext {
