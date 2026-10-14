@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { SelectedLineRange } from "@pierre/diffs";
+import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
 import { TOUCH_CONTROL } from "../touch";
@@ -46,6 +47,7 @@ export function SelectionBar({ lines, phone, onComment, onAskLines, onClear }: {
 }) {
   const { activeId, askAgent, layout } = useWorkspace();
   const coarse = useMediaQuery("(pointer: coarse)");
+  const askAboutSelection = useKnob("askAboutSelection");
   const ref = useRef<HTMLDivElement>(null);
   const [text, setText] = useState<{ file: string; code: string } | null>(null);
   useEffect(() => {
@@ -67,7 +69,7 @@ export function SelectionBar({ lines, phone, onComment, onAskLines, onClear }: {
   useEffect(() => setText(null), [activeId]);
   // Not over a side over the code, which dims it, nor over a phone's sheet, as a fold can open one with lines selected.
   const over = layout.nav === "overlay" || layout.panel === "overlay";
-  const shown = over ? null : lines ? "lines" : text ? "text" : null;
+  const shown = over ? null : lines ? "lines" : text && askAboutSelection ? "text" : null;
 
   // At the code's right edge, clear of the panel docked beside it, and of the fold of a foldable held open.
   const [edge, setEdge] = useState<{ left: number; right: number; width: number } | null>(null);

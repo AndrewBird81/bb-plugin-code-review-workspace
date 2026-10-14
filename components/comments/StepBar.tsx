@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { showCommentStep, stepComment, stepLabel, useCommentStep } from "../../lib/comment-stops";
 import { TEXT_FIELD } from "../../lib/review-shortcuts";
+import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
 import { useNeedsYou } from "../../lib/workspace-store";
@@ -94,7 +95,9 @@ export function StepBar({ hidden, pill }: {
   const step = useCommentStep(targetKey);
   const needsYou = useNeedsYou(targetKey);
   const typing = useTyping();
-  const textSelected = useTextSelected();
+  // With Ask agent about selected text off, no selection bar shows for text, so the step bar stays.
+  const askAboutSelection = useKnob("askAboutSelection");
+  const textSelected = useTextSelected() && askAboutSelection;
   const [dismissed, setDismissed] = useState(false);
   useEffect(() => {
     if (step?.via !== "hint") return;

@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
+import { defaultKnobs, type Knobs } from "../lib/knobs";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({
@@ -63,14 +64,14 @@ const guide = { title: "Guide", intent: "Parses rows.", unplacedFiles: [] as str
 ] };
 const backToYou = { submittedVerdict: "REQUEST_CHANGES", submittedAt: 1, turn: { group: "needs", reason: "re-requested", label: "Re-requested", signal: "re-requested:1", at: 2, notify: true, blocking: false, updated: true } };
 
-async function renderWorkspace(review: Record<string, unknown> = {}, moreThreads: unknown[] = []) {
+async function renderWorkspace(review: Record<string, unknown> = {}, moreThreads: unknown[] = [], knobs: Knobs = defaultKnobs) {
   if (!localStorage.getItem("gr:panelstate")) patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
     setReviewPresence: () => ({ ok: true }),
     getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", ...review }, guide: structuredClone(guide), patch, revision: "r1" }),
     getChecks: () => ({ bucket: "none", checks: [] }),
-    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getPreferences: () => ({ preferences: { ...defaultPreferences, knobs }, revision: 0 }),
     getFileViews: () => ({ views: [] }),
     checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
     checkForUpdates: () => ({ hasNewCommits: false }),
@@ -246,6 +247,21 @@ test("text selected, as a long-press selects it, puts the step bar away until it
   // It waits as long as the selection bar stays, for a tap on it.
   expect(bar(slot)).toBeNull();
   await waitFor(() => expect(bar(slot)).toBeTruthy());
+  slot.lifecycle.unmount();
+});
+
+test("with Ask agent about selected text off in Settings, the step bar stays while text is selected", async () => {
+  phone();
+  const slot = await renderWorkspace({}, [], { ...defaultKnobs, askAboutSelection: false });
+  fireEvent.click(await within(slot.getByRole("group", { name: "Review commands" })).findByRole("button", { name: /^Comments/ }));
+  fireEvent.click(await within(await slot.findByRole("dialog", { name: "Comments" })).findByRole("button", { name: "Draft · not submitted · src/a.ts:2" }));
+  await waitFor(() => expect(bar(slot)).toBeTruthy());
+  const text = document.body.appendChild(document.createElement("p"));
+  text.textContent = "return entry.value;";
+  restores.push(() => { document.getSelection()!.removeAllRanges(); text.remove(); });
+  document.getSelection()!.selectAllChildren(text);
+  act(() => { document.dispatchEvent(new Event("selectionchange")); });
+  expect(bar(slot)).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

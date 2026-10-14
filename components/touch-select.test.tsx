@@ -6,6 +6,7 @@ import type { SelectedLineRange } from "@pierre/diffs";
 import { installTestPluginRuntime, loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
+import { defaultKnobs, type Knobs } from "../lib/knobs";
 
 // Each line of a file as pierre would take a tap on it: its click reports the line (onLineClick); its number's
 // press starts pierre's own pick of that line, reported when the press ends. The lines pierre paints, and its styles.
@@ -135,7 +136,7 @@ function fakeTouch() {
   restores.push(() => matchMedia.mockRestore());
 }
 
-async function renderWorkspace(comments: unknown[] = []) {
+async function renderWorkspace(comments: unknown[] = [], knobs: Knobs = defaultKnobs) {
   patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
   const saveDraftComment = vi.fn(async ({ comment }: any) => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [comment] }, stale: [], discussions: [] }));
@@ -143,7 +144,7 @@ async function renderWorkspace(comments: unknown[] = []) {
     setReviewPresence: () => ({ ok: true }),
     getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Count", headSha: "h" }, guide: { title: "Guide", intent: "Counts.", unplacedFiles: [], sections: [{ id: "c1", title: "Counting", overview: "Counts.", diffs: [{ file: "src/a.ts" }] }] }, patch, revision: "r1" }),
     getChecks: () => ({ bucket: "none", checks: [] }),
-    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getPreferences: () => ({ preferences: { ...defaultPreferences, knobs }, revision: 0 }),
     getFileViews: () => ({ views: [] }),
     checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
     checkForUpdates: () => ({ hasNewCommits: false }),
@@ -199,5 +200,23 @@ test("text selected in a draft comment isn't code to ask about", async () => {
   fireEvent(document, new Event("selectionchange"));
   expect(await slot.findByRole("button", { name: "Ask agent about selection" })).toBeTruthy();
   window.getSelection()!.removeAllRanges();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("with Ask agent about selected text off in Settings, text selected in the code offers nothing, and selected lines still offer Comment", async () => {
+  const { slot } = await renderWorkspace([], { ...defaultKnobs, askAboutSelection: false });
+  const range = document.createRange();
+  range.selectNodeContents(slot.getByText("three"));
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  fireEvent(document, new Event("selectionchange"));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(slot.queryByRole("group", { name: "Selection" })).toBeNull();
+  expect(slot.queryByRole("button", { name: "Ask agent about selection" })).toBeNull();
+  window.getSelection()!.removeAllRanges();
+  tap(slot.getByRole("button", { name: "2" }), "mouse");
+  const bar = within(slot.getByRole("group", { name: "Selection" }));
+  expect(bar.getByRole("button", { name: "Comment" })).toBeTruthy();
+  expect(bar.getByRole("button", { name: "Ask agent" })).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
