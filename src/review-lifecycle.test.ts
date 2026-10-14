@@ -173,6 +173,18 @@ test("a push alone waits on the author; a re-request prepares the re-review, the
   expect(s.actions.prepare).toHaveBeenCalledTimes(1);
 });
 
+test("with Get a review ready off, a re-request on an out-of-date review alerts at once, preparing nothing", async () => {
+  const s = setup({ reviewed: true, preferences: { knobs: { ...defaultPreferences.knobs, prepareOnReturn: false } } });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.2);
+  await s.sync.all(true);
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  expect(s.published[0]).toMatchObject({ entityId: "pr-1", body: expect.stringContaining("@alice re-requested your review") });
+  expect(s.actions.prepare).not.toHaveBeenCalled();
+  expect(s.store.getReview("pr-1")).toMatchObject({ preparedSignal: `re-requested:${T0 + 0.1 * HOUR}`, pendingAlert: null });
+});
+
 test("an alert goes out anyway when preparing takes too long", async () => {
   const s = setup({ reviewed: true });
   await s.sync.all();

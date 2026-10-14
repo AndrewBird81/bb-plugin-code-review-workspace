@@ -353,7 +353,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     const request = turn.reason === "requested" || turn.reason === "team-requested";
     // Guides for PRs found on GitHub cost a run each; they start only in your auto-start repositories.
     const allowed = review.status !== "tracked" || matchesRepo(preferences.autoStartRepos, review.repo);
-    const wanted = PREPARE.has(turn.reason) || request && review.status === "tracked";
+    // Off in Settings, a re-review alerts at once; a request still starts its guide in your auto-start repositories.
+    const wanted = PREPARE.has(turn.reason) && preferences.knobs.prepareOnReturn || request && review.status === "tracked";
     if (!actions || !head || !allowed || !wanted || review.status === "generating" || review.autoRunHead === head) {
       store.setLifecycle(key, { preparedSignal: turn.signal });
       return false;
