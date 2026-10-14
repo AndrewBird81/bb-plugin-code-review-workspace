@@ -3,6 +3,7 @@ import { Markdown, UrlLink } from "@get-bb/plugin-sdk/app";
 import type { z } from "zod";
 import type { RequirementSchema } from "../src/guide";
 import { classifyFile } from "../src/classify";
+import { useKnob } from "../lib/settings";
 import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
 import { RISK_LABEL, RISK_TONE, StepMarker } from "./ChapterNav";
@@ -102,7 +103,7 @@ export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, 
   // Where reading goes on: the chapter you left, or on a re-review the first one that changed, else the first.
   const [cta, next] = resumed ? ["Continue", resumed] : changed ? ["Review changes", changed] : ["Start reading", sections[0]];
   const nextIndex = next ? sections.indexOf(next) : -1;
-  const requirements = guide.requirements ?? [];
+  const requirements = useKnob("requirements") ? guide.requirements ?? [] : [];
   const covered = requirements.filter((requirement) => requirement.status === "covered").length;
   // Passing checks are a fact in the status line; these need a look.
   const unsettled = [...(checks?.checks.filter((check) => check.bucket === "fail") ?? []), ...(checks?.checks.filter((check) => check.bucket === "pending") ?? [])];

@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import { defaultKnobs, type Knobs } from "../lib/knobs";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre>{fileDiff.additionLines.join("\n")}</pre> }));
@@ -23,12 +24,12 @@ const guide = {
   ],
 };
 
-function renderWorkspace(sent: object) {
+function renderWorkspace(sent: object, knobs: Knobs = defaultKnobs) {
   return loadPluginApp(() => import("../app")).then((app) => renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
     setReviewPresence: () => ({ ok: true }),
     getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: structuredClone(sent), patch, revision: "r1" }),
     getChecks: () => ({ bucket: "none", checks: [] }),
-    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getPreferences: () => ({ preferences: { ...defaultPreferences, knobs }, revision: 0 }),
     getFileViews: () => ({ views: [] }),
     checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
     checkForUpdates: () => ({ hasNewCommits: false }),
@@ -60,5 +61,15 @@ test("a guide without requirements shows no tally", async () => {
   await slot.findByRole("heading", { name: "Parse rows" });
   expect(slot.queryByRole("region", { name: /Requirements/ })).toBeNull();
   expect(slot.queryByRole("list", { name: "Requirements" })).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("with Requirements off in Settings, the Overview shows no Requirements section", async () => {
+  const slot = await renderWorkspace(guide, { ...defaultKnobs, requirements: false });
+  await slot.findByRole("heading", { name: "Parse rows" });
+  await waitFor(() => expect(slot.queryByRole("region", { name: /Requirements/ })).toBeNull());
+  expect(slot.queryByRole("list", { name: "Requirements" })).toBeNull();
+  expect(slot.queryByText(/covered/)).toBeNull();
+  expect(slot.getByText("Parses rows.")).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
