@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { DraftProviderProps } from "./DraftProvider";
 
@@ -134,6 +134,22 @@ test("an unfinished comment in the diff is recovered there after the page reload
   slot.lifecycle.unmount();
   ({ slot, diff } = await renderReview("recover", rpc));
   expect((diff().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Don't lose this");
+  slot.lifecycle.unmount();
+});
+
+test("Esc in a comment box with text leaves the box, keeping the text; Cancel discards it", async () => {
+  const { slot, diff } = await renderReview("esc", { getDraft: () => ({ draft: empty("esc"), stale: [] }) });
+  fireEvent.click(diff().getByRole("button", { name: "Gutter +" }));
+  const box = diff().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: "A long careful comment" } });
+  act(() => box.focus());
+  fireEvent.keyDown(box, { key: "Escape" });
+  expect((diff().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("A long careful comment");
+  expect(document.activeElement).not.toBe(box);
+  expect(sessionStorage.getItem("guided-review:draft-recovery:esc")).toContain("A long careful comment");
+  fireEvent.click(diff().getByRole("button", { name: "Cancel" }));
+  expect(diff().queryByRole("textbox")).toBeNull();
+  await waitFor(() => expect(sessionStorage.getItem("guided-review:draft-recovery:esc") ?? "").not.toContain("A long careful comment"));
   slot.lifecycle.unmount();
 });
 

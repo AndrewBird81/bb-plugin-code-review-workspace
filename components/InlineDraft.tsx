@@ -50,6 +50,8 @@ export interface InlineDraft {
 /** The comment box's text. Apart from InlineDraft so that typing re-renders only the box, not the diff. */
 export interface InlineComposer {
   body: string;
+  /** The text isn't what the box opened with: yours, unsaved. Esc keeps it; only Cancel discards it. */
+  edited?: boolean;
   change(body: string): void;
   /** A line comment's severity, and its control; the summary has none. */
   severity?: Severity;
@@ -300,7 +302,8 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
         disabled={busy}
         value={composer.body}
         onChange={(event) => composer.change(event.target.value)}
-        onKeyDown={(event) => composerKeys(event, held ? null : primary, () => { if (!busy) composer.cancel(); })}
+        // Esc leaves text you wrote in the box, as a reply's box does; a box with nothing of yours just closes.
+        onKeyDown={(event) => composerKeys(event, held ? null : primary, () => { if (busy) return; if (composer.edited) composer.textareaRef.current?.blur(); else composer.cancel(); })}
         placeholder={mode === "ask" ? summary ? "Ask about the summary, or say what to change" : "Ask about this, or say what to change" : summary ? "What should the author know overall?" : "What should the author know?"}
         className={cn("bg-background text-sm", summary && mode !== "ask" ? "min-h-28" : "min-h-20")}
       />

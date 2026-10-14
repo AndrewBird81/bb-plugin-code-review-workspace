@@ -80,7 +80,7 @@ test("Edit puts the cursor at the end of the comment, and of the summary", async
   slot.lifecycle.unmount();
 });
 
-test("Cmd/Ctrl+Enter runs a box's primary action when it has text, and Esc cancels without reaching the page", async () => {
+test("Cmd/Ctrl+Enter runs a box's primary action when it has text; Esc keeps text you wrote, closes a box with none, and doesn't reach the page", async () => {
   let draft = draftOf({ body: "Old summary." });
   const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = { ...draft, comments: [comment] }; return { draft, stale: [], discussions: [] }; });
   const saveSummary = vi.fn(async ({ body }: any) => { draft = { ...draft, body }; return { draft, stale: [], discussions: [] }; });
@@ -96,13 +96,21 @@ test("Cmd/Ctrl+Enter runs a box's primary action when it has text, and Esc cance
   fireEvent.keyDown(slot.getByRole("textbox", { name: "Draft comment" }), { key: "Enter", ctrlKey: true });
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ body: "Saved by keyboard." }) })));
   await waitFor(() => expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull());
-  // Esc cancels the form.
+  // Esc leaves the box, keeping what you wrote; Cancel discards it.
   await writeComment(slot, "Never mind.");
   fireEvent.keyDown(slot.getByRole("textbox", { name: "Draft comment" }), { key: "Escape" });
+  expect((slot.getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Never mind.");
+  expect(document.activeElement).not.toBe(slot.getByRole("textbox", { name: "Draft comment" }));
+  fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
   expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull();
-  // The summary's editor.
+  // The summary's editor: holding only the summary it edits, it closes on Esc.
+  fireEvent.click(slot.getByRole("button", { name: "Edit review summary" }));
+  fireEvent.keyDown(slot.getByRole("textbox", { name: "Review summary" }), { key: "Escape" });
+  expect(slot.queryByRole("textbox", { name: "Review summary" })).toBeNull();
   fireEvent.click(slot.getByRole("button", { name: "Edit review summary" }));
   fireEvent.change(slot.getByRole("textbox", { name: "Review summary" }), { target: { value: "New summary." } });
+  fireEvent.keyDown(slot.getByRole("textbox", { name: "Review summary" }), { key: "Escape" });
+  expect((slot.getByRole("textbox", { name: "Review summary" }) as HTMLTextAreaElement).value).toBe("New summary.");
   fireEvent.keyDown(slot.getByRole("textbox", { name: "Review summary" }), { key: "Enter", metaKey: true });
   await waitFor(() => expect(saveSummary).toHaveBeenCalledWith(expect.objectContaining({ body: "New summary." })));
   // An ask box sends to the agent, and Esc closes it.

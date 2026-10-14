@@ -72,6 +72,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const [line, setLine] = useState("1");
   const [side, setSide] = useState<"LEFT" | "RIGHT">("RIGHT");
   const [body, setBody] = useState("");
+  // The box's text as it opened: the comment or summary it edits, or nothing. Text other than that is yours, unsaved.
+  const openedBody = useRef("");
   // The severity the box's comment gets; a label its text starts with sets it instead.
   const [severity, setSeverity] = useState<Severity | undefined>();
   const [showComposer, setShowComposer] = useState(false);
@@ -163,7 +165,9 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
         setAsking(comment.asking === true); setStartLine(comment.startLine); setStartSide(comment.startSide); setSummaryBox(comment.summary === true);
         setSeverity(SEVERITIES.find((choice) => choice === comment.severity));
         summaryBase.current = comment.summary ? (result.draft as Draft).body : null;
-        setEditing(comment.asking || comment.summary ? null : (result.draft as Draft).comments.find((c) => sameLocation(c, { file: comment.file, line: Number(comment.line), side: comment.side })) ?? null);
+        const edited = comment.asking || comment.summary ? null : (result.draft as Draft).comments.find((c) => sameLocation(c, { file: comment.file, line: Number(comment.line), side: comment.side })) ?? null;
+        setEditing(edited);
+        openedBody.current = comment.asking ? "" : summaryBase.current ?? edited?.body ?? "";
       }
       if (recovered.summary) {
         legacySummary.current = recovered.summary;
@@ -220,7 +224,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       setAsking(ask);
       setSummaryBox(summary);
       summaryBase.current = summary ? draft.body : null;
-      setBody(summary && !ask ? draft.body : existing ? existing.body : "");
+      openedBody.current = summary && !ask ? draft.body : existing ? existing.body : "";
+      setBody(openedBody.current);
       setSeverity(existing?.severity);
       setInline(inDiff);
       setShowComposer(true);
@@ -247,10 +252,12 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       updateDraftRecovery(targetKey, { summary: undefined });
       composerRevision.current = kept.revision;
       summaryBase.current = draft.body;
+      openedBody.current = draft.body;
       setFile(SUMMARY_AT.file); setLine(String(SUMMARY_AT.line)); setSide(SUMMARY_AT.side); setInline(false); setSummaryBox(true); setBody(kept.body);
       onOpenPanel?.("finish");
       return;
     }
+    openedBody.current = "";
     setBody(""); setShowComposer(false);
     // The next comment doesn't start where the summary's box was.
     if (summaryBox) { setFile(firstFile); setLine("1"); setSide("RIGHT"); }
@@ -483,6 +490,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   // On your own PR, Comment is the only verdict GitHub takes.
   useEffect(() => { if (ownPr && editable && !isLocal && draft.verdict !== "COMMENT" && !pendingVerdict.current) chooseVerdict("COMMENT"); }, [ownPr, editable, isLocal, draft.verdict]);
   const writing = !!body.trim();
+  const edited = writing && body !== openedBody.current;
   const composerInDiff = editable && showComposer && inline;
   const chat = useMemo(() => onOpenPanel ? () => onOpenPanel("agent") : null, [onOpenPanel]);
   const editingLine = showComposer && !summaryBox && !asking;
@@ -493,16 +501,16 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   }), [targetKey, draft.comments, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, chat, composerInDiff, editingLine, file, line, side, startLine, editing, asking]);
   const canSuggest = !!suggestable;
   const inlineComposer = useMemo<InlineComposer | null>(() => composerInDiff ? {
-    body, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
+    body, edited, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
     change: (text) => latest.current.changeBody(text),
     severity, changeSeverity: setSeverity,
     save: () => { void latest.current.addComment(); },
     askAgent: () => { void latest.current.askAgent(); },
     cancel: () => latest.current.cancelComposer(),
     suggest: canSuggest ? () => latest.current.suggestChange() : null,
-  } : null, [composerInDiff, body, severity, composerError, rebuilding, olderDiff, canSuggest]);
+  } : null, [composerInDiff, body, edited, severity, composerError, rebuilding, olderDiff, canSuggest]);
   const summaryComposer = editable && onSummary ? {
-    mode: asking ? "ask" as const : "edit" as const, body, textareaRef: bodyRef,
+    mode: asking ? "ask" as const : "edit" as const, body, edited, textareaRef: bodyRef,
     change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: () => { closeComposer(); focusSummary(); },
   } : null;
   const hint = isLocal ? "Local review. Comments and notes stay in this BB installation."
@@ -536,7 +544,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   return {
     targetKey, loadError, load, loaded, closed, review, draft, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
-    showComposer, inline, counts, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment,
+    showComposer, inline, edited, counts, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment,
     file, boxLines, line, side, files, setFile, editing, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
     ownPr, suggested, chooseVerdict, confirming, setConfirming, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
     inlineDraft, inlineComposer, askAgent, patch, account,
