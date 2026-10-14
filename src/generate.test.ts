@@ -13,7 +13,7 @@ const patch = `diff --git a/a.ts b/a.ts
 +new
 `;
 
-// The tools are called as review pr-1's guide writer, which its thread's title names.
+// The tools are called as review pr-1's guide writer, the worker recorded for its generation.
 async function host() {
   const h = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { get: async () => ({ title: "Generate guide: pr-1" }) } } as any });
   await plugin(h.bb);
@@ -21,6 +21,7 @@ async function host() {
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
   store.savePatch("pr-1", patch);
   const generationId = store.beginGeneration("pr-1");
+  store.setGenerationWorker("pr-1", generationId, "thread-test");
   return { ...h, store, generationId };
 }
 

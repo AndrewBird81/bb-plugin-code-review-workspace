@@ -209,6 +209,7 @@ test("the assistant gets its review's current instructions, without private note
   store.savePreferences({ ...defaultPreferences, assistantInstructions: "Focus on security" }, 0);
   store.saveGuide("pr-1", guide("Old behavior") as any);
   store.saveGuide("pr-1", guide("New retry behavior") as any);
+  store.setAssistantThread("pr-1", "worker");
   const mine = await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: "pr-1" }));
   expect(mine.tools.map((tool) => tool.name)).toEqual(["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
     "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"]);
@@ -219,7 +220,9 @@ test("the assistant gets its review's current instructions, without private note
   expect(mine.instructions).toContain("New retry behavior");
   expect(mine.instructions).toContain("Focus on security");
   expect(mine.instructions).not.toMatch(/Old behavior|PRIVATE-SCRATCHPAD/);
-  expect((await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: "pr-unknown" }))).instructions).toBeNull();
+  // A thread that's no review's assistant gets none, whatever its metadata says.
+  store.clearAssistantThread("pr-1");
+  expect((await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: "pr-1" }))).instructions).toBeNull();
 });
 
 test("idle assistants restart for new instructions after Re-review or a preferences change; busy ones finish", async () => {
@@ -459,6 +462,7 @@ test("the review agent may run the repo's checks only when they're on and the PR
   const { bb, harness, store } = host();
   await plugin(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  store.setAssistantThread("pr-1", "worker");
   const instructions = async () => (await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: "pr-1" }))).instructions ?? "";
   expect(await instructions()).not.toContain("worktree");
   store.savePreferences({ ...defaultPreferences, runRepoChecks: true }, 0);

@@ -175,6 +175,8 @@ export interface Store extends AgentCommentStore {
   isCurrentGeneration(targetKey: string, generationId: string): boolean;
   /** Record the hidden thread writing a generation's guide, to stop it if the plugin reloads first. */
   setGenerationWorker(targetKey: string, generationId: string, workerId: string): void;
+  /** The review whose current generation's guide this thread writes, if any. */
+  generationOf(workerId: string): string | null;
   /** End the generations a reload interrupted, putting back their previous guides. Returns them, with their workers. */
   interruptGenerations(): Array<{ targetKey: string; workerId: string | null }>;
   getDraft(targetKey: string): Draft;
@@ -536,6 +538,9 @@ export function createStore(bb: BbPluginApi): Store {
     },
     setGenerationWorker(k, id, workerId) {
       db.prepare(`UPDATE generations SET worker_id=? WHERE target_key=? AND generation_id=?`).run(workerId, k, id);
+    },
+    generationOf(workerId) {
+      return (db.prepare(`SELECT target_key FROM generations WHERE worker_id=?`).get(workerId) as { target_key: string } | undefined)?.target_key ?? null;
     },
     interruptGenerations() {
       const interrupted = (db.prepare(`SELECT r.target_key, g.worker_id FROM reviews r LEFT JOIN generations g ON g.target_key=r.target_key WHERE r.status='generating'`).all() as Array<{ target_key: string; worker_id: string | null }>)

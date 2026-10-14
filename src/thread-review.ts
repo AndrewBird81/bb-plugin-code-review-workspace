@@ -1,0 +1,40 @@
+import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import type { Store } from "./store";
+import { assistantReview } from "./draft-comments";
+
+/** This plugin's agent threads being spawned, by the title each gets, until its id is recorded. */
+const spawning = new WeakMap<BbPluginApi, Set<{ title: string; targetKey: string }>>();
+
+/**
+ * Runs a thread's spawn and the recording of its id. Until both finish, a thread with that title counts as the
+ * review's, as BB may start its first session, and so ask for its instructions, before the spawn returns its id.
+ */
+export async function spawningFor<T>(bb: BbPluginApi, title: string, targetKey: string, run: () => Promise<T>): Promise<T> {
+  const pending = { title, targetKey };
+  const entries = spawning.get(bb) ?? new Set();
+  spawning.set(bb, entries);
+  entries.add(pending);
+  try {
+    return await run();
+  } finally {
+    entries.delete(pending);
+  }
+}
+
+/**
+ * The review a thread of this plugin belongs to: the one it's recorded as the assistant or guide writer of, or,
+ * while a spawn with its exact title is in flight, that spawn's. Never its title or metadata alone, which it can write.
+ */
+export function threadReview(bb: BbPluginApi, store: Store, thread: { id: string; title: string | null }): string | null {
+  const recorded = assistantReview(store, thread.id) ?? store.generationOf(thread.id);
+  if (recorded) return recorded;
+  for (const pending of spawning.get(bb) ?? []) if (pending.title === thread.title) return pending.targetKey;
+  return null;
+}
+
+/** threadReview for a tool call, which has only the thread's id; its title is read only while a spawn is in flight. */
+export async function toolThreadReview(bb: BbPluginApi, store: Store, threadId: string): Promise<string | null> {
+  if (!spawning.get(bb)?.size) return threadReview(bb, store, { id: threadId, title: null });
+  const title = await bb.sdk.threads.get({ threadId }).then((thread) => thread.title ?? null, () => null);
+  return threadReview(bb, store, { id: threadId, title });
+}

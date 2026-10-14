@@ -6,6 +6,7 @@ import { runGh } from "./gh";
 import { assistantPreferencesPrompt, automaticReviewPrompt, spawnExecution, type AgentExecution, type ReviewPreferences } from "./preferences";
 import { mayRunChecks, mayRunUnattended, skipWhy } from "../lib/trust";
 import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
+import { spawningFor } from "./thread-review";
 
 /** Starts an assistant thread's title; `agents.configure` grants it the review tools by it. */
 export const ASSISTANT_TITLE = "Review agent: ";
@@ -126,20 +127,26 @@ async function spawnConversation(bb: BbPluginApi, store: Store, args: { targetKe
   if (unavailable) throw new Error(unavailable);
   const { assistantAgent } = store.getPreferences().preferences;
   const legacy = store.listAgentMessages(args.targetKey).slice(-20).map((entry) => `${entry.role}: ${entry.text}`).join("\n\n").slice(-80_000);
-  const worker = await bb.sdk.threads.spawn({
-    ...(await agentPlacement(bb, args.agent, projectId)),
-    input: [
-      { type: "text", text: args.text, mentions: [] },
-      ...(args.context ? [{ type: "text" as const, text: args.context, mentions: [], visibility: "agent-only" as const }] : []),
-      ...(legacy ? [{ type: "text" as const, text: `Previous review conversation:\n${legacy}`, mentions: [], visibility: "agent-only" as const }] : []),
-    ],
-    title: `${ASSISTANT_TITLE}${args.targetKey}`,
-    visibility: "hidden",
-    pluginMetadata: { targetKey: args.targetKey },
-    // The default's permission mode applies only to the provider it was chosen for.
-    ...spawnExecution({ ...args.agent, ...(assistantAgent?.providerId === args.agent.providerId ? { permissionMode: assistantAgent.permissionMode } : {}) }),
+  const title = `${ASSISTANT_TITLE}${args.targetKey}`;
+  const placement = await agentPlacement(bb, args.agent, projectId);
+  const worker = await spawningFor(bb, title, args.targetKey, async () => {
+    const worker = await bb.sdk.threads.spawn({
+      ...placement,
+      input: [
+        { type: "text", text: args.text, mentions: [] },
+        ...(args.context ? [{ type: "text" as const, text: args.context, mentions: [], visibility: "agent-only" as const }] : []),
+        ...(legacy ? [{ type: "text" as const, text: `Previous review conversation:\n${legacy}`, mentions: [], visibility: "agent-only" as const }] : []),
+      ],
+      title,
+      visibility: "hidden",
+      // Unread here; 0.6.0 picks the assistant's instructions by it, so a rollback still finds them.
+      pluginMetadata: { targetKey: args.targetKey },
+      // The default's permission mode applies only to the provider it was chosen for.
+      ...spawnExecution({ ...args.agent, ...(assistantAgent?.providerId === args.agent.providerId ? { permissionMode: assistantAgent.permissionMode } : {}) }),
+    });
+    store.setAssistantThread(args.targetKey, worker.id);
+    return worker;
   });
-  store.setAssistantThread(args.targetKey, worker.id);
   // The legacy worker is superseded; its transcript stays visible above the chat.
   const legacyWorker = store.getAgentThread(args.targetKey);
   if (legacyWorker) {

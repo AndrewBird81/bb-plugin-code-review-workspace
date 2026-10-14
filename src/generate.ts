@@ -9,6 +9,7 @@ import { baselineOf } from "./feedback-view";
 import type { Guide } from "./guide";
 import { mayRunUnattended } from "../lib/trust";
 import { fitHunks } from "./hunks";
+import { spawningFor } from "./thread-review";
 
 /** Starts a guide-writing worker's title; `agents.configure` grants it the guide tools by it. */
 export const GUIDE_WORKER_TITLE = "Generate guide: ";
@@ -79,16 +80,22 @@ export async function generateGuide(
     generationId = store.beginGeneration(targetKey);
     threads = bb.sdk.threads;
     const preferences = store.getPreferences().preferences;
-    const worker = await threads.spawn({
-      ...(await agentPlacement(bb, preferences.guideAgent, projectId)),
-      prompt: buildGenerationPrompt(targetKey, generationId, preferences, earlier),
-      title: `${GUIDE_WORKER_TITLE}${targetKey}`,
-      visibility: "hidden",
-      // On the project's defaults, the writer still gets bb's lowest mode, not the project's: its tools need no shell or edits.
-      ...(preferences.guideAgent ? spawnExecution(preferences.guideAgent) : { permissionMode: "accept-edits", executionInputSources: { permissionMode: "explicit" } }),
+    const title = `${GUIDE_WORKER_TITLE}${targetKey}`;
+    const placement = await agentPlacement(bb, preferences.guideAgent, projectId);
+    const id = generationId;
+    const worker = await spawningFor(bb, title, targetKey, async () => {
+      const worker = await bb.sdk.threads.spawn({
+        ...placement,
+        prompt: buildGenerationPrompt(targetKey, id, preferences, earlier),
+        title,
+        visibility: "hidden",
+        // On the project's defaults, the writer still gets bb's lowest mode, not the project's: its tools need no shell or edits.
+        ...(preferences.guideAgent ? spawnExecution(preferences.guideAgent) : { permissionMode: "accept-edits", executionInputSources: { permissionMode: "explicit" } }),
+      });
+      store.setGenerationWorker(targetKey, id, worker.id);
+      return worker;
     });
     workerId = worker.id;
-    store.setGenerationWorker(targetKey, generationId, worker.id);
     const failed = new AbortController();
     const watched = failures.get(bb) ?? new Map<string, AbortController>();
     failures.set(bb, watched);

@@ -20,6 +20,7 @@ test("read_pr_context reads the context of the guide writer's or the assistant's
   store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
   store.setReviewContext("pr-1", "Implements LIN-42.");
   store.setAssistantThread("pr-1", "assistant");
+  store.setGenerationWorker("pr-1", store.beginGeneration("pr-1"), "writer");
   const text = (out: any) => String(out.content?.[0]?.text ?? out);
   for (const threadId of ["writer", "assistant"]) {
     const out = await harness.behavior.callAgentTool("read_pr_context", {}, { threadId });

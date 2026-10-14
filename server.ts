@@ -44,6 +44,7 @@ import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
 import { GUIDE_WORKER_TITLE, stopGuideGenerations, hasGuideGenerations, guideWorkerFailed } from "./src/generate";
+import { threadReview, toolThreadReview } from "./src/thread-review";
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { rerunReview } from "./src/rereview";
 import { getGhAccounts, switchGhAccount, checkRepoAccess } from "./src/gh-accounts";
@@ -699,7 +700,7 @@ export default async function plugin(bb: BbPluginApi) {
   const failed = (text: string): PluginAgentToolResult => ({ content: [{ type: "text", text }], isError: true });
   /** Why a thread may not read `targetKey`'s diff: only a review's own assistant or guide writer may. Null when it may. */
   async function notOwnReview(threadId: string, targetKey: string): Promise<string | null> {
-    const own = assistantReview(store, threadId) ?? (await generationReview(threadId));
+    const own = await toolThreadReview(bb, store, threadId);
     return own === targetKey ? null : `This conversation can read only its own review's diff${own ? `, targetKey ${own}` : ""}.`;
   }
   bb.agents.registerTool({
@@ -846,7 +847,7 @@ export default async function plugin(bb: BbPluginApi) {
     description: "What changed in this PR since the reviewer's last review: the PR's diff then compared with its diff now, file by file (rebases and base-branch merges don't show), plus the commits since. Pass file for one file.",
     parameters: z.object({ file: z.string().optional().describe("Repo-relative path, as the diff shows it.") }),
     async execute({ file }, { threadId }) {
-      const targetKey = assistantReview(store, threadId) ?? (await generationReview(threadId));
+      const targetKey = await toolThreadReview(bb, store, threadId);
       const review = targetKey ? store.getReview(targetKey) : null;
       if (!review || review.kind !== "pr") return failed("There's no PR review to compare.");
       try { return await changesSinceReview(store, runGh, review, file); }
@@ -859,7 +860,7 @@ export default async function plugin(bb: BbPluginApi) {
     instructions: "Start a guide or a review with read_pr_context. If the title, branch, or description names a ticket (like ABC-123) and you have a tool that reads it, read it.",
     parameters: z.object({}),
     async execute(_input, { threadId }) {
-      const targetKey = assistantReview(store, threadId) ?? (await generationReview(threadId));
+      const targetKey = await toolThreadReview(bb, store, threadId);
       const review = targetKey ? store.getReview(targetKey) : null;
       if (!review) return failed("There's no review to read the context of.");
       const files = changedFiles(store.patch(review.targetKey));
@@ -942,12 +943,6 @@ export default async function plugin(bb: BbPluginApi) {
       return "Drafted. The reviewer can edit and send it from Comments.";
     },
   });
-  /** The review a guide-writing worker is generating, from its title. */
-  async function generationReview(threadId: string): Promise<string | null> {
-    const title = await bb.sdk.threads.get({ threadId }).then((thread) => thread.title ?? "", () => "");
-    return title.startsWith(GUIDE_WORKER_TITLE) ? title.slice(GUIDE_WORKER_TITLE.length) : null;
-  }
-
   // A discussion the assistant didn't answer by the end of its turn stops waiting for it.
   const settle = async ({ thread }: { thread: { id: string } }) => {
     // A turn ended; an ask on the summary or a comment ends with the turn that carried it. Before anything
@@ -1032,8 +1027,9 @@ export default async function plugin(bb: BbPluginApi) {
     // comments — but it never gets the guide-writing tool or the generation
     // skill. Its review context arrives as instructions.
     if (title.startsWith(ASSISTANT_TITLE)) {
-      const { targetKey } = context.pluginMetadata;
-      const review = typeof targetKey === "string" ? store.getReview(targetKey) : null;
+      // Its own review, never the metadata its agent can write.
+      const targetKey = threadReview(bb, store, context.thread);
+      const review = targetKey ? store.getReview(targetKey) : null;
       return {
         tools: ["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
           "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"], skills: [],
