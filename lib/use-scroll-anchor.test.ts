@@ -280,6 +280,99 @@ test("it watches what's in the box as well as the box, as it comes and goes", as
   expect(resize.observed.has(lines[0])).toBe(false);
 });
 
+/**
+ * The code's box at y 100, scrolled to 300, `held.width` × 500, with one file whose 30 lines, 40px tall unless
+ * `heights` says otherwise, are drawn as pierre draws them: rows in a diffs-container's shadow root, under a card with
+ * the file's name. `redraw` draws them anew, as new elements, as pierre does when its options change; `numbers` are
+ * each row's data-line and data-alt-line.
+ */
+function drawnCode() {
+  const box = document.body.appendChild(document.createElement("div"));
+  const card = box.appendChild(document.createElement("div"));
+  card.dataset.file = "src/a.ts";
+  const host = card.appendChild(document.createElement("diffs-container"));
+  const root = host.attachShadow({ mode: "open" });
+  const column = root.appendChild(document.createElement("div"));
+  const heights = Array.from({ length: 30 }, () => 40);
+  const held = { width: 900 };
+  let rows: HTMLElement[] = [];
+  const topOf = (index: number) => 100 - box.scrollTop + heights.slice(0, index).reduce((sum, h) => sum + h, 0);
+  const rowAt = (y: number) => rows.find((_, i) => y >= topOf(i) && y < topOf(i) + heights[i]);
+  const redraw = (numbers = (i: number) => [i + 1, i + 1]) => {
+    rows = heights.map((_, i) => {
+      const row = document.createElement("div");
+      const [line, alt] = numbers(i);
+      row.setAttribute("data-line-type", "context");
+      row.setAttribute("data-line", String(line));
+      row.setAttribute("data-alt-line", String(alt));
+      row.getBoundingClientRect = () => new DOMRect(0, topOf(i), held.width, heights[i]);
+      return row;
+    });
+    column.replaceChildren(...rows);
+  };
+  redraw();
+  box.scrollTop = 300;
+  Object.defineProperty(box, "clientWidth", { get: () => held.width });
+  Object.defineProperty(box, "clientHeight", { get: () => 500 });
+  box.getBoundingClientRect = () => new DOMRect(0, 100, held.width, 500);
+  document.elementsFromPoint = (_x: number, y: number) => [...(rowAt(y) ? [host, card] : []), box, document.body];
+  root.elementsFromPoint = (_x: number, y: number) => { const row = rowAt(y); return row ? [row] : []; };
+  return { box, heights, held, redraw, row: (line: number) => rows.find((el) => el.getAttribute("data-line") === String(line))! };
+}
+
+test("docking a side that redraws the code's rows, as pierre does when wrap flips, keeps the line you read in place", () => {
+  const resize = stubResizeObserver();
+  const { box, heights, held, redraw, row } = drawnCode();
+  renderHook(() => useScrollAnchor(box));
+  // Line 9 is the first wholly under the top, 20px under it.
+  const offset = under(row(9), 0);
+  expect(offset).toBe(20);
+  // Narrower, the lines above rewrap taller, and pierre draws every row anew before the resize is reported.
+  held.width = 600;
+  for (let i = 0; i < 8; i++) heights[i] = 80;
+  redraw();
+  resize();
+  expect(under(row(9), 0)).toBe(offset);
+});
+
+test("a redraw a frame after the resize, as split flips to unified, keeps the line in place too", () => {
+  const resize = stubResizeObserver();
+  const { box, heights, held, redraw, row } = drawnCode();
+  renderHook(() => useScrollAnchor(box));
+  const offset = under(row(9), 0);
+  held.width = 600;
+  resize();
+  // Unified: the lines above grow taller as rows of their own, drawn anew, and only what's in the box resizes.
+  for (let i = 0; i < 8; i++) heights[i] = 60;
+  redraw();
+  resize();
+  expect(under(row(9), 0)).toBe(offset);
+});
+
+test("a context line read in a split's left column is found unified by its numbers the other way round", () => {
+  const resize = stubResizeObserver();
+  const { box, heights, held, redraw, row } = drawnCode();
+  // Split's left column: each line's old number, then its new one, two more.
+  redraw((i) => [i + 1, i + 3]);
+  renderHook(() => useScrollAnchor(box));
+  const offset = under(row(9), 0);
+  held.width = 600;
+  for (let i = 0; i < 8; i++) heights[i] = 80;
+  redraw((i) => [i + 3, i + 1]);
+  resize();
+  expect(under(row(11), 0)).toBe(offset);
+});
+
+test("a redraw that no longer draws the line you read, as a fold, takes what's at the top now and scrolls nothing", () => {
+  const resize = stubResizeObserver();
+  const { box, heights, redraw } = drawnCode();
+  renderHook(() => useScrollAnchor(box));
+  for (let i = 0; i < 8; i++) heights[i] = 80;
+  redraw((i) => [i + 101, i + 101]);
+  resize();
+  expect(box.scrollTop).toBe(300);
+});
+
 type Row = [type: string, line: string, alt: string | null];
 const numbered = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i): Row => ["context", String(from + i), String(from + i)]);
 

@@ -10,6 +10,8 @@ interface Anchor {
   offset: number;
   /** The box's size it was read at: a resize moves it, and is for the resize to put right. */
   size: string;
+  /** A line of code's file and numbers, to find it by when pierre draws it anew (lineOf). */
+  line?: { file: string; key: string };
 }
 
 /** The deepest element of `box` at a point, under whatever covers it there (a sheet), and inside open shadow roots. */
@@ -69,7 +71,7 @@ function anchorIn(box: HTMLElement, focus = true): Anchor | null {
     if (starts) starting ??= at;
   }
   const el = starting ?? first;
-  return el && { el, offset: el.getBoundingClientRect().top - top, size: sizeOf(box) };
+  return el && { el, offset: el.getBoundingClientRect().top - top, size: sizeOf(box), line: lineOf(el) };
 }
 
 /**
@@ -104,6 +106,25 @@ const lineKey = (line: Element) => ["data-line-type", "data-line", "data-alt-lin
 
 /** The lines of code `file` draws, in order down each column. */
 const linesOf = (file: Element) => Array.from(file.querySelectorAll("diffs-container"), (host) => Array.from(host.shadowRoot?.querySelectorAll("[data-line]") ?? [])).flat();
+
+/** A line of code's file, and its numbers: they hold as pierre redraws it. Undefined for what isn't a line of code. */
+function lineOf(el: Element): Anchor["line"] {
+  const file = el.hasAttribute("data-line") && (el.getRootNode() as ShadowRoot).host?.closest("[data-file]")?.getAttribute("data-file");
+  return file ? { file, key: lineKey(el) } : undefined;
+}
+
+/**
+ * The anchor's line of code as drawn now. Pierre draws a file's rows anew when its options change, as a side docking
+ * flips wrap or split, so the row held is gone: the one with its numbers, in its file. A context line in a split's
+ * left column shows its old number first, and its new number first unified.
+ */
+function redrawn(box: HTMLElement, { file, key }: NonNullable<Anchor["line"]>): Element | undefined {
+  const card = Array.from(box.querySelectorAll("[data-file]")).find((el) => el.getAttribute("data-file") === file);
+  const [type, line, alt] = key.split(" ");
+  const keys = type === "context" ? [key, [type, alt, line].join(" ")] : [key];
+  const lines = card ? linesOf(card) : [];
+  return keys.map((at) => lines.find((el) => lineKey(el) === at)).find((el) => el);
+}
 
 /**
  * Where you are in the code as a chapter flips between Since your review and All changes, which shows more or fewer of
@@ -175,19 +196,21 @@ export function useScrollAnchor(box: HTMLElement | null) {
     };
     // The box resized (a fold, a side docking beside it): what was at its top goes back there. Only what's in it did (a
     // comment unfolding, lines expanding above it): you saw that move the place, with no scroll, and it's where it went.
+    // Its line drawn anew, as when wrap or split flips a frame after a side docks, it goes back too: you saw nothing move.
     const observer = new ResizeObserver(() => {
       const was = anchor;
-      if (was?.el.isConnected && was.size !== sizeOf(box)) {
+      const el = was && (was.el.isConnected ? was.el : was.line && redrawn(box, was.line));
+      if (was && el && (was.size !== sizeOf(box) || el !== was.el)) {
         // Twice: putting it back can stick or unstick a file's header at the top, which moves the code's top.
         for (let pass = 0; pass < 2; pass++) {
-          const moved = was.el.getBoundingClientRect().top - codeTop(box) - was.offset;
+          const moved = el.getBoundingClientRect().top - codeTop(box) - was.offset;
           if (Math.abs(moved) < 1) break;
           box.scrollTop += moved;
           corrected = box.scrollTop;
         }
         // Still the place, where it now is: read again, a line above it that unwrapped into view would take its place,
         // and turning back would keep that one there instead.
-        anchor = { el: was.el, offset: was.el.getBoundingClientRect().top - codeTop(box), size: sizeOf(box) };
+        anchor = { el, offset: el.getBoundingClientRect().top - codeTop(box), size: sizeOf(box), line: was.line };
         return;
       }
       // Under a phone's sheet the code is inert, out of reach of a pointer, and of reading what's at one: the place
