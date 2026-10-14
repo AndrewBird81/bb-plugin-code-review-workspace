@@ -444,6 +444,15 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
 
   const canAdd = !busy && !rebuilding && !!file.trim() && !!body.trim() && Number.isInteger(Number(line)) && Number(line) >= 1;
   const positions = useMemo(() => diffPositions(patch), [patch]);
+  // A box in the code on a line the diff no longer shows, as after a rebuild, or a reload with one between, has no row
+  // to show under: it moves to the panel, whose fields say where it is and can move it.
+  useEffect(() => {
+    if (!showComposer || !inline || summaryBox || !patch) return;
+    const shown = positions.get(file);
+    if ((side === "LEFT" ? shown?.left : shown?.right)?.has(Number(line))) return;
+    setInline(false);
+    onOpenPanel?.("comments");
+  }, [showComposer, inline, summaryBox, patch, positions, file, line, side, onOpenPanel]);
   // The new-file lines a comment's box is on, as they read now, for Suggest change; null on old-file lines.
   const suggestable = useMemo(() => {
     if (!showComposer || summaryBox || asking || side !== "RIGHT" || startSide) return null;

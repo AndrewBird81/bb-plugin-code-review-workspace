@@ -5,13 +5,15 @@ import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { DraftProviderProps } from "./DraftProvider";
 
 // Render the diff's annotations, not @pierre/diffs' internals. Like pierre,
-// the gutter "+" reports a line selection right after its own click.
+// the gutter "+" reports a line selection right after its own click, and
+// annotations show only at rows the diff has: new lines 1–2 and old line 1.
+const ROWS: Record<string, number[]> = { additions: [1, 2], deletions: [1] };
 vi.mock("@pierre/diffs/react", () => ({
   FileDiff: ({ options, lineAnnotations, renderAnnotation }: any) => {
     const range = { start: 2, end: 2, side: "additions" };
     return (
       <div data-testid="filediff">
-        {lineAnnotations?.map((annotation: any, index: number) => <div key={index}>{renderAnnotation?.(annotation)}</div>)}
+        {lineAnnotations?.filter((a: any) => ROWS[a.side]?.includes(a.lineNumber)).map((annotation: any, index: number) => <div key={index}>{renderAnnotation?.(annotation)}</div>)}
         <button onClick={() => { options.onGutterUtilityClick(range); options.onLineSelected(range); }}>Gutter +</button>
       </div>
     );
@@ -34,7 +36,7 @@ async function renderReview(targetKey: string, rpc: Record<string, unknown>, onS
   const DraftTray = await draftTray();
   const { DiffViewer } = await import("./DiffViewer");
   const component = () => (
-    <DraftTray targetKey={targetKey} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" onShowComment={onShowComment}>
+    <DraftTray targetKey={targetKey} patch={patch} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" onShowComment={onShowComment}>
       <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} />
     </DraftTray>
   );
@@ -134,6 +136,48 @@ test("an unfinished comment in the diff is recovered there after the page reload
   slot.lifecycle.unmount();
   ({ slot, diff } = await renderReview("recover", rpc));
   expect((diff().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Don't lose this");
+  slot.lifecycle.unmount();
+});
+
+test("a recovered comment box on a line the diff no longer shows opens in the panel, and doesn't hold Submit unseen", async () => {
+  sessionStorage.setItem("guided-review:draft-recovery:stranded", JSON.stringify({ composer: { file: "src/a.ts", line: "40", side: "RIGHT", body: "Stranded text", inline: true, revision: "r1" } }));
+  const comments = [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "Existing" }];
+  const { slot, diff, panel } = await renderReview("stranded", { getDraft: () => ({ draft: { ...empty("stranded"), comments }, stale: [] }) });
+  const box = await panel().findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  expect(box.value).toBe("Stranded text");
+  expect(diff().queryByRole("textbox")).toBeNull();
+  expect(panel().queryByText(/^Writing a comment/)).toBeNull();
+  fireEvent.click(panel().getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect((slot.getAllByRole("button", { name: /^Submit to GitHub/ }) as HTMLButtonElement[]).some((b) => !b.disabled)).toBe(true));
+  slot.lifecycle.unmount();
+});
+
+test("a comment box open in the diff when a rebuild drops its line moves to the panel, text and all", async () => {
+  await loadPluginApp(() => import("../app"));
+  const DraftTray = await draftTray();
+  const { DiffViewer } = await import("./DiffViewer");
+  const onOpenPanel = vi.fn();
+  // The rebuilt diff adds only line 1.
+  const rebuilt = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n";
+  function Review() {
+    const [shown, setShown] = useState(patch);
+    return <>
+      <button onClick={() => setShown(rebuilt)}>Rebuild</button>
+      <DraftTray targetKey="rebuilt" patch={shown} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" onOpenPanel={onOpenPanel}>
+        <DiffViewer patch={shown} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} />
+      </DraftTray>
+    </>;
+  }
+  const slot = renderSlot({ component: Review }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: empty("rebuilt"), stale: [] }) } });
+  await slot.findByText("Draft saved");
+  const diff = () => within(slot.getByTestId("filediff"));
+  fireEvent.click(diff().getByRole("button", { name: "Gutter +" }));
+  fireEvent.change(diff().getByRole("textbox", { name: "Draft comment" }), { target: { value: "About line 2" } });
+  fireEvent.click(slot.getByRole("button", { name: "Rebuild" }));
+  const box = await within(slot.getByRole("region", { name: "Comments" })).findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  expect(box.value).toBe("About line 2");
+  expect(diff().queryByRole("textbox")).toBeNull();
+  expect(onOpenPanel).toHaveBeenLastCalledWith("comments");
   slot.lifecycle.unmount();
 });
 
