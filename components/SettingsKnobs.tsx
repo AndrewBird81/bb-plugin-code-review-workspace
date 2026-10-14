@@ -85,7 +85,7 @@ export function KnobControl({ id, record, onChange, numberText, onNumberText }: 
     </div>;
   }
   return <label className={`flex items-start gap-2.5 ${control.enabledWhen ? "ml-6" : ""}`}>
-    <input type="checkbox" className="mt-0.5 size-4 accent-primary" disabled={!enabled} checked={value} onChange={(event) => onChange(id, event.target.checked)} />
+    <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" disabled={!enabled} checked={value} onChange={(event) => onChange(id, event.target.checked)} />
     <span className="space-y-1"><span className="block text-sm font-medium">{control.label}</span><span className="block text-xs text-muted-foreground">{control.description}</span></span>
   </label>;
 }

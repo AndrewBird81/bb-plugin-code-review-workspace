@@ -544,6 +544,14 @@ test("how to set up Needs You shows while settings load and when they can't, and
   slot.lifecycle.unmount();
 });
 
+test("every settings checkbox keeps its size beside a description that wraps", async () => {
+  const { slot } = await renderSettings();
+  const boxes = slot.getAllByRole("checkbox");
+  expect(boxes.length).toBeGreaterThan(20);
+  expect(boxes.filter((box) => !box.classList.contains("shrink-0")).map((box) => box.closest("label")?.textContent)).toEqual([]);
+  slot.lifecycle.unmount();
+});
+
 test("a pace being typed goes when Check before you approve is turned off, so Save keeps the other edits", async () => {
   const { slot, saved, toggle, pace, saveButton } = await renderSettings();
   fireEvent.change(pace(), { target: { value: "50" } });
