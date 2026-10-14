@@ -5,6 +5,8 @@ import type { rpcContract } from "../src/rpc-contract";
 import type { PreferencesRecord } from "../src/preferences";
 import type { Machine } from "../src/machines";
 import { ASSISTANT_INSTRUCTIONS_LIMIT, defaultPreferences, type AgentExecution } from "../lib/review-preferences";
+import { defaultKnobs, type KnobId, type Knobs } from "../lib/knobs";
+import { withDefaults } from "../lib/settings";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { useReviewSession } from "../lib/review-session";
@@ -14,6 +16,7 @@ import { IconTile } from "./ui/icon-tile";
 import type { Tone } from "./ui/badge";
 import { AccountBar } from "./AccountBar";
 import { PageBar } from "./PageBar";
+import { KnobControl, type KnobNumberText } from "./SettingsKnobs";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 
 /** One of a setting's choices, pressed when it's chosen: a long one wraps on a narrow screen, and it's 44px on touch. */
@@ -169,23 +172,36 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
   const [updating, setUpdating] = useState(false);
   const [saved, setSaved] = useState(false);
   const [machines, setMachines] = useState<Machines>(undefined);
+  const [numberText, setNumberText] = useState<KnobNumberText>({});
   useEffect(() => {
     rpc.call("listMachines", null).then((result) => setMachines(result.machines), () => setMachines(null));
   }, [rpc]);
   const load = useCallback(async () => {
     setError("");
-    try { const result = await rpc.call("getPreferences", null); setRecord(result); setBaseline(JSON.stringify(result.preferences)); }
+    try { const result = await rpc.call("getPreferences", null); show({ ...result, preferences: withDefaults(result.preferences) }); }
     catch { setError("Couldn’t load settings. Try again."); }
   }, [rpc]);
   useEffect(() => { void load(); }, [load]);
-  const dirty = record !== null && baseline !== JSON.stringify(record.preferences);
-  // A custom selection is complete once the host pickers resolve a provider and model.
-  const incomplete = [record?.preferences.guideAgent, record?.preferences.assistantAgent].some((agent) => agent && (!agent.providerId || !agent.model));
+  /** Shows settings as loaded or saved, with nothing left to save. */
+  function show(next: PreferencesRecord) {
+    setRecord(next); setBaseline(JSON.stringify(next.preferences)); setNumberText({});
+  }
+  // A number still being typed counts, so Discard edits can clear it.
+  const dirty = record !== null && (baseline !== JSON.stringify(record.preferences) || Object.keys(numberText).length > 0);
+  // A custom selection is complete once the host pickers resolve a provider and model, and a number once it's in range.
+  const incomplete = [record?.preferences.guideAgent, record?.preferences.assistantAgent].some((agent) => agent && (!agent.providerId || !agent.model))
+    || Object.keys(numberText).length > 0;
   function setAgent(key: "guideAgent" | "assistantAgent", update: AgentUpdate) {
     setSaved(false);
     // Functional: both pickers can report reconciled values in the same render.
     setRecord((current) => current && { ...current, preferences: { ...current.preferences, [key]: update(current.preferences[key]) } });
   }
+  function setKnob<K extends KnobId>(id: K, value: Knobs[K]) {
+    setSaved(false);
+    setRecord((current) => current && { ...current, preferences: { ...current.preferences, knobs: { ...current.preferences.knobs, [id]: value } } });
+  }
+  const knob = (id: KnobId) => record && <KnobControl id={id} record={record.preferences} onChange={setKnob} numberText={numberText}
+    onNumberText={(key, text) => { setSaved(false); setNumberText(({ [key]: _previous, ...rest }) => text === undefined ? rest : { ...rest, [key]: text }); }} />;
   async function customize(key: "guideAgent" | "assistantAgent") {
     let seed: AgentExecution = { providerId: "", model: "", reasoningLevel: "medium", permissionMode: "auto" };
     try { seed = (await rpc.call("getAgentDefaults", null)).defaults ?? seed; }
@@ -201,28 +217,34 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
   async function save() {
     if (!record || busy || updating) return;
     setBusy(true); setError(""); setSaved(false);
-    try { const result = await rpc.call("savePreferences", record); setRecord(result); setBaseline(JSON.stringify(result.preferences)); setSaved(true); }
+    try { const result = await rpc.call("savePreferences", record); show({ ...result, preferences: withDefaults(result.preferences) }); setSaved(true); }
     catch (error) { setError(error instanceof Error ? error.message : "Couldn’t save settings. Your edits are still here."); }
     finally { setBusy(false); }
   }
+  const knobs = record?.preferences.knobs ?? defaultKnobs;
+  const autoStartWhen = !knobs.unattendedAgents ? "Start agents on their own is off, so these guides wait for your click."
+    : !knobs.alertTurns ? "When your review is requested there, the guide starts right away."
+    : "When your review is requested there, the guide is ready by the time you’re alerted.";
   if (!session.ready) return <div className="space-y-3 p-6"><p role={session.error ? "alert" : "status"}>{session.error || "Opening settings…"}</p>{session.error && <Button className={TOUCH_CONTROL} onClick={session.retry}>Try again</Button>}</div>;
   return <div className="flex h-full min-h-0 min-w-0 flex-col" style={{ backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
     {/* Back waits for your edits to be saved or discarded. */}
     {onBack && <PageBar back={back} onBack={onBack} backDisabled={dirty || busy || updating} title="Settings" />}
     <div className="min-h-0 flex-1 overflow-y-auto">
     <div className="mx-auto w-full max-w-6xl space-y-4 px-4 py-5 sm:px-8">
-      <p className="max-w-[75ch] pb-2 text-sm text-muted-foreground">Shape your guides and how the assistant helps you review. Applies across this BB installation.</p>
+      <p className="max-w-[75ch] pb-2 text-sm text-muted-foreground">Shape your guides, how the assistant helps, and how reviews read. Applies across this BB installation.</p>
       <SetupReadiness account={<AccountBar />} />
       <ReleaseSettings clientId={session.clientId} disabled={dirty || busy} onUpdatingChange={setUpdating} />
-      <section className="space-y-3 rounded-xl border border-border bg-card p-5 shadow-xs">
-        <SectionHeading icon="Mail" title="Guide notifications" />
-        <p className="max-w-[75ch] text-sm text-muted-foreground">Needs You can alert you when a guide is ready or generation fails, and when a review becomes your turn: re-requested, a question for you, or your feedback handled. Each alert links back to the review and clears when you open it. Install or update Needs You to 0.2.0-beta.3 or later, then enable Extension activity in its Settings. Telegram is optional.</p>
-        <a className={`relative inline-block text-sm text-primary underline underline-offset-4 ${TOUCH_TARGET}`} href="/plugins/inbox/inbox/settings" target="_blank" rel="noreferrer">Open Needs You settings</a>
-      </section>
       {error && <div role="alert" className="space-y-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text"><p className="flex items-start gap-2"><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />{error}</p><Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={busy || updating} onClick={() => void load()}>Reload saved settings</Button></div>}
       {!record ? !error && <p role="status">Loading settings…</p> : <>
         {/* min-w-0: a fieldset is otherwise as wide as its widest line, past a phone's edge. */}
         <fieldset disabled={busy || updating} className="min-w-0 space-y-4">
+          <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
+            <SectionHeading icon="Mail" title="Notifications" description="What Needs You alerts you about." />
+            {knob("alertGuides")}
+            {knob("alertTurns")}
+            <p className="max-w-[75ch] text-sm text-muted-foreground">Alerts go to Needs You. Each links back to the review and clears when you open it. Install or update Needs You to 0.2.0-beta.3 or later, then enable Extension activity in its Settings. Telegram is optional.</p>
+            <a className={`relative inline-block text-sm text-primary underline underline-offset-4 ${TOUCH_TARGET}`} href="/plugins/inbox/inbox/settings" target="_blank" rel="noreferrer">Open Needs You settings</a>
+          </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="Route" title="Guide generation" description="Used to build a guide, and to update or rebuild one. Existing guides stay as written." />
             <AgentSelection label="Guide writer agent" agent={record.preferences.guideAgent} machines={machines} disabled={busy || updating} onCustomize={() => void customize("guideAgent")} onChange={(update) => setAgent("guideAgent", update)} />
@@ -237,20 +259,26 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             <AgentSelection label="Review assistant agent" agent={record.preferences.assistantAgent} machines={machines} disabled={busy || updating} note="Used to start new conversations, which stay on the machine they started on. In a conversation, change the model and effort per message." onCustomize={() => void customize("assistantAgent")} onChange={(update) => setAgent("assistantAgent", update)} />
             <label className="block space-y-2"><span className="text-sm font-medium">Assistant instructions</span><Textarea aria-label="Assistant instructions" maxLength={ASSISTANT_INSTRUCTIONS_LIMIT} rows={5} value={record.preferences.assistantInstructions} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, assistantInstructions: event.target.value } }); }} placeholder="Prioritize correctness and security. Show a concrete failure case for suspected bugs. Keep suggestions actionable." /></label>
             <AgentCommentLearning instructions={record.preferences.assistantInstructions} onAdd={(lines) => { setSaved(false); setRecord((current) => current && { ...current, preferences: { ...current.preferences, assistantInstructions: [current.preferences.assistantInstructions.trim(), lines].filter(Boolean).join("\n") } }); }} />
-            <label className="block space-y-2"><span className="text-sm font-medium">Automatic review</span><Textarea aria-label="Automatic review" maxLength={12000} rows={4} value={record.preferences.automaticReview} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, automaticReview: event.target.value } }); }} /><span className="block text-xs text-muted-foreground">Sent to the assistant when a guide is ready and the review has no conversation yet. Its draft comments wait in Comments for you to edit and submit. Leave blank to turn the automatic review off.</span></label>
+            {knob("runAutomaticReview")}
+            <label className="ml-6 block space-y-2"><span className="text-sm font-medium">Automatic review</span><Textarea aria-label="Automatic review" disabled={!record.preferences.knobs.runAutomaticReview} maxLength={12000} rows={4} value={record.preferences.automaticReview} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, automaticReview: event.target.value } }); }} /><span className="block text-xs text-muted-foreground">Sent to the assistant when a guide is ready and the review has no conversation yet. Its draft comments wait in Comments for you to edit and submit. Leave blank to turn the automatic review off.</span></label>
+            {knob("recheckOnNewCommits")}
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="ListTodo" title="Whose turn" description="What brings a review back to Needs review, and which reviews to follow." />
             <div className="space-y-2"><p id="wake-on-replies-label" className="text-sm font-medium">When the author replies</p><div role="group" aria-labelledby="wake-on-replies-label" className="flex flex-wrap gap-2">
               {([ ["questions", "Questions for you"], ["any", "Any reply"] ] as const).map(([value, label]) => <Button key={value} variant="outline" size="sm" className={CHOICE} aria-pressed={record.preferences.wakeOnReplies === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, wakeOnReplies: value } }); }}>{label}</Button>)}
             </div></div>
-            <div className="space-y-2"><p id="push-checks-label" className="text-sm font-medium">After the author pushes</p><div role="group" aria-labelledby="push-checks-label" aria-describedby="push-checks-help" className="flex flex-wrap gap-2">
-              {([ ["off", "Do nothing"], ["progress", "Check my feedback"], ["ready", "Check, and bring it back when everything’s addressed"] ] as const).map(([value, label]) => <Button key={value} variant="outline" size="sm" className={CHOICE} aria-pressed={record.preferences.pushChecks === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, pushChecks: value } }); }}>{label}</Button>)}
+            {knob("mentionsWake")}
+            {knob("prepareOnReturn")}
+            {knob("runReReviewCheck")}
+            <label className="ml-6 block space-y-2"><span className="text-sm font-medium">Re-review check</span><Textarea aria-label="Re-review check" disabled={!record.preferences.knobs.runReReviewCheck} maxLength={12000} rows={4} value={record.preferences.verificationPrompt} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, verificationPrompt: event.target.value } }); }} /><span className="block text-xs text-muted-foreground">Sent to the review assistant when a review comes back to you. Leave blank to turn it off.</span></label>
+            <div className="ml-6 space-y-2"><p id="push-checks-label" className="text-sm font-medium">After the author pushes</p><div role="group" aria-labelledby="push-checks-label" aria-describedby="push-checks-help" className="flex flex-wrap gap-2">
+              {([ ["off", "Do nothing"], ["progress", "Check my feedback"], ["ready", "Check, and bring it back when everything’s addressed"] ] as const).map(([value, label]) => <Button key={value} variant="outline" size="sm" className={CHOICE} disabled={!record.preferences.knobs.runReReviewCheck} aria-pressed={record.preferences.pushChecks === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, pushChecks: value } }); }}>{label}</Button>)}
             </div><p id="push-checks-help" className="text-xs text-muted-foreground">The review assistant checks once the author’s pushes settle, using the Review assistant agent.</p></div>
             <label className="flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 accent-primary" checked={record.preferences.trackGithubReviews} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, trackGithubReviews: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Track reviews from GitHub</span><span className="block text-xs text-muted-foreground">Show PRs you’re asked to review or have reviewed on GitHub, not only reviews started here.</span></span></label>
             <label className="ml-6 flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 accent-primary" disabled={!record.preferences.trackGithubReviews} checked={record.preferences.trackTeamRequests} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, trackTeamRequests: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Include team requests</span><span className="block text-xs text-muted-foreground">Also show PRs that ask a team you’re on for review. Teams can be asked for many reviews.</span></span></label>
-            <label className="block space-y-2"><span className="text-sm font-medium">Start guides automatically</span><RepoPatterns value={record.preferences.autoStartRepos} onChange={(autoStartRepos) => { setSaved(false); setRecord((current) => current && { ...current, preferences: { ...current.preferences, autoStartRepos } }); }} /><span id="auto-start-help" className="block text-xs text-muted-foreground">One per line: <code className="font-mono">owner/repo</code>, <code className="font-mono">owner/*</code>, or <code className="font-mono">*</code>. When your review is requested there, the guide is ready by the time you’re alerted.</span></label>
-            <label className="block space-y-2"><span className="text-sm font-medium">Re-review check</span><Textarea aria-label="Re-review check" maxLength={12000} rows={4} value={record.preferences.verificationPrompt} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, verificationPrompt: event.target.value } }); }} /><span className="block text-xs text-muted-foreground">Sent to the review assistant when a review comes back to you. Leave blank to turn it off.</span></label>
+            {knob("trackReviewedPrs")}
+            <label className="block space-y-2"><span className="text-sm font-medium">Start guides automatically</span><RepoPatterns value={record.preferences.autoStartRepos} onChange={(autoStartRepos) => { setSaved(false); setRecord((current) => current && { ...current, preferences: { ...current.preferences, autoStartRepos } }); }} /><span id="auto-start-help" className="block text-xs text-muted-foreground">One per line: <code className="font-mono">owner/repo</code>, <code className="font-mono">owner/*</code>, or <code className="font-mono">*</code>. {autoStartWhen}</span></label>
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="GitCommit" title="Re-reviews" description="A PR you reviewed that has changed since." />
@@ -259,23 +287,42 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             </div><p id="rereview-shows-help" className="text-xs text-muted-foreground">Switch any time above a chapter’s files. Your switch holds for that review until its guide updates for new commits.</p></div>
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
+            <SectionHeading icon="FileText" title="Reading" description="How a review opens, and what shows around the code. How the code draws is in each review’s Diff options." />
+            {knob("returnToOverview")}
+            {knob("singleKeyShortcuts")}
+            {knob("foldViewedFiles")}
+            {knob("foldGeneratedFiles")}
+            {knob("requirements")}
+            {knob("codeOwners")}
+            {knob("ciInCode")}
+          </section>
+          <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
+            <SectionHeading icon="MessageSquare" title="Comments and Finish review" description="What selecting code offers, and what Finish review checks before you submit." />
+            {knob("askAboutSelection")}
+            {knob("approveGuard")}
+            {knob("approveGuardPace")}
+          </section>
+          <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="PanelLeft" title="BB’s thread list" />
             <label className="flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 accent-primary" checked={record.preferences.threadListReviews} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, threadListReviews: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Show reviews in the thread list</span><span className="block text-xs text-muted-foreground">Adds Needs review below Threads, and lets you pin reviews with your pinned threads. BB has no supported place for plugins there, so Guided Review adds them to BB’s own list. If a BB update makes that list misbehave, or you’d rather keep it to threads, turn this off. Your pins are kept for when you turn it back on.</span></span></label>
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="Lock" title="Trust" description="A PR’s description, comments, and code can try to steer an agent that reads them. Choose what runs without your click." />
+            {knob("unattendedAgents")}
             <div className="space-y-2"><p id="unattended-authors-label" className="text-sm font-medium">Run agents on their own for PRs from</p><div role="group" aria-labelledby="unattended-authors-label" aria-describedby="unattended-authors-help" className="flex flex-wrap gap-2">
               {([ ["members", "Members and collaborators"], ["anyone", "Anyone"] ] as const).map(([value, label]) => <Button key={value} variant="outline" size="sm" className={CHOICE} aria-pressed={record.preferences.unattendedAuthors === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, unattendedAuthors: value } }); }}>{label}</Button>)}
-            </div><p id="unattended-authors-help" className="text-xs text-muted-foreground">For other authors, no guide, automatic review, or feedback check starts by itself: the review says why, with a button to run it. Your own PRs and local reviews always run, unless the PR’s branch is in someone else’s fork.</p></div>
+            </div><p id="unattended-authors-help" className="text-xs text-muted-foreground">{knobs.unattendedAgents
+              ? "For other authors, no guide, automatic review, or feedback check starts by itself: the review says why, with a button to run it. Your own PRs and local reviews always run, unless the PR’s branch is in someone else’s fork."
+              : "Start agents on their own is off: on other people’s PRs, nothing starts until you click. This choice still decides whose PRs the repo’s tests and linters may run on."}</p></div>
             <label className="flex items-start gap-2.5"><input type="checkbox" className="mt-0.5 size-4 accent-primary" checked={record.preferences.runRepoChecks} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, runRepoChecks: event.target.checked } }); }} /><span className="space-y-1"><span className="block text-sm font-medium">Let the review agent run the repo’s tests and linters</span><span className="block text-xs text-muted-foreground">This runs the PR’s code on the agent’s machine, in a temporary git worktree, with the check commands the repo documents. Only on your own PRs and PRs from the authors above.</span></span></label>
           </section>
         </fieldset>
         <div className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-border bg-background/90 py-2.5 backdrop-blur">
           <Button className={TOUCH_CONTROL} disabled={!dirty || incomplete || busy || updating} onClick={() => void save()}>{busy ? "Saving…" : "Save settings"}</Button>
-          {dirty && <Button variant="ghost" className={TOUCH_CONTROL} disabled={busy || updating} onClick={() => { setRecord({ ...record, preferences: JSON.parse(baseline) }); setError(""); }}>Discard edits</Button>}
+          {dirty && <Button variant="ghost" className={TOUCH_CONTROL} disabled={busy || updating} onClick={() => { setRecord({ ...record, preferences: JSON.parse(baseline) }); setNumberText({}); setError(""); }}>Discard edits</Button>}
           <span role="status" className="text-xs text-muted-foreground">{saved ? "Settings saved" : dirty ? "Unsaved changes" : ""}</span>
           {/* The diff layout isn't on this page: the review's Diff options set it. */}
-          <Button variant="ghost" size="sm" className={`ml-auto ${TOUCH_CONTROL}`} disabled={busy || updating} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...defaultPreferences, diffLayout: record.preferences.diffLayout } }); }}>Restore defaults</Button>
+          <Button variant="ghost" size="sm" className={`ml-auto ${TOUCH_CONTROL}`} disabled={busy || updating} onClick={() => { setSaved(false); setNumberText({}); setRecord({ ...record, preferences: { ...defaultPreferences, knobs: { ...defaultKnobs }, diffLayout: record.preferences.diffLayout } }); }}>Restore defaults</Button>
         </div>
       </>}
     </div>

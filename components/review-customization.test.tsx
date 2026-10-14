@@ -424,3 +424,125 @@ test("a draft labels agents' comments, and Remove names the comment's location",
   await waitFor(() => expect(slot.queryByText("The agent's comment")).toBeNull());
   slot.lifecycle.unmount();
 });
+
+/** Settings over a saved record, which Save replaces. */
+async function renderSettings(preferences: Record<string, unknown> = { ...defaultPreferences }) {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  const saved = { record: { preferences, revision: 1 } as { preferences: any; revision: number } };
+  const save = vi.fn(async (input: any) => saved.record = { ...input, revision: input.revision + 1 });
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => saved.record, savePreferences: save } });
+  await slot.findByRole("textbox", { name: "Guide instructions" });
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const toggle = (label: string) => slot.getByRole("checkbox", { name: new RegExp(`^${escape(label)}`) }) as HTMLInputElement;
+  const pace = () => slot.getByRole("spinbutton", { name: "Flag chapters read faster than lines an hour" }) as HTMLInputElement;
+  const saveButton = () => slot.getByRole("button", { name: "Save settings" }) as HTMLButtonElement;
+  return { slot, saved, save, toggle, pace, saveButton };
+}
+const SECTION_TITLES = { notifications: "Notifications", assistant: "Review assistant", turn: "Whose turn", reading: "Reading", comments: "Comments and Finish review", trust: "Trust" } as const;
+
+test("every knob shows in its section, and each saves its non-default value", async () => {
+  const { KNOB_CONTROLS } = await import("./SettingsKnobs");
+  const { defaultKnobs } = await import("../lib/knobs");
+  expect(KNOB_CONTROLS.map((control) => control.id).sort()).toEqual(Object.keys(defaultKnobs).sort());
+  const { slot, saved, toggle, pace, saveButton } = await renderSettings();
+  for (const control of KNOB_CONTROLS) {
+    const section = slot.getByRole("heading", { name: SECTION_TITLES[control.section] }).closest("section")!;
+    const input = control.unit ? pace() : toggle(control.label);
+    expect({ id: control.id, inSection: section.contains(input) }).toEqual({ id: control.id, inSection: true });
+  }
+  // The pace first: it's disabled once Check before you approve is off.
+  fireEvent.change(pace(), { target: { value: "800" } });
+  for (const control of KNOB_CONTROLS) if (!control.unit) fireEvent.click(toggle(control.label));
+  fireEvent.click(saveButton());
+  await slot.findByText("Settings saved");
+  const off = Object.fromEntries(Object.keys(defaultKnobs).map((id) => [id, false]));
+  expect(saved.record.preferences).toEqual({ ...defaultPreferences, knobs: { ...off, approveGuardPace: 800 } });
+  slot.lifecycle.unmount();
+});
+
+test("a setting that depends on another is disabled while that one is off, and Trust's authors stay a choice", async () => {
+  const { slot, toggle, pace } = await renderSettings();
+  const automaticReview = slot.getByRole("textbox", { name: "Automatic review" }) as HTMLTextAreaElement;
+  const check = slot.getByRole("textbox", { name: "Re-review check" }) as HTMLTextAreaElement;
+  const pushes = () => within(slot.getByRole("group", { name: "After the author pushes" })).getAllByRole("button") as HTMLButtonElement[];
+  const authors = () => within(slot.getByRole("group", { name: "Run agents on their own for PRs from" })).getAllByRole("button") as HTMLButtonElement[];
+  const dependents = () => ({
+    automaticReview: automaticReview.disabled, check: check.disabled, pushes: pushes().every((button) => button.disabled),
+    reviewed: toggle("Include PRs you’ve reviewed").disabled, team: toggle("Include team requests").disabled, pace: pace().disabled,
+    authors: authors().some((button) => button.disabled),
+  });
+  expect(dependents()).toEqual({ automaticReview: false, check: false, pushes: false, reviewed: false, team: false, pace: false, authors: false });
+  for (const label of ["Run the automatic review", "Run the re-review check", "Track reviews from GitHub", "Check before you approve", "Start agents on their own"]) fireEvent.click(toggle(label));
+  expect(dependents()).toEqual({ automaticReview: true, check: true, pushes: true, reviewed: true, team: true, pace: true, authors: false });
+  expect(slot.getByText(/^Start agents on their own is off: on other people’s PRs, nothing starts until you click\. This choice still decides whose PRs the repo’s tests and linters may run on\.$/)).toBeTruthy();
+  fireEvent.click(toggle("Start agents on their own"));
+  expect(slot.getByText(/^For other authors, no guide, automatic review, or feedback check starts by itself.*unless the PR’s branch is in someone else’s fork\.$/)).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("Start guides automatically says when its guides start, which follows the turn alerts and Start agents on their own", async () => {
+  const { slot, toggle } = await renderSettings();
+  const help = () => slot.container.querySelector("#auto-start-help")!.textContent;
+  expect(help()).toMatch(/\. When your review is requested there, the guide is ready by the time you’re alerted\.$/);
+  fireEvent.click(toggle("A review becomes your turn"));
+  expect(help()).toMatch(/\. When your review is requested there, the guide starts right away\.$/);
+  fireEvent.click(toggle("Start agents on their own"));
+  expect(help()).toMatch(/\. Start agents on their own is off, so these guides wait for your click\.$/);
+  fireEvent.click(toggle("A review becomes your turn"));
+  expect(help()).toMatch(/wait for your click\.$/);
+  slot.lifecycle.unmount();
+});
+
+test("a pace that isn't a whole number from 100 to 2,000 holds Save, and Discard edits clears it", async () => {
+  const { slot, saved, pace, saveButton } = await renderSettings();
+  const error = "Use a whole number from 100 to 2,000.";
+  for (const value of ["99", "2001", "", "12.5"]) {
+    fireEvent.change(pace(), { target: { value } });
+    expect({ value, invalid: pace().getAttribute("aria-invalid"), error: !!slot.queryByText(error), save: saveButton().disabled }).toEqual({ value, invalid: "true", error: true, save: true });
+  }
+  fireEvent.change(pace(), { target: { value: "1000" } });
+  expect({ invalid: pace().getAttribute("aria-invalid"), error: !!slot.queryByText(error), save: saveButton().disabled }).toEqual({ invalid: "false", error: false, save: false });
+  fireEvent.change(pace(), { target: { value: "5" } });
+  fireEvent.click(slot.getByRole("button", { name: "Discard edits" }));
+  expect(pace().value).toBe("500");
+  expect(slot.queryByText(error)).toBeNull();
+  expect(slot.queryByText("Unsaved changes")).toBeNull();
+  // Typing alone is an edit to discard.
+  fireEvent.change(pace(), { target: { value: "5" } });
+  expect(slot.getByText("Unsaved changes")).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: "Discard edits" }));
+  fireEvent.change(pace(), { target: { value: "1500" } });
+  fireEvent.click(saveButton());
+  await slot.findByText("Settings saved");
+  expect(saved.record.preferences.knobs.approveGuardPace).toBe(1500);
+  slot.lifecycle.unmount();
+});
+
+test("Restore defaults turns every knob back to its default, clears a pace being typed, and keeps the diff layout", async () => {
+  const { defaultKnobs } = await import("../lib/knobs");
+  const { allKnobsOff } = await import("./settings-off.test-support");
+  const { slot, saved, toggle, pace, saveButton } = await renderSettings({ ...defaultPreferences, diffLayout: "unified", knobs: allKnobsOff });
+  expect(toggle("Single-key shortcuts").checked).toBe(false);
+  fireEvent.click(toggle("Check before you approve"));
+  fireEvent.change(pace(), { target: { value: "50" } });
+  fireEvent.click(slot.getByRole("button", { name: "Restore defaults" }));
+  expect(pace().value).toBe("500");
+  expect(pace().getAttribute("aria-invalid")).toBe("false");
+  expect(toggle("Single-key shortcuts").checked).toBe(true);
+  expect(saved.record.preferences.knobs).toEqual(allKnobsOff);
+  fireEvent.click(saveButton());
+  await slot.findByText("Settings saved");
+  expect(saved.record.preferences).toEqual({ ...defaultPreferences, diffLayout: "unified", knobs: defaultKnobs });
+  slot.lifecycle.unmount();
+});
+
+test("settings from a server without knobs show each at its default, with nothing to save", async () => {
+  const { knobs: _none, ...older } = defaultPreferences;
+  const { slot, toggle, pace, saveButton } = await renderSettings(older);
+  expect(toggle("Single-key shortcuts").checked).toBe(true);
+  expect(pace().value).toBe("500");
+  expect(slot.queryByText("Unsaved changes")).toBeNull();
+  expect(saveButton().disabled).toBe(true);
+  slot.lifecycle.unmount();
+});
