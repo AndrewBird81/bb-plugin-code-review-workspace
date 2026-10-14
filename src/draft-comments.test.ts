@@ -143,6 +143,21 @@ test("the reviewer's comment takes its severity from the panel's control or a la
   expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 3, side: "RIGHT", author: "agent", severity: "nit", body: "Rename it." }]);
 });
 
+test("the agent is told evidence's 600-character cap, on adding and on editing", async () => {
+  const { harness } = await host();
+  const { tools } = await harness.behavior.resolveAgentConfiguration({
+    pluginMetadata: {}, thread: { id: "assistant", title: "Review agent: pr-1", parentThreadId: null, sourceThreadId: null },
+    project: { id: "p1", kind: "personal", name: "Personal", gitRemoteUrl: null },
+    environment: { id: "env-1", name: null, path: null, workspaceProvisionType: "unmanaged", branchName: null },
+    host: { id: "host-1", name: "h" }, provider: { id: "claude-code", model: "opus", capabilities: { supportsNativeUserQuestion: false } },
+    origin: { kind: null, pluginId: "guided-review" },
+  } as any);
+  for (const name of ["add_draft_comment", "edit_draft_comment"]) {
+    const schema = tools.find((tool) => tool.name === name)?.inputSchema as { properties: { evidence: { description: string; maxLength: number } } };
+    expect({ name, cap: schema.properties.evidence.maxLength, told: schema.properties.evidence.description.includes("under 600 characters") }).toEqual({ name, cap: 600, told: true });
+  }
+});
+
 test("an agent's comment keeps how it checked it, an edit replaces or keeps that, Undo puts it back, and the reviewer's edit drops it", async () => {
   const { harness, store, call, add, error } = await host();
   const at = { file: "a.ts", line: 3, side: "RIGHT" as const };
