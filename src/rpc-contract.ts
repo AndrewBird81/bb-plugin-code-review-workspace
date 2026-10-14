@@ -135,9 +135,10 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), threadId: z.string() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
+  /** hasNewCommits: the guide is behind the PR, by new commits or, with baseChanged, a new base branch. */
   checkForUpdates: {
     input: targetKey,
-    output: z.object({ hasNewCommits: z.boolean(), current: z.string().optional(), stored: z.string().optional() }),
+    output: z.object({ hasNewCommits: z.boolean(), current: z.string().optional(), stored: z.string().optional(), baseChanged: z.object({ from: z.string(), to: z.string() }).optional() }),
   },
   rereview: {
     input: targetKey,

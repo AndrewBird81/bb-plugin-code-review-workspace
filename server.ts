@@ -53,7 +53,7 @@ import { createPluginUpdates } from "./src/plugin-updates";
 import { onPrepared } from "./src/generate";
 import { feedbackProgress, type TurnOptions } from "./lib/turn";
 import { findStacks } from "./lib/stacks";
-import { baselineOf, diffAt, feedbackView, headOf, prCommits, pruneDiffs, pruneOldDiffs, remainingBody, sinceReview } from "./src/feedback-view";
+import { baselineOf, diffAt, feedbackView, guideBehind, headOf, prCommits, pruneDiffs, pruneOldDiffs, remainingBody, sinceReview } from "./src/feedback-view";
 import { assess, changesSinceReview, describeFeedback, readFileAt, startVerification } from "./src/verification";
 import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
@@ -86,7 +86,7 @@ export default async function plugin(bb: BbPluginApi) {
       const review = store.getReview(targetKey);
       if (!review) return false;
       // An out-of-date guide is rebuilt first; its completion starts the check.
-      if (review.status === "tracked" || review.headSha !== headOf(review)) return (await rerunReview(deps, targetKey, { notify: false, unattended: true })).ok;
+      if (review.status === "tracked" || guideBehind(review)) return (await rerunReview(deps, targetKey, { notify: false, unattended: true })).ok;
       return startVerification(bb, store, targetKey, reasons[reason] ?? "the review came back to the reviewer");
     },
     checkPushes: (targetKey) => startVerification(bb, store, targetKey, "the author pushed new commits and they have settled"),
@@ -238,7 +238,7 @@ export default async function plugin(bb: BbPluginApi) {
         if (!review || !skipped || review.status === "generating") return { ok: true };
         let result: { ok: boolean; error?: string };
         // A guide that's missing or behind the PR is built first. Starting it approves its head, so the review or check follows.
-        if (skipped.run === "guide" || review.status === "tracked" || skipped.run === "check" && review.headSha !== headOf(review)) {
+        if (skipped.run === "guide" || review.status === "tracked" || skipped.run === "check" && guideBehind(review)) {
           result = await rerunReview(deps, targetKey);
         } else {
           store.setLifecycle(targetKey, { approvedHead: skipped.run === "check" ? headOf(review) : review.headSha ?? null, skippedRun: null });
@@ -487,7 +487,8 @@ export default async function plugin(bb: BbPluginApi) {
       await sync.one(targetKey);
       const m = store.getReview(targetKey);
       if (!m || m.kind !== "pr" || !m.number || m.archivedAt || !m.latestHeadSha) return { hasNewCommits: false };
-      return { hasNewCommits: !!m.headSha && m.latestHeadSha !== m.headSha, current: m.latestHeadSha, ...(m.headSha ? { stored: m.headSha } : {}) };
+      const baseChanged = m.base && m.latestBase && m.latestBase !== m.base ? { baseChanged: { from: m.base, to: m.latestBase } } : {};
+      return { hasNewCommits: !!m.headSha && guideBehind(m), current: m.latestHeadSha, ...(m.headSha ? { stored: m.headSha } : {}), ...baseChanged };
     },
     async rereview({ targetKey }) {
       await sync.one(targetKey, true);

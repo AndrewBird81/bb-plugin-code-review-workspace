@@ -23,6 +23,8 @@ export interface ReviewLifecycle {
   submittedHeadSha?: string | null;
   reviewer?: string | null;
   latestHeadSha?: string;
+  /** The PR's base branch as the sync last read it; `base` stays the one the guide was written against. */
+  latestBase?: string;
   /** What GitHub says about whose turn it is. */
   signals?: TurnSignals | null;
   /** Snoozed until the author responds: hidden from Needs review until a newer signal. */

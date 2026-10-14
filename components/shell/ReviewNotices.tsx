@@ -27,18 +27,25 @@ const TONE = {
   info: "bg-primary/5 text-foreground",
 } as const;
 
-/** Whether the PR has commits its guide wasn't written for; asked again each time the review changes. */
-export function useNewCommits(targetKey: string, enabled: boolean): boolean {
+/**
+ * Whether the PR has moved on from its guide, by commits or a new base branch, and the notice that says so; asked again
+ * each time the review changes.
+ */
+export function useNewCommits(targetKey: string, enabled: boolean): { newCommits: boolean; text: string } {
   const rpc = useRpc<typeof rpcContract>();
-  const [newCommits, setNewCommits] = useState(false);
+  const [update, setUpdate] = useState<{ hasNewCommits: boolean; current?: string; stored?: string; baseChanged?: { from: string; to: string } }>({ hasNewCommits: false });
   const check = useCallback(() => {
     if (!enabled) return;
     // Without an answer there's nothing to say.
-    rpc.call("checkForUpdates", { targetKey }).then((result) => setNewCommits(result.hasNewCommits), () => {});
+    rpc.call("checkForUpdates", { targetKey }).then(setUpdate, () => {});
   }, [rpc, targetKey, enabled]);
   useEffect(check, [check]);
   useRealtime(`review:${targetKey}`, check);
-  return enabled && newCommits;
+  const base = update.baseChanged;
+  const text = !base ? "New commits since this guide was written."
+    : update.current !== update.stored ? `New commits, and the PR’s base changed from ${base.from} to ${base.to}, since this guide was written.`
+    : `The PR’s base changed from ${base.from} to ${base.to} since this guide was written.`;
+  return { newCommits: enabled && update.hasNewCommits, text };
 }
 
 /** The review's notices, under the band: the first, most pressing, and "+N" to show the rest beneath it. */

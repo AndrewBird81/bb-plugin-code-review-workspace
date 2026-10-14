@@ -34,9 +34,11 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       const head = await authenticatedRun(ghPrHeadArgs(m.number, m.repo));
       if (head.code !== 0) return { ok: false, error: ghErrorMessage(head) };
       let current: unknown;
+      let base: unknown;
       try {
         const snapshot = JSON.parse(head.stdout);
         current = snapshot?.headRefOid;
+        base = snapshot?.baseRefName;
         if (snapshot.state === "MERGED" || snapshot.state === "CLOSED") {
           store.setLifecycle(targetKey, { prState: snapshot.state, archivedAt: Date.now() });
           return { ok: false, error: `This PR is ${snapshot.state.toLowerCase()}. Your draft has been kept.` };
@@ -44,6 +46,7 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       } catch { /* reject below */ }
       if (typeof current !== "string" || !current) return { ok: false, error: "Could not verify the PR revision. Your draft has been kept." };
       if (current !== m.headSha) return { ok: false, error: "The PR has new commits. Update the guide for them before submitting. Your draft has been kept." };
+      if (typeof base === "string" && base && m.base && base !== m.base) return { ok: false, error: `The PR's base changed to ${base}. Update the guide for it before submitting. Your draft has been kept.` };
       if (store.getReview(targetKey)?.status === "generating" || store.getReview(targetKey)?.headSha !== m.headSha) return { ok: false, error: "The review changed during submission. Wait for generation and review the draft again." };
       if (revision) requireReviewRevision(store, targetKey, revision);
       const result = await authenticatedRun(ghSubmitReviewArgs(m.repo, m.number), {

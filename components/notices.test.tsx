@@ -51,6 +51,19 @@ test("new commits show a notice with Update guide, which rebuilds it; once the g
   slot.lifecycle.unmount();
 });
 
+test("a PR retargeted to a new base says so in the Update guide notice, with or without new commits", async () => {
+  const baseChanged = { from: "parent", to: "main" };
+  const checkForUpdates = vi.fn().mockReturnValueOnce({ hasNewCommits: true, current: "new", stored: "new", baseChanged })
+    .mockReturnValue({ hasNewCommits: true, current: "newer", stored: "new", baseChanged });
+  const { slot } = await renderWorkspace({ checkForUpdates });
+  const text = "The PR’s base changed from parent to main since this guide was written.";
+  await slot.findByText(text);
+  expect(within(notice(slot, text)).getByRole("button", { name: "Update guide" })).toBeTruthy();
+  await slot.emitRealtime("review:pr-42", {});
+  await slot.findByText("New commits, and the PR’s base changed from parent to main, since this guide was written.");
+  slot.lifecycle.unmount();
+});
+
 test("one notice shows, the most pressing first, and +N shows the rest under it", async () => {
   const { slot } = await renderWorkspace({
     checkForUpdates: () => ({ hasNewCommits: true }),

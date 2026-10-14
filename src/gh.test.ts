@@ -90,10 +90,10 @@ test("pr checks json requests the fields we need, with optional -R", () => {
 
 test("pr head requests headRefOid and reviewDecision, with optional -R", () => {
   expect(ghPrHeadArgs(12)).toEqual([
-    "pr", "view", "12", "--json", "headRefOid,reviewDecision,state",
+    "pr", "view", "12", "--json", "headRefOid,baseRefName,reviewDecision,state",
   ]);
   expect(ghPrHeadArgs(12, "acme/web")).toEqual([
-    "pr", "view", "12", "--json", "headRefOid,reviewDecision,state", "-R", "acme/web",
+    "pr", "view", "12", "--json", "headRefOid,baseRefName,reviewDecision,state", "-R", "acme/web",
   ]);
 });
 

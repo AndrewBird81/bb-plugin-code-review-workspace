@@ -548,7 +548,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     } finally { setRebuilding(false); }
   }, [rebuilding, rpc, targetKey, load]);
   const archived = !!review?.archivedAt;
-  const newCommits = useNewCommits(targetKey, isPr && !archived);
+  const { newCommits, text: newCommitsText } = useNewCommits(targetKey, isPr && !archived);
 
   const checkAccess = useMemo(
     () => async () => {
@@ -1165,7 +1165,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
     ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here." }] as const : []),
     ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review)}.`, action: <NotRunButton review={review} /> }] as const : []),
-    ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: "New commits since this guide was written.", action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),
+    ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: newCommitsText, action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),
   ];
   // Inside the padding that keeps the workspace clear of the screen's edges.
   const rootStyle = rootEl && getComputedStyle(rootEl);

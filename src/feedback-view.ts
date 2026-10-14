@@ -17,6 +17,9 @@ export { baselineOf } from "../lib/turn";
 /** The most files GitHub's compare endpoint lists. */
 const COMPARE_FILES = 300;
 export const headOf = (review: ReviewMeta) => review.latestHeadSha ?? review.headSha ?? null;
+/** Whether the PR has moved on from the guide: new commits, or a new base branch (a stacked PR retargeted). */
+export const guideBehind = (review: ReviewMeta) =>
+  review.headSha !== headOf(review) || !!review.base && !!review.latestBase && review.latestBase !== review.base;
 
 /**
  * The PR's diff at a commit: saved, the review's own diff, the PR's current

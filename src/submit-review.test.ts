@@ -40,6 +40,16 @@ test("new PR commits block all writes and retain the draft", async () => {
   expect(store.getDraft("pr-test")).toEqual(draft);
 });
 
+test("a PR retargeted to a new base blocks all writes and retains the draft", async () => {
+  const { store, run, submit } = setup();
+  store.saveReview({ ...store.getReview("pr-test")!, base: "parent" });
+  const draft = store.getDraft("pr-test");
+  run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha1","baseRefName":"main"}' });
+  expect(await submit("pr-test")).toEqual({ ok: false, error: "The PR's base changed to main. Update the guide for it before submitting. Your draft has been kept." });
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(store.getDraft("pr-test")).toEqual(draft);
+});
+
 test("a failed GitHub write keeps the draft and surfaces field errors", async () => {
   const { store, run, submit } = setup();
   const draft = store.getDraft("pr-test");

@@ -630,6 +630,16 @@ test("a review snoozed until a time comes back to Needs review then, and the lis
   expect(lists()).toBe(before + 1);
 });
 
+test("a base-branch retarget is recorded, and the guide keeps its base until it's updated", async () => {
+  // A stacked PR on `parent`; the parent merges and GitHub retargets it to main, with the same head.
+  const s = setup({ pr: { baseRefName: "parent" } });
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")).toMatchObject({ base: "parent", latestBase: "parent" });
+  s.pr({ baseRefName: "main" });
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")).toMatchObject({ base: "parent", latestBase: "main", latestHeadSha: "sha1", headSha: "sha1" });
+});
+
 test("sync health: an expired gh login, then a good read", async () => {
   const s = setup();
   let login: string | null = null;

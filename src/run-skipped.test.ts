@@ -55,6 +55,14 @@ test("Run builds a guide that didn't start, or one behind the PR, and approves i
   }
 });
 
+test("Run rebuilds the guide first for a check on a PR retargeted to a new base", async () => {
+  const { harness, store, titles } = await setup({ skippedRun: { run: "check", head: "sha1", at: 1 }, latestBase: "main" });
+  store.saveReview({ ...store.getReview("pr-1")!, base: "parent" });
+  expect(await harness.behavior.callRpc("runSkipped", { targetKey: "pr-1" })).toEqual({ ok: true });
+  expect(titles()).toEqual(["Generate guide: pr-1"]);
+  await vi.waitFor(() => expect(store.getReview("pr-1")).toMatchObject({ status: "generating", base: "main" }));
+});
+
 test("a run that can't start keeps its Run button", async () => {
   const { harness, store } = await setup({ skippedRun: { run: "review", head: "sha1", at: 1 } });
   harness.inspection.sdk.stub("projects.defaultExecutionOptions", async () => null);

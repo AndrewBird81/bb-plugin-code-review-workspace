@@ -28,7 +28,7 @@ export function ghPrChecksJsonArgs(number: number, repo?: string): string[] {
   return repo ? [...a, "-R", repo] : a;
 }
 export function ghPrHeadArgs(number: number, repo?: string): string[] {
-  const a = ["pr", "view", String(number), "--json", "headRefOid,reviewDecision,state"];
+  const a = ["pr", "view", String(number), "--json", "headRefOid,baseRefName,reviewDecision,state"];
   return repo ? [...a, "-R", repo] : a;
 }
 const REVIEW_THREADS_QUERY = `query($owner:String!,$repo:String!,$number:Int!,$after:String){

@@ -159,6 +159,14 @@ test("checkForUpdates compares the head the sync read with the guide's, without 
   expect(vi.mocked(gh.runGh).mock.calls.filter(([args]) => args[0] === "pr" && args[1] === "view")).toEqual([]);
 });
 
+test("checkForUpdates says the guide is behind when the PR's base changed, with the same head", async () => {
+  const { harness, store } = await seeded();
+  store.saveReview({ ...store.getReview("pr-1")!, base: "parent" });
+  store.setLifecycle("pr-1", { latestHeadSha: "oldsha", latestBase: "main" });
+  const res: any = await harness.behavior.callRpc("checkForUpdates", { targetKey: "pr-1" });
+  expect(res).toEqual({ hasNewCommits: true, current: "oldsha", stored: "oldsha", baseChanged: { from: "parent", to: "main" } });
+});
+
 test("getReviewBundle leaves out the patch the page already shows", async () => {
   const { harness, store } = await seeded();
   const first: any = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" });

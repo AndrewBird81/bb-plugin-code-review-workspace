@@ -9,6 +9,7 @@ import { matchesRepo } from "./preferences";
 import { mayRunUnattended } from "../lib/trust";
 import { targetKey as keyFor } from "./targets";
 import { fetchPrFacts } from "./github/pr-facts";
+import { guideBehind } from "./feedback-view";
 import { fetchMyThreads } from "./github/threads";
 import { createNotificationGate, type NotificationGate } from "./github/notifications";
 import { discoverPrs } from "./github/discovery";
@@ -360,7 +361,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     if (!mayRunUnattended(review, preferences, head)) {
       // A check that's turned off wouldn't have run; the guide behind it still needed rebuilding.
       const check = !!preferences.verificationPrompt.trim();
-      const skipped = request || review.status === "tracked" || review.headSha !== head || check;
+      const skipped = request || review.status === "tracked" || guideBehind(review) || check;
       store.setLifecycle(key, { preparedSignal: turn.signal, ...(skipped ? { skippedRun: { run: request || !check ? "guide" : "check", head, at: clock() } } : {}) });
       return false;
     }
