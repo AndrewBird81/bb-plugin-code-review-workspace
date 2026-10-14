@@ -56,10 +56,10 @@
   },
   "description": "Chaptered pull-request reviews inside BB, with a review assistant.",
   "author": "Pritam Sharma",
-  "homepage": "https://notpritam.in/plugins/guided-review",
+  "homepage": "https://github.com/AndrewBird81/bb-plugin-guided-review#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/notpritam/bb-plugin-guided-review.git"
+    "url": "https://github.com/AndrewBird81/bb-plugin-guided-review.git"
   },
   "license": "MIT"
 }

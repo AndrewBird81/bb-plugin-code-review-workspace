@@ -93,3 +93,16 @@ test("manual update locks settings editors until replacement completes", async (
   finish({ outcome: "updated", version: "0.2.1" });
   await slot.findByText(/Updated to 0.2.1/);
 });
+
+test("release notes open this fork's releases on GitHub", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  const status = { installedVersion: "0.6.0", automatic: false, updating: false, outcome: "current", latestVersion: "0.6.0", candidateVersion: null, checkedAt: 1, error: null };
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: {
+    setReviewPresence: () => ({ ok: true }), getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getReleaseStatus: () => status,
+    getSetupStatus: () => ({ account: "casey", githubCli: true, agentAvailable: true, projectAvailable: true }),
+  } });
+  expect((await slot.findByRole("link", { name: "Release notes" })).getAttribute("href")).toBe("https://github.com/AndrewBird81/bb-plugin-guided-review/releases");
+  slot.lifecycle.unmount();
+});

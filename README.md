@@ -8,18 +8,10 @@ An agent-authored walkthrough of a GitHub pull request or local Git change, insi
 
 You need **BB 0.41+ with Node 24+**, a configured BB agent provider, and `git` and GitHub CLI (`gh`) on the **machine running BB**. GitHub features support github.com. No npm or build step is needed.
 
-Add the marketplace once, then install Guided Review:
+Install Guided Review from its Git repository; the range follows compatible 0.6.x releases:
 
 ```sh
-bb marketplace add git:github.com/notpritam/bb-marketplace@main
-bb marketplace refresh notpritam
-bb plugin install guided-review@notpritam
-```
-
-Or open **Extensions**, search **Guided Review**, and choose **Install** after adding the marketplace. Direct Git installation can also follow compatible releases:
-
-```sh
-bb plugin install git:github.com/notpritam/bb-plugin-guided-review@^0.2.0
+bb plugin install git:github.com/AndrewBird81/bb-plugin-guided-review@^0.6.0
 ```
 
 1. Open **Guided Review**. With no reviews yet, **All reviews** checks your setup and says how to start; you can revisit it in **Settings → Ready to review**.
@@ -36,7 +28,7 @@ Open **Settings → Plugin updates** to check for a compatible release, read its
 
 **Automatic updates are off by default.** If enabled, the plugin checks hourly after five idle minutes and waits until all Guided Review and Settings pages are closed, with no generation, save, or submission in progress. Assistant conversations run in BB and continue across plugin updates. Reviews, drafts, private notes, conversations, and preferences remain in BB. Failed checks are visible and retried later; BB handles failed-install rollback.
 
-Marketplace installs track `^0.2.0` (compatible 0.2.x releases). Catalog refresh only refreshes listings. You can also update with `bb plugin update guided-review`; close the plugin’s pages first, since BB’s external update command does not use the in-plugin activity guard. Local directories and exact tags are pinned and do not receive automatic updates. Changing a local installation to a marketplace source is a separate migration: this BB version requires removing the old source first, which can clear plugin data. Do not remove an existing installation just to obtain updates; keep its data and arrange a backup/migration with the BB operator. Fresh marketplace installs are ready for normal updates.
+Installs from a Git range, such as `^0.6.0`, follow its compatible releases (0.6.x). You can also update with `bb plugin update guided-review`; close the plugin’s pages first, since BB’s external update command does not use the in-plugin activity guard. Local directories and exact tags are pinned and do not receive automatic updates. Changing a local installation to a Git source is a separate migration: this BB version requires removing the old source first, which can clear plugin data. Do not remove an existing installation just to obtain updates; keep its data and arrange a backup/migration with the BB operator. Fresh installs from a Git range are ready for normal updates.
 
 An interrupted browser connection can leave an editing session protected. If the updater still asks you to close pages after they are all closed, save any work elsewhere and reload the plugin through BB. Editing sessions intentionally never expire while a laptop might still hold unsaved text.
 
