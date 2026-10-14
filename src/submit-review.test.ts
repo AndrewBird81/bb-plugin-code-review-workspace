@@ -31,6 +31,16 @@ test("submission pins the reviewed commit and clears only the submitted draft", 
   expect(run).toHaveBeenCalledTimes(2);
 });
 
+test("how the agent checked a comment stays in BB: GitHub gets the comment without it", async () => {
+  const { store, run, submit } = setup();
+  store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "RIGHT", author: "agent", severity: "should-fix", body: "Please explain this", evidence: "Read a.ts:1 and its callers." });
+  expect(await submit("pr-test", undefined, undefined, store.getDraft("pr-test").comments)).toEqual({ ok: true });
+  const sent = run.mock.calls.at(-1)![1]!.stdin!;
+  expect(JSON.parse(sent).comments).toEqual([{ path: "a.ts", line: 1, side: "RIGHT", body: "**Should fix:** Please explain this" }]);
+  expect(sent).not.toContain("evidence");
+  expect(sent).not.toContain("Read a.ts:1");
+});
+
 test("new PR commits block all writes and retain the draft", async () => {
   const { store, run, submit } = setup();
   const draft = store.getDraft("pr-test");

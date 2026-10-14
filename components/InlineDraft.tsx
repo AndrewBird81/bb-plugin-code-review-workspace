@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, type KeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
+import { createContext, memo, useContext, useState, type KeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { linesOf, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
 import { draftItemId, draftState, privateItemId, STATE_LABEL } from "../lib/comments";
@@ -160,7 +160,7 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
           </span>
         )}
       </div>
-      <div className="px-3 pb-2.5"><CommentBody body={comment.body} /></div>
+      <div className="space-y-2 px-3 pb-2.5"><CommentBody body={comment.body} />{comment.evidence && <AgentEvidence evidence={comment.evidence} />}</div>
       {state === "older-diff" && <p className="border-t border-warning/20 bg-warning/10 px-3 py-1.5 text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
     </article>
   );
@@ -194,6 +194,17 @@ export function CommentBody({ body }: { body: string }) {
         <pre className="overflow-x-auto bg-success/10 px-2 py-1.5 font-mono text-xs leading-relaxed"><code>{part.replace(/\n$/, "")}</code></pre>
       </figure>
     : part.trim() && <Markdown key={index} content={withLineBreaks(part.trim())} className="text-sm leading-relaxed" />)}</div>;
+}
+
+/** How the agent confirmed its comment, folded under it in the agent's tint. It stays in BB: GitHub never gets it. */
+export function AgentEvidence({ evidence }: { evidence: string }) {
+  const [open, setOpen] = useState(false);
+  return <div className="rounded-md border-l-2 border-(--ansi-13)/60 bg-(--ansi-13)/5">
+    <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cn("flex min-h-7 w-full items-center gap-1.5 rounded-md px-2.5 text-left text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)}>
+      <Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />How the agent checked<Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3" aria-hidden />
+    </button>
+    {open && <Markdown content={evidence} className="px-2.5 pb-1.5 text-sm leading-relaxed" />}
+  </div>;
 }
 
 /** Heads a discussion with no comment: a question about the line, or one whose comment the agent removed. Private: it never leaves BB. */

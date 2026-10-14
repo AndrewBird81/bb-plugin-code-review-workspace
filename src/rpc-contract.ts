@@ -22,6 +22,8 @@ const commentShape = z
     // A label the body starts with sets it instead (src/draft.ts severityOf).
     severity: z.enum(SEVERITIES).optional(),
     body: z.string().min(1),
+    // And with how the agent checked it; an edit in the panel sends none, so it goes.
+    evidence: z.string().max(600).optional(),
   })
   .strict();
 

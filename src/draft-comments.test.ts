@@ -142,3 +142,25 @@ test("the reviewer's comment takes its severity from the panel's control or a la
   await save({ author: "agent", severity: "nit", body: "Rename it." });
   expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 3, side: "RIGHT", author: "agent", severity: "nit", body: "Rename it." }]);
 });
+
+test("an agent's comment keeps how it checked it, an edit replaces or keeps that, Undo puts it back, and the reviewer's edit drops it", async () => {
+  const { harness, store, call, add, error } = await host();
+  const at = { file: "a.ts", line: 3, side: "RIGHT" as const };
+  expect(error(await add({ ...at, code: "const c = b * 2;", body: "This overflows.", evidence: " Read a.ts:3; `b` is unbounded from a.ts:2. " }))).toBeNull();
+  expect(store.getDraft("pr-1").comments).toEqual([{ ...at, author: "agent", body: "This overflows.", evidence: "Read a.ts:3; `b` is unbounded from a.ts:2." }]);
+  await expect(add({ file: "a.ts", line: 1, code: "const a = 1;", body: "x", evidence: "x".repeat(601) })).rejects.toThrow();
+  store.addDiscussionMessage("pr-1", at, "reviewer", "Shorter?");
+  expect(error(await call("edit_draft_comment", { ...at, body: "Overflows." }))).toBeNull();
+  expect(store.getDraft("pr-1").comments[0].evidence).toBe("Read a.ts:3; `b` is unbounded from a.ts:2.");
+  expect(error(await call("edit_draft_comment", { ...at, body: "Overflows.", evidence: "Ran it with b = 2^31." }))).toBeNull();
+  expect(store.getDraft("pr-1").comments[0].evidence).toBe("Ran it with b = 2^31.");
+  await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", ...at });
+  expect(store.getDraft("pr-1").comments[0].evidence).toBe("Read a.ts:3; `b` is unbounded from a.ts:2.");
+  expect(error(await call("delete_draft_comment", at))).toBeNull();
+  await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", ...at });
+  expect(store.getDraft("pr-1").comments[0]).toEqual({ ...at, author: "agent", body: "Overflows.", evidence: "Read a.ts:3; `b` is unbounded from a.ts:2." });
+  // The reviewer's words now: what the agent checked was for its own.
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" }) as any;
+  const saved = await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, comment: { ...at, body: "Overflows for large b." } }) as any;
+  expect(saved.draft.comments).toEqual([{ ...at, body: "Overflows for large b." }]);
+});

@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
-import { AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_SUMMARY, VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, defaultPreferences, readPreferences } from "./preferences";
+import { AUTOMATIC_REVIEW_BEFORE_EVIDENCE, AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_SUMMARY, VERIFICATION_PROMPT_BEFORE_OPEN_THREADS, defaultPreferences, readPreferences } from "./preferences";
 import { buildGenerationPrompt } from "./generate";
 import { generateGuide } from "./generate";
 import { startConversation } from "./agent";
@@ -178,4 +178,13 @@ test("an automatic review saved with the default from before precision-first rev
   const custom = `${AUTOMATIC_REVIEW_BEFORE_PRECISION} Focus on security.`;
   store.savePreferences({ ...defaultPreferences, automaticReview: custom }, 1);
   expect(store.getPreferences().preferences.automaticReview).toBe(custom);
+});
+
+test("an automatic review saved with the default from before it asked for evidence reads as the current default", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  expect(defaultPreferences.automaticReview).toBe(AUTOMATIC_REVIEW_BEFORE_EVIDENCE.replace("add a ```suggestion block.", "add a ```suggestion block. Put how you confirmed it in evidence, with file:line: only what you read or ran."));
+  store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_EVIDENCE }, 0);
+  expect(store.getPreferences().preferences.automaticReview).toBe(defaultPreferences.automaticReview);
 });

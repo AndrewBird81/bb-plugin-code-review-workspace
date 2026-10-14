@@ -50,6 +50,8 @@ export interface DraftComment {
   severity?: Severity;
   /** The text, without its severity's label. */
   body: string;
+  /** How the agent confirmed it: what it read or ran, with file:line. Shown in BB only; never posted. Gone once the reviewer edits the comment. */
+  evidence?: string;
 }
 
 /** A comment's place in the diff; a draft holds at most one comment per location. */

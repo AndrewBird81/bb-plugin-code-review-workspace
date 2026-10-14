@@ -416,8 +416,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     if (!free.length) return;
     await mutate(async () => {
       for (const comment of free) {
-        const { file, line, side, chapterId, author, severity, body } = comment;
-        apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), comment: { file, line, side, ...rangeOf(comment), ...(chapterId ? { chapterId } : {}), ...(author ? { author } : {}), ...(severity ? { severity } : {}), body } })) as { draft: Draft });
+        const { file, line, side, chapterId, author, severity, body, evidence } = comment;
+        apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), comment: { file, line, side, ...rangeOf(comment), ...(chapterId ? { chapterId } : {}), ...(author ? { author } : {}), ...(severity ? { severity } : {}), body, ...(evidence ? { evidence } : {}) } })) as { draft: Draft });
       }
     });
   }

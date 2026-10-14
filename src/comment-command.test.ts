@@ -68,6 +68,18 @@ test("bb review comment explains refusals and usage mistakes", async () => {
   expect(await cli("add", "--help")).toMatchObject({ exitCode: 0 });
 });
 
+test("bb review comment keeps how the agent checked a comment with --evidence", async () => {
+  const { store, cli } = await host();
+  expect(await cli("add", url, "a.ts:2", "--code", "next();", "--body", "Callers still use old().", "--evidence", "grep finds old() in b.ts:4.")).toMatchObject({ exitCode: 0 });
+  expect(store.getDraft(key).comments[0].evidence).toBe("grep finds old() in b.ts:4.");
+  expect(await cli("edit", url, "a.ts:2", "--body", "b.ts still calls old().")).toMatchObject({ exitCode: 0 });
+  expect(store.getDraft(key).comments[0].evidence).toBe("grep finds old() in b.ts:4.");
+  expect(await cli("edit", url, "a.ts:2", "--body", "b.ts still calls old().", "--evidence", "Read b.ts:4.")).toMatchObject({ exitCode: 0 });
+  expect(store.getDraft(key).comments[0].evidence).toBe("Read b.ts:4.");
+  expect(await cli("add", url, "a.ts:1", "--code", "keep();", "--body", "x", "--evidence", "x".repeat(601))).toMatchObject({ exitCode: 2, stderr: expect.stringMatching(/^--evidence is limited to 600 characters\./) });
+  expect(await cli("delete", url, "a.ts:2", "--evidence", "x")).toMatchObject({ exitCode: 2, stderr: expect.stringMatching(/^delete doesn't take --evidence/) });
+});
+
 test("bb review comment sets a comment's severity with --severity or a label, and lists it", async () => {
   const { store, cli } = await host();
   expect(await cli("add", url, "a.ts:2", "--code", "next();", "--severity", "Should-fix", "--body", "Rename it back.")).toMatchObject({ exitCode: 0 });

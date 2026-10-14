@@ -53,7 +53,7 @@ export const defaultPreferences: ReviewPreferences = {
     "1. Start with read_pr_context: what the PR says it does, linked tickets, the repo's review rules, CI, and what other reviewers already raised.",
     "2. Read the whole diff, high-risk chapters first. Before you comment, confirm the problem with read_file (callers, the base version). If you can't confirm it, don't comment; ask a question only when the answer decides whether there's a bug.",
     "3. Skip style, naming, formatting, anything a linter or CI reports, lockfiles, generated files, and anything an existing GitHub thread already raises.",
-    "4. One issue per add_draft_comment, on the line the fix goes. Start with **Blocking:**, **Should fix:** or **Question:**. Say what fails (input → wrong result), then the fix; when the fix replaces specific lines, add a ```suggestion block.",
+    "4. One issue per add_draft_comment, on the line the fix goes. Start with **Blocking:**, **Should fix:** or **Question:**. Say what fails (input → wrong result), then the fix; when the fix replaces specific lines, add a ```suggestion block. Put how you confirmed it in evidence, with file:line: only what you read or ran.",
     "5. At most 10 comments; keep the most severe.",
     "6. Then set_review_summary: 2–5 bullets, blockers first with file:line, and anything you couldn't check. Suggest APPROVE only if nothing blocks and you read every non-generated file, REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT.",
   ].join("\n"),

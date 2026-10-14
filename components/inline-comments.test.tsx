@@ -351,3 +351,29 @@ test("after saving or cancelling an edit in the diff, focus goes to the comment'
   await waitFor(() => expect(document.activeElement).toBe(card()));
   slot.lifecycle.unmount();
 });
+
+test("an agent's comment folds how it checked it under its words, in the code and in the panel, and the reviewer's edit leaves it out", async () => {
+  const agents = { file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", body: "Is this tested?", evidence: "Read `src/a.test.ts`: no case calls it." };
+  let stored = { ...empty("checked"), comments: [agents] as any[] };
+  const saveDraftComment = vi.fn(async ({ comment }: any) => { stored = { ...stored, comments: [comment] }; return { draft: stored, stale: [] }; });
+  const { slot, diff, panel } = await renderReview("checked", { getDraft: () => ({ draft: structuredClone(stored), stale: [] }), saveDraftComment });
+  const shown = within(await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" }));
+  const how = shown.getByRole("button", { name: "How the agent checked" });
+  expect(how.getAttribute("aria-expanded")).toBe("false");
+  expect(shown.queryByText(/no case calls it/)).toBeNull();
+  fireEvent.click(how);
+  expect(shown.getByText(/no case calls it/)).toBeTruthy();
+  // The card in the panel's list has it too.
+  fireEvent.click(panel().getByRole("button", { name: "Expand Draft comment on src/a.ts:2" }));
+  const card = within(panel().getByRole("article", { name: "Draft comment on src/a.ts:2" }));
+  fireEvent.click(card.getByRole("button", { name: "How the agent checked" }));
+  expect(card.getByText(/no case calls it/)).toBeTruthy();
+  // Rewritten, the comment is the reviewer's: the agent's check no longer goes with it.
+  fireEvent.click(shown.getByRole("button", { name: "Edit" }));
+  fireEvent.change(diff().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Please add a test." } });
+  fireEvent.click(diff().getByRole("button", { name: "Save comment" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalled());
+  expect(saveDraftComment.mock.calls[0][0].comment).not.toHaveProperty("evidence");
+  await waitFor(() => expect(diff().queryByRole("button", { name: "How the agent checked" })).toBeNull());
+  slot.lifecycle.unmount();
+});

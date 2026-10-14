@@ -15,6 +15,8 @@ export interface NewComment extends LocationInput, RangeInput {
   /** A label the body starts with sets it instead. */
   severity?: Severity | "none";
   body: string;
+  /** How the agent confirmed it, which only the reviewer sees. */
+  evidence?: string;
 }
 export type DraftResult = { ok: true; text: string } | { ok: false; error: string };
 
@@ -95,20 +97,21 @@ export function addComment(store: Store, targetKey: string, input: NewComment): 
   const existing = store.getDraft(targetKey).comments.find((c) => sameLocation(c, at));
   if (existing) return { ok: false, error: `${where(at)} already has a draft comment: "${existing.body.slice(0, 300)}". Edit it instead, or make your point elsewhere. Nothing was added.` };
   const { body, severity } = severityOf(input.body.trim(), input.severity);
-  store.upsertDraftComment(targetKey, { ...at, ...range, author: "agent", ...(severity ? { severity } : {}), body });
+  const evidence = input.evidence?.trim();
+  store.upsertDraftComment(targetKey, { ...at, ...range, author: "agent", ...(severity ? { severity } : {}), body, ...(evidence ? { evidence } : {}) });
   store.noteDiscussionChange(targetKey, at, "added", { body: postedBody({ body, severity }), previous: null });
   return { ok: true, text: `Added a draft comment on ${where({ ...at, ...range })}. It stays in bb until the reviewer submits the review.` };
 }
 
-const before = (comment: DraftComment, startCode?: string): PreviousState => ({ body: comment.body, ...(comment.author ? { author: comment.author } : {}), ...(comment.severity ? { severity: comment.severity } : {}), ...(comment.chapterId ? { chapterId: comment.chapterId } : {}), ...rangeOf(comment), ...(startCode === undefined ? {} : { startCode }) });
+const before = (comment: DraftComment, startCode?: string): PreviousState => ({ body: comment.body, ...(comment.author ? { author: comment.author } : {}), ...(comment.severity ? { severity: comment.severity } : {}), ...(comment.evidence ? { evidence: comment.evidence } : {}), ...(comment.chapterId ? { chapterId: comment.chapterId } : {}), ...rangeOf(comment), ...(startCode === undefined ? {} : { startCode }) });
 
 const REVIEWERS = "The reviewer wrote this comment. Suggest the change in chat; they can ask on the comment to have you apply it. Nothing was changed.";
 
 /**
- * Replace a comment's text, and with `startLine` its range's first line. Its severity changes with a label or `severity`.
- * Its last line, author, and the diff it was drafted against stay. An agent's comment changes freely; the reviewer's only in the turn on `threadId` that carries their ask on it.
+ * Replace a comment's text, and with `startLine` its range's first line. Its severity changes with a label or `severity`,
+ * and how the agent checked it with `evidence`. Its last line, author, and the diff it was drafted against stay. An agent's comment changes freely; the reviewer's only in the turn on `threadId` that carries their ask on it.
  */
-export function editComment(store: Store, targetKey: string, input: LocationInput & RangeInput & { body: string; code?: string; severity?: Severity | "none" }, threadId?: string): DraftResult {
+export function editComment(store: Store, targetKey: string, input: LocationInput & RangeInput & { body: string; code?: string; severity?: Severity | "none"; evidence?: string }, threadId?: string): DraftResult {
   const refused = unchangeable(store.getReview(targetKey));
   if (refused) return { ok: false, error: refused };
   const at = located(input);
@@ -117,6 +120,8 @@ export function editComment(store: Store, targetKey: string, input: LocationInpu
   const reviewers = comment.author !== "agent";
   if (reviewers && !asked(store, targetKey, at, threadId)) return { ok: false, error: REVIEWERS };
   const { body, severity } = severityOf(input.body.trim(), input.severity ?? comment.severity);
+  // How the agent checked is for its own comments.
+  const evidence = reviewers ? undefined : input.evidence?.trim() || comment.evidence;
   // New lines replace the code the old first line was drafted on, which undoing them checks.
   const previous = before(comment, store.draftCommentCode(targetKey, at, "start"));
   let range = rangeOf(comment);
@@ -127,8 +132,8 @@ export function editComment(store: Store, targetKey: string, input: LocationInpu
     if (store.staleDraftComments(targetKey).some((c) => sameLocation(c, at))) return { ok: false, error: `The comment on ${where(at)} was drafted against an older diff. Delete it and add it again on the current one. Nothing was changed.` };
     const problem = placeProblem(store, targetKey, at, range, input.code);
     if (problem) return { ok: false, error: `${problem} Nothing was changed.` };
-    store.upsertDraftComment(targetKey, { ...comment, startLine: undefined, startSide: undefined, severity, ...range, body });
-  } else if (!store.editDraftComment(targetKey, at, body, severity ?? null)) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
+    store.upsertDraftComment(targetKey, { ...comment, startLine: undefined, startSide: undefined, severity, ...range, body, evidence });
+  } else if (!store.editDraftComment(targetKey, at, body, severity ?? null, evidence ?? null)) return { ok: false, error: `There's no draft comment on ${where(at)}.` };
   // Undo puts old lines back only when this edit set new ones; a re-review may move them on its own.
   store.noteDiscussionChange(targetKey, at, "edited", { body: postedBody({ body, severity }), previous: previous && input.startLine !== undefined ? { ...previous, relined: true } : previous });
   const lines = where({ ...at, ...range });
@@ -215,11 +220,11 @@ export function undoChange(store: Store, targetKey: string, at: CommentLocation)
   } else if (!previous) {
     store.deleteDraftComment(targetKey, at);
   } else if (kind === "removed") {
-    store.upsertDraftComment(targetKey, { ...at, ...rangeOf({ ...at, ...previous }), body: previous.body, ...(previous.author ? { author: previous.author } : {}), ...(previous.severity ? { severity: previous.severity } : {}), ...(previous.chapterId ? { chapterId: previous.chapterId } : {}) });
+    store.upsertDraftComment(targetKey, { ...at, ...rangeOf({ ...at, ...previous }), body: previous.body, ...(previous.author ? { author: previous.author } : {}), ...(previous.severity ? { severity: previous.severity } : {}), ...(previous.chapterId ? { chapterId: previous.chapterId } : {}), ...(previous.evidence ? { evidence: previous.evidence } : {}) });
   } else {
     const comment = relined(store, targetKey, at, previous);
-    if (comment) store.upsertDraftComment(targetKey, { ...comment, startLine: undefined, startSide: undefined, severity: previous.severity, ...rangeOf({ ...at, ...previous }), body: previous.body });
-    else store.editDraftComment(targetKey, at, previous.body, previous.severity ?? null);
+    if (comment) store.upsertDraftComment(targetKey, { ...comment, startLine: undefined, startSide: undefined, severity: previous.severity, ...rangeOf({ ...at, ...previous }), body: previous.body, evidence: previous.evidence });
+    else store.editDraftComment(targetKey, at, previous.body, previous.severity ?? null, previous.evidence ?? null);
   }
   store.noteDiscussionRestored(targetKey, at);
   return { ok: true, text: isSummary(at) ? "Put the summary back." : `Put the comment on ${where(at)} back.` };

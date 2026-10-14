@@ -9,6 +9,17 @@ export const AUTOMATIC_REVIEW_BEFORE_SUMMARY = "Review this change adversarially
 /** The automatic review's default before it was precision-first; saved settings that kept it read as the current default. */
 export const AUTOMATIC_REVIEW_BEFORE_PRECISION = "Review this change adversarially. Look up related code or PRs when you need context.\nAdd each finding as an inline draft comment with add_draft_comment. Then write the review summary with set_review_summary: your overall assessment, what blocks merging, and the verdict you'd suggest. Don't repeat the line comments there.\nKeep every comment terse. Skip nitpicks.";
 
+/** The automatic review's default before it asked for evidence; saved settings that kept it read as the current default. */
+export const AUTOMATIC_REVIEW_BEFORE_EVIDENCE = [
+  "Review this change for defects a careful senior engineer would block on or want fixed. Precision over recall: a missed nit costs nothing; a wrong comment costs the reviewer's trust.",
+  "1. Start with read_pr_context: what the PR says it does, linked tickets, the repo's review rules, CI, and what other reviewers already raised.",
+  "2. Read the whole diff, high-risk chapters first. Before you comment, confirm the problem with read_file (callers, the base version). If you can't confirm it, don't comment; ask a question only when the answer decides whether there's a bug.",
+  "3. Skip style, naming, formatting, anything a linter or CI reports, lockfiles, generated files, and anything an existing GitHub thread already raises.",
+  "4. One issue per add_draft_comment, on the line the fix goes. Start with **Blocking:**, **Should fix:** or **Question:**. Say what fails (input → wrong result), then the fix; when the fix replaces specific lines, add a ```suggestion block.",
+  "5. At most 10 comments; keep the most severe.",
+  "6. Then set_review_summary: 2–5 bullets, blockers first with file:line, and anything you couldn't check. Suggest APPROVE only if nothing blocks and you read every non-generated file, REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT.",
+].join("\n");
+
 /** The feedback check's default before it replied only on open threads; saved settings that kept it read as the current default. */
 export const VERIFICATION_PROMPT_BEFORE_OPEN_THREADS = "Check whether the author properly addressed each piece of my earlier feedback. Start with list_feedback and read_changes_since_review, and read files with read_file when you need context.\nRecord a verdict with one line of evidence for every item with assess_feedback.\nThen look for new problems the fix commits introduce, and add each as an inline draft comment.\nDraft a short reply for each of my threads with draft_thread_reply. Keep everything terse.";
 
@@ -49,7 +60,7 @@ export const preferencesSchema = z.object({
 export function readPreferences(saved: Partial<ReviewPreferences>): ReviewPreferences {
   // Assistant instructions saved before their cap are cut to fit it.
   const preferences = preferencesSchema.parse({ ...defaultPreferences, ...saved, assistantInstructions: (saved.assistantInstructions ?? "").slice(0, ASSISTANT_INSTRUCTIONS_LIMIT) });
-  if (preferences.automaticReview === AUTOMATIC_REVIEW_BEFORE_SUMMARY || preferences.automaticReview === AUTOMATIC_REVIEW_BEFORE_PRECISION) preferences.automaticReview = defaultPreferences.automaticReview;
+  if ([AUTOMATIC_REVIEW_BEFORE_SUMMARY, AUTOMATIC_REVIEW_BEFORE_PRECISION, AUTOMATIC_REVIEW_BEFORE_EVIDENCE].includes(preferences.automaticReview)) preferences.automaticReview = defaultPreferences.automaticReview;
   if (preferences.verificationPrompt === VERIFICATION_PROMPT_BEFORE_OPEN_THREADS) preferences.verificationPrompt = defaultPreferences.verificationPrompt;
   return preferences;
 }

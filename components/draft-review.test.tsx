@@ -245,6 +245,21 @@ test("removing a comment offers Undo, which puts it back", async () => {
   slot.lifecycle.unmount();
 });
 
+test("Undo after removing an agent's comment puts back how it checked it too", async () => {
+  const agents = { file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c2", author: "agent", body: "Is this tested?", evidence: "No test calls it." };
+  let draft = draftOf({ comments: [agents] });
+  const removeDraftComment = vi.fn(async () => { draft = { ...draft, comments: [] }; return { draft, stale: [], discussions: [] }; });
+  const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = { ...draft, comments: [comment] }; return { draft, stale: [], discussions: [] }; });
+  const slot = await renderTray("undo-agent", { getDraft: () => ({ draft, stale: [], discussions: [] }), removeDraftComment, saveDraftComment });
+  expand(slot, "src/a.ts:2");
+  fireEvent.click(slot.getByRole("button", { name: "Remove comment on src/a.ts:2" }));
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Comment removed", expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) })));
+  const [, { action }] = vi.mocked(toast.info).mock.calls[0] as any;
+  action.onClick();
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo-agent", revision: "r1", comment: agents }));
+  slot.lifecycle.unmount();
+});
+
 test("the receipt after submitting links to the review on GitHub", async () => {
   let draft = draftOf({ body: "Looks good." });
   const submitReview = vi.fn(async () => { draft = draftOf(); return { ok: true, url: "https://github.com/acme/web/pull/7#pullrequestreview-12" }; });

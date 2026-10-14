@@ -5,8 +5,8 @@ import { SEVERITIES, type Severity } from "./draft";
 
 export const COMMENT_USAGE = [
   "usage: bb review comment list   <review> [--json]",
-  "       bb review comment add    <review> <file>:<line> --code <text> --body <text> [--severity <severity>] [--side LEFT|RIGHT]",
-  "       bb review comment edit   <review> <file>:<line> --body <text> [--code <text>] [--severity <severity>] [--side LEFT|RIGHT]",
+  "       bb review comment add    <review> <file>:<line> --code <text> --body <text> [--severity <severity>] [--evidence <text>] [--side LEFT|RIGHT]",
+  "       bb review comment edit   <review> <file>:<line> --body <text> [--code <text>] [--severity <severity>] [--evidence <text>] [--side LEFT|RIGHT]",
   "       bb review comment delete <review> <file>:<line> [--side LEFT|RIGHT]",
   "",
   "Changes a review's local draft in this bb. Nothing is posted to GitHub; the reviewer submits the draft from Guided Review.",
@@ -18,12 +18,14 @@ export const COMMENT_USAGE = [
   "  --body         the comment, in GitHub Markdown; quote it for your shell",
   "  --severity     blocking, should-fix, question, nit, or none; a label the body starts with, such as",
   "                 **Blocking:**, sets it instead. Without either, edit keeps the comment's",
+  "  --evidence     how you confirmed it: what you read or ran, with file:line (up to 600 characters). The",
+  "                 reviewer sees it under the comment; it's never posted. Without it, edit keeps the comment's",
 ].join("\n");
 
 const ACTIONS = {
   list: { location: false, options: ["json"] },
-  add: { location: true, options: ["side", "code", "body", "severity"] },
-  edit: { location: true, options: ["side", "code", "body", "severity"] },
+  add: { location: true, options: ["side", "code", "body", "severity", "evidence"] },
+  edit: { location: true, options: ["side", "code", "body", "severity", "evidence"] },
   delete: { location: true, options: ["side"] },
 } as const;
 
@@ -37,7 +39,7 @@ export function runCommentCommand(store: Store, argv: string[], changed: (target
   if (!action || !(action in ACTIONS)) return usage(action ? `Unknown action: ${action}` : "Choose list, add, edit, or delete.");
   const spec = ACTIONS[action as keyof typeof ACTIONS];
   const positional: string[] = [];
-  const values: { side?: string; code?: string; body?: string; severity?: string; json?: string } = {};
+  const values: { side?: string; code?: string; body?: string; severity?: string; evidence?: string; json?: string } = {};
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
     if (arg === "--help" || arg === "-h") return { exitCode: 0, stdout: COMMENT_USAGE };
@@ -69,8 +71,10 @@ export function runCommentCommand(store: Store, argv: string[], changed: (target
   const range = at[3] && action !== "delete" ? { startLine: ends[0] } : {};
   if (action === "add" && values.code === undefined) return usage("add needs --code with the line's text.");
   if (action !== "delete" && !values.body?.trim()) return usage(`${action} needs --body with the comment's text.`);
-  const result: DraftResult = action === "add" ? addComment(store, key, { ...location, ...range, code: values.code!, severity, body: values.body! })
-    : action === "edit" ? editComment(store, key, { ...location, ...range, ...(values.code !== undefined ? { code: values.code } : {}), severity, body: values.body! })
+  const evidence = values.evidence?.trim();
+  if (evidence && evidence.length > 600) return usage("--evidence is limited to 600 characters.");
+  const result: DraftResult = action === "add" ? addComment(store, key, { ...location, ...range, code: values.code!, severity, body: values.body!, evidence })
+    : action === "edit" ? editComment(store, key, { ...location, ...range, ...(values.code !== undefined ? { code: values.code } : {}), severity, body: values.body!, evidence })
     : deleteComment(store, key, location);
   if (!result.ok) return { exitCode: 1, stderr: result.error };
   changed(key);

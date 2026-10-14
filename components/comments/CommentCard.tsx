@@ -6,7 +6,7 @@ import type { AskItem, CommentItem, DraftItem, PrivateItem, ThreadItem, ThreadMe
 import { cn } from "../../lib/utils";
 import { useWorkspaceFor } from "../../lib/workspace-store";
 import { useDraft } from "../DraftProvider";
-import { CommentBody, ComposerFields, DiscussionView, SeverityBadge, type InlineComposer } from "../InlineDraft";
+import { AgentEvidence, CommentBody, ComposerFields, DiscussionView, SeverityBadge, type InlineComposer } from "../InlineDraft";
 import { age } from "../time-ago";
 import { TOUCH_CONTROL } from "../touch";
 import { Avatar } from "../ui/avatar";
@@ -212,6 +212,7 @@ function DraftCard({ item }: { item: DraftItem }) {
           {comment.side === "LEFT" && <Badge size="sm">Old line</Badge>}
         </p>}
         <CommentBody body={comment.body} />
+        {comment.evidence && <AgentEvidence evidence={comment.evidence} />}
         {item.state === "older-diff" && <p className="text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
         {draft.editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">
           <Button variant="ghost" size="sm" aria-label={`Edit comment on ${where}`} className={ACTION} disabled={draft.busy || draft.writing} onClick={() => draft.openComposer(comment, false)}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
