@@ -447,6 +447,12 @@ test("feedback handled holds through another push, without alerting or preparing
   expect(vi.mocked(s.actions.prepare).mock.calls.length).toBe(prepared);
 });
 
+test("with Include PRs you've reviewed off, discovery looks only for requests", async () => {
+  const s = setup({ preferences: { knobs: { ...defaultPreferences.knobs, trackReviewedPrs: false } } });
+  await s.sync.all();
+  expect(s.github.discover).toHaveBeenCalledWith({ reviewed: false, teams: false });
+});
+
 test("discovery only fills the list the first time for an account", async () => {
   const s = setup();
   vi.mocked(s.github.discover).mockResolvedValue([

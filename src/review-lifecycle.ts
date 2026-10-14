@@ -388,7 +388,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     }
     const login = await viewerLogin();
     if (!login) return;
-    const found = await github.discover({ reviewed: true, teams: store.getPreferences().preferences.trackTeamRequests });
+    const { knobs, trackTeamRequests } = store.getPreferences().preferences;
+    const found = await github.discover({ reviewed: knobs.trackReviewedPrs, teams: trackTeamRequests });
     // With nothing to read, as in an empty list, only this look shows GitHub answers again. It says nothing of PRs or teams.
     const error = health.error;
     if (error && error.at < since && (error.kind === "auth" || error.kind === "rate-limit" || error.kind === "other")) health = { ...health, error: null };
