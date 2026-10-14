@@ -1,7 +1,7 @@
 # Guided Review — UX overhaul (viewed-state, readable sidebar, floating agent)
 
 Date: 2026-09-03
-Status: approved for implementation
+Status: shipped by 0.2, then superseded in part: the assistant is now a BB thread, and `agent_messages` is a legacy read-only table. Historical; DESIGN.md describes the UI as it is.
 
 ## Goal
 

@@ -1,5 +1,7 @@
 # Guided Review — Phase 1 Implementation Plan
 
+> **Status: shipped by 0.1. A historical record, not pending work: don't execute it.** README and DESIGN.md describe the plugin as it is.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a bb plugin that turns a GitHub PR (or local git ref) into an agent-authored chaptered walkthrough, rendered in a live bb panel, reviewable with per-line/chapter comments and inline agent-assist, and submittable back to the GitHub PR as one batched review.

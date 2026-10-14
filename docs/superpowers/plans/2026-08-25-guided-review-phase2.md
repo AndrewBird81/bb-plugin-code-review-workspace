@@ -1,5 +1,7 @@
 # Guided Review — Phase 2 Implementation Plan
 
+> **Status: shipped by 0.1. A historical record, not pending work: don't execute it.** README and DESIGN.md describe the plugin as it is.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Extend the Guided Review plugin with the best-in-class in-bb review features: reply to / resolve existing PR review threads, CI status, chapter risk flags, and re-review on new commits — plus the `gitRef` pass-through fix. (No HTML export or share service — explicitly out of scope.)

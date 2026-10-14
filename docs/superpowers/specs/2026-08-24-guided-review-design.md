@@ -1,7 +1,7 @@
 # Guided Review — Design Spec
 
 **Date:** 2026-08-24
-**Status:** Approved design, pending spec review
+**Status:** Shipped by 0.1 (both phases). Historical; README and DESIGN.md describe the plugin as it is.
 **Plugin id:** `guided-review` · **Command:** `bb review <pr-url | pr-number | git-ref>`
 **Stack:** TypeScript backend (`bb.server`) + React/Tailwind panel (`bb.app`)
 
