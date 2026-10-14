@@ -19,7 +19,7 @@ import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
 import { ASSISTANT_TITLE, assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startAutomaticReview, startConversation } from "./src/agent";
 import { startFixThread } from "./src/fix-handoff";
-import { listMachines } from "./src/machines";
+import { listMachines, personalProjectId } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
 import { commentsKey, rangeOf, SEVERITIES, severityOf, SUMMARY_AT } from "./src/draft";
 import { describeDraft, writeSummary } from "./src/draft-summary";
@@ -96,8 +96,7 @@ export default async function plugin(bb: BbPluginApi) {
     },
     async projectId() {
       if (personalProject) return personalProject;
-      const projects = await bb.sdk.projects.list({ includePersonal: true }).catch(() => []);
-      personalProject = (projects.find((p) => p.kind === "personal") ?? projects[0])?.id ?? null;
+      personalProject = (await personalProjectId(bb).catch(() => undefined)) ?? null;
       return personalProject;
     },
   } });
@@ -376,9 +375,8 @@ export default async function plugin(bb: BbPluginApi) {
     async getAgentDefaults() {
       // Panel-started reviews run in the personal project (see startReview).
       try {
-        const projects = await bb.sdk.projects.list({ includePersonal: true });
-        const project = projects.find((p) => p.kind === "personal") ?? projects[0];
-        const d = project ? await bb.sdk.projects.defaultExecutionOptions({ projectId: project.id }) : null;
+        const projectId = await personalProjectId(bb);
+        const d = projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }) : null;
         return { defaults: d && { providerId: d.providerId, model: d.model, reasoningLevel: d.reasoningLevel, permissionMode: d.permissionMode, serviceTier: d.serviceTier } };
       } catch {
         return { defaults: null };
@@ -399,9 +397,7 @@ export default async function plugin(bb: BbPluginApi) {
     async startReview({ input }) {
       let projectId: string | undefined;
       try {
-        const projects = await bb.sdk.projects.list({ includePersonal: true });
-        const personal = projects.find((p) => p.kind === "personal");
-        projectId = (personal ?? projects[0])?.id;
+        projectId = await personalProjectId(bb);
       } catch {
         return { ok: false, error: "Could not resolve a project to run generation." };
       }

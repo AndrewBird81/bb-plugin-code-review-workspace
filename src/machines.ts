@@ -16,6 +16,12 @@ async function findHost(bb: BbPluginApi, hostId: string): Promise<Host | null> {
   });
 }
 
+/** The project agents run in: the personal one, else the first. Throws when bb can't list them. */
+export async function personalProjectId(bb: BbPluginApi): Promise<string | undefined> {
+  const projects = await bb.sdk.projects.list({ includePersonal: true });
+  return (projects.find((project) => project.kind === "personal") ?? projects[0])?.id;
+}
+
 /** Persistent machines, the bb server first. */
 export async function listMachines(bb: BbPluginApi): Promise<Machine[]> {
   const [hosts, config] = await Promise.all([bb.sdk.hosts.list({ type: "persistent" }), bb.sdk.system.config().catch(() => null)]);

@@ -5,7 +5,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store } from "./store";
 import { postedBody, sameLocation, type CommentLocation, type Draft, type DraftComment } from "./draft";
 import { diffPositions } from "./review-positions";
-import { agentPlacement, machineUnavailable } from "./machines";
+import { agentPlacement, machineUnavailable, personalProjectId } from "./machines";
 import { spawnExecution } from "./preferences";
 import { untrusted } from "./untrusted";
 
@@ -242,8 +242,7 @@ export function createInstructionSuggester(bb: BbPluginApi, store: Store, change
       const { assistantAgent } = store.getPreferences().preferences;
       const unavailable = await machineUnavailable(bb, assistantAgent, "review assistant");
       if (unavailable) return settle({ state: "failed", at: Date.now(), error: unavailable });
-      const projects = await bb.sdk.projects.list({ includePersonal: true });
-      const projectId = (projects.find((p) => p.kind === "personal") ?? projects[0])?.id;
+      const projectId = await personalProjectId(bb);
       if (!projectId) return settle({ state: "failed", at: Date.now(), error: "bb has no project to run the agent in." });
       const worker = await bb.sdk.threads.spawn({
         ...(await agentPlacement(bb, assistantAgent, projectId)),
