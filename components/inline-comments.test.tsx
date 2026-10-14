@@ -202,6 +202,16 @@ test("a recovered comment box on a line the diff no longer shows opens in the pa
   slot.lifecycle.unmount();
 });
 
+test("a comment box in the panel of a draft with no comments doesn't sit above No comments yet", async () => {
+  sessionStorage.setItem("guided-review:draft-recovery:alone", JSON.stringify({ composer: { file: "src/a.ts", line: "40", side: "RIGHT", body: "Stranded text", inline: true, revision: "r1" } }));
+  const { slot, panel } = await renderReview("alone", { getDraft: () => ({ draft: empty("alone"), stale: [] }) });
+  await panel().findByRole("textbox", { name: "Draft comment" });
+  expect(panel().queryByText(/^No comments yet/)).toBeNull();
+  fireEvent.click(panel().getByRole("button", { name: "Cancel" }));
+  await panel().findByText(/^No comments yet/);
+  slot.lifecycle.unmount();
+});
+
 test("a comment box open in the diff when a rebuild drops its line moves to the panel, text and all", async () => {
   await loadPluginApp(() => import("../app"));
   const DraftTray = await draftTray();

@@ -123,6 +123,8 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const boxItem = box && (draft.editing || draft.asking)
     ? items.find((item) => (item.kind === "draft" && sameLocation(item.comment, box)) || (item.kind === "private" && sameLocation(item.discussion, box)))
     : undefined;
+  /** A new comment box at the top of the list, not on an item in it. */
+  const writing = !!box && !boxItem && draft.editable;
   useEffect(() => {
     if (!boxItem) return;
     updateComments(targetKey, { expanded: boxItem.id, ...(stops.some((item) => item.id === boxItem.id) ? {} : { filter: "all" as const }) });
@@ -234,9 +236,10 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
         {isPr && feedbackError && <Notice tone="danger" action={actions && <Button variant="outline" size="sm" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} onClick={() => void actions.refresh()}>Try again</Button>}>Couldn’t load your feedback.</Notice>}
         {draft.loadError ? <div role="alert" className="space-y-3 text-sm"><p>Couldn’t load your draft. Editing is paused to protect it.</p><Button variant="outline" className={TOUCH_CONTROL} onClick={() => void draft.load()}>Retry draft</Button></div>
           : !draft.loaded ? <p role="status" className="text-sm text-muted-foreground">Loading comments…</p> : <>
-          {box && !boxItem && draft.editable && <NewComment composer={composer} />}
+          {writing && <NewComment composer={composer} />}
           {isPr && !githubRead && <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Reading GitHub…</p>}
-          {empty ? <Empty text={closed ? "No comments on this review." : coarse ? "No comments yet. Tap a line to comment." : "No comments yet. Select a line, or tap + beside one, to comment."} />
+          {/* A box you're writing in is the start of a comment, so "No comments yet" would contradict it. */}
+          {empty ? !writing && <Empty text={closed ? "No comments on this review." : coarse ? "No comments yet. Tap a line to comment." : "No comments yet. Select a line, or tap + beside one, to comment."} />
             : filterEmpty ? <Empty text={filter === "needs-you" ? "Nothing needs you." : filter === "not-submitted" ? "No comments to submit yet." : "Nothing on GitHub yet."} onAll={() => setFilter("all")} />
             : shownGroups.map((group) => groupBody(group, filter === "not-submitted" ? stops : group.items, counted.find((entry) => entry.id === group.id)!))}
         </>}
