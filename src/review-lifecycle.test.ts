@@ -233,6 +233,29 @@ test("a review snoozed until a time alerts again when it wakes, once, but not wh
   expect(s.store.getReview("pr-1")).toMatchObject({ snoozedUntil: null, notifiedSignal: `re-requested:${T0 + 0.1 * HOUR}` });
 });
 
+test("a newer request that wakes a timed snooze early alerts once, not again when the snooze ends", async () => {
+  const s = setup({ reviewed: true });
+  await s.sync.all();
+  s.pr({ requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  vi.mocked(s.actions.prepare).mockResolvedValue(false);
+  s.at(0.2);
+  await s.sync.all(true);
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  s.store.setLifecycle("pr-1", { snoozedAt: T0 + 0.3 * HOUR, snoozedUntil: T0 + HOUR });
+  s.at(0.3);
+  await s.sync.evaluate("pr-1");
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ reason: "snoozed" });
+
+  s.pr({ requests: [{ at: T0 + 0.5 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.6);
+  await s.sync.all(true);
+  await vi.waitFor(() => expect(s.published).toHaveLength(2));
+  s.at(1.1);
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")).toMatchObject({ snoozedUntil: null, notifiedSignal: `re-requested:${T0 + 0.5 * HOUR}` });
+  expect(s.published).toHaveLength(2);
+});
+
 test("feedback handled: every thread resolved or answered alerts once the author has been quiet", async () => {
   const s = setup({ reviewed: true, threads: [thread("t1", "open"), thread("t2", "open")] });
   await s.sync.all();
