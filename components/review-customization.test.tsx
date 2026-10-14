@@ -495,8 +495,16 @@ test("a setting that depends on another is disabled while that one is off, and T
     authors: authors().some((button) => button.disabled),
   });
   expect(dependents()).toEqual({ automaticReview: false, check: false, pushes: false, reviewed: false, team: false, pace: false, authors: false });
+  // A disabled dependent's label and description dim with its control, still readable.
+  const texts = ["Automatic review", /^Sent to the assistant when a guide is ready/, "Re-review check", /^Sent to the review assistant when a review comes back/,
+    "After the author pushes", /^The review assistant checks once the author’s pushes settle/, "Include team requests", /^Also show PRs that ask a team/,
+    "Include PRs you’ve reviewed", /^Open PRs you reviewed on GitHub/, "Flag chapters read faster than", "lines an hour", /^Medium- and high-risk chapters/];
+  const dimmed = () => texts.map((text) => slot.getByText(text).closest(".opacity-80") !== null);
+  expect(dimmed()).toEqual(texts.map(() => false));
   for (const label of ["Run the automatic review", "Run the re-review check", "Track reviews from GitHub", "Check before you approve", "Start agents on their own"]) fireEvent.click(toggle(label));
   expect(dependents()).toEqual({ automaticReview: true, check: true, pushes: true, reviewed: true, team: true, pace: true, authors: false });
+  expect(dimmed()).toEqual(texts.map(() => true));
+  expect(slot.getByText("Run the automatic review").closest(".opacity-80")).toBeNull();
   expect(slot.getByText(/^Start agents on their own is off: on other people’s PRs, nothing starts until you click\. This choice still decides whose PRs the repo’s tests and linters may run on\.$/)).toBeTruthy();
   fireEvent.click(toggle("Start agents on their own"));
   expect(slot.getByText(/^For other authors, no guide, automatic review, or feedback check starts by itself.*unless the PR’s branch is in someone else’s fork\.$/)).toBeTruthy();

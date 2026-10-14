@@ -41,6 +41,9 @@ export const KNOB_CONTROLS: readonly KnobControlEntry[] = [
   { id: "unattendedAgents", section: "trust", label: "Start agents on their own", description: "Guides, the automatic review, and re-review checks start without your click on PRs from the authors below. Off, other people’s PRs wait for your click. Your own PRs and local reviews always run, unless the PR’s branch is in someone else’s fork." },
 ];
 
+/** A disabled dependent's label and description: dimmed, still readable, while its control is at 50%. */
+export const DISABLED_TEXT = "opacity-80";
+
 /** The numbers being typed in controls that are enabled; the same object when none is disabled. */
 export function enabledNumberText(numberText: KnobNumberText, preferences: ReviewPreferences): KnobNumberText {
   const kept = Object.entries(numberText).filter(([id]) => KNOB_CONTROLS.find((control) => control.id === id)?.enabledWhen?.(preferences) ?? true);
@@ -63,13 +66,14 @@ export function KnobControl({ id, record, onChange, numberText, onNumberText }: 
   const enabled = control.enabledWhen?.(record) ?? true;
   const ids = useId();
   const value = record.knobs[id];
+  const dim = enabled ? "" : DISABLED_TEXT;
   if (typeof value === "number") {
     const numberId = id as NumberKnob;
     const { min, max } = KNOB_RANGES[numberId];
     const text = numberText[numberId];
     return <div className={`space-y-1 ${control.enabledWhen ? "ml-6" : ""}`}>
       <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
-        <span id={`${ids}-label`}>{control.label}</span>
+        <span id={`${ids}-label`} className={dim}>{control.label}</span>
         {/* The number and its unit wrap together, so the unit never sits alone on a line. */}
         <span className="inline-flex items-center gap-2 whitespace-nowrap">
           <Input type="number" inputMode="numeric" min={min} max={max} className="h-8 w-20 tabular-nums" disabled={!enabled}
@@ -80,15 +84,15 @@ export function KnobControl({ id, record, onChange, numberText, onNumberText }: 
               if (next === null) onNumberText(numberId, event.target.value);
               else { onNumberText(numberId, undefined); onChange(numberId, next); }
             }} />
-          <span id={`${ids}-unit`}>{control.unit}</span>
+          <span id={`${ids}-unit`} className={dim}>{control.unit}</span>
         </span>
       </p>
-      <span id={`${ids}-description`} className="block text-xs text-muted-foreground">{control.description}</span>
+      <span id={`${ids}-description`} className={`block text-xs text-muted-foreground ${dim}`}>{control.description}</span>
       <span id={`${ids}-error`} className="block text-xs text-destructive-text">{text !== undefined ? `Use a whole number from ${min.toLocaleString("en-US")} to ${max.toLocaleString("en-US")}.` : ""}</span>
     </div>;
   }
   return <label className={`flex items-start gap-2.5 ${control.enabledWhen ? "ml-6" : ""}`}>
     <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" disabled={!enabled} checked={value} onChange={(event) => onChange(id, event.target.checked)} />
-    <span className="space-y-1"><span className="block text-sm font-medium">{control.label}</span><span className="block text-xs text-muted-foreground">{control.description}</span></span>
+    <span className={`space-y-1 ${dim}`}><span className="block text-sm font-medium">{control.label}</span><span className="block text-xs text-muted-foreground">{control.description}</span></span>
   </label>;
 }

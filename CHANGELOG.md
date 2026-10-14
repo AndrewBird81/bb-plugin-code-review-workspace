@@ -6,7 +6,7 @@ Settings can now turn off what you don't use, Finish review checks an approval a
 
 ### Settings
 
-- 18 switches turn features off, each saying what stays when it's off, in two new sections, **Reading** and **Comments and Finish review**, and in Notifications (was Guide notifications), Review assistant, Whose turn, and Trust. A setting that depends on another is indented, and disabled while that one is off.
+- 18 switches turn features off, each saying what stays when it's off, in two new sections, **Reading** and **Comments and Finish review**, and in Notifications (was Guide notifications), Review assistant, Whose turn, and Trust. A setting that depends on another is indented, and disabled and dimmed while that one is off, its label and description still readable.
 - **Notifications:** **A guide is ready or failed** and **A review becomes your turn** each stop their Needs You alerts.
 - **Review assistant:** **Run the automatic review**, and **Re-check the agent's comments after new commits**. Off keeps the automatic review's prompt for later.
 - **Whose turn:** **Come back when you're mentioned**; **Get a review ready before alerting you**, which off alerts at once, with Update guide and Check again a click away; **Run the re-review check**, which off keeps its prompt; and **Include PRs you've reviewed**, which off finds only requests for you.
