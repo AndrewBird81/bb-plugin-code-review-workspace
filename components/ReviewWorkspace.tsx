@@ -376,6 +376,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const id = ++request.current;
     const viewsId = ++viewsRequest.current;
     setLoadError(null);
+    let settingsWait: ReturnType<typeof setTimeout> | undefined;
     try {
       // Views come with the diff, so viewed files are folded before it first draws.
       const known = shownPatch.current?.targetKey === targetKey ? shownPatch.current : null;
@@ -385,7 +386,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         // Like views, so files the repo marks generated are folded before the diff draws.
         rpc.call("getGeneratedFiles", { targetKey }).catch(() => null),
         // Settings, which say where a review that came back opens. A slow or hung load opens it with the defaults.
-        Promise.race([settledRef.current, new Promise<ReviewPreferences>((resolve) => setTimeout(() => resolve(defaultPreferences), SETTINGS_WAIT_MS))]),
+        Promise.race([settledRef.current.finally(() => clearTimeout(settingsWait)), new Promise<ReviewPreferences>((resolve) => { settingsWait = setTimeout(() => resolve(defaultPreferences), SETTINGS_WAIT_MS); })]),
       ]);
       if (id !== request.current) return;
       // A deleted review shows "Review not found" rather than a pending regeneration.
@@ -439,6 +440,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     } catch (err) {
       if (id === request.current) setLoadError(err instanceof Error ? err.message : "Check the connection and try again.");
     } finally {
+      // A load that failed or was overtaken stops waiting for settings too.
+      clearTimeout(settingsWait);
       if (id === request.current) setLoading(false);
     }
   }, [rpc, targetKey]);

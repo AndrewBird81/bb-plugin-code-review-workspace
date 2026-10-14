@@ -137,6 +137,33 @@ test("a slow settings load doesn't hold the review, and its settings apply once 
   page.lifecycle.unmount();
 }, 15_000);
 
+/** The ids of the 1 s timers set while `run` runs, and whether each was cleared by the end. */
+async function secondTimers(run: () => Promise<void>) {
+  const set = vi.spyOn(globalThis, "setTimeout");
+  const clear = vi.spyOn(globalThis, "clearTimeout");
+  try {
+    await run();
+    const ids = set.mock.calls.flatMap((call, index) => call[1] === 1000 ? [set.mock.results[index]!.value] : []);
+    return ids.map((id) => clear.mock.calls.some(([cleared]) => cleared === id));
+  } finally { set.mockRestore(); clear.mockRestore(); }
+}
+
+test("a review's wait for its settings stops once they answer, or once its load fails", async () => {
+  expect(await secondTimers(async () => {
+    const page = await openReview(() => requirementsOff);
+    await page.findByRole("main", { name: "Review" }, { timeout: 4000 });
+    page.lifecycle.unmount();
+  })).toEqual([true]);
+  expect(await secondTimers(async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const page = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: settingsOffRpc(defaultKnobs, {
+      getPreferences: () => new Promise(() => {}), getReviewBundle: () => { throw new Error("Offline"); },
+    }) as any });
+    await page.findByRole("button", { name: "Try again" }, { timeout: 4000 });
+    page.lifecycle.unmount();
+  })).toEqual([true]);
+}, 15_000);
+
 test("with every knob off, the Overview, a chapter, Comments, Finish review, the title bar and All reviews still render", async () => {
   restores.push(desktopWindow());
   const setVerdict = vi.fn(({ verdict }: { verdict: string }) => ({ draft: { targetKey: "pr-42", verdict, verdictChosen: true, body: "", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", severity: "blocking", body: "Upper case reads as a constant." }] } }));
