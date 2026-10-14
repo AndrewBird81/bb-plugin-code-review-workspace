@@ -19,6 +19,9 @@ import { PageBar } from "./PageBar";
 import { DISABLED_TEXT, KnobControl, enabledNumberText, type KnobNumberText } from "./SettingsKnobs";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 
+/** An aria-disabled primary button, drawn as a disabled one (ui/button). */
+const UNAVAILABLE = "aria-disabled:pointer-events-none aria-disabled:bg-muted/60 aria-disabled:text-subtle-foreground aria-disabled:shadow-none";
+
 /** One of a setting's choices, pressed when it's chosen: a long one wraps on a narrow screen, and it's 44px on touch. */
 const CHOICE = `h-auto min-h-8 whitespace-normal py-1.5 text-left aria-pressed:border-primary/50 aria-pressed:bg-primary/10 aria-pressed:text-primary pointer-coarse:min-h-11`;
 
@@ -195,6 +198,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
   // A custom selection is complete once the host pickers resolve a provider and model, and a number once it's in range.
   const incomplete = [record?.preferences.guideAgent, record?.preferences.assistantAgent].some((agent) => agent && (!agent.providerId || !agent.model))
     || Object.keys(numberText).length > 0;
+  const saveable = dirty && !incomplete && !busy && !updating;
   function setAgent(key: "guideAgent" | "assistantAgent", update: AgentUpdate) {
     setSaved(false);
     // Functional: both pickers can report reconciled values in the same render.
@@ -331,7 +335,8 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
           </section>
         </fieldset>
         <div className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-border bg-background/90 py-2.5 backdrop-blur">
-          <Button className={TOUCH_CONTROL} disabled={!dirty || incomplete || busy || updating} onClick={() => void save()}>{busy ? "Saving…" : "Save settings"}</Button>
+          {/* Unavailable rather than disabled, so focus stays on it as it saves, and it's announced as unavailable. */}
+          <Button className={`${TOUCH_CONTROL} ${UNAVAILABLE}`} aria-disabled={!saveable} onClick={() => { if (saveable) void save(); }}>{busy ? "Saving…" : "Save settings"}</Button>
           {dirty && <Button variant="ghost" className={TOUCH_CONTROL} disabled={busy || updating} onClick={() => { setRecord({ ...record, preferences: JSON.parse(baseline) }); setNumberText({}); setError(""); }}>Discard edits</Button>}
           <span role="status" className="text-xs text-muted-foreground">{saved ? "Settings saved" : dirty ? "Unsaved changes" : ""}</span>
           {/* The diff layout isn't on this page: the review's Diff options set it. */}

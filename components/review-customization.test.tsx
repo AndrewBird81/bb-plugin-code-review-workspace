@@ -294,7 +294,7 @@ test("each agent uses project defaults until customized with bb's pickers", asyn
   // Without defaults, saving waits until the pickers resolve a provider and model.
   fireEvent.click(within(assistant).getByRole("button", { name: "Custom" }));
   await waitFor(() => expect(slot.getAllByTestId("bb-provider-model-picker")).toHaveLength(2));
-  expect((slot.getByRole("button", { name: "Save settings" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(slot.getByRole("button", { name: "Save settings" }).getAttribute("aria-disabled")).toBe("true");
   const second = slot.getAllByTestId("bb-provider-model-picker")[1];
   fireEvent.change(within(second).getByRole("textbox", { name: "Provider ID" }), { target: { value: "pi" } });
   fireEvent.change(within(second).getByRole("textbox", { name: "Model" }), { target: { value: "local" } });
@@ -529,10 +529,10 @@ test("a pace that isn't a whole number from 100 to 2,000 holds Save, and Discard
   const error = "Use a whole number from 100 to 2,000.";
   for (const value of ["99", "2001", "", "12.5"]) {
     fireEvent.change(pace(), { target: { value } });
-    expect({ value, invalid: pace().getAttribute("aria-invalid"), error: !!slot.queryByText(error), save: saveButton().disabled }).toEqual({ value, invalid: "true", error: true, save: true });
+    expect({ value, invalid: pace().getAttribute("aria-invalid"), error: !!slot.queryByText(error), save: saveButton().getAttribute("aria-disabled") }).toEqual({ value, invalid: "true", error: true, save: "true" });
   }
   fireEvent.change(pace(), { target: { value: "1000" } });
-  expect({ invalid: pace().getAttribute("aria-invalid"), error: !!slot.queryByText(error), save: saveButton().disabled }).toEqual({ invalid: "false", error: false, save: false });
+  expect({ invalid: pace().getAttribute("aria-invalid"), error: !!slot.queryByText(error), save: saveButton().getAttribute("aria-disabled") }).toEqual({ invalid: "false", error: false, save: "false" });
   fireEvent.change(pace(), { target: { value: "5" } });
   fireEvent.click(slot.getByRole("button", { name: "Discard edits" }));
   expect(pace().value).toBe("500");
@@ -591,16 +591,37 @@ test("the pace's number and its unit wrap as one, so the unit never sits alone o
 test("a pace being typed goes when Check before you approve is turned off, so Save keeps the other edits", async () => {
   const { slot, saved, toggle, pace, saveButton } = await renderSettings();
   fireEvent.change(pace(), { target: { value: "50" } });
-  expect(saveButton().disabled).toBe(true);
+  expect(saveButton().getAttribute("aria-disabled")).toBe("true");
   fireEvent.click(toggle("Check before you approve"));
   fireEvent.click(toggle("Code owners"));
   expect(pace().disabled).toBe(true);
   expect(pace().value).toBe("500");
   expect(slot.queryByText("Use a whole number from 100 to 2,000.")).toBeNull();
-  expect(saveButton().disabled).toBe(false);
+  expect(saveButton().getAttribute("aria-disabled")).toBe("false");
   fireEvent.click(saveButton());
   await slot.findByText("Settings saved");
   expect(saved.record.preferences.knobs).toMatchObject({ approveGuard: false, approveGuardPace: 500, codeOwners: false });
+  slot.lifecycle.unmount();
+});
+
+test("Save keeps keyboard focus as it saves; with nothing to save it's announced unavailable, and does nothing", async () => {
+  const { slot, save, toggle, saveButton } = await renderSettings();
+  // Unavailable, not disabled, so it stays focusable.
+  expect({ disabled: saveButton().disabled, unavailable: saveButton().getAttribute("aria-disabled") }).toEqual({ disabled: false, unavailable: "true" });
+  saveButton().focus();
+  fireEvent.click(saveButton());
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.click(toggle("Code owners"));
+  expect(saveButton().getAttribute("aria-disabled")).toBe("false");
+  const button = saveButton();
+  button.focus();
+  fireEvent.click(button);
+  // Saving, it's unavailable too, but keeps focus.
+  expect({ label: button.textContent, unavailable: button.getAttribute("aria-disabled"), focused: document.activeElement === button }).toEqual({ label: "Saving…", unavailable: "true", focused: true });
+  await slot.findByText("Settings saved");
+  expect({ disabled: saveButton().disabled, unavailable: saveButton().getAttribute("aria-disabled"), focused: document.activeElement === saveButton() }).toEqual({ disabled: false, unavailable: "true", focused: true });
+  fireEvent.click(saveButton());
+  expect(save).toHaveBeenCalledTimes(1);
   slot.lifecycle.unmount();
 });
 
@@ -628,6 +649,6 @@ test("settings from a server without knobs show each at its default, with nothin
   expect(toggle("Single-key shortcuts").checked).toBe(true);
   expect(pace().value).toBe("500");
   expect(slot.queryByText("Unsaved changes")).toBeNull();
-  expect(saveButton().disabled).toBe(true);
+  expect(saveButton().getAttribute("aria-disabled")).toBe("true");
   slot.lifecycle.unmount();
 });

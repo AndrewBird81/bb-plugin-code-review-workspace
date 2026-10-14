@@ -42,6 +42,7 @@ Settings can now turn off what you don't use, Finish review checks an approval a
 - A comment's discussion with the agent, and its Undo, move with it when Update guide puts it on a new line.
 - A review snoozed until a time alerts in Needs You when it comes back, once.
 - A stacked PR retargeted to a new base offers **Update guide** ("The PR's base changed from parent to main since this guide was written."), and Submit waits for it.
+- **Save settings** keeps keyboard focus when it saves, instead of dropping it to the page; with nothing to save it says it's unavailable and does nothing.
 
 ### Installing
 
