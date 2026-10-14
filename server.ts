@@ -20,7 +20,7 @@ import { ASSISTANT_TITLE, assistantInstructions, assistantMayAnswer, endAssistan
 import { startFixThread } from "./src/fix-handoff";
 import { listMachines, personalProjectId } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
-import { commentsKey, rangeOf, SEVERITIES, severityOf, SUMMARY_AT } from "./src/draft";
+import { commentsKey, rangeOf, sameLocation, SEVERITIES, severityOf, SUMMARY_AT } from "./src/draft";
 import { describeDraft, writeSummary } from "./src/draft-summary";
 import { runSummaryCommand } from "./src/summary-command";
 import { askAgent, settleDiscussions } from "./src/discussions";
@@ -536,7 +536,7 @@ export default async function plugin(bb: BbPluginApi) {
     getDraft({ targetKey }) {
       return draftState(targetKey);
     },
-    saveDraftComment({ targetKey, comment: { startLine, startSide, severity, body, ...input }, revision }) {
+    saveDraftComment({ targetKey, comment: { startLine, startSide, severity, body, ...input }, revision, replaces }) {
       requireReviewRevision(store, targetKey, revision);
       const comment = { ...input, ...rangeOf({ ...input, startLine, startSide }), ...severityOf(body, severity) };
       // GitHub refuses a comment on a line the diff doesn't show; say so now, not at submit.
@@ -546,6 +546,10 @@ export default async function plugin(bb: BbPluginApi) {
       // Only a range needs the diff's rows.
       const range = comment.startLine === undefined ? null : rangeProblem(store.patch(targetKey), comment);
       if (range) throw new Error(range);
+      // A new comment's box doesn't replace a comment it didn't show, such as the agent's, written as you wrote.
+      if (replaces !== undefined && (store.getDraft(targetKey).comments.find((c) => sameLocation(c, comment))?.body ?? null) !== replaces) {
+        throw new Error(`The comment on ${comment.file}:${comment.line} changed as you wrote, so yours isn’t saved yet. Read it, then save yours to replace it.`);
+      }
       // Your words now, and an ask on the comment is over.
       setAsk(store, targetKey, comment, null);
       noteReviewerSave(store, targetKey, comment);

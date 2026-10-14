@@ -59,7 +59,7 @@ test("the status line follows saves: a failed submit's error clears when a later
   await waitFor(() => expect(status(slot).textContent).toBe("Draft saved"));
   fail = true;
   await writeComment(slot, "Two.");
-  fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
+  fireEvent.click(slot.getByRole("button", { name: "Replace comment" }));
   await waitFor(() => expect(status(slot).textContent).toBe("Couldn’t reach the server."));
   slot.lifecycle.unmount();
 });

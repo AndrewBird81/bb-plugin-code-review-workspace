@@ -181,7 +181,7 @@ function AskCard({ targetKey, item, variant }: { targetKey: string; item: AskIte
 export function usePanelComposer(): InlineComposer {
   const draft = useDraft();
   return {
-    body: draft.body, edited: draft.edited, change: draft.changeBody, textareaRef: draft.bodyRef, error: draft.composerError, rebuilding: draft.rebuilding,
+    body: draft.body, edited: draft.edited, replacing: draft.replacing, change: draft.changeBody, textareaRef: draft.bodyRef, error: draft.composerError, rebuilding: draft.rebuilding,
     keepOnCurrentDiff: draft.olderDiff ? draft.keepOnCurrentDiff : null, severity: draft.severity, changeSeverity: draft.setSeverity,
     save: () => { void draft.addComment(); }, askAgent: () => { void draft.askAgent(); }, cancel: draft.cancelComposer,
     suggest: draft.suggestable ? draft.suggestChange : null,

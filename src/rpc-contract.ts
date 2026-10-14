@@ -159,7 +159,8 @@ export const rpcContract = defineRpcContract({
   // Draft and submit
   getDraft: { input: targetKey, output: draftOutput },
   saveDraftComment: {
-    input: z.object({ targetKey: z.string(), revision: z.string().optional(), comment: commentShape }).strict(),
+    // `replaces`: the line's comment the box saw, null for none; a save over another one, written since, is refused.
+    input: z.object({ targetKey: z.string(), revision: z.string().optional(), comment: commentShape, replaces: z.string().nullable().optional() }).strict(),
     output: draftOutput,
   },
   removeDraftComment: {

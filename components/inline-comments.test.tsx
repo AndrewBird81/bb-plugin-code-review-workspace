@@ -56,12 +56,40 @@ test("a comment written at a line in the diff joins the draft, and shows there a
   fireEvent.change(box, { target: { value: "Cover the empty case." } });
   expect((slot.getByRole("button", { name: /^Submit to GitHub/ }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(diff().getByRole("button", { name: "Add to draft" }));
-  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "write", revision: "r1", comment: { file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c1", body: "Cover the empty case." } }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "write", revision: "r1", replaces: null, comment: { file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c1", body: "Cover the empty case." } }));
   const shown = await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" });
   expect(within(shown).getByText("Cover the empty case.")).toBeTruthy();
   expect(diff().queryByRole("textbox")).toBeNull();
   expect(panel().getByRole("button", { name: "Draft · not submitted · src/a.ts:2" })).toBeTruthy();
   expect(panel().queryByText(/^Writing a comment/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("an agent's comment that arrives on a new box's line shows above it, and saving says it replaces that comment", async () => {
+  let stored = empty("race");
+  // As the server does: one comment per line, a save refused when it'd replace one the box didn't show.
+  const saveDraftComment = vi.fn(async ({ comment, replaces }: any) => {
+    const there = stored.comments.find((c) => c.file === comment.file && c.line === comment.line && c.side === comment.side);
+    if ((there?.body ?? null) !== replaces) throw new Error("The comment on src/a.ts:2 changed as you wrote, so yours isn’t saved yet.");
+    stored = { ...stored, comments: [...stored.comments.filter((c) => c !== there), comment] };
+    return { draft: stored, stale: [] };
+  });
+  const { slot, diff } = await renderReview("race", { getDraft: () => ({ draft: structuredClone(stored), stale: [] }), saveDraftComment });
+  fireEvent.click(diff().getByRole("button", { name: "Gutter +" }));
+  fireEvent.change(diff().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Mine." } });
+  // The agent comments on the line; the box hasn't heard yet, and its save is refused, text kept.
+  stored = { ...stored, comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", body: "Is this tested?" }] };
+  fireEvent.click(diff().getByRole("button", { name: "Add to draft" }));
+  expect(await diff().findByText(/changed as you wrote/)).toBeTruthy();
+  expect(saveDraftComment).toHaveBeenLastCalledWith(expect.objectContaining({ replaces: null }));
+  expect((diff().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Mine.");
+  // Told, the box shows the agent's comment above it, and says saving replaces it.
+  await slot.emitRealtime("draft:race", {});
+  await diff().findByText("Is this tested?");
+  expect(diff().getByText("This line already has a comment. Saving yours replaces it.")).toBeTruthy();
+  fireEvent.click(diff().getByRole("button", { name: "Replace comment" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenLastCalledWith(expect.objectContaining({ replaces: "Is this tested?" })));
+  await waitFor(() => expect(stored.comments.map((c) => c.body)).toEqual(["Mine."]));
   slot.lifecycle.unmount();
 });
 

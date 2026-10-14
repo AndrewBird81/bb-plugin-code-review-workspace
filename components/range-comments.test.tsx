@@ -62,7 +62,7 @@ test("lines selected upward in the diff make a comment on the range, shown under
   expect(panel().getByText("Writing a comment on src/a.ts:2–4")).toBeTruthy();
   fireEvent.change(box, { target: { value: "Fold these." } });
   fireEvent.click(diff().getByRole("button", { name: "Add to draft" }));
-  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "k", revision: "r1", comment: { file: "src/a.ts", line: 4, side: "RIGHT", startLine: 2, chapterId: "c1", body: "Fold these." } }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "k", revision: "r1", replaces: null, comment: { file: "src/a.ts", line: 4, side: "RIGHT", startLine: 2, chapterId: "c1", body: "Fold these." } }));
   const card = await diff().findByRole("article", { name: "Draft comment on src/a.ts:2–4" });
   expect(within(card).getByText("Lines 2–4")).toBeTruthy();
   expect(panel().getByRole("button", { name: "Draft · not submitted · src/a.ts:2–4" })).toBeTruthy();

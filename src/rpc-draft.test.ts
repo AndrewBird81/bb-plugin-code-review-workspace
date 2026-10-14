@@ -134,6 +134,28 @@ test("the list says Your PR for a PR the signed-in account wrote before the sync
   expect(Object.fromEntries(reviews.map((r: any) => [r.targetKey, r.turn.label]))).toEqual({ mine: "Your PR", theirs: "Ready" });
 });
 
+test("saveDraftComment with replaces refuses to replace a comment the box didn't show, and replaces the one it did", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
+  store.savePatch("pr-7", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-7" }) as any;
+  const agents = { file: "a.ts", line: 2, side: "RIGHT" as const, author: "agent" as const, body: "Is this tested?" };
+  // The agent comments on the line while the reviewer's new box, which showed none, is open there.
+  store.upsertDraftComment("pr-7", agents);
+  const mine = { file: "a.ts", line: 2, side: "RIGHT", body: "Mine." };
+  await expect(harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-7", revision, comment: mine, replaces: null }))
+    .rejects.toThrow("The comment on a.ts:2 changed as you wrote, so yours isn’t saved yet.");
+  expect(store.getDraft("pr-7").comments).toEqual([agents]);
+  // Shown the agent's comment, the reviewer replaces it.
+  await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-7", revision, comment: mine, replaces: "Is this tested?" });
+  expect(store.getDraft("pr-7").comments).toEqual([mine]);
+  // On a line with no comment, null saves.
+  await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-7", revision, comment: { ...mine, line: 1 }, replaces: null });
+  expect(store.getDraft("pr-7").comments).toHaveLength(2);
+});
+
 test("saveDraftComment keeps an agent's comment the agent's when Undo puts it back", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
   await plugin(bb);
