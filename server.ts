@@ -43,7 +43,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
-import { GUIDE_WORKER_TITLE, stopGuideGenerations, hasGuideGenerations, guideWorkerFailed } from "./src/generate";
+import { GUIDE_WORKER_TITLE, stopGuideGenerations, hasGuideGenerations, guideWorkerFailed, guideWriterMode } from "./src/generate";
 import { threadReview, toolThreadReview } from "./src/thread-review";
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { rerunReview } from "./src/rereview";
@@ -378,7 +378,9 @@ export default async function plugin(bb: BbPluginApi) {
       try {
         const projectId = await personalProjectId(bb);
         const d = projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }) : null;
-        return { defaults: d && { providerId: d.providerId, model: d.model, reasoningLevel: d.reasoningLevel, permissionMode: d.permissionMode, serviceTier: d.serviceTier } };
+        // A custom guide writer starts at the mode it runs at on the defaults.
+        const { permissionMode: writerMode } = projectId && d ? await guideWriterMode(bb, projectId) : {};
+        return { defaults: d && { providerId: d.providerId, model: d.model, reasoningLevel: d.reasoningLevel, permissionMode: d.permissionMode, serviceTier: d.serviceTier }, ...(writerMode ? { guideWriterMode: writerMode } : {}) };
       } catch {
         return { defaults: null };
       }

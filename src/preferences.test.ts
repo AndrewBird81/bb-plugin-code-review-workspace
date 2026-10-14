@@ -164,14 +164,20 @@ test("on the defaults, the guide writer runs at accept-edits, else auto, where t
   expect(await mode()).toEqual([null]);
 });
 
-test("custom selections start from the personal project's remembered defaults", async () => {
-  const defaults = { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", permissionMode: "auto", serviceTier: "default" };
+test("custom selections start from the personal project's remembered defaults, with the guide writer's mode as on the defaults", async () => {
+  const defaults = { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", permissionMode: "full", serviceTier: "default" };
+  let providers = [provider("codex", ["accept-edits", "auto", "full"])];
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { projects: {
     list: async () => [{ id: "proj_work", kind: "standard" }, { id: "proj_personal", kind: "personal" }],
     defaultExecutionOptions: async ({ projectId }: { projectId: string }) => projectId === "proj_personal" ? defaults : null,
-  } } });
+  }, providers: { list: async () => providers } } as any });
   await plugin(bb);
-  expect(await harness.behavior.callRpc("getAgentDefaults", null)).toEqual({ defaults });
+  expect(await harness.behavior.callRpc("getAgentDefaults", null)).toEqual({ defaults, guideWriterMode: "accept-edits" });
+  providers = [provider("codex", ["auto", "full"])];
+  expect(await harness.behavior.callRpc("getAgentDefaults", null)).toEqual({ defaults, guideWriterMode: "auto" });
+  // A provider that runs in neither: the project's own mode.
+  providers = [provider("codex", ["full"])];
+  expect(await harness.behavior.callRpc("getAgentDefaults", null)).toStrictEqual({ defaults });
   harness.inspection.sdk.stub("projects.defaultExecutionOptions", async () => { throw new Error("Connection unavailable"); });
   expect(await harness.behavior.callRpc("getAgentDefaults", null)).toEqual({ defaults: null });
 });

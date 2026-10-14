@@ -208,10 +208,12 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
     onNumberText={(key, text) => { setSaved(false); setNumberText(({ [key]: _previous, ...rest }) => text === undefined ? rest : { ...rest, [key]: text }); }} />;
   async function customize(key: "guideAgent" | "assistantAgent") {
     let seed: AgentExecution = { providerId: "", model: "", reasoningLevel: "medium", permissionMode: "auto" };
-    try { seed = (await rpc.call("getAgentDefaults", null)).defaults ?? seed; }
-    catch { /* The pickers resolve bb's own defaults from the empty seed. */ }
-    // The guide writer needs no shell or edits, so it starts at bb's lowest mode, not the project's.
-    if (key === "guideAgent") seed = { ...seed, permissionMode: "accept-edits" };
+    try {
+      const { defaults, guideWriterMode } = await rpc.call("getAgentDefaults", null);
+      seed = defaults ?? seed;
+      // The guide writer needs no shell or edits, so it starts at the lowest mode its provider runs in, as on Project defaults.
+      if (key === "guideAgent" && guideWriterMode) seed = { ...seed, permissionMode: guideWriterMode };
+    } catch { /* The pickers resolve bb's own defaults from the empty seed. */ }
     setAgent(key, (agent) => agent ?? seed);
   }
   useEffect(() => {

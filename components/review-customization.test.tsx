@@ -270,7 +270,7 @@ test("each agent uses project defaults until customized with bb's pickers", asyn
   let record = { preferences: { ...defaultPreferences }, revision: 0 };
   const save = vi.fn(async (input: any) => record = { ...input, revision: input.revision + 1 });
   const defaults = { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", permissionMode: "auto", serviceTier: "default" };
-  const getAgentDefaults = vi.fn().mockResolvedValueOnce({ defaults }).mockRejectedValueOnce(new Error("Offline"));
+  const getAgentDefaults = vi.fn().mockResolvedValueOnce({ defaults, guideWriterMode: "accept-edits" }).mockRejectedValueOnce(new Error("Offline"));
   const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record, savePreferences: save, getAgentDefaults } });
   const guide = await slot.findByRole("group", { name: "Guide writer agent" });
   const assistant = slot.getByRole("group", { name: "Review assistant agent" });
@@ -280,7 +280,7 @@ test("each agent uses project defaults until customized with bb's pickers", asyn
   expect(guide.parentElement!.textContent).toContain("at the lowest permissions that agent runs in");
   expect(assistant.parentElement!.textContent).toContain("effort, and permissions bb remembers");
 
-  // Custom starts from the personal project's defaults, the guide writer at bb's lowest permission mode.
+  // Custom starts from the personal project's defaults, the guide writer at the lowest mode its provider runs in.
   fireEvent.click(within(guide).getByRole("button", { name: "Custom" }));
   const picker = await slot.findByTestId("bb-provider-model-picker");
   expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("gpt-6-astra");
@@ -309,6 +309,24 @@ test("each agent uses project defaults until customized with bb's pickers", asyn
   expect(slot.getAllByTestId("bb-provider-model-picker")).toHaveLength(1);
   fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
   await waitFor(() => expect(record.preferences.guideAgent).toBeNull());
+  slot.lifecycle.unmount();
+});
+
+test("a custom guide writer starts at auto when its provider has no accept-edits, else at the project's mode", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  const record = { preferences: { ...defaultPreferences }, revision: 0 };
+  const defaults = { providerId: "other", model: "m", reasoningLevel: "low", permissionMode: "full" };
+  const getAgentDefaults = vi.fn().mockResolvedValueOnce({ defaults, guideWriterMode: "auto" }).mockResolvedValueOnce({ defaults });
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record, getAgentDefaults } });
+  const guide = await slot.findByRole("group", { name: "Guide writer agent" });
+  const mode = () => (slot.getByRole("combobox", { name: "Permission mode" }) as HTMLSelectElement).value;
+  fireEvent.click(within(guide).getByRole("button", { name: "Custom" }));
+  await waitFor(() => expect(mode()).toBe("auto"));
+  fireEvent.click(within(guide).getByRole("button", { name: "Project defaults" }));
+  fireEvent.click(within(guide).getByRole("button", { name: "Custom" }));
+  await waitFor(() => expect(getAgentDefaults).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(mode()).toBe("full"));
   slot.lifecycle.unmount();
 });
 

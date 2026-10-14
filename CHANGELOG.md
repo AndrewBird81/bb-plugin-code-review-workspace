@@ -29,7 +29,7 @@ Settings can now turn off what you don't use, Finish review checks an approval a
 
 - The assistant and the guide writer read only their own review's diff and PR context. Before, a PR's text could steer them into reading any other review, private ones included, and renaming their thread or editing its metadata could point them at another review's guide.
 - A PR whose branch is in someone else's fork no longer runs agents or the repo's checks on its own, even when it's yours or a member's: that fork's owner can push to it. The review says whose fork, with one click to run it. **Anyone** under Trust still runs it.
-- The hidden guide writer no longer runs at the project's permission mode, possibly Full Access, on **Project defaults**: it runs at Accept Edits where its provider allows, else Auto, and its skill tells it to use only the plugin's tools and one that reads a linked ticket. **Custom** starts it at Accept Edits too.
+- The hidden guide writer no longer runs at the project's permission mode, possibly Full Access, on **Project defaults**: it runs at Accept Edits where its provider allows, else Auto, and its skill tells it to use only the plugin's tools and one that reads a linked ticket. **Custom** starts it at the same mode.
 - A guide that leaves changed code out of every chapter is refused, so a change can't hide in a low-risk "Other files"; binary, rename-only, and mode-only files still go there. The guide writer hears every error at once.
 - The assistant knows each chapter's risk and where to start, and keeps the guide's chapters in its instructions however long your instructions are.
 

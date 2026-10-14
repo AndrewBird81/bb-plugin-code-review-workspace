@@ -42,7 +42,7 @@ export function guideWriterUnavailable(bb: BbPluginApi, store: Store): Promise<s
  * accept-edits where the project's provider runs in it, else auto, whose approvals bb reviews itself, so the hidden
  * writer waits on no one. Unset, so the project's own, when the provider runs in neither or can't be read.
  */
-async function guideWriterMode(bb: BbPluginApi, projectId: string): Promise<{ permissionMode?: "accept-edits" | "auto"; executionInputSources?: { permissionMode: "explicit" } }> {
+export async function guideWriterMode(bb: BbPluginApi, projectId: string): Promise<{ permissionMode?: "accept-edits" | "auto"; executionInputSources?: { permissionMode: "explicit" } }> {
   try {
     const [defaults, providers] = await Promise.all([bb.sdk.projects.defaultExecutionOptions({ projectId }), bb.sdk.providers.list()]);
     const modes = providers.find((provider) => provider.id === defaults?.providerId)?.capabilities.permissionModes ?? [];

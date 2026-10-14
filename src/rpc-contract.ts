@@ -67,8 +67,9 @@ export const rpcContract = defineRpcContract({
     input: z.object({ preferences: preferencesSchema.extend({ knobs: knobsSchema.partial().optional() }).partial({ threadListReviews: true, rereviewShows: true }), revision: z.number().int().min(0) }).strict(),
     output: z.object({ preferences: preferencesSchema, revision: z.number().int() }),
   },
-  // Seeds a custom agent selection with the panel project's remembered defaults.
-  getAgentDefaults: { input: z.null(), output: z.object({ defaults: agentExecutionSchema.nullable() }) },
+  // Seeds a custom agent selection with the panel project's remembered defaults, and a custom guide writer with the
+  // mode it runs at on them (src/generate.ts guideWriterMode); without one, the project's own.
+  getAgentDefaults: { input: z.null(), output: z.object({ defaults: agentExecutionSchema.nullable(), guideWriterMode: z.enum(["accept-edits", "auto"]).optional() }) },
   listMachines: {
     input: z.null(),
     output: z.object({ machines: z.array(z.object({ hostId: z.string(), name: z.string(), connected: z.boolean(), server: z.boolean() })) }),
