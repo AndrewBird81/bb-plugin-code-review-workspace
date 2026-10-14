@@ -1,6 +1,7 @@
 import { test, expect } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore } from "./store";
+import { createStore, reanchorAll } from "./store";
+import { askAt, setAsk } from "./asks";
 import { createHash } from "node:crypto";
 
 function store() {
@@ -241,6 +242,42 @@ test("a draft comment remembers its line's text and can move with it", () => {
   expect(s.getDraft("pr-1").comments).toMatchObject([{ line: 3, body: "Why?" }]);
   expect(s.staleDraftComments("pr-1")).toHaveLength(0);
   expect(s.draftCommentCode("pr-1", { file: "a.ts", line: 3, side: "RIGHT" })).toBe("added line");
+});
+
+test("a discussion follows its draft comment when a rebuild moves it", () => {
+  const s = store();
+  const headers = ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts"];
+  const patch = [...headers, "@@ -1,4 +1,5 @@", " one", "-two", "+two();", "+three();", " four", " five", ""].join("\n");
+  // Two lines added at the top: `four` moves from new line 4 to 6.
+  const next = [...headers, "@@ -1,4 +1,7 @@", "+zero", "+zero2", " one", "-two", "+two();", "+three();", " four", " five", ""].join("\n");
+  s.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, headSha: "sha1" });
+  s.savePatch("pr-1", patch);
+  const at = { file: "a.ts", line: 4, side: "RIGHT" as const };
+  s.upsertDraftComment("pr-1", { ...at, body: "Why?" });
+  s.addDiscussionMessage("pr-1", at, "reviewer", "explain this?");
+  setAsk(s, "pr-1", at, { threadId: "t1", state: "running", at: 1 });
+
+  s.savePatch("pr-1", next);
+  s.rebaseDraftComments("pr-1", reanchorAll(s, "pr-1", patch, next));
+
+  expect(s.getDraft("pr-1").comments.map((c) => c.line)).toEqual([6]);
+  expect(s.listDiscussions("pr-1").map((d) => ({ line: d.line, waiting: d.waiting }))).toEqual([{ line: 6, waiting: true }]);
+  expect(askAt(s.getReview("pr-1"), { ...at, line: 6 })).toMatchObject({ threadId: "t1" });
+  expect(askAt(s.getReview("pr-1"), at)).toBeNull();
+});
+
+test("comments that swap lines in a rebuild keep their own discussions", () => {
+  const s = store();
+  s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
+  s.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+a\n+b\n");
+  s.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "on a" });
+  s.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "on b" });
+  s.addDiscussionMessage("pr-1", { file: "a.ts", line: 1, side: "RIGHT" }, "reviewer", "about a");
+  s.addDiscussionMessage("pr-1", { file: "a.ts", line: 2, side: "RIGHT" }, "agent", "about b");
+  s.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+b\n+a\n");
+  s.rebaseDraftComments("pr-1", [{ at: { file: "a.ts", line: 1, side: "RIGHT" }, line: 2 }, { at: { file: "a.ts", line: 2, side: "RIGHT" }, line: 1 }]);
+  expect(s.listDiscussions("pr-1").map((d) => [d.line, d.entries.map((e) => e.body), d.waiting]).sort())
+    .toEqual([[1, ["about b"], false], [2, ["about a"], true]]);
 });
 
 test("threads already resolved on the first read date from their last activity", () => {

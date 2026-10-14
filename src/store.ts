@@ -855,6 +855,26 @@ export function createStore(bb: BbPluginApi): Store {
         }
         for (const c of moves.keys()) db.prepare(`DELETE FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).run(k, c.file, c.line, c.side);
         this.moveAgentCommentChanges(k, [...moves].map(([c, line]) => ({ at: { file: c.file, line: c.line, side: c.side }, line })));
+        // Each comment's discussion, wait and ask move with it. Rows are found before any move, so comments that swap lines
+        // don't merge their discussions.
+        const discussions = [...moves].map(([c, line]) => ({
+          c, line,
+          ids: db.prepare(`SELECT id FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=?`).all(...at(k, c)) as Array<{ id: number }>,
+          waiting: stopWaitingAt(k, c).changes > 0,
+        }));
+        // A range's first line follows the comment's, or shifts with its last.
+        const moveEntry = db.prepare(`UPDATE discussion_entries SET line=?, start_line=CASE WHEN start_line IS NULL THEN NULL ELSE COALESCE(?, start_line + ?) END WHERE id=?`);
+        for (const { c, line, ids, waiting } of discussions) {
+          for (const { id } of ids) moveEntry.run(line, starts.get(c) ?? null, line - c.line, id);
+          if (waiting) db.prepare(`INSERT OR IGNORE INTO discussion_waits VALUES (?,?,?,?)`).run(k, c.file, line, c.side);
+        }
+        const asks = this.getReview(k)?.commentAsks;
+        if (asks?.length) {
+          this.setLifecycle(k, { commentAsks: asks.map((entry) => {
+            const moved = [...moves].find(([c]) => sameLocation(c, entry));
+            return moved ? { ...entry, line: moved[1] } : entry;
+          }) });
+        }
         for (const [c, line] of moves) {
           c.line = line;
           if (starts.has(c)) c.startLine = starts.get(c);
