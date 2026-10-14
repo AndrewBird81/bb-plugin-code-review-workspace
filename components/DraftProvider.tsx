@@ -372,6 +372,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       refocusBox.current = true;
       if (!rebuilding && composerRevision.current !== revisionRef.current) { setOlderDiff(true); return "Not saved: it was written against an older diff."; }
       setComposerError(message);
+      // A save refused for a comment the box wasn't shown: read it, so the next save replaces it.
+      refresh();
     });
   }
   /** Add a ```suggestion block holding the box's lines as they read now, for the reviewer to edit in place. */

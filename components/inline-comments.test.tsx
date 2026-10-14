@@ -93,6 +93,28 @@ test("an agent's comment that arrives on a new box's line shows above it, and sa
   slot.lifecycle.unmount();
 });
 
+test("a refused save reads the line's comment again, so the next Replace goes through without a realtime event", async () => {
+  let stored = empty("refused");
+  const saveDraftComment = vi.fn(async ({ comment, replaces }: any) => {
+    const there = stored.comments.find((c) => c.file === comment.file && c.line === comment.line && c.side === comment.side);
+    if ((there?.body ?? null) !== replaces) throw new Error("The comment on src/a.ts:2 changed as you wrote, so yours isn’t saved yet.");
+    stored = { ...stored, comments: [...stored.comments.filter((c) => c !== there), comment] };
+    return { draft: stored, stale: [] };
+  });
+  const { slot, diff } = await renderReview("refused", { getDraft: () => ({ draft: structuredClone(stored), stale: [] }), saveDraftComment });
+  fireEvent.click(diff().getByRole("button", { name: "Gutter +" }));
+  fireEvent.change(diff().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Mine." } });
+  // Another window saves a comment on the line, which publishes nothing.
+  stored = { ...stored, comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", body: "Saved elsewhere." }] };
+  fireEvent.click(diff().getByRole("button", { name: "Add to draft" }));
+  expect(await diff().findByText(/changed as you wrote/)).toBeTruthy();
+  await diff().findByText("Saved elsewhere.");
+  expect((diff().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Mine.");
+  fireEvent.click(diff().getByRole("button", { name: "Replace comment" }));
+  await waitFor(() => expect(stored.comments.map((c) => c.body)).toEqual(["Mine."]));
+  slot.lifecycle.unmount();
+});
+
 test("editing an agent's comment in the diff saves it in place, while its new comments keep arriving", async () => {
   const agents = { file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", body: "Is this tested?" };
   const later = { file: "src/a.ts", line: 1, side: "RIGHT", author: "agent", body: "Name this better?" };
