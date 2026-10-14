@@ -499,10 +499,12 @@ export const DiffViewer = memo(function DiffViewer({
     return () => observer.disconnect();
   }, [lazy, perFile]);
 
-  // Explicit collapse overrides; when unset a file follows its "viewed" flag, and noise starts folded.
+  // Explicit collapse overrides; when unset a file follows its "viewed" flag, unless Settings turns that off, and noise
+  // starts folded.
+  const foldViewed = useKnob("foldViewedFiles");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const noisy = useMemo(() => new Set(perFile.filter((f) => f.noisy).map((f) => f.path)), [perFile]);
-  const isCollapsed = (file: string) => collapsed[file] ?? ((views.get(file)?.viewed ?? false) || noisy.has(file));
+  const isCollapsed = (file: string) => collapsed[file] ?? ((foldViewed && (views.get(file)?.viewed ?? false)) || noisy.has(file));
   const toggleCollapsed = (file: string) => setCollapsed((c) => ({ ...c, [file]: !isCollapsed(file) }));
   // Only a request made while it shows: a diff drawn again later starts as it would.
   const foldedAll = useRef(foldAll);
@@ -515,7 +517,7 @@ export const DiffViewer = memo(function DiffViewer({
   function handleToggleViewed(file: string, next: boolean) {
     onToggleViewed(file, next);
     // Checking Viewed collapses the file; unchecking re-expands it.
-    setCollapsed((c) => ({ ...c, [file]: next }));
+    if (foldViewed) setCollapsed((c) => ({ ...c, [file]: next }));
   }
   // Likewise when it's marked another way: v, or Mark chapter viewed.
   const shownViews = useRef(views);
@@ -523,8 +525,8 @@ export const DiffViewer = memo(function DiffViewer({
     const before = shownViews.current;
     shownViews.current = views;
     const flipped = [...new Set([...before.keys(), ...views.keys()])].filter((file) => (before.get(file)?.viewed ?? false) !== (views.get(file)?.viewed ?? false));
-    if (flipped.length) setCollapsed((c) => ({ ...c, ...Object.fromEntries(flipped.map((file) => [file, views.get(file)?.viewed ?? false])) }));
-  }, [views]);
+    if (foldViewed && flipped.length) setCollapsed((c) => ({ ...c, ...Object.fromEntries(flipped.map((file) => [file, views.get(file)?.viewed ?? false])) }));
+  }, [views, foldViewed]);
 
   // GitHub threads and CI failures go under their lines when this diff shows them; the rest of the threads are outdated.
   const fromGitHub = useMemo(() => {

@@ -5,6 +5,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { toast } from "sonner";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import { defaultKnobs } from "../lib/knobs";
 import { patchReviewState } from "../lib/panel-state";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
@@ -49,7 +50,7 @@ const guide = {
 };
 
 type View = { file: string; hash: string; viewedAt: number };
-async function renderWorkspace() {
+async function renderWorkspace(knobs = defaultKnobs) {
   patchReviewState("pr-42", { activeId: "c1" });
   // The file views as the server keeps them: what marking replaced comes back with it, for Undo to put back.
   const stored = new Map<string, string>();
@@ -58,7 +59,7 @@ async function renderWorkspace() {
     setReviewPresence: () => ({ ok: true }),
     getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: structuredClone(guide), patch, revision: "r1" }),
     getChecks: () => ({ bucket: "none", checks: [] }),
-    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getPreferences: () => ({ preferences: { ...defaultPreferences, knobs }, revision: 0 }),
     getFileViews: vi.fn(() => ({ views: [...stored].map(([file]) => ({ file, viewed: true, stale: false })) })),
     setFileViewed: vi.fn(() => ({ ok: true })),
     setFilesViewed: vi.fn(({ files, viewed = true, previous = [] }: { files: string[]; viewed?: boolean; previous?: View[] }) => {
@@ -128,6 +129,26 @@ test("Next unviewed in the chapters opens the next file not viewed yet, in any c
   fireEvent.click(chapters(slot).getByRole("button", { name: "Next unviewed" }));
   await slot.findByText("bb");
   expect(currentChapter(slot)?.textContent).toContain("Housekeeping");
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("with Fold files you've viewed off, the Viewed checkbox, v and Mark chapter viewed each leave the code open", async () => {
+  const { slot, rpc } = await renderWorkspace({ ...defaultKnobs, foldViewedFiles: false });
+  const viewed = () => slot.getByRole("checkbox", { name: "Viewed src/a.ts" }) as HTMLInputElement;
+  fireEvent.click(viewed());
+  await waitFor(() => expect(viewed().checked).toBe(true));
+  expect(slot.getByText("aa")).toBeTruthy();
+  fireEvent.click(viewed());
+  await waitFor(() => expect(viewed().checked).toBe(false));
+  fireEvent.keyDown(document.body, { key: "v" });
+  await waitFor(() => expect(viewed().checked).toBe(true));
+  expect(rpc.setFileViewed).toHaveBeenLastCalledWith({ targetKey: "pr-42", file: "src/a.ts", viewed: true });
+  expect(slot.getByText("aa")).toBeTruthy();
+  fireEvent.click(viewed());
+  await waitFor(() => expect(viewed().checked).toBe(false));
+  fireEvent.click(chapters(slot).getByRole("button", { name: "Mark chapter viewed" }));
+  expect(await chapters(slot).findByText("Chapter viewed")).toBeTruthy();
+  expect(slot.getByText("aa")).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
 
