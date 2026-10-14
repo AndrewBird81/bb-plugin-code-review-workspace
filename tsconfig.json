@@ -26,6 +26,9 @@
     "app.tsx",
     "components",
     "lib",
-    "hooks"
+    "hooks",
+    "src",
+    "e2e",
+    "vitest.config.ts"
   ]
 }

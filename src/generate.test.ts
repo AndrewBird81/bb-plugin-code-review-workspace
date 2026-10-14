@@ -3,6 +3,7 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
 import { createStore } from "./store";
 import plugin from "../server";
+import { spawnPrompt, toolFailed, toolText } from "./fake-host.test-support";
 
 const patch = `diff --git a/a.ts b/a.ts
 --- a/a.ts
@@ -25,7 +26,7 @@ async function host() {
 test("read_review_patch returns stored patch text", async () => {
   const { harness, generationId } = await host();
   const out = await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1" });
-  expect(String(out.content?.[0]?.text ?? out)).toContain("diff --git a/a.ts");
+  expect(toolText(out)).toContain("diff --git a/a.ts");
 });
 
 test("read_review_patch reads one file's diff on request", async () => {
@@ -36,15 +37,15 @@ test("read_review_patch reads one file's diff on request", async () => {
   expect(text(one)).toContain("+other");
   expect(text(one)).not.toContain("a.ts");
   const missing = await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", file: "c.ts" });
-  expect(missing.isError).toBe(true);
+  expect(toolFailed(missing)).toBe(true);
 });
 
 test("read_review_patch finds a renamed file by its old path too", async () => {
   const { harness, store } = await host();
   store.savePatch("pr-1", "diff --git a/src/old.ts b/src/new.ts\nsimilarity index 90%\nrename from src/old.ts\nrename to src/new.ts\n--- a/src/old.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-a\n+b\n");
   const out = await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", file: "src/old.ts" });
-  expect(out.isError).toBeFalsy();
-  expect(String(out.content?.[0]?.text ?? out)).toContain("rename to src/new.ts");
+  expect(toolFailed(out)).toBeFalsy();
+  expect(toolText(out)).toContain("rename to src/new.ts");
 });
 
 test("generate_review_guide rejects incomplete coverage then accepts a full guide", async () => {
@@ -54,13 +55,13 @@ test("generate_review_guide rejects incomplete coverage then accepts a full guid
     generationId,
     guide: { title: "T", intent: "I", sections: [], unplacedFiles: [], review: { gitRef: "x" } },
   });
-  expect(bad.isError).toBe(true);
+  expect(toolFailed(bad)).toBe(true);
   const good = await harness.behavior.callAgentTool("generate_review_guide", {
     targetKey: "pr-1",
     generationId,
     guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: [], review: { gitRef: "x" } },
   });
-  expect(good.isError).toBeFalsy();
+  expect(toolFailed(good)).toBeFalsy();
 });
 
 test("generate_review_guide stamps the store's authoritative gitRef (and base) over whatever the guide submitted, and accepts a section risk", async () => {
@@ -94,7 +95,7 @@ test("generate_review_guide stamps the store's authoritative gitRef (and base) o
       review: { gitRef: "wrong-or-stale-ref", base: "wrong-base" },
     },
   });
-  expect(good.isError).toBeFalsy();
+  expect(toolFailed(good)).toBeFalsy();
 
   const stored = store.getGuide("pr-1");
   expect(stored?.review).toEqual({ gitRef: "main...feature-authoritative", base: "main" });
@@ -122,7 +123,7 @@ test("generate_review_guide stamps gitRef even when the submitted guide omitted 
       unplacedFiles: [],
     },
   });
-  expect(good.isError).toBeFalsy();
+  expect(toolFailed(good)).toBeFalsy();
 
   const stored = store.getGuide("pr-1");
   expect(stored?.review).toEqual({ gitRef: "main...feature-authoritative" });
@@ -136,6 +137,7 @@ function baseConfigContext(pluginId: string | null, threadTitle: string | null =
     host: { id: "host-1", name: "test-host" },
     provider: { id: "test-provider", model: "test-model", capabilities: { supportsNativeUserQuestion: false } },
     origin: { kind: null, pluginId },
+    pluginMetadata: {},
   };
 }
 
@@ -194,7 +196,7 @@ test("a rebuilt guide for a PR you reviewed checks your feedback instead of revi
   harness.inspection.sdk.stub("threads.wait", async () => { store.saveGuide("pr-1", { title: "T", intent: "I", sections: [], unplacedFiles: [] }); return { matched: true }; });
   await generateGuide(bb, store, "pr-1", "p1", { notify: false });
   // The guide writer kept the earlier chapters in view and was asked for sinceReview.
-  const prompt = harness.inspection.sdk.callsTo("threads.spawn")[0][0].prompt as string;
+  const prompt = spawnPrompt(harness.inspection.sdk.callsTo("threads.spawn")[0][0]);
   expect(prompt).toContain("- cache: Cache (a.ts)");
   expect(prompt).toContain("sinceReview");
   // The review's conversation got the feedback check, with its context only the assistant sees.
@@ -234,7 +236,7 @@ test("generate_review_guide advertises the guide's schema and accepts a guide wi
     targetKey: "pr-1", generationId,
     guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] }] },
   });
-  expect(out.isError).toBeFalsy();
+  expect(toolFailed(out)).toBeFalsy();
   expect(store.getGuide("pr-1")?.unplacedFiles).toEqual([]);
 });
 
@@ -245,7 +247,7 @@ test("files the guide leaves unplaced get a final low-risk chapter, so the revie
     targetKey: "pr-1", generationId,
     guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: ["logo.png"] },
   });
-  expect(out.isError).toBeFalsy();
+  expect(toolFailed(out)).toBeFalsy();
   const saved = store.getGuide("pr-1");
   expect(saved?.unplacedFiles).toEqual([]);
   expect(saved?.sections.at(-1)).toMatchObject({ id: "other-files", title: "Other files", risk: "low", diffs: [{ file: "logo.png", summary: expect.any(String) }] });

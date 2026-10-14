@@ -12,7 +12,7 @@ function facts(ref: PrRef, extra: Partial<PrFacts> = {}): PrFacts {
   return {
     targetKey: ref.targetKey, repo: ref.repo, number: ref.number, state: "OPEN", isDraft: false, title: "Expire cache entries", url: "https://github.com/acme/web/pull/1",
     author: "alice", authorAssociation: "MEMBER", baseRefName: "main", headRefName: "cache", headSha: "sha1", updatedAt: 1, ci: "pass",
-    myReviews: [], otherOpinions: [], requests: [], requestRemovedAt: null, requestPending: null, mention: null, commits: ["sha1"], ...extra,
+    myReviews: [], otherOpinions: [], requests: [], size: null, requestPending: null, mention: null, commits: ["sha1"], ...extra,
   };
 }
 const review = (state: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "DISMISSED", at: number, sha = "sha1", body = "") => ({ id: `r-${at}`, state, submittedAt: at, sha, body });

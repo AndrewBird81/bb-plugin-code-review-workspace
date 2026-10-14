@@ -3,6 +3,7 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "./store";
 import { checkHotspots, validateGuide } from "./guide";
 import plugin from "../server";
+import { toolFailed, toolText } from "./fake-host.test-support";
 
 const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -10,3 +10,3 @@\n keep\n-old\n+new\n keep2\n";
 const guide = (hotspots?: unknown) => ({ title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", diffs: [{ file: "a.ts", summary: "x" }] }], ...(hotspots ? { hotspots } : {}) });
@@ -32,10 +33,10 @@ test("generate_review_guide refuses a hotspot off the diff, and keeps valid ones
   store.savePatch("pr-1", patch);
   const generationId = store.beginGeneration("pr-1");
   const bad = await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide: guide([{ file: "a.ts", line: 99, why: "w" }]) });
-  expect(bad.isError).toBe(true);
-  expect(String(bad.content?.[0]?.text)).toContain("line 99 of a.ts isn't a new-file line the diff shows");
+  expect(toolFailed(bad)).toBe(true);
+  expect(toolText(bad)).toContain("line 99 of a.ts isn't a new-file line the diff shows");
   const good = await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide: guide([{ file: "a.ts", line: 11, why: "Drops the null check." }]) });
-  expect(good.isError).toBeFalsy();
+  expect(toolFailed(good)).toBeFalsy();
   expect(store.getGuide("pr-1")?.hotspots).toEqual([{ file: "a.ts", line: 11, why: "Drops the null check." }]);
 });
 

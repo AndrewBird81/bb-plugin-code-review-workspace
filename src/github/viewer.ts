@@ -15,7 +15,7 @@ export interface Viewer {
 }
 
 /** Caches each read for ttlMs; after a failure returns null / an empty set until retryMs passes. */
-export function createViewer(run: RunGh, options: { ttlMs?: number; retryMs?: number; now?: () => number } = {}): Viewer {
+export function createViewer(run: RunGh, options: { ttlMs?: number; retryMs?: number; now?: () => number } = {}): Required<Viewer> {
   const { ttlMs = 60 * 60_000, retryMs = 5 * 60_000, now = Date.now } = options;
   let generation = 0;
 

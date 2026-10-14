@@ -26,7 +26,8 @@ test("owners, members, and collaborators are trusted; others only with the setti
 
 test("your own PRs and local reviews are trusted", () => {
   expect(trustedAuthor(pr({ authorAssociation: "NONE", ownPr: true }), defaultPreferences)).toBe(true);
-  expect(trustedAuthor({ targetKey: "ref-1", kind: "ref", gitRef: "main...feature", status: "ready", createdAt: 1 }, defaultPreferences)).toBe(true);
+  const local: ReviewMeta = { targetKey: "ref-1", kind: "ref", gitRef: "main...feature", status: "ready", createdAt: 1 };
+  expect(trustedAuthor(local, defaultPreferences)).toBe(true);
 });
 
 test("an approved head runs unattended; another head doesn't", () => {

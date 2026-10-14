@@ -6,6 +6,7 @@ vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 
 import plugin from "../server";
 import { createStore } from "./store";
+import { toolFailed } from "./fake-host.test-support";
 
 test("read_pr_context reads the context of the guide writer's or the assistant's review", async () => {
   runGh.mockImplementation(async (args: string[]) => args[1] === "graphql"
@@ -25,5 +26,5 @@ test("read_pr_context reads the context of the guide writer's or the assistant's
     expect(text(out)).toContain("PR #1 in acme/web, by @alice");
     expect(text(out)).toContain("Implements LIN-42.");
   }
-  expect((await harness.behavior.callAgentTool("read_pr_context", {}, { threadId: "stranger" })).isError).toBe(true);
+  expect(toolFailed(await harness.behavior.callAgentTool("read_pr_context", {}, { threadId: "stranger" }))).toBe(true);
 });

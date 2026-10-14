@@ -4,6 +4,7 @@ import { createStore } from "./store";
 import { checkRequirements, validateGuide } from "./guide";
 import { buildGenerationPrompt } from "./generate";
 import plugin from "../server";
+import { toolFailed, toolText } from "./fake-host.test-support";
 
 const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -10,3 +10,3 @@\n keep\n-old\n+new\n keep2\n";
 const section = { id: "s1", title: "S", overview: "o", diffs: [{ file: "a.ts", summary: "x" }] };
@@ -61,11 +62,11 @@ test("generate_review_guide refuses a requirement off the diff, and keeps requir
   store.savePatch("pr-1", patch);
   const generationId = store.beginGeneration("pr-1");
   const bad = await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide: guide({ requirements: [{ ...covered, line: 99 }] }) });
-  expect(bad.isError).toBe(true);
-  expect(String(bad.content?.[0]?.text)).toContain("requirements.0: line 99 of a.ts isn't a new-file line the diff shows");
+  expect(toolFailed(bad)).toBe(true);
+  expect(toolText(bad)).toContain("requirements.0: line 99 of a.ts isn't a new-file line the diff shows");
   const focus = ["Check that the retry can't loop."];
   const good = await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide: guide({ requirements: [covered], sections: [{ ...section, focus }] }) });
-  expect(good.isError).toBeFalsy();
+  expect(toolFailed(good)).toBeFalsy();
   expect(store.getGuide("pr-1")?.requirements).toEqual([covered]);
   expect(store.getGuide("pr-1")?.sections[0]?.focus).toEqual(focus);
 });

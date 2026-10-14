@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { BATCH_SIZE, fetchPrFacts, mentions, parsePrFacts, prFactsQuery } from "./pr-facts";
-import type { PrRef } from "./types";
+import type { PrFacts, PrRead, PrRef } from "./types";
 import cli9083 from "./fixtures/pr-facts-cli-9083.json";
 
 const ref = (number: number, repo = "cli/cli"): PrRef => ({ targetKey: `pr-${number}`, repo, number });
@@ -20,8 +20,13 @@ function pr(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+/** The facts read for a PR, failing the test when it read none or was refused. */
+function factsOf(read: PrRead | undefined): PrFacts {
+  if (!read || read === "forbidden") throw new Error(`expected PR facts, got ${read}`);
+  return read;
+}
 const one = (node: unknown, viewer = "me", teams: ReadonlySet<string> = noTeams) =>
-  parsePrFacts({ data: { p0: { pullRequest: node } } }, [ref(1, "acme/web")], viewer, teams).get("pr-1")!;
+  factsOf(parsePrFacts({ data: { p0: { pullRequest: node } } }, [ref(1, "acme/web")], viewer, teams).get("pr-1"));
 
 test("prFactsQuery aliases each PR and passes owner, name, and number as variables", () => {
   const { query, variables } = prFactsQuery([ref(1, "cli/cli"), ref(2, "acme/web")]);
@@ -33,7 +38,7 @@ test("prFactsQuery aliases each PR and passes owner, name, and number as variabl
 });
 
 test("parsePrFacts normalizes a captured cli/cli response, dropping reply-only reviews", () => {
-  const facts = parsePrFacts(cli9083, [ref(9083)], "andyfeller", noTeams).get("pr-9083")!;
+  const facts = factsOf(parsePrFacts(cli9083, [ref(9083)], "andyfeller", noTeams).get("pr-9083"));
   expect(facts).toMatchObject({
     repo: "cli/cli", number: 9083, state: "CLOSED", author: "wingleung", ci: "none",
     headSha: "97b10370e1dec2f7be3665646d9a7b088edb180e", requestPending: { via: "user" },
@@ -54,7 +59,7 @@ test("parsePrFacts normalizes a captured cli/cli response, dropping reply-only r
 });
 
 test("parsePrFacts finds the latest mention of another viewer in the captured response", () => {
-  const facts = parsePrFacts(cli9083, [ref(9083)], "williammartin", noTeams).get("pr-9083")!;
+  const facts = factsOf(parsePrFacts(cli9083, [ref(9083)], "williammartin", noTeams).get("pr-9083"));
   expect(facts.mention).toEqual({ at: Date.parse("2025-02-10T13:54:32Z"), by: "wingleung" });
 });
 

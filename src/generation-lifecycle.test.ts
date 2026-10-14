@@ -3,6 +3,7 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
 import { generateGuide, stopGuideGenerations } from "./generate";
+import { toolFailed } from "./fake-host.test-support";
 
 const guide = { title: "T", intent: "I", sections: [], unplacedFiles: [] };
 
@@ -23,8 +24,8 @@ test("a superseded generation cannot replace a newer guide", async () => {
   store.saveReview({ targetKey: "target", kind: "ref", status: "generating", createdAt: 1 });
   const old = store.beginGeneration("target");
   const current = store.beginGeneration("target");
-  expect((await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "target", generationId: current, guide })).isError).toBeFalsy();
-  expect((await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "target", generationId: old, guide: { ...guide, title: "Old result" } })).isError).toBe(true);
+  expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "target", generationId: current, guide }))).toBeFalsy();
+  expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "target", generationId: old, guide: { ...guide, title: "Old result" } }))).toBe(true);
   expect(store.getGuide("target")?.title).toBe("T");
 });
 
@@ -59,8 +60,9 @@ test("disposal aborts a pending worker wait and releases the worker", async () =
   let waiting = false;
   const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
     spawn: async () => ({ id: "worker" }),
-    wait: ({ signal }: { signal: AbortSignal }) => new Promise((resolve) => {
+    wait: ({ signal }: { signal?: AbortSignal }) => new Promise((resolve, reject) => {
       waiting = true;
+      if (!signal) return reject(new Error("the worker's wait has no abort signal"));
       signal.addEventListener("abort", () => resolve({ matched: false }), { once: true });
     }),
     archive: async () => {}, stop,

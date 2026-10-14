@@ -5,6 +5,7 @@ import { checkCoverage, validateGuide } from "./guide";
 import { chapterAt, droppedNear, fitHunks, hunkCounts, hunksIn, keepHunks } from "./hunks";
 import { buildGenerationPrompt, generateGuide } from "./generate";
 import plugin from "../server";
+import { spawnPrompt, toolFailed, toolText } from "./fake-host.test-support";
 
 // a.ts has three hunks: lines 2, 20 and 40 change.
 const a = [
@@ -70,10 +71,10 @@ test("generate_review_guide checks a split file's hunks against the diff", async
   const generationId = store.beginGeneration("pr-1");
   const submit = (sections: ReturnType<typeof section>[]) => harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide: { title: "T", intent: "I", sections } });
   const bad = await submit([section("s1", [{ file: "a.ts", hunks: [1] }, { file: "b.ts" }])]);
-  expect(bad.isError).toBe(true);
-  expect(String(bad.content?.[0]?.text)).toContain("missing: hunks 2, 3 of a.ts aren't in any chapter");
+  expect(toolFailed(bad)).toBe(true);
+  expect(toolText(bad)).toContain("missing: hunks 2, 3 of a.ts aren't in any chapter");
   const good = await submit([section("s1", [{ file: "a.ts", hunks: [1] }, { file: "b.ts" }]), section("s2", [{ file: "a.ts", hunks: [2, 3] }])]);
-  expect(good.isError).toBeFalsy();
+  expect(toolFailed(good)).toBeFalsy();
   expect(store.getGuide("pr-1")?.sections.map((s) => s.diffs.map((d) => d.hunks))).toEqual([[[1], undefined], [[2, 3]]]);
 });
 
@@ -127,7 +128,7 @@ test("the guide writer's earlier chapters name their hunks, or whole files when 
   store.savePatch("pr-1", keepHunks(a, (_, i) => i < 2) + b);
   harness.inspection.sdk.stub("threads.wait", async () => ({ matched: true }));
   await generateGuide(bb, store, "pr-1", "p1", { notify: false });
-  const rebuilt = harness.inspection.sdk.callsTo("threads.spawn")[0][0].prompt as string;
+  const rebuilt = spawnPrompt(harness.inspection.sdk.callsTo("threads.spawn")[0][0]);
   expect(rebuilt).toContain("- s1: s1 (a.ts, b.ts)");
   expect(rebuilt).not.toContain("- s2:");
 });

@@ -200,7 +200,7 @@ test("submitting records the review's GitHub id, and the sync recognizes it", as
   const { factsUpdate } = await import("./turn-signals");
   const meta = { targetKey: "pr-1", kind: "pr" as const, status: "ready" as const, createdAt: 1, submittedVerdict: "COMMENT" as const, submittedAt: 10_000, submittedHeadSha: "sha2", submittedReviewId: "PRR_new" };
   const base = { targetKey: "pr-1", repo: "acme/web", number: 1, state: "OPEN" as const, isDraft: false, title: "T", url: "u", author: "alice", baseRefName: "main", headRefName: "h",
-    headSha: "sha2", updatedAt: 1, ci: "pass" as const, otherOpinions: [], requests: [], requestRemovedAt: null, requestPending: null, mention: null, commits: ["sha1", "sha2"] };
+    headSha: "sha2", updatedAt: 1, ci: "pass" as const, otherOpinions: [], requests: [], size: null, requestPending: null, mention: null, commits: ["sha1", "sha2"] };
   // GitHub's clock says the comment came 3s before bb stamped it; the id still matches, and changes requested stands.
   const mine = [{ id: "PRR_old", state: "CHANGES_REQUESTED" as const, submittedAt: 1_000, sha: "sha1", body: "Fix it" }, { id: "PRR_new", state: "COMMENTED" as const, submittedAt: 7_000, sha: "sha2", body: "Still waiting" }];
   expect(factsUpdate(meta, { ...base, myReviews: mine }, "me", 20_000, 20_000)).toMatchObject({ submittedVerdict: "REQUEST_CHANGES", submittedAt: 7_000, submittedReviewId: null });

@@ -88,7 +88,7 @@ test("errors keeps the last failed login and teams reads", async () => {
   const viewer = createViewer(run);
   await viewer.login();
   await viewer.teams();
-  expect(viewer.errors!()).toEqual({ login: "HTTP 401: Bad credentials", teams: "HTTP 403: needs read:org" });
+  expect(viewer.errors()).toEqual({ login: "HTTP 401: Bad credentials", teams: "HTTP 403: needs read:org" });
 });
 
 test("reset forgets the token too, so the next check records the new account without reporting a switch", async () => {

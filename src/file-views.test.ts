@@ -4,6 +4,7 @@ import plugin from "../server";
 import { createStore } from "./store";
 import { computeFileViewState, hashForFile } from "./file-views";
 import { hashFileDiff, normalizedFileHash } from "./diff-hash";
+import { rpcContract } from "./rpc-contract";
 
 vi.mock("./diff-hash", async (original) => {
   const actual = await original<typeof import("./diff-hash")>();
@@ -77,7 +78,7 @@ test("setFilesViewed returns the views it replaced, and Undo with them puts a fi
     { file: "a.ts", viewed: true, stale: false },
     { file: "b.ts", viewed: true, stale: false },
   ] });
-  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts"], viewed: false, previous: marked.previous })).toEqual({ ok: true });
+  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts"], viewed: false, previous: rpcContract.setFilesViewed.output.parse(marked).previous })).toEqual({ ok: true });
   expect(store.getFileViews("pr-1")).toEqual([before]);
   expect(await harness.behavior.callRpc("getFileViews", { targetKey: "pr-1" })).toEqual({ views: [{ file: "a.ts", viewed: false, stale: true }] });
 });

@@ -4,7 +4,7 @@ import { test, expect, vi } from "vitest";
 // evaluation for "../server" — and transitively "./gh" — happens before any
 // of this file's own top-level statements). `vi.hoisted` guarantees that.
 const { submit } = vi.hoisted(() => ({
-  submit: vi.fn(async () => ({ stdout: "{}", stderr: "", code: 0 })),
+  submit: vi.fn(async (_args: string[]) => ({ stdout: "{}", stderr: "", code: 0 })),
 }));
 
 vi.mock("./gh", async (importOriginal) => {

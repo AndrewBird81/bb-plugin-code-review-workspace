@@ -11,6 +11,7 @@ import { readFileContents, readGeneratedFiles } from "./file-contents";
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh }));
 import plugin from "../server";
+import { toolText } from "./fake-host.test-support";
 
 const ok = (stdout: string) => ({ stdout, stderr: "", code: 0 });
 const pr: ReviewMeta = { targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "head1", status: "ready", createdAt: 1 };
@@ -55,7 +56,7 @@ test("contents that don't match the diff, binary files, and huge files stay as t
   expect(await readFileContents({ runGh: moved, runGit: noGit }, { ...pr, headSha: "head4" }, fileOf(patch))).toEqual({ ok: false, error: "The file doesn’t match the diff, so only the diff shows." });
   const binary = "diff --git a/logo.png b/logo.png\nindex 1..2 100644\nBinary files a/logo.png and b/logo.png differ\n";
   expect(await readFileContents({ runGh: github({}), runGit: noGit }, pr, fileOf(binary))).toEqual({ ok: false, error: "A binary file shows as the diff only." });
-  const huge = vi.fn(async (args: string[]) => args.some((arg) => arg.includes("/compare/")) ? ok("base1\n") : { stdout: "", stderr: "gh printed more than 2 MB, too much to read.", code: 1 });
+  const huge = vi.fn(async (args: string[], _options?: Parameters<typeof runGit>[1]) => args.some((arg) => arg.includes("/compare/")) ? ok("base1\n") : { stdout: "", stderr: "gh printed more than 2 MB, too much to read.", code: 1 });
   expect(await readFileContents({ runGh: huge, runGit: noGit }, { ...pr, headSha: "head5" }, fileOf(patch))).toEqual({ ok: false, error: "src/a.ts is too large to show in full." });
   expect(huge.mock.calls[1][1]).toMatchObject({ maxBuffer: 2 * 1024 * 1024 });
 });
@@ -144,5 +145,5 @@ test("list_review_files calls the files the repo declares generated what they ar
   store.savePatch("pr-1", patch);
   runGh.mockImplementation(github({ ".gitattributes?ref=head10": "src/a.ts linguist-generated\n" }));
   const out = await harness.behavior.callAgentTool("list_review_files", { targetKey: "pr-1" });
-  expect(String(out.content?.[0]?.text ?? out)).toMatch(/^src\/a\.ts · modified · \+1 −1 · \d+ chars · generated$/m);
+  expect(toolText(out)).toMatch(/^src\/a\.ts · modified · \+1 −1 · \d+ chars · generated$/m);
 });
