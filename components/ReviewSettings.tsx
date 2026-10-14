@@ -16,7 +16,7 @@ import { IconTile } from "./ui/icon-tile";
 import type { Tone } from "./ui/badge";
 import { AccountBar } from "./AccountBar";
 import { PageBar } from "./PageBar";
-import { KnobControl, type KnobNumberText } from "./SettingsKnobs";
+import { KnobControl, enabledNumberText, type KnobNumberText } from "./SettingsKnobs";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 
 /** One of a setting's choices, pressed when it's chosen: a long one wraps on a narrow screen, and it's 44px on touch. */
@@ -186,6 +186,8 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
   function show(next: PreferencesRecord) {
     setRecord(next); setBaseline(JSON.stringify(next.preferences)); setNumberText({});
   }
+  // A number being typed goes once its parent is off, so Save doesn't wait on a box you can't fix.
+  useEffect(() => { if (record) setNumberText((current) => enabledNumberText(current, record.preferences)); }, [record]);
   // A number still being typed counts, so Discard edits can clear it.
   const dirty = record !== null && (baseline !== JSON.stringify(record.preferences) || Object.keys(numberText).length > 0);
   // A custom selection is complete once the host pickers resolve a provider and model, and a number once it's in range.

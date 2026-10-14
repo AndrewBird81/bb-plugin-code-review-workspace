@@ -41,6 +41,12 @@ export const KNOB_CONTROLS: readonly KnobControlEntry[] = [
   { id: "unattendedAgents", section: "trust", label: "Start agents on their own", description: "Guides, the automatic review, and re-review checks start without your click on PRs from the authors below. Off, other people’s PRs wait for your click. Your own PRs and local reviews always run, unless the PR’s branch is in someone else’s fork." },
 ];
 
+/** The numbers being typed in controls that are enabled; the same object when none is disabled. */
+export function enabledNumberText(numberText: KnobNumberText, preferences: ReviewPreferences): KnobNumberText {
+  const kept = Object.entries(numberText).filter(([id]) => KNOB_CONTROLS.find((control) => control.id === id)?.enabledWhen?.(preferences) ?? true);
+  return kept.length === Object.keys(numberText).length ? numberText : Object.fromEntries(kept);
+}
+
 /** A whole number in the knob's range, or null. */
 function readNumber(id: NumberKnob, text: string): number | null {
   const { min, max } = KNOB_RANGES[id];

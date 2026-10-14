@@ -519,6 +519,22 @@ test("a pace that isn't a whole number from 100 to 2,000 holds Save, and Discard
   slot.lifecycle.unmount();
 });
 
+test("a pace being typed goes when Check before you approve is turned off, so Save keeps the other edits", async () => {
+  const { slot, saved, toggle, pace, saveButton } = await renderSettings();
+  fireEvent.change(pace(), { target: { value: "50" } });
+  expect(saveButton().disabled).toBe(true);
+  fireEvent.click(toggle("Check before you approve"));
+  fireEvent.click(toggle("Code owners"));
+  expect(pace().disabled).toBe(true);
+  expect(pace().value).toBe("500");
+  expect(slot.queryByText("Use a whole number from 100 to 2,000.")).toBeNull();
+  expect(saveButton().disabled).toBe(false);
+  fireEvent.click(saveButton());
+  await slot.findByText("Settings saved");
+  expect(saved.record.preferences.knobs).toMatchObject({ approveGuard: false, approveGuardPace: 500, codeOwners: false });
+  slot.lifecycle.unmount();
+});
+
 test("Restore defaults turns every knob back to its default, clears a pace being typed, and keeps the diff layout", async () => {
   const { defaultKnobs } = await import("../lib/knobs");
   const { allKnobsOff } = await import("./settings-off.test-support");
