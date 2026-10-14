@@ -74,6 +74,7 @@ export default async function plugin(bb: BbPluginApi) {
   // An ask on a summary or comment can't know whether its turn ended while the plugin was down; it gives way.
   for (const review of store.listReviews()) if (listAsks(review).length) clearAsks(store, review.targetKey);
   const submitReview = createReviewSubmitter(store, runGh);
+  const deps = { bb, store, gh: { runGh, runGit } };
   const notifications = completionNotifications(bb, store);
   const suggester = createInstructionSuggester(bb, store, () => bb.realtime.publish("learning", {}));
   let personalProject: string | null = null;
@@ -86,12 +87,12 @@ export default async function plugin(bb: BbPluginApi) {
       const review = store.getReview(targetKey);
       if (!review) return false;
       // An out-of-date guide is rebuilt first; its completion starts the check.
-      if (review.status === "tracked" || review.headSha !== headOf(review)) return (await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey, { notify: false, unattended: true })).ok;
+      if (review.status === "tracked" || review.headSha !== headOf(review)) return (await rerunReview(deps, targetKey, { notify: false, unattended: true })).ok;
       return startVerification(bb, store, targetKey, reasons[reason] ?? "the review came back to the reviewer");
     },
     checkPushes: (targetKey) => startVerification(bb, store, targetKey, "the author pushed new commits and they have settled"),
     async autoStart(targetKey) {
-      return (await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey, { notify: false, unattended: true })).ok;
+      return (await rerunReview(deps, targetKey, { notify: false, unattended: true })).ok;
     },
     async projectId() {
       if (personalProject) return personalProject;
@@ -109,7 +110,7 @@ export default async function plugin(bb: BbPluginApi) {
         await bb.sdk.threads.archive({ threadId: workerId }).catch(() => {});
         await bb.sdk.threads.stop({ threadId: workerId }).catch(() => {});
       }
-      const restarted = await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey, { notify: false, unattended: true });
+      const restarted = await rerunReview(deps, targetKey, { notify: false, unattended: true });
       if (!restarted.ok) bb.log.warn(`The interrupted guide for ${targetKey} didn't restart: ${restarted.error}`);
     }
   })().catch((error) => bb.log.warn(`Could not restart interrupted guides: ${String(error)}`));
@@ -229,7 +230,7 @@ export default async function plugin(bb: BbPluginApi) {
         const review = store.getReview(targetKey);
         if (!review) return { ok: false, error: "This review no longer exists." };
         if (review.status === "generating") return { ok: true };
-        const result = await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey);
+        const result = await rerunReview(deps, targetKey);
         changed(targetKey);
         return result;
       },
@@ -240,7 +241,7 @@ export default async function plugin(bb: BbPluginApi) {
         let result: { ok: boolean; error?: string };
         // A guide that's missing or behind the PR is built first. Starting it approves its head, so the review or check follows.
         if (skipped.run === "guide" || review.status === "tracked" || skipped.run === "check" && review.headSha !== headOf(review)) {
-          result = await rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey);
+          result = await rerunReview(deps, targetKey);
         } else {
           store.setLifecycle(targetKey, { approvedHead: skipped.run === "check" ? headOf(review) : review.headSha ?? null, skippedRun: null });
           try {
@@ -405,7 +406,7 @@ export default async function plugin(bb: BbPluginApi) {
         return { ok: false, error: "Could not resolve a project to run generation." };
       }
       if (!projectId) return { ok: false, error: "No project available to run generation." };
-      return createPrReview({ bb, store, gh: { runGh, runGit } }, { input, projectId });
+      return createPrReview(deps, { input, projectId });
     },
 
     // Task 10: read data plane
@@ -501,13 +502,12 @@ export default async function plugin(bb: BbPluginApi) {
       if (store.getReview(targetKey)?.archivedAt) return { ok: false, error: "This PR is archived. Its guide and conversation are still available." };
       // Reading the PR may have started an automatic rebuild already.
       if (store.getReview(targetKey)?.status === "generating") return { ok: true };
-      return rerunReview({ bb, store, gh: { runGh, runGit } }, targetKey);
+      return rerunReview(deps, targetKey);
     },
     archiveReview({ targetKey, archived }) {
       if (!store.getReview(targetKey)) return { ok: false, error: "This review no longer exists." };
       store.setLifecycle(targetKey, { userArchivedAt: archived ? Date.now() : null });
-      bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
-      bb.realtime.publish("reviews", { ts: Date.now() });
+      changed(targetKey);
       return { ok: true };
     },
     pinReview({ targetKey, pinned }) {
@@ -527,8 +527,7 @@ export default async function plugin(bb: BbPluginApi) {
       // Discovery won't add a PR you deleted back to the list; starting it again does.
       if (review.kind === "pr") store.ignoreDiscovery(targetKey);
       await notifications.dismiss(targetKey).catch(() => {});
-      bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
-      bb.realtime.publish("reviews", { ts: Date.now() });
+      changed(targetKey);
       await notifications.forget(targetKey).catch(() => {});
       for (const threadId of threadIds) {
         if (!threadId) continue;
@@ -620,8 +619,7 @@ export default async function plugin(bb: BbPluginApi) {
         await notifications.dismiss(targetKey).catch(() => {});
         await sync.evaluate(targetKey);
       }
-      bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
-      bb.realtime.publish("reviews", { ts: Date.now() });
+      changed(targetKey);
       return result;
     },
 
@@ -702,6 +700,7 @@ export default async function plugin(bb: BbPluginApi) {
     applyPluginUpdate: ({ clientId, candidateVersion }) => updates.apply(clientId, candidateVersion),
   });
 
+  const failed = (text: string): PluginAgentToolResult => ({ content: [{ type: "text", text }], isError: true });
   bb.agents.registerTool({
     name: "read_review_patch",
     description: "Return the diff text for a Guided Review target (paginated). Pass file to read one file's diff.",
@@ -716,7 +715,7 @@ export default async function plugin(bb: BbPluginApi) {
         const files = splitPatchByFile(store.patch(targetKey));
         // A renamed file is keyed by its new path; its old one finds it too.
         const diff = files.find((f) => f.path === file) ?? files.find((f) => f.oldPath === file);
-        if (!diff) return { content: [{ type: "text", text: `This review has no diff for ${file}.` }], isError: true };
+        if (!diff) return failed(`This review has no diff for ${file}.`);
         const text = diff.text.slice(offset ?? 0, (offset ?? 0) + (limit ?? 200_000));
         const end = (offset ?? 0) + text.length;
         return text + (end < diff.text.length ? `\n\n[${end}/${diff.text.length} bytes — call again with offset=${end}]` : "");
@@ -742,7 +741,7 @@ export default async function plugin(bb: BbPluginApi) {
   function assistantDraft(threadId: string, changes: boolean, act: (targetKey: string) => DraftResult): PluginAgentToolResult {
     const targetKey = assistantReview(store, threadId);
     const result: DraftResult = targetKey ? act(targetKey) : { ok: false, error: "This conversation is no longer a review's assistant, so it has no draft." };
-    if (!result.ok) return { content: [{ type: "text", text: result.error }], isError: true };
+    if (!result.ok) return failed(result.error);
     if (changes) bb.realtime.publish(`draft:${targetKey}`, {});
     return result.text;
   }
@@ -823,7 +822,6 @@ export default async function plugin(bb: BbPluginApi) {
     if (review.kind !== "pr") return "This is a local review; there's no GitHub feedback to check.";
     return review;
   }
-  const failed = (text: string): PluginAgentToolResult => ({ content: [{ type: "text", text }], isError: true });
   bb.agents.registerTool({
     name: "list_feedback",
     description: "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries.",
@@ -987,18 +985,18 @@ export default async function plugin(bb: BbPluginApi) {
     parameters: z.object({ targetKey: z.string(), generationId: z.string(), guide: GuideInputSchema }),
     async execute({ targetKey, generationId, guide }) {
       if (!store.isCurrentGeneration(targetKey, generationId) || store.getReview(targetKey)?.status !== "generating") {
-        return { content: [{ type: "text", text: "This generation was superseded or interrupted. Do not overwrite the current review." }], isError: true };
+        return failed("This generation was superseded or interrupted. Do not overwrite the current review.");
       }
       const v = validateGuide(guide);
-      if (!v.ok) return { content: [{ type: "text", text: "Invalid guide:\n" + v.errors.join("\n") }], isError: true };
+      if (!v.ok) return failed("Invalid guide:\n" + v.errors.join("\n"));
       const patch = store.patch(targetKey);
       const files = changedFiles(patch);
       const cov = checkCoverage(v.guide, files, hunkCounts(patch));
-      if (!cov.ok) return { content: [{ type: "text", text: "Coverage errors:\n" + cov.errors.join("\n") }], isError: true };
+      if (!cov.ok) return failed("Coverage errors:\n" + cov.errors.join("\n"));
       const spots = checkHotspots(v.guide, patch);
-      if (!spots.ok) return { content: [{ type: "text", text: "Hotspot errors:\n" + spots.errors.join("\n") }], isError: true };
+      if (!spots.ok) return failed("Hotspot errors:\n" + spots.errors.join("\n"));
       const asked = checkRequirements(v.guide, patch);
-      if (!asked.ok) return { content: [{ type: "text", text: "Requirement errors:\n" + asked.errors.join("\n") }], isError: true };
+      if (!asked.ok) return failed("Requirement errors:\n" + asked.errors.join("\n"));
       // Stamp the store's authoritative gitRef/base over whatever the agent
       // submitted — the guide must never carry a wrong or stale review ref.
       const meta = store.getReview(targetKey);
@@ -1054,7 +1052,7 @@ export default async function plugin(bb: BbPluginApi) {
       const changedDraft = (targetKey: string) => bb.realtime.publish(`draft:${targetKey}`, {});
       return updates.run(() => argv[0] === "comment" ? runCommentCommand(store, argv.slice(1), changedDraft)
         : argv[0] === "summary" ? runSummaryCommand(store, argv.slice(1), changedDraft)
-        : runReviewCommand({ bb, store, gh: { runGh, runGit } }, argv, ctx));
+        : runReviewCommand(deps, argv, ctx));
     },
   });
 }
