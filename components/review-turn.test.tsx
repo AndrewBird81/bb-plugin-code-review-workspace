@@ -3,7 +3,8 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
-import { patchReviewState } from "../lib/panel-state";
+import { getReviewState, patchReviewState } from "../lib/panel-state";
+import { defaultKnobs } from "../lib/knobs";
 import type { FeedbackView } from "../lib/feedback";
 import { TOUCH_CONTROL } from "./touch";
 
@@ -300,5 +301,18 @@ test("a merged review offers no Submit review", async () => {
   await slot.findByRole("region", { name: "Archived review", hidden: true });
   await slot.findByRole("button", { name: "Comments" });
   expect(slot.queryByRole("button", { name: /^Submit review/ })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("with Open on the Overview off, a review that came back to you reopens where you left it, with Comments closed", async () => {
+  patchReviewState("pr-42", { activeId: "c1" });
+  const preferences = { ...defaultPreferences, knobs: { ...defaultKnobs, returnToOverview: false } };
+  const { slot, rpc } = await renderWorkspace({ submittedVerdict: "REQUEST_CHANGES", turn: turn({}) }, { getPreferences: () => ({ preferences, revision: 1 }) });
+  await slot.findByTestId("filediff");
+  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  expect(slot.queryByRole("heading", { name: "Parse rows" })).toBeNull();
+  // Still seen, and still recorded, so turning it back on doesn't replay this return.
+  expect(rpc.markSeen).toHaveBeenCalledWith({ targetKey: "pr-42" });
+  expect(getReviewState("pr-42").turnSignal).toBe("re-requested:1");
   slot.lifecycle.unmount();
 });

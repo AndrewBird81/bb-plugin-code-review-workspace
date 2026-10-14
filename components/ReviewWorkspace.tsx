@@ -58,7 +58,7 @@ import { TOUCH_CONTROL } from "./touch";
 import { splitPatchByFile } from "../src/patch";
 import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunks";
 import { approveGuard } from "../lib/approve-guard";
-import { useKnob } from "../lib/settings";
+import { useKnob, useSettings } from "../lib/settings";
 import { changedLines, chapterReadingLines, readingLines } from "../lib/review-size";
 
 /** The guide's chapters, then any changed files they don't list, such as an older guide's unplaced files. */
@@ -116,6 +116,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // The diff as last shown, which a reload with the same revision doesn't send again.
   const shownPatch = useRef<{ targetKey: string; revision: string; patch: string } | null>(null);
   const persisted = useMemo(() => getReviewState(targetKey), [targetKey]);
+  // The first settings load, which load waits for: a ref, as load is kept for the review.
+  const firstSettings = useSettings().settled;
+  const settledRef = useRef(firstSettings);
+  settledRef.current = firstSettings;
 
   const [review, setReview] = useState<any>(null);
   const [guide, setGuide] = useState<any>(null);
@@ -373,11 +377,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     try {
       // Views come with the diff, so viewed files are folded before it first draws.
       const known = shownPatch.current?.targetKey === targetKey ? shownPatch.current : null;
-      const [{ review, guide, patch: sent, revision, diffError }, viewsRes, generatedRes] = await Promise.all([
+      const [{ review, guide, patch: sent, revision, diffError }, viewsRes, generatedRes, settings] = await Promise.all([
         rpc.call("getReviewBundle", { targetKey, ...(known ? { knownRevision: known.revision } : {}) }),
         rpc.call("getFileViews", { targetKey }).catch(() => null),
         // Like views, so files the repo marks generated are folded before the diff draws.
         rpc.call("getGeneratedFiles", { targetKey }).catch(() => null),
+        // Settings, which say where a review that came back opens.
+        settledRef.current,
       ]);
       if (id !== request.current) return;
       // A deleted review shows "Review not found" rather than a pending regeneration.
@@ -411,10 +417,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       }
       opened.current = true;
       // The review opens where you left it, or on its Overview: the first time, when its chapter is gone, and when it
-      // came back to you since you last opened it, with Comments beside it where there's room.
+      // came back to you since you last opened it, with Comments beside it where there's room, unless Settings → Reading
+      // reopens it where you left it.
       const saved = getReviewState(targetKey);
       const turn = review.turn ?? computeTurn(review);
-      const back = review.kind === "pr" && turn.group === "needs" && FEEDBACK_FIRST.has(turn.reason) && !!turn.signal && turn.signal !== saved.turnSignal;
+      const back = settings.knobs.returnToOverview && review.kind === "pr" && turn.group === "needs" && FEEDBACK_FIRST.has(turn.reason) && !!turn.signal && turn.signal !== saved.turnSignal;
       const resumable = saved.activeId === OVERVIEW || chapters.some((section) => section.id === saved.activeId);
       const start = !back && resumable ? saved.activeId! : OVERVIEW;
       restoreScroll.current = start === saved.activeId ? { id: start, top: saved.scrollTop ?? 0 } : null;
