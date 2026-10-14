@@ -13,8 +13,9 @@ const patch = `diff --git a/a.ts b/a.ts
 +new
 `;
 
+// The tools are called as review pr-1's guide writer, which its thread's title names.
 async function host() {
-  const h = createFakePluginHost({ pluginId: "guided-review" });
+  const h = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { get: async () => ({ title: "Generate guide: pr-1" }) } } as any });
   await plugin(h.bb);
   const store = createStore(h.bb); // same pluginId → same DB the factory's tools read
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
@@ -46,6 +47,25 @@ test("read_review_patch finds a renamed file by its old path too", async () => {
   const out = await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", file: "src/old.ts" });
   expect(toolFailed(out)).toBeFalsy();
   expect(toolText(out)).toContain("rename to src/new.ts");
+});
+
+test("read_review_patch and list_review_files read only the calling thread's own review", async () => {
+  const { harness, store } = await host();
+  store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, status: "ready", createdAt: 1 });
+  store.savePatch("pr-2", patch.replaceAll("a.ts", "secret.ts").replace("+new", "+PRIVATE_TOKEN"));
+  store.setAssistantThread("pr-3", "assistant-of-3");
+  const text = (out: any) => String(out.content?.[0]?.text ?? out);
+  // pr-1's guide writer, and another review's assistant.
+  for (const threadId of ["thread-test", "assistant-of-3"]) {
+    const read = await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-2" }, { threadId });
+    expect(typeof read !== "string" && read.isError).toBe(true);
+    expect(text(read)).not.toContain("PRIVATE_TOKEN");
+    const list = await harness.behavior.callAgentTool("list_review_files", { targetKey: "pr-2" }, { threadId });
+    expect(typeof list !== "string" && list.isError).toBe(true);
+    expect(text(list)).not.toContain("secret.ts");
+  }
+  store.setAssistantThread("pr-2", "assistant-of-2");
+  expect(text(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-2" }, { threadId: "assistant-of-2" }))).toContain("PRIVATE_TOKEN");
 });
 
 test("generate_review_guide rejects incomplete coverage then accepts a full guide", async () => {

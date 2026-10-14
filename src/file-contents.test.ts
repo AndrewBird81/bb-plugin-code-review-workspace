@@ -143,6 +143,7 @@ test("list_review_files calls the files the repo declares generated what they ar
   const store = createStore(bb);
   store.saveReview({ ...pr, headSha: "head10" });
   store.savePatch("pr-1", patch);
+  store.setAssistantThread("pr-1", "thread-test");
   runGh.mockImplementation(github({ ".gitattributes?ref=head10": "src/a.ts linguist-generated\n" }));
   const out = await harness.behavior.callAgentTool("list_review_files", { targetKey: "pr-1" });
   expect(toolText(out)).toMatch(/^src\/a\.ts · modified · \+1 −1 · \d+ chars · generated$/m);

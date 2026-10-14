@@ -691,6 +691,11 @@ export default async function plugin(bb: BbPluginApi) {
   });
 
   const failed = (text: string): PluginAgentToolResult => ({ content: [{ type: "text", text }], isError: true });
+  /** Why a thread may not read `targetKey`'s diff: only a review's own assistant or guide writer may. Null when it may. */
+  async function notOwnReview(threadId: string, targetKey: string): Promise<string | null> {
+    const own = assistantReview(store, threadId) ?? (await generationReview(threadId));
+    return own === targetKey ? null : `This conversation can read only its own review's diff${own ? `, targetKey ${own}` : ""}.`;
+  }
   bb.agents.registerTool({
     name: "read_review_patch",
     description: "Return the diff text for a Guided Review target (paginated). Pass file to read one file's diff.",
@@ -700,7 +705,9 @@ export default async function plugin(bb: BbPluginApi) {
       offset: z.number().int().min(0).optional(),
       limit: z.number().int().min(1).max(200_000).optional(),
     }),
-    async execute({ targetKey, file, offset, limit }) {
+    async execute({ targetKey, file, offset, limit }, { threadId }) {
+      const refused = await notOwnReview(threadId, targetKey);
+      if (refused) return failed(refused);
       if (file !== undefined) {
         const files = splitPatchByFile(store.patch(targetKey));
         // A renamed file is keyed by its new path; its old one finds it too.
@@ -720,7 +727,9 @@ export default async function plugin(bb: BbPluginApi) {
     name: "list_review_files",
     description: "List a Guided Review target's changed files: path, status (added, deleted, modified, renamed), lines added and removed, diff size, and kind (code, test, docs, config, lockfile, generated).",
     parameters: z.object({ targetKey: z.string() }),
-    execute: async ({ targetKey }) => {
+    execute: async ({ targetKey }, { threadId }) => {
+      const refused = await notOwnReview(threadId, targetKey);
+      if (refused) return failed(refused);
       const patch = store.patch(targetKey);
       const review = store.getReview(targetKey);
       return describeReviewFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : []);
