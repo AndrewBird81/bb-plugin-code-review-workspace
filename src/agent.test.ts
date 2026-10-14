@@ -291,6 +291,17 @@ test("no automatic review for a blank prompt or a failed guide; one that can't s
   expect(harness.inspection.logEntries.map((entry) => entry.message)).toContainEqual(expect.stringContaining("automatic review of pr-1 didn't start"));
 });
 
+test("with Run the automatic review off, a ready guide starts no assistant, though the default prompt is saved", async () => {
+  const { bb, harness, store } = host(
+    { wait: async () => { store.saveGuide("pr-1", guide("Retry") as any); } },
+    { defaultExecutionOptions: async () => opus },
+  );
+  store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, runAutomaticReview: false } }, 0);
+  await generateGuide(bb, store, "pr-1", "p1");
+  expect(store.getReview("pr-1")?.status).toBe("ready");
+  expect(harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title)).toEqual(["Generate guide: pr-1"]);
+});
+
 test("a finished guide restarts the review's idle assistant so it reads the new guide", async () => {
   let finishGuide = () => {};
   const { bb, harness, store } = host({ wait: async () => finishGuide() });
@@ -339,6 +350,22 @@ test("a guide rebuilt for new commits asks the assistant to re-check its draft c
   expect(sent.input).toEqual([{ type: "text", mentions: [], visibility: "agent-only", text: expect.stringMatching(/New commits: 2222222→3333333\. Re-check your draft comments against the new diff, delete the ones the commits fixed, and review only what changed\./) }]);
   // No conversation was started over the existing one.
   expect(harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title)).toEqual(["Generate guide: pr-1", "Generate guide: pr-1"]);
+});
+
+test("with Re-check the agent's comments off, a guide rebuilt for new commits sends the assistant nothing", async () => {
+  const { bb, harness, store } = host({ send: async () => ({}), wait: async () => { store.saveGuide("pr-1", guide("New retry behavior") as any); } });
+  store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, recheckOnNewCommits: false } }, 0);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "p1", headSha: "1111111aaa" });
+  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
+  store.saveGuide("pr-1", guide("Old") as any);
+  store.setAssistantThread("pr-1", "assistant");
+  store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "**Should fix:** b", author: "agent" });
+  store.backupGuide("pr-1");
+  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "generating", createdAt: 1, projectId: "p1", headSha: "2222222bbb" });
+  await generateGuide(bb, store, "pr-1", "p1");
+  expect(store.getReview("pr-1")?.status).toBe("ready");
+  expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
+  expect(harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title)).toEqual(["Generate guide: pr-1"]);
 });
 
 /** A PR from someone outside acme, at `head`, whose guide finishes when its writer goes idle. */

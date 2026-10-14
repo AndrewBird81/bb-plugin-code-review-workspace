@@ -3,7 +3,7 @@ import type { Store, AgentMessage } from "./store";
 import type { Guide } from "./guide";
 import { isMissingThread } from "./thread-errors";
 import { runGh } from "./gh";
-import { assistantPreferencesPrompt, spawnExecution, type AgentExecution, type ReviewPreferences } from "./preferences";
+import { assistantPreferencesPrompt, automaticReviewPrompt, spawnExecution, type AgentExecution, type ReviewPreferences } from "./preferences";
 import { mayRunChecks, mayRunUnattended } from "../lib/trust";
 import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
 
@@ -154,17 +154,17 @@ async function spawnConversation(bb: BbPluginApi, store: Store, args: { targetKe
  * reviewer's automatic review prompt, and any context `bb review --context`
  * gave it, on the agent a new conversation defaults to. A review whose
  * conversation left comments in the draft hears of `newCommits` instead, even
- * with the automatic review off. A blank prompt turns the automatic review off.
+ * with the automatic review off. Its knob or a blank prompt turns the automatic review off.
  */
 export async function startAutomaticReview(bb: BbPluginApi, store: Store, targetKey: string, newCommits?: { from: string; to: string }): Promise<void> {
   const preferences = store.getPreferences().preferences;
-  const prompt = preferences.automaticReview.trim();
+  const prompt = automaticReviewPrompt(preferences);
   if (!prompt && !newCommits) return;
   const { threadId, defaults } = await getConversation(bb, store, targetKey);
   if (threadId) {
     // An untrusted author's new commits reach the conversation once you start agents on them.
     const review = store.getReview(targetKey);
-    if (newCommits && review && mayRunUnattended(review, preferences, review.headSha) && store.getDraft(targetKey).comments.some((comment) => comment.author === "agent")) await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{
+    if (newCommits && review && preferences.knobs.recheckOnNewCommits && mayRunUnattended(review, preferences, review.headSha) && store.getDraft(targetKey).comments.some((comment) => comment.author === "agent")) await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{
       type: "text", mentions: [], visibility: "agent-only",
       text: `New commits: ${newCommits.from.slice(0, 7)}→${newCommits.to.slice(0, 7)}. Re-check your draft comments against the new diff, delete the ones the commits fixed, and review only what changed.`,
     }] });

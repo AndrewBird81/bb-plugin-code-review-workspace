@@ -5,6 +5,7 @@ import { ensureGitHeaders } from "./patch";
 import { generateGuide, guideWriterUnavailable } from "./generate";
 import { readPrSnapshot } from "./pr-snapshot";
 import { rebuildReview, upToDate } from "./rereview";
+import { automaticReviewPrompt } from "./preferences";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
 import {
@@ -127,7 +128,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx) {
     : `Guided Review started for ${key}. Open the Guided Review panel to watch it build and review.`];
   if (context !== undefined && !context.trim()) lines.push("Removed the review's context.");
   else if (context !== undefined) lines.push(
-    !deps.store.getPreferences().preferences.automaticReview.trim() ? "Automatic review is off in Review settings, so no assistant gets this context."
+    !automaticReviewPrompt(deps.store.getPreferences().preferences) ? "Automatic review is off in Review settings, so no assistant gets this context."
     : deps.store.getAssistantThread(key) ? "This review already has an assistant conversation, so the automatic review won't run and won't see this context. Paste it into Ask agent instead."
     : current ? "The guide is current, so the automatic review won't run again. Paste the context into Ask agent instead."
     : "The assistant's automatic review will include this context.");

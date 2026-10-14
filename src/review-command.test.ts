@@ -105,6 +105,13 @@ test("--context is kept with the review for the automatic review, until replaced
   expect(store.getReviewContext(key)).toBeNull();
 });
 
+test("--context says the automatic review is off when its switch is off, with the default prompt saved", async () => {
+  const { bb, store } = host();
+  store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, runAutomaticReview: false } }, 0);
+  const { stdout } = await runReviewCommand({ bb, store, gh }, [url, "--context", "Implements LIN-42"], { projectId: "p1", cwd: laptop });
+  expect(stdout).toContain("Automatic review is off in Review settings, so no assistant gets this context.");
+});
+
 test("bb review of a review that hasn't changed opens it without rebuilding, and still keeps --context", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
   const store = createStore(bb);
