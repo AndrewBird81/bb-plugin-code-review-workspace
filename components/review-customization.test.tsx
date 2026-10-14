@@ -276,11 +276,15 @@ test("each agent uses project defaults until customized with bb's pickers", asyn
   const assistant = slot.getByRole("group", { name: "Review assistant agent" });
   expect(within(guide).getByRole("button", { name: "Project defaults" }).getAttribute("aria-pressed")).toBe("true");
   expect(slot.queryByTestId("bb-provider-model-picker")).toBeNull();
+  // The guide writer's defaults don't take the project's permissions; the assistant's do.
+  expect(guide.parentElement!.textContent).toContain("at the lowest permissions that agent runs in");
+  expect(assistant.parentElement!.textContent).toContain("effort, and permissions bb remembers");
 
-  // Custom starts from the personal project's defaults.
+  // Custom starts from the personal project's defaults, the guide writer at bb's lowest permission mode.
   fireEvent.click(within(guide).getByRole("button", { name: "Custom" }));
   const picker = await slot.findByTestId("bb-provider-model-picker");
   expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("gpt-6-astra");
+  expect((slot.getByRole("combobox", { name: "Permission mode" }) as HTMLSelectElement).value).toBe("accept-edits");
   fireEvent.change(within(picker).getByRole("textbox", { name: "Model" }), { target: { value: "gpt-6" } });
   fireEvent.change(within(picker).getByRole("textbox", { name: "Reasoning level" }), { target: { value: "high" } });
   fireEvent.change(within(picker).getByRole("combobox", { name: "Service tier" }), { target: { value: "fast" } });

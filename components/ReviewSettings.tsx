@@ -43,8 +43,10 @@ function MachineSelect({ hostId, machines, disabled, onChange }: {
   </label>;
 }
 
-function AgentSelection({ label, agent, machines, disabled, note, onCustomize, onChange }: {
+function AgentSelection({ label, agent, machines, disabled, note, defaults = "the agent, model, effort, and permissions bb remembers for the project the review runs in", onCustomize, onChange }: {
   label: string; agent: AgentExecution | null; machines: Machines; disabled: boolean; note?: string;
+  /** What Project defaults runs with. */
+  defaults?: string;
   onCustomize(): void; onChange(update: AgentUpdate): void;
 }) {
   // The pickers list the providers, models, and permission limit of the chosen machine.
@@ -65,7 +67,7 @@ function AgentSelection({ label, agent, machines, disabled, note, onCustomize, o
         value={{ providerId: agent.providerId, model: agent.model, reasoningLevel: agent.reasoningLevel, ...(agent.serviceTier ? { serviceTier: agent.serviceTier } : {}) }}
         onChange={(next) => onChange((current) => current && { ...(current.hostId ? { hostId: current.hostId } : {}), providerId: next.providerId, model: next.model, reasoningLevel: next.reasoningLevel, permissionMode: current.permissionMode, ...(next.serviceTier ? { serviceTier: next.serviceTier } : {}) })} />
       <PermissionModePicker disabled={disabled} routing={routing} providerId={agent.providerId} value={agent.permissionMode} onChange={(permissionMode) => onChange((current) => current && { ...current, permissionMode })} />
-    </div> : <p className="text-xs text-muted-foreground">Runs on the bb server with the agent, model, effort, and permissions bb remembers for the project the review runs in.</p>}
+    </div> : <p className="text-xs text-muted-foreground">Runs on the bb server with {defaults}.</p>}
     {agent && machines === null && <p className="text-xs text-muted-foreground">Couldn’t load your machines. Reload this page to choose another machine.</p>}
     {note && <p className="text-xs text-muted-foreground">{note}</p>}
   </div>;
@@ -208,6 +210,8 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
     let seed: AgentExecution = { providerId: "", model: "", reasoningLevel: "medium", permissionMode: "auto" };
     try { seed = (await rpc.call("getAgentDefaults", null)).defaults ?? seed; }
     catch { /* The pickers resolve bb's own defaults from the empty seed. */ }
+    // The guide writer needs no shell or edits, so it starts at bb's lowest mode, not the project's.
+    if (key === "guideAgent") seed = { ...seed, permissionMode: "accept-edits" };
     setAgent(key, (agent) => agent ?? seed);
   }
   useEffect(() => {
@@ -252,7 +256,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
         <fieldset disabled={busy || updating} className="min-w-0 space-y-4">
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="Route" title="Guide generation" description="Used to build a guide, and to update or rebuild one. Existing guides stay as written." />
-            <AgentSelection label="Guide writer agent" agent={record.preferences.guideAgent} machines={machines} disabled={busy || updating} onCustomize={() => void customize("guideAgent")} onChange={(update) => setAgent("guideAgent", update)} />
+            <AgentSelection label="Guide writer agent" agent={record.preferences.guideAgent} defaults="the agent, model, and effort bb remembers for the project the review runs in, at the lowest permissions that agent runs in" machines={machines} disabled={busy || updating} onCustomize={() => void customize("guideAgent")} onChange={(update) => setAgent("guideAgent", update)} />
             <div className="space-y-2"><p id="guide-detail-label" className="text-sm font-medium">Detail level</p><div role="group" aria-labelledby="guide-detail-label" className="flex flex-wrap gap-2">
               {(["concise", "standard", "detailed"] as const).map((value) => <Button key={value} variant="outline" size="sm" className={CHOICE} aria-pressed={record.preferences.guideDetail === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, guideDetail: value } }); }}>{value[0].toUpperCase() + value.slice(1)}</Button>)}
             </div></div>
