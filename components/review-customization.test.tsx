@@ -83,7 +83,12 @@ test("Settings goes back to where it was opened from, All reviews or the review,
   expect(slot.queryByText("Reading layout")).toBeNull();
   fireEvent.click(slot.getByRole("button", { name: /^Detailed$/ }));
   expect(back.hasAttribute("disabled")).toBe(true);
-  fireEvent.click(slot.getByRole("button", { name: "Discard edits" }));
+  const discard = slot.getByRole("button", { name: "Discard edits" });
+  discard.focus();
+  fireEvent.click(discard);
+  // It goes, and the focus stays in the bar, on Save, not on the page (72-hands-on #2).
+  expect(slot.queryByRole("button", { name: "Discard edits" })).toBeNull();
+  expect(document.activeElement).toBe(slot.getByRole("button", { name: "Save settings" }));
   fireEvent.click(back);
   expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "" } }]);
   slot.lifecycle.unmount();

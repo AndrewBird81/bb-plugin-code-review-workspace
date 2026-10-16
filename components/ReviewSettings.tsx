@@ -210,6 +210,8 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
   const [saved, setSaved] = useState(false);
   const [machines, setMachines] = useState<Machines>(undefined);
   const [numberText, setNumberText] = useState<KnobNumberText>({});
+  // Discard edits goes once it's used: the focus stays in the bar, on Save.
+  const saveButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     rpc.call("listMachines", null).then((result) => setMachines(result.machines), () => setMachines(null));
   }, [rpc]);
@@ -414,8 +416,8 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
         </fieldset>
         <div className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-border bg-background/90 py-2.5 backdrop-blur">
           {/* Unavailable rather than disabled, so focus stays on it as it saves, and it's announced as unavailable. */}
-          <Button className={`${TOUCH_CONTROL} ${UNAVAILABLE}`} aria-disabled={!saveable} onClick={() => { if (saveable) void save(); }}>{busy ? "Saving…" : "Save settings"}</Button>
-          {dirty && <Button variant="ghost" className={TOUCH_CONTROL} disabled={busy || updating} onClick={() => { setRecord({ ...record, preferences: JSON.parse(baseline) }); setNumberText({}); setError(""); }}>Discard edits</Button>}
+          <Button ref={saveButton} className={`${TOUCH_CONTROL} ${UNAVAILABLE}`} aria-disabled={!saveable} onClick={() => { if (saveable) void save(); }}>{busy ? "Saving…" : "Save settings"}</Button>
+          {dirty && <Button variant="ghost" className={TOUCH_CONTROL} disabled={busy || updating} onClick={() => { setRecord({ ...record, preferences: JSON.parse(baseline) }); setNumberText({}); setError(""); saveButton.current?.focus(); }}>Discard edits</Button>}
           <span role="status" className="text-xs text-muted-foreground">{saved ? "Settings saved" : dirty ? "Unsaved changes" : ""}</span>
           {/* The diff layout isn't on this page: the review's Diff options set it. */}
           <Button variant="ghost" size="sm" className={`ml-auto ${TOUCH_CONTROL}`} disabled={busy || updating} onClick={() => { setSaved(false); setNumberText({}); setRecord({ ...record, preferences: { ...defaultPreferences, knobs: { ...defaultKnobs }, diffLayout: record.preferences.diffLayout } }); }}>Restore defaults</Button>
