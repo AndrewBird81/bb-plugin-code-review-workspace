@@ -190,8 +190,24 @@ test("a tab at the margin indents the line 4 columns", () => {
   for (const text of ["Example:\n\n\tindented();\n\nthen `Array<string>`.", "Text\n\tgoes on `Map<K, V>`", "\t```\nx\n```\n<img src={logo} />\n```"]) {
     expect(linkImages(text)).toBe(text);
   }
-  // Indented code is still changed.
-  expect(linkImages('  \t<img src="https://evil.test/ti.png">')).toBe("  \t[Image](https://evil.test/ti.png)");
+  // Indented code in a quote is still changed.
+  expect(linkImages('> \t<img src="https://evil.test/ti.png">')).toBe("> \t[Image](https://evil.test/ti.png)");
+});
+
+// Indented code showed < as &lt; and ![ as \![, and its images as links, though BB shows it as written (SUMMARY S15).
+test("indented code outside any quote or list item stays as written", () => {
+  const code = "    const names: Array<string> = [];\n\n\treturn <img src={logo} />;\n  \t![x](y)";
+  for (const text of [code, `Example:\n\n${code}\n\nThen \`Map<K, V>\`.`, `# Title\n${code}`, `\`\`\`\nx\n\`\`\`\n${code}`, `> # Quote\n${code}`]) {
+    expect(linkImages(text)).toBe(text);
+  }
+  // A comment holding indented lines, as PR templates' do, is still hidden whole.
+  expect(linkImages("<!--\nDescribe it:\n\n    - example\n\n-->\nText `Array<T>`")).toBe("\nText `Array<T>`");
+  const img = '<img src="https://evil.test/x.png">';
+  const media = [img, '<video poster="https://evil.test/p.png">', '<source srcset="https://evil.test/s.png">', "![x](https://evil.test/m.png)", `<im<!-- -->g src="https://evil.test/c.png">`];
+  // Where BB reads the indented row as a list item's, a paragraph's, an HTML block's, a footnote's, or in doubt, it's changed.
+  const places = (payload: string) => [`- a\n\n    ${payload}`, `1. a\n\n    ${payload}`, `a\n    ${payload}`, `> a\n    ${payload}`, `<div>\n    ${payload}`, `[^1]: x\n\n    ${payload}`, `>\t    ${payload}`, `> \t${payload}`];
+  for (const text of media.flatMap(places)) expect(linkImages(text), text).not.toMatch(/<(?:img|video|source)\b|(?<!\\)!\[/i);
+  for (const text of media.map((html) => `\`${html}\``).flatMap(places)) expect([text, loads(linkImages(text))]).toEqual([text, []]);
 });
 
 test("a link after a `!` doesn't make a new image", () => {
