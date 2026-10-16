@@ -341,6 +341,8 @@ test("with no reviews yet, a first-run panel says what a review needs and how to
   expect(needs.getByText("A BB agent to write guides")).toBeTruthy();
   expect(slot.getByRole("searchbox", { name: "Find a review, or paste a PR link" }).getAttribute("placeholder")).toBe("Paste a GitHub PR link to review it");
   expect(within(panel).getByText(/in any BB thread/).textContent).toBe("Paste a PR link above, or run bb review <pr> in any BB thread.");
+  // A reply and a resolve post at once, too.
+  expect(within(panel).getByText(/^Guides use/).textContent).toBe("Guides use your BB agent’s usual allowance. Nothing reaches GitHub until you submit, send a reply, or resolve a thread.");
   expect(slot.queryByRole("heading", { name: /^Needs review/ })).toBeNull();
   slot.lifecycle.unmount();
 });

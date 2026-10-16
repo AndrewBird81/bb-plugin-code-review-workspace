@@ -64,7 +64,7 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: { r
           {review.skippedRun && <p className="flex items-center gap-1.5 text-sm text-warning-text"><Icon name="Lock" className="size-3.5 shrink-0" aria-hidden />{notRunReason(review, { unattendedAgents })}.</p>}
           <div className="space-y-1">
             <h2 className="text-base font-semibold text-foreground">No guide yet</h2>
-            <p className="text-sm text-muted-foreground">Building one takes a few minutes. Nothing reaches GitHub until you submit.</p>
+            <p className="text-sm text-muted-foreground">Building one takes a few minutes. Nothing reaches GitHub until you submit, send a reply, or resolve a thread.</p>
           </div>
           <div className="flex flex-wrap justify-center gap-2">
             <Button disabled={starting} className={TOUCH_CONTROL} onClick={() => void build()}>

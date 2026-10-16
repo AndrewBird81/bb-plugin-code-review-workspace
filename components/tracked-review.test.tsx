@@ -37,6 +37,13 @@ test("a tracked review says its size once, beside where it is and who wrote it",
   slot.lifecycle.unmount();
 });
 
+test("a tracked review says what reaches GitHub before you submit: a reply and a resolve", async () => {
+  const slot = await reviewPage({ status: "tracked" });
+  const section = await slot.findByRole("region", { name: "Tracked pull request" });
+  expect(section.textContent).toContain("Nothing reaches GitHub until you submit, send a reply, or resolve a thread.");
+  slot.lifecycle.unmount();
+});
+
 test("a tracked review's page bar goes back to All reviews and has the review's menu", async () => {
   const slot = await reviewPage({ status: "tracked", signals: { requestPending: true, requestedBy: "alice" } }, { startTrackedReview: () => ({ ok: true }) });
   const bar = within((await slot.findByRole("navigation", { name: "Breadcrumb" })).parentElement!);

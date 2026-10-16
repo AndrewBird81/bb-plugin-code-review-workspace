@@ -78,7 +78,7 @@ export function FirstRun({ omnibox, syncing }: { omnibox: ReactNode; syncing: bo
           <Button variant="outline" size="sm" disabled={checking} className={cn("mx-auto flex", TOUCH_CONTROL)} onClick={() => void check()}>{checking ? "Checking…" : "Check again"}</Button>}
         <div className="space-y-1.5 text-center text-sm text-muted-foreground">
           <p>Paste a PR link above, or run <code className="rounded-md border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] text-foreground">bb review &lt;pr&gt;</code> in any BB thread.</p>
-          <p className="text-xs">Guides use your BB agent’s usual allowance. Nothing reaches GitHub until you submit.</p>
+          <p className="text-xs">Guides use your BB agent’s usual allowance. Nothing reaches GitHub until you submit, send a reply, or resolve a thread.</p>
         </div>
       </section>
     </div>
