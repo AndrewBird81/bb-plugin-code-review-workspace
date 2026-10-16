@@ -367,6 +367,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             {knob("foldViewedFiles")}
             {knob("foldGeneratedFiles")}
             {knob("testWeakening")}
+            {knob("lockfileDigest")}
             {knob("requirements")}
             {knob("codeOwners")}
             {knob("ciInCode")}

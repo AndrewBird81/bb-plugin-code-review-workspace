@@ -387,7 +387,8 @@ test("read_review_patch pages stub lockfiles and generated files, reads them who
   store.savePatch("pr-1", patch + lock + vendored);
   const page = toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1" }));
   expect(page).toBe(patch
-    + "diff --git a/package-lock.json b/package-lock.json\n--- a/package-lock.json\n+++ b/package-lock.json\n[lockfile: +2 −1 lines; pass file to read it]\n"
+    // With Summarize lockfile changes on, the stub names the host it adds.
+    + "diff --git a/package-lock.json b/package-lock.json\n--- a/package-lock.json\n+++ b/package-lock.json\n[lockfile: +2 −1 lines; downloads from evil.example; pass file to read it]\n"
     + "diff --git a/vendor/x/y.go b/vendor/x/y.go\nnew file mode 100644\n--- /dev/null\n+++ b/vendor/x/y.go\n[generated: +2 −0 lines; pass file to read it]\n");
   expect(toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", file: "package-lock.json" }))).toBe(lock);
 

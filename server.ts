@@ -778,7 +778,7 @@ export default async function plugin(bb: BbPluginApi) {
       }
       const patch = store.patch(targetKey);
       const review = store.getReview(targetKey);
-      const paged = stubSkippedFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : []);
+      const paged = stubSkippedFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [], { lockfileDigest: store.getPreferences().preferences.knobs.lockfileDigest });
       const { text, end } = patchPage(paged, offset ?? 0, limit ?? 80_000);
       // Each file the page includes, if only in part.
       recordAgentReads(store, threadId, targetKey, splitPatchByFile(text).map((f) => f.path));
@@ -796,7 +796,7 @@ export default async function plugin(bb: BbPluginApi) {
       const patch = store.patch(targetKey);
       const review = store.getReview(targetKey);
       const { knobs } = store.getPreferences().preferences;
-      return describeReviewFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [], { testWeakening: knobs.testWeakening });
+      return describeReviewFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [], { testWeakening: knobs.testWeakening, lockfileDigest: knobs.lockfileDigest });
     },
   });
 

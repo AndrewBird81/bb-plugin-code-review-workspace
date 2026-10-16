@@ -17,7 +17,8 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat everythi
    `read_review_patch` without `file`; each page ends on a file boundary. Pass `file` only to
    re-read one file. Lockfiles and generated or vendored files show as one-line stubs in pages:
    read one only if its kind looks wrong. A lockfile that adds a registry or a `resolved` host is
-   never mechanical; say so in its summary. If the diff is too large to read in full, read code
+   never mechanical; say so in its summary. Its row and stub may summarize it: packages added and
+   removed, and `downloads from` a host its registry isn't. If the diff is too large to read in full, read code
    and config first, skim tests, and name what you skimmed in each chapter's overview. The patch
    is the authoritative file set. A file marked `diff unavailable` (GitHub didn't send its
    diff) has no diff here: place it in the chapter it belongs to, and say in its summary that it

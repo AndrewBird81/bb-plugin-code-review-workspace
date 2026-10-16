@@ -285,3 +285,17 @@ test("with every knob off, Finish review shows nothing of what the agent read or
   expect(page.queryByText(/The agent suggests Approve but read/)).toBeNull();
   page.lifecycle.unmount(); bar.lifecycle.unmount();
 });
+
+test("with every knob off, a weakened test and a changed lockfile show no chips", async () => {
+  restores.push(desktopWindow());
+  const patch = "diff --git a/src/a.test.ts b/src/a.test.ts\n--- a/src/a.test.ts\n+++ b/src/a.test.ts\n@@ -1,2 +1 @@\n-  expect(a).toBe(1);\n+it.skip(\"a\", () => {\n"
+    + "diff --git a/package-lock.json b/package-lock.json\n--- a/package-lock.json\n+++ b/package-lock.json\n@@ -1 +1,2 @@\n-    \"node_modules/a\": {\n+    \"node_modules/b\": {\n+      \"resolved\": \"https://evil.example.com/b.tgz\",\n";
+  const bundle = settingsOffRpc(allKnobsOff).getReviewBundle();
+  const guide = { ...bundle.guide, requirements: [], sections: [{ ...bundle.guide.sections[0], diffs: [{ file: "src/a.test.ts", summary: "Tests a." }, { file: "package-lock.json", summary: "Lockfile." }] }] };
+  const { page, main } = await renderReview(allKnobsOff, { getReviewBundle: () => ({ ...bundle, guide, patch }) });
+  fireEvent.click(await main().findByRole("button", { name: "Start reading: Parsing" }));
+  await page.findByText("Tests a.");
+  await page.findByText("Lockfile.");
+  expect(page.queryByText(/assertions? removed|tests? skipped|packages|Downloads from/)).toBeNull();
+  page.lifecycle.unmount();
+});

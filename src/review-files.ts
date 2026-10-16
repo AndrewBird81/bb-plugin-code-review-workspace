@@ -3,9 +3,10 @@ import { patchRows, splitPatchByFile } from "./patch";
 import { classifyFile } from "./classify";
 import { FILES_CAPPED_NOTE } from "./pr-snapshot";
 import { testWeakening, weakeningMark } from "../lib/test-weakening";
+import { digestText, lockfileDigest } from "../lib/lockfile-digest";
 
-/** Settings' marks list_review_files adds to a row: a test the diff weakens (Flag weakened tests). */
-export interface FileMarks { testWeakening?: boolean }
+/** Settings' marks on a file: a test the diff weakens (Flag weakened tests), and a lockfile's digest (Summarize lockfile changes). */
+export interface FileMarks { testWeakening?: boolean; lockfileDigest?: boolean }
 
 /**
  * list_review_files: one line per changed file, so an agent can plan what to read. `generated`: the files the repo's
@@ -22,7 +23,8 @@ export function describeReviewFiles(patch: string, generated: string[] = [], mar
     // readFilesPatch's note, outside the hunks, where a changed line can't fake it.
     const unsent = lines.some((row) => row.kind !== "+" && row.kind !== "-" && row.kind !== " " && row.text.startsWith("GitHub didn't send this file's diff"));
     const weakened = marks.testWeakening ? testWeakening(path, text, generated.includes(path)) : null;
-    return `${path} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path, generated.includes(path)).category}${unsent ? " · diff unavailable: read it on GitHub" : ""}${weakened ? ` · ${weakeningMark(weakened)}` : ""}`;
+    const digest = marks.lockfileDigest ? lockfileDigest(path, text) : null;
+    return `${path} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path, generated.includes(path)).category}${unsent ? " · diff unavailable: read it on GitHub" : ""}${weakened ? ` · ${weakeningMark(weakened)}` : ""}${digest ? ` · ${digestText(digest)}` : ""}`;
   });
   const capped = patch.startsWith(FILES_CAPPED_NOTE) ? [FILES_CAPPED_NOTE] : [];
   return [...capped, `${files.length} file${files.length === 1 ? "" : "s"} (path · status · lines added and removed · diff size · kind):`, ...rows].join("\n");
@@ -30,9 +32,10 @@ export function describeReviewFiles(patch: string, generated: string[] = [], mar
 
 /**
  * The diff as read_review_patch pages it: each lockfile's and generated or vendored file's hunks as one line, since they
- * rarely need reading and can fill pages. `generated`: the files the repo's .gitattributes marks generated.
+ * rarely need reading and can fill pages. `generated`: the files the repo's .gitattributes marks generated; with
+ * `marks.lockfileDigest`, a lockfile's stub says what it adds and removes.
  */
-export function stubSkippedFiles(patch: string, generated: string[] = []): string {
+export function stubSkippedFiles(patch: string, generated: string[] = [], marks: FileMarks = {}): string {
   const files = splitPatchByFile(patch);
   const skipped = (path: string) => { const kind = classifyFile(path, generated.includes(path)).category; return kind === "lockfile" || kind === "generated" ? kind : null; };
   if (!files.some((file) => skipped(file.path))) return patch;
@@ -44,7 +47,8 @@ export function stubSkippedFiles(patch: string, generated: string[] = []): strin
     if (!kind || hunks < 0) return text;
     const rows = patchRows(text);
     const count = (sign: "+" | "-") => rows.filter((row) => row.kind === sign).length;
-    return `${text.slice(0, hunks)}[${kind}: +${count("+")} −${count("-")} lines; pass file to read it]\n`;
+    const digest = marks.lockfileDigest && kind === "lockfile" ? lockfileDigest(path, text) : null;
+    return `${text.slice(0, hunks)}[${kind}: +${count("+")} −${count("-")} lines${digest ? `; ${digestText(digest)}` : ""}; pass file to read it]\n`;
   }).join("");
 }
 

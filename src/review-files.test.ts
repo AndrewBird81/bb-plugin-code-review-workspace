@@ -62,3 +62,11 @@ test("list_review_files marks a test whose diff removes assertions or skips test
   expect(text).toMatch(/^src\/sum\.ts · modified · \+1 −1 · \d+ chars · code$/m);
   expect(describeReviewFiles(weakened)).not.toContain("weakened");
 });
+
+test("list_review_files and a page's lockfile stub summarize a lockfile while Settings summarizes lockfile changes", () => {
+  const lockfile = file("package-lock.json", '@@ -1,2 +1,3 @@\n-    "node_modules/is-odd": {\n+    "node_modules/tiny": {\n+      "resolved": "https://evil.example.com/tiny-1.0.0.tgz",\n     "node_modules/left-pad": {\n');
+  expect(describeReviewFiles(lockfile, [], { lockfileDigest: true })).toMatch(/^package-lock\.json · modified · \+2 −1 · \d+ chars · lockfile · \+1 −1 packages, downloads from evil\.example\.com$/m);
+  expect(stubSkippedFiles(lockfile, [], { lockfileDigest: true })).toContain("[lockfile: +2 −1 lines; +1 −1 packages, downloads from evil.example.com; pass file to read it]");
+  expect(describeReviewFiles(lockfile)).toMatch(/^package-lock\.json · modified · \+2 −1 · \d+ chars · lockfile$/m);
+  expect(stubSkippedFiles(lockfile)).toContain("[lockfile: +2 −1 lines; pass file to read it]");
+});

@@ -349,3 +349,31 @@ test("with Flag weakened tests off, a weakened test file has no chip", async () 
   expect(test.queryByText(/assertions removed|skipped/)).toBeNull();
   slot.lifecycle.unmount();
 });
+
+const lockfilePatch = file("package-lock.json", '@@ -1,2 +1,4 @@\n-    "node_modules/is-odd": {\n+    "node_modules/tiny": {\n+      "resolved": "https://evil.example.com/tiny-1.0.0.tgz",\n+    "node_modules/left-pad": {\n     "node_modules/lodash": {\n');
+const lockfileBundle = () => ({
+  review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" },
+  guide: { ...guide, sections: [{ id: "c1", title: "Deps", overview: "Adds deps.", diffs: [{ file: "package-lock.json", summary: "Locks deps." }] }] }, patch: lockfilePatch, revision: "r1",
+});
+
+test("a lockfile, folded, says how many packages it adds and removes, and warns of a host that isn't its registry", async () => {
+  patchReviewState("pr-42", { activeId: "c1" });
+  const { slot } = await renderWorkspace({ rpc: { getReviewBundle: lockfileBundle } });
+  const lockfile = within(await slot.findByRole("region", { name: "package-lock.json" }));
+  expect((await lockfile.findByText("+2 −1 packages")).className).toContain("bg-muted");
+  expect(lockfile.getByText("Downloads from evil.example.com").className).toContain("text-warning-text");
+  expect(lockfile.getByRole("button", { name: "Show diff of package-lock.json" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("with Summarize lockfile changes off, a lockfile shows only its diff", async () => {
+  patchReviewState("pr-42", { activeId: "c1" });
+  const { slot } = await renderWorkspace({ rpc: {
+    getReviewBundle: lockfileBundle,
+    getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, lockfileDigest: false } }, revision: 0 }),
+  } });
+  const lockfile = within(await slot.findByRole("region", { name: "package-lock.json" }));
+  await lockfile.findByText("Locks deps.");
+  expect(lockfile.queryByText(/packages|Downloads from/)).toBeNull();
+  slot.lifecycle.unmount();
+});
