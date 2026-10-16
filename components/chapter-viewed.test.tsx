@@ -10,6 +10,7 @@ import { patchReviewState } from "../lib/panel-state";
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: ({ fileDiff }: any) => <pre>{fileDiff.additionLines.join("\n")}</pre> }));
 
+Element.prototype.scrollIntoView ??= () => {};
 const restores: (() => void)[] = [];
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); restores.splice(0).forEach((restore) => restore()); });
 // A pane as wide as a desktop's, where the chapters dock.
