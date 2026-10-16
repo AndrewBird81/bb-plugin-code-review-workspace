@@ -269,6 +269,20 @@ test("a check BB dispatches before its send returns ends with the turn that runs
   expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null });
 });
 
+test("a check deleted from the queue before its send returns never waits (95-recheck P3)", async () => {
+  const { bb, harness, store } = await setup();
+  const { makeQueueEntry } = await import("@get-bb/plugin-sdk/testing");
+  const { startVerification } = await import("./verification");
+  const row = makeQueueEntry({ id: "q-gone", threadId: "assistant" });
+  harness.inspection.sdk.stub("threads.send", async () => {
+    await harness.behavior.emitThreadEvent("message.cancelled", { entry: row });
+    return { ok: true, delivery: "queued", queuedMessage: row };
+  });
+  expect(await startVerification(bb, store, "pr-1", "the author pushed")).toBe(true);
+  const review = store.getReview("pr-1");
+  expect([review?.verifyingSince ?? null, review?.verifyingMessageId ?? null]).toEqual([null, null]);
+});
+
 test("a queued check deleted from the queue stops the wait for it", async () => {
   const { bb, harness, store } = await setup();
   const { makeQueueEntry } = await import("@get-bb/plugin-sdk/testing");

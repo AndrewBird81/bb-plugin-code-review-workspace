@@ -60,7 +60,7 @@ import { onPrepared } from "./src/generate";
 import { feedbackProgress, type TurnOptions } from "./lib/turn";
 import { findStacks } from "./lib/stacks";
 import { baselineOf, diffAt, feedbackView, guideBehind, headOf, prCommits, pruneDiffs, pruneOldDiffs, remainingBody, sinceReview } from "./src/feedback-view";
-import { assess, changesSinceReview, describeFeedback, noteDispatched, readFileAt, startVerification } from "./src/verification";
+import { assess, changesSinceReview, describeFeedback, noteLeftQueue, readFileAt, startVerification } from "./src/verification";
 import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
 import { threadSignals, turnOptions } from "./src/turn-signals";
@@ -1124,7 +1124,7 @@ export default async function plugin(bb: BbPluginApi) {
     if (found) setAsk(store, found.reviewKey, found.at, { threadId: found.ask.threadId, state: "running", at: Date.now() });
     const checking = queuedCheck(entry);
     if (checking) store.setLifecycle(checking, { verifyingMessageId: null });
-    else noteDispatched(entry.id);
+    else noteLeftQueue(entry.id, "dispatched");
   });
   bb.events.on("message.cancelled", async ({ entry }) => {
     const found = queuedAsk(entry);
@@ -1133,6 +1133,7 @@ export default async function plugin(bb: BbPluginApi) {
     // A check deleted from the queue never runs.
     const checking = queuedCheck(entry);
     if (checking) await checkEnded(checking);
+    else noteLeftQueue(entry.id, "cancelled");
   });
 
   const guideToolParameters = z.object({ targetKey: z.string(), generationId: z.string(), guide: GuideInputSchema });

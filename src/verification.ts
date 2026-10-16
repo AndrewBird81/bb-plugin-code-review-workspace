@@ -32,13 +32,13 @@ export function verificationContext(review: ReviewMeta, reason: string): string 
 }
 
 /**
- * Queued messages BB said it dispatched that were no check: one may be a check whose send hasn't returned yet. The last
- * hundred are enough for the moments a send takes.
+ * Queued messages BB said it dispatched, or that were deleted from the queue, that were no check: one may be a check
+ * whose send hasn't returned yet. The last hundred are enough for the moments a send takes.
  */
-const dispatchedEarly: string[] = [];
-export function noteDispatched(messageId: string) {
-  dispatchedEarly.push(messageId);
-  if (dispatchedEarly.length > 100) dispatchedEarly.shift();
+const leftQueue = new Map<string, "dispatched" | "cancelled">();
+export function noteLeftQueue(messageId: string, how: "dispatched" | "cancelled") {
+  leftQueue.set(messageId, how);
+  if (leftQueue.size > 100) leftQueue.delete(leftQueue.keys().next().value!);
 }
 
 /** Ask the review's assistant to check your feedback. False when it's turned off or can't start. */
@@ -54,9 +54,10 @@ export async function startVerification(bb: BbPluginApi, store: Store, targetKey
     return false;
   }
   // The check is about this commit, even if the author pushes while it runs. Already dispatched, as BB can say before the
-  // send returns, it's no longer waiting in the queue (70-review #3).
-  const queued = sent.queuedMessageId && !dispatchedEarly.includes(sent.queuedMessageId) ? sent.queuedMessageId : null;
-  store.setLifecycle(targetKey, { verifyingSince: Date.now(), verifyingHead: headOf(review), verifyingMessageId: queued });
+  // send returns, it's no longer waiting in the queue (70-review #3); already deleted from it, it never runs.
+  const left = sent.queuedMessageId ? leftQueue.get(sent.queuedMessageId) : undefined;
+  const queued = sent.queuedMessageId && !left ? sent.queuedMessageId : null;
+  if (left !== "cancelled") store.setLifecycle(targetKey, { verifyingSince: Date.now(), verifyingHead: headOf(review), verifyingMessageId: queued });
   bb.realtime.publish(`conversation:${targetKey}`, {});
   return true;
 }
