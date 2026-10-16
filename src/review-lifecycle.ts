@@ -229,8 +229,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
           const threads = await github.threads(facts.repo, facts.number, login, facts.author);
           // The review may have been deleted while GitHub answered.
           if (!store.getReview(key)) return false;
-          store.saveFeedbackThreads(key, threads, facts.updatedAt);
-          bb.realtime.publish(`feedback:${key}`, { ts: clock() });
+          // Every open review page reads the threads again when told, so it's told only when they changed.
+          if (store.saveFeedbackThreads(key, threads, facts.updatedAt)) bb.realtime.publish(`feedback:${key}`, { ts: clock() });
         } catch (error) { bb.log.warn(`Could not read your threads on ${key}: ${String(error)}`); }
       }
       store.setLifecycle(key, { signals: { ...store.getReview(key)!.signals, ...threadSignals(store.listFeedbackThreads(key)) } });

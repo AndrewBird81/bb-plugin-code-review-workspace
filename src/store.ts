@@ -247,7 +247,8 @@ export interface Store extends AgentCommentStore {
   /** Keep only these heads' snapshots. */
   pruneSnapshots(targetKey: string, keep: readonly string[]): void;
   // Your review threads on the PR, as last read from GitHub.
-  saveFeedbackThreads(targetKey: string, threads: FeedbackThread[], prUpdatedAt: number | null): void;
+  /** Returns whether the threads changed: the first read always does. */
+  saveFeedbackThreads(targetKey: string, threads: FeedbackThread[], prUpdatedAt: number | null): boolean;
   listFeedbackThreads(targetKey: string): Array<FeedbackThread & { resolvedSeenAt: number | null }>;
   feedbackFetched(targetKey: string): { fetchedAt: number; prUpdatedAt: number | null } | null;
   /** Forget when every review's threads were read, so they're read again (after a GitHub account switch). */
@@ -796,8 +797,10 @@ export function createStore(bb: BbPluginApi): Store {
     },
     saveFeedbackThreads(k, threads, prUpdatedAt) {
       const now = Date.now();
-      db.transaction(() => {
+      const saved = () => JSON.stringify(db.prepare(`SELECT thread_id, data, resolved_seen_at FROM feedback_threads WHERE target_key=? ORDER BY thread_id`).all(k));
+      return db.transaction(() => {
         const first = !db.prepare(`SELECT 1 FROM feedback_fetches WHERE target_key=?`).get(k);
+        const before = saved();
         const previous = new Map((db.prepare(`SELECT thread_id, resolved_seen_at FROM feedback_threads WHERE target_key=?`).all(k) as any[])
           .map((row) => [row.thread_id as string, row.resolved_seen_at as number | null]));
         db.prepare(`DELETE FROM feedback_threads WHERE target_key=?`).run(k);
@@ -809,6 +812,7 @@ export function createStore(bb: BbPluginApi): Store {
         for (const thread of threads) insert.run(k, thread.id, JSON.stringify(thread), thread.isResolved ? seen(thread) : null);
         db.prepare(`INSERT INTO feedback_fetches VALUES (?,?,?) ON CONFLICT(target_key) DO UPDATE SET fetched_at=excluded.fetched_at, pr_updated_at=excluded.pr_updated_at`)
           .run(k, now, prUpdatedAt);
+        return first || saved() !== before;
       })();
     },
     listFeedbackThreads(k) {

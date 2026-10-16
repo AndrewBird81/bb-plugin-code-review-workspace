@@ -327,6 +327,23 @@ test("an active review's threads are read again every 10 minutes only while one 
   }
 });
 
+test("a read of your threads tells the review's pages only when they changed", async () => {
+  const s = setup({ reviewed: true, threads: [thread("t1", "open")] });
+  const told = () => s.harness.inspection.realtimeSignals.filter((signal) => signal.channel === "feedback:pr-1").length;
+  await s.sync.all();
+  expect(told()).toBe(1);
+  // Read again, unchanged.
+  s.pr({ updatedAt: 2 });
+  await s.sync.all(true);
+  expect(s.github.threads).toHaveBeenCalledTimes(2);
+  expect(told()).toBe(1);
+  // The author answers.
+  s.threads([{ ...thread("t1", "answered", T0), replies: [{ author: "alice", bot: false, mine: false, body: "Done", createdAt: T0 }] }]);
+  s.pr({ updatedAt: 3 });
+  await s.sync.all(true);
+  expect(told()).toBe(2);
+});
+
 test("a question on your thread alerts without preparing a re-review", async () => {
   const s = setup({ reviewed: true, threads: [thread("t1", "open")] });
   await s.sync.all();
