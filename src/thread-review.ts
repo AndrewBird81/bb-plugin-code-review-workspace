@@ -55,3 +55,17 @@ export async function toolThreadReview(bb: BbPluginApi, store: Store, threadId: 
   const title = await bb.sdk.threads.get({ threadId }).then((thread) => thread.title ?? null, () => null);
   return threadReview(bb, store, { id: threadId, title });
 }
+
+/** This plugin's threads, archived or not, hidden included, whose title is exactly `title`. */
+export async function pluginThreadsTitled(bb: BbPluginApi, title: string): Promise<string[]> {
+  const ids: string[] = [];
+  const limit = 200;
+  for (const archived of [false, true]) {
+    for (let offset = 0; ; offset += limit) {
+      const page = await bb.sdk.threads.list({ originPluginId: bb.pluginId, includeHidden: true, archived, limit, offset });
+      for (const thread of page) if (thread.originPluginId === bb.pluginId && thread.title === title) ids.push(thread.id);
+      if (page.length < limit) break;
+    }
+  }
+  return ids;
+}

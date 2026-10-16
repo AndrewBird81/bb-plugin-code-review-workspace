@@ -44,7 +44,7 @@ import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
 import { GUIDE_WORKER_TITLE, stopGuideGenerations, hasGuideGenerations, guideWorkerFailed, guideWriterMode } from "./src/generate";
-import { threadReview, threadRole, toolThreadReview } from "./src/thread-review";
+import { pluginThreadsTitled, threadReview, threadRole, toolThreadReview } from "./src/thread-review";
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { rerunReview } from "./src/rereview";
 import { getGhAccounts, switchGhAccount, checkRepoAccess } from "./src/gh-accounts";
@@ -519,7 +519,12 @@ export default async function plugin(bb: BbPluginApi) {
       // A guide worker can't be cancelled per review, and an answer in progress is the reviewer's to finish.
       if (review.status === "generating") return { ok: false, error: "Wait for the guide to finish generating, then delete the review." };
       if (await isAssistantAnswering(bb, store, targetKey)) return { ok: false, error: "Wait for the assistant to finish answering, then delete the review." };
-      const threadIds = [store.getAssistantThread(targetKey), store.getAgentThread(targetKey)];
+      // Its guide writers too: the current one, and older ones left archived, by their exact title.
+      const writers = await pluginThreadsTitled(bb, `${GUIDE_WORKER_TITLE}${targetKey}`).catch((error) => {
+        bb.log.warn(`Could not list the guide writers of ${targetKey}: ${String(error)}`);
+        return [];
+      });
+      const threadIds = new Set([store.getAssistantThread(targetKey), store.getAgentThread(targetKey), store.generationWorker(targetKey), ...writers]);
       store.deleteReview(targetKey);
       // Discovery won't add a PR you deleted back to the list; starting it again does.
       if (review.kind === "pr") store.ignoreDiscovery(targetKey);
