@@ -634,6 +634,8 @@ export default async function plugin(bb: BbPluginApi) {
       const draft = store.deleteDraftComment(targetKey, { file, line, side }) ?? store.getDraft(targetKey);
       store.deleteDiscussion(targetKey, { file, line, side });
       setAsk(store, targetKey, { file, line, side }, null);
+      // Another window of the review stops showing it.
+      bb.realtime.publish(`draft:${targetKey}`, {});
       return draftState(targetKey, draft);
     },
     async askAgent({ targetKey, ...input }) {

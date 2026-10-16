@@ -189,6 +189,18 @@ test("saving a draft comment tells the review's other windows, so one with its b
   expect(harness.inspection.realtimeSignals.slice(refused).map((signal) => signal.channel)).not.toContain("draft:pr-3");
 });
 
+test("removing a draft comment tells the review's other windows, so none keeps showing it (70-review #8)", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-4", kind: "pr", number: 4, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
+  store.upsertDraftComment("pr-4", { file: "a.ts", line: 1, side: "RIGHT", body: "nit" });
+  const from = harness.inspection.realtimeSignals.length;
+  await harness.behavior.callRpc("removeDraftComment", { targetKey: "pr-4", file: "a.ts", line: 1, side: "RIGHT" });
+  expect(store.getDraft("pr-4").comments).toEqual([]);
+  expect(harness.inspection.realtimeSignals.slice(from).map((signal) => signal.channel)).toContain("draft:pr-4");
+});
+
 test("moveToSummary makes a comment on an older diff a line of the summary, which is then yours, and only such a comment", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
   await plugin(bb);
