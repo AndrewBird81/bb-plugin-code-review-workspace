@@ -334,7 +334,8 @@ function Chips({ groups, total, filter, onFilter }: { groups: CommentGroup[]; to
   }, [groups, total]);
   return (
     // Touch's wider chips wrap rather than scroll out of sight, as they would in a 400px panel or on a phone.
-    <div ref={strip} role="radiogroup" aria-label="Show" onKeyDown={arrow} data-more={more || undefined} className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none] pointer-coarse:flex-wrap data-[more]:[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]">
+    // Scrolling sideways clips it up and down too: py-0.5 holds the chips' 2px focus ring, and -mt-0.5 keeps the row in place.
+    <div ref={strip} role="radiogroup" aria-label="Show" onKeyDown={arrow} data-more={more || undefined} className="-mx-3 -mt-0.5 flex gap-1 overflow-x-auto px-3 py-0.5 [scrollbar-width:none] pointer-coarse:flex-wrap data-[more]:[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]">
       {FILTERS.map((id) => {
         const on = filter === id;
         return (

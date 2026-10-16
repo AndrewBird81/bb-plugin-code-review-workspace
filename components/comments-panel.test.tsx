@@ -661,3 +661,18 @@ test("GitHub threads in code off hides them there; showing one from the list tur
   expect((await threadsInCode()).getAttribute("aria-checked")).toBe("true");
   slot.lifecycle.unmount();
 });
+
+// The strip scrolls sideways, so it clips up and down too: it needs the chips' 2px ring inside it.
+test("the filter chips' strip leaves room for their 2px focus ring on top as below, and keeps its place in the row", async () => {
+  const { slot } = await renderWorkspace();
+  const list = await openComments(slot);
+  const strip = list.getByRole("radiogroup", { name: "Show" });
+  const classes = strip.className.split(" ");
+  expect(classes).toEqual(expect.arrayContaining(["overflow-x-auto", "py-0.5", "-mt-0.5"]));
+  expect(classes).not.toContain("pb-0.5");
+  for (const chip of within(strip).getAllByRole("radio")) {
+    expect(chip.className.split(" ")).toContain("focus-visible:ring-2");
+    expect(chip.className).not.toMatch(/ring-offset/);
+  }
+  slot.lifecycle.unmount();
+});
