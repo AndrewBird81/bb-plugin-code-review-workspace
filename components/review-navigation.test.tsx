@@ -619,6 +619,20 @@ test("a asks the agent, s opens the draft to submit, and ? lists the shortcuts u
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("with the agent popped out, Ask agent asks it there, leaving the side panel closed", async () => {
+  localStorage.setItem("gr:agentdock:pr-42", JSON.stringify({ mode: "widget", rect: { x: 100, y: 100, w: 400, h: 500 } }));
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  const widget = within(await slot.findByRole("dialog", { name: "Review agent" }));
+  await widget.findByRole("textbox", { name: "Ask the agent" });
+  press("a");
+  // The file you're on is the question's context.
+  expect(await widget.findByText("a.ts")).toBeTruthy();
+  await waitFor(() => expect(document.activeElement).toBe(widget.getByRole("textbox", { name: "Ask the agent" })));
+  expect(slot.queryByRole("complementary", { name: "Comments and agent" })).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("keys work as soon as Esc closes the shortcuts, while they fade out", async () => {
   // A browser keeps the help in the page, the focus in it, while it fades out; jsdom has no animations to wait for.
   const computed = window.getComputedStyle.bind(window);

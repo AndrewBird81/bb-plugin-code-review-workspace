@@ -232,3 +232,8 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
   </>;
 });
 AgentDock.displayName = "AgentDock";
+
+/** Where the review `targetKey`'s agent was last put: popped out as a widget, or in the side panel. */
+export function agentDockMode(targetKey: string): Persisted["mode"] {
+  return loadPersisted(targetKey)?.mode === "widget" ? "widget" : "panel";
+}

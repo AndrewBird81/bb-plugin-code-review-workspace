@@ -28,7 +28,7 @@ import { DiffViewer, diffLines, type FileViewFlags } from "./DiffViewer";
 import { DraftProvider, useDraft, type CommentPrefill } from "./DraftProvider";
 import { TrackedReview } from "./TrackedReview";
 import { NotRunButton } from "./NotRunBanner";
-import { AgentDock, type DockInjection } from "./AgentDock";
+import { AgentDock, agentDockMode, type DockInjection } from "./AgentDock";
 import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { AccountBar } from "./AccountBar";
 import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
@@ -984,7 +984,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     else onSelectFile(next.chapter, next.file);
   }, [sections, activeId, activeFiles, views, onSelectFile]);
   const chapterId = activeSection?.id as string | undefined;
-  const ask = useCallback((context: AgentMessageContext) => { setInjection({ context, nonce: Date.now() }); openPanel("agent"); }, [openPanel]);
+  // Popped out, the agent takes the question where it is, its box focused: the side panel would only say it's popped out.
+  const ask = useCallback((context: AgentMessageContext) => {
+    setInjection({ context, nonce: Date.now() });
+    if (layoutRef.current.mode !== "tablet" || agentDockMode(targetKey) !== "widget") openPanel("agent");
+  }, [openPanel, targetKey]);
   const askAgent = useCallback((context?: AgentMessageContext) => ask(context ?? { file: currentFileRef.current, chapterId }), [ask, chapterId]);
   const showFeedback = useMemo(() => isPr ? () => openComments("feedback") : undefined, [isPr, openComments]);
   // The diff remounts after the Overview; it shouldn't jump back to an old comment.
