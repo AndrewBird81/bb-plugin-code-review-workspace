@@ -347,6 +347,17 @@ test("with no reviews yet, a first-run panel says what a review needs and how to
   slot.lifecycle.unmount();
 });
 
+test("while the first run checks the setup, its checklist says so", async () => {
+  let answer!: (setup: unknown) => void;
+  const { slot } = await inbox([], { getSetupStatus: () => new Promise((resolve) => { answer = resolve; }) });
+  const needs = within(await slot.findByRole("list", { name: "What a review needs" }));
+  expect(needs.getByText("Checking setup…")).toBeTruthy();
+  answer({ account: "me", githubCli: true, agentAvailable: true, projectAvailable: true });
+  await needs.findByText("GitHub CLI on the BB server");
+  expect(needs.queryByText("Checking setup…")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("the first run looks for PRs that request your review once, and says so only while it looks", async () => {
   let finish!: () => void;
   const { slot, calls } = await inbox([], { refreshReviews: () => new Promise((resolve) => { finish = () => resolve({ reviews: [], sync: { lastReadAt: null, error: null } }); }) });

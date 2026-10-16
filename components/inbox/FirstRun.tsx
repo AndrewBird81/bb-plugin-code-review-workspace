@@ -54,6 +54,7 @@ export function FirstRun({ omnibox, syncing }: { omnibox: ReactNode; syncing: bo
           <h2 id="first-run-title" className="text-base font-semibold text-foreground">Review your first pull request</h2>
         </div>
         <ul aria-label="What a review needs" className="rounded-xl border border-border px-4 py-2 text-sm">
+          {!setup && !failed && <li className="flex items-center gap-2.5 py-1.5 text-muted-foreground"><Icon name="Loading" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden />Checking setup…</li>}
           {failed && <Check ok={null}>Couldn’t check the setup.</Check>}
           {setup && <>
             <Check ok={setup.githubCli} fix={<span className="block text-xs text-muted-foreground">Install it on the machine running BB, then check again.</span>}>
