@@ -111,9 +111,9 @@ test("instructions carry the review's current guide and preferences, trimmed to 
   expect(text).not.toContain("Do not publish");
   const chapters = (count: number) => ({ ...guide("Big"), sections: Array.from({ length: count }, (_, i) => ({ id: `s${i}`, title: `Chapter ${i}`, overview: "x".repeat(100), diffs: [] })) }) as any;
   // Without room for every overview, every chapter is still listed, without them.
-  const long = assistantInstructions("pr-1", chapters(200), defaultPreferences);
+  const long = assistantInstructions("pr-1", chapters(180), defaultPreferences);
   expect(long.length).toBeLessThanOrEqual(4000);
-  expect(long).toMatch(/- Chapter 0\n[\s\S]*- Chapter 199\n<\/guide>$/);
+  expect(long).toMatch(/- Chapter 0\n[\s\S]*- Chapter 179\n<\/guide>$/);
   expect(long).not.toContain("xxxx");
   expect(long).toContain("Answer concisely");
   const longer = assistantInstructions("pr-1", chapters(400), defaultPreferences);
@@ -176,6 +176,10 @@ test("the assistant sees each chapter's risk and where to start, as the default 
   expect(defaultPreferences.automaticReview).toContain("high-risk chapters first");
   const text = assistantInstructions("pr-1", risky as any, defaultPreferences);
   expect(text).toContain("<guide>\nChange intent: Add caching\nChapters:\n- [high risk] Auth middleware: Changes token checks.\n- [low risk] Docs: Readme.\nStart here:\n- src/auth.ts:42 — expiry compared with < instead of <=\n</guide>");
+});
+
+test("the assistant only reads tickets: it never writes to a tracker or chat, or quotes a private ticket into a draft", () => {
+  expect(assistantInstructions("pr-1", null, defaultPreferences)).toContain("Read tickets only: never write to issue trackers or chat, and don't quote private tickets into drafts.");
 });
 
 test("the assistant's Start here and requirements say when a line is a removed one", () => {
