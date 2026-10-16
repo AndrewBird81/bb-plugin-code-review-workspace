@@ -141,8 +141,8 @@ export async function sendToSourceThread(bb: BbPluginApi, store: Store, targetKe
     throw new Error(`Couldn’t send to the thread: ${error instanceof Error ? error.message : String(error)}`);
   }
   const at = Date.now();
-  // Comments sent to this thread before stay marked; one sent again is marked now.
+  // Comments sent to this thread before stay marked; one sent again is marked now. Each keeps its words, so an edit unmarks it.
   const earlier = review.sent?.threadId === source.threadId ? review.sent.comments.filter((comment) => !comments.some((sent) => sameLocation(sent, comment))) : [];
-  store.setLifecycle(targetKey, { sent: { at, threadId: source.threadId, title: source.title, comments: [...earlier, ...comments.map(({ file, line, side }) => ({ file, line, side, at }))] } });
+  store.setLifecycle(targetKey, { sent: { at, threadId: source.threadId, title: source.title, comments: [...earlier, ...comments.map(({ file, line, side, body }) => ({ file, line, side, body, at }))] } });
   return { ok: true, delivery, title: source.title };
 }

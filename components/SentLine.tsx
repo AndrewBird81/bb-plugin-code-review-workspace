@@ -4,8 +4,8 @@ import { cn } from "../lib/utils";
 import { age } from "./time-ago";
 import { Icon } from "./ui/icon";
 
-/** "Sent to ‹thread› · 2m" under a draft comment's state, once Send to thread sent it. It's still only in BB. */
-export function SentLine({ at, className }: { at: CommentLocation; className?: string }) {
+/** "Sent to ‹thread› · 2m" under a draft comment's state, once Send to thread sent it as it reads now. It's still only in BB. */
+export function SentLine({ at, className }: { at: CommentLocation & { body: string }; className?: string }) {
   const sent = useSentTo(at);
   if (!sent) return null;
   const when = age(sent.at);

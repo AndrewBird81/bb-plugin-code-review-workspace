@@ -23,7 +23,7 @@ export interface ReviewLifecycle {
   sourceThreadId?: string | null;
   sourceThreadAt?: number | null;
   /** The draft comments last sent to the source thread, each since when, and the thread's title then. Sending submits nothing. */
-  sent?: { at: number; threadId: string; title: string | null; comments: Array<CommentLocation & { at: number }> } | null;
+  sent?: { at: number; threadId: string; title: string | null; comments: Array<CommentLocation & { at: number; body?: string }> } | null;
   submittedVerdict?: Verdict | null;
   submittedAt?: number | null;
   submittedHeadSha?: string | null;

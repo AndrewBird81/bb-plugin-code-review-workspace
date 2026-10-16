@@ -52,6 +52,21 @@ test("a sent comment's card says where it went and when, under its state, in the
   slot.lifecycle.unmount();
 });
 
+test("a comment edited since it was sent, or a new one at its line, doesn't say sent; one as sent does, and a record from 0.8.0 matches by place", async () => {
+  const now = Date.now();
+  const slot = await renderSent({ sent: { at: now, threadId: "coder", title: "Retry uploads", comments: [
+    { file: "src/a.ts", line: 1, side: "RIGHT", body: "Name it.", at: now },
+    { file: "src/a.ts", line: 3, side: "RIGHT", body: "Name it more.", at: now },
+    // 0.8.0 recorded no body.
+    { file: "src/a.ts", line: 2, side: "LEFT", at: now },
+  ] } });
+  const diff = within(slot.getByTestId("filediff"));
+  expect(within(await diff.findByRole("article", { name: "Draft comment on src/a.ts:1" })).getByText("Retry uploads")).toBeTruthy();
+  expect(within(diff.getByRole("article", { name: "Draft comment on src/a.ts:3" })).queryByText(/Sent to/)).toBeNull();
+  expect(within(diff.getByRole("article", { name: "Draft comment on src/a.ts:2" })).getByText("Retry uploads")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("nothing says sent when nothing was, or Send to thread is off", async () => {
   const slot = await renderSent({ sent: null });
   await within(slot.getByTestId("filediff")).findByRole("article", { name: "Draft comment on src/a.ts:1" });

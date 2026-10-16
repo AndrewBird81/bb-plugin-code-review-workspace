@@ -36,10 +36,11 @@ export function useReviewLinks(review: ReviewItem | null): ReviewLinks {
   return useMemo(() => ({ sent, editor: root && hostId ? { hostId, root } : null }), [sent, root, hostId]);
 }
 
-/** Where and when the comment at `at` was sent, or null. */
-export function useSentTo(at: CommentLocation): { threadId: string; title: string | null; at: number } | null {
+/** Where and when the comment was sent, or null: null too once it's edited, or another takes its place, since. */
+export function useSentTo(at: CommentLocation & { body: string }): { threadId: string; title: string | null; at: number } | null {
   const { sent } = useContext(ReviewLinksContext);
-  const comment = sent?.comments.find((entry) => sameLocation(entry, at));
+  // A record from 0.8.0 has no body, so it matches by place alone.
+  const comment = sent?.comments.find((entry) => sameLocation(entry, at) && (entry.body === undefined || entry.body === at.body));
   return sent && comment ? { threadId: sent.threadId, title: sent.title, at: comment.at } : null;
 }
 
