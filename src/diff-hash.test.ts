@@ -1,6 +1,6 @@
 import { test, expect } from "vitest";
 import { readPrDiff } from "./pr-snapshot";
-import { computeFileViewState, hashForFile } from "./file-views";
+import { computeFileViewState, fileHashCache, hashForFile } from "./file-views";
 import { hashFileDiff, normalizedFileHash } from "./diff-hash";
 
 test("hash is stable for identical input", () => {
@@ -61,6 +61,6 @@ test("a Viewed mark on a file GitHub sent no diff for goes stale when the file's
   const after = await readPrDiff(files("bbb2222333") as any, 1, "acme/web");
   expect(before).toContain("GitHub didn't send this file's diff: it's too large or binary. (blob aaa1111)");
   const viewed = [{ file: "data/big.json", hash: hashForFile(before, "data/big.json")!, viewedAt: 1 }];
-  expect(computeFileViewState(viewed, same)).toEqual([{ file: "data/big.json", viewed: true, stale: false, viewedAt: 1 }]);
-  expect(computeFileViewState(viewed, after)).toEqual([{ file: "data/big.json", viewed: false, stale: true, viewedAt: 1 }]);
+  expect(computeFileViewState(viewed, fileHashCache(() => same))).toEqual([{ file: "data/big.json", viewed: true, stale: false, viewedAt: 1 }]);
+  expect(computeFileViewState(viewed, fileHashCache(() => after))).toEqual([{ file: "data/big.json", viewed: false, stale: true, viewedAt: 1 }]);
 });
