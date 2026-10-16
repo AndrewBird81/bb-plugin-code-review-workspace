@@ -347,25 +347,47 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useEffect(() => { void rpc.call("markSeen", { targetKey }).catch(() => {}); }, [rpc, targetKey]);
   // Unread, the settings are their defaults: a re-review opens on Settings' default.
   const [preferencesFailed, setPreferencesFailed] = useState(false);
+  // The settings as the server last had them, which a layout save goes on from.
+  const savedPreferences = useRef<{ preferences: ReviewPreferences; revision: number } | null>(null);
   const loadPreferences = useCallback(() => {
-    void rpc.call("getPreferences", null).then(setPreferences).catch(() => setPreferencesFailed(true));
+    void rpc.call("getPreferences", null).then((loaded) => {
+      savedPreferences.current = loaded;
+      setPreferences(loaded);
+    }).catch(() => setPreferencesFailed(true));
   }, [rpc]);
   useEffect(loadPreferences, [loadPreferences]);
   useRealtime("preferences", loadPreferences);
   // The reading layout is a setting, saved for every review like the one in Settings.
   // Below about 960px the diff shows unified whatever the layout, so the toggle can't apply there.
   const [unifiedOnly, setUnifiedOnly] = useState(false);
-  const toggleLayout = useCallback(async () => {
-    if (!preferences || unifiedOnly) return;
-    const next = { ...preferences.preferences, diffLayout: preferences.preferences.diffLayout === "split" ? "unified" as const : "split" as const };
-    setPreferences({ ...preferences, preferences: next });
-    try {
-      setPreferences(await rpc.call("savePreferences", { preferences: next, revision: preferences.revision }));
-    } catch {
-      toast.error("Couldn’t save the layout.");
-      loadPreferences();
-    }
-  }, [rpc, preferences, unifiedOnly, loadPreferences]);
+  // The layout shows at once; each toggle saves after the one before it, on the revision that save returned, so two
+  // quick toggles keep the second.
+  const shownPreferences = useRef(preferences);
+  shownPreferences.current = preferences;
+  const layoutSaves = useRef({ queue: Promise.resolve(), pending: 0 });
+  const toggleLayout = useCallback(() => {
+    const shown = shownPreferences.current;
+    if (!shown || unifiedOnly) return;
+    const diffLayout = shown.preferences.diffLayout === "split" ? "unified" as const : "split" as const;
+    shownPreferences.current = { ...shown, preferences: { ...shown.preferences, diffLayout } };
+    setPreferences(shownPreferences.current);
+    const saves = layoutSaves.current;
+    saves.pending++;
+    saves.queue = saves.queue.then(async () => {
+      const saved = savedPreferences.current ?? shown;
+      try {
+        const result = await rpc.call("savePreferences", { preferences: { ...saved.preferences, diffLayout }, revision: saved.revision });
+        savedPreferences.current = result;
+        // A toggle after this one shows its own layout meanwhile.
+        if (saves.pending === 1) setPreferences(result);
+      } catch {
+        toast.error("Couldn’t save the layout.");
+        loadPreferences();
+      } finally {
+        saves.pending--;
+      }
+    });
+  }, [rpc, unifiedOnly, loadPreferences]);
   // Saved once the first load has picked the page, so the saved chapter isn't lost before it's read.
   useEffect(() => { if (activeId) patchReviewState(targetKey, { activeId }); }, [targetKey, activeId]);
   const isPr = review?.kind === "pr";

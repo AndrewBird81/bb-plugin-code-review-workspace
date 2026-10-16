@@ -199,6 +199,34 @@ test("Diff options' Layout switches between split and unified, and saves the lay
   slot.lifecycle.unmount();
 });
 
+test("two quick Layout toggles save one after the other, and the second's layout stays", async () => {
+  const { toast } = await import("sonner");
+  // A slow server that, like the real one, refuses a save on a revision it has moved past.
+  let stored = { preferences: defaultPreferences, revision: 0 };
+  const answers: Array<() => void> = [];
+  const savePreferences = vi.fn(({ preferences, revision }: any) => new Promise((resolve, reject) => answers.push(() => {
+    if (revision !== stored.revision) return reject(new Error("Settings changed elsewhere."));
+    stored = { preferences, revision: revision + 1 };
+    resolve(stored);
+  })));
+  const { slot } = await renderWorkspace({ rpc: { savePreferences, getPreferences: () => stored } });
+  await slot.findByText("aa");
+  const { unified, split } = await layoutChoices(slot);
+  fireEvent.click(unified);
+  fireEvent.click(split);
+  await waitFor(() => expect(answers).toHaveLength(1));
+  await act(async () => answers.shift()!());
+  await waitFor(() => expect(answers).toHaveLength(1));
+  await act(async () => answers.shift()!());
+  await waitFor(() => expect(stored.revision).toBe(2));
+  expect(savePreferences.mock.calls.map(([call]: any) => [call.preferences.diffLayout, call.revision])).toEqual([["unified", 0], ["split", 1]]);
+  expect(stored.preferences.diffLayout).toBe("split");
+  expect(toast.error).not.toHaveBeenCalled();
+  await waitFor(() => expect(drawn.at(-1)!.options.diffStyle).toBe("split"));
+  expect(split.getAttribute("aria-checked")).toBe("true");
+  slot.lifecycle.unmount();
+});
+
 test("in a pane too narrow for split, the diff shows unified, and Split is off and says why, saving nothing", async () => {
   const restore = fakeWidth(800);
   const savePreferences = vi.fn(({ preferences }: any) => ({ preferences, revision: 1 }));
