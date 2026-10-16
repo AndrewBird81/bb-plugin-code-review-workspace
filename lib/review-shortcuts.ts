@@ -22,6 +22,12 @@ export const SHORTCUTS = [
   { group: "View", keys: ["?"], label: "Show these shortcuts" },
 ] as const;
 
+/** The keys of a comment box, which the help sheet lists too: the box handles them itself, whatever the setting. */
+export const COMMENT_BOX_KEYS = [
+  { keys: ["⌘/Ctrl", "Enter"], label: "Save the comment" },
+  { keys: ["Esc"], label: "Leave the box, keeping your text" },
+] as const;
+
 /** A control's tooltip, naming its key while single-key shortcuts are on. */
 export const keyHint = (label: string, key: string, on: boolean) => on ? `${label} (${key})` : label;
 

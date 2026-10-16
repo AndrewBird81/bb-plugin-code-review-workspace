@@ -24,7 +24,7 @@ test("on a phone the shortcuts sheet is as tall as its list", async () => {
 test("the shortcuts are grouped by what they're for, with Shift and Esc written as such", () => {
   render(<ShortcutsHelp open onOpenChange={() => {}} />);
   const dialog = within(screen.getByRole("dialog", { name: "Keyboard shortcuts" }));
-  expect(dialog.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Move", "Mark", "Panels", "View"]);
+  expect(dialog.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Move", "Mark", "Panels", "View", "In a comment box"]);
   const row = (group: string, label: string) => within(dialog.getByRole("region", { name: group })).getByText(label).closest("div")!.querySelector("dt")!.textContent;
   expect(row("Mark", "Mark the chapter viewed")).toBe("⇧V");
   expect(row("Panels", "Show or hide the chapters")).toBe("t");
@@ -34,6 +34,9 @@ test("the shortcuts are grouped by what they're for, with Shift and Esc written 
   expect(row("View", "Fold or unfold comments in code")).toBe("i");
   expect(row("View", "Full screen on or off")).toBe("⇧F");
   expect(row("View", "Since your review or All changes, on a re-review")).toBe("d");
+  // A comment box's own keys.
+  expect(row("In a comment box", "Save the comment")).toBe("⌘/CtrlEnter");
+  expect(row("In a comment box", "Leave the box, keeping your text")).toBe("Esc");
 });
 
 test("its ✕ keeps its size but has a 44px target on a touch screen, an iPad's included", () => {
