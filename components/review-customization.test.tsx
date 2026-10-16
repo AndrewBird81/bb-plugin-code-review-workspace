@@ -271,6 +271,16 @@ test("a new line-comment request reveals an unfinished comment without replacing
   slot.lifecycle.unmount();
 });
 
+/**
+ * Types `value` into a field of bb's picker fake. The fake copies its value into its fields in an effect that can still
+ * be pending when it first shows, and then undoes the first edit, as it did under a full parallel run: edit until the
+ * field holds it.
+ */
+const pickerEdit = (field: () => HTMLInputElement, value: string) => waitFor(() => {
+  if (field().value !== value) fireEvent.change(field(), { target: { value } });
+  expect(field().value).toBe(value);
+});
+
 test("each agent uses project defaults until customized with bb's pickers", async () => {
   await loadPluginApp(() => import("../app"));
   const { ReviewSettings } = await import("./ReviewSettings");
@@ -292,7 +302,7 @@ test("each agent uses project defaults until customized with bb's pickers", asyn
   const picker = await slot.findByTestId("bb-provider-model-picker");
   expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("gpt-6-astra");
   expect((slot.getByRole("combobox", { name: "Permission mode" }) as HTMLSelectElement).value).toBe("accept-edits");
-  fireEvent.change(within(picker).getByRole("textbox", { name: "Model" }), { target: { value: "gpt-6" } });
+  await pickerEdit(() => within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement, "gpt-6");
   fireEvent.change(within(picker).getByRole("textbox", { name: "Reasoning level" }), { target: { value: "high" } });
   fireEvent.change(within(picker).getByRole("combobox", { name: "Service tier" }), { target: { value: "fast" } });
   fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
@@ -303,7 +313,7 @@ test("each agent uses project defaults until customized with bb's pickers", asyn
   await waitFor(() => expect(slot.getAllByTestId("bb-provider-model-picker")).toHaveLength(2));
   expect(slot.getByRole("button", { name: "Save settings" }).getAttribute("aria-disabled")).toBe("true");
   const second = slot.getAllByTestId("bb-provider-model-picker")[1];
-  fireEvent.change(within(second).getByRole("textbox", { name: "Provider ID" }), { target: { value: "pi" } });
+  await pickerEdit(() => within(second).getByRole("textbox", { name: "Provider ID" }) as HTMLInputElement, "pi");
   fireEvent.change(within(second).getByRole("textbox", { name: "Model" }), { target: { value: "local" } });
   fireEvent.click(within(second).getByRole("button", { name: "Apply execution selection" }));
   fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
