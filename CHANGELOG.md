@@ -56,7 +56,7 @@ Comments go back to the thread that made the change, the agent says which proble
 - Replies, resolves, and unresolves post as the GitHub account the review verified, and only on its own PR's threads; a page open from 0.7.0 is asked to reload.
 - Submit refuses a page that doesn't send the comments, summary, and verdict it shows.
 - The agents follow ticket references only in a trusted author's PR, and only read tickets. Commit headlines, the earlier guide's chapters, CI output, and your removal notes reach them fenced as untrusted text. What they write for GitHub, and `bb review --body`, is capped at 65,000 characters, and a feedback check keeps a file:line only when it names a line in the diff.
-- Images in GitHub comments, the guide, CI annotations, and the agents' words show as links and load nothing until clicked.
+- Images and videos in GitHub comments, the guide, CI annotations, and the agents' words show as links and load nothing until clicked.
 - The account menu says switching accounts switches `gh` for the whole BB server. After a switch, each review starts afresh for the new account.
 - Deleting a review deletes its guide-writer threads too.
 
