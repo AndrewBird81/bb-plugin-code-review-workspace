@@ -36,6 +36,8 @@ export interface ReviewLifecycle {
   snoozedUntil?: number | null;
   /** The assistant's latest check of your feedback. */
   assessment?: AssessmentSummary | null;
+  /** The changed files the review's assistant read through Guided Review, at `head`: a PR's head commit, or "diff:" and a local review's diff hash (src/agent-reads.ts). */
+  agentReads?: { head: string; files: string[] } | null;
   /** The signal that last alerted Needs You, so one event alerts once. */
   notifiedSignal?: string | null;
   /** The head commit the automatic re-review or check last ran for. */
@@ -281,7 +283,7 @@ export interface Store extends AgentCommentStore {
 }
 
 /** A summary change: any of these fields, where undefined clears it. */
-export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor" | "suggestedVerdict" | "written" | "verdictChosen">>;
+export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor" | "suggestedVerdict" | "written" | "verdictChosen" | "unchecked">>;
 
 /** What a comment or the summary was before an agent changed it; null when there was none. */
 /**
@@ -681,7 +683,7 @@ export function createStore(bb: BbPluginApi): Store {
       if (current.body === submitted.body && current.verdict === submitted.verdict) {
         current.body = "";
         current.verdict = "COMMENT";
-        delete current.bodyAuthor; delete current.suggestedVerdict; delete current.written; delete current.verdictChosen;
+        delete current.bodyAuthor; delete current.suggestedVerdict; delete current.written; delete current.verdictChosen; delete current.unchecked;
       }
       writeDraft(db, current);
     },
@@ -976,9 +978,9 @@ export function reanchorAll(store: Store, k: string, previous: string, next: str
 function patchHash(patch: string) { return createHash("sha256").update(patch).digest("hex"); }
 
 function writeDraft(db: any, d: Draft) {
-  const { bodyAuthor, suggestedVerdict, written, verdictChosen } = d;
+  const { bodyAuthor, suggestedVerdict, written, verdictChosen, unchecked } = d;
   // JSON leaves out the undefined ones, which a change clears.
-  const meta = JSON.stringify({ bodyAuthor, suggestedVerdict, written, verdictChosen });
+  const meta = JSON.stringify({ bodyAuthor, suggestedVerdict, written, verdictChosen, unchecked });
   db.prepare(
     `INSERT INTO drafts (target_key,verdict,body,comments,meta) VALUES (?,?,?,?,?)
      ON CONFLICT(target_key) DO UPDATE SET verdict=excluded.verdict,body=excluded.body,comments=excluded.comments,meta=excluded.meta`,

@@ -5,6 +5,7 @@ import type { rpcContract } from "../../src/rpc-contract";
 import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "../../src/draft";
 import type { CommentFilter, CommentItem } from "../../lib/comments";
 import { rushedDoubt, unviewedDoubt } from "../../lib/approve-guard";
+import { readOf } from "../../lib/agent-coverage";
 import { readDraftRecovery } from "../../lib/draft-recovery";
 import { linkImages } from "../../lib/link-images";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
@@ -155,6 +156,10 @@ function Verdicts({ revision }: { revision: string }) {
     void apply(mode).finally(() => setBusy(null));
   };
   const suggested = d.suggested;
+  // What the agent says it didn't check, while Finish review shows what it checked.
+  const unchecked = d.agentCoverage ? d.draft.unchecked ?? [] : [];
+  // With it on, the suggestion stays with what the agent read once you've picked it.
+  const checked = !!d.agentCoverage && !!suggested && !(d.ownPr && suggested !== "COMMENT");
   return (
     <section className="space-y-2">
       <h3 className="px-0.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">Verdict</h3>
@@ -164,12 +169,14 @@ function Verdicts({ revision }: { revision: string }) {
         </Button>)}
       </div>
       {d.ownPr && <p id={ownPrId} className="text-xs text-muted-foreground">{OWN_PR}</p>}
-      {(suggested && (suggested !== d.draft.verdict || !verdictPicked(d.draft)) && !(d.ownPr && suggested !== "COMMENT") || run && (run.suggestedVerdict || left || said)) && (
+      {(suggested && (suggested !== d.draft.verdict || !verdictPicked(d.draft)) && !(d.ownPr && suggested !== "COMMENT") || run && (run.suggestedVerdict || left || said) || checked || unchecked.length > 0) && (
         <section aria-label="Agent’s suggestion" className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg bg-(--ansi-13)/5 px-2.5 py-2">
           <p className="flex min-w-0 flex-1 basis-40 items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />
             {suggested && !(d.ownPr && suggested !== "COMMENT") ? `Agent suggests ${VERDICT_LABEL[suggested]}` : run?.suggestedVerdict ? `Agent suggests ${VERDICT_LABEL[run.suggestedVerdict]}` : left ? "The agent found open items" : "Agent’s check"}
           </p>
           {suggested && suggested !== d.draft.verdict && !d.ownPr && d.editable && <Button size="sm" variant="outline" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} disabled={d.busy} onClick={() => d.chooseVerdict(suggested)}>Switch to {VERDICT_LABEL[suggested]}</Button>}
+          {d.agentCoverage && d.agentCoverage.total > 0 && <MetaLine className="basis-full text-xs text-muted-foreground" items={[`Read ${readOf(d.agentCoverage)}`]} />}
+          {unchecked.length > 0 && <Unchecked items={unchecked} />}
           {said && <div className="min-w-0 basis-full"><Clamped body={linkImages(said)} /></div>}
           {run && (run.suggestedVerdict || left) && <span className="flex flex-wrap gap-1.5">
             {feedback?.suggestionInDraft
@@ -193,6 +200,17 @@ function Verdicts({ revision }: { revision: string }) {
       </Dialog>
     </section>
   );
+}
+
+/** What the agent says it didn't read or run, folded under its suggestion. It stays in BB. */
+function Unchecked({ items }: { items: readonly string[] }) {
+  const [open, setOpen] = useState(false);
+  return <div className="min-w-0 basis-full">
+    <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cn("flex min-h-7 items-center gap-1 rounded-md text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)}>
+      What it didn’t check<Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3" aria-hidden />
+    </button>
+    {open && <ul className="list-disc space-y-0.5 pb-1 pl-5 text-xs text-muted-foreground">{items.slice(0, 5).map((item, index) => <li key={index}><InlineCode text={item} /></li>)}</ul>}
+  </div>;
 }
 
 /** One line of what goes to GitHub, or of what holds it back, with where to see it or fix it. */
@@ -238,6 +256,9 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
           {unviewedDoubt(d.approval.unviewed)}
         </Row>}
         {d.approval?.rushed.map((chapter) => <Row key={chapter.id} tone="warning" icon={<Icon name="Clock" className="size-4 shrink-0" aria-hidden />}>{rushedDoubt(chapter)}</Row>)}
+        {d.unreadApproval && <Row tone="warning" icon={<Icon name="EyeOff" className="size-4 shrink-0" aria-hidden />} action={fix("Show", () => showLocation(d.unreadApproval!.unread[0], null, "RIGHT"))}>
+          The agent suggests Approve but read {readOf(d.unreadApproval)}
+        </Row>}
       </ul>
     </Part>
   );

@@ -21,6 +21,7 @@ import { startFixThread } from "./src/fix-handoff";
 import { listMachines, personalProjectId } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
 import { commentsKey, rangeOf, sameLocation, SEVERITIES, severityOf, SUMMARY_AT } from "./src/draft";
+import { recordAgentReads } from "./src/agent-reads";
 import { describeDraft, writeSummary } from "./src/draft-summary";
 import { runSummaryCommand } from "./src/summary-command";
 import { askAgent, settleDiscussions } from "./src/discussions";
@@ -170,7 +171,7 @@ export default async function plugin(bb: BbPluginApi) {
     const login = all.some(ownPrUnread) ? sync.cachedLogin() : null;
     const reviews = all.map((review) => ownPrOf(review, login));
     const stacks = findStacks(reviews);
-    return reviews.map(({ reviewBodies: _bodies, ...review }) => decorate(review, options, stacks));
+    return reviews.map(({ reviewBodies: _bodies, agentReads: _reads, ...review }) => decorate(review, options, stacks));
   };
   const changed = (targetKey: string) => {
     bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
@@ -770,6 +771,7 @@ export default async function plugin(bb: BbPluginApi) {
         // A renamed file is keyed by its new path; its old one finds it too.
         const diff = files.find((f) => f.path === file) ?? files.find((f) => f.oldPath === file);
         if (!diff) return failed(`This review has no diff for ${file}.`);
+        recordAgentReads(store, threadId, targetKey, [diff.path]);
         const text = diff.text.slice(offset ?? 0, (offset ?? 0) + (limit ?? 200_000));
         const end = (offset ?? 0) + text.length;
         return text + (end < diff.text.length ? `\n\n[${end}/${diff.text.length} bytes — call again with offset=${end}]` : "");
@@ -778,6 +780,8 @@ export default async function plugin(bb: BbPluginApi) {
       const review = store.getReview(targetKey);
       const paged = stubSkippedFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : []);
       const { text, end } = patchPage(paged, offset ?? 0, limit ?? 80_000);
+      // Each file the page includes, if only in part.
+      recordAgentReads(store, threadId, targetKey, splitPatchByFile(text).map((f) => f.path));
       const more = end < paged.length ? `\n\n[${end}/${paged.length} bytes — call again with offset=${end}]` : "";
       return text + more;
     },
@@ -860,6 +864,7 @@ export default async function plugin(bb: BbPluginApi) {
     parameters: z.object({
       body: z.string().trim().min(1).max(65_000).describe("The summary, in GitHub Markdown."),
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional().describe("The verdict you'd suggest; the reviewer picks."),
+      unchecked: z.array(z.string().max(120)).max(5).optional().describe("Up to 5 things you didn't read or run, such as files you skipped or tests you couldn't run, each under 120 characters. The reviewer sees them beside your verdict; they're never posted. Without it, what you said before stays."),
     }),
     execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => writeSummary(store, targetKey, input, threadId)),
   });
@@ -944,7 +949,10 @@ export default async function plugin(bb: BbPluginApi) {
       const targetKey = assistantReview(store, threadId);
       const review = targetKey ? store.getReview(targetKey) : null;
       if (!review) return failed("This conversation is no longer a review's assistant.");
-      return readFileAt(runGh, runGit, review, path, ref ?? "current", startLine, endLine);
+      const read = await readFileAt(runGh, runGit, review, path, ref ?? "current", startLine, endLine);
+      // A changed file it got: what it read through Guided Review.
+      if (read.startsWith(`${path} at `) && changedFiles(store.patch(review.targetKey)).includes(path)) recordAgentReads(store, threadId, review.targetKey, [path]);
+      return read;
     },
   });
   bb.agents.registerTool({

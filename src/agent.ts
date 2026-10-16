@@ -35,6 +35,7 @@ export function assistantInstructions(targetKey: string, guide: Guide | null, pr
     ...(checksPr ? [repoChecksRule(checksPr)] : []),
     ...(guide?.requirements?.length ? ["The guide checks what the PR asks for. Confirm a missing or partial requirement in the diff, then raise it in a line comment or the review summary."] : []),
     ...(preferences.knobs.preExistingFindings ? ["Mark a problem in code the PR didn't change with introduced: false; never suggest REQUEST_CHANGES for those alone."] : []),
+    ...(preferences.knobs.agentCoverage ? ["In set_review_summary, pass unchecked with what you didn't read or run."] : []),
   ].join("\n");
   const wanted = assistantPreferencesPrompt(preferences);
   if (!guide) return `${rules}\n${wanted}`;

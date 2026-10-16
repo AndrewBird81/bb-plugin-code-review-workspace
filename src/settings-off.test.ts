@@ -131,3 +131,9 @@ test("with every toggle off, a comment on code the PR didn't change posts like a
   const { assistantInstructions } = await import("./agent");
   expect(assistantInstructions("pr-1", null, store.getPreferences().preferences)).not.toContain("introduced");
 });
+
+test("with every toggle off, the assistant isn't asked what it didn't check", async () => {
+  const { store } = host();
+  const { assistantInstructions } = await import("./agent");
+  expect(assistantInstructions("pr-1", null, store.getPreferences().preferences)).not.toContain("unchecked");
+});

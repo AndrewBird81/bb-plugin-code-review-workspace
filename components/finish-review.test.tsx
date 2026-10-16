@@ -490,3 +490,64 @@ test("private notes stay in BB, and show only when you have some", async () => {
   expect(((await view.findByRole("textbox", { name: "Private notes" })) as HTMLTextAreaElement).value).toBe("Check the TTL.");
   slot.lifecycle.unmount();
 });
+
+test("beside its suggestion, Finish review says how many files the agent read and, folded, what it didn't check", async () => {
+  const { slot } = await renderWorkspace({
+    review: { agentReads: { head: "new", files: ["src/a.ts"] } },
+    rpc: { getDraft: vi.fn(() => ({ draft: draftOf({ suggestedVerdict: "APPROVE", unchecked: ["Didn't run the tests", "`parse()` callers"] }), stale: [] })) },
+  });
+  const view = await finish(slot);
+  const suggestion = within(view.getByRole("region", { name: "Agent’s suggestion" }));
+  expect(suggestion.getByText("Agent suggests Approve")).toBeTruthy();
+  expect(suggestion.getByText("Read 1 of 1 file")).toBeTruthy();
+  const unchecked = suggestion.getByRole("button", { name: "What it didn’t check" });
+  expect(unchecked.getAttribute("aria-expanded")).toBe("false");
+  expect(suggestion.queryByText("Didn't run the tests")).toBeNull();
+  fireEvent.click(unchecked);
+  expect(suggestion.getByText("Didn't run the tests")).toBeTruthy();
+  // It read every file, so approving asks nothing more of it.
+  expect(view.queryByText(/The agent suggests Approve but read/)).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("an Approve suggestion from an agent that didn't read every file is a doubt, with Show, and Submit asks once more", async () => {
+  const { slot, rpc } = await renderWorkspace({
+    review: { agentReads: { head: "old", files: ["src/a.ts"] } },
+    rpc: { getDraft: vi.fn(() => ({ draft: draftOf({ verdict: "APPROVE", verdictChosen: true, suggestedVerdict: "APPROVE", comments: [] }), stale: [] })) },
+  });
+  const view = await finish(slot);
+  // Its reads were of an older head.
+  expect(within(view.getByRole("region", { name: "Agent’s suggestion" })).getByText("Read 0 of 1 file")).toBeTruthy();
+  const row = view.getByText("The agent suggests Approve but read 0 of 1 file").closest("li")!;
+  expect(within(row).getByRole("button", { name: "Show" })).toBeTruthy();
+  fireEvent.click(submit(view));
+  const ask = await view.findByRole("alert");
+  expect(ask.textContent).toContain("The agent suggests Approve but read 0 of 1 file.");
+  expect(rpc.submitReview).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("another suggestion, however little the agent read, raises no doubt about it", async () => {
+  const { slot } = await renderWorkspace({ rpc: { getDraft: vi.fn(() => ({ draft: draftOf({ suggestedVerdict: "COMMENT" }), stale: [] })) } });
+  const view = await finish(slot);
+  expect(within(view.getByRole("region", { name: "Agent’s suggestion" })).getByText("Read 0 of 1 file")).toBeTruthy();
+  expect(view.queryByText(/The agent suggests Approve but read/)).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("with Show what the agent checked off, Finish review says nothing of what the agent read or didn't check, and asks nothing about it", async () => {
+  const { slot, rpc } = await renderWorkspace({
+    review: { agentReads: { head: "new", files: [] } },
+    rpc: {
+      getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, agentCoverage: false } }, revision: 0 }),
+      getDraft: vi.fn(() => ({ draft: draftOf({ verdict: "APPROVE", verdictChosen: true, suggestedVerdict: "APPROVE", unchecked: ["Didn't run the tests"], comments: [] }), stale: [] })),
+    },
+  });
+  const view = await finish(slot);
+  expect(view.queryByText(/^Read \d+ of/)).toBeNull();
+  expect(view.queryByRole("button", { name: "What it didn’t check" })).toBeNull();
+  expect(view.queryByText(/The agent suggests Approve but read/)).toBeNull();
+  fireEvent.click(submit(view));
+  await waitFor(() => expect(rpc.submitReview).toHaveBeenCalled());
+  slot.lifecycle.unmount();
+}, 15_000);

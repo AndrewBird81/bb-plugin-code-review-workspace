@@ -527,3 +527,9 @@ test("the assistant marks pre-existing problems only while Settings keeps them a
   expect(assistantInstructions("pr-1", null, defaultPreferences)).toContain(line);
   expect(assistantInstructions("pr-1", null, { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, preExistingFindings: false } })).not.toContain("introduced");
 });
+
+test("the assistant is asked to say what it didn't check only while Finish review shows it", () => {
+  const line = "In set_review_summary, pass unchecked with what you didn't read or run.";
+  expect(assistantInstructions("pr-1", null, defaultPreferences)).toContain(line);
+  expect(assistantInstructions("pr-1", null, { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, agentCoverage: false } })).not.toContain("unchecked");
+});

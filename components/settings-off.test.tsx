@@ -271,3 +271,17 @@ test("with every knob off, a comment on code the PR didn't change shows no Pre-e
   await page.findByText("Approving with 1 blocking comment.");
   page.lifecycle.unmount(); bar.lifecycle.unmount();
 });
+
+test("with every knob off, Finish review shows nothing of what the agent read or didn't check", async () => {
+  restores.push(desktopWindow());
+  const draft = { targetKey: "pr-42", verdict: "COMMENT", body: "", suggestedVerdict: "APPROVE", unchecked: ["Didn't run the tests"], comments: [] };
+  const getReviewBundle = () => ({ ...settingsOffRpc(allKnobsOff).getReviewBundle(), review: { ...settingsOffRpc(allKnobsOff).getReviewBundle().review, agentReads: { head: "new", files: [] } } });
+  const { page, bar } = await renderReview(allKnobsOff, { getDraft: () => ({ draft, stale: [] }), getReviewBundle });
+  fireEvent.click(await within(await bar.findByRole("group", { name: "Review commands" })).findByRole("button", { name: /^Finish review:/ }));
+  const suggestion = within(await page.findByRole("region", { name: "Agent’s suggestion" }));
+  expect(suggestion.getByText("Agent suggests Approve")).toBeTruthy();
+  expect(page.queryByText(/^Read \d+ of/)).toBeNull();
+  expect(page.queryByRole("button", { name: "What it didn’t check" })).toBeNull();
+  expect(page.queryByText(/The agent suggests Approve but read/)).toBeNull();
+  page.lifecycle.unmount(); bar.lifecycle.unmount();
+});

@@ -376,6 +376,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             {knob("approveGuard")}
             {knob("approveGuardPace")}
             {knob("preExistingFindings")}
+            {knob("agentCoverage")}
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="PanelLeft" title="BB’s thread list" />

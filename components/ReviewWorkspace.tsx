@@ -59,6 +59,7 @@ import { TOUCH_CONTROL } from "./touch";
 import { splitPatchByFile } from "../src/patch";
 import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunks";
 import { approveGuard } from "../lib/approve-guard";
+import { agentCoverage } from "../lib/agent-coverage";
 import { useKnob, useSettings } from "../lib/settings";
 import { changedLines, chapterReadingLines, readingLines } from "../lib/review-size";
 
@@ -731,6 +732,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     return () => cancelAnimationFrame(frame);
   }, [opening, rootEl]);
   const reviewFiles: string[] = useMemo(() => [...new Set<string>(sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)))], [sections]);
+  // What the agent read through Guided Review, beside its verdict in Finish review.
+  const coverageOn = useKnob("agentCoverage");
+  const coverage = useMemo(() => coverageOn ? agentCoverage(reviewFiles, review?.agentReads, review?.headSha, generated) : undefined,
+    [coverageOn, reviewFiles, review?.agentReads, review?.headSha, generated]);
 
   // Restore the saved scroll position once the page it was saved on shows. The diff draws its files a moment later, so
   // it follows them down until it gets there, for a few seconds, or until you scroll or tap yourself. Meanwhile the
@@ -1315,7 +1320,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   return (
     <WorkspaceProvider api={api}>
     {/* The draft's provider shares it with the diff, which shows each comment under its line, and with its panel. */}
-    <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} approveGuard={guard} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={reloadReview} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
+    <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} approveGuard={guard} agentCoverage={coverage} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={reloadReview} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
     {/* Kit popovers open as bottom drawers where the workspace is phone-sized or short. */}
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
     {/* It keeps clear of the screen's edges where it reaches them (--gr-safe-*: the notch, the Duo's rail, the home

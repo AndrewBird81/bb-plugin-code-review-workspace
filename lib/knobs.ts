@@ -7,7 +7,7 @@ export interface Knobs {
   askAboutSelection: boolean; approveGuard: boolean;
   /** Changed lines an hour past which a chapter counts as read too fast. */
   approveGuardPace: number;
-  preExistingFindings: boolean;
+  preExistingFindings: boolean; agentCoverage: boolean;
   runAutomaticReview: boolean; recheckOnNewCommits: boolean;
   mentionsWake: boolean; prepareOnReturn: boolean; runReReviewCheck: boolean; trackReviewedPrs: boolean;
   alertGuides: boolean; alertTurns: boolean;
@@ -20,7 +20,7 @@ export const defaultKnobs: Knobs = {
   singleKeyShortcuts: true, returnToOverview: true, foldViewedFiles: true, foldGeneratedFiles: true,
   requirements: true, codeOwners: true, ciInCode: true,
   askAboutSelection: true, approveGuard: true, approveGuardPace: 500,
-  preExistingFindings: true,
+  preExistingFindings: true, agentCoverage: true,
   runAutomaticReview: true, recheckOnNewCommits: true,
   mentionsWake: true, prepareOnReturn: true, runReReviewCheck: true, trackReviewedPrs: true,
   alertGuides: true, alertTurns: true,

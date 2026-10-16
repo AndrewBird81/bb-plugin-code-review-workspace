@@ -126,6 +126,8 @@ export interface Draft {
   written?: { verdict: Verdict | null; comments: string };
   /** The reviewer picked the verdict, rather than it being the default. */
   verdictChosen?: true;
+  /** What the agent says it didn't read or run, shown beside its verdict; never posted. */
+  unchecked?: string[];
 }
 
 type Keyed = Pick<DraftComment, "file" | "line" | "side" | "body" | "startLine" | "startSide" | "severity" | "introduced">;

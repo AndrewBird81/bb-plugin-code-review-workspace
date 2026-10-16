@@ -9,7 +9,7 @@ import { asked } from "./asks";
  * Write the summary as an agent, and suggest a verdict. An agent writes an empty summary or
  * an agent's; the reviewer's only when they asked on the summary, and then it stays theirs.
  */
-export function writeSummary(store: Store, targetKey: string, input: { body: string; verdict?: Verdict }, threadId?: string): DraftResult {
+export function writeSummary(store: Store, targetKey: string, input: { body: string; verdict?: Verdict; unchecked?: string[] }, threadId?: string): DraftResult {
   const refused = unchangeable(store.getReview(targetKey));
   if (refused) return { ok: false, error: refused };
   const draft = store.getDraft(targetKey);
@@ -19,7 +19,8 @@ export function writeSummary(store: Store, targetKey: string, input: { body: str
   if (reviewers && !asked(store, targetKey, SUMMARY_AT, threadId)) {
     return { ok: false, error: "The reviewer wrote the review summary, so it stays as they wrote it. Put your suggested summary in your reply instead; the reviewer can ask on the summary (Ask agent on the review summary, in Finish review) to apply it. Nothing was changed." };
   }
-  const suggested = input.verdict ? { suggestedVerdict: input.verdict } : {};
+  // What it didn't check goes with its verdict; without it, what it said before stays.
+  const suggested = { ...input.verdict ? { suggestedVerdict: input.verdict } : {}, ...input.unchecked ? { unchecked: input.unchecked.map((item) => item.trim()).filter(Boolean) } : {} };
   store.updateSummary(targetKey, reviewers ? { body, ...suggested } : {
     body, bodyAuthor: "agent", ...suggested,
     written: { verdict: input.verdict ?? (verdictPicked(draft) ? draft.verdict : null), comments: commentsKey(draft.comments) },
