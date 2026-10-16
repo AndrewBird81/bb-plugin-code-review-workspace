@@ -130,3 +130,25 @@ test("pasting the link of a review with new commits rebuilds it like Re-review, 
   expect(store.getDraft(key).comments).toMatchObject([{ line: 1, body: "Why n?" }]);
   expect(store.staleDraftComments(key)).toEqual([]);
 });
+
+// A host whose guide writer never finishes, so the rebuild stays generating.
+const building = () => createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  spawn: async () => ({ id: "w" }), wait: async () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
+} } as any });
+
+test("pasting the link of a review with new commits keeps when it was created", async () => {
+  const { bb } = building();
+  const store = createStore(bb);
+  seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
+  expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
+  expect(store.getReview(key)).toMatchObject({ status: "generating", createdAt: 1 });
+});
+
+test("pasting the link of an archived review with new commits brings it back from Archive", async () => {
+  const { bb } = building();
+  const store = createStore(bb);
+  seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
+  store.setLifecycle(key, { userArchivedAt: 5 });
+  expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
+  expect(store.getReview(key)).toMatchObject({ status: "generating", userArchivedAt: null });
+});

@@ -119,6 +119,8 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
 
   // A review already building, or showing this diff, just opens; another existing one rebuilds as Re-review does.
   const existing = deps.store.getReview(key);
+  // Starting it again keeps when the review was created.
+  if (existing) meta.createdAt = existing.createdAt;
   const building = existing?.status === "generating";
   const current = !!existing && !building && upToDate(deps.store, existing, meta.headSha, patch);
   if (building || current) {

@@ -64,7 +64,8 @@ export async function createPrReview(
     headSha: pr.headRefOid,
     projectId: args.projectId,
     status: "generating",
-    createdAt: now,
+    // Starting it again keeps when the review was created.
+    createdAt: existing?.createdAt ?? now,
   };
   // An existing review rebuilds as Re-review does, keeping its guide and comments.
   if (existing) {

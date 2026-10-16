@@ -139,3 +139,15 @@ test("bb review of a review with new commits backs up its guide and moves its co
   expect(store.getGuide(key)?.title).toBe("Kept");
   expect(store.staleDraftComments(key)).toEqual([]);
 });
+
+test("bb review of a review with new commits keeps when it was created", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: async () => ({ id: "w" }), wait: async () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
+  } } as any });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "old" });
+  store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
+  store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
+  expect((await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1", cwd: laptop })).exitCode).toBe(0);
+  expect(store.getReview(key)).toMatchObject({ status: "generating", headSha: "abc123", createdAt: 1 });
+});
