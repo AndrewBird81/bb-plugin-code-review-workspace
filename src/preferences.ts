@@ -41,7 +41,7 @@ export const agentChoiceSchema = agentExecutionSchema.omit({ permissionMode: tru
 export const knobsSchema = z.object({
   singleKeyShortcuts: z.boolean(), returnToOverview: z.boolean(), foldViewedFiles: z.boolean(), foldGeneratedFiles: z.boolean(),
   requirements: z.boolean(), codeOwners: z.boolean(), ciInCode: z.boolean(),
-  commentKeys: z.boolean(),
+  commentKeys: z.boolean(), removalReasons: z.boolean(),
   askAboutSelection: z.boolean(), approveGuard: z.boolean(),
   approveGuardPace: z.number().int().min(KNOB_RANGES.approveGuardPace.min).max(KNOB_RANGES.approveGuardPace.max),
   preExistingFindings: z.boolean(), agentCoverage: z.boolean(), testWeakening: z.boolean(), lockfileDigest: z.boolean(),

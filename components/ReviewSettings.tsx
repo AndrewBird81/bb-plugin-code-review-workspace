@@ -6,6 +6,7 @@ import type { PreferencesRecord } from "../src/preferences";
 import type { Machine } from "../src/machines";
 import { ASSISTANT_INSTRUCTIONS_LIMIT, defaultPreferences, type AgentExecution } from "../lib/review-preferences";
 import { defaultKnobs, type KnobId, type Knobs } from "../lib/knobs";
+import { REMOVAL_REASON_WORDS } from "../lib/removal-reasons";
 import { withDefaults } from "../lib/settings";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
@@ -120,7 +121,7 @@ function RepoPatterns({ value, onChange }: { value: string[]; onChange(value: st
 type AgentLearning = PluginRpcResult<typeof rpcContract["getAgentLearning"]>;
 
 /** How the agent's comments fared in your submitted reviews, and its proposal for your instructions, which only Save applies. */
-function AgentCommentLearning({ instructions, onAdd }: { instructions: string; onAdd(lines: string): void }) {
+function AgentCommentLearning({ instructions, onAdd, reasons: showReasons }: { instructions: string; onAdd(lines: string): void; reasons: boolean }) {
   const rpc = useRpc<typeof rpcContract>();
   const [learning, setLearning] = useState<AgentLearning | null>(null);
   const [proposal, setProposal] = useState<string | null>(null);
@@ -160,12 +161,15 @@ function AgentCommentLearning({ instructions, onAdd }: { instructions: string; o
   }
   if (!learning) return null;
   const { total, kept, edited, removed } = learning;
+  // Why you removed them, while Settings asks: "Removed 6: 3 wrong, 2 not worth it, 1 intended".
+  const reasons = showReasons && removed > 0 && learning.reasons?.length ? learning.reasons : null;
   const running = learning.suggestion.state === "running";
   const combined = [instructions.trim(), proposal?.trim() ?? ""].filter(Boolean).join("\n");
   const fits = combined.length <= ASSISTANT_INSTRUCTIONS_LIMIT;
   return <div className="space-y-2">
     <p className="text-sm font-medium">The agent’s comments</p>
     <p className="text-sm text-muted-foreground">{total ? `Of the agent’s last ${total} comment${total === 1 ? "" : "s"} you kept ${kept} as written, edited ${edited}, removed ${removed}.` : "When you submit reviews, this counts the agent’s comments you kept as written, edited, and removed."}</p>
+    {reasons && <p className="text-sm text-muted-foreground">Removed {removed}: {reasons.map(({ reason, count }) => `${count} ${REMOVAL_REASON_WORDS[reason]}`).join(", ")}</p>}
     {learning.recentRemoved.length > 0 && <div className="space-y-1"><p className="text-xs text-muted-foreground">Recently removed</p><ul className="space-y-1 text-sm">
       {learning.recentRemoved.map((comment, index) => <li key={index} className="flex min-w-0 items-baseline gap-2"><span className="shrink-0 font-mono text-xs text-muted-foreground">{comment.repo ? `${comment.repo} · ${comment.file}` : comment.file}</span><span className="min-w-0 truncate">{comment.line}</span></li>)}
     </ul></div>}
@@ -332,7 +336,8 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             <SectionHeading icon="Sparkles" tone="agent" title="Review agent" description="Applies to your next message, including conversations already in progress." />
             <AgentSelection label="Review agent" agent={record.preferences.assistantAgent} unrestricted={unrestricted(record.preferences.assistantAgent)} machines={machines} disabled={busy || updating} note="Used to start new conversations, which stay on the machine they started on. In a conversation, change the model and effort per message." onCustomize={() => void customize("assistantAgent")} onChange={(update) => setAgent("assistantAgent", update)} />
             <label className="block space-y-2"><span className="text-sm font-medium">Assistant instructions</span><Textarea aria-label="Assistant instructions" maxLength={ASSISTANT_INSTRUCTIONS_LIMIT} rows={5} value={record.preferences.assistantInstructions} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, assistantInstructions: event.target.value } }); }} placeholder="Prioritize correctness and security. Show a concrete failure case for suspected bugs. Keep suggestions actionable." /></label>
-            <AgentCommentLearning instructions={record.preferences.assistantInstructions} onAdd={(lines) => { setSaved(false); setRecord((current) => current && { ...current, preferences: { ...current.preferences, assistantInstructions: [current.preferences.assistantInstructions.trim(), lines].filter(Boolean).join("\n") } }); }} />
+            <AgentCommentLearning instructions={record.preferences.assistantInstructions} onAdd={(lines) => { setSaved(false); setRecord((current) => current && { ...current, preferences: { ...current.preferences, assistantInstructions: [current.preferences.assistantInstructions.trim(), lines].filter(Boolean).join("\n") } }); }} reasons={record.preferences.knobs.removalReasons} />
+            {knob("removalReasons")}
             {knob("runAutomaticReview")}
             <label className="ml-6 block space-y-2"><span className={`text-sm font-medium ${automaticReviewDim}`}>Automatic review</span><Textarea aria-label="Automatic review" disabled={!record.preferences.knobs.runAutomaticReview} maxLength={12000} rows={4} value={record.preferences.automaticReview} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, automaticReview: event.target.value } }); }} /><span className={`block text-xs text-muted-foreground ${automaticReviewDim}`}>Sent to the review agent when a guide is ready and the review has no conversation yet. Its draft comments wait in Comments for you to edit and submit. Leave blank to turn the automatic review off.</span></label>
             {knob("recheckOnNewCommits")}

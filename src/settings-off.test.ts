@@ -161,3 +161,24 @@ test("with every toggle off, list_review_files and a page's stub show a lockfile
   expect(paged).toContain("[lockfile: +2 −1 lines; pass file to read it]");
   for (const text of [listed, paged]) expect(text).not.toMatch(/packages|evil\.example\.com/);
 });
+
+test("with Ask why off, a removal takes no reason, and neither the agent nor Settings sees one given while it was on", async () => {
+  const { bb, harness, store } = host();
+  await plugin(bb);
+  store.setStatus("pr-1", "ready");
+  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+  store.setAssistantThread("pr-1", "assistant");
+  const rpc = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
+  const tool = (name: string, input: Record<string, unknown>) => harness.behavior.callAgentTool(name, input, { threadId: "assistant" }) as Promise<any>;
+  const at = { file: "a.ts", line: 1, side: "RIGHT" } as const;
+  await tool("add_draft_comment", { ...at, code: "one", body: "Why one?" });
+  await rpc("removeDraftComment", { targetKey: "pr-1", ...at });
+  expect(await rpc("setRemovalReason", { targetKey: "pr-1", ...at, reason: "wrong" })).toEqual({ ok: false });
+  expect(store.agentCommentChanges("pr-1")).toEqual([expect.objectContaining({ kind: "removed", why: null })]);
+  store.setRemovalReason("pr-1", at, { reason: "wrong", note: "Not a bug." });
+  store.recordAgentOutcomes("pr-1", [{ repo: "acme/web", file: "a.ts", outcome: "removed", body: "Why one?", edited: null }]);
+  const listed = await tool("list_draft_comments", {});
+  expect(listed).toContain("Why one?");
+  expect(listed).not.toContain("why:");
+  expect(await rpc("getAgentLearning", null)).toMatchObject({ removed: 1, reasons: [] });
+});

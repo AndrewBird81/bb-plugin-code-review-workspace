@@ -368,6 +368,8 @@ export function createStore(bb: BbPluginApi): Store {
     `CREATE INDEX IF NOT EXISTS discussion_entries_location ON discussion_entries (target_key, file, line, side)`,
     // Settings knobs as JSON, kept out of value so an older release's strict read of value still parses.
     `ALTER TABLE review_preferences ADD COLUMN knobs TEXT`,
+    // Why the reviewer removed an agent's comment, and their line about it, as JSON (lib/removal-reasons.ts).
+    `ALTER TABLE agent_comment_changes ADD COLUMN reason TEXT`,
   ]);
   const at = (k: string, { file, line, side }: CommentLocation) => [k, file, line, side] as const;
   const hasDiscussion = (k: string, location: CommentLocation) =>

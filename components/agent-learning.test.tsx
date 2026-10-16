@@ -28,6 +28,21 @@ test("Settings shows how the agent's last comments fared, and the latest it lost
   slot.lifecycle.unmount();
 });
 
+test("under the counts, Settings splits the removals by the reasons you gave, most first, until you stop being asked why", async () => {
+  const { slot } = await settings({ getAgentLearning: () => ({ ...stats, removed: 6, reasons: [{ reason: "wrong", count: 3 }, { reason: "not-worth-it", count: 2 }, { reason: "intended", count: 1 }] }) });
+  await slot.findByText("Removed 6: 3 wrong, 2 not worth it, 1 intended");
+  fireEvent.click(slot.getByRole("checkbox", { name: /^Ask why you remove an agent’s comment/ }));
+  expect(slot.queryByText(/^Removed 6:/)).toBeNull();
+  slot.lifecycle.unmount();
+  // None given, or an older server's stats without them: the counts alone.
+  for (const learning of [{ ...stats, reasons: [] }, stats]) {
+    const { slot } = await settings({ getAgentLearning: () => learning });
+    await slot.findByText("Of the agent’s last 12 comments you kept 7 as written, edited 3, removed 2.");
+    expect(slot.queryByText(/^Removed 2:/)).toBeNull();
+    slot.lifecycle.unmount();
+  }
+});
+
 test("with no submitted comments yet, Settings says what it will show, and there's nothing to suggest from", async () => {
   const { slot } = await settings({ getAgentLearning: () => ({ ...stats, total: 0, kept: 0, edited: 0, removed: 0, recentRemoved: [], canSuggest: false }) });
   await slot.findByText("When you submit reviews, this counts the agent’s comments you kept as written, edited, and removed.");

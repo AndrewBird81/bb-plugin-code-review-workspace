@@ -315,3 +315,17 @@ test("with Comment keys off, the comment ] lands on takes none of their keys, an
   expect(sheet.queryByRole("region", { name: "Comment" })).toBeNull();
   page.lifecycle.unmount(); bar.lifecycle.unmount();
 });
+
+test("with Ask why off, removing the agent's comment says Comment removed with Undo, and no Why?", async () => {
+  const { toast } = await import("sonner");
+  const agents = { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", body: "Upper case reads as a constant." }] };
+  const removeDraftComment = vi.fn(() => ({ draft: { ...agents, comments: [] }, stale: [] }));
+  const { page, bar } = await renderReview({ ...defaultKnobs, removalReasons: false }, { getDraft: () => ({ draft: agents, stale: [] }), removeDraftComment });
+  await page.findByRole("heading", { name: "Parse rows" });
+  fireEvent.keyDown(document.body, { key: "]" });
+  fireEvent.keyDown(document.body, { key: "x" });
+  await waitFor(() => expect(removeDraftComment).toHaveBeenCalled());
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Comment removed", expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) })));
+  expect(vi.mocked(toast.info).mock.calls.at(-1)![1]).not.toHaveProperty("cancel");
+  page.lifecycle.unmount(); bar.lifecycle.unmount();
+});

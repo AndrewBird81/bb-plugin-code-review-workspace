@@ -14,6 +14,7 @@ import { setDraftStatus } from "../lib/draft-status";
 import { holdReview } from "../lib/review-holds";
 import { useKnob } from "../lib/settings";
 import { useWorkspace } from "../lib/workspace-context";
+import { RemovalWhy, type WhyRequest } from "./comments/RemovalWhy";
 import { InlineComposerContext, InlineDraftContext, locationKey, type InlineComposer, type InlineDraft } from "./InlineDraft";
 
 /**
@@ -64,6 +65,7 @@ export const DraftProvider = memo(function DraftProvider({ children, ...props }:
   const state = useDraftState(props);
   return <DraftContext.Provider value={state}><InlineDraftContext.Provider value={state.inlineDraft}><InlineComposerContext.Provider value={state.inlineComposer}>
     {children}
+    {state.why && <RemovalWhy key={`${state.why.at.file}:${state.why.at.line}:${state.why.at.side}`} request={state.why} onClose={() => state.setWhy(null)} />}
   </InlineComposerContext.Provider></InlineDraftContext.Provider></DraftContext.Provider>;
 });
 DraftProvider.displayName = "DraftProvider";
@@ -137,6 +139,9 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   // Summary text kept from before the summary had its own box, until the box is free.
   const legacySummary = useRef<{ body: string; revision?: string } | null>(null);
   const summaryRef = useRef<HTMLElement>(null);
+  // Why? on Comment removed, for an agent's comment, while Settings asks why.
+  const askWhy = useKnob("removalReasons");
+  const [why, setWhy] = useState<WhyRequest | null>(null);
   const focusSummary = () => requestAnimationFrame(() => summaryRef.current?.focus());
 
   useEffect(() => {
@@ -400,10 +405,15 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     const { file, line, side } = comment;
     // Putting back a comment on an older diff would bind it to the current one unchecked.
     const older = stale.some((at) => sameLocation(at, comment));
+    // Why? opens from where it was, once its toast goes.
+    const reason = askWhy && comment.author === "agent" ? { cancel: { label: "Why?", onClick: (event: { currentTarget: EventTarget | null }) => {
+      const box = event.currentTarget instanceof Element ? event.currentTarget.getBoundingClientRect() : null;
+      setWhy({ at: { file, line, side }, rect: box ? { left: box.left, top: box.top, width: box.width, height: box.height } : { left: window.innerWidth - 16, top: window.innerHeight - 16, width: 0, height: 0 } });
+    } } } : null;
     await mutate(async () => {
       apply(await enqueue(() => rpc.call("removeDraftComment", { targetKey, file, line, side })) as { draft: Draft });
-      if (older) toast.info("Comment removed");
-      else toast.info("Comment removed", { action: { label: "Undo", onClick: () => { void latest.current.restoreComments([comment]); } } });
+      if (older) { if (reason) toast.info("Comment removed", reason); else toast.info("Comment removed"); }
+      else toast.info("Comment removed", { ...reason, action: { label: "Undo", onClick: () => { void latest.current.restoreComments([comment]); } } });
     });
   }
   /**
@@ -637,6 +647,6 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     showComposer, inline, edited, replacing, counts, preExistingCount, blocks, markPreExisting, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity,
     file, boxLines, line, side, files, setFile, editing, showBoxInDiff, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
     changedWhileEditing, ownPr, suggested, chooseVerdict, confirming, setConfirming, approval, agentCoverage, unreadApproval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
-    inlineDraft, inlineComposer, askAgent, patch, account,
+    inlineDraft, inlineComposer, askAgent, patch, account, why, setWhy,
   };
 }

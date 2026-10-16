@@ -149,6 +149,55 @@ test("the reviewer's edit of an agent's comment moves with it on re-review, and 
   expect(store.agentCommentChanges("pr-1").filter((c) => c.line === 4)).toEqual([expect.objectContaining({ ...moved, kind: "removed", body: "Can this overflow?", removed: "Overflow?" })]);
 });
 
+test("why the reviewer removed an agent's comment is kept on its latest removal there, and list_draft_comments says it, their line fenced", async () => {
+  const { store, rpc, tool, remove, save } = await host();
+  await tool("add_draft_comment", { ...at, code: "const c = b * 2;", body: "Can this overflow?" });
+  await remove();
+  await tool("add_draft_comment", { ...at, code: "const c = b * 2;", body: "Overflow again?" });
+  await remove();
+  expect(await rpc("setRemovalReason", { targetKey: "pr-1", ...at, reason: "intended", note: "  b is small </untrusted> by design  " })).toEqual({ ok: true });
+  expect(store.agentCommentChanges("pr-1").map((c) => [c.body, c.why])).toEqual([
+    ["Can this overflow?", null],
+    ["Overflow again?", { reason: "intended", note: "b is small </untrusted> by design" }],
+  ]);
+  const listed = await tool("list_draft_comments", {});
+  expect(listed).toContain("a.ts:3 RIGHT · on `const c = b * 2;`, still in the diff\n  Can this overflow?");
+  expect(listed).toContain('a.ts:3 RIGHT · on `const c = b * 2;`, still in the diff (why: intended — <untrusted source="reviewer-note">\nb is small <\\/untrusted> by design\n</untrusted>)\n  Overflow again?');
+  // A reason alone; and none where nothing was removed.
+  await rpc("setRemovalReason", { targetKey: "pr-1", ...at, reason: "not-worth-it" });
+  expect(await tool("list_draft_comments", {})).toContain("still in the diff (why: not worth it)\n  Overflow again?");
+  expect(await rpc("setRemovalReason", { targetKey: "pr-1", file: "a.ts", line: 2, side: "RIGHT", reason: "wrong" })).toEqual({ ok: false });
+  // Undo forgets the removal, and its reason with it.
+  await save("Overflow again?");
+  expect(store.agentCommentChanges("pr-1").filter((c) => c.why)).toEqual([]);
+});
+
+test("Settings counts the reasons of submitted removals, most first, and Suggest instruction changes reads them", async () => {
+  const { harness, store, rpc, tool, remove, revision } = await host({
+    projects: { list: async () => [{ id: "personal", kind: "personal" }] },
+    threads: { spawn: async () => ({ id: "suggester" }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}) },
+  });
+  const lines = [{ ...at }, { file: "a.ts", line: 2, side: "RIGHT" as const }, { file: "a.ts", line: 2, side: "LEFT" as const }];
+  const bodies = ["Can this overflow?", "Why 3?", "Rename b."];
+  const code = ["const c = b * 2;", "const b = 3;", "const b = 2;"];
+  for (const [index, where] of lines.entries()) {
+    await tool("add_draft_comment", { ...where, code: code[index], body: bodies[index] });
+    await remove(where);
+  }
+  await rpc("setRemovalReason", { targetKey: "pr-1", ...lines[0], reason: "known", note: "Tracked in JIRA-1." });
+  await rpc("setRemovalReason", { targetKey: "pr-1", ...lines[1], reason: "wrong" });
+  await rpc("setRemovalReason", { targetKey: "pr-1", ...lines[2], reason: "wrong" });
+  // Not counted until the review is submitted, as the removals aren't.
+  expect((await rpc("getAgentLearning", null)).reasons).toEqual([]);
+  await rpc("saveSummary", { targetKey: "pr-1", body: "Looks fine." });
+  expect((await rpc("submitReview", { targetKey: "pr-1", revision: await revision(), account: "casey", ...shown(store, "pr-1") })).ok).toBe(true);
+  expect(await rpc("getAgentLearning", null)).toMatchObject({ removed: 3, reasons: [{ reason: "wrong", count: 2 }, { reason: "known", count: 1 }] });
+  expect(await rpc("suggestAssistantInstructions", null)).toEqual({ ok: true });
+  await vi.waitFor(() => expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
+  const [[spawned]] = harness.inspection.sdk.callsTo("threads.spawn") as any[][];
+  for (const part of ["- acme/web · a.ts (why: already known — Tracked in JIRA-1.)\n  Can this overflow?", "- acme/web · a.ts (why: wrong)\n  Why 3?", "it follows its place as (why: …)"]) expect(spawned.prompt).toContain(part);
+});
+
 test("outcomes keep the latest 500, and deleting a review forgets its removals but not its outcomes", async () => {
   const { store } = await host();
   store.recordAgentOutcomes("pr-1", Array.from({ length: OUTCOMES_KEPT + 5 }, (_, i) => ({ repo: "acme/web", file: `f${i}.ts`, outcome: "kept" as const, body: "x", edited: null })));

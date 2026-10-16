@@ -2,6 +2,7 @@ import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { releaseRpc } from "./plugin-updates";
 import { SEVERITIES } from "./draft";
+import { REMOVAL_NOTE_LIMIT, REMOVAL_REASONS } from "../lib/removal-reasons";
 import { agentChoiceSchema, agentExecutionSchema, knobsSchema, preferencesSchema } from "./preferences";
 
 // The RPC data plane between the panel (app.tsx) and the backend (server.ts).
@@ -87,6 +88,8 @@ export const rpcContract = defineRpcContract({
     input: z.null(),
     output: z.object({
       total: z.number().int(), kept: z.number().int(), edited: z.number().int(), removed: z.number().int(),
+      // Optional: an older server sends none.
+      reasons: z.array(z.object({ reason: z.enum(REMOVAL_REASONS), count: z.number().int() })).optional(),
       recentRemoved: z.array(z.object({ repo: z.string(), file: z.string(), line: z.string(), at: z.number() })),
       canSuggest: z.boolean(),
       suggestion: z.object({ state: z.enum(["idle", "running", "ready", "failed"]), at: z.number().optional(), text: z.string().optional(), error: z.string().optional() }),
@@ -191,6 +194,11 @@ export const rpcContract = defineRpcContract({
   dismissDiscussion: { input: z.object({ targetKey: z.string(), ...location }).strict(), output: draftOutput },
   /** Undo the agent's latest change in the discussion at a line, or the summary's. */
   undoAgentChange: { input: z.object({ targetKey: z.string(), ...location }).strict(), output: draftOutput },
+  /** Why the reviewer removed the agent's comment at a line, on its latest removal there; not ok when there's none, or they aren't asked. */
+  setRemovalReason: {
+    input: z.object({ targetKey: z.string(), ...location, reason: z.enum(REMOVAL_REASONS), note: z.string().trim().max(REMOVAL_NOTE_LIMIT).optional() }).strict(),
+    output: z.object({ ok: z.boolean() }),
+  },
   /** The reviewer picks a verdict. */
   setVerdict: {
     input: z

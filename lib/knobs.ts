@@ -4,7 +4,7 @@
 export interface Knobs {
   singleKeyShortcuts: boolean; returnToOverview: boolean; foldViewedFiles: boolean; foldGeneratedFiles: boolean;
   requirements: boolean; codeOwners: boolean; ciInCode: boolean;
-  commentKeys: boolean;
+  commentKeys: boolean; removalReasons: boolean;
   askAboutSelection: boolean; approveGuard: boolean;
   /** Changed lines an hour past which a chapter counts as read too fast. */
   approveGuardPace: number;
@@ -20,7 +20,7 @@ export type KnobId = keyof Knobs;
 export const defaultKnobs: Knobs = {
   singleKeyShortcuts: true, returnToOverview: true, foldViewedFiles: true, foldGeneratedFiles: true,
   requirements: true, codeOwners: true, ciInCode: true,
-  commentKeys: true,
+  commentKeys: true, removalReasons: true,
   askAboutSelection: true, approveGuard: true, approveGuardPace: 500,
   preExistingFindings: true, agentCoverage: true, testWeakening: true, lockfileDigest: true,
   runAutomaticReview: true, recheckOnNewCommits: true,

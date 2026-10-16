@@ -634,6 +634,13 @@ export default async function plugin(bb: BbPluginApi) {
       bb.realtime.publish(`draft:${targetKey}`, {});
       return draftState(targetKey);
     },
+    setRemovalReason({ targetKey, file, line, side, reason, note }) {
+      if (!store.getPreferences().preferences.knobs.removalReasons) return { ok: false };
+      const ok = store.setRemovalReason(targetKey, { file, line, side }, { reason, ...(note ? { note } : {}) });
+      // Settings counts the reasons of submitted reviews' removals.
+      if (ok) bb.realtime.publish("learning", {});
+      return { ok };
+    },
     // The summary and verdict don't depend on the diff, so they save while it changes; submit checks everything.
     setVerdict({ targetKey, verdict }) {
       const draft = store.setVerdict(targetKey, verdict);
