@@ -10,6 +10,7 @@ import {
   preventOverlayTriggerSelection,
 } from "./overlay-trigger.js";
 import { useIsCompactViewport } from "./hooks/use-compact-viewport.js";
+import { usePrefersReducedMotion } from "./hooks/use-media-query.js";
 import { useFullscreenPortalContainer, usePortalScopeProps } from "../../lib/portal-scope.js";
 import { cn } from "../../lib/utils.js";
 
@@ -477,10 +478,12 @@ export function PersistentResponsiveDrawerShell({
   labelledBy,
   describedBy,
   contentClassName,
-  motionDurationMs = 220,
+  motionDurationMs: requestedMotionMs = 220,
   onContentAnimationEnd,
   children,
 }: PersistentResponsiveDrawerShellProps) {
+  // Under reduced motion it opens and closes in place.
+  const motionDurationMs = usePrefersReducedMotion() ? 0 : requestedMotionMs;
   const panelRef = React.useRef<HTMLDivElement>(null);
   const backdropRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef<PersistentDrawerDrag | null>(null);
