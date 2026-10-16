@@ -36,6 +36,7 @@ import { createPrReview } from "./start-review";
 import { defaultPreferences } from "./preferences";
 import * as gh from "./gh";
 import { targetKey } from "./targets";
+import plugin from "../server";
 const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
 
 test("createPrReview stores the review + patch and returns ok with a targetKey", async () => {
@@ -177,4 +178,10 @@ test("starting a PR's review records whether gh says it's merged or closed, new 
   } finally {
     vi.mocked(gh.runGh).mockImplementation(base);
   }
+});
+
+test("starting a review from All reviews says so when bb can't name a project to run it in", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { projects: { list: async () => { throw new Error("Connection unavailable"); } } } as any });
+  await plugin(bb);
+  expect(await harness.behavior.callRpc("startReview", { input: "https://github.com/acme/web/pull/7" })).toEqual({ ok: false, error: "Couldn't resolve a project to run generation." });
 });

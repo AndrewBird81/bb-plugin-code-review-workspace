@@ -466,7 +466,7 @@ export default async function plugin(bb: BbPluginApi) {
       try {
         projectId = await personalProjectId(bb);
       } catch {
-        return { ok: false, error: "Could not resolve a project to run generation." };
+        return { ok: false, error: "Couldn't resolve a project to run generation." };
       }
       if (!projectId) return { ok: false, error: "No project available to run generation." };
       return createPrReview(deps, { input, projectId });
