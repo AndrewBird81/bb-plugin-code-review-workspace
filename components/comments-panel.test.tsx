@@ -470,7 +470,8 @@ test("empty states: no comments yet; nothing needs you, with Show all; a local r
   const none = { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }), getReviewThreads: () => ({ threads: [] }), getFeedback: () => ({ feedback: feedbackOf([], null) }), getReplyDrafts: () => ({ drafts: [] }) };
   let { slot } = await renderWorkspace({ rpc: none });
   let list = await openComments(slot);
-  expect(list.getByText("No comments yet. Select a line, or tap + beside one, to comment.")).toBeTruthy();
+  // With a mouse: click, and the keyboard's way in.
+  expect(list.getByText("No comments yet. Select a line, or click + beside one. From the keyboard: ⋯ › Add comment by line.")).toBeTruthy();
   slot.lifecycle.unmount();
   ({ slot } = await renderWorkspace({ rpc: { getFeedback: () => ({ feedback: feedbackOf([], null) }), getReplyDrafts: () => ({ drafts: [] }), getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: comments.slice(0, 1) }, stale: [] }) } }));
   list = await openComments(slot);

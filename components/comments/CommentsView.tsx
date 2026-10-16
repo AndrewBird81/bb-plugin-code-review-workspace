@@ -241,7 +241,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
           {writing && <NewComment composer={composer} />}
           {isPr && !githubRead && <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Reading GitHub…</p>}
           {/* A box you're writing in is the start of a comment, so "No comments yet" would contradict it. */}
-          {empty ? !writing && <Empty text={closed ? "No comments on this review." : coarse ? "No comments yet. Tap a line to comment." : "No comments yet. Select a line, or tap + beside one, to comment."} />
+          {empty ? !writing && <Empty text={closed ? "No comments on this review." : coarse ? "No comments yet. Tap a line to comment." : "No comments yet. Select a line, or click + beside one. From the keyboard: ⋯ › Add comment by line."} />
             : filterEmpty ? <Empty text={filter === "needs-you" ? "Nothing needs you." : filter === "not-submitted" ? "No comments to submit yet." : "Nothing on GitHub yet."} onAll={() => setFilter("all")} />
             : shownGroups.map((group) => groupBody(group, filter === "not-submitted" ? stops : group.items, counted.find((entry) => entry.id === group.id)!))}
         </>}
