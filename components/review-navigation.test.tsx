@@ -882,3 +882,11 @@ test("] takes the focus to where it lands", async () => {
   slot.lifecycle.unmount();
   layout.restore();
 }, 15_000);
+
+test("the chapters' Skip to code takes the focus to the code, whose keys then scroll it", async () => {
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  fireEvent.click(chapters(slot).getByRole("button", { name: "Skip to code" }));
+  expect(document.activeElement).toBe(scroller(slot));
+  slot.lifecycle.unmount();
+}, 15_000);

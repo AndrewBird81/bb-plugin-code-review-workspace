@@ -238,3 +238,17 @@ test("rows show a file's name, with as much of its folder as tells it from anoth
   expect(screen.getByRole("button", { name: /^src\/a\/index\.ts/ })).not.toBe(screen.getByRole("button", { name: /^src\/b\/index\.ts/ }));
   expect(screen.getByRole("button", { name: /^src\/util\.ts/ })).toBeTruthy();
 });
+
+test("Skip to code, first in the chapters and shown on focus, takes the focus to the review's code; over the code it's hidden", () => {
+  render(
+    <div>
+      <ChapterNav sections={sections} activeId="c1" onSelect={() => {}} views={new Map<string, FileViewFlags>()} onSelectFile={() => {}} />
+      <div data-review-code tabIndex={-1} />
+    </div>,
+  );
+  const skip = screen.getByRole("button", { name: "Skip to code" });
+  expect(screen.getByRole("navigation", { name: "Chapters" }).firstElementChild).toBe(skip);
+  expect(skip.className.split(" ")).toEqual(expect.arrayContaining(["sr-only", "focus:not-sr-only", "[[data-gr-side]_&]:hidden"]));
+  fireEvent.click(skip);
+  expect(document.activeElement).toBe(document.querySelector("[data-review-code]"));
+});

@@ -27,6 +27,14 @@ interface Section {
   risk?: string;
 }
 
+/** Focus the review's code (`data-review-code`) nearest `from`, where its keys scroll it. */
+function skipToCode(from: HTMLElement) {
+  for (let el = from.parentElement; el; el = el.parentElement) {
+    const code = el.querySelector<HTMLElement>("[data-review-code]");
+    if (code) return code.focus({ preventScroll: true });
+  }
+}
+
 /** Each path's shortest tail that no other path in `paths` ends with: its name, unless another file has that name too. */
 export function shortPaths(paths: readonly string[]): Map<string, string> {
   const tails = (path: string) => path.split("/").map((_, i, parts) => parts.slice(i).join("/")).reverse();
@@ -165,6 +173,10 @@ export const ChapterNav = memo(function ChapterNav({
 
   return (
     <nav aria-label="Chapters" className="space-y-3">
+      {/* Past the chapters, for the keyboard: shown on focus, and only where they're docked, not over the code. */}
+      <button type="button" onClick={(event) => skipToCode(event.currentTarget)} className="sr-only rounded-md bg-background px-2 py-1 text-xs font-medium text-primary focus:not-sr-only focus:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [[data-gr-side]_&]:hidden">
+        Skip to code
+      </button>
       <div className="space-y-1.5 px-1">
         {!sheet && <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs">
           {onViewChange ? <ChapterViewSwitch view={view} onChange={onViewChange} /> : <span className="font-medium text-foreground">Chapters</span>}
