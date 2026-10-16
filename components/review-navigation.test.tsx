@@ -816,3 +816,32 @@ test("⇧V marks the chapter's files viewed, and the toast's Undo puts each back
   expect(rpc.setFilesViewed).toHaveBeenCalledTimes(2);
   slot.lifecycle.unmount();
 }, 15_000);
+
+test("j and k take the focus with them, to the file's toggle", async () => {
+  const layout = fakeLayout();
+  patchReviewState("pr-42", { activeId: "c2" });
+  const { slot } = await renderWorkspace();
+  await slot.findByText("bb");
+  press("j");
+  press("j");
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Collapse src/c.ts");
+  // The next key still works from there.
+  press("k", {}, document.activeElement!);
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Collapse src/b.ts");
+  slot.lifecycle.unmount();
+  layout.restore();
+}, 15_000);
+
+test("] takes the focus to where it lands", async () => {
+  const layout = fakeLayout();
+  const comments = [{ file: "src/a.ts", line: 1, side: "RIGHT", body: "First", author: "reviewer" }];
+  const { slot } = await renderWorkspace({ rpc: { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments } }) } });
+  await slot.findByText("aa");
+  await openDrafts(slot);
+  await slot.findByRole("button", { name: /^Draft · not submitted · src\/a\.ts:1/ });
+  press("]");
+  // The code here draws no cards: it lands on the file.
+  await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Collapse src/a.ts"), { timeout: 4000 });
+  slot.lifecycle.unmount();
+  layout.restore();
+}, 15_000);

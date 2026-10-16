@@ -199,7 +199,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [navView, setNavViewState] = useState(getNavView);
   const changeNavView = useCallback((next: NavView) => { setNavViewState(next); setNavView(next); }, []);
   const [snoozing, setSnoozing] = useState(false);
-  const [reveal, setReveal] = useState<{ at: CommentLocation; nonce: number }>();
+  const [reveal, setReveal] = useState<{ at: CommentLocation; nonce: number; focus?: boolean }>();
+  // ] or [ is going to a comment: the focus goes where it lands.
+  const keyReveal = useRef(false);
   const [foldAll, setFoldAll] = useState<{ folded: boolean; nonce: number }>();
   const [isFullscreen, setIsFullscreen] = useState(false);
   // An iPhone can't make a page full screen, so there the workspace covers the window from the top layer instead.
@@ -962,7 +964,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     closeOverlays();
     pinned.current = true;
     setCurrentFile(at.file);
-    setReveal({ at, nonce: Date.now() });
+    setReveal({ at, nonce: Date.now(), ...(keyReveal.current ? { focus: true } : {}) });
   }, [sections, patch, activeId, unhide, closeOverlays]);
   // A thread on a file the PR no longer changes has no diff here to show; its GitHub link can show it.
   const navigateRef = useRef(navigate);
@@ -1139,16 +1141,33 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const currentFile = currentFileOf(targetKey);
     const shown = Array.from(scrollBox.current?.querySelectorAll<HTMLElement>("[data-file]") ?? []).map((el) => el.dataset.file!);
     const at = currentFile ? shown.indexOf(currentFile) : -1;
+    // The focus goes with the view, to the file's toggle.
     const goToFile = (file: string | undefined) => {
       if (!file) return;
       pinned.current = true;
       setCurrentFile(file);
-      fileEls.current.get(file)?.scrollIntoView({ block: "start" });
+      const el = fileEls.current.get(file);
+      el?.scrollIntoView({ block: "start" });
+      el?.querySelector<HTMLElement>("[data-file-header] button")?.focus({ preventScroll: true });
     };
     const allFiles = readingOrder(sections);
     const placeOf = (file: string | undefined) => allFiles.findIndex((entry) => entry.chapter === activeId && entry.file === file);
     // The Overview has no files to move between.
     const inChapter = !!activeSection;
+    const stepThrough = (direction: 1 | -1) => {
+      // The Comments list's order and filter, once it registered them; until then, the draft's lines.
+      if (stepComment(targetKey, direction, currentFile)) return;
+      const lines = inDiffOrder(draftLines.current, sections, patch);
+      if (!lines.length) return;
+      // From the line you last went to, or else from the current file.
+      const last = lastLine.current ? lines.findIndex((line) => sameLocation(line.at, lastLine.current!)) : -1;
+      const here = placeOf(currentFile ?? activeFiles[0]);
+      const after = lines.findIndex((line) => line.place >= here);
+      const index = last >= 0 ? last + direction : direction === 1 ? Math.max(after, 0) : (after > 0 ? after : lines.length) - 1;
+      const next = lines[(index + lines.length) % lines.length].at;
+      lastLine.current = next;
+      showComment(next);
+    };
     switch (key) {
       case "j": case "k": {
         // On the Overview, j starts the first chapter.
@@ -1181,18 +1200,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       }
       case "u": nextUnviewed(); return true;
       case "]": case "[": {
-        // The Comments list's order and filter, once it registered them; until then, the draft's lines.
-        if (stepComment(targetKey, key === "]" ? 1 : -1, currentFile)) return true;
-        const lines = inDiffOrder(draftLines.current, sections, patch);
-        if (!lines.length) return true;
-        // From the line you last went to, or else from the current file.
-        const last = lastLine.current ? lines.findIndex((line) => sameLocation(line.at, lastLine.current!)) : -1;
-        const here = placeOf(currentFile ?? activeFiles[0]);
-        const after = lines.findIndex((line) => line.place >= here);
-        const index = last >= 0 ? last + (key === "]" ? 1 : -1) : key === "]" ? Math.max(after, 0) : (after > 0 ? after : lines.length) - 1;
-        const next = lines[(index + lines.length) % lines.length].at;
-        lastLine.current = next;
-        showComment(next);
+        keyReveal.current = true;
+        try { stepThrough(key === "]" ? 1 : -1); } finally { keyReveal.current = false; }
         return true;
       }
       case "/": case "f": {

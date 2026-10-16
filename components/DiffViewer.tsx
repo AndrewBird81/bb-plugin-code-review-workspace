@@ -383,8 +383,8 @@ export const DiffViewer = memo(function DiffViewer({
   onLineSelected?: (file: string, range: SelectedLineRange | null) => void;
   /** The lines picked in the diff, highlighted until cleared. */
   selectedLines?: { file: string; range: SelectedLineRange } | null;
-  /** Scroll to a comment's line, opening its file if it's collapsed. */
-  reveal?: { at: CommentLocation; nonce: number };
+  /** Scroll to a comment's line, opening its file if it's collapsed; with `focus`, as a key asked, the focus goes there. */
+  reveal?: { at: CommentLocation; nonce: number; focus?: boolean };
   /** Each file compared with the diff at your last review. */
   since?: Map<string, FileInterdiff> | null;
   /** Show only what changed since your review. */
@@ -631,6 +631,9 @@ export const DiffViewer = memo(function DiffViewer({
         if (center) scrollToCenter(el, behavior, fileEl!.querySelector("[data-file-header]")?.getBoundingClientRect().height, row?.getClientRects().length ? row : el);
         else el.scrollIntoView({ behavior, block: "start" });
         flash(el);
+        // The focus goes with the view: to the comment's card, or else the file's toggle.
+        const card = el !== fileEl ? el.querySelector<HTMLElement>("article[tabindex]") : null;
+        if (reveal.focus) (card ?? fileEl?.querySelector<HTMLElement>("[data-file-header] button"))?.focus({ preventScroll: true });
       };
       // No line: just the file.
       if (at.line < 1 && fileEl) return landOn(fileEl, false);

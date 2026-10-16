@@ -89,3 +89,27 @@ test("a reveal of a line with a tall comment under it keeps the line below the f
   expect(400 - scrollBy.mock.calls[0][0].top).toBe(70);
   review.remove();
 });
+
+test("a reveal a key asked for takes the focus to the comment's card, or else to the file's toggle; others leave it", async () => {
+  Element.prototype.getClientRects = () => [{}] as unknown as DOMRectList;
+  const review = document.body.appendChild(document.createElement("div"));
+  const at = { file: "src/a.ts", line: 2, side: "RIGHT" as const };
+  const draft: InlineDraft = {
+    comments: [{ ...at, body: "Should this be `<`?" }], stale: [], discussions: [], editable: false, busy: false, writing: false,
+    composer: null, editingAt: null, open() {}, ask() {}, remove() {}, dismiss() {}, undo() {}, chat: null,
+  };
+  const show = (reveal: { at: typeof at; nonce: number; focus?: boolean }) => (
+    <InlineDraftContext.Provider value={draft}>
+      <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map<string, FileViewFlags>()} onToggleViewed={() => {}} reveal={reveal} />
+    </InlineDraftContext.Provider>
+  );
+  const { rerender } = render(show({ at, nonce: 1 }), { container: review });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(document.activeElement).toBe(document.body);
+  rerender(show({ at, nonce: 2, focus: true }));
+  await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Draft comment on src/a.ts:2"));
+  // A line with no card of its own.
+  rerender(show({ at: { ...at, line: 3 }, nonce: 3, focus: true }));
+  await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Collapse src/a.ts"));
+  review.remove();
+});
