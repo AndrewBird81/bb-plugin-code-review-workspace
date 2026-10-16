@@ -2,16 +2,16 @@
 
 An agent-authored walkthrough of a GitHub pull request or local Git change, inside [BB](https://getbb.app). Read the change in chapters, inspect the diff, ask questions, and prepare your review in one workspace.
 
-**v0.7.0.** Each reviewer uses their own BB installation and GitHub identity. On a shared BB server, credentials, settings, and saved reviews are shared.
+**v0.8.0.** Each reviewer uses their own BB installation and GitHub identity. On a shared BB server, credentials, settings, and saved reviews are shared.
 
 ## Install and first run
 
 You need **BB 0.45+ (plugin SDK 0.6.14+) with Node 24+**, a configured BB agent provider, and `git` and GitHub CLI (`gh`) on the **machine running BB**. GitHub features support github.com. No npm or build step is needed.
 
-Install Guided Review from its Git repository; the range follows compatible 0.7.x releases:
+Install Guided Review from its Git repository; the range follows compatible 0.8.x releases:
 
 ```sh
-bb plugin install git:github.com/AndrewBird81/bb-plugin-guided-review@^0.7.0
+bb plugin install git:github.com/AndrewBird81/bb-plugin-guided-review@^0.8.0
 ```
 
 1. Open **Guided Review**. With no reviews yet, **All reviews** checks your setup and says how to start; you can revisit it in **Settings → Ready to review**.
@@ -28,7 +28,7 @@ Open **Settings → Plugin updates** to check for a compatible release, read its
 
 **Automatic updates are off by default.** If enabled, the plugin checks hourly after five idle minutes and waits until all Guided Review and Settings pages are closed, with no generation, save, or submission in progress. Assistant conversations run in BB and continue across plugin updates. Reviews, drafts, private notes, conversations, and preferences remain in BB. Failed checks are visible and retried later; BB handles failed-install rollback.
 
-Installs from a Git range, such as `^0.7.0`, follow its compatible releases (0.7.x). You can also update with `bb plugin update guided-review`; close the plugin’s pages first, since BB’s external update command does not use the in-plugin activity guard. Local directories and exact tags are pinned and do not receive automatic updates. Changing a local installation to a Git source is a separate migration: this BB version requires removing the old source first, which can clear plugin data. Do not remove an existing installation just to obtain updates; keep its data and arrange a backup/migration with the BB operator. Fresh installs from a Git range are ready for normal updates.
+Installs from a Git range, such as `^0.8.0`, follow its compatible releases (0.8.x). You can also update with `bb plugin update guided-review`; close the plugin’s pages first, since BB’s external update command does not use the in-plugin activity guard. Local directories and exact tags are pinned and do not receive automatic updates. Changing a local installation to a Git source is a separate migration: this BB version requires removing the old source first, which can clear plugin data. Do not remove an existing installation just to obtain updates; keep its data and arrange a backup/migration with the BB operator. Fresh installs from a Git range are ready for normal updates.
 
 An interrupted browser connection can leave an editing session protected. If the updater still asks you to close pages after they are all closed, save any work elsewhere and reload the plugin through BB. Editing sessions intentionally never expire while a laptop might still hold unsaved text.
 

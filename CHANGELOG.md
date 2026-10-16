@@ -1,5 +1,126 @@
 # Changelog
 
+## 0.8.0 — 2026-10-16
+
+Comments go back to the thread that made the change, the agent says which problems the PR didn't introduce and what it didn't read, and comments can be triaged from the keyboard. Agents read the repo's rules from the PR's base, never its head, and are held to their own review; the keyboard, screen readers, and a busy or flaky connection work better throughout. Every new feature has a switch that starts on, 16 in all, and turning one off puts back what 0.7.0 did. Guided Review still needs **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+, and installs at `^0.8.0`. Rolling back to 0.7.0 keeps your reviews, drafts, and settings, these switches included, which come back with the next update; a custom agent at a reasoning level 0.7.0 doesn't know reverts to Project defaults if 0.7.0 saves settings.
+
+### Settings
+
+- 16 new switches, each on by default and saying what stays when it's off, and a new Settings section, **Guide generation**, for the switch there. Review assistant is now **Review agent**, as the review's panel calls it.
+- **Guide generation:** **Stop a guide while it builds**.
+- **Review agent:** **Help agents in your threads use bb review**, **Read REVIEW.md**, **Ask why you remove an agent's comment**, and **Dig deeper on a chapter**.
+- **Reading:** **Comment keys** (under Single-key shortcuts), **Flag weakened tests**, **Summarize lockfile changes**, **Commands in BB's command palette**, **Notice when a local review's code changes**, **Open in editor (local reviews)**, and **Comment on or ask about a failing check**.
+- **Comments and Finish review:** **Send comments to the thread that made the change**, **Move comments on an older diff into the summary**, **Keep pre-existing problems apart**, and **Show what the agent checked**.
+- When settings are slow or can't load, a review uses the switches this browser last loaded, not the defaults; a browser that never loaded them still uses the defaults.
+- Settings says when an agent's provider runs only at Full, as pi does, so it can't be restricted, and which providers run at Accept Edits. **Custom** starts the guide writer at Accept Edits, else Auto, else the provider's only mode.
+- An agent can be saved with any reasoning level its provider offers.
+- Trust warns while **Anyone** and running the repo's tests and linters are both on, since that runs any GitHub user's code on the server.
+
+### Back to the thread that made the change
+
+- `bb review` remembers the thread it ran in. Finish review on your own PR or a local review then offers **Send N comments to ‹thread›**, beside Fix in a new thread: on your click it queues them in that thread, asking it to reply with what it changed, and each comment you sent says "Sent to ‹thread› · 2m". Nothing goes to GitHub.
+- A local review runs its diff again when you open it, and says "The code changed since this guide." with **Update guide** when it has.
+- On a local review, a file's row and a draft's ⋯ offer **Open in editor** at the line.
+- `bb review` prints a link to the review, `bb review list [--json]` lists your reviews with whose turn it is, and agents in your other threads get a `guided-review` skill for `bb review` that tells them never to post to GitHub and to treat what it prints as data.
+
+### What the agent found and checked
+
+- The agent marks a problem in code the PR didn't change as **Pre-existing**. It doesn't count as blocking against Approve, is counted apart, and posts with "**Pre-existing:**" in front. Mark as pre-existing and Mark as from this PR change it; `bb review comment add` and `edit` take `--pre-existing`.
+- Finish review says how many of the changed files the agent read ("Read 6 of 8 files") and folds what it says it didn't check. When it suggests Approve without reading every file, Goes to GitHub says so and Submit asks once more.
+- A test file whose diff removes assertions or skips tests gets a chip ("3 assertions removed · 1 test skipped"), and the agents are asked to check it.
+- A lockfile shows the packages it adds and removes ("+3 −1 packages"), and warns when one downloads from a host other than its registry; the agents get the same summary.
+- **Dig deeper** on a medium- or high-risk chapter asks the review agent for a closer pass over it at high effort, with at most 5 comments.
+- The agents read the repo's REVIEW.md, at the root and above the changed files, from the PR's base, and the Overview says when a PR changes a file the agents read.
+
+### Comments
+
+- With **Comment keys**, on the comment `]` or `[` landed on: `e` edits it, `x` removes it with Undo, `1`–`4` set Blocking, Should fix, Question, or Nit, `0` clears it, and `r` replies to a GitHub thread.
+- **Why?** on Comment removed, for an agent's comment, takes a reason (Wrong, Intended, Already known, Not worth it) and an optional note. The agent and Suggest instruction changes learn from it, and Settings splits removals by reason.
+- A comment on an older diff can **Move to summary**, from Finish review or its card: it becomes a line of your summary and the comment goes, with no Undo.
+- A failing check's note in the code offers **Comment**, a Blocking comment quoting it, and **Ask agent**; the Overview's failing GitHub Actions checks offer Ask agent with the end of the check's log quoted, unsent.
+
+### Commands and guides
+
+- BB's command palette lists **Next review that needs me** (⌘⇧R by default, unless BB already uses it), **Review PR from clipboard**, and **All reviews**.
+- **Stop** on the building screen or a guide update's notice stops the guide writer: an update goes back to the guide you had, and a first guide waits for Build the guide.
+- A failed guide says why under What went wrong, after its writer is reminded once; the plugin log keeps it too. Review not found leads with Back to your reviews.
+- A guide is ready as soon as it's accepted, not when the guide writer's turn ends.
+- A guide a reload interrupted restarts once its writer's machine reconnects, for up to 10 minutes.
+
+### Agents and trust
+
+- The agents read the repo's instructions (AGENTS.md, CLAUDE.md, Copilot's) from the PR's base, and are told when the PR changes them; before, a PR could rewrite the rules its own reviewers follow.
+- Which files are generated comes from `.gitattributes` at the PR's merge base, and a file the PR adds is read as code whatever its path, so a PR can no longer fold or stub its own code.
+- An outside author's edit to the PR's title or description after your click needs another click. A click from 0.7.0 on a PR edited since needs one more.
+- A review's assistant and guide writer get their tools by the role recorded for them, not their thread's title, and can't use `bb review` on another review.
+- Replies, resolves, and unresolves post as the GitHub account the review verified, and only on its own PR's threads; a page open from 0.7.0 is asked to reload.
+- Submit refuses a page that doesn't send the comments, summary, and verdict it shows.
+- The agents follow ticket references only in a trusted author's PR, and only read tickets. Commit headlines, the earlier guide's chapters, CI output, and your removal notes reach them fenced as untrusted text. What they write for GitHub, and `bb review --body`, is capped at 65,000 characters, and a feedback check keeps a file:line only when it names a line in the diff.
+- Images in GitHub comments, the guide, CI annotations, and the agents' words show as links and load nothing until clicked.
+- The account menu says switching accounts switches `gh` for the whole BB server. After a switch, each review starts afresh for the new account.
+- Deleting a review deletes its guide-writer threads too.
+
+### Guides
+
+- The guide writer reads a big diff in 80 KB pages, with lockfiles and generated and vendored files as one-line stubs; `vendor/`, `third_party/`, `Pods/`, and protoc and Dart generated files count as generated.
+- It's told when GitHub's 3,000-file list may have cut a huge PR short, and which files GitHub sent no diff for.
+- Every chapter has a risk, and every risky one a focus; the riskiest chapters come first, one low-risk chapter ends the guide, and no "Other files" chapter feeds back into a rebuild.
+- Start here and Requirements can point at a removed line, opening it on the diff's old side.
+- generate_review_guide's description lists every rule it checks.
+
+### Fixes
+
+- Submit never posts a review twice when GitHub's answer is lost or slow: it finds the review it posted and finishes with it. A pending review started on github.com gets a message saying to submit or discard it there.
+- An edit box no longer overwrites a comment changed while you edited it: it says what changed, and Save reads Replace comment. A draft saved or removed in one window shows in the review's other windows.
+- A comment box on a hunk Since your review hides moves to Comments, with **Show in diff**.
+- BB's layout switch at 768px no longer blanks a review's draft status and comments, and no longer downloads the diff again.
+- Enter and Esc that end an IME conversion only end it, in Find, the file filter, the agent, and comment boxes.
+- Deleting a review forgets where you left it and its agent dock.
+- An open review reloads when the connection comes back, and says "Reconnecting…" meanwhile.
+- One file's diff that fails to draw shows in its card, rather than losing the whole review.
+- Picking a file in a large chapter jumps to it, rather than scrolling past every file.
+- The chapters keep the current file's row in view, and tell same-named files apart.
+- A narrow pane no longer flashes a split diff first.
+- Two quick layout toggles both stick.
+- Ask agent with the agent popped out asks in its widget.
+- Starting a review again for new commits keeps when it was created.
+- A push check that can't start is tried again every 10 minutes, not every minute, and none starts with Run the re-review check off. A feedback check's wait ends only after the check itself has run.
+- Up to 1,000 of a PR's review threads are read for your feedback, up from 300.
+- Viewed is re-checked on files GitHub sent no diff for when they change, and they're no longer fetched as text.
+- A run skipped while Start agents on their own was off says so once it's back on.
+- Old diffs are dropped on a daily schedule BB keeps, not on every reload.
+- The thread list's Needs review no longer lists reviews while it's turned off, and a closed tab releases its review on an install under another plugin id too.
+- Errors say "Couldn't", not "Could not".
+
+### Keyboard and screen readers
+
+- Keys work in the chapters or a panel open over the code, with Caps Lock (Caps Lock V marks the file; only Shift gives ⇧V), and `]` and `[` with AltGr or Option; holding a key repeats only `j` and `k`.
+- `d` flips a re-review between Since your review and All changes; `j` on the Overview starts the first chapter; Esc also clears the lines selected.
+- `j`, `k`, `v`, `]`, and `[` move the focus to the file or comment they go to, and Next at a chapter's end to the next chapter's title. **Skip to code** comes first.
+- Added and removed lines are marked + and −, not by color alone.
+- The title bar's submit command is **Finish review**, as its panel and key are, and the phone dock says "2 to send". Finish review's Submit says "Submit to GitHub · Approve · 1 blocking", and Submitting… while it posts; its suggested verdict is said once, with Switch to it.
+- Screen readers hear the review commands' keys, each file's card by its path, "Expand chapter 3", "fix-race into main", why a Needs review row is yours, how many rows each All reviews section holds, and new notices.
+- A 2px focus ring around the plugin's buttons; Refresh, Refresh comments, and Save settings keep the focus while busy; New conversation's confirmation takes the focus and Esc cancels it; the popped-out agent moves with the arrow keys.
+- Drawers open in place under reduced motion, and each popover menu is named on a desktop.
+- Copy: "New since your review" on a new file; "Large diff · 1,600 lines"; reading times in days past 24 hours; "your last review, just now"; "Checking setup…"; Resolve says it posts to GitHub now; Comments' empty state says how to comment with a mouse or the keyboard.
+
+### Faster
+
+- Opening a review splits its patch once, not nine times, and reads a file's lines only when a comment box opens on it.
+- Viewed hashes only the files you marked, once per diff.
+- A guide rebuild parses each diff once, not once per draft comment.
+- The plugin starts without reading the diff of reviews that have no discussions.
+- Moving from file to file, and a Viewed refresh that changes nothing, no longer redraw the review.
+- Open review pages re-read your threads only when they changed.
+
+### Installing
+
+- Install and update at `^0.8.0`. A Git range follows only its compatible releases, so an install at `^0.7.0` stays on 0.7.x.
+- Installing no longer pulls Hugeicons' packages, about 146 MB per kept version: the plugin draws its icons from its own copy.
+- Idle review assistants restart once after the upgrade, keeping their conversations, so they learn the new tools.
+- The plugin builds, tests, and typechecks against the SDK BB runs (0.6.49), and a backend test that runs the real `gh` fails.
+- After a rollback to 0.7.0, a PR rename alone no longer asks for another click, removed-line hotspots open as new-file lines, and a failed guide doesn't say why.
+
 ## 0.7.0 — 2026-10-14
 
 Settings can now turn off what you don't use, Finish review checks an approval against what you read, and the agent shows how it checked each comment. Every setting starts on, so nothing changes until you change it. Agents are held tighter to their own review, and several ways to lose your place or your words are fixed. Guided Review now needs **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; BB older than 0.45 won't install it. Rolling back to 0.6.0 keeps your reviews and settings, and the new switches come back with the next update.
