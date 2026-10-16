@@ -37,10 +37,10 @@ const comments = [
 // alice's thread on b.ts:1.
 const threads = () => [{ id: "t1", isResolved: false, isOutdated: false, path: "src/b.ts", line: 1, side: "RIGHT", subjectType: "LINE", comments: [{ id: "c1", databaseId: 111, author: "alice", body: "Why bb?", createdAt: Date.now() }] }];
 
-async function renderReview({ knobs = defaultKnobs, rpc = {} }: { knobs?: Knobs; rpc?: Record<string, unknown> } = {}) {
+async function renderReview({ knobs = defaultKnobs, rpc = {}, drafts = comments }: { knobs?: Knobs; rpc?: Record<string, unknown>; drafts?: unknown[] } = {}) {
   patchReviewState("pr-42", { activeId: "c1" });
   const app = await loadPluginApp(() => import("../app"));
-  let draft = { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: structuredClone(comments) as any[] };
+  let draft = { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: structuredClone(drafts) as any[] };
   const same = (c: any, at: any) => c.file === at.file && c.line === at.line && c.side === at.side;
   const handlers = {
     setReviewPresence: () => ({ ok: true }),
@@ -102,6 +102,15 @@ test("1–4 set the severity of the comment ] landed on, over the comment as sho
   expect(toast.info).toHaveBeenCalledWith("No severity");
   // Only the comment landed on changed.
   expect(rpc.saveDraftComment.mock.calls.every(([input]: any) => input.comment.file === "src/a.ts")).toBe(true);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a severity key keeps a comment's Pre-existing mark", async () => {
+  const { slot, rpc } = await renderReview({ drafts: [{ ...comments[0], introduced: false }, comments[1]] });
+  press("]");
+  press("1");
+  await waitFor(() => expect(rpc.saveDraftComment).toHaveBeenCalledTimes(1));
+  expect(rpc.saveDraftComment.mock.calls[0][0].comment).toEqual({ file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c1", severity: "blocking", introduced: false, body: "Upper case reads as a constant." });
   slot.lifecycle.unmount();
 }, 15_000);
 

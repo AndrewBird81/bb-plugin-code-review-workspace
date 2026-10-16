@@ -417,14 +417,15 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     });
   }
   /**
-   * Set a comment's severity, or clear it, as its box would save it: over the comment as shown, and yours from then on.
+   * Set a comment's severity, or clear it, as its box would save it: over the comment as shown, pre-existing if it was, and
+   * yours from then on.
    * One on an older diff waits for its box, whose save checks it against the current one.
    */
   async function setCommentSeverity(comment: DraftComment, next: Severity | undefined) {
     if (stale.some((at) => sameLocation(at, comment))) return;
-    const { file, line, side, chapterId, body } = comment;
+    const { file, line, side, chapterId, introduced, body } = comment;
     await mutate(async () => {
-      apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), replaces: body, comment: { file, line, side, ...rangeOf(comment), chapterId: chapterId ?? activeChapterId, ...(next ? { severity: next } : {}), body } })) as { draft: Draft });
+      apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), replaces: body, comment: { file, line, side, ...rangeOf(comment), chapterId: chapterId ?? activeChapterId, ...(next ? { severity: next } : {}), ...(introduced === false ? { introduced } : {}), body } })) as { draft: Draft });
       toast.info(next ? SEVERITY_LABEL[next] : "No severity");
     });
   }
