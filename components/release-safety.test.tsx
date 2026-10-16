@@ -12,7 +12,7 @@ async function draftTray() {
   return DraftTray;
 }
 
-test("closing a document releases its lease, while a cached page keeps its editors protected", async () => {
+test("closing a document releases its lease at the install's own id, while a cached page keeps its editors protected", async () => {
   await loadPluginApp(() => import("../app"));
   const { useReviewSession } = await import("../lib/review-session");
   const presence = vi.fn(() => ({ ok: true }));
@@ -20,11 +20,11 @@ test("closing a document releases its lease, while a cached page keeps its edito
   const original = navigator.sendBeacon;
   Object.defineProperty(navigator, "sendBeacon", { configurable: true, value: beacon });
   try {
-    const slot = renderSlot({ component: () => { const session = useReviewSession(); return <p>{session.ready ? "Ready" : "Opening"}</p>; } }, {}, { rpc: { setReviewPresence: presence } });
+    const slot = renderSlot({ component: () => { const session = useReviewSession(); return <p>{session.ready ? "Ready" : "Opening"}</p>; } }, {}, { rpc: { setReviewPresence: presence }, pluginId: "guided-review-dev" });
     await slot.findByText("Ready");
     window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })); expect(beacon).not.toHaveBeenCalled();
     window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false }));
-    expect(beacon).toHaveBeenCalledWith("/api/v1/plugins/guided-review/rpc/setReviewPresence", expect.any(Blob));
+    expect(beacon).toHaveBeenCalledWith("/api/v1/plugins/guided-review-dev/rpc/setReviewPresence", expect.any(Blob));
     slot.lifecycle.unmount();
   } finally { Object.defineProperty(navigator, "sendBeacon", { configurable: true, value: original }); }
 });
