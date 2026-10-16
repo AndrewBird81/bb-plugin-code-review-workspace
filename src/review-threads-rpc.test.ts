@@ -98,3 +98,28 @@ test("re-reading your threads writes nothing for a review deleted while GitHub a
   expect(store.listFeedbackThreads("pr-1")).toEqual([]);
   expect(store.feedbackFetched("pr-1")).toBeNull();
 });
+
+test("re-reading your threads tells open review pages only when they changed", async () => {
+  runGh.mockReset();
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
+  store.setLifecycle("pr-1", { submittedVerdict: "COMMENT", submittedAt: 5, signals: { lastReviewAt: 5 } });
+  let body = "Fix";
+  runGh.mockImplementation(async (args: string[]) => args[1] === "user" ? { code: 0, stderr: "", stdout: "me\n" }
+    : { code: 0, stderr: "", stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [{
+      id: "t1", isResolved: false, isOutdated: false, path: "a.ts", line: 1, originalLine: 1, startLine: null, diffSide: "RIGHT", subjectType: "LINE", resolvedBy: null,
+      first: { nodes: [{ id: "c1", databaseId: 1, author: { login: "me" }, body, createdAt: "2026-10-01T00:00:00Z", pullRequestReview: { id: "r1" } }] }, recent: { nodes: [] },
+    }] } } } } }) });
+  const told = () => harness.inspection.realtimeSignals.filter((signal) => signal.channel === "feedback:pr-1").length;
+  const refreshed = await harness.behavior.callRpc("refreshFeedback", { targetKey: "pr-1" }) as any;
+  expect(refreshed.feedback).toBeDefined();
+  expect(store.listFeedbackThreads("pr-1")).toHaveLength(1);
+  expect(told()).toBe(1);
+  await harness.behavior.callRpc("refreshFeedback", { targetKey: "pr-1" });
+  expect(told()).toBe(1);
+  body = "Fix, please";
+  await harness.behavior.callRpc("refreshFeedback", { targetKey: "pr-1" });
+  expect(told()).toBe(2);
+});

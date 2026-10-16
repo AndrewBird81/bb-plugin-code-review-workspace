@@ -189,9 +189,10 @@ export default async function plugin(bb: BbPluginApi) {
     const threads = await fetchMyThreads(runGh, review.repo, review.number, login, review.author ?? null);
     // The review may have been deleted while GitHub answered.
     if (!store.getReview(review.targetKey)) return;
-    store.saveFeedbackThreads(review.targetKey, threads, store.feedbackFetched(review.targetKey)?.prUpdatedAt ?? null);
+    const threadsChanged = store.saveFeedbackThreads(review.targetKey, threads, store.feedbackFetched(review.targetKey)?.prUpdatedAt ?? null);
     store.setLifecycle(review.targetKey, { signals: { ...store.getReview(review.targetKey)!.signals, ...threadSignals(store.listFeedbackThreads(review.targetKey)) } });
-    bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
+    // Every open review page reads the threads again when told, so it's told only when they changed.
+    if (threadsChanged) bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
   }
   /** A review whose diff pruneOldDiffs dropped reads it again when it's opened; returns why it couldn't. */
   async function rereadPrunedDiff(targetKey: string): Promise<string | undefined> {
