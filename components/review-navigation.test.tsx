@@ -377,6 +377,18 @@ test("j and k move between files, n and p between chapters, and v marks the file
 
 const currentFile = (slot: Slot) => chapters(slot).getAllByRole("button").find((button) => button.getAttribute("aria-current") === "true")?.textContent;
 
+test("on the Overview, j starts the first chapter, and k stays", async () => {
+  const { slot } = await renderWorkspace({ opened: false });
+  await slot.findByRole("button", { name: /^Overview/ });
+  expect(currentChapter(slot)).toBeUndefined();
+  press("k");
+  expect(currentChapter(slot)).toBeUndefined();
+  press("j");
+  await waitFor(() => expect(currentChapter(slot)?.textContent).toContain("Parsing"));
+  await slot.findByText("aa");
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("on a chapter's intro, j goes to the chapter's first file before the next one", async () => {
   const layout = fakeLayout();
   // A chapter long enough to scroll.

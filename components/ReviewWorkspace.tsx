@@ -1151,7 +1151,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const inChapter = !!activeSection;
     switch (key) {
       case "j": case "k": {
-        if (!inChapter) return false;
+        // On the Overview, j starts the first chapter.
+        if (!inChapter) {
+          if (key === "k" || !sections.length) return false;
+          selectChapter(sections[0].id);
+          return true;
+        }
         // On a chapter's intro the first file is current but not reached yet: j goes to it first.
         const box = scrollBox.current;
         const header = currentFile ? fileEls.current.get(currentFile) : undefined;
