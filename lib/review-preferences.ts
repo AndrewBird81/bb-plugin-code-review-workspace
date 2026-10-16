@@ -7,7 +7,8 @@ export interface AgentExecution {
   hostId?: string;
   providerId: string;
   model: string;
-  reasoningLevel: "none" | "low" | "medium" | "high" | "xhigh" | "ultracode" | "max" | "ultra";
+  /** Provider-defined, like the service tier: bb's providers add levels the SDK's types don't list. */
+  reasoningLevel: string;
   permissionMode: "accept-edits" | "auto" | "full";
   serviceTier?: string;
 }

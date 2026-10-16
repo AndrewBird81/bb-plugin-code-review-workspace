@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 import { ThreadChat, useComposers, useRealtime, useRpc, experimental_ProviderModelPicker as ProviderModelPicker } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -203,7 +203,8 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
         if (event.key === "Enter" && !event.shiftKey && !composing(event)) { event.preventDefault(); void start(); }
       }} placeholder="Ask the agent…" className="max-h-32 min-h-20 resize-none rounded-lg bg-background text-sm focus-visible:border-(--ansi-13)/50 focus-visible:ring-[3px] focus-visible:ring-(--ansi-13)/15" />
       <div className="flex min-w-0 items-center gap-2">
-        <ProviderModelPicker value={agent} onChange={(next) => setAgent({ ...(hostId ? { hostId } : {}), ...next })} routing={hostId ? { kind: "host", hostId } : undefined} disabled={busy} className="min-w-0" />
+        {/* The SDK's types list the reasoning levels it knew; a provider's own passes through (lib/review-preferences.ts). */}
+        <ProviderModelPicker value={agent as ComponentProps<typeof ProviderModelPicker>["value"]} onChange={(next) => setAgent({ ...(hostId ? { hostId } : {}), ...next })} routing={hostId ? { kind: "host", hostId } : undefined} disabled={busy} className="min-w-0" />
         {conversation?.machine && <span className="min-w-0 truncate text-xs text-muted-foreground">{conversation.machine.connected ? `on ${conversation.machine.name}` : `${conversation.machine.name} is offline`}</span>}
         <Button size="sm" className="ml-auto size-8 rounded-lg p-0 pointer-coarse:size-11" disabled={busy || !input.trim() || !agent.providerId || !agent.model} onClick={() => void start()} aria-label="Send"><Icon name={busy ? "Loading" : "ArrowUp"} className={cn("size-4", busy && "animate-spin motion-reduce:animate-none")} aria-hidden /></Button>
       </div>

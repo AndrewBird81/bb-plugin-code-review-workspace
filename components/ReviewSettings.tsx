@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import { useRpc, useRealtime, useBbNavigate, experimental_PermissionModePicker as PermissionModePicker, experimental_ProviderModelPicker as ProviderModelPicker } from "@get-bb/plugin-sdk/app";
 import type { PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
@@ -93,7 +93,8 @@ function AgentSelection({ label, agent, machines, disabled, note, unrestricted, 
         return hostId ? { hostId, ...selection } : selection;
       })} />
       <ProviderModelPicker disabled={disabled} routing={routing}
-        value={{ providerId: agent.providerId, model: agent.model, reasoningLevel: agent.reasoningLevel, ...(agent.serviceTier ? { serviceTier: agent.serviceTier } : {}) }}
+        // The SDK's types list the reasoning levels it knew; a provider's own passes through (lib/review-preferences.ts).
+        value={{ providerId: agent.providerId, model: agent.model, reasoningLevel: agent.reasoningLevel as ComponentProps<typeof ProviderModelPicker>["value"]["reasoningLevel"], ...(agent.serviceTier ? { serviceTier: agent.serviceTier } : {}) }}
         onChange={(next) => onChange((current) => current && { ...(current.hostId ? { hostId: current.hostId } : {}), providerId: next.providerId, model: next.model, reasoningLevel: next.reasoningLevel, permissionMode: current.permissionMode, ...(next.serviceTier ? { serviceTier: next.serviceTier } : {}) })} />
       <PermissionModePicker disabled={disabled} routing={routing} providerId={agent.providerId} value={agent.permissionMode} onChange={(permissionMode) => onChange((current) => current && { ...current, permissionMode })} />
     </div> : <p className="text-xs text-muted-foreground">Runs on the bb server with {defaults}.</p>}

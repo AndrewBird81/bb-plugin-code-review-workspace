@@ -103,10 +103,19 @@ test("agent selections default to project defaults, persist, and validate", asyn
   const preferences = { ...initial.preferences, guideAgent: codex, assistantAgent: claude };
   await harness.behavior.callRpc("savePreferences", { preferences, revision: 1 });
   expect(createStore(bb).getPreferences().preferences).toEqual(preferences);
-  for (const assistantAgent of [{ ...claude, permissionMode: "ask" }, { ...claude, model: "" }, { ...claude, reasoningLevel: "extreme" }, { ...claude, extra: true }]) {
+  for (const assistantAgent of [{ ...claude, permissionMode: "ask" }, { ...claude, model: "" }, { ...claude, reasoningLevel: "" }, { ...claude, extra: true }]) {
     await expect(harness.behavior.callRpc("savePreferences", { preferences: { ...preferences, assistantAgent }, revision: 2 })).rejects.toThrow();
   }
   expect(createStore(bb).getPreferences()).toEqual({ preferences, revision: 2 });
+});
+
+test("an agent saves with any reasoning level its provider offers, not only those the SDK's types list", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const preferences = { ...defaultPreferences, guideAgent: { ...codex, reasoningLevel: "turbo" }, assistantAgent: { ...claude, reasoningLevel: "turbo" } };
+  const saved = await harness.behavior.callRpc("savePreferences", { preferences, revision: 0 }) as any;
+  expect(saved.preferences).toEqual(preferences);
+  expect(createStore(bb).getPreferences().preferences).toEqual(preferences);
 });
 
 /** A provider as bb lists it, running in `modes`. */

@@ -28,7 +28,8 @@ export const agentExecutionSchema = z.object({
   hostId: z.string().min(1).max(200).optional(),
   providerId: z.string().min(1).max(200),
   model: z.string().min(1).max(200),
-  reasoningLevel: z.enum(["none", "low", "medium", "high", "xhigh", "ultracode", "max", "ultra"]),
+  // A provider's own level, as bb's SDK takes it, so a new one saves.
+  reasoningLevel: z.string().min(1).max(200),
   permissionMode: z.enum(["accept-edits", "auto", "full"]),
   serviceTier: z.string().min(1).max(200).optional(),
 }).strict();
@@ -135,7 +136,8 @@ export function spawnExecution(agent: (Omit<AgentExecution, "permissionMode"> & 
   if (!agent) return {};
   const explicit = "explicit" as const;
   return {
-    providerId: agent.providerId, model: agent.model, reasoningLevel: agent.reasoningLevel,
+    // The SDK's types list the reasoning levels it knew; bb takes a provider's own.
+    providerId: agent.providerId, model: agent.model, reasoningLevel: agent.reasoningLevel as SpawnExecution["reasoningLevel"],
     ...(agent.permissionMode ? { permissionMode: agent.permissionMode } : {}),
     ...(agent.serviceTier ? { serviceTier: agent.serviceTier } : {}),
     // Unsourced values are replaced with the project's remembered defaults.
