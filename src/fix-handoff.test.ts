@@ -99,7 +99,7 @@ test("says why the thread couldn't start", async () => {
   await expect(startFixThread(offline.bb, offline.store, "pr-1", [{ file: "src/a.ts", line: 3, side: "RIGHT" }])).rejects.toThrow("Couldn’t start the thread: The machine is offline.");
   const noAgent = host(undefined, null);
   ownPr(noAgent.store);
-  await expect(startFixThread(noAgent.bb, noAgent.store, "pr-1", [{ file: "src/a.ts", line: 3, side: "RIGHT" }])).rejects.toThrow("bb has no default agent for the review's project.");
+  await expect(startFixThread(noAgent.bb, noAgent.store, "pr-1", [{ file: "src/a.ts", line: 3, side: "RIGHT" }])).rejects.toThrow("bb has no default agent for the review's project. Choose an agent for the Review agent in Review settings.");
   expect(noAgent.spawns()).toHaveLength(0);
 });
 

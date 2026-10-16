@@ -273,7 +273,7 @@ test("each agent uses project defaults until customized with bb's pickers", asyn
   const getAgentDefaults = vi.fn().mockResolvedValueOnce({ defaults, guideWriterMode: "accept-edits" }).mockRejectedValueOnce(new Error("Offline"));
   const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record, savePreferences: save, getAgentDefaults } });
   const guide = await slot.findByRole("group", { name: "Guide writer agent" });
-  const assistant = slot.getByRole("group", { name: "Review assistant agent" });
+  const assistant = slot.getByRole("group", { name: "Review agent" });
   expect(within(guide).getByRole("button", { name: "Project defaults" }).getAttribute("aria-pressed")).toBe("true");
   expect(slot.queryByTestId("bb-provider-model-picker")).toBeNull();
   // The guide writer's defaults don't take the project's permissions; the assistant's do.
@@ -469,7 +469,7 @@ async function renderSettings(preferences: Record<string, unknown> = { ...defaul
   const saveButton = () => slot.getByRole("button", { name: "Save settings" }) as HTMLButtonElement;
   return { slot, saved, save, toggle, pace, saveButton };
 }
-const SECTION_TITLES = { notifications: "Notifications", assistant: "Review assistant", turn: "Whose turn", reading: "Reading", comments: "Comments and Finish review", trust: "Trust" } as const;
+const SECTION_TITLES = { notifications: "Notifications", assistant: "Review agent", turn: "Whose turn", reading: "Reading", comments: "Comments and Finish review", trust: "Trust" } as const;
 
 test("every knob shows in its section, and each saves its non-default value", async () => {
   const { KNOB_CONTROLS } = await import("./SettingsKnobs");
@@ -504,8 +504,8 @@ test("a setting that depends on another is disabled while that one is off, and T
   });
   expect(dependents()).toEqual({ automaticReview: false, check: false, pushes: false, reviewed: false, team: false, pace: false, authors: false });
   // A disabled dependent's label and description dim with its control, still readable.
-  const texts = ["Automatic review", /^Sent to the assistant when a guide is ready/, "Re-review check", /^Sent to the review assistant when a review comes back/,
-    "After the author pushes", /^The review assistant checks once the author’s pushes settle/, "Include team requests", /^Also show PRs that ask a team/,
+  const texts = ["Automatic review", /^Sent to the review agent when a guide is ready/, "Re-review check", /^Sent to the review agent when a review comes back/,
+    "After the author pushes", /^The review agent checks once the author’s pushes settle/, "Include team requests", /^Also show PRs that ask a team/,
     "Include PRs you’ve reviewed", /^Open PRs you reviewed on GitHub/, "Flag chapters read faster than", "lines an hour", /^Medium- and high-risk chapters/];
   const dimmed = () => texts.map((text) => slot.getByText(text).closest(".opacity-80") !== null);
   expect(dimmed()).toEqual(texts.map(() => false));
@@ -694,7 +694,7 @@ test("a custom agent on a provider that runs only at Full says it can't be restr
   const defaults = { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", permissionMode: "auto" };
   const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record,
     getAgentDefaults: () => ({ defaults, guideWriterMode: "accept-edits" }), getProviderModes: providerModes } });
-  for (const label of ["Guide writer agent", "Review assistant agent"]) {
+  for (const label of ["Guide writer agent", "Review agent"]) {
     const group = await slot.findByRole("group", { name: label });
     fireEvent.click(within(group).getByRole("button", { name: "Custom" }));
     const picker = await within(group.parentElement!).findByTestId("bb-provider-model-picker");
@@ -717,7 +717,7 @@ test("on Project defaults, both agents say they can't be restricted when the pro
   const defaults = { providerId: "pi", model: "local", reasoningLevel: "medium", permissionMode: "full" };
   const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record,
     getAgentDefaults: () => ({ defaults }), getProviderModes: providerModes } });
-  for (const label of ["Guide writer agent", "Review assistant agent"]) {
+  for (const label of ["Guide writer agent", "Review agent"]) {
     const group = await slot.findByRole("group", { name: label });
     await waitFor(() => expect(group.parentElement!.textContent).toContain(PI_NOTE));
   }
@@ -755,5 +755,15 @@ test("Open Needs You settings opens that BB page in this window, not a new tab",
   expect({ href: link.getAttribute("href"), target: link.getAttribute("target") }).toEqual({ href: "/plugins/inbox/inbox/settings", target: null });
   fireEvent.click(link);
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: "/plugins/inbox/inbox/settings" });
+  slot.lifecycle.unmount();
+});
+
+test("Settings calls the review assistant the Review agent, as the review's panel does", async () => {
+  const { slot } = await renderSettings();
+  expect(slot.getByRole("heading", { name: "Review agent" })).toBeTruthy();
+  expect(slot.getByRole("group", { name: "Review agent" })).toBeTruthy();
+  // Its instructions' box keeps its name.
+  const text = slot.container.textContent!.replace("Assistant instructions", "");
+  expect(text.match(/[^.]*\bassistant\b[^.]*/gi)).toBeNull();
   slot.lifecycle.unmount();
 });

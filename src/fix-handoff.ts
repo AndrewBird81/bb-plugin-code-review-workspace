@@ -78,7 +78,7 @@ export async function startFixThread(bb: BbPluginApi, store: Store, targetKey: s
   const comments = store.getDraft(targetKey).comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
   if (!comments.length) throw new Error("Those comments are no longer in the draft.");
   const agent = store.getPreferences().preferences.assistantAgent;
-  if (!agent && !(await bb.sdk.projects.defaultExecutionOptions({ projectId: review.projectId }).catch(() => null))) throw new Error("bb has no default agent for the review's project. Choose a Review assistant agent in Review settings.");
+  if (!agent && !(await bb.sdk.projects.defaultExecutionOptions({ projectId: review.projectId }).catch(() => null))) throw new Error("bb has no default agent for the review's project. Choose an agent for the Review agent in Review settings.");
   const patch = store.patch(targetKey);
   const title = `Fix review comments: ${review.kind === "pr" ? `#${review.number} ${review.title ?? ""}`.trim() : review.gitRef}`;
   try {

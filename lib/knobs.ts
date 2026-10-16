@@ -1,6 +1,6 @@
 // Switches, and one number, that turn the plugin's features off or tune them: each default is 0.6.0's behavior.
 
-/** Settings → Reading, Comments and Finish review, Review assistant, Whose turn, Notifications, and Trust. */
+/** Settings → Reading, Comments and Finish review, Review agent, Whose turn, Notifications, and Trust. */
 export interface Knobs {
   singleKeyShortcuts: boolean; returnToOverview: boolean; foldViewedFiles: boolean; foldGeneratedFiles: boolean;
   requirements: boolean; codeOwners: boolean; ciInCode: boolean;
