@@ -1,170 +1,32 @@
-import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-import {
-  Alert02Icon,
-  AlertCircleIcon,
-  Archive03Icon,
-  ArrowDown01Icon,
-  ArrowDown02Icon,
-  ArrowDownDoubleIcon,
-  ArrowLeft01Icon,
-  ArrowMoveDownRightIcon,
-  ArrowRight01Icon,
-  ArrowRight02Icon,
-  ArrowReloadHorizontalIcon,
-  ArrowUp01Icon,
-  ArrowUp02Icon,
-  ArrowUpDoubleIcon,
-  ArrowUpDownIcon,
-  ArrowTurnBackwardIcon,
-  ArrowUpRight01Icon,
-  BubbleChatAddIcon,
-  BubbleChatIcon,
-  BubbleChatQuestionIcon,
-  Calendar03Icon,
-  Cancel01Icon,
-  CancelCircleIcon,
-  CheckListIcon,
-  CheckmarkCircle02Icon,
-  CircleIcon,
-  Clock01Icon,
-  CollapseIcon,
-  DashedLineCircleIcon,
-  Delete02Icon,
-  GithubIcon,
-  Edit02Icon,
-  ExpandIcon,
-  ViewIcon,
-  ViewOffIcon,
-  File01Icon,
-  FileEmpty02Icon,
-  FileXIcon,
-  Folder02Icon,
-  FolderIcon,
-  GitBranchIcon,
-  GitMergeIcon,
-  GitPullRequestClosedIcon,
-  GitPullRequestDraftIcon,
-  GitPullRequestIcon,
-  HelpCircleIcon,
-  InformationCircleIcon,
-  Layers01Icon,
-  ListViewIcon,
-  LockIcon,
-  Loading03Icon,
-  Mail02Icon,
-  Menu02Icon,
-  MessageQuestionIcon,
-  MoreHorizontalIcon,
-  PackageReceiveIcon,
-  PinIcon,
-  PinOffIcon,
-  PlayIcon,
-  PlusMinusSquare01Icon,
-  Refresh01Icon,
-  RepeatIcon,
-  Search01Icon,
-  Settings01Icon,
-  SidebarLeftIcon,
-  SlidersHorizontalIcon,
-  SourceCodeIcon,
-  SpaceIcon,
-  Tick02Icon,
-  Unarchive03Icon,
-  UserAdd01Icon,
-  UserIcon,
-  SparklesIcon,
-  CheckmarkBadge01Icon,
-  GitCommitIcon,
-  Route01Icon,
-} from "@hugeicons/core-free-icons";
+import { createElement } from "react";
 import { cn } from "../../lib/utils";
+import { ICON_DATA, type IconNode } from "./icon-data";
 
-const ICON_MAP = {
-  AlertCircle: AlertCircleIcon,
-  AlertTriangle: Alert02Icon,
-  AlignLeft: Menu02Icon,
-  Archive: Archive03Icon,
-  ArchiveRestore: Unarchive03Icon,
-  ArrowDown: ArrowDown02Icon,
-  ArrowRight: ArrowRight02Icon,
-  ArrowReloadHorizontal: ArrowReloadHorizontalIcon,
-  ArrowUp: ArrowUp02Icon,
-  ArrowUpDown: ArrowUpDownIcon,
-  ArrowTurnBackward: ArrowTurnBackwardIcon,
-  ArrowUpRight: ArrowUpRight01Icon,
-  BubbleChatQuestion: BubbleChatQuestionIcon,
-  Calendar: Calendar03Icon,
-  Check: Tick02Icon,
-  ChevronDown: ArrowDown01Icon,
-  ChevronLeft: ArrowLeft01Icon,
-  ChevronRight: ArrowRight01Icon,
-  ChevronUp: ArrowUp01Icon,
-  ChevronsDown: ArrowDownDoubleIcon,
-  ChevronsUp: ArrowUpDoubleIcon,
-  Circle: CircleIcon,
-  CircleCheck: CheckmarkCircle02Icon,
-  CircleDashed: DashedLineCircleIcon,
-  CircleQuestion: HelpCircleIcon,
-  CircleX: CancelCircleIcon,
-  Clock: Clock01Icon,
-  Code: SourceCodeIcon,
-  CornerDownRight: ArrowMoveDownRightIcon,
-  Github: GithubIcon,
-  Edit: Edit02Icon,
-  Eye: ViewIcon,
-  EyeOff: ViewOffIcon,
-  FileDiff: PlusMinusSquare01Icon,
-  File: FileEmpty02Icon,
-  FileText: File01Icon,
-  FileX2: FileXIcon,
-  Folder: FolderIcon,
-  FolderOpen: Folder02Icon,
-  GitBranch: GitBranchIcon,
-  GitMerge: GitMergeIcon,
-  GitPullRequest: GitPullRequestIcon,
-  GitPullRequestClosed: GitPullRequestClosedIcon,
-  GitPullRequestDraft: GitPullRequestDraftIcon,
-  Info: InformationCircleIcon,
-  Layers: Layers01Icon,
-  ListView: ListViewIcon,
-  ListTodo: CheckListIcon,
-  Loading: Loading03Icon,
-  Lock: LockIcon,
-  Mail: Mail02Icon,
-  Maximize2: ExpandIcon,
-  MessageQuestion: MessageQuestionIcon,
-  MessageSquarePlus: BubbleChatAddIcon,
-  MessageSquare: BubbleChatIcon,
-  Minimize2: CollapseIcon,
-  MoreHorizontal: MoreHorizontalIcon,
-  PackageReceive: PackageReceiveIcon,
-  PanelLeft: SidebarLeftIcon,
-  Pin: PinIcon,
-  PinOff: PinOffIcon,
-  Play: PlayIcon,
-  Repeat: RepeatIcon,
-  RotateCcw: Refresh01Icon,
-  Search: Search01Icon,
-  Settings: Settings01Icon,
-  SlidersHorizontal: SlidersHorizontalIcon,
-  Space: SpaceIcon,
-  Sparkles: SparklesIcon,
-  BadgeCheck: CheckmarkBadge01Icon,
-  GitCommit: GitCommitIcon,
-  Route: Route01Icon,
-  Trash2: Delete02Icon,
-  UserRound: UserIcon,
-  UserRoundPlus: UserAdd01Icon,
-  X: Cancel01Icon,
-} as const satisfies Record<string, IconSvgElement>;
-
-export type IconName = keyof typeof ICON_MAP;
+export type IconName = keyof typeof ICON_DATA;
 
 export interface IconProps {
   name: IconName;
   className?: string;
   "aria-hidden"?: boolean | "true" | "false";
   "aria-label"?: string;
+}
+
+/** An icon's SVG, drawn as Hugeicons' React component drew it: `size` square, and its own stroke width unless given one. */
+function IconSvg({ nodes, size = 24, strokeWidth, ...props }: {
+  nodes: readonly IconNode[];
+  size?: number;
+  strokeWidth?: number;
+  className: string;
+  "aria-hidden"?: boolean | "true" | "false";
+  "aria-label"?: string;
+  "data-icon": string;
+}) {
+  const stroke = strokeWidth === undefined ? {} : { strokeWidth, stroke: "currentColor" };
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" color="currentColor" {...stroke} {...props}>
+      {nodes.map(([tag, attributes], index) => createElement(tag, { ...attributes, ...stroke, key: index }))}
+    </svg>
+  );
 }
 
 export function Icon({
@@ -174,8 +36,8 @@ export function Icon({
   "aria-label": ariaLabel,
 }: IconProps) {
   return (
-    <HugeiconsIcon
-      icon={ICON_MAP[name]}
+    <IconSvg
+      nodes={ICON_DATA[name]}
       className={cn(className)}
       aria-hidden={ariaHidden}
       aria-label={ariaLabel}
