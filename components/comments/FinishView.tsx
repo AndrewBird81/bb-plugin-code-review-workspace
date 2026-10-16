@@ -7,7 +7,6 @@ import type { CommentFilter, CommentItem } from "../../lib/comments";
 import { rushedDoubt, unviewedDoubt } from "../../lib/approve-guard";
 import { readOf } from "../../lib/agent-coverage";
 import { readDraftRecovery } from "../../lib/draft-recovery";
-import { linkImages } from "../../lib/link-images";
 import { useKnob } from "../../lib/settings";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
 import { statusWhy } from "../../lib/status-line";
@@ -179,7 +178,7 @@ function Verdicts({ revision }: { revision: string }) {
           {suggested && suggested !== d.draft.verdict && !d.ownPr && d.editable && <Button size="sm" variant="outline" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} disabled={d.busy} onClick={() => d.chooseVerdict(suggested)}>Switch to {VERDICT_LABEL[suggested]}</Button>}
           {d.agentCoverage && d.agentCoverage.total > 0 && <MetaLine className="basis-full text-xs text-muted-foreground" items={[`Read ${readOf(d.agentCoverage)}`]} />}
           {unchecked.length > 0 && <Unchecked items={unchecked} />}
-          {said && <div className="min-w-0 basis-full"><Clamped body={linkImages(said)} /></div>}
+          {said && <div className="min-w-0 basis-full"><Clamped body={said} link /></div>}
           {run && (run.suggestedVerdict || left) && <span className="flex flex-wrap gap-1.5">
             {feedback?.suggestionInDraft
               ? <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />In your draft</span>

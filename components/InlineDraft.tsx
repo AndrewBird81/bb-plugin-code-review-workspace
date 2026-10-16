@@ -177,7 +177,7 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
         )}
       </div>
       <SentLine at={comment} className="px-3 pb-1.5" />
-      <div className="space-y-2 px-3 pb-2.5"><CommentBody body={comment.author === "agent" ? linkImages(comment.body) : comment.body} />{comment.evidence && <AgentEvidence evidence={comment.evidence} />}</div>
+      <div className="space-y-2 px-3 pb-2.5"><CommentBody body={comment.body} link={comment.author === "agent"} />{comment.evidence && <AgentEvidence evidence={comment.evidence} />}</div>
       {state === "older-diff" && <p className="border-t border-warning/20 bg-warning/10 px-3 py-1.5 text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
     </article>
   );
@@ -207,15 +207,19 @@ export function SeveritySelect({ value, onChange, disabled, className }: { value
 // A ```suggestion block: the lines it would put in place of the comment's.
 const SUGGESTION = /^```suggestion[ \t]*\n([\s\S]*?)^```[ \t]*$/m;
 
-/** A comment's text, with each ```suggestion block shown as the code it would put in place of the comment's lines. */
-export function CommentBody({ body }: { body: string }) {
+/**
+ * A comment's text, with each ```suggestion block shown as the code it would put in place of the comment's lines.
+ * With `link`, for others' and agents' text, its Markdown shows images as links (linkImages); a suggestion is plain
+ * text, shown as GitHub would apply it.
+ */
+export function CommentBody({ body, link = false }: { body: string; link?: boolean }) {
   const parts = body.split(new RegExp(SUGGESTION, "gm"));
   return <div className="space-y-2">{parts.map((part, index) => index % 2
     ? <figure key={index} aria-label="Suggested change" className="overflow-hidden rounded-md border border-border">
         <figcaption className="border-b border-border bg-muted/25 px-2 py-1 text-xs text-muted-foreground">Suggested change</figcaption>
         <pre className="overflow-x-auto bg-success/10 px-2 py-1.5 font-mono text-xs leading-relaxed"><code>{part.replace(/\n$/, "")}</code></pre>
       </figure>
-    : part.trim() && <Markdown key={index} content={withLineBreaks(part.trim())} className="text-sm leading-relaxed" />)}</div>;
+    : part.trim() && <Markdown key={index} content={withLineBreaks(link ? linkImages(part.trim()) : part.trim())} className="text-sm leading-relaxed" />)}</div>;
 }
 
 /** How the agent confirmed its comment, folded under it in the agent's tint. It stays in BB: GitHub never gets it. */
@@ -345,7 +349,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
       {mode === "new" && composer.replacing && <p role="status" className="text-xs text-warning-text">This line already has a comment. Saving yours replaces it.</p>}
       {mode === "edit" && !summary && composer.changedWhileEditing && <div role="status" className="space-y-1.5 text-xs text-warning-text">
         <p>{composer.changedWhileEditing.now ? "This line’s comment changed while you were editing. Saving yours replaces it:" : "This line’s comment was removed while you were editing. Saving yours puts it back."}</p>
-        {composer.changedWhileEditing.now && <div className="rounded-md bg-muted/40 px-2.5 py-1.5 text-foreground"><CommentBody body={composer.changedWhileEditing.now.author === "agent" ? linkImages(composer.changedWhileEditing.now.body) : composer.changedWhileEditing.now.body} /></div>}
+        {composer.changedWhileEditing.now && <div className="rounded-md bg-muted/40 px-2.5 py-1.5 text-foreground"><CommentBody body={composer.changedWhileEditing.now.body} link={composer.changedWhileEditing.now.author === "agent"} /></div>}
       </div>}
       {mode !== "ask" && <ComposerNotes error={composer.error} rebuilding={composer.rebuilding} keepOnCurrentDiff={composer.keepOnCurrentDiff} />}
       <div ref={controlsRef} data-composer-controls className="flex flex-wrap items-center justify-end gap-2">

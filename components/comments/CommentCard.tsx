@@ -53,12 +53,12 @@ export function CommentCard({ targetKey, item, variant }: { targetKey: string; i
 
 const CLAMP = 280;
 
-/** A long comment shows its start until you ask for the rest. */
-export function Clamped({ body }: { body: string }) {
+/** A long comment shows its start until you ask for the rest; `link` as CommentBody's. */
+export function Clamped({ body, link = false }: { body: string; link?: boolean }) {
   const [all, setAll] = useState(false);
   const long = body.length > CLAMP || body.split("\n").length > 6;
   return <div>
-    <div className={cn(!all && long && "max-h-[6.5rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_4.5rem,transparent)]")}><CommentBody body={body} /></div>
+    <div className={cn(!all && long && "max-h-[6.5rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_4.5rem,transparent)]")}><CommentBody body={body} link={link} /></div>
     {long && <button type="button" aria-expanded={all} onClick={() => setAll(!all)} className={cn("mt-0.5 inline-flex items-center gap-0.5 rounded-sm text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)}>
       {all ? "Less" : "More"}<Icon name={all ? "ChevronUp" : "ChevronDown"} className="size-3" aria-hidden />
     </button>}
@@ -146,7 +146,7 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
       </div>}
       {open ? <div className="space-y-2.5 px-3 pb-2.5">
         {!inline && first && <Speaker message={first} />}
-        {first && <Clamped body={linkImages(first.body)} />}
+        {first && <Clamped body={first.body} link />}
         <Replies replies={replies} />
         <Evidence item={item} onFix={item.check?.fix && api ? () => api.showLocation(item.check!.fix!.file, item.check!.fix!.line, "RIGHT") : undefined} />
         {actions && replyShows && <ReplyBox targetKey={targetKey} item={item} where={where} actions={actions} busy={busy} writing={writing} onClose={() => setWriting(false)} replyButton={replyButton} />}
@@ -244,7 +244,7 @@ function DraftCard({ item }: { item: DraftItem }) {
           {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
           {comment.side === "LEFT" && <Badge size="sm">Old line</Badge>}
         </p>}
-        <CommentBody body={comment.author === "agent" ? linkImages(comment.body) : comment.body} />
+        <CommentBody body={comment.body} link={comment.author === "agent"} />
         {comment.evidence && <AgentEvidence evidence={comment.evidence} />}
         {item.state === "older-diff" && <p className="text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
         {draft.editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">

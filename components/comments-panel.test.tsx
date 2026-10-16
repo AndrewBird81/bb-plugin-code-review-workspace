@@ -332,6 +332,26 @@ test("images in GitHub's comments, by anyone, and in the agent's words show as l
   slot.lifecycle.unmount();
 });
 
+// The text around a suggestion was linked with it, so its code could show as links (96-recheck-2 P2 #3).
+test("a suggestion by the agent or on GitHub shows its code as written, and only the words around it link images", async () => {
+  const suggestion = (alt: string) => `Use:\n\tthe logo\n![${alt}](https://attacker.example/${alt}.png)\n\n\`\`\`suggestion\n<img src={logo} alt="Logo" />\nif (!["a"].includes(kind)) return;\n\`\`\``;
+  const { slot } = await renderWorkspace({ rpc: {
+    getReviewThreads: () => ({ threads: [{ ...threads()[0], comments: [said("c1", 111, "bob", suggestion("bob"), 48)] }] }),
+    getFeedback: () => ({ feedback: feedbackOf([], null) }),
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [
+      { file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", body: suggestion("agent") },
+    ] }, stale: [], discussions: [] }),
+  } });
+  const cards = code(slot, "src/a.ts");
+  await cards.findByRole("article", { name: "GitHub thread on src/a.ts:2" });
+  const shown = cards.getAllByRole("figure", { name: "Suggested change" }).map((figure: HTMLElement) => figure.querySelector("pre code")?.textContent);
+  expect(shown).toEqual(['<img src={logo} alt="Logo" />\nif (!["a"].includes(kind)) return;', '<img src={logo} alt="Logo" />\nif (!["a"].includes(kind)) return;']);
+  const texts = cards.getAllByTestId("bb-markdown").map((markdown: HTMLElement) => markdown.textContent);
+  expect(texts.join("\n")).toMatch(/\[Image: bob\]\(https:\/\/attacker\.example\/bob\.png\)/);
+  expect(texts.join("\n")).toMatch(/\[Image: agent\]\(https:\/\/attacker\.example\/agent\.png\)/);
+  slot.lifecycle.unmount();
+});
+
 test("a resolve in the code shows in the list at once, and one in the list in the code: they read the same threads", async () => {
   let resolved = false;
   const { slot, rpc } = await renderWorkspace({ rpc: {
