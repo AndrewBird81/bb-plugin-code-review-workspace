@@ -37,6 +37,11 @@ async function writeComment(slot: Slot, text: string) {
   await addComment(slot);
   fireEvent.change(slot.getByRole("textbox", { name: "Draft comment" }), { target: { value: text } });
 }
+/**
+ * Saving a comment focuses its row a frame later. Wait for it before opening ⋯ again: focus leaving the open menu closes
+ * it, and Add comment by line… is then clicked gone.
+ */
+const savedFocus = (at: string) => waitFor(() => expect(document.activeElement?.getAttribute("data-comment-at")).toBe(at));
 /** A comment's row in Comments, which opens as its card to edit or remove it. */
 const row = (where: string) => `Draft · not submitted · ${where}`;
 const expand = (slot: Slot, where: string) => fireEvent.click(slot.getByRole("button", { name: `Expand Draft comment on ${where}` }));
@@ -57,6 +62,7 @@ test("the status line follows saves: a failed submit's error clears when a later
   await writeComment(slot, "One.");
   fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
   await waitFor(() => expect(status(slot).textContent).toBe("Draft saved"));
+  await savedFocus("src/a.ts:1:RIGHT");
   fail = true;
   await writeComment(slot, "Two.");
   fireEvent.click(slot.getByRole("button", { name: "Replace comment" }));
@@ -96,6 +102,7 @@ test("Cmd/Ctrl+Enter runs a box's primary action when it has text; Esc keeps tex
   fireEvent.keyDown(slot.getByRole("textbox", { name: "Draft comment" }), { key: "Enter", ctrlKey: true });
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ body: "Saved by keyboard." }) })));
   await waitFor(() => expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull());
+  await savedFocus("src/a.ts:1:RIGHT");
   // Esc leaves the box, keeping what you wrote; Cancel discards it.
   await writeComment(slot, "Never mind.");
   fireEvent.keyDown(slot.getByRole("textbox", { name: "Draft comment" }), { key: "Escape" });
@@ -280,7 +287,7 @@ test("after saving, focus goes to the saved comment; after cancelling, back to w
   await waitFor(() => expect(document.activeElement).toBe(options));
   await writeComment(slot, "Saved.");
   fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
-  await waitFor(() => expect(document.activeElement?.getAttribute("data-comment-at")).toBe("src/a.ts:1:RIGHT"));
+  await savedFocus("src/a.ts:1:RIGHT");
   slot.lifecycle.unmount();
 });
 
