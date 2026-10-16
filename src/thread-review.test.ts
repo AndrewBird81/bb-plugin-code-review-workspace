@@ -20,7 +20,7 @@ const opus = { providerId: "claude-code", model: "opus", reasoningLevel: "high" 
 async function host(titles: Record<string, string> = {}) {
   let whileSpawning: (id: string) => Promise<void> = async () => {};
   let spawned = 0;
-  const h = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const h = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate"], sdk: { threads: {
     get: async ({ threadId }: { threadId: string }) => ({ title: titles[threadId] ?? null, archivedAt: null, deletedAt: null, status: "idle" }),
     spawn: async ({ title }: { title: string }) => { const id = `spawned-${++spawned}`; titles[id] = title; await whileSpawning(id); return { id }; },
     wait: async () => ({}), archive: async () => ({}), stop: async () => ({}),
@@ -133,4 +133,33 @@ test("a spawn that fails leaves no window open", async () => {
   await expect(startConversation(bb, store, { targetKey: "pr-1", text: "Hi", agent: opus })).rejects.toThrow("BB refused the spawn");
   expect((await harness.behavior.resolveAgentConfiguration(configureContext("late", "Review agent: pr-1"))).instructions ?? null).toBeNull();
   expect(toolFailed(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1" }, { threadId: "late" }))).toBe(true);
+});
+
+const assistantTools = ["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
+  "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"];
+const writerTools = ["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"];
+
+test("a recorded assistant that's retitled keeps its tools and its review's instructions", async () => {
+  const { harness, store } = await host();
+  store.setAssistantThread("pr-1", "thread-1");
+  const config = await harness.behavior.resolveAgentConfiguration(configureContext("thread-1", "anything"));
+  expect(config.tools.map((tool) => tool.name)).toEqual(assistantTools);
+  expect(config.skills).toEqual([]);
+  expect(config.instructions).toContain("PUBLIC_CHAPTER");
+});
+
+test("a recorded guide writer that's retitled keeps the writer's tools", async () => {
+  const { harness, store } = await host();
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1, projectId: "p1" });
+  store.setGenerationWorker("pr-1", store.beginGeneration("pr-1"), "writer-1");
+  const config = await harness.behavior.resolveAgentConfiguration(configureContext("writer-1", "anything"));
+  expect(config.tools.map((tool) => tool.name)).toEqual(writerTools);
+});
+
+test("an unrecorded thread with a plugin title gets no tools outside a spawn", async () => {
+  const { harness } = await host();
+  for (const title of ["Review agent: pr-1", "Generate guide: pr-1"]) {
+    const config = await harness.behavior.resolveAgentConfiguration(configureContext("stranger", title, { targetKey: "pr-1" }));
+    expect({ title, tools: config.tools, skills: config.skills }).toEqual({ title, tools: [], skills: [] });
+  }
 });

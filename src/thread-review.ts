@@ -1,6 +1,8 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store } from "./store";
 import { assistantReview } from "./draft-comments";
+import { ASSISTANT_TITLE } from "./agent";
+import { GUIDE_WORKER_TITLE } from "./generate";
 
 /** This plugin's agent threads being spawned, by the title each gets, until its id is recorded. */
 const spawning = new WeakMap<BbPluginApi, Set<{ title: string; targetKey: string }>>();
@@ -29,6 +31,21 @@ export function threadReview(bb: BbPluginApi, store: Store, thread: { id: string
   const recorded = assistantReview(store, thread.id) ?? store.generationOf(thread.id);
   if (recorded) return recorded;
   for (const pending of spawning.get(bb) ?? []) if (pending.title === thread.title) return pending.targetKey;
+  return null;
+}
+
+/**
+ * What a thread of this plugin is: the assistant or guide writer it's recorded as, whatever its title now, or, only
+ * while a spawn with its exact title is in flight, what that title names. Null for any other thread.
+ */
+export function threadRole(bb: BbPluginApi, store: Store, thread: { id: string; title: string | null }): "assistant" | "writer" | null {
+  if (assistantReview(store, thread.id)) return "assistant";
+  if (store.generationOf(thread.id)) return "writer";
+  for (const pending of spawning.get(bb) ?? []) {
+    if (pending.title !== thread.title) continue;
+    if (pending.title.startsWith(GUIDE_WORKER_TITLE)) return "writer";
+    if (pending.title.startsWith(ASSISTANT_TITLE)) return "assistant";
+  }
   return null;
 }
 

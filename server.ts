@@ -16,7 +16,7 @@ import { validateGuide, checkCoverage, checkHotspots, checkRequirements, checkUn
 import { hunkCounts } from "./src/hunks";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
-import { ASSISTANT_TITLE, assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startAutomaticReview, startConversation } from "./src/agent";
+import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startAutomaticReview, startConversation } from "./src/agent";
 import { startFixThread } from "./src/fix-handoff";
 import { listMachines, personalProjectId } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
@@ -44,7 +44,7 @@ import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
 import { GUIDE_WORKER_TITLE, stopGuideGenerations, hasGuideGenerations, guideWorkerFailed, guideWriterMode } from "./src/generate";
-import { threadReview, toolThreadReview } from "./src/thread-review";
+import { threadReview, threadRole, toolThreadReview } from "./src/thread-review";
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { rerunReview } from "./src/rereview";
 import { getGhAccounts, switchGhAccount, checkRepoAccess } from "./src/gh-accounts";
@@ -1014,23 +1014,21 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
-  // Only expose these tools to THIS plugin's own spawned generation thread.
-  // Both the generation thread and the review-agent thread are spawned by this
-  // plugin (origin.pluginId matches for both), so the origin check alone is
-  // not enough — gate on the generation thread's distinctive title too.
+  // Tools go only to THIS plugin's own spawned threads, by the role each is recorded with: a thread can retitle
+  // itself, so its title chooses only while its spawn is in flight, before its id is recorded.
   bb.agents.configure((context) => {
     if (context.origin?.pluginId !== bb.pluginId) return { tools: [], skills: [] };
-    const title = context.thread?.title ?? "";
-    if (title.startsWith(GUIDE_WORKER_TITLE)) {
+    const role = context.thread ? threadRole(bb, store, context.thread) : null;
+    if (role === "writer") {
       return { tools: ["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"], skills: ["guided-review-generate"] };
     }
     // The review assistant can read any file's diff on demand, so the chat
     // works across the whole review, and change its own review's local draft
     // comments — but it never gets the guide-writing tool or the generation
     // skill. Its review context arrives as instructions.
-    if (title.startsWith(ASSISTANT_TITLE)) {
+    if (role === "assistant") {
       // Its own review, never the metadata its agent can write.
-      const targetKey = threadReview(bb, store, context.thread);
+      const targetKey = threadReview(bb, store, context.thread!);
       const review = targetKey ? store.getReview(targetKey) : null;
       return {
         tools: ["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",

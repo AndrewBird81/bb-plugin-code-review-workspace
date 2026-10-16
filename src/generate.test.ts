@@ -72,6 +72,7 @@ test("read_review_patch and list_review_files read only the calling thread's own
 test("read_review_patch and list_review_files say they read your own review, not any target", async () => {
   const writer = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate"] });
   await plugin(writer.bb);
+  recordWriter(writer.bb, "thread-1");
   const { tools } = await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("guided-review", "Generate guide: pr-1"));
   for (const name of ["read_review_patch", "list_review_files"]) {
     const description = tools.find((tool) => tool.name === name)!.description;
@@ -160,9 +161,9 @@ test("generate_review_guide stamps gitRef even when the submitted guide omitted 
   expect(stored?.review).toEqual({ gitRef: "main...feature-authoritative" });
 });
 
-function baseConfigContext(pluginId: string | null, threadTitle: string | null = null): PluginAgentConfigurationContext {
+function baseConfigContext(pluginId: string | null, threadTitle: string | null = null, threadId = "thread-1"): PluginAgentConfigurationContext {
   return {
-    thread: { id: "thread-1", title: threadTitle, parentThreadId: null, sourceThreadId: null },
+    thread: { id: threadId, title: threadTitle, parentThreadId: null, sourceThreadId: null },
     project: { id: "project-1", kind: "standard", name: "test-project", gitRemoteUrl: null },
     environment: { id: "env-1", name: null, path: null, workspaceProvisionType: "unmanaged", branchName: null },
     host: { id: "host-1", name: "test-host" },
@@ -172,9 +173,18 @@ function baseConfigContext(pluginId: string | null, threadTitle: string | null =
   };
 }
 
+/** Records `threadId` as pr-1's guide writer, the way generateGuide does once its spawn returns. */
+function recordWriter(bb: Parameters<typeof plugin>[0], threadId: string) {
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
+  store.setGenerationWorker("pr-1", store.beginGeneration("pr-1"), threadId);
+}
+
 test("agents.configure exposes tools/skill only to this plugin's own generation thread", async () => {
   const h = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate"] });
   await plugin(h.bb);
+  recordWriter(h.bb, "thread-1");
+  createStore(h.bb).setAssistantThread("pr-1", "assistant-1");
 
   const mine = await h.harness.behavior.resolveAgentConfiguration(
     baseConfigContext("guided-review", "Generate guide: pr-1"),
@@ -198,7 +208,7 @@ test("agents.configure exposes tools/skill only to this plugin's own generation 
   // its chat works across the review, and the draft-comment tools, but never the
   // guide-writing tool/skill. The guide writer never drafts comments.
   const agentThread = await h.harness.behavior.resolveAgentConfiguration(
-    baseConfigContext("guided-review", "Review agent: pr-1"),
+    baseConfigContext("guided-review", "Review agent: pr-1", "assistant-1"),
   );
   expect(agentThread.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
     "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"]);
@@ -206,7 +216,7 @@ test("agents.configure exposes tools/skill only to this plugin's own generation 
 
   // An unrelated same-plugin thread still gets nothing.
   const other = await h.harness.behavior.resolveAgentConfiguration(
-    baseConfigContext("guided-review", "Something else: pr-1"),
+    baseConfigContext("guided-review", "Something else: pr-1", "other-1"),
   );
   expect(other.tools).toEqual([]);
   expect(other.skills).toEqual([]);
@@ -258,6 +268,7 @@ test("a failed rebuild keeps the guide you had", async () => {
 test("generate_review_guide advertises the guide's schema and accepts a guide without unplacedFiles", async () => {
   const writer = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate"] });
   await plugin(writer.bb);
+  recordWriter(writer.bb, "thread-1");
   const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("guided-review", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
   const schema = JSON.stringify(tool?.inputSchema);
   for (const field of ["intent", "overview", "risk", "focus", "summary", "unplacedFiles", "requirements"]) expect(schema).toContain(`"${field}"`);
