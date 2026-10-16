@@ -245,9 +245,10 @@ export function Inbox() {
     try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(next)); } catch { /* best-effort */ }
   }
   const open = (targetKey: string) => navigate.toPluginPanel("review", { subPath: targetKey });
-  const row = (review: ReviewItem) => <InboxRow key={review.targetKey} review={review} pinnable={pinnable} short={short} onOpen={() => open(review.targetKey)} onChanged={relist} />;
-  const rows = (list: ReviewItem[]) => withStacks(list).map((group) => group.length === 1 ? row(group[0]!)
-    : <div key={group[0]!.targetKey} role="group" aria-label={`Stack of ${group[0]!.stack!.members.length} in ${group[0]!.repo}`} className="ml-3 border-l border-border">{group.map(row)}</div>);
+  const row = (review: ReviewItem) => <li key={review.targetKey}><InboxRow review={review} pinnable={pinnable} short={short} onOpen={() => open(review.targetKey)} onChanged={relist} /></li>;
+  // A list per section or part, so a screen reader says how many rows it holds; a stack is one item, its own list.
+  const rows = (list: ReviewItem[]) => <ul>{withStacks(list).map((group) => group.length === 1 ? row(group[0]!)
+    : <li key={group[0]!.targetKey}><div role="group" aria-label={`Stack of ${group[0]!.stack!.members.length} in ${group[0]!.repo}`} className="ml-3 border-l border-border"><ul>{group.map(row)}</ul></div></li>)}</ul>;
   const omnibox = <Omnibox query={query} onQuery={setQuery} reviews={reviews} onOpen={open} inputRef={findBox} onFocusChange={setBoxFocused}
     placeholder={firstRun ? "Paste a GitHub PR link to review it" : compact ? "Find or paste a PR link" : "Find a review, or paste a PR link"}
     onCancel={phoneBox ? closeSearch : undefined} trailing={searchInline && ownControls ? <ListTitleBar placement="page" /> : undefined} />;

@@ -370,6 +370,16 @@ test("the first run looks for PRs that request your review once, and says so onl
   slot.lifecycle.unmount();
 });
 
+test("each section's rows are a list, so a screen reader says how many it holds", async () => {
+  const { slot } = await inbox([{ targetKey: "a", title: "A change", status: "ready" }, { targetKey: "b", title: "B change", status: "ready" }, { targetKey: "c", title: "C change", status: "ready" }]);
+  const section = await slot.findByRole("region", { name: "Needs review" });
+  const list = within(section).getByRole("list");
+  expect(within(list).getAllByRole("listitem").map((item) => within(item).getByRole("button", { name: /change/ }).textContent)).toEqual([
+    expect.stringContaining("A change"), expect.stringContaining("B change"), expect.stringContaining("C change"),
+  ]);
+  slot.lifecycle.unmount();
+});
+
 test("the page scrolls itself, since BB clips a plugin page to the window", async () => {
   const { slot } = await inbox([{ targetKey: "a", title: "A change", status: "ready" }]);
   const section = await slot.findByRole("region", { name: "Needs review" });
