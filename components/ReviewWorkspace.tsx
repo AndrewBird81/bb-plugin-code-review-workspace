@@ -858,10 +858,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     else fileEls.current.delete(file);
   }, []);
 
+  // A smooth scroll crosses every file on the way, which a chapter still drawing its files draws as each nears the
+  // screen: there, and more than three screens away, it jumps.
   const scrollToFile = useCallback(
     (file: string) => {
       const el = fileEls.current.get(file);
-      if (el) el.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+      const box = scrollBox.current;
+      if (!el) return;
+      const far = !box || !!box.querySelector("[data-pending-diff]")
+        || Math.abs(el.getBoundingClientRect().top - box.getBoundingClientRect().top) > 3 * box.clientHeight;
+      el.scrollIntoView({ behavior: reducedMotion || far ? "auto" : "smooth", block: "start" });
     },
     [reducedMotion],
   );

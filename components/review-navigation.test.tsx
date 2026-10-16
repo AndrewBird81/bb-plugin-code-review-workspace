@@ -185,6 +185,48 @@ test("the last chapter's end names the files not viewed yet in the others, and N
   }
 }, 15_000);
 
+test("picking a file jumps to it in a chapter still drawing its files, or far down; nearby it scrolls smoothly", async () => {
+  // 150 files of 40 rows: over the 3,000 rows that make a chapter draw its files as they near the screen, which a smooth
+  // scroll would cross, drawing each. jsdom has no IntersectionObserver, without which the chapter draws them all.
+  const lines = (path: string, count: number) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1,${count} +1,${count} @@\n${Array.from({ length: count }, (_, i) => `-old${i}`).join("\n")}\n${Array.from({ length: count }, (_, i) => `+new${i}`).join("\n")}\n`;
+  const paths = Array.from({ length: 150 }, (_, i) => `src/f${i}.ts`);
+  const big = { ...guide, sections: [{ id: "c1", title: "Parsing", overview: "", diffs: paths.map((path) => ({ file: path })) }] };
+  const observer = globalThis.IntersectionObserver;
+  globalThis.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } } as unknown as typeof IntersectionObserver;
+  const layout = fakeLayout({ height: 400 });
+  const scrolls: Array<{ file?: string; behavior?: ScrollBehavior }> = [];
+  const fake = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (this: Element, options?: boolean | ScrollIntoViewOptions) {
+    scrolls.push({ file: (this as HTMLElement).dataset.file, behavior: typeof options === "object" ? options.behavior : undefined });
+    fake.call(this, options);
+  };
+  const clientHeight = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!;
+  Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get: () => 800 });
+  const pick = (slot: Slot, path: string) => fireEvent.click(chapters(slot).getByTitle(new RegExp(`^${path.replace(".", "\\.")}`)));
+  try {
+    const large = await renderWorkspace({ bundle: { guide: big, patch: paths.map((path) => lines(path, 20)).join("") } });
+    await waitFor(() => expect(large.slot.container.querySelector("[data-pending-diff]")).toBeTruthy());
+    pick(large.slot, "src/f140.ts");
+    await waitFor(() => expect(scrolls.at(-1)).toEqual({ file: "src/f140.ts", behavior: "auto" }));
+    large.slot.lifecycle.unmount();
+    cleanup();
+    layout.scrollTo(undefined);
+    // A chapter of usual size: smooth to a file within three screens, a jump past them.
+    const usual = await renderWorkspace({ bundle: { guide: big, patch: paths.map((path) => lines(path, 2)).join("") } });
+    await waitFor(() => expect(usual.slot.getAllByTestId("filediff")).toHaveLength(150));
+    expect(usual.slot.container.querySelector("[data-pending-diff]")).toBeNull();
+    pick(usual.slot, "src/f2.ts");
+    await waitFor(() => expect(scrolls.at(-1)).toEqual({ file: "src/f2.ts", behavior: "smooth" }));
+    pick(usual.slot, "src/f40.ts");
+    await waitFor(() => expect(scrolls.at(-1)).toEqual({ file: "src/f40.ts", behavior: "auto" }));
+    usual.slot.lifecycle.unmount();
+  } finally {
+    layout.restore();
+    Object.defineProperty(Element.prototype, "clientHeight", clientHeight);
+    globalThis.IntersectionObserver = observer;
+  }
+}, 30_000);
+
 test("a review back with changes opens on its Overview, which goes on to the first chapter that changed, unless you were reading one", async () => {
   const { interdiff } = await import("../src/interdiff");
   const reviewed = patch.replace("+bb", "+b0");
@@ -339,7 +381,7 @@ test("on a chapter's intro, j goes to the chapter's first file before the next o
   // A chapter long enough to scroll.
   const sizes = { scrollHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight"), clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight") };
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 5000 });
-  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 800 });
+  Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get: () => 800 });
   try {
     const { slot } = await renderWorkspace();
     await slot.findByText("aa");
@@ -363,7 +405,7 @@ test("choosing a chapter by click, n, or p makes its first file current, so j fr
   const layout = fakeLayout();
   const sizes = { scrollHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight"), clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight") };
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 5000 });
-  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 800 });
+  Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get: () => 800 });
   // c.ts is in both chapters, so going to it in one keeps it in the other.
   const shared = { ...guide, sections: [{ ...guide.sections[0], diffs: [guide.sections[0].diffs[0], guide.sections[1].diffs[1]] }, guide.sections[1]] };
   try {
