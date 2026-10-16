@@ -382,6 +382,20 @@ test("a suggestion ends where GitHub ends it, at an indented or longer fence", a
   }
 });
 
+// The box opened only on three backticks, which a suggestion holding a fence can't use (96-fixes-4, SUMMARY SG).
+test("a suggestion opened with a longer fence shows the shorter fence it holds in one box", async () => {
+  const body = "Add the example:\n\n````suggestion\nRun:\n```sh\nnpm test\n```\n````\nAfter.";
+  const { slot } = await renderWorkspace({ rpc: {
+    getReviewThreads: () => ({ threads: [{ ...threads()[0], comments: [said("c1", 111, "bob", body, 48)] }] }),
+    getFeedback: () => ({ feedback: feedbackOf([], null) }),
+  } });
+  const cards = code(slot, "src/a.ts");
+  await cards.findByRole("article", { name: "GitHub thread on src/a.ts:2" });
+  expect(cards.getAllByRole("figure", { name: "Suggested change" }).map((figure: HTMLElement) => figure.querySelector("pre code")?.textContent)).toEqual(["Run:\n```sh\nnpm test\n```"]);
+  expect(cards.getByText("After.")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("a resolve in the code shows in the list at once, and one in the list in the code: they read the same threads", async () => {
   let resolved = false;
   const { slot, rpc } = await renderWorkspace({ rpc: {

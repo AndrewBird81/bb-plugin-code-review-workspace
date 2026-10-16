@@ -204,8 +204,9 @@ export function SeveritySelect({ value, onChange, disabled, className }: { value
   );
 }
 
-// A ```suggestion block: the lines it would put in place of the comment's, up to a fence of 3 backticks or more.
-const SUGGESTION = /^```suggestion[ \t]*\n([\s\S]*?)^ {0,3}`{3,}[ \t]*$/m;
+// A ```suggestion block, opened at the margin by 3 backticks or more: the lines it would put in place of the comment's,
+// up to a fence at least as long.
+const SUGGESTION = /^(`{3,})suggestion[ \t]*\n([\s\S]*?)^ {0,3}\1`*[ \t]*$/m;
 
 /**
  * A comment's text, with each ```suggestion block shown as the code it would put in place of the comment's lines.
@@ -213,9 +214,9 @@ const SUGGESTION = /^```suggestion[ \t]*\n([\s\S]*?)^ {0,3}`{3,}[ \t]*$/m;
  * text, shown as GitHub would apply it.
  */
 export function CommentBody({ body, link = false }: { body: string; link?: boolean }) {
-  // GitHub's editor writes CRLF.
+  // GitHub's editor writes CRLF. The parts run text, opening fence, suggestion, text, and so on.
   const parts = body.replace(/\r\n?/g, "\n").split(new RegExp(SUGGESTION, "gm"));
-  return <div className="space-y-2">{parts.map((part, index) => index % 2
+  return <div className="space-y-2">{parts.map((part, index) => index % 3 === 1 ? null : index % 3 === 2
     ? <figure key={index} aria-label="Suggested change" className="overflow-hidden rounded-md border border-border">
         <figcaption className="border-b border-border bg-muted/25 px-2 py-1 text-xs text-muted-foreground">Suggested change</figcaption>
         <pre className="overflow-x-auto bg-success/10 px-2 py-1.5 font-mono text-xs leading-relaxed"><code>{part.replace(/\n$/, "")}</code></pre>
