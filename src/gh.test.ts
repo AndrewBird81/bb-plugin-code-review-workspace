@@ -2,8 +2,9 @@ import { test, expect } from "vitest";
 import {
   ghPrViewArgs, ghPrDiffArgs, ghRepoViewArgs, ghSubmitReviewArgs, gitDiffArgs,
   ghPrChecksJsonArgs, ghPrHeadArgs, ghReviewThreadsArgs, ghReplyThreadArgs,
-  ghResolveThreadArgs, ghUnresolveThreadArgs, ghErrorMessage, runGit,
+  ghResolveThreadArgs, ghUnresolveThreadArgs, ghErrorMessage, runGh, runGit,
 } from "./gh";
+import { takeRealGhCalls } from "./real-gh.test-support";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -179,4 +180,12 @@ test("a command's output keeps characters split across reads, and stops at the b
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+});
+
+test("a test that runs the real gh fails: the stand-in on PATH exits 99 and is reported", async () => {
+  const result = await runGh(["api", "user"]);
+  expect(result.code).toBe(99);
+  expect(result.stderr).toContain("A unit test ran the real gh");
+  // The setup file's afterEach would fail this test with them; take them here instead.
+  expect(takeRealGhCalls()).toEqual(["gh api user"]);
 });
