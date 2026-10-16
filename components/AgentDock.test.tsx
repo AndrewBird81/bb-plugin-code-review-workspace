@@ -4,6 +4,7 @@ import { test, expect, vi, afterEach, beforeEach } from "vitest";
 import { act, cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { installTestPluginRuntime, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { DockInjection } from "./AgentDock";
+import { findPicker } from "./provider-picker.test-support";
 
 installTestPluginRuntime();
 afterEach(cleanup);
@@ -41,7 +42,7 @@ test("the assistant starts in the review panel, with an optional widget", async 
 test("the first message starts the conversation on the chosen agent, then bb's chat takes over", async () => {
   const startConversation = vi.fn(async () => ({ threadId: "th-1" }));
   await renderDock({}, { getConversation: unstarted, startConversation });
-  const picker = await screen.findByTestId("bb-provider-model-picker");
+  const picker = await findPicker(screen);
   expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("gpt-6-astra");
   fireEvent.change(within(picker).getByRole("textbox", { name: "Model" }), { target: { value: "gpt-6" } });
   fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
@@ -175,7 +176,7 @@ const onFloMac = (connected = true) => () => ({ threadId: null, legacy: [], defa
 test("a new conversation starts on the assistant's chosen machine, choosing from its models", async () => {
   const startConversation = vi.fn(async () => ({ threadId: "th-1" }));
   await renderDock({}, { getConversation: onFloMac(), startConversation });
-  const picker = await screen.findByTestId("bb-provider-model-picker");
+  const picker = await findPicker(screen);
   expect(picker.dataset).toMatchObject({ routingKind: "host", routingId: "host_flomac" });
   expect(screen.getByText("on FloMac")).toBeTruthy();
   fireEvent.change(within(picker).getByRole("textbox", { name: "Model" }), { target: { value: "gpt-6" } });

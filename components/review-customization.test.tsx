@@ -4,6 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import type { DraftProviderProps } from "./DraftProvider";
+import { findPicker } from "./provider-picker.test-support";
 
 afterEach(() => { cleanup(); localStorage.clear(); });
 // jsdom can't run pierre's diff element; the workspace's tests here are about its panel.
@@ -271,16 +272,6 @@ test("a new line-comment request reveals an unfinished comment without replacing
   slot.lifecycle.unmount();
 });
 
-/**
- * Types `value` into a field of bb's picker fake. The fake copies its value into its fields in an effect that can still
- * be pending when it first shows, and then undoes the first edit, as it did under a full parallel run: edit until the
- * field holds it.
- */
-const pickerEdit = (field: () => HTMLInputElement, value: string) => waitFor(() => {
-  if (field().value !== value) fireEvent.change(field(), { target: { value } });
-  expect(field().value).toBe(value);
-});
-
 test("each agent uses project defaults until customized with bb's pickers", async () => {
   await loadPluginApp(() => import("../app"));
   const { ReviewSettings } = await import("./ReviewSettings");
@@ -299,10 +290,10 @@ test("each agent uses project defaults until customized with bb's pickers", asyn
 
   // Custom starts from the personal project's defaults, the guide writer at the lowest mode its provider runs in.
   fireEvent.click(within(guide).getByRole("button", { name: "Custom" }));
-  const picker = await slot.findByTestId("bb-provider-model-picker");
+  const picker = await findPicker(slot);
   expect((within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("gpt-6-astra");
   expect((slot.getByRole("combobox", { name: "Permission mode" }) as HTMLSelectElement).value).toBe("accept-edits");
-  await pickerEdit(() => within(picker).getByRole("textbox", { name: "Model" }) as HTMLInputElement, "gpt-6");
+  fireEvent.change(within(picker).getByRole("textbox", { name: "Model" }), { target: { value: "gpt-6" } });
   fireEvent.change(within(picker).getByRole("textbox", { name: "Reasoning level" }), { target: { value: "high" } });
   fireEvent.change(within(picker).getByRole("combobox", { name: "Service tier" }), { target: { value: "fast" } });
   fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
@@ -310,10 +301,10 @@ test("each agent uses project defaults until customized with bb's pickers", asyn
 
   // Without defaults, saving waits until the pickers resolve a provider and model.
   fireEvent.click(within(assistant).getByRole("button", { name: "Custom" }));
-  await waitFor(() => expect(slot.getAllByTestId("bb-provider-model-picker")).toHaveLength(2));
+  const second = await findPicker(within(assistant.parentElement!));
+  expect(slot.getAllByTestId("bb-provider-model-picker")).toHaveLength(2);
   expect(slot.getByRole("button", { name: "Save settings" }).getAttribute("aria-disabled")).toBe("true");
-  const second = slot.getAllByTestId("bb-provider-model-picker")[1];
-  await pickerEdit(() => within(second).getByRole("textbox", { name: "Provider ID" }) as HTMLInputElement, "pi");
+  fireEvent.change(within(second).getByRole("textbox", { name: "Provider ID" }), { target: { value: "pi" } });
   fireEvent.change(within(second).getByRole("textbox", { name: "Model" }), { target: { value: "local" } });
   fireEvent.click(within(second).getByRole("button", { name: "Apply execution selection" }));
   fireEvent.click(slot.getByRole("button", { name: "Save settings" }));
@@ -370,7 +361,7 @@ test("a custom agent can run on another machine, with bb's pickers listing that 
   const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record, savePreferences: save, listMachines } });
   const machine = await slot.findByRole("combobox", { name: "Machine" }) as HTMLSelectElement;
   await waitFor(() => expect(Array.from(machine.options).map((option) => option.text)).toEqual(["bb-server-0 (server)", "FloMac", "FloMac Original (offline)"]));
-  const picker = slot.getByTestId("bb-provider-model-picker");
+  const picker = await findPicker(slot);
   expect(picker.dataset.routingKind).toBe("primary");
 
   fireEvent.change(machine, { target: { value: "host_flomac" } });
@@ -720,7 +711,7 @@ test("a custom agent on a provider that runs only at Full says it can't be restr
   for (const label of ["Guide writer agent", "Review agent"]) {
     const group = await slot.findByRole("group", { name: label });
     fireEvent.click(within(group).getByRole("button", { name: "Custom" }));
-    const picker = await within(group.parentElement!).findByTestId("bb-provider-model-picker");
+    const picker = await findPicker(within(group.parentElement!));
     // Codex runs at Accept Edits: no note.
     expect(group.parentElement!.textContent).not.toContain("can’t be restricted");
     fireEvent.change(within(picker).getByRole("textbox", { name: "Provider ID" }), { target: { value: "pi" } });
