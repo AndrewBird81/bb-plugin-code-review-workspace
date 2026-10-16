@@ -68,3 +68,43 @@ test("after a reload, an outside author's guide restarts only at the head you st
   expect(store.getGuide("pr-1")?.title).toBe("Kept");
   expect(store.getReview("pr-1")).toMatchObject({ status: "error", headSha: "sha1" });
 });
+
+test("after a reload with the guide writer's machine offline, the guide restarts on a later pass once it's back", async () => {
+  const host = { id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } };
+  const { bb, harness, store, stop } = await interrupted({ "hosts.get": async () => host, "projects.list": async () => [{ id: "personal", kind: "personal" }] });
+  store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
+  await plugin(bb);
+  await vi.waitFor(() => expect(store.getReview("pr-1")?.restartPending).toEqual({ since: expect.any(Number) }));
+  expect(stop).toHaveBeenCalledWith({ threadId: "old-worker" });
+  const pass = async () => {
+    const { controller, done } = harness.runService("review-state");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort();
+    await done;
+  };
+  // Still offline: the review waits, Failed.
+  await pass();
+  expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
+  expect(store.getReview("pr-1")).toMatchObject({ status: "error", restartPending: { since: expect.any(Number) } });
+  host.status = "connected";
+  await pass();
+  await vi.waitFor(() => expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
+  expect(store.getReview("pr-1")).toMatchObject({ status: "generating", headSha: "sha2", restartPending: null });
+});
+
+test("an interrupted guide whose machine stays offline past 10 minutes isn't tried again", async () => {
+  const host = { id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } };
+  const { bb, harness, store } = await interrupted({ "hosts.get": async () => host });
+  store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
+  await plugin(bb);
+  await vi.waitFor(() => expect(store.getReview("pr-1")?.restartPending).toBeTruthy());
+  store.setLifecycle("pr-1", { restartPending: { since: Date.now() - 11 * 60_000 } });
+  host.status = "connected";
+  const { controller, done } = harness.runService("review-state");
+  await vi.waitFor(() => expect(store.getReview("pr-1")?.restartPending).toBeNull());
+  controller.abort();
+  await done;
+  expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
+  expect(store.getReview("pr-1")).toMatchObject({ status: "error", headSha: "sha1" });
+  expect(harness.inspection.logEntries.some((entry: any) => String(entry.message).includes("stays failed"))).toBe(true);
+});

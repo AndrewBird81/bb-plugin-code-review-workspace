@@ -61,6 +61,7 @@ import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
 import { threadSignals, turnOptions } from "./src/turn-signals";
 import { mayRunChecks, trustedAuthor } from "./lib/trust";
+import { restartInterruptedGuide, retryInterruptedGuides } from "./src/interrupted-guides";
 import { reReviewCheckPrompt } from "./src/preferences";
 import { createInstructionSuggester, describeRemovals, learningStats, noteReviewerRemoval, noteReviewerSave, recordOutcomes, removalWarning } from "./src/learning";
 
@@ -111,8 +112,7 @@ export default async function plugin(bb: BbPluginApi) {
         await bb.sdk.threads.archive({ threadId: workerId }).catch(() => {});
         await bb.sdk.threads.stop({ threadId: workerId }).catch(() => {});
       }
-      const restarted = await rerunReview(deps, targetKey, { notify: false, unattended: true });
-      if (!restarted.ok) bb.log.warn(`The interrupted guide for ${targetKey} didn't restart: ${restarted.error}`);
+      await restartInterruptedGuide(deps, targetKey);
     }
   })().catch((error) => bb.log.warn(`Could not restart interrupted guides: ${String(error)}`));
   // A turn that ended while the plugin was down never settled what waited for it.
@@ -142,6 +142,7 @@ export default async function plugin(bb: BbPluginApi) {
       let prunedAt = 0;
       while (!signal.aborted) {
         await updates.run(() => sync.all(), false).catch(() => {});
+        await updates.run(() => retryInterruptedGuides(deps), false).catch(() => {});
         // Once a day, drop the stored diffs of reviews out of play for a month.
         if (Date.now() - prunedAt >= 86_400_000) {
           prunedAt = Date.now();
