@@ -151,6 +151,8 @@ test("doubts sit above Submit beside their fixes, and Submit still asks once mor
   expect(suggestion.getByText("Agent suggests Request changes")).toBeTruthy();
   expect(view.queryByText("The agent suggested Request changes.")).toBeNull();
   expect(view.getByText("Approving with 1 blocking comment.")).toBeTruthy();
+  // Submit names the mismatch too.
+  expect(submit(view).textContent).toBe("Submit to GitHub · Approve · 1 blocking");
   fireEvent.click(submit(view));
   expect((await view.findByRole("alert")).textContent).toContain("Approve with 1 blocking comment? The agent suggested Request changes.");
   expect(rpc.submitReview).not.toHaveBeenCalled();
