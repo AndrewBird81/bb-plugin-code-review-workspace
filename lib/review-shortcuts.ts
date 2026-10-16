@@ -31,6 +31,9 @@ export const COMMENT_BOX_KEYS = [
 /** A control's tooltip, naming its key while single-key shortcuts are on. */
 export const keyHint = (label: string, key: string, on: boolean) => on ? `${label} (${key})` : label;
 
+/** A control's aria-keyshortcuts for its key, in ARIA's words ("Shift+F"), while single-key shortcuts are on. */
+export const ariaKeys = (key: string, on: boolean) => on ? (/^[A-Z]$/.test(key) ? `Shift+${key}` : key) : undefined;
+
 /** How the help sheet writes the keys that aren't what they type. */
 export const KEY_LABEL: Partial<Record<string, string>> = { V: "⇧V", F: "⇧F", Escape: "Esc" };
 

@@ -238,6 +238,23 @@ test("with single-key shortcuts off, the commands' tooltips name no key, and Rev
   page.lifecycle.unmount(); bar!.lifecycle.unmount();
 });
 
+test("the commands and the band's chapters toggle name their keys for screen readers, only while single-key shortcuts are on", async () => {
+  fakeSize(1400, 900);
+  fakeFullscreen();
+  const keysOf = async (preferences: unknown) => {
+    const { bar, page } = await renderReview({ rpc: { getPreferences: () => preferences } });
+    const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
+    await commands.findByRole("button", { name: /^Submit review/ });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const keys = ["Comments", "Ask agent", /^Submit review/, "Full screen"].map((name) => commands.getByRole("button", { name }).getAttribute("aria-keyshortcuts"));
+    keys.push(page.getByRole("button", { name: "Hide chapters" }).getAttribute("aria-keyshortcuts"));
+    page.lifecycle.unmount(); bar!.lifecycle.unmount();
+    return keys;
+  };
+  expect(await keysOf({ preferences: defaultPreferences, revision: 0 })).toEqual(["c", "a", "s", "Shift+F", "t"]);
+  expect(await keysOf({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, singleKeyShortcuts: false } }, revision: 1 })).toEqual([null, null, null, null, null]);
+});
+
 test("an archived review's actions don't offer to rebuild its guide, which the server would refuse", async () => {
   fakeSize(1400, 900);
   const { bar } = await renderReview({ review: { prState: "MERGED", archivedAt: 1 } });

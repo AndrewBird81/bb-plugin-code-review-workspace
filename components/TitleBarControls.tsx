@@ -2,7 +2,7 @@ import { useCallback, useEffect } from "react";
 import { VERDICT_LABEL } from "../src/draft";
 import { useDraftStatus } from "../lib/draft-status";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
-import { keyHint } from "../lib/review-shortcuts";
+import { ariaKeys, keyHint } from "../lib/review-shortcuts";
 import { cn } from "../lib/utils";
 import { phoneWindow } from "../lib/workspace-layout";
 import { mountTitleBar, panelPage, useNeedsYou, useWorkspaceFor } from "../lib/workspace-store";
@@ -65,20 +65,20 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
       <div role="group" aria-label="Review commands" data-review-commands={api.targetKey} className="flex shrink-0 items-center gap-1">
         <Hint label={keyHint("Comments", "c", api.shortcuts)} container={container}>
-          <Button variant="ghost" size="sm" aria-label={needsYou ? `Comments, ${needsYou} need you` : "Comments"} aria-pressed={panel.view === "comments"} aria-controls={controls} className={tier === "labeled" ? labeled : cn(icon, needsYou > 0 && "w-auto gap-1 px-2")} onClick={() => panel.toggle("comments")}>
+          <Button variant="ghost" size="sm" aria-label={needsYou ? `Comments, ${needsYou} need you` : "Comments"} aria-pressed={panel.view === "comments"} aria-controls={controls} aria-keyshortcuts={ariaKeys("c", api.shortcuts)} className={tier === "labeled" ? labeled : cn(icon, needsYou > 0 && "w-auto gap-1 px-2")} onClick={() => panel.toggle("comments")}>
             <Icon name="MessageSquare" aria-hidden />
             {tier === "labeled" && "Comments"}
             {needsYou > 0 && <span aria-hidden className="min-w-4 rounded-full bg-primary px-1 text-center text-[10px] font-semibold leading-4 text-primary-foreground tabular-nums">{needsYou}</span>}
           </Button>
         </Hint>
         <Hint label={keyHint("Ask agent", "a", api.shortcuts)} container={container}>
-          <Button variant="ghost" size="sm" aria-label="Ask agent" aria-pressed={panel.view === "agent"} aria-controls={controls} className={tier === "icons" ? icon : labeled} onClick={() => panel.view === "agent" ? panel.close() : api.askAgent()}>
+          <Button variant="ghost" size="sm" aria-label="Ask agent" aria-pressed={panel.view === "agent"} aria-controls={controls} aria-keyshortcuts={ariaKeys("a", api.shortcuts)} className={tier === "icons" ? icon : labeled} onClick={() => panel.view === "agent" ? panel.close() : api.askAgent()}>
             <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />
             {tier !== "icons" && "Ask agent"}
           </Button>
         </Hint>
         {status && <Hint label={keyHint("Finish and submit", "s", api.shortcuts)} container={container}>
-          <Button variant="ghost" size="sm" aria-label={`Submit review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`} aria-pressed={panel.view === "finish"} aria-controls={controls} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
+          <Button variant="ghost" size="sm" aria-label={`Submit review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`} aria-pressed={panel.view === "finish"} aria-controls={controls} aria-keyshortcuts={ariaKeys("s", api.shortcuts)} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
             <Icon name="Github" aria-hidden />
             {/* A band under 720px (full screen on a phone) keeps its room for where you are: the icon and the count. */}
             <span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>{tier === "labeled" ? "Submit review" : "Submit"}</span>
@@ -93,6 +93,7 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
             variant="ghost"
             size="sm"
             aria-label={api.fullscreen.on ? "Exit full screen" : "Full screen"}
+            aria-keyshortcuts={ariaKeys("F", api.shortcuts)}
             className={icon}
             onClick={(event) => {
               // From the keyboard (a click without a pointer), the focus follows the toggle.

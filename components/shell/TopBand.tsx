@@ -1,6 +1,6 @@
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { cn } from "../../lib/utils";
-import { keyHint } from "../../lib/review-shortcuts";
+import { ariaKeys, keyHint } from "../../lib/review-shortcuts";
 import { useWorkspace } from "../../lib/workspace-context";
 import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
@@ -24,12 +24,12 @@ export function TopBand({ find = false, hidden = false }: { find?: boolean; hidd
     <div hidden={hidden} className={cn("flex shrink-0 items-center gap-0.5", hidden && "hidden")}>
       <Hint label={keyHint("Chapters", "t", shortcuts)} container={container}>
         {/* Its label says whether they show, so it isn't a pressed toggle too: it only looks pressed. */}
-        <Button variant="ghost" size="sm" aria-label={nav.open ? "Hide chapters" : "Show chapters"} aria-controls={navigatorId(targetKey)} className={cn(button, nav.open && "bg-state-active text-foreground hover:bg-state-active")} onClick={nav.toggle}>
+        <Button variant="ghost" size="sm" aria-label={nav.open ? "Hide chapters" : "Show chapters"} aria-controls={navigatorId(targetKey)} aria-keyshortcuts={ariaKeys("t", shortcuts)} className={cn(button, nav.open && "bg-state-active text-foreground hover:bg-state-active")} onClick={nav.toggle}>
           <Icon name="ListView" aria-hidden />
         </Button>
       </Hint>
       {find && <Hint label={keyHint("Find in review", "/", shortcuts)} container={container}>
-        <Button variant="ghost" size="sm" aria-label="Find in review" className={button} onClick={nav.find}>
+        <Button variant="ghost" size="sm" aria-label="Find in review" aria-keyshortcuts={ariaKeys("/", shortcuts)} className={button} onClick={nav.find}>
           <Icon name="Search" aria-hidden />
         </Button>
       </Hint>}
