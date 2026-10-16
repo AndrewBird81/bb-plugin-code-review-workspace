@@ -79,7 +79,10 @@ test("a review started with bb review in a thread leads with Send to that thread
   const region = within(await slot.findByRole("region", { name: "Send to thread" }));
   expect(getSourceThread).toHaveBeenCalledWith({ targetKey: "k" });
   expect(region.getByRole("button", { name: "Fix in a new thread" })).toBeTruthy();
-  fireEvent.click(region.getByRole("button", { name: "Send 2 comments to Retry uploads" }));
+  const send = region.getByRole("button", { name: "Send 2 comments to Retry uploads" });
+  // One gap before the title, not a space and the gap (72-hands-on #4).
+  expect(Array.from(send.childNodes).some((node) => node.nodeType === Node.TEXT_NODE && !node.textContent!.trim())).toBe(false);
+  fireEvent.click(send);
   const picks = within(slot.getByRole("group", { name: "Comments to send" }));
   fireEvent.click(picks.getByRole("checkbox", { name: /src\/b\.ts:9/ }));
   expect(region.getByText(/asks it to reply with what it changed\. Nothing goes to GitHub/)).toBeTruthy();

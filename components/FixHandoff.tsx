@@ -93,7 +93,7 @@ export function FixHandoff({ targetKey, comments }: { targetKey: string; comment
         <Button size="sm" variant="ghost" className={TOUCH_CONTROL} disabled={busy} onClick={() => setChoosing(null)}>Cancel</Button>
       </div>
     </fieldset> : comments.length > 0 && (open ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <Button variant="outline" size="sm" className={`max-w-full ${TOUCH_CONTROL}`} onClick={() => choose("send")}><Icon name="Send" className="size-4" aria-hidden /><span className="shrink-0">Send {count} to</span> <ThreadName threadId={open.threadId} title={open.title} /></Button>
+      <Button variant="outline" size="sm" className={`max-w-full ${TOUCH_CONTROL}`} onClick={() => choose("send")}><Icon name="Send" className="size-4" aria-hidden />{/* The word space ends the label, where it collapses: the button's gap alone spaces the title. */}<span className="shrink-0">Send {count} to </span><ThreadName threadId={open.threadId} title={open.title} /></Button>
       <span className="text-xs text-muted-foreground">or <button type="button" className={LINK} onClick={() => choose("fix")}>Fix in a new thread</button></span>
     </div> : <Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={() => choose("fix")}><Icon name="Code" className="size-4" aria-hidden />Fix in a new thread</Button>)}
   </section>;
