@@ -28,9 +28,18 @@ test("an image inside a link's text, as a badge, becomes its words, the link kep
   expect(linkImages("[![CI](https://img.example/ci.svg)](https://ci.example/run)")).toBe("[Image: CI](https://ci.example/run)");
 });
 
-test("a closed fence at the margin is left as written", () => {
+test("an image written inside a fence shows as a link too", () => {
   const fenced = "Before ![a](a.png)\n```md\n![x](y.png)\n<img src=\"z.png\">\n```\n~~~\n![t](t.png)\n~~~\nAfter ![b](b.png)";
-  expect(linkImages(fenced)).toBe("Before [Image: a](a.png)\n```md\n![x](y.png)\n<img src=\"z.png\">\n```\n~~~\n![t](t.png)\n~~~\nAfter [Image: b](b.png)");
+  expect(linkImages(fenced)).toBe("Before [Image: a](a.png)\n```md\n[Image: x](y.png)\n[Image](z.png)\n```\n~~~\n[Image: t](t.png)\n~~~\nAfter [Image: b](b.png)");
+});
+
+// In an HTML block a fence line is raw HTML, so the image after the block was a paragraph while linkImages skipped it
+// as fenced (95-recheck P2 #1).
+test("a fence line inside an HTML block doesn't keep the image after the block", () => {
+  for (const [open, close] of [["<!--", "-->"], ["<pre>", "</pre>"], ["<script>", "</script>"], ["<?", "?>"], ["<div>", "</div>\n"]]) {
+    expect(linkImages(`${open}\n\`\`\`\n${close}\n![x](https://evil.test/h.png)\n\`\`\``)).toBe(`${open}\n\`\`\`\n${close}\n[Image: x](https://evil.test/h.png)\n\`\`\``);
+  }
+  expect(linkImages("<div>\n```\n</div>\n\n<img src=\"https://evil.test/d.png\">\n```")).toBe("<div>\n```\n</div>\n\n[Image](https://evil.test/d.png)\n```");
 });
 
 // Each of these rendered an image after linkImages (70-review #1, 71-security F2).

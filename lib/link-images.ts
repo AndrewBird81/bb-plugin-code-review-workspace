@@ -4,44 +4,18 @@
 /**
  * `markdown` with each image as a link to it, `[Image: alt](url)` or `[Image](url)`, so nothing loads until it's
  * clicked: inline and reference images, and HTML `<img>`. An image inside a link's text becomes its words, the link
- * kept. Only a closed fence at the margin is left as written: whether backticks make a code span, or an indented fence
- * code, depends on links, HTML, tables and list items around them, so code spans and other fences are changed too.
+ * kept. Code is changed too: whether backticks make a code span, or a fence code, depends on links, HTML blocks, tables
+ * and list items around them, so an image written inside code shows as a link.
  */
 export function linkImages(markdown: string): string {
   if (!/!\[|<img\b/i.test(markdown)) return markdown;
   const text = markdown.replace(/\r\n?/g, "\n");
   const labels = new Set([...text.matchAll(/^ {0,3}\[([^\]\n]+)\]:/gm)].map((match) => normalLabel(match[1])));
-  return outsideFences(text, (prose) => linkMarkdownImages(linkHtmlImages(prose), labels));
+  return linkMarkdownImages(linkHtmlImages(text), labels);
 }
 
 const normalLabel = (label: string) => label.trim().replace(/\s+/g, " ").toLowerCase();
 const imageLabel = (alt: string) => alt.trim() ? `Image: ${alt.trim()}` : "Image";
-
-/**
- * Runs `change` over all but the fenced code blocks that open at the margin and close, which stay as they are. A fence
- * indented 1–3 spaces may sit in a list item, which a line at the margin ends, so its lines are changed as text.
- */
-function outsideFences(markdown: string, change: (text: string) => string): string {
-  const lines = markdown.split("\n");
-  const parts: string[] = [];
-  let prose: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const open = /^ {0,3}(`{3,}|~{3,})/.exec(lines[i]);
-    // A backtick fence's info string has no backtick.
-    if (!open || (open[1][0] === "`" && lines[i].slice(open[0].length).includes("`"))) { prose.push(lines[i]); continue; }
-    const fence = new RegExp(`^ {0,3}${open[1][0]}{${open[1].length},}\\s*$`);
-    let end = i + 1;
-    while (end < lines.length && !fence.test(lines[end])) end++;
-    const block = lines.slice(i, end + 1);
-    i = end;
-    if (open[0] !== open[1] || end === lines.length) { prose.push(...block); continue; }
-    if (prose.length) parts.push(change(prose.join("\n")));
-    prose = [];
-    parts.push(block.join("\n"));
-  }
-  if (prose.length) parts.push(change(prose.join("\n")));
-  return parts.join("\n");
-}
 
 /** `text` and then `link`: a `!` ending the text is escaped, so that with a link's `[` it isn't an image. */
 const thenLink = (text: string, link: string) => link.startsWith("[") && /(^|[^\\])(\\\\)*!$/.test(text) ? `${text.slice(0, -1)}\\!${link}` : text + link;
