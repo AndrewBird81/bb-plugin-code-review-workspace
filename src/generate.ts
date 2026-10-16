@@ -10,6 +10,7 @@ import type { Guide } from "./guide";
 import { approve, mayRunUnattended } from "../lib/trust";
 import { fitHunks } from "./hunks";
 import { spawningFor } from "./thread-review";
+import { recordFormerWorker } from "./former-workers";
 import { untrusted } from "./untrusted";
 import { GUIDE_STOPPED } from "../lib/review-state";
 
@@ -134,6 +135,9 @@ export async function generateGuide(
     const kept = store.getGuide(targetKey);
     const patch = store.patch(targetKey);
     const earlier = { guide: kept && { ...kept, sections: fitHunks(kept.sections, patch) }, reviewed: !!(review && baselineOf(review).at) };
+    // The writer this generation replaces can still run commands: as a former writer, only on its own review.
+    const replaced = store.generationWorker(targetKey);
+    if (replaced) void recordFormerWorker(bb, replaced, targetKey, "writer");
     generationId = store.beginGeneration(targetKey);
     store.setLifecycle(targetKey, { guideError: null });
     const running = generations.get(bb) ?? new Map<string, typeof generation>();

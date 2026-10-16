@@ -8,6 +8,7 @@ import { diffPositions } from "./review-positions";
 import { agentPlacement, machineUnavailable, personalProjectId } from "./machines";
 import { spawnExecution } from "./preferences";
 import { untrusted } from "./untrusted";
+import { recordFormerWorker } from "./former-workers";
 import { REMOVAL_NOTE_LIMIT, REMOVAL_REASON_WORDS, REMOVAL_REASONS, type RemovalReason, type RemovalReasonId } from "../lib/removal-reasons";
 
 // Words are kept as GitHub would get them, severity label and all, so a changed severity is an edit.
@@ -299,6 +300,8 @@ export function createInstructionSuggester(bb: BbPluginApi, store: Store, change
         ...spawnExecution(assistantAgent),
       });
       workerId = worker.id;
+      // It runs at the review agent's permissions with no review of its own: to bb review, every review is another's.
+      await recordFormerWorker(bb, worker.id, null, "suggester");
       await bb.sdk.threads.wait({ threadId: worker.id, status: "idle", timeoutMs: WAIT_MS, signal: stopped.signal });
       const { output } = await bb.sdk.threads.output({ threadId: worker.id });
       settle({ state: "ready", at: Date.now(), text: suggestionLines(output ?? "") });

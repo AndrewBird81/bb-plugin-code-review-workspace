@@ -49,6 +49,7 @@ import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
 import { GUIDE_WORKER_TITLE, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideRejected, guideWorkerFailed, guideWriterMode } from "./src/generate";
 import { pluginThreadsTitled, threadReview, threadRole, toolThreadReview } from "./src/thread-review";
+import { formerWorkerReview } from "./src/former-workers";
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { localDiffChanged, rerunReview } from "./src/rereview";
 import { getGhAccounts, switchGhAccount, checkRepoAccess } from "./src/gh-accounts";
@@ -1226,8 +1227,9 @@ export default async function plugin(bb: BbPluginApi) {
     async run(argv, ctx) {
       const changedDraft = (targetKey: string) => bb.realtime.publish(`draft:${targetKey}`, {});
       return updates.run(async () => {
-        // A review's own assistant or guide writer, by its recorded identity, may change only that review.
-        const ownReview = (ctx.threadId ? await toolThreadReview(bb, store, ctx.threadId) : null) ?? undefined;
+        // A review's own assistant or guide writer, by its recorded identity, may change only that review, as may
+        // one it replaced; the Suggest instructions worker, none.
+        const ownReview = (ctx.threadId ? await toolThreadReview(bb, store, ctx.threadId) ?? await formerWorkerReview(bb, ctx.threadId) : null) ?? undefined;
         if (argv[0] === "list" && store.getPreferences().preferences.knobs.reviewCommandInThreads) {
           return ownReview === undefined ? runListCommand(await listed(), argv.slice(1)) : { exitCode: 2, stderr: NOT_LISTED };
         }

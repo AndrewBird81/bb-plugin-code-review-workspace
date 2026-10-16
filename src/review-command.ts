@@ -34,7 +34,7 @@ const CONTEXT_LIMIT = 12_000;
 export const NOT_OWN_REVIEW = "This agent can change only its own review.";
 
 /**
- * `ownReview` is set when a review's own assistant or guide writer runs the command: it may start only that review,
+ * `ownReview` is set when a review's own assistant or guide writer, or one replaced, runs the command: it may start only that review,
  * and its guide is unattended, so it doesn't approve agents on the PR's head as your click does.
  */
 export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, ownReview?: string) {

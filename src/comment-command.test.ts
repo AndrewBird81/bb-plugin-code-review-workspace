@@ -4,6 +4,8 @@ import plugin from "../server";
 import { createStore } from "./store";
 import { targetKey } from "./targets";
 import { runGh } from "./gh";
+import { getConversation, newConversation } from "./agent";
+import { FORMER_WORKERS_KEPT, recordFormerWorker } from "./former-workers";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -18,7 +20,7 @@ async function host() {
   store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   store.savePatch(key, patch);
   const cli = (...argv: string[]) => harness.behavior.runCli(["comment", ...argv]);
-  return { harness, store, cli };
+  return { bb, harness, store, cli };
 }
 
 test("bb review comment adds, lists, edits, and deletes local draft comments, and never calls GitHub", async () => {
@@ -130,6 +132,97 @@ test("bb review from a review's own agent rebuilds its guide without approving a
   store.saveReview({ ...store.getReview(key)!, status: "ready", headSha: "sha1" });
   expect(await harness.behavior.runCli([url], { threadId: "ordinary", projectId: "p1" })).toMatchObject({ exitCode: 0 });
   expect(store.getReview(key)?.approvedHead).toBe("sha2");
+});
+
+/** A second review, PR 8, and gh answering for its new head sha2. */
+function otherReview(store: ReturnType<typeof createStore>) {
+  const other = targetKey({ kind: "pr", number: 8, repo: "acme/web" });
+  store.saveReview({ targetKey: other, kind: "pr", number: 8, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
+  store.savePatch(other, patch);
+  vi.mocked(runGh).mockImplementation(async (args: string[]) => {
+    const number = Number(args[2]);
+    return args[1] === "view" ? { code: 0, stderr: "", stdout: JSON.stringify({ number, headRefOid: "sha2", title: "Fix", body: "", author: { login: "a" }, baseRefName: "main", headRefName: "f", url: `https://github.com/acme/web/pull/${number}` }) }
+      : args[1] === "diff" ? { code: 0, stderr: "", stdout: patch.replace("next", "later") }
+      : { code: 0, stderr: "", stdout: "" };
+  });
+  return other;
+}
+
+/** Every bb review command `threadId` might run against the review `on`, and whether each was refused. */
+async function refusedOn(harness: Awaited<ReturnType<typeof host>>["harness"], threadId: string, on: string, number: number) {
+  const as = (...argv: string[]) => harness.behavior.runCli(argv, { threadId, projectId: "p1" });
+  const results = [
+    await as("comment", "add", on, "a.ts:2", "--code", "next();", "--body", "injected"),
+    await as("summary", on, "--body", "injected"),
+    await as("list"),
+    await as(`https://github.com/acme/web/pull/${number}`),
+  ];
+  return results.map((result) => result.exitCode === 2 && /only its own review|can't list reviews/.test(result.stderr ?? ""));
+}
+
+test("an assistant New conversation replaced can't change another review through bb review, and its own bb review doesn't approve agents", async () => {
+  const { harness, store } = await host();
+  const other = otherReview(store);
+  store.setAssistantThread(key, "assistant-7");
+  harness.inspection.sdk.stub("threads.archive", async () => ({}));
+  // The reviewer clicks New conversation: the thread is archived, not stopped, and no longer the review's assistant.
+  expect(await harness.behavior.callRpc("newConversation", { targetKey: key })).toEqual({ ok: true });
+  expect(store.getAssistantThread(key)).toBeNull();
+  expect(await refusedOn(harness, "assistant-7", other, 8)).toEqual([true, true, true, true]);
+  expect(store.getDraft(other)).toMatchObject({ body: "", comments: [] });
+  expect(store.getReview(other)?.approvedHead).toBeUndefined();
+  // Its own review's bb review rebuilds the guide unattended, and doesn't make the thread the review's source.
+  expect(await harness.behavior.runCli([url], { threadId: "assistant-7", projectId: "p1" })).toMatchObject({ exitCode: 0 });
+  expect(store.getReview(key)).toMatchObject({ headSha: "sha2" });
+  expect(store.getReview(key)?.approvedHead).toBeUndefined();
+  expect(store.getReview(key)?.sourceThreadId).toBeUndefined();
+});
+
+test("an assistant found archived, or a guide writer a new generation replaced, can change only its own review", async () => {
+  const { bb, harness, store } = await host();
+  const other = otherReview(store);
+  store.setAssistantThread(key, "archived-7");
+  harness.inspection.sdk.stub("threads.get", async () => ({ archivedAt: 1, deletedAt: null }));
+  expect((await getConversation(bb, store, key)).threadId).toBeNull();
+  expect(await refusedOn(harness, "archived-7", other, 8)).toEqual([true, true, true, true]);
+
+  const generation = store.beginGeneration(key);
+  store.setGenerationWorker(key, generation, "writer-7");
+  store.saveReview({ ...store.getReview(key)!, status: "ready" });
+  // An ordinary thread's bb review rebuilds the guide, with a new writer.
+  expect(await harness.behavior.runCli([url], { threadId: "ordinary", projectId: "p1" })).toMatchObject({ exitCode: 0 });
+  await vi.waitFor(() => expect(store.isCurrentGeneration(key, generation)).toBe(false));
+  expect(await refusedOn(harness, "writer-7", other, 8)).toEqual([true, true, true, true]);
+  expect(await harness.behavior.runCli(["comment", "add", url, "a.ts:2", "--code", "later();", "--body", "Mine"], { threadId: "writer-7", projectId: "p1" })).toMatchObject({ exitCode: 0 });
+});
+
+test("the Suggest instructions worker can't change or list any review through bb review", async () => {
+  const { harness, store } = await host();
+  const other = otherReview(store);
+  harness.inspection.sdk.stub("projects.list", async () => [{ id: "personal", kind: "personal" }]);
+  harness.inspection.sdk.stub("threads.spawn", async () => ({ id: "suggester" }));
+  harness.inspection.sdk.stub("threads.wait", () => new Promise(() => {}));
+  store.recordAgentOutcomes(key, [{ repo: "acme/web", file: "a.ts", outcome: "removed", body: "Nit", edited: null }]);
+  expect(await harness.behavior.callRpc("suggestAssistantInstructions", null)).toEqual({ ok: true });
+  await vi.waitFor(() => expect(harness.inspection.sdk.callsTo("threads.wait")).toHaveLength(1));
+  expect(await refusedOn(harness, "suggester", key, 7)).toEqual([true, true, true, true]);
+  expect(await refusedOn(harness, "suggester", other, 8)).toEqual([true, true, true, true]);
+  expect(store.getReview(key)?.approvedHead).toBeUndefined();
+});
+
+test("a former agent's record outlives its review, and threads never recorded, such as a Fix thread's, are ordinary", async () => {
+  const { bb, harness, store } = await host();
+  const other = otherReview(store);
+  store.setAssistantThread(key, "assistant-7");
+  harness.inspection.sdk.stub("threads.archive", async () => ({}));
+  await newConversation(bb, store, key);
+  store.deleteReview(key);
+  expect(await refusedOn(harness, "assistant-7", other, 8)).toEqual([true, true, true, true]);
+  for (const threadId of ["ordinary", "fix-thread"]) expect(await refusedOn(harness, threadId, other, 8)).toEqual([false, false, false, false]);
+  // The newest records are kept.
+  for (let i = 0; i < FORMER_WORKERS_KEPT; i++) void recordFormerWorker(bb, `old-${i}`, other, "writer");
+  expect(await refusedOn(harness, "assistant-7", other, 8)).toEqual([false, false, false, false]);
+  expect(await refusedOn(harness, `old-${FORMER_WORKERS_KEPT - 1}`, key, 7)).toEqual([true, true, true, true]);
 });
 
 test("bb review comment and bb review summary refuse a --body over 65,000 characters", async () => {

@@ -7,6 +7,7 @@ import { assistantPreferencesPrompt, automaticReviewPrompt, spawnExecution, type
 import { mayRunChecks, mayRunUnattended, skipWhy } from "../lib/trust";
 import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
 import { spawningFor } from "./thread-review";
+import { recordFormerWorker } from "./former-workers";
 
 type ThreadSendArgs = Parameters<BbPluginApi["sdk"]["threads"]["send"]>[0];
 
@@ -110,6 +111,8 @@ export async function getConversation(bb: BbPluginApi, store: Store, targetKey: 
     } catch (error) {
       if (!isMissingThread(error)) throw error;
     }
+    // Archived, it can still run commands: as a former assistant, only on its own review.
+    await recordFormerWorker(bb, threadId, targetKey, "assistant");
     store.clearAssistantThread(targetKey);
     // A conversation archived or deleted won't answer, and its turn's end won't reach this review.
     if (endAssistantWaits(bb, store, targetKey)) waitsEnded.get(bb)?.(targetKey);
@@ -284,6 +287,8 @@ export async function messageAssistant(bb: BbPluginApi, store: Store, targetKey:
 /** Archive the review's conversation so the next message starts a fresh one. */
 export async function newConversation(bb: BbPluginApi, store: Store, targetKey: string): Promise<void> {
   const workers = [store.getAssistantThread(targetKey), store.getAgentThread(targetKey)];
+  // An archived thread can still run commands: as a former assistant, only on its own review.
+  for (const threadId of workers) if (threadId) await recordFormerWorker(bb, threadId, targetKey, "assistant");
   store.clearAssistantThread(targetKey);
   store.clearAgentThread(targetKey);
   store.clearAgentMessages(targetKey);
