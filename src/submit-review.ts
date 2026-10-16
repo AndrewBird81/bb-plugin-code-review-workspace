@@ -1,9 +1,39 @@
 import { bindGhAccount } from "./gh-identity";
 import type { Store } from "./store";
-import { ghErrorMessage, ghPrHeadArgs, ghSubmitReviewArgs, type runGh } from "./gh";
+import { ghErrorMessage, ghPrHeadArgs, ghPrReviewsArgs, ghSubmitReviewArgs, type runGh } from "./gh";
 import { sameComments, toGithubReviewPayload, type DraftComment, type Verdict } from "./draft";
 import { requireReviewRevision } from "./review-revision";
 import { invalidComments } from "./review-positions";
+
+/** Long enough for any review GitHub will take; a POST that hangs past it is checked for, never retried blind. */
+const POST_TIMEOUT_MS = 5 * 60_000;
+/** How far GitHub's clock may run behind this server's when a review is matched to the attempt that posted it. */
+const CLOCK_SKEW_MS = 60_000;
+const STATES: Record<Verdict, string> = { APPROVE: "APPROVED", REQUEST_CHANGES: "CHANGES_REQUESTED", COMMENT: "COMMENTED" };
+
+/**
+ * After a POST that failed or timed out: the review GitHub created from it anyway, as `viewer`, on this commit, with
+ * this summary and verdict, submitted since the attempt began. Its JSON, null when there's none, or undefined when
+ * GitHub couldn't be asked.
+ */
+async function postedAnyway(run: typeof runGh, repo: string, number: number, viewer: string, payload: { event: Verdict; body: string; commit_id: string }, since: number): Promise<string | null | undefined> {
+  const listed = await run(ghPrReviewsArgs(repo, number));
+  if (listed.code !== 0) return undefined;
+  for (const line of listed.stdout.split("\n").reverse()) {
+    let review: any;
+    try { review = JSON.parse(line); } catch { continue; }
+    if (typeof review?.user?.login === "string" && review.user.login.toLowerCase() === viewer.toLowerCase()
+      && review.commit_id === payload.commit_id && review.state === STATES[payload.event] && (review.body ?? "") === payload.body
+      && Date.parse(review.submitted_at) >= since - CLOCK_SKEW_MS) return line;
+  }
+  return null;
+}
+
+/** Why GitHub refused the review, saying how to clear a pending review started on github.com, which blocks it. */
+function refusal(result: { stdout: string; stderr: string }): string {
+  const message = ghErrorMessage(result);
+  return /pending review/i.test(message) ? "You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft has been kept." : message;
+}
 
 export function createReviewSubmitter(store: Store, run: typeof runGh) {
   const inFlight = new Set<string>();
@@ -49,16 +79,23 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       if (typeof base === "string" && base && m.base && base !== m.base) return { ok: false, error: `The PR's base changed to ${base}. Update the guide for it before submitting. Your draft has been kept.` };
       if (store.getReview(targetKey)?.status === "generating" || store.getReview(targetKey)?.headSha !== m.headSha) return { ok: false, error: "The review changed during submission. Wait for generation and review the draft again." };
       if (revision) requireReviewRevision(store, targetKey, revision);
-      const result = await authenticatedRun(ghSubmitReviewArgs(m.repo, m.number), {
-        timeoutMs: 0,
-        stdin: JSON.stringify({ ...toGithubReviewPayload(draft), commit_id: m.headSha }),
-      });
-      if (result.code !== 0) return { ok: false, error: ghErrorMessage(result) };
+      const payload = { ...toGithubReviewPayload(draft), commit_id: m.headSha };
+      const attempted = Date.now();
+      const result = await authenticatedRun(ghSubmitReviewArgs(m.repo, m.number), { timeoutMs: POST_TIMEOUT_MS, stdin: JSON.stringify(payload) });
+      let posted = result.stdout;
+      if (result.code !== 0) {
+        // gh can fail, or time out, after GitHub created the review: finish with that one, so Submit never posts twice.
+        const viewer = account ?? (await authenticatedRun(["api", "user", "--jq", ".login"])).stdout.trim();
+        const found = viewer ? await postedAnyway(authenticatedRun, m.repo, m.number, viewer, payload, attempted) : undefined;
+        if (found === undefined) return { ok: false, error: `${refusal(result)} Couldn't check whether GitHub got your review anyway: look at the PR before you submit again. Your draft has been kept.` };
+        if (found === null) return { ok: false, error: refusal(result) };
+        posted = found;
+      }
       let reviewer: string | undefined;
       let reviewId: string | null = null;
       let url: string | undefined;
       try {
-        const receipt = JSON.parse(result.stdout);
+        const receipt = JSON.parse(posted);
         if (typeof receipt?.user?.login === "string") reviewer = receipt.user.login;
         // The review's GraphQL id, to recognize it when the sync reads it back.
         if (typeof receipt?.node_id === "string") reviewId = receipt.node_id;

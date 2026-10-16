@@ -17,6 +17,10 @@ export function ghRepoViewArgs(): string[] {
 export function ghSubmitReviewArgs(repo: string, number: number): string[] {
   return ["api", "-X", "POST", `repos/${repo}/pulls/${number}/reviews`, "--input", "-"];
 }
+/** The PR's reviews, every page, one compact JSON object per line. */
+export function ghPrReviewsArgs(repo: string, number: number): string[] {
+  return ["api", `repos/${repo}/pulls/${number}/reviews?per_page=100`, "--paginate", "--jq", ".[] | @json"];
+}
 export function gitDiffArgs(gitRef: string, base?: string): string[] {
   if (!gitRef || gitRef.startsWith("-") || base?.startsWith("-")) throw new Error("Expected a git ref, not an option.");
   const range = gitRef.includes("..") ? gitRef : base ? `${base}...${gitRef}` : gitRef;

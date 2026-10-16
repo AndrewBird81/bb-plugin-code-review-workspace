@@ -32,8 +32,8 @@ test("submission pins the reviewed commit and clears only the submitted draft", 
   store.saveReviewerNotes("pr-test", "Private: ask about rollout", 0);
   expect(await submit("pr-test", undefined, undefined, ...page("pr-test"))).toEqual({ ok: true });
   expect(run).toHaveBeenLastCalledWith(expect.arrayContaining(["repos/acme/web/pulls/7/reviews"]), {
-    // No timeout: a submission killed mid-flight could land and then be submitted twice.
-    timeoutMs: 0,
+    // Five minutes: a submission that hangs past it is looked for on GitHub, never posted again blind.
+    timeoutMs: 300_000,
     stdin: JSON.stringify({ event: "COMMENT", body: "My summary", comments: [{ path: "a.ts", line: 1, side: "RIGHT", body: "Please explain this" }], commit_id: "sha1" }),
   });
   expect(store.getDraft("pr-test")).toMatchObject({ verdict: "COMMENT", body: "", comments: [] });
@@ -210,4 +210,79 @@ test("submitReview without the comments, summary, and verdict the page shows is 
   expect(posts()).toBe(0);
   expect(await harness.behavior.callRpc("submitReview", { ...input, comments, body, verdict })).toMatchObject({ ok: true });
   expect(posts()).toBe(1);
+});
+
+/**
+ * GitHub's side for the retry tests: the reviews it holds, and a POST that answers `result`, after creating the review
+ * as "me" when `create` says so, as when gh fails or times out once GitHub has it. The reviews list returns them one
+ * per line, as ghPrReviewsArgs asks.
+ */
+function github(store: ReturnType<typeof createStore>, post: { create: boolean; result: Awaited<ReturnType<typeof runGh>> }, reviews: object[] = []) {
+  let posts = 0;
+  const run = vi.fn<typeof runGh>(async (args, options) => {
+    if (args[0] === "auth") return { code: 0, stderr: "", stdout: "tok\n" };
+    if (args[1] === "user") return { code: 0, stderr: "", stdout: "me\n" };
+    if (args[0] === "pr") return { code: 0, stderr: "", stdout: '{"headRefOid":"sha1","state":"OPEN"}' };
+    if (args.includes("--paginate")) return { code: 0, stderr: "", stdout: reviews.map((review) => JSON.stringify(review)).join("\n") };
+    posts++;
+    const sent = JSON.parse(options!.stdin!);
+    if (post.create) reviews.push({ id: posts, node_id: `R_${posts}`, html_url: `https://github.com/acme/web/pull/7#pullrequestreview-${posts}`, user: { login: "Me" }, commit_id: sent.commit_id, body: sent.body, state: "COMMENTED", submitted_at: new Date().toISOString() });
+    return post.result;
+  });
+  return { run, posts: () => posts, submit: createReviewSubmitter(store, run) };
+}
+const badGateway = { code: 1, stderr: "HTTP 502: Bad Gateway (https://api.github.com/repos/acme/web/pulls/7/reviews)", stdout: "" };
+const timedOut = { code: 124, stderr: "gh timed out after 300s", stdout: "" };
+
+test("a POST that fails after GitHub created the review finishes as that review, so it's never posted twice", async () => {
+  const { store, page } = setup();
+  const gh = github(store, { create: true, result: badGateway });
+  expect(await gh.submit("pr-test", undefined, "me", ...page())).toEqual({ ok: true, url: "https://github.com/acme/web/pull/7#pullrequestreview-1" });
+  expect(store.getDraft("pr-test")).toMatchObject({ body: "", comments: [] });
+  expect(store.getReview("pr-test")).toMatchObject({ submittedVerdict: "COMMENT", submittedReviewId: "R_1", reviewer: "Me" });
+  // Nothing is left to submit again.
+  expect(await gh.submit("pr-test", undefined, "me", ...page())).toMatchObject({ ok: false });
+  expect(gh.posts()).toBe(1);
+});
+
+test("a POST that hangs gives up after five minutes, then finds the review it created", async () => {
+  const { store, page } = setup();
+  const gh = github(store, { create: true, result: timedOut });
+  expect(await gh.submit("pr-test", undefined, "me", ...page())).toEqual({ ok: true, url: "https://github.com/acme/web/pull/7#pullrequestreview-1" });
+  expect(gh.run.mock.calls.find(([args]) => args.includes("POST"))![1]).toMatchObject({ timeoutMs: 300_000 });
+});
+
+test("a failed POST keeps the draft when GitHub has no review from it: not an earlier one, another commit's, or someone else's", async () => {
+  const { store, page } = setup();
+  const draft = store.getDraft("pr-test");
+  const mine = { node_id: "R_old", user: { login: "me" }, commit_id: "sha1", body: "My summary", state: "COMMENTED", submitted_at: new Date().toISOString() };
+  const gh = github(store, { create: false, result: badGateway }, [
+    { ...mine, submitted_at: new Date(Date.now() - 3_600_000).toISOString() },
+    { ...mine, commit_id: "sha0" },
+    { ...mine, user: { login: "alice" } },
+    { ...mine, state: "APPROVED" },
+    { ...mine, body: "An older summary" },
+  ]);
+  expect(await gh.submit("pr-test", undefined, "me", ...page())).toEqual({ ok: false, error: "HTTP 502: Bad Gateway (https://api.github.com/repos/acme/web/pulls/7/reviews)" });
+  expect(store.getDraft("pr-test")).toEqual(draft);
+});
+
+test("when GitHub can't say whether a failed POST landed, Submit says to look at the PR first", async () => {
+  const { store, page } = setup();
+  const gh = github(store, { create: false, result: timedOut });
+  const answer = gh.run.getMockImplementation()!;
+  gh.run.mockImplementation(async (args, options) => args.includes("--paginate") ? { code: 1, stderr: "HTTP 502", stdout: "" } : answer(args, options));
+  expect(await gh.submit("pr-test", undefined, "me", ...page())).toEqual({ ok: false, error: "gh timed out after 300s Couldn't check whether GitHub got your review anyway: look at the PR before you submit again. Your draft has been kept." });
+  expect(store.getDraft("pr-test").comments).toHaveLength(1);
+});
+
+test("a submit blocked by a pending review started on github.com says how to clear it, keeping the draft", async () => {
+  const { store, page } = setup();
+  const draft = store.getDraft("pr-test");
+  const gh = github(store, { create: false, result: {
+    code: 1, stderr: "gh: Unprocessable Entity (HTTP 422)\n",
+    stdout: JSON.stringify({ message: "Unprocessable Entity", errors: ["User can only have one pending review per pull request"], documentation_url: "https://docs.github.com/rest/pulls/reviews#create-a-review-for-a-pull-request", status: "422" }),
+  } });
+  expect(await gh.submit("pr-test", undefined, "me", ...page())).toEqual({ ok: false, error: "You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft has been kept." });
+  expect(store.getDraft("pr-test")).toEqual(draft);
 });
