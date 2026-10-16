@@ -31,6 +31,8 @@ test("the assistant starts in the review panel, with an optional widget", async 
   await renderDock({}, { getConversation: unstarted });
   await screen.findByText("Ask about this change.");
   expect(screen.getByRole("region", { name: "Review agent" })).toBeTruthy();
+  // Its header is a heading, as when it's popped out.
+  expect(within(screen.getByRole("region", { name: "Review agent" })).getByRole("heading", { level: 2, name: "Review agent" })).toBeTruthy();
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.getByRole("button", { name: "Pop out" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "New conversation" })).toBeNull();

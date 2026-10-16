@@ -204,7 +204,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
   const panel = <>
     <div className={cn("flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5", mode === "widget" && "cursor-move bg-surface-raised")} onPointerDown={mode === "widget" ? (event) => startGesture(event, "move") : undefined}>
       <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />
-      <span className="text-sm font-medium">Review agent</span>
+      <h2 className="text-sm font-medium">Review agent</h2>
       {(threadId || conversation?.legacy.length) ? <Button variant="ghost" size="icon" className="ml-auto size-7 pointer-coarse:size-11" aria-label="New conversation" onPointerDown={(event) => event.stopPropagation()} onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
       {popOut && <Button variant="ghost" size="sm" className={cn("pointer-coarse:h-11", !(threadId || conversation?.legacy.length) && "ml-auto")} onPointerDown={(event) => event.stopPropagation()} onClick={mode === "widget" ? dock : () => setMode("widget")}>
         <Icon name={mode === "widget" ? "Minimize2" : "Maximize2"} className="size-3.5" aria-hidden />{mode === "widget" ? "Dock" : "Pop out"}
