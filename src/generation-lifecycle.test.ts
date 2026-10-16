@@ -142,3 +142,26 @@ test("a wait that fails before its time ends the generation, even while the work
   expect(wait).toHaveBeenCalledTimes(1);
   expect(store.getReview("target")?.status).toBe("error");
 });
+
+test("an accepted guide is ready at once, though its worker's turn goes on", async () => {
+  const archive = vi.fn(async () => ({}));
+  const stop = vi.fn(async () => ({}));
+  let prompt = "";
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: async (args: { prompt: string }) => { prompt = args.prompt; return { id: "worker" }; },
+    // The worker never goes idle: it goes on to write a recap.
+    wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })),
+    archive, stop,
+  } } as any });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  const run = generateGuide(bb, store, "target", "p1", { notify: false });
+  await vi.waitFor(() => expect(prompt).toContain("generationId"));
+  const generationId = prompt.match(/generationId "([^"]+)"/)![1];
+  expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "target", generationId, guide }))).toBeFalsy();
+  await run;
+  expect(store.getReview("target")?.status).toBe("ready");
+  expect(archive).toHaveBeenCalledWith({ threadId: "worker" });
+  expect(stop).toHaveBeenCalledWith({ threadId: "worker" });
+}, 5_000);

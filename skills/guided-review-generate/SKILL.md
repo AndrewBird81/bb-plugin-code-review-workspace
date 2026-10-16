@@ -71,3 +71,5 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat everythi
    reuse one from another run. If the tool reports an expired or superseded generation, stop:
    a newer worker owns the review. For coverage or validation errors, fix the guide and retry
    with the same identifiers. Never alter the diff to fit the guide.
+
+When the tool answers `Guide accepted.`, stop. End your turn without a recap.

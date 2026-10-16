@@ -23,6 +23,9 @@ const active = new WeakMap<BbPluginApi, Set<AbortController>>();
 const failures = new WeakMap<BbPluginApi, Map<string, AbortController>>();
 /** thread.failed: a guide worker that failed ends its generation now, instead of at the wait's timeout. */
 export function guideWorkerFailed(bb: BbPluginApi, threadId: string) { failures.get(bb)?.get(threadId)?.abort(); }
+const acceptances = new WeakMap<BbPluginApi, Map<string, AbortController>>();
+/** generate_review_guide accepted generation `generationId`'s guide: its run finishes now, not when the worker's turn ends. */
+export function guideAccepted(bb: BbPluginApi, generationId: string) { acceptances.get(bb)?.get(generationId)?.abort(); }
 
 // Each wait lasts up to WAIT_STEP; a worker still working is waited for again, up to a cap that grows with the diff.
 const WAIT_STEP = 600_000;
@@ -85,6 +88,7 @@ export async function generateGuide(
   let workerId: string | undefined;
   let threads: BbPluginApi["sdk"]["threads"] | undefined;
   const controller = new AbortController();
+  const accepted = new AbortController();
   const runs = active.get(bb) ?? new Set<AbortController>();
   active.set(bb, runs);
   runs.add(controller);
@@ -97,6 +101,9 @@ export async function generateGuide(
     const patch = store.patch(targetKey);
     const earlier = { guide: kept && { ...kept, sections: fitHunks(kept.sections, patch) }, reviewed: !!(review && baselineOf(review).at) };
     generationId = store.beginGeneration(targetKey);
+    const accepting = acceptances.get(bb) ?? new Map<string, AbortController>();
+    acceptances.set(bb, accepting);
+    accepting.set(generationId, accepted);
     threads = bb.sdk.threads;
     const preferences = store.getPreferences().preferences;
     const title = `${GUIDE_WORKER_TITLE}${targetKey}`;
@@ -121,7 +128,7 @@ export async function generateGuide(
     watched.set(worker.id, failed);
     try {
       const deadline = Date.now() + waitCap(store.patch(targetKey).length);
-      const signal = AbortSignal.any([controller.signal, failed.signal]);
+      const signal = AbortSignal.any([controller.signal, failed.signal, accepted.signal]);
       for (;;) {
         const started = Date.now();
         const timeoutMs = Math.min(WAIT_STEP, deadline - started);
@@ -129,13 +136,15 @@ export async function generateGuide(
           await threads.wait({ threadId: worker.id, status: "idle", timeoutMs, signal });
           break;
         } catch (error) {
+          // An accepted guide ends the wait: whatever the worker says after it, no one reads.
+          if (accepted.signal.aborted) break;
           // Only a wait that ran its full time is tried again; any other failure ends the generation.
           if (signal.aborted || Date.now() >= deadline || Date.now() - started < timeoutMs) throw error;
           const thread = await threads.get({ threadId: worker.id }).catch(() => null);
           if (!thread || !workerActive(thread.status)) throw error;
         }
       }
-      if (failed.signal.aborted) throw new Error("the worker failed");
+      if (failed.signal.aborted && !accepted.signal.aborted) throw new Error("the worker failed");
     } finally {
       watched.delete(worker.id);
     }
@@ -182,5 +191,6 @@ export async function generateGuide(
     // The next factory marks interrupted runs as errors without reusing a guide.
   } finally {
     runs.delete(controller);
+    if (generationId) acceptances.get(bb)?.delete(generationId);
   }
 }

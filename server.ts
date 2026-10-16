@@ -43,7 +43,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
-import { GUIDE_WORKER_TITLE, stopGuideGenerations, hasGuideGenerations, guideWorkerFailed, guideWriterMode } from "./src/generate";
+import { GUIDE_WORKER_TITLE, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideWorkerFailed, guideWriterMode } from "./src/generate";
 import { pluginThreadsTitled, threadReview, threadRole, toolThreadReview } from "./src/thread-review";
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { rerunReview } from "./src/rereview";
@@ -1062,6 +1062,7 @@ export default async function plugin(bb: BbPluginApi) {
       const meta = store.getReview(targetKey);
       if (meta?.gitRef) v.guide.review = { gitRef: meta.gitRef, ...(meta.base ? { base: meta.base } : {}) };
       store.saveGuide(targetKey, placeUnplacedFiles(v.guide, patch));
+      guideAccepted(bb, generationId);
       return "Guide accepted.";
     },
   });

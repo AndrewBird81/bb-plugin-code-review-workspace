@@ -434,3 +434,7 @@ test("generate_review_guide's description names every rule it enforces, and its 
   ]) expect(tool?.description).toContain(rule);
   expect(tool?.instructions).toBe("When generate_review_guide answers `Guide accepted.`, stop.");
 });
+
+test("the guide-writing skill stops once the guide is accepted, without a recap", async () => {
+  expect(await skillText()).toContain("When the tool answers `Guide accepted.`, stop. End your turn without a recap.");
+});
