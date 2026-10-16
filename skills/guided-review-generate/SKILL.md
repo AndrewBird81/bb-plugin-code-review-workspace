@@ -20,11 +20,14 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat everythi
    is the authoritative file set. A file marked `diff unavailable` (GitHub didn't send its
    diff) has no diff here: place it in the chapter it belongs to, and say in its summary that it
    must be read on GitHub. Never guess its content.
-3. **Chunk and order into sections.** Implementation heart first, its consequences next, and
-   glue/wiring/config grouped into a trailing chapter last. Put tests in the chapter of the code
-   they test. Put mechanical churn (renames, import or formatting changes) and lockfiles or
-   generated files together in one trailing low-risk chapter. Above ~40 files, aim for 5–12
-   chapters; never one per file.
+3. **Chunk and order into sections.** Order chapters so the riskiest code is read while the
+   reviewer is fresh: the implementation heart, then its consequences, then glue and wiring. A
+   high-risk change (auth, permissions, migrations, CI workflow permissions, infrastructure) gets
+   its own chapter in that order, never the trailing glue chapter. End with one low-risk chapter
+   for mechanical churn (renames, import or formatting changes), lockfiles, and generated or
+   vendored files. Put tests in the chapter of the code they test. Size chapters for one sitting,
+   about 150–600 changed lines: 1–2 chapters under ~5 files, 5–12 above ~40. Never one chapter per
+   file, and never one chapter for distinct concerns.
 4. **Write** a one-line `title`, a 1–2 sentence `intent` (why the change exists, from what the PR
    says it does; where the code does something the description doesn't mention, say so in that
    chapter's overview), and for each section a concept-level `title`, a 2–6 sentence markdown

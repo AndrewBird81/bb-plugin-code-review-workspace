@@ -408,3 +408,13 @@ test("the guide-writing skill reads the diff in pages, with lockfiles and genera
   expect(skill).toContain("If the diff is too large to read in full, read code and config first, skim tests, and name what you skimmed in each chapter's overview.");
   expect(skill).not.toContain("file by file");
 });
+
+test("the guide-writing skill orders the riskiest chapters first, gives a high-risk change its own, and ends with one low-risk chapter", async () => {
+  const skill = await skillText();
+  expect(skill).toContain("Order chapters so the riskiest code is read while the reviewer is fresh");
+  expect(skill).toContain("A high-risk change (auth, permissions, migrations, CI workflow permissions, infrastructure) gets its own chapter in that order, never the trailing glue chapter.");
+  expect(skill).toContain("End with one low-risk chapter for mechanical churn (renames, import or formatting changes), lockfiles, and generated or vendored files.");
+  // One trailing chapter, not a glue chapter last and a churn chapter last too.
+  expect(skill).not.toContain("grouped into a trailing chapter last");
+  expect(skill).not.toContain("together in one trailing low-risk chapter");
+});
