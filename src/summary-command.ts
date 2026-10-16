@@ -1,4 +1,5 @@
 import type { Store } from "./store";
+import { NOT_OWN_REVIEW } from "./review-command";
 import { verdictPicked, type Verdict } from "./draft";
 import { parseTarget, targetKey } from "./targets";
 import { describeSummary, writeSummary } from "./draft-summary";
@@ -19,8 +20,9 @@ const VERDICTS: readonly string[] = ["APPROVE", "COMMENT", "REQUEST_CHANGES"];
 type CliResult = { exitCode: number; stdout?: string; stderr?: string };
 const usage = (problem: string): CliResult => ({ exitCode: 2, stderr: `${problem}\n${SUMMARY_USAGE}` });
 
-/** `bb review summary …`: show or write a review's summary as an agent. `changed` runs after a successful change. */
-export function runSummaryCommand(store: Store, argv: string[], changed: (targetKey: string) => void): CliResult {
+/** `bb review summary …`: show or write a review's summary as an agent. `changed` runs after a successful change.
+ * `ownReview`, set when a review's own agent runs it, refuses every other review. */
+export function runSummaryCommand(store: Store, argv: string[], changed: (targetKey: string) => void, ownReview?: string): CliResult {
   const positional: string[] = [];
   const values: { body?: string; suggest?: string; json?: string } = {};
   for (let i = 0; i < argv.length; i++) {
@@ -43,6 +45,7 @@ export function runSummaryCommand(store: Store, argv: string[], changed: (target
 
   const target = parseTarget(positional[0]);
   const key = target.kind === "pr" && target.repo ? targetKey(target) : positional[0].trim();
+  if (ownReview !== undefined && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
   if (!store.getReview(key)) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass the PR's URL or the review's key.` };
   if (values.body === undefined) {
     if (values.json === undefined) return { exitCode: 0, stdout: describeSummary(store, key) };

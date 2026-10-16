@@ -94,3 +94,40 @@ test("bb review comment sets a comment's severity with --severity or a label, an
   expect(await cli("add", url, "a.ts:1", "--code", "keep();", "--severity", "major", "--body", "x")).toMatchObject({ exitCode: 2, stderr: expect.stringMatching(/^--severity is blocking, should-fix, question, nit, or none\./) });
   expect(await cli("delete", url, "a.ts:2", "--severity", "nit")).toMatchObject({ exitCode: 2, stderr: expect.stringMatching(/^delete doesn't take --severity/) });
 });
+
+test("a review's own agent can't change another review through bb review; an ordinary thread still can", async () => {
+  const { harness, store } = await host();
+  const other = targetKey({ kind: "pr", number: 8, repo: "acme/web" });
+  store.saveReview({ targetKey: other, kind: "pr", number: 8, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
+  store.savePatch(other, patch);
+  store.setAssistantThread(key, "assistant-7");
+  const as = (threadId: string, ...argv: string[]) => harness.behavior.runCli(argv, { threadId, projectId: "p1" });
+  const refused = { exitCode: 2, stderr: "This agent can change only its own review." };
+  expect(await as("assistant-7", "comment", "add", other, "a.ts:2", "--code", "next();", "--body", "injected")).toMatchObject(refused);
+  expect(await as("assistant-7", "comment", "list", "https://github.com/acme/web/pull/8")).toMatchObject(refused);
+  expect(await as("assistant-7", "summary", other, "--body", "injected")).toMatchObject(refused);
+  expect(await as("assistant-7", "https://github.com/acme/web/pull/8")).toMatchObject(refused);
+  expect(store.getDraft(other)).toMatchObject({ body: "", comments: [] });
+  expect(runGh).not.toHaveBeenCalled();
+  // Its own review, and an ordinary thread on any review.
+  expect(await as("assistant-7", "comment", "add", url, "a.ts:2", "--code", "next();", "--body", "Mine")).toMatchObject({ exitCode: 0 });
+  expect(await as("ordinary", "comment", "add", other, "a.ts:2", "--code", "next();", "--body", "Theirs")).toMatchObject({ exitCode: 0 });
+  expect(await as("ordinary", "summary", other, "--body", "Theirs too")).toMatchObject({ exitCode: 0 });
+  expect(store.getDraft(other)).toMatchObject({ body: "Theirs too", comments: [{ body: "Theirs" }] });
+});
+
+test("bb review from a review's own agent rebuilds its guide without approving agents on the PR's head", async () => {
+  const { harness, store } = await host();
+  store.setAssistantThread(key, "assistant-7");
+  vi.mocked(runGh).mockImplementation(async (args: string[]) =>
+    args[1] === "view" ? { code: 0, stderr: "", stdout: JSON.stringify({ number: 7, headRefOid: "sha2", title: "Fix", body: "", author: { login: "a" }, baseRefName: "main", headRefName: "f", url }) }
+    : args[1] === "diff" ? { code: 0, stderr: "", stdout: patch.replace("next", "later") }
+    : { code: 0, stderr: "", stdout: "" });
+  expect(await harness.behavior.runCli([url], { threadId: "assistant-7", projectId: "p1" })).toMatchObject({ exitCode: 0 });
+  expect(store.getReview(key)?.headSha).toBe("sha2");
+  expect(store.getReview(key)?.approvedHead).toBeUndefined();
+  // Your own bb review approves the head it starts the guide on.
+  store.saveReview({ ...store.getReview(key)!, status: "ready", headSha: "sha1" });
+  expect(await harness.behavior.runCli([url], { threadId: "ordinary", projectId: "p1" })).toMatchObject({ exitCode: 0 });
+  expect(store.getReview(key)?.approvedHead).toBe("sha2");
+});

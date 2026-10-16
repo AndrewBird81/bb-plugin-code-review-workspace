@@ -1057,9 +1057,13 @@ export default async function plugin(bb: BbPluginApi) {
     ],
     async run(argv, ctx) {
       const changedDraft = (targetKey: string) => bb.realtime.publish(`draft:${targetKey}`, {});
-      return updates.run(() => argv[0] === "comment" ? runCommentCommand(store, argv.slice(1), changedDraft)
-        : argv[0] === "summary" ? runSummaryCommand(store, argv.slice(1), changedDraft)
-        : runReviewCommand(deps, argv, ctx));
+      return updates.run(async () => {
+        // A review's own assistant or guide writer, by its recorded identity, may change only that review.
+        const ownReview = (ctx.threadId ? await toolThreadReview(bb, store, ctx.threadId) : null) ?? undefined;
+        return argv[0] === "comment" ? runCommentCommand(store, argv.slice(1), changedDraft, ownReview)
+          : argv[0] === "summary" ? runSummaryCommand(store, argv.slice(1), changedDraft, ownReview)
+          : runReviewCommand(deps, argv, ctx, ownReview);
+      });
     },
   });
 }

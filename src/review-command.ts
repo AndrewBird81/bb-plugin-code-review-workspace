@@ -28,7 +28,14 @@ const USAGE = [
 ].join("\n");
 const CONTEXT_LIMIT = 12_000;
 
-export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx) {
+/** The refusal a review's own agent gets for a command on another review. */
+export const NOT_OWN_REVIEW = "This agent can change only its own review.";
+
+/**
+ * `ownReview` is set when a review's own assistant or guide writer runs the command: it may start only that review,
+ * and its guide is unattended, so it doesn't approve agents on the PR's head as your click does.
+ */
+export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, ownReview?: string) {
   let input: string | undefined;
   let base: string | undefined;
   let context: string | undefined;
@@ -60,7 +67,9 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx) {
   if (unavailable) return { exitCode: 1, stderr: unavailable };
   const cwd = ctx.cwd ? resolve(ctx.cwd) : undefined;
   let key = targetKey(target, cwd ? { projectId: ctx.projectId, cwd } : undefined);
+  if (ownReview !== undefined && target.kind === "ref" && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
   const now = Date.now();
+  const unattended = ownReview !== undefined;
 
   let patch = "";
   const meta: any = { targetKey: key, kind: target.kind, status: "generating", createdAt: now };
@@ -80,6 +89,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx) {
     }
     if (!repo || !/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return { exitCode: 1, stderr: "Could not resolve the GitHub repository." };
     key = targetKey({ ...target, repo });
+    if (ownReview !== undefined && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
     meta.targetKey = key;
     let snapshot: Awaited<ReturnType<typeof readPrSnapshot>>;
     try {
@@ -114,13 +124,13 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx) {
   if (building || current) {
     if (existing!.userArchivedAt) deps.store.setLifecycle(key, { userArchivedAt: null });
   } else if (existing) {
-    rebuildReview(deps, meta, patch);
+    rebuildReview(deps, meta, patch, { unattended });
   } else {
     deps.store.saveReview(meta);
     deps.store.savePatch(key, ensureGitHeaders(patch));
     deps.store.unignoreDiscovery(key);
     // Fire-and-forget generation; the panel refetches on the realtime signal.
-    void generateGuide(deps.bb, deps.store, key, ctx.projectId);
+    void generateGuide(deps.bb, deps.store, key, ctx.projectId, { unattended });
   }
 
   const lines = [current ? `Guided Review for ${key} is up to date. Open the Guided Review panel to review it.`

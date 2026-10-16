@@ -1,4 +1,5 @@
 import type { Store } from "./store";
+import { NOT_OWN_REVIEW } from "./review-command";
 import { parseTarget, targetKey } from "./targets";
 import { addComment, deleteComment, describeComments, editComment, listComments, type DraftResult } from "./draft-comments";
 import { SEVERITIES, type Severity } from "./draft";
@@ -32,8 +33,9 @@ const ACTIONS = {
 type CliResult = { exitCode: number; stdout?: string; stderr?: string };
 const usage = (problem: string): CliResult => ({ exitCode: 2, stderr: `${problem}\n${COMMENT_USAGE}` });
 
-/** `bb review comment …`: list and change a review's draft comments. `changed` runs after a successful change. */
-export function runCommentCommand(store: Store, argv: string[], changed: (targetKey: string) => void): CliResult {
+/** `bb review comment …`: list and change a review's draft comments. `changed` runs after a successful change.
+ * `ownReview`, set when a review's own agent runs it, refuses every other review. */
+export function runCommentCommand(store: Store, argv: string[], changed: (targetKey: string) => void, ownReview?: string): CliResult {
   const [action, ...rest] = argv;
   if (action === "--help" || action === "-h") return { exitCode: 0, stdout: COMMENT_USAGE };
   if (!action || !(action in ACTIONS)) return usage(action ? `Unknown action: ${action}` : "Choose list, add, edit, or delete.");
@@ -55,6 +57,7 @@ export function runCommentCommand(store: Store, argv: string[], changed: (target
 
   const target = parseTarget(positional[0]);
   const key = target.kind === "pr" && target.repo ? targetKey(target) : positional[0].trim();
+  if (ownReview !== undefined && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
   if (!store.getReview(key)) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass the PR's URL or the review's key.` };
   if (action === "list") {
     return { exitCode: 0, stdout: values.json === undefined ? describeComments(store, key) : JSON.stringify({ review: key, comments: listComments(store, key) }, null, 2) };
