@@ -4,6 +4,7 @@ import { createStore } from "./store";
 import { createReviewSync, type GithubReads, type TurnActions } from "./review-lifecycle";
 import { defaultPreferences } from "./preferences";
 import type { FeedbackThread, PrFacts, PrRef } from "./github/types";
+import { feedbackProgress } from "../lib/turn";
 
 const HOUR = 3_600_000;
 const T0 = Date.parse("2026-10-10T12:00:00Z");
@@ -544,6 +545,34 @@ test("switching GitHub accounts reads threads and notifications again", async ()
   s.sync.resetViewer();
   expect(reset).toHaveBeenCalled();
   expect(s.store.feedbackFetched("pr-1")).toBeNull();
+});
+
+test("switching gh accounts drops the previous account's checks, held turn, click and alerts", async () => {
+  const s = setup({ reviewed: true });
+  let login = "me";
+  s.github.viewer.login = async () => login;
+  await s.sync.all();
+  const theirs = {
+    assessment: { headSha: "sha1", total: 3, addressed: 2, partial: 1, notAddressed: 0, disputed: 0, unclear: 0, assessedAt: T0 },
+    heldTurn: { reason: "handled" as const, label: "Feedback handled", signal: "handled:1", at: T0 }, approvedHead: "sha1",
+    skippedRun: { run: "check" as const, head: "sha1", at: T0 }, notifiedSignal: "handled:1", preparedSignal: "handled:1", pendingAlert: { signal: "handled:1", since: T0 },
+  };
+  s.store.setLifecycle("pr-1", theirs);
+  expect(feedbackProgress(s.store.getReview("pr-1")!)).toMatchObject({ done: 2, total: 3 });
+  // The same account reading again keeps them.
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")).toMatchObject({ ...theirs, reviewer: "me" });
+
+  // `gh auth switch` to another account, which never reviewed this PR.
+  login = "other";
+  s.pr({ myReviews: [] });
+  s.sync.resetViewer();
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")).toMatchObject({
+    reviewer: "other", submittedVerdict: null, assessment: null, heldTurn: null, approvedHead: null, skippedRun: null,
+    notifiedSignal: null, preparedSignal: null, pendingAlert: null,
+  });
+  expect(feedbackProgress(s.store.getReview("pr-1")!)).toBeNull();
 });
 
 test("a pending request with no known time is history on the first read", async () => {

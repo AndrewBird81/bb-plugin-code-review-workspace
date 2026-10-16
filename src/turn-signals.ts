@@ -18,6 +18,11 @@ export function turnOptions(preferences: ReviewPreferences): TurnOptions {
   return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks, teamRequests: preferences.trackTeamRequests, mentions: preferences.knobs.mentionsWake };
 }
 
+/** What the sync and the agents keep for the GitHub account reading the PR; another account starts without it. */
+export const READER_STATE: ReviewLifecycle = {
+  assessment: null, heldTurn: null, approvedHead: null, skippedRun: null, notifiedSignal: null, preparedSignal: null, pendingAlert: null,
+};
+
 /**
  * The review's state after a read of its PR. `startedAt` is when the read began:
  * a review submitted here after that is newer than GitHub's answer and stands.
@@ -28,6 +33,9 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
     prState: facts.state, latestHeadSha: facts.headSha, ...(facts.baseRefName ? { latestBase: facts.baseRefName } : {}), unreachable: null, prSize: facts.size ?? null, stackParent: facts.stackParent ?? null, ownPr: !!facts.author && facts.author.toLowerCase() === viewer.toLowerCase(), authorAssociation: facts.authorAssociation ?? null,
     foreignHeadOwner: foreignHeadOwner(facts, viewer),
     archivedAt: facts.state === "OPEN" ? null : previous.archivedAt ?? now,
+    // The account reading the PR, which the review's verdict and checks belong to.
+    reviewer: viewer,
+    ...(previous.reviewer && previous.reviewer !== viewer ? READER_STATE : {}),
   };
   const own = verdictFromMine(facts.myReviews);
   const local = previous.submittedAt ?? 0;
