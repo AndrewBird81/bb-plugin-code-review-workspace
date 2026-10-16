@@ -54,7 +54,7 @@ for (const { method, input, write, reload } of cases) {
     expect(await call(method, { ...input, account: "me" })).toMatchObject({ ok: true });
     expect(writes()).toEqual([{ write: expect.stringContaining(write), token: "tok-me" }]);
     // An account gh isn't signed in as on this server.
-    expect(await call(method, { ...input, account: "someone-else" })).toEqual({ ok: false, error: expect.stringContaining("Check authentication on the BB server") });
+    expect(await call(method, { ...input, account: "someone-else" })).toEqual({ ok: false, error: expect.stringMatching(/^Couldn't use this GitHub account\. Check authentication on the BB server/) });
     // A page from 0.7.0, which sends none.
     expect(await call(method, input)).toEqual({ ok: false, error: expect.stringContaining(reload) });
     expect(writes()).toHaveLength(1);

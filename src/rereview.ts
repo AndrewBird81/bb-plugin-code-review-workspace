@@ -50,7 +50,7 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
       m.head = snapshot.pr.headRefName;
       m.gitRef = `${m.base}...${m.head}`;
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "Could not load the PR." };
+      return { ok: false, error: error instanceof Error ? error.message : "Couldn't load the PR." };
     }
   } else if (m.kind === "ref" && m.gitRef) {
     if (!m.cwd) return { ok: false, error: "Rebuilding a local review's guide needs its original working dir; re-run `bb review` in the terminal." };

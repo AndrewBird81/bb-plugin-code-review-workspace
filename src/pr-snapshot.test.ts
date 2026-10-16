@@ -12,6 +12,11 @@ test("a commit pushed while fetching the diff cannot be saved under the previous
   await expect(readPrSnapshot(run, 7, "acme/web")).rejects.toThrow("PR changed");
 });
 
+test("gh output that doesn't name the PR's head is refused, saying why", async () => {
+  const run = vi.fn().mockResolvedValueOnce({ code: 0, stdout: JSON.stringify({ ...pr, headRefOid: "" }), stderr: "" });
+  await expect(readPrSnapshot(run, 7, "acme/web")).rejects.toThrow("Unexpected gh PR output. Couldn't identify the revision to review.");
+});
+
 test("a failed head check preserves the GitHub error and rejects the snapshot", async () => {
   const run = vi.fn()
     .mockResolvedValueOnce({ code: 0, stdout: JSON.stringify(pr), stderr: "" })

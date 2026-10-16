@@ -87,7 +87,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
         return { exitCode: 1, stderr: "Unexpected gh output (could not parse JSON)." };
       }
     }
-    if (!repo || !/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return { exitCode: 1, stderr: "Could not resolve the GitHub repository." };
+    if (!repo || !/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return { exitCode: 1, stderr: "Couldn't resolve the GitHub repository." };
     key = targetKey({ ...target, repo });
     if (ownReview !== undefined && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
     meta.targetKey = key;
@@ -96,7 +96,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
       // The repo is known, so gh needs no checkout. The caller's directory may be on another machine.
       snapshot = await readPrSnapshot(deps.gh.runGh, target.number, repo);
     } catch (error) {
-      return { exitCode: 1, stderr: error instanceof Error ? error.message : "Could not load the PR." };
+      return { exitCode: 1, stderr: error instanceof Error ? error.message : "Couldn't load the PR." };
     }
     const { pr } = snapshot;
     Object.assign(meta, {

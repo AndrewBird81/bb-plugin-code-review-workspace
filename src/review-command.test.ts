@@ -151,3 +151,10 @@ test("bb review of a review with new commits keeps when it was created", async (
   expect((await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1", cwd: laptop })).exitCode).toBe(0);
   expect(store.getReview(key)).toMatchObject({ status: "generating", headSha: "abc123", createdAt: 1 });
 });
+
+test("a checkout whose GitHub repository gh can't name says Couldn't, and starts nothing", async () => {
+  const { bb, store } = host();
+  vi.mocked(gh.runGh).mockResolvedValueOnce({ stdout: JSON.stringify({ nameWithOwner: "not a repo" }), stderr: "", code: 0 });
+  expect(await runReviewCommand({ bb, store, gh }, ["7"], { projectId: "p1", cwd: process.cwd() })).toEqual({ exitCode: 1, stderr: "Couldn't resolve the GitHub repository." });
+  expect(store.listReviews()).toEqual([]);
+});

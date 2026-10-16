@@ -9,7 +9,7 @@ export async function readPrSnapshot(run: typeof runGh, number: number, repo: st
     pr = JSON.parse(view.stdout);
     if (!pr || typeof pr.headRefOid !== "string" || !pr.headRefOid || typeof pr.title !== "string" || typeof pr.baseRefName !== "string" || typeof pr.headRefName !== "string") throw new Error();
   } catch {
-    throw new Error("Unexpected gh PR output. Could not identify the revision to review.");
+    throw new Error("Unexpected gh PR output. Couldn't identify the revision to review.");
   }
   const diff = await readPrDiff(run, number, repo, cwd);
   const head = await run(ghPrHeadArgs(number, repo), { cwd });

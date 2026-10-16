@@ -74,7 +74,7 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
           return { ok: false, error: `This PR is ${snapshot.state.toLowerCase()}. Your draft has been kept.` };
         }
       } catch { /* reject below */ }
-      if (typeof current !== "string" || !current) return { ok: false, error: "Could not verify the PR revision. Your draft has been kept." };
+      if (typeof current !== "string" || !current) return { ok: false, error: "Couldn't verify the PR revision. Your draft has been kept." };
       if (current !== m.headSha) return { ok: false, error: "The PR has new commits. Update the guide for them before submitting. Your draft has been kept." };
       if (typeof base === "string" && base && m.base && base !== m.base) return { ok: false, error: `The PR's base changed to ${base}. Update the guide for it before submitting. Your draft has been kept.` };
       if (store.getReview(targetKey)?.status === "generating" || store.getReview(targetKey)?.headSha !== m.headSha) return { ok: false, error: "The review changed during submission. Wait for generation and review the draft again." };
@@ -105,7 +105,7 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       store.clearSubmittedDraft(draft);
       return { ok: true, ...(url ? { url } : {}) };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "Could not submit the review. Your draft has been kept." };
+      return { ok: false, error: error instanceof Error ? error.message : "Couldn't submit the review. Your draft has been kept." };
     } finally {
       inFlight.delete(targetKey);
     }

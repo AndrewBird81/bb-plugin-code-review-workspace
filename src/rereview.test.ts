@@ -136,3 +136,13 @@ test("Re-review asked twice at once starts one guide writer", async () => {
   await vi.waitFor(() => expect(store.getReview("pr-1")?.status).not.toBe("generating"));
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1);
 });
+
+test("a PR that can't be read says Couldn't, keeping the review as it was", async () => {
+  const { bb } = host();
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "oldsha" });
+  // gh failing in a way that isn't an Error says nothing of its own.
+  vi.mocked(gh.runGh).mockRejectedValueOnce("gh vanished");
+  expect(await rerunReview({ bb, store, gh }, "pr-7")).toEqual({ ok: false, error: "Couldn't load the PR." });
+  expect(store.getReview("pr-7")).toMatchObject({ status: "ready", headSha: "oldsha" });
+});

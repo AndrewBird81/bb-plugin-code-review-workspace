@@ -10,7 +10,7 @@ const SUBMITTING: GhWrite = { doing: "submitting", kept: " Your draft has been k
 export async function bindGhAccount(run: typeof runGh, login: string, write: GhWrite = SUBMITTING): Promise<typeof runGh> {
   if (!/^[A-Za-z0-9-]+$/.test(login)) throw new Error(`Verify your GitHub account before ${write.doing}.`);
   const token = await run(["auth", "token", "--hostname", "github.com", "--user", login]);
-  if (token.code !== 0 || !token.stdout.trim()) throw new Error(`Could not use this GitHub account. Check authentication on the BB server and try again.${write.kept}`);
+  if (token.code !== 0 || !token.stdout.trim()) throw new Error(`Couldn't use this GitHub account. Check authentication on the BB server and try again.${write.kept}`);
   const authToken = token.stdout.trim();
   const bound: typeof runGh = (args, opts) => run(args, { ...opts, authToken });
   const identity = await bound(["api", "user", "--jq", ".login"]);

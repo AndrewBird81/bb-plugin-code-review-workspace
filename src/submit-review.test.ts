@@ -333,7 +333,7 @@ test("a PR head GitHub doesn't say keeps the draft and posts nothing", async () 
   const draft = store.getDraft("pr-test");
   for (const stdout of ["{}", "not json", '{"headRefOid":""}']) {
     run.mockResolvedValueOnce({ code: 0, stderr: "", stdout });
-    expect(await submit("pr-test", undefined, undefined, ...page())).toMatchObject({ ok: false, error: expect.stringMatching(/verify the PR revision\. Your draft has been kept\.$/) });
+    expect(await submit("pr-test", undefined, undefined, ...page())).toEqual({ ok: false, error: "Couldn't verify the PR revision. Your draft has been kept." });
   }
   expect(posted(run)).toBe(0);
   expect(store.getDraft("pr-test")).toEqual(draft);

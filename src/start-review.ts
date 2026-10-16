@@ -37,7 +37,7 @@ export async function createPrReview(
   try {
     snapshot = await readPrSnapshot(deps.gh.runGh, target.number, target.repo);
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Could not load the PR." };
+    return { ok: false, error: error instanceof Error ? error.message : "Couldn't load the PR." };
   }
   const { pr, patch } = snapshot;
 

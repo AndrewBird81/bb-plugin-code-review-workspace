@@ -141,7 +141,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
   async function reset() {
     setConfirmingReset(false);
     try { await rpc.call("newConversation", { targetKey }); }
-    catch (error) { toast.error(error instanceof Error ? error.message : "Could not start a new conversation"); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "Couldn’t start a new conversation"); }
     await load();
   }
   function dock() { gestureCleanup.current?.(); setMode("panel"); onDock?.(); }
