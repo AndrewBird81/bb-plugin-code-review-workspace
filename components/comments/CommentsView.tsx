@@ -180,7 +180,8 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
     const { items, draft, actions } = keyed.current;
     const item = last.current ? items.find((entry) => entry.id === last.current) : undefined;
     if (item?.kind === "thread") {
-      if (key !== "r" || !actions || item.replyTo === null) return false;
+      // A thread with no place in the code has no card there to answer r.
+      if (key !== "r" || !actions || item.replyTo === null || !item.at) return false;
       askReply(targetKey, item.id);
       return true;
     }

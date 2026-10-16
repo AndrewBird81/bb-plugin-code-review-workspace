@@ -3,6 +3,7 @@
 // the touch step bar after going to a comment from an overlay or sheet, or as a brief hint on a desktop. The comment
 // keys act on where a step landed, through the list too.
 import { useSyncExternalStore } from "react";
+import { revealedComment } from "./comments-fold";
 
 /** Go to the next (1) or previous (-1) comment from `file`, the file you're on. */
 export type CommentStepper = (direction: 1 | -1, file: string | undefined) => void;
@@ -37,26 +38,35 @@ export function registerCommentKeys(targetKey: string, handler: CommentKeyHandle
   };
 }
 
-/** A comment key pressed: whether it acted on the comment stepping last landed on. */
+/** A comment key pressed: whether it acted on the comment stepping last landed on. Any key drops an r not yet answered. */
 export function actOnComment(targetKey: string, key: string): boolean {
+  answerReply(targetKey);
   return keyHandlers.get(targetKey)?.(key) ?? false;
 }
 
-const replies = new Map<string, { id: string; nonce: number }>();
+/** An r not yet answered, and the step it was pressed on: another step since makes it stale. */
+const replies = new Map<string, { id: string; step: object | null }>();
 const replyListeners = new Set<() => void>();
 
-/** r on a GitHub thread: its card in the code opens its reply box. */
+/** r on a GitHub thread: its card in the code opens its reply box, now or once it mounts, as the thread's file draws. */
 export function askReply(targetKey: string, id: string) {
-  replies.set(targetKey, { id, nonce: Date.now() });
+  replies.set(targetKey, { id, step: revealedComment(targetKey) });
   for (const listener of replyListeners) listener();
 }
 
-/** The thread whose reply box r last asked for, and when. */
-export function useReplyAsked(targetKey: string): { id: string; nonce: number } | null {
-  return useSyncExternalStore((listener) => {
+/** The card opened its reply box, or another key came: the r is done. */
+export function answerReply(targetKey: string) {
+  if (!replies.delete(targetKey)) return;
+  for (const listener of replyListeners) listener();
+}
+
+/** The thread whose reply box r asked for, until its card answers, or another step or key comes. */
+export function useReplyAsked(targetKey: string): { id: string } | null {
+  const asked = useSyncExternalStore((listener) => {
     replyListeners.add(listener);
     return () => { replyListeners.delete(listener); };
   }, () => replies.get(targetKey) ?? null);
+  return asked && asked.step === revealedComment(targetKey) ? asked : null;
 }
 
 /** Where stepping landed: the stop's place in the list's order and filter, and whether the bar or a hint shows it. */

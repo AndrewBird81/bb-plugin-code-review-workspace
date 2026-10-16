@@ -2,7 +2,7 @@
 // Comment keys: on the comment ] or [ landed on, e edits, x removes, 1–4 and 0 set its severity, and r replies to a
 // GitHub thread (Settings → Reading → Comment keys, under Single-key shortcuts).
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { toast } from "sonner";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
@@ -159,6 +159,59 @@ test("r opens the reply box of the GitHub thread ] landed on, and does nothing o
   press("x");
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(writes(rpc)).toBe(0);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("r pressed before the thread's card is in the code opens its reply box once the card mounts; a later r works, and a stale r isn't replayed after another step", async () => {
+  const { slot } = await renderReview();
+  const card = () => slot.queryByRole("article", { name: "GitHub thread on src/b.ts:1" });
+  const reply = () => slot.queryByRole("textbox", { name: "Reply on src/b.ts:1" });
+  const threadsInCode = async () => {
+    fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+    fireEvent.click(await slot.findByRole("switch", { name: "GitHub threads in code" }));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  };
+  // GitHub threads in code off: ] to alice's thread turns them on, and its card mounts only after r, as React draws
+  // once the keys' act ends.
+  await threadsInCode();
+  await waitFor(() => expect(card()).toBeNull());
+  act(() => {
+    press("]");
+    press("]");
+    press("]");
+    press("r");
+    expect(card()).toBeNull();
+  });
+  expect(await slot.findByRole("textbox", { name: "Reply on src/b.ts:1" })).toBeTruthy();
+  // Closed, a later r opens it again.
+  fireEvent.click(within(card()!).getByRole("button", { name: "Discard" }));
+  await waitFor(() => expect(reply()).toBeNull());
+  press("r");
+  expect(await slot.findByRole("textbox", { name: "Reply on src/b.ts:1" })).toBeTruthy();
+  fireEvent.click(within(card()!).getByRole("button", { name: "Discard" }));
+  await waitFor(() => expect(reply()).toBeNull());
+  // r, then [ to the agent's draft before the card is back: ] to the thread again doesn't answer the old r.
+  await threadsInCode();
+  await waitFor(() => expect(card()).toBeNull());
+  act(() => {
+    press("r");
+    press("[");
+  });
+  press("]");
+  await waitFor(() => expect(card()).not.toBeNull());
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(reply()).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("r isn't claimed on a GitHub thread with no place in the code, which has no card there to answer it", async () => {
+  const placeless = { id: "t2", isResolved: false, isOutdated: false, path: null, line: null, side: "RIGHT", subjectType: "LINE", comments: [{ id: "c2", databaseId: 222, author: "bob", body: "Where is this?", createdAt: Date.now() }] };
+  const { slot } = await renderReview({ rpc: { getReviewThreads: () => ({ threads: [...threads(), placeless] }) } });
+  // The two drafts, then bob's thread on the PR, which only the list shows, opened on it.
+  for (const key of ["]", "]", "]"]) press(key);
+  const list = within(await slot.findByRole("region", { name: "Comments" }));
+  await waitFor(() => expect(list.getByRole("article", { name: "GitHub thread on the PR" }).textContent).toContain("Where is this?"));
+  expect(fireEvent.keyDown(document.body, { key: "r" })).toBe(true);
   slot.lifecycle.unmount();
 }, 15_000);
 
