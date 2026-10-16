@@ -56,7 +56,7 @@ Comments go back to the thread that made the change, the agent says which proble
 - Replies, resolves, and unresolves post as the GitHub account the review verified, and only on its own PR's threads; a page open from 0.7.0 is asked to reload.
 - Submit refuses a page that doesn't send the comments, summary, and verdict it shows.
 - The agents follow ticket references only in a trusted author's PR, and only read tickets. Commit headlines, the earlier guide's chapters, CI output, and your removal notes reach them fenced as untrusted text. What they write for GitHub, and `bb review --body`, is capped at 65,000 characters, and a feedback check keeps a file:line only when it names a line in the diff.
-- In GitHub comments, the guide, CI annotations, the agents' words, and the review summary, images, named by their alt text, and videos show as links, and HTML tags other than a few that only format (such as `details`, `summary`, `p`, `b`, lists, and tables) show as text. Code spans and fenced code show as written where the Markdown around them is plain. Since Move to summary can put an agent's words in your summary, its card shows your own images as links too; GitHub gets the summary as written.
+- In GitHub comments, the guide, CI annotations, the agents' words, and the review summary, images, named by their alt text, and videos show as links; HTML comments stay hidden, as on GitHub; and other HTML shows as text, but for a few tags that only format (such as `details`, `summary`, `p`, `b`, lists, and tables). Code spans and fenced code, in table cells too, show as written where the plugin can tell they're code; where it can't, as inside an HTML block, a `<` in the code shows as `&lt;`. Since Move to summary can put an agent's words in your summary, its card shows your own images as links too; GitHub gets the summary as written.
 - The account menu says switching accounts switches `gh` for the whole BB server. After a switch, each review starts afresh for the new account.
 - Deleting a review deletes its guide-writer threads too.
 
@@ -91,6 +91,7 @@ Comments go back to the thread that made the change, the agent says which proble
 - Old diffs are dropped on a daily schedule BB keeps, not on every reload.
 - The thread list's Needs review no longer lists reviews while it's turned off, and a closed tab releases its review on an install under another plugin id too.
 - Errors say "Couldn't", not "Could not".
+- A suggested change from GitHub written with Windows line endings, or ended by an indented or longer fence, shows in its Suggested change box as GitHub would apply it.
 
 ### Keyboard and screen readers
 
