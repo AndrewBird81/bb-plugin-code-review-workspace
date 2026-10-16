@@ -8,6 +8,7 @@ import type { ReviewMeta } from "./store";
 import { parseChecks } from "./threads";
 import { parseAllThreads } from "./github/threads";
 import { untrusted } from "./untrusted";
+import { AUTHOR_TRUST_FIELDS, authorTrust, type AuthorTrust } from "./author-trust";
 import { REVIEW_RULES, SCOPED_DIR, changedInstructions, instructionFiles } from "../lib/instruction-files";
 
 export { INSTRUCTION_FILES } from "../lib/instruction-files";
@@ -37,7 +38,7 @@ const query = (root: readonly string[], reviewRules: readonly string[]) => `quer
   viewer{login}
   repository(owner:$owner,name:$repo){
     pullRequest(number:$number){
-      title body authorAssociation author{login} baseRefName headRefName
+      title body ${AUTHOR_TRUST_FIELDS} baseRefName headRefName
       labels(first:20){nodes{name}}
       closingIssuesReferences(first:5){nodes{number title body repository{nameWithOwner}}}
       commits(last:50){totalCount nodes{commit{messageHeadline}}}
@@ -111,16 +112,19 @@ function readChecks(out: { stdout: string; stderr: string }) {
   return null;
 }
 
-/** `reviewMd`: Read REVIEW.md, the knob; off, the agents read AGENTS.md, CLAUDE.md and Copilot's instructions only. */
-export async function readPrContext(deps: { runGh: Run; runGit: typeof runGit }, review: ReviewMeta, files: readonly string[], context: string | null, { reviewMd }: { reviewMd: boolean }): Promise<string> {
-  const sections = review.kind === "pr" && review.repo && review.number
+/**
+ * `reviewMd`: Read REVIEW.md, the knob; off, the agents read AGENTS.md, CLAUDE.md and Copilot's instructions only.
+ * `author` is what the read said of a PR's author's trust; null for a local review or a partial read.
+ */
+export async function readPrContext(deps: { runGh: Run; runGit: typeof runGit }, review: ReviewMeta, files: readonly string[], context: string | null, { reviewMd }: { reviewMd: boolean }): Promise<{ text: string; author: AuthorTrust | null }> {
+  const { sections, author } = review.kind === "pr" && review.repo && review.number
     ? await pullRequestContext(deps.runGh, review, files, reviewMd)
-    : await localContext(deps.runGit, review, files, reviewMd);
+    : { sections: await localContext(deps.runGit, review, files, reviewMd), author: null };
   if (context) sections.push(`Context from the thread that started this review:\n${context}`);
-  return sections.join("\n\n");
+  return { text: sections.join("\n\n"), author };
 }
 
-async function pullRequestContext(run: Run, review: ReviewMeta, files: readonly string[], reviewMd: boolean): Promise<string[]> {
+async function pullRequestContext(run: Run, review: ReviewMeta, files: readonly string[], reviewMd: boolean): Promise<{ sections: string[]; author: AuthorTrust | null }> {
   const [owner, name] = review.repo!.split("/");
   const root = instructionFiles(reviewMd), reviewRules = reviewMd ? reviewRulesPaths(files) : [];
   const out = await run(["api", "graphql", "-f", `query=${query(root, reviewRules)}`, "-f", `owner=${owner}`, "-f", `repo=${name}`, "-F", `number=${review.number}`,
@@ -177,7 +181,7 @@ async function pullRequestContext(run: Run, review: ReviewMeta, files: readonly 
   sections.push(...describeInstructions([...root.map((path, i): [string, string | undefined] => [path, base?.[`file${i}`]?.object?.text]), ...scoped,
     ...reviewRules.map((path, i): [string, string | undefined] => [path, base?.[`rules${i}`]?.object?.text])],
     `at the base commit ${String(base?.oid ?? pr.baseRefName).slice(0, 7)}`, changed.length ? `This PR changes ${changed.join(", ")}` : null));
-  return sections;
+  return { sections, author: authorTrust(pr, viewer) };
 }
 
 async function localContext(run: typeof runGit, review: ReviewMeta, files: readonly string[], reviewMd: boolean): Promise<string[]> {
