@@ -36,13 +36,25 @@ async function load(rpc: Record<string, (input: any) => unknown> = {}, paletteCo
   return { commands, command, mount };
 }
 
-test("the three commands are in BB's palette with their ids and titles, and Next review that needs me has ⌘⇧R", async () => {
+test("the three commands are in BB's palette with their ids and titles, and Next review that needs me has ⌘⇧U", async () => {
   const { commands } = await load();
   expect(commands.map(({ target, id, title, defaultShortcut }) => ({ target, id, title, defaultShortcut }))).toEqual([
-    { target: "app", id: "next-review", title: "Guided Review: Next review that needs me", defaultShortcut: { key: "r", mod: true, shift: true, meta: false, control: false, alt: false } },
+    { target: "app", id: "next-review", title: "Guided Review: Next review that needs me", defaultShortcut: { key: "u", mod: true, shift: true, meta: false, control: false, alt: false } },
     { target: "app", id: "review-from-clipboard", title: "Guided Review: Review PR from clipboard", defaultShortcut: null },
     { target: "app", id: "all-reviews", title: "Guided Review: All reviews", defaultShortcut: null },
   ]);
+});
+
+test("Next review that needs me's default key is one neither BB nor a browser takes with mod and shift", async () => {
+  // BB 0.46.0's own mod+shift defaults (desktop, and 1–9 on the web off a Mac), and the keys Chrome, Safari, Firefox and
+  // Electron's default menu bind with mod+shift, Force Reload's R among them: BB nulls a plugin default that collides
+  // with its own, and a browser's or BB desktop's takes the key before the palette sees it.
+  const bb = ["p", "o", "[", "]", "e", "x", "t", "enter", "c", "m", "n", ..."123456789"];
+  const browsers = [..."abcdfghijklmnopqrstvwxyz"];
+  const { command } = await load();
+  const shortcut = command("next-review").defaultShortcut!;
+  expect(shortcut).toMatchObject({ mod: true, shift: true, alt: false });
+  expect([...bb, ...browsers]).not.toContain(shortcut.key.toLowerCase());
 });
 
 test("the commands are listed while the overlay that runs them is mounted, and not with their switch off", async () => {
