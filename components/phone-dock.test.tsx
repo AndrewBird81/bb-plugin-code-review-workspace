@@ -69,13 +69,13 @@ async function renderPhone() {
   return { slot, dock };
 }
 
-test("the dock names where you are and what's waiting: the chapter and its viewed files, comments not submitted, and what needs you", async () => {
+test("the dock names where you are and what's waiting: the chapter and its viewed files, the comments to send, and what needs you", async () => {
   const { slot, dock } = await renderPhone();
   expect(await dock.findByRole("button", { name: "Chapters: Chapter 1 of 2, Parsing, 0 of 1 files viewed" })).toBeTruthy();
-  expect(await dock.findByRole("button", { name: "Comments, 2 not submitted" })).toBeTruthy();
+  expect(await dock.findByRole("button", { name: "Comments, 2 to send" })).toBeTruthy();
   act(() => setNeedsYou("pr-42", 3));
-  const comments = dock.getByRole("button", { name: "Comments, 2 not submitted, 3 need you" });
-  expect(comments.textContent).toBe("2");
+  const comments = dock.getByRole("button", { name: "Comments, 2 to send, 3 need you" });
+  expect(comments.textContent).toBe("2 to send");
   expect(comments.getAttribute("aria-controls")).toBe("gr-side-panel-pr-42");
   expect(dock.getByRole("button", { name: /^Chapters:/ }).getAttribute("aria-controls")).toBe("gr-navigator-pr-42");
   fireEvent.click(dock.getByRole("button", { name: "All reviews" }));

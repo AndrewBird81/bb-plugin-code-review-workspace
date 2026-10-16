@@ -64,7 +64,8 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
   return (
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
       <div role="group" aria-label="Review commands" data-review-commands={api.targetKey} className="flex shrink-0 items-center gap-1">
-        <Hint label={keyHint("Comments", "c", api.shortcuts)} container={container}>
+        {/* Its count is what needs you, which the tooltip says; Finish review's is what will be sent. */}
+        <Hint label={keyHint(needsYou ? `Comments · ${needsYou} need${needsYou === 1 ? "s" : ""} you` : "Comments", "c", api.shortcuts)} container={container}>
           <Button variant="ghost" size="sm" aria-label={needsYou ? `Comments, ${needsYou} need you` : "Comments"} aria-pressed={panel.view === "comments"} aria-controls={controls} aria-keyshortcuts={ariaKeys("c", api.shortcuts)} className={tier === "labeled" ? labeled : cn(icon, needsYou > 0 && "w-auto gap-1 px-2")} onClick={() => panel.toggle("comments")}>
             <Icon name="MessageSquare" aria-hidden />
             {tier === "labeled" && "Comments"}

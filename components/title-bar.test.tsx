@@ -159,6 +159,15 @@ test("Comments counts what needs you, opens and closes the panel, and says so pr
   expect(comments.getAttribute("aria-controls")).toBe("gr-side-panel-pr-42");
   act(() => setNeedsYou("pr-42", 3));
   expect(bar!.getByRole("button", { name: "Comments, 3 need you" }).textContent).toBe("Comments3");
+  // The tooltip says what the count is: what needs you, where Finish review's is what will be sent.
+  const matches = Element.prototype.matches;
+  const focusVisible = vi.spyOn(Element.prototype, "matches").mockImplementation(function (this: Element, selector: string) {
+    return selector === ":focus-visible" ? this === document.activeElement : matches.call(this, selector);
+  });
+  comments.focus();
+  expect((await bar!.findByRole("tooltip")).textContent).toBe("Comments · 3 need you (c)");
+  comments.blur();
+  focusVisible.mockRestore();
   fireEvent.click(comments);
   expect(comments.getAttribute("aria-pressed")).toBe("true");
   expect(page.getByRole("complementary", { name: "Comments and agent" })).toBeTruthy();
