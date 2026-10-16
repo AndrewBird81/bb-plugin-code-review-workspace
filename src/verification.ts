@@ -31,6 +31,16 @@ export function verificationContext(review: ReviewMeta, reason: string): string 
   ].join("\n");
 }
 
+/**
+ * Queued messages BB said it dispatched that were no check: one may be a check whose send hasn't returned yet. The last
+ * hundred are enough for the moments a send takes.
+ */
+const dispatchedEarly: string[] = [];
+export function noteDispatched(messageId: string) {
+  dispatchedEarly.push(messageId);
+  if (dispatchedEarly.length > 100) dispatchedEarly.shift();
+}
+
 /** Ask the review's assistant to check your feedback. False when it's turned off or can't start. */
 export async function startVerification(bb: BbPluginApi, store: Store, targetKey: string, reason: string): Promise<boolean> {
   const prompt = reReviewCheckPrompt(store.getPreferences().preferences);
@@ -43,8 +53,10 @@ export async function startVerification(bb: BbPluginApi, store: Store, targetKey
     bb.log.warn(`The feedback check for ${targetKey} didn't start: ${String(error)}`);
     return false;
   }
-  // The check is about this commit, even if the author pushes while it runs.
-  store.setLifecycle(targetKey, { verifyingSince: Date.now(), verifyingHead: headOf(review), verifyingMessageId: sent.queuedMessageId ?? null });
+  // The check is about this commit, even if the author pushes while it runs. Already dispatched, as BB can say before the
+  // send returns, it's no longer waiting in the queue (70-review #3).
+  const queued = sent.queuedMessageId && !dispatchedEarly.includes(sent.queuedMessageId) ? sent.queuedMessageId : null;
+  store.setLifecycle(targetKey, { verifyingSince: Date.now(), verifyingHead: headOf(review), verifyingMessageId: queued });
   bb.realtime.publish(`conversation:${targetKey}`, {});
   return true;
 }
