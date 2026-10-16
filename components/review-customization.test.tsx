@@ -200,8 +200,9 @@ async function renderReview(targetKey: string, notes = "") {
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
     markSeen: () => ({ ok: true }),
   } as any });
-  // The commands sit in the band, where BB's title bar didn't take them.
-  await slot.findByRole("button", { name: "Comments" });
+  // The commands sit in the band, where BB's title bar didn't take them. The whole workspace can take more than the
+  // default second to show under a full parallel run.
+  await slot.findByRole("button", { name: "Comments" }, { timeout: 5000 });
   const panel = () => within(slot.getByRole("complementary", { name: "Comments and agent" }));
   const close = () => fireEvent.click(panel().getByRole("button", { name: "Close panel" }));
   return { slot, panel, close };
