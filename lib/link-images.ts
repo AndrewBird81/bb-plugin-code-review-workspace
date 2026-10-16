@@ -5,16 +5,23 @@
 /**
  * `markdown` as it's safe to show from others and agents. Each image becomes a link to it, `[Image: alt](url)` or
  * `[Image](url)`, so nothing loads until it's clicked: inline and reference images, and HTML `<img>`, `<video>` and
- * `<source>`. An image inside a link's text becomes its words, the link kept. Then every `<` that doesn't begin one of
- * the FORMATTING tags, or an autolink, shows as text. Code spans and fenced code stay as written where the Markdown
- * around them leaves no doubt they're code (`structure`); elsewhere code is changed too.
+ * `<source>`. An image inside a link's text becomes its words, the link kept. HTML comments are hidden, as GitHub hides
+ * them. Then every `<` that doesn't begin one of the FORMATTING tags, or an autolink, shows as text. Code spans and
+ * fenced code stay as written where the Markdown around them leaves no doubt they're code (`structure`); elsewhere
+ * code is changed too.
  */
 export function linkImages(markdown: string): string {
   if (!/<|!\[/.test(markdown)) return markdown;
   const text = markdown.replace(/\r\n?/g, "\n");
   const labels = new Set([...text.matchAll(/^ {0,3}\[([^\]\n]+)\]:/gm)].map((match) => normalLabel(match[1])));
-  return escapeHtml(outsideCode(text, (prose) => linkMarkdownImages(linkHtmlMedia(prose), labels)));
+  return escapeHtml(outsideCode(text, (prose) => withoutComments(linkMarkdownImages(linkHtmlMedia(prose), labels))));
 }
+
+/**
+ * `text` without its complete HTML comments: a PR template's or a bot's hidden notes. What's left is judged after, so
+ * a tag the removal joins, as `<im<!-- -->g`, shows as text; an unclosed `<!--` shows too.
+ */
+const withoutComments = (text: string) => text.replace(/<!--(?:-?>|[\s\S]*?-->)/g, "");
 
 const normalLabel = (label: string) => label.trim().replace(/\s+/g, " ").toLowerCase();
 const imageLabel = (alt: string) => alt.trim() ? `Image: ${alt.trim()}` : "Image";

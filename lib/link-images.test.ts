@@ -42,7 +42,7 @@ test("an image inside a link's text, as a badge, becomes its words, the link kep
 test("HTML outside code shows as text, but for tags that only format", () => {
   expect(linkImages('<iframe src="https://evil.test/f"></iframe>')).toBe('&lt;iframe src="https://evil.test/f">&lt;/iframe>');
   expect(linkImages("<SVG><IMAGE HREF=x.png /></SVG>")).toBe("&lt;SVG>&lt;IMAGE HREF=x.png />&lt;/SVG>");
-  expect(linkImages("<!-- note --> <?php ?> <![CDATA[x]]> <!DOCTYPE html> </span>")).toBe("&lt;!-- note --> &lt;?php ?> &lt;\\![CDATA[x]]> &lt;!DOCTYPE html> &lt;/span>");
+  expect(linkImages("<?php ?> <![CDATA[x]]> <!DOCTYPE html> </span>")).toBe("&lt;?php ?> &lt;\\![CDATA[x]]> &lt;!DOCTYPE html> &lt;/span>");
   // A tag it keeps may have only the attributes it lists, with plain values.
   expect(linkImages('<p style="background:url(https://evil.test/s.png)">x</p>')).toBe('&lt;p style="background:url(https://evil.test/s.png)">x</p>');
   expect(linkImages('<table background="https://evil.test/t.png">')).toBe('&lt;table background="https://evil.test/t.png">');
@@ -50,6 +50,18 @@ test("HTML outside code shows as text, but for tags that only format", () => {
   expect(linkImages(`<p align='a"b'>`)).toBe(`&lt;p align='a"b'>`);
   // Autolinks stay links.
   expect(linkImages("<https://a.example/x> and <me@a.example>")).toBe("<https://a.example/x> and <me@a.example>");
+});
+
+// Escaping <!-- showed PR templates' and bots' hidden notes as text, where GitHub and 0.7.0 hid them (96-fixes-4 §3).
+test("HTML comments are hidden, and what their removal joins shows as text", () => {
+  expect(linkImages("<!-- Describe your change -->\nFixes the parser.<!-- bot:marker -->")).toBe("\nFixes the parser.");
+  expect(linkImages("a<!--\nhidden\n\nlines\n-->b <!--> c <!---> d")).toBe("ab  c  d");
+  expect(linkImages('<im<!-- -->g src="https://evil.test/x.png">')).toBe('&lt;img src="https://evil.test/x.png">');
+  expect(linkImages('<<!-- -->img src="https://evil.test/x.png">')).toBe('&lt;img src="https://evil.test/x.png">');
+  expect(linkImages("!<!-- -->[x](https://evil.test/x.png)")).toBe("\\![x](https://evil.test/x.png)");
+  // Unclosed, or in code, it shows as written.
+  expect(linkImages("<!-- unclosed <b>x</b>")).toBe("&lt;!-- unclosed <b>x</b>");
+  expect(linkImages("Use `<!-- x -->` here.\n\n```html\n<!-- kept -->\n```")).toBe("Use `<!-- x -->` here.\n\n```html\n<!-- kept -->\n```");
 });
 
 // Each of these left a tag that loads once the rewrite or the escaping joined what was around it (96-recheck-2 P2 #1, #2).
