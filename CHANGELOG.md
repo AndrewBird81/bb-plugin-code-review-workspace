@@ -25,7 +25,7 @@ Comments go back to the thread that made the change, the agent says which proble
 
 ### What the agent found and checked
 
-- The agent marks a problem in code the PR didn't change as **Pre-existing**. It doesn't count as blocking against Approve, is counted apart, and posts with "**Pre-existing:**" in front. Mark as pre-existing and Mark as from this PR change it; `bb review comment add` and `edit` take `--pre-existing`.
+- The agent marks a problem in code the PR didn't change as **Pre-existing**. It doesn't count as blocking against Approve, is counted apart, and posts, or goes to a coding thread, with "**Pre-existing:**" in front. Mark as pre-existing and Mark as from this PR change it; `bb review comment add` and `edit` take `--pre-existing`.
 - Finish review says how many of the changed files the agent read ("Read 6 of 8 files") and folds what it says it didn't check. When it suggests Approve without reading every file, Goes to GitHub says so and Submit asks once more.
 - A test file whose diff removes assertions or skips tests gets a chip ("3 assertions removed · 1 test skipped"), and the agents are asked to check it.
 - A lockfile shows the packages it adds and removes ("+3 −1 packages"), and warns when one downloads from a host other than its registry; the agents get the same summary.
@@ -36,7 +36,7 @@ Comments go back to the thread that made the change, the agent says which proble
 
 - With **Comment keys**, on the comment `]` or `[` landed on: `e` edits it, `x` removes it with Undo, `1`–`4` set Blocking, Should fix, Question, or Nit, `0` clears it, and `r` replies to a GitHub thread.
 - **Why?** on Comment removed, for an agent's comment, takes a reason (Wrong, Intended, Already known, Not worth it) and an optional note. The agent and Suggest instruction changes learn from it, and Settings splits removals by reason.
-- A comment on an older diff can **Move to summary**, from Finish review or its card: it becomes a line of your summary and the comment goes, with no Undo.
+- A comment on an older diff can **Move to summary**, from Finish review, whose row names it, or its card: it becomes a line of your summary and the comment goes, with no Undo.
 - A failing check's note in the code offers **Comment**, a Blocking comment quoting it, and **Ask agent**; the Overview's failing GitHub Actions checks offer Ask agent with the end of the check's log quoted, unsent.
 
 ### Commands and guides
@@ -56,7 +56,7 @@ Comments go back to the thread that made the change, the agent says which proble
 - Replies, resolves, and unresolves post as the GitHub account the review verified, and only on its own PR's threads; a page open from 0.7.0 is asked to reload.
 - Submit refuses a page that doesn't send the comments, summary, and verdict it shows.
 - The agents follow ticket references only in a trusted author's PR, and only read tickets. Commit headlines, the earlier guide's chapters, CI output, and your removal notes reach them fenced as untrusted text. What they write for GitHub, and `bb review --body`, is capped at 65,000 characters, and a feedback check keeps a file:line only when it names a line in the diff.
-- Images and videos in GitHub comments, the guide, CI annotations, and the agents' words show as links and load nothing until clicked.
+- In GitHub comments, the guide, CI annotations, the agents' words, and the review summary, images, named by their alt text, and videos show as links, and HTML tags other than a few that only format (such as `details`, `summary`, `p`, `b`, lists, and tables) show as text. Code spans and fenced code show as written where the Markdown around them is plain. Since Move to summary can put an agent's words in your summary, its card shows your own images as links too; GitHub gets the summary as written.
 - The account menu says switching accounts switches `gh` for the whole BB server. After a switch, each review starts afresh for the new account.
 - Deleting a review deletes its guide-writer threads too.
 
@@ -100,7 +100,7 @@ Comments go back to the thread that made the change, the agent says which proble
 - Added and removed lines are marked + and −, not by color alone.
 - The title bar's submit command is **Finish review**, as its panel and key are, and the phone dock says "2 to send". Finish review's Submit says "Submit to GitHub · Approve · 1 blocking", and Submitting… while it posts; its suggested verdict is said once, with Switch to it.
 - Screen readers hear the review commands' keys, each file's card by its path, "Expand chapter 3", "fix-race into main", why a Needs review row is yours, how many rows each All reviews section holds, and new notices.
-- A 2px focus ring around the plugin's buttons; Refresh, Refresh comments, and Save settings keep the focus while busy; New conversation's confirmation takes the focus and Esc cancels it; the popped-out agent moves with the arrow keys.
+- A 2px focus ring around the plugin's buttons; Refresh, Refresh comments, and Save settings keep the focus while busy, and Discard edits leaves it on Save settings; New conversation's confirmation takes the focus and Esc cancels it; the popped-out agent moves with the arrow keys.
 - Drawers open in place under reduced motion, and each popover menu is named on a desktop.
 - Copy: "New since your review" on a new file; "Large diff · 1,600 lines"; reading times in days past 24 hours; "your last review, just now"; "Checking setup…"; Resolve says it posts to GitHub now; Comments' empty state says how to comment with a mouse or the keyboard.
 
