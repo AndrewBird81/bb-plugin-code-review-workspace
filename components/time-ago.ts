@@ -13,7 +13,8 @@ export function age(ts?: number | null, now = Date.now()): string | null {
   if (w < 5) return `${w}w`;
   const mo = Math.floor(d / 30);
   if (mo < 12) return `${mo}mo`;
-  return `${Math.floor(d / 365)}y`;
+  // 360 to 364 days are 12 months, but not yet a whole year.
+  return `${Math.max(1, Math.floor(d / 365))}y`;
 }
 
 /** Compact "2h ago" relative time. Null for absent or implausible stamps. */

@@ -372,6 +372,14 @@ test("an earlier review is a line above the next one's draft, so Finish stays op
   slot.lifecycle.unmount();
 });
 
+test("an earlier review sent moments ago says just now, not now ago", async () => {
+  const { slot } = await renderWorkspace({ review: { submittedVerdict: "COMMENT", submittedAt: Date.now() - 10_000 }, rpc: { getDraft: () => ({ draft: draftOf({ comments: [] }), stale: [] }) } });
+  fireEvent.keyDown(document.body, { key: "s" });
+  const last = within(await slot.findByRole("region", { name: "Submitted review" }));
+  expect(last.getByText("· your last review, just now")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("a local review hands its comments to a new thread instead of Submit", async () => {
   const { slot, rpc } = await renderWorkspace({ review: { kind: "ref", gitRef: "main...x" } });
   const view = await finish(slot);
