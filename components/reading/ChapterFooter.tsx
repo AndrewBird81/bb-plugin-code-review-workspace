@@ -1,5 +1,6 @@
-import { useContext } from "react";
+import { useContext, useMemo } from "react";
 import { chapterAt } from "../../src/hunks";
+import { splitPatchByFile } from "../../src/patch";
 import { draftState } from "../../lib/comments";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
@@ -25,6 +26,8 @@ export function ChapterFooter({ patch }: {
 }) {
   const { review, sections, activeId, files, go, openFinish } = useWorkspace();
   const draft = useContext(InlineDraftContext);
+  // chapterAt splits the patch it's given: give it just the comment's file, split once per patch.
+  const texts = useMemo(() => new Map(splitPatchByFile(patch).map((file) => [file.path, file.text])), [patch]);
   const index = sections.findIndex((section) => section.id === activeId);
   const chapter = sections[index];
   if (!chapter) return null;
@@ -34,7 +37,7 @@ export function ChapterFooter({ patch }: {
   const left = viewed < own.size;
   // Hidden nits count nowhere, as in the files' headers (a nit on an older diff isn't hidden). A comment on a file split
   // across chapters counts in the one with its line.
-  const comments = draft?.comments.filter((comment) => own.has(comment.file) && !(draft.hideNits && comment.severity === "nit" && draftState(comment, draft.stale) !== "older-diff") && chapterAt(sections, patch, comment)?.id === chapter.id).length ?? 0;
+  const comments = draft?.comments.filter((comment) => own.has(comment.file) && !(draft.hideNits && comment.severity === "nit" && draftState(comment, draft.stale) !== "older-diff") && chapterAt(sections, texts.get(comment.file) ?? "", comment)?.id === chapter.id).length ?? 0;
   const unviewed = next ? [] : [...new Set(sections.flatMap((section) => section.diffs.map((diff) => diff.file)))].filter((file) => !own.has(file) && !files.views.get(file)?.viewed);
   // A closed PR has nothing to finish: the last chapter leads to its archived review instead.
   const closed = review.prState === "MERGED" || review.prState === "CLOSED";

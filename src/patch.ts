@@ -1,5 +1,5 @@
 /** A file's diff, keyed by its path after the change; `oldPath` is the name before a rename. */
-export interface PatchFile { path: string; oldPath?: string; text: string }
+export interface PatchFile { readonly path: string; readonly oldPath?: string; readonly text: string }
 
 /** A line of a diff: a file header, a hunk header, a hunk line with its old- and new-file numbers, or a "\ No newline" or blank line. */
 export type PatchRow =
@@ -83,12 +83,20 @@ export function ensureGitHeaders(patch: string): string {
   return out.join("\n");
 }
 
-export function splitPatchByFile(patch: string): PatchFile[] {
+/** The last split, since a review's views each split the same patch. */
+let lastSplit: { patch: string; files: readonly PatchFile[] } | undefined;
+
+/**
+ * A patch's files, frozen so that callers can share one split. A split of one file's diff, as a caller that already
+ * split the patch passes, doesn't push out the last split of a whole patch.
+ */
+export function splitPatchByFile(patch: string): readonly PatchFile[] {
+  if (lastSplit?.patch === patch) return lastSplit.files;
   const normalized = ensureGitHeaders(patch);
   const chunks = normalized.split(/\n(?=diff --git )/g).filter((c) => c.startsWith("diff --git "));
-  return chunks.map((text) => {
-    return { ...fileNames(text), text: text.endsWith("\n") ? text : text + "\n" };
-  });
+  const files = Object.freeze(chunks.map((text) => Object.freeze({ ...fileNames(text), text: text.endsWith("\n") ? text : text + "\n" })));
+  if (files.length > 1 || !lastSplit || lastSplit.files.length <= 1) lastSplit = { patch, files };
+  return files;
 }
 
 const ESCAPES: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };
@@ -144,7 +152,9 @@ function fileNames(text: string): { path: string; oldPath?: string } {
   let header: { a: string; b: string } | null = null;
   let renameFrom: string | undefined, renameTo: string | undefined;
   let minus: string | null | undefined, plus: string | null | undefined;
-  for (const { kind, text: line } of patchRows(text)) {
+  // Only the header: the hunks can be most of the text.
+  const end = text.indexOf("\n@@");
+  for (const { kind, text: line } of patchRows(end < 0 ? text : text.slice(0, end))) {
     if (kind === "hunk") break;
     if (line.startsWith("diff --git ")) header = headerNames(line);
     else if (line.startsWith("rename from ")) renameFrom = unquote(line.slice(12).replace(/\r$/, ""));

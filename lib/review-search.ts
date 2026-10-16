@@ -25,7 +25,7 @@ export type SearchHit =
 /** The whole change, ready to search: every line of the patch, in the guide's file order, and the guide's chapters and file summaries. */
 export function searchIndex(patch: string, sections: readonly Section[]): SearchIndex {
   const order = new Map(sections.flatMap((section) => section.diffs.map((diff) => diff.file)).map((file, index) => [file, index]));
-  const files = splitPatchByFile(patch).sort((a, b) => (order.get(a.path) ?? order.size) - (order.get(b.path) ?? order.size));
+  const files = [...splitPatchByFile(patch)].sort((a, b) => (order.get(a.path) ?? order.size) - (order.get(b.path) ?? order.size));
   const lines: IndexedLine[] = [];
   for (const file of files) {
     for (const row of patchRows(file.text)) {

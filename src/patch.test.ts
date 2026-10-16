@@ -116,3 +116,32 @@ test("a quoted name keeps characters outside the BMP", () => {
   const patch = ['diff --git "a/say \\"hi\\" 👋.md" "b/say \\"hi\\" 👋.md"', '--- "a/say \\"hi\\" 👋.md"', '+++ "b/say \\"hi\\" 👋.md"', "@@ -1 +1 @@", "-x", "+y", ""].join("\n");
   expect(changedFiles(patch)).toEqual(['say "hi" 👋.md']);
 });
+
+test("a renamed, quoted file keeps its names when its hunks hold lines like headers", () => {
+  const patch = [
+    'diff --git "a/caf\\303\\251.md" "b/new caf\\303\\251.md"', "similarity index 90%", 'rename from "caf\\303\\251.md"', 'rename to "new caf\\303\\251.md"',
+    '--- "a/caf\\303\\251.md"', '+++ "b/new caf\\303\\251.md"', "@@ -1,2 +1,2 @@", "-rename to other.md", "+++ b/other.md", " diff --git a/x b/x", "",
+  ].join("\n");
+  expect(splitPatchByFile(patch).map(({ path, oldPath }) => ({ path, oldPath }))).toEqual([{ path: "new café.md", oldPath: "café.md" }]);
+});
+
+test("splitting the same patch again returns the same frozen split", () => {
+  const two = withHeader + withHeader.replaceAll("a.ts", "b.ts");
+  const files = splitPatchByFile(two);
+  expect(splitPatchByFile(two)).toBe(files);
+  expect(Object.isFrozen(files)).toBe(true);
+  expect(files.every((file) => Object.isFrozen(file))).toBe(true);
+  expect(() => (files as unknown as unknown[]).sort()).toThrow(TypeError);
+  expect(() => { (files[0] as { path: string }).path = "x"; }).toThrow(TypeError);
+});
+
+test("splitting one file's diff keeps the whole patch's split", () => {
+  const two = withHeader + withHeader.replaceAll("a.ts", "b.ts");
+  const files = splitPatchByFile(two);
+  expect(splitPatchByFile(files[1].text).map((file) => file.path)).toEqual(["src/b.ts"]);
+  expect(splitPatchByFile(two)).toBe(files);
+  // A different whole patch takes its place.
+  const other = splitPatchByFile(two + withHeader.replaceAll("a.ts", "c.ts"));
+  expect(splitPatchByFile(two)).not.toBe(files);
+  expect(other).toHaveLength(3);
+});
