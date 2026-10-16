@@ -98,6 +98,19 @@ test("a background reload keeps the diff the server leaves out, and reads the ch
   slot.lifecycle.unmount();
 });
 
+test("a workspace that takes another's place, as BB's layout switch remounts it, doesn't have the diff sent again", async () => {
+  const bundle = vi.fn(({ knownRevision }: { knownRevision?: string }) => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", turn: turn() }, guide: structuredClone(guide), patch: knownRevision === "r1" ? null : patch, revision: "r1" }));
+  const first = await renderWorkspace(() => ({}), { getReviewBundle: bundle });
+  await first.slot.findByTestId("filediff");
+  first.slot.lifecycle.unmount();
+  bundle.mockClear();
+  const next = await renderWorkspace(() => ({}), { getReviewBundle: bundle });
+  await next.slot.findByTestId("filediff");
+  expect(bundle.mock.calls[0]![0]).toEqual({ targetKey: "pr-42", knownRevision: "r1" });
+  expect(next.slot.getByTestId("filediff")).toBeTruthy();
+  next.slot.lifecycle.unmount();
+});
+
 test("Since your review follows the review you just submitted here, before GitHub reports it", async () => {
   let review: Record<string, unknown> = { submittedVerdict: "REQUEST_CHANGES", submittedAt: now - 3 * DAY, submittedHeadSha: "old", signals: { lastReviewAt: now - 3 * DAY, lastReviewSha: "old" }, turn: turn() };
   const { slot, rpc } = await renderWorkspace(() => review);

@@ -118,6 +118,12 @@ function DraftReload({ reconnects }: { reconnects: number }) {
   return null;
 }
 
+/**
+ * The diff a workspace last showed, which a reload with the same revision doesn't have sent again, nor the workspace that
+ * takes its place as BB remounts the page when its layout switches.
+ */
+let shownPatch: { targetKey: string; revision: string; patch: string } | null = null;
+
 /** How long opening a review waits for its first settings before it opens with the defaults. */
 const SETTINGS_WAIT_MS = 1000;
 /** Turns where what matters first is whether the author addressed your feedback. */
@@ -140,8 +146,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const viewsRequest = useRef(0);
   // The guide as last shown; a reload with the same guide keeps its object, so the diff doesn't redraw.
   const shownGuide = useRef("");
-  // The diff as last shown, which a reload with the same revision doesn't send again.
-  const shownPatch = useRef<{ targetKey: string; revision: string; patch: string } | null>(null);
   const persisted = useMemo(() => getReviewState(targetKey), [targetKey]);
   // The first settings load, which load waits for: a ref, as load is kept for the review.
   const firstSettings = useSettings().settled;
@@ -432,7 +436,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     let settingsWait: ReturnType<typeof setTimeout> | undefined;
     try {
       // Views come with the diff, so viewed files are folded before it first draws.
-      const known = shownPatch.current?.targetKey === targetKey ? shownPatch.current : null;
+      const known = shownPatch?.targetKey === targetKey ? shownPatch : null;
       const [{ review, guide, patch: sent, revision, diffError }, viewsRes, generatedRes, settings] = await Promise.all([
         rpc.call("getReviewBundle", { targetKey, ...(known ? { knownRevision: known.revision } : {}) }),
         rpc.call("getFileViews", { targetKey }).catch(() => null),
@@ -452,7 +456,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       hasDisplayedGuide.current = !!guide;
       setGeneratingReplacement(false);
       const patch = sent ?? known?.patch ?? "";
-      shownPatch.current = { targetKey, revision, patch };
+      shownPatch = { targetKey, revision, patch };
       setRevision(revision);
       setReview(review);
       const guideJson = JSON.stringify(guide ?? null);
