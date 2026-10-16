@@ -130,3 +130,23 @@ test("while the connection is down the review says it's reconnecting, and once b
   });
   slot.lifecycle.unmount();
 });
+
+test("notices go into a polite live region that's there before them, so a new one is announced", async () => {
+  const checkForUpdates = vi.fn(() => ({ hasNewCommits: false }));
+  const { slot } = await renderWorkspace({ checkForUpdates });
+  await waitFor(() => expect(checkForUpdates).toHaveBeenCalled());
+  expect(slot.queryByText("New commits since this guide was written.")).toBeNull();
+  const regions = Array.from(slot.getByRole("main", { name: "Review" }).querySelectorAll('[aria-live="polite"]'));
+  checkForUpdates.mockReturnValue({ hasNewCommits: true });
+  await slot.emitRealtime("review:pr-42", {});
+  const text = await slot.findByText("New commits since this guide was written.");
+  expect(regions.some((region) => region.contains(text))).toBe(true);
+  slot.lifecycle.unmount();
+});
+
+test("the opening review's placeholder says in words what it shows in shapes", async () => {
+  const { ReviewSkeleton } = await import("./ReviewSkeleton");
+  const slot = renderSlot({ component: () => <ReviewSkeleton /> }, {}, {});
+  expect(slot.getByRole("status", { name: "Opening the review" }).textContent).toBe("Opening the review…");
+  slot.lifecycle.unmount();
+});

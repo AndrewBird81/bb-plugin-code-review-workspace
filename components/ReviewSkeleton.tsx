@@ -62,7 +62,8 @@ function WorkspaceShape() {
  */
 export const ReviewSkeleton = memo(function ReviewSkeleton({ review, onBack }: { review?: ReviewItem; onBack?: () => void }) {
   if (!review || !onBack) {
-    return <div role="status" aria-label="Opening the review" className="@container/skeleton flex h-full min-w-0 flex-col bg-background"><WorkspaceShape /></div>;
+    // The shape is hidden from screen readers, so the status says it in words.
+    return <div role="status" aria-label="Opening the review" className="@container/skeleton flex h-full min-w-0 flex-col bg-background"><span className="sr-only">Opening the review…</span><WorkspaceShape /></div>;
   }
   return <BuildingGuide review={review} onBack={onBack} />;
 });

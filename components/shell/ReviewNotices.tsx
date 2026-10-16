@@ -48,13 +48,16 @@ export function useNewCommits(targetKey: string, enabled: boolean): { newCommits
   return { newCommits: enabled && update.hasNewCommits, text };
 }
 
-/** The review's notices, under the band: the first, most pressing, and "+N" to show the rest beneath it. */
+/**
+ * The review's notices, under the band: the first, most pressing, and "+N" to show the rest beneath it. They go into
+ * one polite live region that stays mounted, empty when there are none, as a region inserted with its text isn't always
+ * announced.
+ */
 export function ReviewNotices({ notices }: { notices: Notice[] }) {
   const [expanded, setExpanded] = useState(false);
-  if (!notices.length) return null;
   const more = notices.length - 1;
   return (
-    <div className="shrink-0 border-b border-border">
+    <div aria-live="polite" className={cn("shrink-0", notices.length > 0 && "border-b border-border")}>
       {(expanded ? notices : notices.slice(0, 1)).map((notice, index) => (
         <div key={notice.id} role={notice.role ?? "status"} aria-label={notice.label} className={cn("flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 text-xs", TONE[notice.tone], index > 0 && "border-t border-border")}>
           <Icon name={notice.icon} className={cn("size-3.5 shrink-0", notice.tone === "info" && "text-primary", notice.busy && "animate-spin motion-reduce:animate-none")} aria-hidden />
