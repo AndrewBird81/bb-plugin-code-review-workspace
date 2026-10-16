@@ -163,6 +163,11 @@ export const rpcContract = defineRpcContract({
     input: targetKey,
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
+  /** Stop the review's guide while it builds, once it's finalized: restored when a rebuild has its previous guide back. */
+  stopGuide: {
+    input: targetKey,
+    output: z.object({ ok: z.boolean(), error: z.string().optional(), restored: z.boolean().optional() }),
+  },
 
   // Reviewer-managed archive and pin, and permanent deletion of a review's saved data
   archiveReview: {

@@ -194,3 +194,20 @@ test("with Move to summary off, a comment on an older diff stays put until it's 
   await expect(harness.behavior.callRpc("moveToSummary", { targetKey: "pr-1", revision, file: "a.ts", line: 1, side: "RIGHT" })).rejects.toThrow("Move to summary is off in Settings.");
   expect(store.getDraft("pr-1")).toMatchObject({ body: "", comments: [{ file: "a.ts", line: 1, body: "Why one?" }] });
 });
+
+test("with Stop a guide while it builds off, Stop is refused and the guide runs until it's done", async () => {
+  const { bb, harness, store } = host();
+  await plugin(bb);
+  let finish = () => {};
+  harness.inspection.sdk.stub("threads.wait", () => new Promise((resolve) => { finish = () => {
+    store.saveGuide("pr-1", { title: "T", intent: "I", sections: [], unplacedFiles: [] });
+    resolve({ matched: true });
+  }; }));
+  const run = generateGuide(bb, store, "pr-1", "p1", { unattended: true });
+  await vi.waitFor(() => expect(harness.inspection.sdk.callsTo("threads.wait")).toHaveLength(1));
+  expect(await harness.behavior.callRpc("stopGuide", { targetKey: "pr-1" })).toMatchObject({ ok: false });
+  expect(store.getReview("pr-1")?.status).toBe("generating");
+  finish();
+  await run;
+  expect(store.getReview("pr-1")?.status).toBe("ready");
+});

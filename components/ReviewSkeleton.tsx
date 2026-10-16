@@ -1,6 +1,6 @@
 import { memo, useId } from "react";
 import { UrlLink, useBbNavigate } from "@get-bb/plugin-sdk/app";
-import type { ReviewItem } from "../lib/review-state";
+import { GUIDE_STOPPED, type ReviewItem } from "../lib/review-state";
 import { Skeleton } from "./ui/skeleton";
 import { Icon } from "./ui/icon";
 import { Button } from "./ui/button";
@@ -58,18 +58,19 @@ function WorkspaceShape() {
 
 /**
  * The review page before its guide shows. Opening, the workspace's shape in placeholders. While its guide is built
- * (`review`), the page bar with the review's menu, the agent at work, and the shape dimmed under it.
+ * (`review`), the page bar with the review's menu, the agent at work, Stop when `onStop` is given, and the shape dimmed
+ * under it.
  */
-export const ReviewSkeleton = memo(function ReviewSkeleton({ review, onBack }: { review?: ReviewItem; onBack?: () => void }) {
+export const ReviewSkeleton = memo(function ReviewSkeleton({ review, onBack, onStop, stopping = false }: { review?: ReviewItem; onBack?: () => void; onStop?: () => void; stopping?: boolean }) {
   if (!review || !onBack) {
     // The shape is hidden from screen readers, so the status says it in words.
     return <div role="status" aria-label="Opening the review" className="@container/skeleton flex h-full min-w-0 flex-col bg-background"><span className="sr-only">Opening the review…</span><WorkspaceShape /></div>;
   }
-  return <BuildingGuide review={review} onBack={onBack} />;
+  return <BuildingGuide review={review} onBack={onBack} onStop={onStop} stopping={stopping} />;
 });
 ReviewSkeleton.displayName = "ReviewSkeleton";
 
-function BuildingGuide({ review, onBack }: { review: ReviewItem; onBack: () => void }) {
+function BuildingGuide({ review, onBack, onStop, stopping }: { review: ReviewItem; onBack: () => void; onStop?: () => void; stopping: boolean }) {
   const navigate = useBbNavigate();
   const pinnable = useThreadListReviews() === true;
   return (
@@ -88,7 +89,10 @@ function BuildingGuide({ review, onBack }: { review: ReviewItem; onBack: () => v
             <Icon name="Loading" className="size-4 shrink-0 animate-spin text-(--ansi-13) motion-reduce:animate-none" aria-hidden />
           </div>
           <p className="mt-4 text-sm text-muted-foreground">It takes a few minutes. You can leave: All reviews shows when it’s ready.</p>
-          {review.url && <Button asChild variant="outline" size="sm" className={`mt-4 ${TOUCH_CONTROL}`}><UrlLink href={review.url}><Icon name="Github" aria-hidden />Open on GitHub</UrlLink></Button>}
+          {(review.url || onStop) && <div className="mt-4 flex flex-wrap gap-2">
+            {review.url && <Button asChild variant="outline" size="sm" className={TOUCH_CONTROL}><UrlLink href={review.url}><Icon name="Github" aria-hidden />Open on GitHub</UrlLink></Button>}
+            {onStop && <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={stopping} onClick={onStop}>{stopping ? "Stopping…" : "Stop"}</Button>}
+          </div>}
         </section>
       </div>
       {/* What's coming, dimmed; a phone keeps its height for the card. */}
@@ -100,6 +104,7 @@ function BuildingGuide({ review, onBack }: { review: ReviewItem; onBack: () => v
 /**
  * A review page that failed: the page bar (with the review's menu, when there's a review), what failed, why a guide
  * failed when it's known, and the way on: Try again, or Back to your reviews when `primary` is "back", and the PR on GitHub.
+ * A guide you stopped says "Guide stopped", with Build the guide.
  */
 export const ReviewError = memo(function ReviewError({ review, title = "Couldn’t build the guide", message = "The guide writer stopped before it finished. Check your coding agent in BB’s Settings, then try again.", onRetry, onBack, busy = false, primary = "retry" }: {
   review?: ReviewItem;
@@ -112,19 +117,22 @@ export const ReviewError = memo(function ReviewError({ review, title = "Couldn�
 }) {
   const navigate = useBbNavigate();
   const pinnable = useThreadListReviews() === true;
+  // You stopped its guide: nothing went wrong, and building it is the way on.
+  const stopped = review?.status === "error" && review.guideError?.text === GUIDE_STOPPED;
   // The writer's own words or the guide's last rejection: plain text, cut to a few lines.
-  const reason = review?.status === "error" ? review.guideError?.text : undefined;
+  const reason = review?.status === "error" && !stopped ? review.guideError?.text : undefined;
   const reasonId = useId();
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <PageBar onBack={onBack} title={review && <InlineCode text={review.title ?? review.gitRef ?? review.targetKey} />}>
         {review && <ReviewActions review={review} pinnable={pinnable} trailing={[reviewSettingsItem(navigate, review.targetKey)]} onDeleted={onBack} className={TOUCH_CONTROL} />}
       </PageBar>
-      <div role="alert" className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 overflow-y-auto p-6 text-center">
-        <IconTile tone="danger" icon="AlertTriangle" className="size-10 rounded-xl" iconClassName="size-5" />
+      {/* A guide you stopped didn't fail: it says so plainly, not as an alert. */}
+      <div role={stopped ? "status" : "alert"} className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 overflow-y-auto p-6 text-center">
+        <IconTile tone={stopped ? "neutral" : "danger"} icon={stopped ? "Route" : "AlertTriangle"} className="size-10 rounded-xl" iconClassName="size-5" />
         <div className="max-w-lg space-y-2">
-          <h2 className="text-base font-semibold text-foreground">{title}</h2>
-          <p className="break-words text-sm leading-relaxed text-muted-foreground">{message}</p>
+          <h2 className="text-base font-semibold text-foreground">{stopped ? "Guide stopped" : title}</h2>
+          <p className="break-words text-sm leading-relaxed text-muted-foreground">{stopped ? "You stopped the guide writer before it finished. Build the guide when you’re ready." : message}</p>
         </div>
         {reason && (
           <section aria-labelledby={reasonId} className="w-full max-w-lg rounded-md border border-border p-3 text-left">
@@ -134,7 +142,7 @@ export const ReviewError = memo(function ReviewError({ review, title = "Couldn�
         )}
         <div className="flex flex-wrap justify-center gap-2">
           {primary === "back" && <Button className={TOUCH_CONTROL} onClick={onBack}>Back to your reviews</Button>}
-          {onRetry && <Button disabled={busy} variant={primary === "back" ? "outline" : "default"} className={TOUCH_CONTROL} onClick={onRetry}>{busy ? "Trying again…" : "Try again"}</Button>}
+          {onRetry && <Button disabled={busy} variant={primary === "back" ? "outline" : "default"} className={TOUCH_CONTROL} onClick={onRetry}>{stopped ? busy ? "Building…" : "Build the guide" : busy ? "Trying again…" : "Try again"}</Button>}
           {review?.url && <Button asChild variant="outline" className={TOUCH_CONTROL}><UrlLink href={review.url}><Icon name="Github" aria-hidden />Open on GitHub</UrlLink></Button>}
         </div>
       </div>

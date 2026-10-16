@@ -9,7 +9,7 @@ export type KnobNumberText = Partial<Record<NumberKnob, string>>;
 
 interface KnobControlEntry {
   id: KnobId;
-  section: "notifications" | "assistant" | "turn" | "reading" | "comments" | "trust";
+  section: "notifications" | "guide" | "assistant" | "turn" | "reading" | "comments" | "trust";
   label: string;
   description: string;
   /** A dependent, indented and disabled while this is false. */
@@ -24,6 +24,7 @@ export const KNOB_CONTROLS: readonly KnobControlEntry[] = [
   { id: "alertTurns", section: "notifications", label: "A review becomes your turn", description: "Re-requested, a request for your review, a question or mention, your feedback handled, or a snooze ending." },
   { id: "runAutomaticReview", section: "assistant", label: "Run the automatic review", description: "When a guide is ready and the review has no conversation yet, the review agent reviews the change with the prompt below. Off keeps the prompt for later." },
   { id: "recheckOnNewCommits", section: "assistant", label: "Re-check the agent’s comments after new commits", description: "When a guide updates for new commits, the review agent checks the comments it drafted and removes the ones the commits fixed." },
+  { id: "stopGenerating", section: "guide", label: "Stop a guide while it builds", description: "The building screen offers Stop. A rebuild goes back to the guide you had; a first guide waits for Build the guide. Off, a guide runs until it’s done." },
   { id: "mentionsWake", section: "turn", label: "Come back when you’re mentioned", description: "A mention of you on the PR, in a review, or in a line comment brings the review back. Off, mentions don’t." },
   { id: "prepareOnReturn", section: "turn", label: "Get a review ready before alerting you", description: "When a review comes back, rebuild an out-of-date guide and run the re-review check first, for up to 10 minutes. Off, the alert comes at once, and Update guide and Check again are a click away." },
   { id: "runReReviewCheck", section: "turn", label: "Run the re-review check", description: "The review agent checks your earlier feedback: when a review comes back (with Get a review ready on), after pushes as set below, and when you click Check again. Off keeps the prompt for later." },

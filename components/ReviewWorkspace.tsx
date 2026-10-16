@@ -633,6 +633,23 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       setLoadError(err instanceof Error ? err.message : "Couldn’t rebuild the guide.");
     } finally { setRebuilding(false); }
   }, [rebuilding, rpc, targetKey, load]);
+  // Stop, while a guide builds, unless Settings turns it off: a rebuild gets the guide you had back.
+  const stopGenerating = useKnob("stopGenerating");
+  const [stopping, setStopping] = useState(false);
+  const stopGuide = useCallback(async () => {
+    if (stopping) return;
+    setStopping(true);
+    try {
+      const result = await rpc.call("stopGuide", { targetKey });
+      if (!result.ok) toast.error(result.error ?? "Couldn’t stop the guide.");
+      else {
+        if (result.restored) toast.success("Stopped. The guide is as it was.");
+        await load();
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn’t stop the guide.");
+    } finally { setStopping(false); }
+  }, [stopping, rpc, targetKey, load]);
   const archived = !!review?.archivedAt;
   const { newCommits, text: newCommitsText } = useNewCommits(targetKey, isPr && !archived);
 
@@ -1300,7 +1317,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (!review) return <ReviewError title="Review not found" message="This review may have been removed. Return to your reviews or refresh the connection." onRetry={() => void load()} onBack={back} primary="back" />;
     if (review.status === "tracked") return <TrackedReview review={review} onBack={back} />;
     if (review.status === "error") return <ReviewError review={review} onRetry={() => void rebuild()} onBack={back} busy={rebuilding} />;
-    return <ReviewSkeleton review={review} onBack={back} />;
+    return <ReviewSkeleton review={review} onBack={back} onStop={stopGenerating ? () => void stopGuide() : undefined} stopping={stopping} />;
   }
 
   const noticeButton = cn("h-7", TOUCH_CONTROL);
@@ -1310,7 +1327,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     ...(loadError ? [{ id: "load", tone: "danger", icon: "AlertCircle", role: "alert", text: loadError, action: <Button variant="outline" size="sm" className={noticeButton} onClick={() => void load()}>Try again</Button> }] as const : []),
     ...(review?.status === "error" ? [{ id: "rebuild", tone: "danger", icon: "AlertTriangle", role: "alert", text: "Couldn’t update the guide. Showing the previous one.", action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Try again</Button> }] as const : []),
     ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
-    ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here." }] as const : []),
+    ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),
     ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review, { unattendedAgents })}.`, action: <NotRunButton review={review} /> }] as const : []),
     ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: newCommitsText, action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),
   ];

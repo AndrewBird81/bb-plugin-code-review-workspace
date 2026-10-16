@@ -3,6 +3,9 @@ import { baselineOf, computeTurn, type Turn, type TurnReason, type feedbackProgr
 import type { StackPlace } from "./stacks";
 /** A review as the server returns it, with its `turn`, `progress`, and `stack` attached. */
 export type ReviewItem = Pick<ReviewMeta, "targetKey"> & Partial<ReviewMeta> & { turn?: Turn; progress?: ReturnType<typeof feedbackProgress>; stack?: StackPlace | null };
+/** A guide's error when the reviewer stopped it before it was written (src/generate.ts stopGuide). */
+export const GUIDE_STOPPED = "Stopped";
+
 /** The server's turn when it sent one; otherwise computed with the default options. */
 export function reviewState(review: ReviewItem): Turn {
   return review.turn ?? computeTurn(review);

@@ -11,6 +11,7 @@ import { approve, mayRunUnattended } from "../lib/trust";
 import { fitHunks } from "./hunks";
 import { spawningFor } from "./thread-review";
 import { untrusted } from "./untrusted";
+import { GUIDE_STOPPED } from "../lib/review-state";
 
 /** Starts a guide-writing worker's title; `agents.configure` grants it the guide tools by it. */
 export const GUIDE_WORKER_TITLE = "Generate guide: ";
@@ -40,6 +41,19 @@ const waitCap = (patchBytes: number) => Math.min(60 * 60_000, WAIT_STEP + Math.c
 export function hasGuideGenerations(bb: BbPluginApi) { return (active.get(bb)?.size ?? 0) > 0; }
 export function stopGuideGenerations(bb: BbPluginApi) {
   for (const controller of active.get(bb) ?? []) controller.abort();
+}
+
+/** Each review's running generation, which the reviewer can stop: `stop` says whether it did, `done` resolves once it's finalized. */
+const stoppable = new WeakMap<BbPluginApi, Map<string, { stop(): boolean; done: Promise<void> }>>();
+/**
+ * Stop the review's running guide, once it's finalized: "restored" when a rebuild got its previous guide back,
+ * "stopped" when a first guide ended without one, null when nothing was running or its guide was already accepted.
+ */
+export async function stopGuide(bb: BbPluginApi, store: Store, targetKey: string): Promise<"restored" | "stopped" | null> {
+  const run = stoppable.get(bb)?.get(targetKey);
+  if (!run?.stop()) return null;
+  await run.done;
+  return store.getReview(targetKey)?.status === "ready" ? "restored" : "stopped";
 }
 
 /** Why a guide can't start now: the guide writer's machine is offline or removed. */
@@ -101,6 +115,17 @@ export async function generateGuide(
   const runs = active.get(bb) ?? new Set<AbortController>();
   active.set(bb, runs);
   runs.add(controller);
+  /** The reviewer stopped it (stopGuide), unlike a plugin reload's abort. */
+  let stopped = false;
+  let finished = () => {};
+  const run = {
+    // An accepted guide stands: it's finalizing already.
+    stop: () => { if (accepted.signal.aborted || controller.signal.aborted) return false; stopped = true; controller.abort(); return true; },
+    done: new Promise<void>((resolve) => { finished = resolve; }),
+  };
+  const byReview = stoppable.get(bb) ?? new Map<string, typeof run>();
+  stoppable.set(bb, byReview);
+  byReview.set(targetKey, run);
   try {
     const review = store.getReview(targetKey);
     // A guide you start approves agents on its head, whoever wrote the PR (lib/trust.ts).
@@ -187,11 +212,13 @@ export async function generateGuide(
     // A failed rebuild keeps the guide you had; a guide this run already submitted stands.
     if (ok) store.dropGuideBackup(targetKey);
     else store.restoreGuide(targetKey);
-    store.setStatus(targetKey, ok ? "ready" : "error");
-    store.setLifecycle(targetKey, { guideError: ok || !failure ? null : { at: Date.now(), text: failure } });
+    // A rebuild you stopped is the guide you had, ready; a first guide you stopped waits for Build the guide.
+    const restored = stopped && store.getGuide(targetKey) !== null;
+    store.setStatus(targetKey, ok || restored ? "ready" : "error");
+    store.setLifecycle(targetKey, { guideError: ok || restored ? null : stopped ? { at: Date.now(), text: GUIDE_STOPPED } : failure ? { at: Date.now(), text: failure } : null });
     // The review's assistant reads the new guide when its runtime restarts.
     if (ok) void refreshAssistants(bb, store, [targetKey]);
-    bb.realtime.publish(`review:${targetKey}`, { status: ok ? "ready" : "error" });
+    bb.realtime.publish(`review:${targetKey}`, { status: ok || restored ? "ready" : "error" });
     bb.realtime.publish("reviews", { ts: Date.now() });
     // A review you already reviewed gets its feedback checked; a new one, the automatic review.
     const review = store.getReview(targetKey);
@@ -215,5 +242,7 @@ export async function generateGuide(
   } finally {
     runs.delete(controller);
     if (generationId) generations.get(bb)?.delete(generationId);
+    if (byReview.get(targetKey) === run) byReview.delete(targetKey);
+    finished();
   }
 }

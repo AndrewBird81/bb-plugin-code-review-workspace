@@ -165,3 +165,72 @@ test("an accepted guide is ready at once, though its worker's turn goes on", asy
   expect(archive).toHaveBeenCalledWith({ threadId: "worker" });
   expect(stop).toHaveBeenCalledWith({ threadId: "worker" });
 }, 5_000);
+
+/** A worker that waits until its generation is aborted, with Needs You's deliveries recorded. */
+function stoppableHost() {
+  const archive = vi.fn(async () => ({}));
+  const stop = vi.fn(async () => ({}));
+  const delivered: unknown[] = [];
+  let waiting = false;
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: async () => ({ id: "worker" }), archive, stop,
+    wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+      waiting = true;
+      signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }),
+    queuedMessages: { list: async () => [] },
+  }, plugins: { callRpc: async ({ method, input }: any) => {
+    if (method === "activityCapabilities") return { version: 1 };
+    delivered.push(input);
+    return { accepted: true, id: "activity", duplicate: false, ok: true };
+  } } } as any });
+  return { bb, harness, archive, stop, delivered, waiting: () => waiting };
+}
+
+test("Stop mid-rebuild puts the previous guide back, ready, stops and archives the worker, and alerts no one", async () => {
+  const { bb, harness, archive, stop, delivered, waiting } = stoppableHost();
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "target", kind: "ref", gitRef: "main", status: "ready", createdAt: 1, projectId: "p1" });
+  store.savePatch("target", "old patch");
+  store.saveGuide("target", { ...guide, title: "Before" });
+  store.backupGuide("target");
+  store.savePatch("target", "new patch");
+  const run = generateGuide(bb, store, "target", "p1");
+  await vi.waitFor(() => expect(waiting()).toBe(true));
+  expect(store.getReview("target")?.status).toBe("generating");
+  expect(await harness.behavior.callRpc("stopGuide", { targetKey: "target" })).toEqual({ ok: true, restored: true });
+  await run;
+  expect(store.getReview("target")?.status).toBe("ready");
+  expect(store.getGuide("target")?.title).toBe("Before");
+  expect(store.patch("target")).toBe("old patch");
+  expect(store.getReview("target")?.guideError).toBeNull();
+  expect(archive).toHaveBeenCalledWith({ threadId: "worker" });
+  expect(stop).toHaveBeenCalledWith({ threadId: "worker" });
+  expect(delivered).toEqual([]);
+});
+
+test("Stop on a first guide ends it with the error Stopped, and alerts no one", async () => {
+  const { bb, harness, stop, delivered, waiting } = stoppableHost();
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "target", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
+  const run = generateGuide(bb, store, "target", "p1");
+  await vi.waitFor(() => expect(waiting()).toBe(true));
+  expect(await harness.behavior.callRpc("stopGuide", { targetKey: "target" })).toEqual({ ok: true });
+  await run;
+  expect(store.getReview("target")?.status).toBe("error");
+  expect(store.getReview("target")?.guideError).toMatchObject({ text: "Stopped" });
+  expect(stop).toHaveBeenCalledWith({ threadId: "worker" });
+  expect(delivered).toEqual([]);
+});
+
+test("Stop on a review with no guide building, or an unknown one, does nothing", async () => {
+  const { bb, harness } = stoppableHost();
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  expect(await harness.behavior.callRpc("stopGuide", { targetKey: "target" })).toEqual({ ok: true });
+  expect(await harness.behavior.callRpc("stopGuide", { targetKey: "nope" })).toEqual({ ok: true });
+  expect(store.getReview("target")?.status).toBe("ready");
+});

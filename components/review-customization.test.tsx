@@ -469,7 +469,7 @@ async function renderSettings(preferences: Record<string, unknown> = { ...defaul
   const saveButton = () => slot.getByRole("button", { name: "Save settings" }) as HTMLButtonElement;
   return { slot, saved, save, toggle, pace, saveButton };
 }
-const SECTION_TITLES = { notifications: "Notifications", assistant: "Review agent", turn: "Whose turn", reading: "Reading", comments: "Comments and Finish review", trust: "Trust" } as const;
+const SECTION_TITLES = { notifications: "Notifications", guide: "Guide generation", assistant: "Review agent", turn: "Whose turn", reading: "Reading", comments: "Comments and Finish review", trust: "Trust" } as const;
 
 test("every knob shows in its section, and each saves its non-default value", async () => {
   const { KNOB_CONTROLS } = await import("./SettingsKnobs");

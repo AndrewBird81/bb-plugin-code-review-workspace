@@ -45,7 +45,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
-import { GUIDE_WORKER_TITLE, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideRejected, guideWorkerFailed, guideWriterMode } from "./src/generate";
+import { GUIDE_WORKER_TITLE, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideRejected, guideWorkerFailed, guideWriterMode } from "./src/generate";
 import { pluginThreadsTitled, threadReview, threadRole, toolThreadReview } from "./src/thread-review";
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { rerunReview } from "./src/rereview";
@@ -543,6 +543,11 @@ export default async function plugin(bb: BbPluginApi) {
       // Reading the PR may have started an automatic rebuild already.
       if (store.getReview(targetKey)?.status === "generating") return { ok: true };
       return rerunReview(deps, targetKey);
+    },
+    async stopGuide({ targetKey }) {
+      if (!store.getPreferences().preferences.knobs.stopGenerating) return { ok: false, error: "Stopping a guide is off in Settings." };
+      // No alert either way: you stopped it.
+      return await stopGuide(bb, store, targetKey) === "restored" ? { ok: true, restored: true } : { ok: true };
     },
     archiveReview({ targetKey, archived }) {
       if (!store.getReview(targetKey)) return { ok: false, error: "This review no longer exists." };

@@ -340,3 +340,25 @@ test("with Move to summary off, Finish review's row for a comment on an older di
   expect(page.queryByRole("button", { name: "Move to summary" })).toBeNull();
   page.lifecycle.unmount(); bar.lifecycle.unmount();
 });
+
+test("with Stop a guide while it builds off, neither the building card nor a rebuild's notice offers Stop", async () => {
+  const app = await loadPluginApp(() => import("../app"));
+  const state = { status: "generating", built: false };
+  const base = settingsOffRpc(allKnobsOff);
+  const rpc = settingsOffRpc(allKnobsOff, { getReviewBundle: () => {
+    const bundle = base.getReviewBundle() as { review: object; guide: unknown };
+    return { ...bundle, review: { ...bundle.review, status: state.status }, guide: state.built ? bundle.guide : null };
+  } });
+  const building = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: rpc as any });
+  await building.findByRole("status", { name: "Building the guide" });
+  expect(building.queryByRole("button", { name: "Stop" })).toBeNull();
+  building.lifecycle.unmount();
+  Object.assign(state, { status: "ready", built: true });
+  const workspace = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: rpc as any });
+  await workspace.findByRole("main", { name: "Review" });
+  Object.assign(state, { status: "generating", built: false });
+  await workspace.emitRealtime("review:pr-42", {});
+  await workspace.findByText(/Updating the guide for the new commits/);
+  expect(workspace.queryByRole("button", { name: "Stop" })).toBeNull();
+  workspace.lifecycle.unmount();
+});
