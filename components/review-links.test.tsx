@@ -93,3 +93,28 @@ test("on a local review, a comment's ⋯ opens its line in an editor on the BB s
   expect(none.queryByRole("button", { name: /^More on the comment/ })).toBeNull();
   none.lifecycle.unmount();
 });
+
+test("a local review's comment opens in an editor only where its diff ends at the checkout: main and main...HEAD, not main...feature or a..b", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewLinksContext, useReviewLinks } = await import("../lib/review-links");
+  const { CommentEditorMenu } = await import("./OpenInEditor");
+  const comment = { file: "src/a.ts", line: 1, side: "RIGHT" as const, body: "Name it." };
+  const offered = async (gitRef: string) => {
+    const component = () => {
+      const links = useReviewLinks({ targetKey: "k", kind: "ref", gitRef, cwd: "/repo", status: "ready", createdAt: 1, title: gitRef } as any);
+      return <ReviewLinksContext.Provider value={links}><CommentEditorMenu comment={comment} /></ReviewLinksContext.Provider>;
+    };
+    const listMachines = vi.fn(() => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }] }));
+    const slot = renderSlot({ component }, {}, { rpc: { listMachines } as any });
+    // Wait out the machines, which an offered review asks for.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const button = slot.queryByRole("button", { name: "More on the comment on src/a.ts:1" });
+    slot.lifecycle.unmount();
+    cleanup();
+    return { offered: button !== null, asked: listMachines.mock.calls.length > 0 };
+  };
+  expect(await offered("main")).toEqual({ offered: true, asked: true });
+  expect(await offered("main...HEAD")).toEqual({ offered: true, asked: true });
+  expect(await offered("main...feature")).toEqual({ offered: false, asked: false });
+  expect(await offered("a..b")).toEqual({ offered: false, asked: false });
+});

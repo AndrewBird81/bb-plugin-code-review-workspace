@@ -408,3 +408,21 @@ test("a local review's file opens in an editor on the BB server at its first cha
   expect(listMachines).not.toHaveBeenCalled();
   off.slot.lifecycle.unmount();
 });
+
+test("a local review's file opens in an editor only where its diff ends at the checkout: main and main...HEAD, not main...feature or a..b", async () => {
+  const listMachines = () => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }] });
+  const offered = async (gitRef: string) => {
+    const bundle = { review: { targetKey: "pr-42", kind: "ref", gitRef, cwd: "/repo", status: "ready", createdAt: 1, title: gitRef }, guide: structuredClone(guide), patch, revision: "r1" };
+    const { slot } = await renderWorkspace({ rpc: { getReviewBundle: () => structuredClone(bundle), listMachines } });
+    await slot.findByText("aa");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const link = slot.queryByRole("link", { name: "Open src/a.ts in editor" });
+    slot.lifecycle.unmount();
+    cleanup();
+    return link !== null;
+  };
+  expect(await offered("main")).toBe(true);
+  expect(await offered("main...HEAD")).toBe(true);
+  expect(await offered("main...feature")).toBe(false);
+  expect(await offered("a..b")).toBe(false);
+});

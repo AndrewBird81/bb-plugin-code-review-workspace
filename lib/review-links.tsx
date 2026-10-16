@@ -12,18 +12,28 @@ import { useKnob } from "./settings";
 export interface ReviewLinks {
   /** The comments sent to the review's source thread; null when none were, or Send to thread is off. */
   sent: NonNullable<ReviewLifecycle["sent"]> | null;
-  /** A local review's checkout and the BB server's host, where its files open; null for a PR, or with Open in editor off. */
+  /** A local review's checkout and the BB server's host, where its files open; null for a PR, a diff that doesn't end at the checkout, or with Open in editor off. */
   editor: { hostId: string; root: string } | null;
 }
 
 export const ReviewLinksContext = createContext<ReviewLinks>({ sent: null, editor: null });
+
+/**
+ * Whether a local review's diff ends at what its checkout holds, so its lines are the checkout's: a ref without `..`,
+ * which `git diff` takes against the working tree, or a range ending at HEAD. Not `main...feature` or `a..b`.
+ */
+export function diffEndsAtCheckout(gitRef: string | undefined): boolean {
+  if (!gitRef) return false;
+  const range = gitRef.match(/\.\.\.?(.*)$/);
+  return !range || range[1] === "" || range[1] === "HEAD";
+}
 
 /** The review's links, as its switches allow. A local review's checkout is on the BB server, so its files open there. */
 export function useReviewLinks(review: ReviewItem | null): ReviewLinks {
   const rpc = useRpc<typeof rpcContract>();
   const sendToThread = useKnob("sendToThread");
   const openInEditor = useKnob("openInEditor");
-  const root = openInEditor && review?.kind === "ref" ? review.cwd ?? null : null;
+  const root = openInEditor && review?.kind === "ref" && diffEndsAtCheckout(review.gitRef) ? review.cwd ?? null : null;
   const [hostId, setHostId] = useState<string | null>(null);
   useEffect(() => {
     if (!root) return;
