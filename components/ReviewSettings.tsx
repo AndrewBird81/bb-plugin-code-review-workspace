@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
-import { useRpc, useRealtime, useBbNavigate, experimental_PermissionModePicker as PermissionModePicker, experimental_ProviderModelPicker as ProviderModelPicker } from "@get-bb/plugin-sdk/app";
+import { UrlLink, useRpc, useRealtime, useBbNavigate, experimental_PermissionModePicker as PermissionModePicker, experimental_ProviderModelPicker as ProviderModelPicker } from "@get-bb/plugin-sdk/app";
 import type { PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import type { PreferencesRecord } from "../src/preferences";
@@ -313,7 +313,8 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
           {knob("alertTurns")}
         </fieldset>}
         <p className="max-w-[75ch] text-sm text-muted-foreground">Alerts go to Needs You. Each links back to the review and clears when you open it. Install or update Needs You to 0.2.0-beta.3 or later, then enable Extension activity in its Settings. Telegram is optional.</p>
-        <a className={`relative inline-block text-sm text-primary underline underline-offset-4 ${TOUCH_TARGET}`} href="/plugins/inbox/inbox/settings" target="_blank" rel="noreferrer">Open Needs You settings</a>
+        {/* A BB route, so it opens in this window, as BB's own links do. */}
+        <UrlLink className={`relative inline-block text-sm text-primary underline underline-offset-4 ${TOUCH_TARGET}`} href="/plugins/inbox/inbox/settings">Open Needs You settings</UrlLink>
       </section>
       {!record ? !error && <p role="status">Loading settings…</p> : <>
         {/* min-w-0: a fieldset is otherwise as wide as its widest line, past a phone's edge. */}

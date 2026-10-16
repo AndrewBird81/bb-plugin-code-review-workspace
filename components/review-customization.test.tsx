@@ -744,3 +744,16 @@ test("a custom guide writer on a provider that runs only at Full starts at Full,
   await waitFor(() => expect((slot.getByRole("combobox", { name: "Permission mode" }) as HTMLSelectElement).value).toBe("full"));
   slot.lifecycle.unmount();
 });
+
+test("Open Needs You settings opens that BB page in this window, not a new tab", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  const record = { preferences: { ...defaultPreferences }, revision: 0 };
+  // Like BB, the host takes the link's activation.
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record }, openUrl: () => true });
+  const link = await slot.findByRole("link", { name: "Open Needs You settings" });
+  expect({ href: link.getAttribute("href"), target: link.getAttribute("target") }).toEqual({ href: "/plugins/inbox/inbox/settings", target: null });
+  fireEvent.click(link);
+  expect(slot.inspection.navigateCalls).toContainEqual({ method: "openUrl", url: "/plugins/inbox/inbox/settings" });
+  slot.lifecycle.unmount();
+});
