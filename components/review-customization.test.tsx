@@ -96,10 +96,12 @@ test("Settings goes back to where it was opened from, All reviews or the review,
 test("in BB's Settings, Settings has no page bar of its own; its setup offers to switch the GitHub account where it's shown", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const slot = renderSlot(app.settingsSections[0]!, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => ({ preferences: { ...defaultPreferences }, revision: 0 }),
-    getGhAccounts: () => ({ active: "me", accounts: [] }), getSetupStatus: () => ({ account: "me", githubCli: true, agentAvailable: true, projectAvailable: true }) } as any });
+    // The accounts come after the setup's status, as they can on a busy machine: the button says "Checking account…" until then.
+    getGhAccounts: async () => { await new Promise((resolve) => setTimeout(resolve, 50)); return { active: "me", accounts: [] }; },
+    getSetupStatus: () => ({ account: "me", githubCli: true, agentAvailable: true, projectAvailable: true }) } as any });
   const setup = await slot.findByRole("region", { name: "Setup" });
   const row = (await within(setup).findByText("@me")).closest("li")!;
-  expect(within(row).getByRole("button", { name: "GitHub account: @me" })).toBeTruthy();
+  expect(await within(row).findByRole("button", { name: "GitHub account: @me" })).toBeTruthy();
   expect(slot.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
   slot.lifecycle.unmount();
 });
