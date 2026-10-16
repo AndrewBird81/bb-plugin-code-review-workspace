@@ -93,3 +93,19 @@ test("added and removed lines are marked + and −, not by color alone, in the d
   expect(drawn.length).toBeGreaterThan(0);
   expect(drawn.every((d) => d.options.diffIndicators === "classic")).toBe(true);
 });
+
+test("a narrow pane draws its diff unified from the first, never side by side first", () => {
+  const original = globalThis.ResizeObserver;
+  const measure = Element.prototype.getBoundingClientRect;
+  // A pane 700px wide, which a ResizeObserver reports only after the first paint.
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+  Element.prototype.getBoundingClientRect = function () { return { width: 700, height: 0, top: 0, left: 0, right: 700, bottom: 0 } as DOMRect; };
+  try {
+    render(<DiffViewer patch={file("src/a.ts", ["a"])} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} diffLayout="split" />);
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(drawn.map((d) => d.options.diffStyle)).not.toContain("split");
+  } finally {
+    globalThis.ResizeObserver = original;
+    Element.prototype.getBoundingClientRect = measure;
+  }
+});

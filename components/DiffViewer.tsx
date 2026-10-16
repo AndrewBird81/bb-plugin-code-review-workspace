@@ -1,4 +1,4 @@
-import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { z } from "zod";
 import { areSelectionsEqual, parsePatchFiles, processFile } from "@pierre/diffs";
@@ -471,17 +471,22 @@ export const DiffViewer = memo(function DiffViewer({
   }, [perFile, contents]);
   const removed = useMemo(() => (filtering && showRemoved ? [...since!.values()].filter((f) => f.status === "removed") : []), [since, filtering, showRemoved]);
 
-  // Side-by-side needs room: squeezed between the chapters and the review panel, each side would clip its code.
-  const [narrow, setNarrow] = useState(false);
+  // Side-by-side needs room: squeezed between the chapters and the review panel, each side would clip its code. Measured
+  // before the first paint, and until then no file draws its code: a narrow pane never draws side by side first.
+  const [narrow, setNarrow] = useState<boolean | null>(null);
   const hasFiles = perFile.length > 0;
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = root.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
+    if (!el) return;
+    // A width of 0 is a pane not laid out, which says nothing of its room.
+    const width = el.getBoundingClientRect().width;
+    setNarrow(width > 0 && width < UNIFIED_BELOW);
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(([entry]) => setNarrow(entry.contentRect.width < UNIFIED_BELOW));
     observer.observe(el);
     return () => observer.disconnect();
   }, [hasFiles]);
-  const unifiedOnly = compact || narrow;
+  const unifiedOnly = compact || !!narrow;
   useEffect(() => onUnifiedOnly?.(unifiedOnly), [unifiedOnly, onUnifiedOnly]);
   const diffStyle = unifiedOnly ? "unified" : diffLayout;
 
@@ -490,7 +495,7 @@ export const DiffViewer = memo(function DiffViewer({
   const lazy = useMemo(() => typeof IntersectionObserver !== "undefined"
     && perFile.reduce((rows, f) => rows + (f.fileDiff && !f.noisy ? rowsOf(f.fileDiff, "unified") : 0), 0) > LAZY_ROWS, [perFile]);
   const [near, setNear] = useState<Set<string>>(NONE);
-  const draws = (path: string) => !lazy || near.has(path) || draft?.composer?.file === path;
+  const draws = (path: string) => narrow !== null && (!lazy || near.has(path) || draft?.composer?.file === path);
   useEffect(() => {
     const el = root.current;
     if (!lazy || !el) return;
