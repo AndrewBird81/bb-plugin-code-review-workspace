@@ -148,7 +148,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const shownGuide = useRef("");
   const persisted = useMemo(() => getReviewState(targetKey), [targetKey]);
   // The first settings load, which load waits for: a ref, as load is kept for the review.
-  const firstSettings = useSettings().settled;
+  const { settled: firstSettings, fallback: settingsFallback } = useSettings();
   const settledRef = useRef(firstSettings);
   settledRef.current = firstSettings;
 
@@ -444,8 +444,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         rpc.call("getFileViews", { targetKey }).catch(() => null),
         // Like views, so files the repo marks generated are folded before the diff draws.
         rpc.call("getGeneratedFiles", { targetKey }).catch(() => null),
-        // Settings, which say where a review that came back opens. A slow or hung load opens it with the defaults.
-        Promise.race([settledRef.current.finally(() => clearTimeout(settingsWait)), new Promise<ReviewPreferences>((resolve) => { settingsWait = setTimeout(() => resolve(defaultPreferences), SETTINGS_WAIT_MS); })]),
+        // Settings, which say where a review that came back opens. A slow or hung load opens it with the provider's fallback, fixed while it's mounted.
+        Promise.race([settledRef.current.finally(() => clearTimeout(settingsWait)), new Promise<ReviewPreferences>((resolve) => { settingsWait = setTimeout(() => resolve(settingsFallback), SETTINGS_WAIT_MS); })]),
       ]);
       if (id !== request.current) return;
       // A deleted review shows "Review not found" rather than a pending regeneration.

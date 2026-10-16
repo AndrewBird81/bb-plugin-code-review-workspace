@@ -5,6 +5,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../lib/review-preferences";
 import { defaultKnobs } from "../lib/knobs";
+import { patchReviewState } from "../lib/panel-state";
 import { allKnobsOff, desktopWindow, renderInbox, renderReview, settingsOffRpc } from "./settings-off.test-support";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
@@ -99,6 +100,39 @@ test("a review opens, with default settings, when its settings won't load", asyn
   page.lifecycle.unmount();
 });
 
+test("settings that won't load keep the switches this browser last loaded, and a fresh browser gets the defaults", async () => {
+  const offline = { getPreferences: () => { throw new Error("Offline"); } };
+  const loaded = await renderReview({ ...defaultKnobs, singleKeyShortcuts: false });
+  await loaded.page.findByRole("heading", { name: "Parse rows" });
+  loaded.page.lifecycle.unmount(); loaded.bar.lifecycle.unmount();
+  // Shortcuts were off when settings last loaded; now they can't load.
+  const { page, bar } = await renderReview(defaultKnobs, offline);
+  await page.findByRole("heading", { name: "Parse rows" });
+  for (const key of ["j", "?"]) fireEvent.keyDown(document.body, { key });
+  expect(page.queryByRole("dialog", { name: "Keyboard shortcuts" })).toBeNull();
+  page.lifecycle.unmount(); bar.lifecycle.unmount();
+  localStorage.clear();
+  const fresh = await renderReview(defaultKnobs, offline);
+  await fresh.page.findByRole("heading", { name: "Parse rows" });
+  fireEvent.keyDown(document.body, { key: "?" });
+  await fresh.page.findByRole("dialog", { name: "Keyboard shortcuts" });
+  fresh.page.lifecycle.unmount(); fresh.bar.lifecycle.unmount();
+});
+
+test("the stored switches are read as saved settings are: each invalid or missing one at its default", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { storedKnobs } = await import("../lib/settings");
+  expect(storedKnobs("guided-review")).toBeNull();
+  localStorage.setItem("gr:knobs:guided-review", JSON.stringify({ singleKeyShortcuts: false, codeOwners: "no", approveGuardPace: 50.5 }));
+  expect(storedKnobs("guided-review")).toEqual({ ...defaultKnobs, singleKeyShortcuts: false });
+  localStorage.setItem("gr:knobs:guided-review", JSON.stringify({ approveGuardPace: 100 }));
+  expect(storedKnobs("guided-review")?.approveGuardPace).toBe(100);
+  // Another install's are its own.
+  expect(storedKnobs("guided-review-dev")).toBeNull();
+  localStorage.setItem("gr:knobs:guided-review", "{");
+  expect(storedKnobs("guided-review")).toBeNull();
+});
+
 /** The review's page alone, whose settings load however `getPreferences` answers. */
 async function openReview(getPreferences: () => unknown) {
   const app = await loadPluginApp(() => import("../app"));
@@ -124,6 +158,22 @@ test("a first settings load overtaken by a reload that never answers still opens
   // Every load but the newest answers.
   pending.slice(0, -1).forEach((resolve) => resolve(requirementsOff));
   await page.findByRole("main", { name: "Review" }, { timeout: 4000 });
+  page.lifecycle.unmount();
+}, 15_000);
+
+test("a settings load that never answers opens the review with the switches this browser last loaded", async () => {
+  // Open on the Overview was off: a review that came back to you reopens where you left it.
+  localStorage.setItem("gr:knobs:test-plugin", JSON.stringify({ ...defaultKnobs, returnToOverview: false }));
+  patchReviewState("pr-42", { activeId: "c1" });
+  const app = await loadPluginApp(() => import("../app"));
+  const review = { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", url: "https://github.com/acme/web/pull/42", repo: "acme/web", number: 42,
+    submittedVerdict: "REQUEST_CHANGES", turn: { group: "needs", reason: "re-requested", label: "Re-requested", signal: "re-requested:1", at: Date.now(), notify: true, blocking: false, updated: true } };
+  const bundle = settingsOffRpc(defaultKnobs).getReviewBundle();
+  const page = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: settingsOffRpc(defaultKnobs, {
+    getPreferences: () => new Promise(() => {}), getReviewBundle: () => ({ ...bundle, review }),
+  }) as any });
+  await page.findAllByTestId("filediff", {}, { timeout: 4000 });
+  expect(page.queryByRole("heading", { name: "Parse rows" })).toBeNull();
   page.lifecycle.unmount();
 }, 15_000);
 
