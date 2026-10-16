@@ -320,15 +320,18 @@ function lineKinds(rows: string[]): LineKind[] {
       if (leaf.pre ? /<\/pre>/i.test(row.slice(pos)) : blank(row.slice(pos))) leaf = null;
       return "raw";
     }
-    if (all && leaf?.kind === "indented") {
+    const afterIndented = all && leaf?.kind === "indented";
+    if (afterIndented) {
       const rest = row.slice(pos);
       if (blank(rest) || spaces(rest) >= 4 || (!stack.length && rest[spaces(rest)] === "\t")) return "raw";
       if (rest[spaces(rest)] === "\t") return null;
       leaf = null;
     }
     const paragraph = leaf?.kind === "paragraph" ? leaf : null;
-    // CommonMark's "the line's container is a paragraph": a setext underline, or a list item that can't interrupt it.
+    // CommonMark's "the line's container is a paragraph": a setext underline, or a table's delimiter row.
     let matchedParagraph = all && !!paragraph;
+    // micromark's "interrupt", where a list item can't begin empty or from other than 1: after indented code too.
+    let interrupting = matchedParagraph || afterIndented;
     let opened = false;
     let closed = false;
     // Closes the blocks this row didn't match, and the open leaf, for a new block; false when that's in doubt.
@@ -343,7 +346,7 @@ function lineKinds(rows: string[]): LineKind[] {
       stack.push(container);
       matched = stack.length;
       opened = true;
-      matchedParagraph = false;
+      matchedParagraph = interrupting = false;
     };
     for (;;) {
       const rest = row.slice(pos);
@@ -407,7 +410,7 @@ function lineKinds(rows: string[]): LineKind[] {
         if (after[0] === "\t") return null;
         const empty = blank(after);
         // micromark lets an ordered item interrupt a paragraph only from 1 itself, not 01.
-        if (!(matchedParagraph && (empty || (item[1] !== undefined && item[1] !== "1")))) {
+        if (!(interrupting && (empty || (item[1] !== undefined && item[1] !== "1")))) {
           if (!close()) return null;
           const gap = spaces(after);
           const padding = empty || gap >= 5 ? 1 : gap;

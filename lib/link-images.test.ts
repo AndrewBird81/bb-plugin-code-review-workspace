@@ -142,11 +142,15 @@ test("a code span or \\< that BB reads as raw HTML loads nothing", () => {
   expect(linkImages("a \\<b> c")).toBe("a &lt;b> c");
 });
 
-// An ordered item can interrupt a paragraph only from 1, so after "a" an "01." line goes on with it, and BB read the
-// "fence" in it as text with raw HTML (96-fixes-4).
-test("a list item that can't interrupt a paragraph begins no fence", () => {
+// An ordered item can interrupt a paragraph only from 1, and an empty one none, so after "a" an "01." line goes on
+// with it, and BB read the "fence" in it as text with raw HTML (96-fixes-4).
+test("a list item that can't interrupt a paragraph, or indented code, begins no fence", () => {
   expect(linkImages('a\n01. b\n    ``` <img src="https://evil.test/x.png">')).toBe("a\n01. b\n    ``` [Image](https://evil.test/x.png)");
   expect(linkImages('a\n01. b\n    ```\n    <img src="https://evil.test/x.png">')).toBe("a\n01. b\n    ```\n    [Image](https://evil.test/x.png)");
+  // micromark reads one after indented code the same way.
+  for (const item of ["1. ", "- ", "01. x"]) {
+    expect(linkImages(`    code\n${item}\n    \`\`\` <img src="https://evil.test/ic.png">`)).toBe(`    code\n${item}\n    \`\`\` [Image](https://evil.test/ic.png)`);
+  }
   // From 1 it does.
   expect(linkImages("a\n1. b\n   ```\n   <img src={logo} />\n   ```")).toBe("a\n1. b\n   ```\n   <img src={logo} />\n   ```");
 });
