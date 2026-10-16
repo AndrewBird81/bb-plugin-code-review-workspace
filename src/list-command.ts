@@ -40,5 +40,6 @@ export function runListCommand(reviews: ReviewItem[], argv: string[]): CliResult
   })));
   if (json) return { exitCode: 0, stdout: JSON.stringify({ reviews: rows }, null, 2) };
   if (!rows.length) return { exitCode: 0, stdout: "No reviews yet. Start one with `bb review <pr-url | git-ref>`." };
-  return { exitCode: 0, stdout: rows.map((row) => `${row.key}  ${row.title} · ${row.whoseTurn} (${row.turn}) · ${row.status}`).join("\n") };
+  // A PR's title is its author's words, quoted so an agent reads it as data, whatever it says.
+  return { exitCode: 0, stdout: rows.map((row) => `${row.key}  ${JSON.stringify(row.title)} · ${row.whoseTurn} (${row.turn}) · ${row.status}`).join("\n") };
 }

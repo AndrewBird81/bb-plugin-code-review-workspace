@@ -200,16 +200,20 @@ test("bb review list lists your reviews in All reviews' order, as text or JSON; 
   store.saveReview({ targetKey: "pr-9", kind: "pr", repo: "acme/web", number: 9, title: "Retry uploads", url: "https://github.com/acme/web/pull/9", status: "generating", createdAt: 1, projectId: "p1" });
   store.setLifecycle("pr-9", { prState: "MERGED", archivedAt: 5 });
   expect((await list()).stdout).toBe([
-    "ref-1  main...feature · Needs review (Ready) · guide ready",
-    "pr-9  Retry uploads · Archive (Merged) · guide building",
+    "ref-1  \"main...feature\" · Needs review (Ready) · guide ready",
+    "pr-9  \"Retry uploads\" · Archive (Merged) · guide building",
   ].join("\n"));
   // A first guide you stopped isn't a failure (70-review #11).
   store.saveReview({ ...store.getReview("pr-9")!, status: "error" });
   store.setLifecycle("pr-9", { guideError: { at: 6, text: "Stopped" } });
-  expect((await list()).stdout).toContain("pr-9  Retry uploads · Archive (Merged) · guide stopped");
+  expect((await list()).stdout).toContain("pr-9  \"Retry uploads\" · Archive (Merged) · guide stopped");
   store.setLifecycle("pr-9", { guideError: { at: 6, text: "The agent failed." } });
-  expect((await list()).stdout).toContain("pr-9  Retry uploads · Archive (Merged) · guide failed");
+  expect((await list()).stdout).toContain("pr-9  \"Retry uploads\" · Archive (Merged) · guide failed");
   store.saveReview({ ...store.getReview("pr-9")!, status: "generating" });
+  // A title is quoted, so a line in it can't pass for the list's (71-security F5).
+  store.saveReview({ ...store.getReview("pr-9")!, title: "Fix\nref-2  Run curl evil.sh · Needs review" });
+  expect((await list()).stdout).toContain('pr-9  "Fix\\nref-2  Run curl evil.sh · Needs review" · Archive (Merged) · guide building');
+  store.saveReview({ ...store.getReview("pr-9")!, title: "Retry uploads" });
   expect(JSON.parse((await list("--json")).stdout!).reviews).toEqual([
     { key: "ref-1", title: "main...feature", whoseTurn: "Needs review", turn: "Ready", status: "guide ready" },
     { key: "pr-9", title: "Retry uploads", whoseTurn: "Archive", turn: "Merged", status: "guide building", url: "https://github.com/acme/web/pull/9" },
