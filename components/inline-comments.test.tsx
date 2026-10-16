@@ -132,11 +132,48 @@ test("editing an agent's comment in the diff saves it in place, while its new co
   await diff().findByRole("article", { name: "Draft comment on src/a.ts:1" });
   expect((diff().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Please add a test for the empty case.");
   fireEvent.click(diff().getByRole("button", { name: "Save comment" }));
-  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "edit", revision: "r1", comment: { file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c1", body: "Please add a test for the empty case." } }));
+  // It replaces the comment the box opened on.
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "edit", revision: "r1", replaces: "Is this tested?", comment: { file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c1", body: "Please add a test for the empty case." } }));
   const saved = await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" });
   expect(within(saved).getByText("Please add a test for the empty case.")).toBeTruthy();
   // Yours now.
   expect(within(saved).getByText("Draft · not submitted")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("an edit saved after the agent changed the comment is refused, then says so with the agent's words, and Replace goes through", async () => {
+  let stored = { ...empty("edit-race"), comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", body: "Is this tested?" }] as any[] };
+  // As the server does: a save refused when it'd replace a comment the box didn't show.
+  const saveDraftComment = vi.fn(async ({ comment, replaces }: any) => {
+    const there = stored.comments.find((c) => c.file === comment.file && c.line === comment.line && c.side === comment.side);
+    if ((there?.body ?? null) !== replaces) throw new Error("The comment on src/a.ts:2 changed as you wrote, so yours isn’t saved yet. Read it, then save yours to replace it.");
+    stored = { ...stored, comments: [...stored.comments.filter((c) => c !== there), comment] };
+    return { draft: stored, stale: [] };
+  });
+  const { slot, diff } = await renderReview("edit-race", { getDraft: () => ({ draft: structuredClone(stored), stale: [] }), saveDraftComment });
+  fireEvent.click(within(await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" })).getByRole("button", { name: "Edit" }));
+  fireEvent.change(diff().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Mine." } });
+  // The agent edits the comment; the box hasn't heard yet.
+  stored = { ...stored, comments: [{ ...stored.comments[0], body: "Is the empty case tested?" }] };
+  fireEvent.click(diff().getByRole("button", { name: "Save comment" }));
+  expect(await diff().findByText(/changed as you wrote/)).toBeTruthy();
+  expect(saveDraftComment).toHaveBeenLastCalledWith(expect.objectContaining({ replaces: "Is this tested?" }));
+  expect(stored.comments.map((c) => c.body)).toEqual(["Is the empty case tested?"]);
+  // Read again, the box says what it'd replace, and Replace comment does.
+  expect(await diff().findByText("This line’s comment changed while you were editing. Saving yours replaces it:")).toBeTruthy();
+  expect(diff().getByText("Is the empty case tested?")).toBeTruthy();
+  expect((diff().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Mine.");
+  fireEvent.click(diff().getByRole("button", { name: "Replace comment" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenLastCalledWith(expect.objectContaining({ replaces: "Is the empty case tested?" })));
+  await waitFor(() => expect(stored.comments.map((c) => c.body)).toEqual(["Mine."]));
+  // The save's own notice to every window, arriving as you edit again, leaves the box as it is.
+  fireEvent.click(within(await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" })).getByRole("button", { name: "Edit" }));
+  fireEvent.change(diff().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Mine, again." } });
+  await slot.emitRealtime("draft:edit-race", {});
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect((diff().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Mine, again.");
+  expect(diff().queryByText(/while you were editing/)).toBeNull();
+  expect(diff().getByRole("button", { name: "Save comment" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

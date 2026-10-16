@@ -149,7 +149,7 @@ test("editing a draft comment replaces it without changing its location", async 
   fireEvent.change(slot.getByRole("textbox", { name: "Draft comment" }), { target: { value: "Clearer feedback" } });
   fireEvent.click(slot.getByRole("button", { name: "Save comment" }));
   await slot.findByText("Clearer feedback");
-  expect(save).toHaveBeenCalledWith({ targetKey: "edit", comment: { ...comment, body: "Clearer feedback" } });
+  expect(save).toHaveBeenCalledWith({ targetKey: "edit", replaces: "Old feedback", comment: { ...comment, body: "Clearer feedback" } });
   slot.lifecycle.unmount();
 });
 

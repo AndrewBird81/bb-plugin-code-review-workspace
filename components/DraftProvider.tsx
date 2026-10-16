@@ -367,8 +367,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   async function addComment() {
     if (!file.trim() || !body.trim() || !Number.isInteger(Number(line)) || Number(line) < 1) return;
     await mutate(async () => {
-      // A new comment replaces only the line's comment you were shown, if any.
-      const replaces = editing ? {} : { replaces: shownComments.current.find((c) => sameLocation(c, { file, line: Number(line), side }))?.body ?? null };
+      // A comment replaces only the line's comment you were shown, if any: an edit box says when it changed as you wrote.
+      const replaces = { replaces: shownComments.current.find((c) => sameLocation(c, { file, line: Number(line), side }))?.body ?? null };
       const result = await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(composerRevision.current ? { revision: composerRevision.current } : {}), ...replaces, comment: { file, line: Number(line), side, ...rangeOf({ line: Number(line), side, startLine, startSide }), chapterId: editing?.chapterId ?? activeChapterId, ...(severity ? { severity } : {}), body: body.trim() } }));
       apply(result as { draft: Draft }); closeComposer();
       focusComment({ file, line: Number(line), side }, inline);
@@ -542,6 +542,10 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const edited = writing && body !== openedBody.current;
   // A new comment's box on a line with a comment, such as the agent's, written as you wrote: saving replaces it.
   const replacing = showComposer && !editing && !asking && !summaryBox && draft.comments.some((c) => sameLocation(c, { file, line: Number(line), side }));
+  // The comment an edit box is on, as the draft has it now, when it changed since the box opened, as by the agent: null
+  // when it was removed.
+  const editedNow = editing ? draft.comments.find((c) => sameLocation(c, editing)) ?? null : null;
+  const changedWhileEditing = useMemo(() => editing && editedNow?.body !== editing.body ? { now: editedNow } : null, [editing, editedNow]);
   const composerInDiff = editable && showComposer && inline;
   const chat = useMemo(() => onOpenPanel ? () => onOpenPanel("agent") : null, [onOpenPanel]);
   const editingLine = showComposer && !summaryBox && !asking;
@@ -552,14 +556,14 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   }), [targetKey, draft.comments, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, chat, composerInDiff, editingLine, file, line, side, startLine, editing, asking]);
   const canSuggest = !!suggestable;
   const inlineComposer = useMemo<InlineComposer | null>(() => composerInDiff ? {
-    body, edited, replacing, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
+    body, edited, replacing, changedWhileEditing, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
     change: (text) => latest.current.changeBody(text),
     severity, changeSeverity: setSeverity,
     save: () => { void latest.current.addComment(); },
     askAgent: () => { void latest.current.askAgent(); },
     cancel: () => latest.current.cancelComposer(),
     suggest: canSuggest ? () => latest.current.suggestChange() : null,
-  } : null, [composerInDiff, body, edited, replacing, severity, composerError, rebuilding, olderDiff, canSuggest]);
+  } : null, [composerInDiff, body, edited, replacing, changedWhileEditing, severity, composerError, rebuilding, olderDiff, canSuggest]);
   const summaryComposer = editable && onSummary ? {
     mode: asking ? "ask" as const : "edit" as const, body, edited, textareaRef: bodyRef,
     change: changeBody, save: () => { void saveSummary(body.trim()); }, askAgent: () => { void askAgent(); }, cancel: () => { closeComposer(); focusSummary(); },
@@ -600,7 +604,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
     showComposer, inline, edited, replacing, counts, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment,
     file, boxLines, line, side, files, setFile, editing, showBoxInDiff, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
-    ownPr, suggested, chooseVerdict, confirming, setConfirming, approval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
+    changedWhileEditing, ownPr, suggested, chooseVerdict, confirming, setConfirming, approval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
     inlineDraft, inlineComposer, askAgent, patch, account,
   };
 }
