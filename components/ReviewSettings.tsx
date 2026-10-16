@@ -46,8 +46,34 @@ function MachineSelect({ hostId, machines, disabled, onChange }: {
   </label>;
 }
 
-function AgentSelection({ label, agent, machines, disabled, note, defaults = "the agent, model, effort, and permissions bb remembers for the project the review runs in", onCustomize, onChange }: {
+type ProviderModes = PluginRpcResult<typeof rpcContract["getProviderModes"]>["providers"];
+
+/** Names as a sentence lists them: "A", "A and B", "A, B and C". */
+function listNames(names: readonly string[]): string {
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "";
+}
+
+/** Whether an agent on the provider can run below Full. */
+function restrictable(provider: ProviderModes[number]): boolean {
+  return provider.permissionModes.some((mode) => mode === "accept-edits" || mode === "auto");
+}
+
+/**
+ * Why an agent on `providerId` can't be restricted, and which of its machine's providers can. None when the provider
+ * runs in Accept Edits or Auto, or isn't listed.
+ */
+function unrestrictedNote(providers: ProviderModes, providerId: string | undefined): string | undefined {
+  const provider = providers.find((candidate) => candidate.id === providerId);
+  if (!provider || restrictable(provider)) return undefined;
+  const restricted = providers.filter((candidate) => candidate.permissionModes.includes("accept-edits")).map((candidate) => candidate.name).sort((a, b) => a.localeCompare(b));
+  const alternatives = restricted.length ? ` ${listNames(restricted)} ${restricted.length === 1 ? "runs" : "run"} at Accept Edits.` : "";
+  return `${provider.name} runs only at Full, so this agent can’t be restricted.${alternatives}`;
+}
+
+function AgentSelection({ label, agent, machines, disabled, note, unrestricted, defaults = "the agent, model, effort, and permissions bb remembers for the project the review runs in", onCustomize, onChange }: {
   label: string; agent: AgentExecution | null; machines: Machines; disabled: boolean; note?: string;
+  /** Why this agent can't be restricted (unrestrictedNote). */
+  unrestricted?: string;
   /** What Project defaults runs with. */
   defaults?: string;
   onCustomize(): void; onChange(update: AgentUpdate): void;
@@ -72,6 +98,7 @@ function AgentSelection({ label, agent, machines, disabled, note, defaults = "th
       <PermissionModePicker disabled={disabled} routing={routing} providerId={agent.providerId} value={agent.permissionMode} onChange={(permissionMode) => onChange((current) => current && { ...current, permissionMode })} />
     </div> : <p className="text-xs text-muted-foreground">Runs on the bb server with {defaults}.</p>}
     {agent && machines === null && <p className="text-xs text-muted-foreground">Couldn’t load your machines. Reload this page to choose another machine.</p>}
+    {unrestricted && <p className="flex items-start gap-1.5 text-xs text-muted-foreground"><Icon name="AlertCircle" className="mt-px size-3.5 shrink-0" aria-hidden />{unrestricted}</p>}
     {note && <p className="text-xs text-muted-foreground">{note}</p>}
   </div>;
 }
@@ -181,6 +208,28 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
   useEffect(() => {
     rpc.call("listMachines", null).then((result) => setMachines(result.machines), () => setMachines(null));
   }, [rpc]);
+  // Each machine's providers, by host ("" for the bb server), read once its agent is placed there; none when unread.
+  const [providerModes, setProviderModes] = useState<Readonly<Record<string, ProviderModes>>>({});
+  const providerReads = useRef(new Map<string, Promise<ProviderModes>>());
+  const readProviders = useCallback((host: string) => {
+    let read = providerReads.current.get(host);
+    if (!read) {
+      read = rpc.call("getProviderModes", host ? { hostId: host } : {}).then((result) => result.providers, () => []);
+      providerReads.current.set(host, read);
+      void read.then((providers) => setProviderModes((current) => ({ ...current, [host]: providers })));
+    }
+    return read;
+  }, [rpc]);
+  const agentHosts = [record?.preferences.guideAgent?.hostId ?? "", record?.preferences.assistantAgent?.hostId ?? ""];
+  useEffect(() => { for (const host of ["", ...agentHosts]) void readProviders(host); }, [readProviders, agentHosts.join("\n")]);
+  // Project defaults' provider, read only when a provider on the bb server can't be restricted.
+  const [defaultProviderId, setDefaultProviderId] = useState<string>();
+  const serverUnrestricted = providerModes[""]?.some((provider) => !restrictable(provider)) ?? false;
+  useEffect(() => {
+    if (serverUnrestricted) rpc.call("getAgentDefaults", null).then((result) => setDefaultProviderId(result.defaults?.providerId), () => {});
+  }, [rpc, serverUnrestricted]);
+  const unrestricted = (agent: AgentExecution | null) => agent ? unrestrictedNote(providerModes[agent.hostId ?? ""] ?? [], agent.providerId)
+    : unrestrictedNote(providerModes[""] ?? [], defaultProviderId);
   const load = useCallback(async () => {
     setError("");
     try { const result = await rpc.call("getPreferences", null); show({ ...result, preferences: withDefaults(result.preferences) }); }
@@ -216,8 +265,13 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
     try {
       const { defaults, guideWriterMode } = await rpc.call("getAgentDefaults", null);
       seed = defaults ?? seed;
-      // The guide writer needs no shell or edits, so it starts at the lowest mode its provider runs in, as on Project defaults.
-      if (key === "guideAgent" && guideWriterMode) seed = { ...seed, permissionMode: guideWriterMode };
+      // The guide writer needs no shell or edits, so it starts at the lowest mode its provider runs in, as on Project
+      // defaults: accept-edits, else auto, else the provider's only mode.
+      if (key === "guideAgent" && defaults) {
+        const modes = (await readProviders("")).find((provider) => provider.id === defaults.providerId)?.permissionModes;
+        const only = modes?.length === 1 ? (["accept-edits", "auto", "full"] as const).find((mode) => mode === modes[0]) : undefined;
+        seed = { ...seed, permissionMode: guideWriterMode ?? only ?? seed.permissionMode };
+      }
     } catch { /* The pickers resolve bb's own defaults from the empty seed. */ }
     setAgent(key, (agent) => agent ?? seed);
   }
@@ -265,7 +319,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
         <fieldset disabled={busy || updating} className="min-w-0 space-y-4">
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="Route" title="Guide generation" description="Used to build a guide, and to update or rebuild one. Existing guides stay as written." />
-            <AgentSelection label="Guide writer agent" agent={record.preferences.guideAgent} defaults="the agent, model, and effort bb remembers for the project the review runs in, at the lowest permissions that agent runs in" machines={machines} disabled={busy || updating} onCustomize={() => void customize("guideAgent")} onChange={(update) => setAgent("guideAgent", update)} />
+            <AgentSelection label="Guide writer agent" agent={record.preferences.guideAgent} unrestricted={unrestricted(record.preferences.guideAgent)} defaults="the agent, model, and effort bb remembers for the project the review runs in, at the lowest permissions that agent runs in" machines={machines} disabled={busy || updating} onCustomize={() => void customize("guideAgent")} onChange={(update) => setAgent("guideAgent", update)} />
             <div className="space-y-2"><p id="guide-detail-label" className="text-sm font-medium">Detail level</p><div role="group" aria-labelledby="guide-detail-label" className="flex flex-wrap gap-2">
               {(["concise", "standard", "detailed"] as const).map((value) => <Button key={value} variant="outline" size="sm" className={CHOICE} aria-pressed={record.preferences.guideDetail === value} onClick={() => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, guideDetail: value } }); }}>{value[0].toUpperCase() + value.slice(1)}</Button>)}
             </div></div>
@@ -274,7 +328,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="Sparkles" tone="agent" title="Review assistant" description="Applies to your next message, including conversations already in progress." />
-            <AgentSelection label="Review assistant agent" agent={record.preferences.assistantAgent} machines={machines} disabled={busy || updating} note="Used to start new conversations, which stay on the machine they started on. In a conversation, change the model and effort per message." onCustomize={() => void customize("assistantAgent")} onChange={(update) => setAgent("assistantAgent", update)} />
+            <AgentSelection label="Review assistant agent" agent={record.preferences.assistantAgent} unrestricted={unrestricted(record.preferences.assistantAgent)} machines={machines} disabled={busy || updating} note="Used to start new conversations, which stay on the machine they started on. In a conversation, change the model and effort per message." onCustomize={() => void customize("assistantAgent")} onChange={(update) => setAgent("assistantAgent", update)} />
             <label className="block space-y-2"><span className="text-sm font-medium">Assistant instructions</span><Textarea aria-label="Assistant instructions" maxLength={ASSISTANT_INSTRUCTIONS_LIMIT} rows={5} value={record.preferences.assistantInstructions} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, assistantInstructions: event.target.value } }); }} placeholder="Prioritize correctness and security. Show a concrete failure case for suspected bugs. Keep suggestions actionable." /></label>
             <AgentCommentLearning instructions={record.preferences.assistantInstructions} onAdd={(lines) => { setSaved(false); setRecord((current) => current && { ...current, preferences: { ...current.preferences, assistantInstructions: [current.preferences.assistantInstructions.trim(), lines].filter(Boolean).join("\n") } }); }} />
             {knob("runAutomaticReview")}

@@ -677,3 +677,70 @@ test("settings from a server without knobs show each at its default, with nothin
   expect(saveButton().getAttribute("aria-disabled")).toBe("true");
   slot.lifecycle.unmount();
 });
+
+/** The providers `bb provider list` shows on a machine with pi, Codex, Claude Code and OpenCode. */
+const providerModes = () => ({ providers: [
+  { id: "pi", name: "Pi", permissionModes: ["full"] },
+  { id: "codex", name: "Codex", permissionModes: ["accept-edits", "auto", "full"] },
+  { id: "claude-code", name: "Claude Code", permissionModes: ["accept-edits", "auto", "full"] },
+  { id: "acp-opencode", name: "OpenCode", permissionModes: ["accept-edits", "full"] },
+] });
+const PI_NOTE = "Pi runs only at Full, so this agent can’t be restricted. Claude Code, Codex and OpenCode run at Accept Edits.";
+
+test("a custom agent on a provider that runs only at Full says it can't be restricted, and which providers can", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  const record = { preferences: { ...defaultPreferences }, revision: 0 };
+  const defaults = { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", permissionMode: "auto" };
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record,
+    getAgentDefaults: () => ({ defaults, guideWriterMode: "accept-edits" }), getProviderModes: providerModes } });
+  for (const label of ["Guide writer agent", "Review assistant agent"]) {
+    const group = await slot.findByRole("group", { name: label });
+    fireEvent.click(within(group).getByRole("button", { name: "Custom" }));
+    const picker = await within(group.parentElement!).findByTestId("bb-provider-model-picker");
+    // Codex runs at Accept Edits: no note.
+    expect(group.parentElement!.textContent).not.toContain("can’t be restricted");
+    fireEvent.change(within(picker).getByRole("textbox", { name: "Provider ID" }), { target: { value: "pi" } });
+    fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
+    await waitFor(() => expect(group.parentElement!.textContent).toContain(PI_NOTE));
+    fireEvent.change(within(picker).getByRole("textbox", { name: "Provider ID" }), { target: { value: "codex" } });
+    fireEvent.click(within(picker).getByRole("button", { name: "Apply execution selection" }));
+    await waitFor(() => expect(group.parentElement!.textContent).not.toContain("can’t be restricted"));
+  }
+  slot.lifecycle.unmount();
+});
+
+test("on Project defaults, both agents say they can't be restricted when the project's provider runs only at Full", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  const record = { preferences: { ...defaultPreferences }, revision: 0 };
+  const defaults = { providerId: "pi", model: "local", reasoningLevel: "medium", permissionMode: "full" };
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record,
+    getAgentDefaults: () => ({ defaults }), getProviderModes: providerModes } });
+  for (const label of ["Guide writer agent", "Review assistant agent"]) {
+    const group = await slot.findByRole("group", { name: label });
+    await waitFor(() => expect(group.parentElement!.textContent).toContain(PI_NOTE));
+  }
+  slot.lifecycle.unmount();
+  // A machine with no provider that runs at Accept Edits names none.
+  const alone = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record,
+    getAgentDefaults: () => ({ defaults }), getProviderModes: () => ({ providers: [providerModes().providers[0]] }) } });
+  const group = await alone.findByRole("group", { name: "Guide writer agent" });
+  await waitFor(() => expect(group.parentElement!.textContent).toContain("Pi runs only at Full, so this agent can’t be restricted."));
+  expect(group.parentElement!.textContent).not.toContain("at Accept Edits");
+  alone.lifecycle.unmount();
+});
+
+test("a custom guide writer on a provider that runs only at Full starts at Full, whatever the project's mode", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  const record = { preferences: { ...defaultPreferences }, revision: 0 };
+  const defaults = { providerId: "pi", model: "local", reasoningLevel: "medium", permissionMode: "accept-edits" };
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record,
+    getAgentDefaults: () => ({ defaults }), getProviderModes: providerModes } });
+  const guide = await slot.findByRole("group", { name: "Guide writer agent" });
+  fireEvent.click(within(guide).getByRole("button", { name: "Custom" }));
+  await slot.findByTestId("bb-provider-model-picker");
+  await waitFor(() => expect((slot.getByRole("combobox", { name: "Permission mode" }) as HTMLSelectElement).value).toBe("full"));
+  slot.lifecycle.unmount();
+});

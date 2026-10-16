@@ -70,6 +70,12 @@ export const rpcContract = defineRpcContract({
   // Seeds a custom agent selection with the panel project's remembered defaults, and a custom guide writer with the
   // mode it runs at on them (src/generate.ts guideWriterMode); without one, the project's own.
   getAgentDefaults: { input: z.null(), output: z.object({ defaults: agentExecutionSchema.nullable(), guideWriterMode: z.enum(["accept-edits", "auto"]).optional() }) },
+  // A machine's providers and the permission modes each runs in, so Settings can say when an agent can't be restricted.
+  // The bb server's without a hostId; none when they can't be read.
+  getProviderModes: {
+    input: z.object({ hostId: z.string().optional() }).strict(),
+    output: z.object({ providers: z.array(z.object({ id: z.string(), name: z.string(), permissionModes: z.array(z.string()) })) }),
+  },
   listMachines: {
     input: z.null(),
     output: z.object({ machines: z.array(z.object({ hostId: z.string(), name: z.string(), connected: z.boolean(), server: z.boolean() })) }),

@@ -184,6 +184,24 @@ test("custom selections start from the personal project's remembered defaults, w
   expect(await harness.behavior.callRpc("getAgentDefaults", null)).toEqual({ defaults: null });
 });
 
+test("getProviderModes lists a machine's providers with the permission modes each runs in, and none when they can't be read", async () => {
+  const lists: unknown[] = [];
+  let fail = false;
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { providers: { list: async (args?: unknown) => {
+    lists.push(args);
+    if (fail) throw new Error("Connection unavailable");
+    return [{ ...provider("pi", ["full"]), displayName: "Pi" }, { ...provider("codex", ["accept-edits", "auto", "full"]), displayName: "Codex" }];
+  } } } as any });
+  await plugin(bb);
+  const providers = [{ id: "pi", name: "Pi", permissionModes: ["full"] }, { id: "codex", name: "Codex", permissionModes: ["accept-edits", "auto", "full"] }];
+  expect(await harness.behavior.callRpc("getProviderModes", {})).toEqual({ providers });
+  // Another machine's are read on that machine.
+  expect(await harness.behavior.callRpc("getProviderModes", { hostId: "host_flomac" })).toEqual({ providers });
+  expect(lists).toEqual([undefined, { hostId: "host_flomac" }]);
+  fail = true;
+  expect(await harness.behavior.callRpc("getProviderModes", {})).toEqual({ providers: [] });
+});
+
 test("assistant instructions are capped at 2,000 characters; a longer saved text loads cut to fit", async () => {
   const { bb } = createFakePluginHost({ pluginId: "guided-review" });
   await plugin(bb);

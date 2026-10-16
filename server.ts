@@ -432,6 +432,14 @@ export default async function plugin(bb: BbPluginApi) {
         return { defaults: null };
       }
     },
+    async getProviderModes({ hostId }) {
+      try {
+        const providers = await bb.sdk.providers.list(hostId ? { hostId } : undefined);
+        return { providers: providers.map((provider) => ({ id: provider.id, name: provider.displayName, permissionModes: [...provider.capabilities.permissionModes] })) };
+      } catch {
+        return { providers: [] };
+      }
+    },
     async listMachines() {
       return { machines: await listMachines(bb) };
     },
