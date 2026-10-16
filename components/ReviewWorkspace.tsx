@@ -1323,6 +1323,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 foldAll={foldAll}
                 onSinceOnly={rereview || sheet || !compareShown ? flip : undefined}
                 switchSlot={switchSlot}
+                prUrl={isPr ? review?.url ?? undefined : undefined}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>

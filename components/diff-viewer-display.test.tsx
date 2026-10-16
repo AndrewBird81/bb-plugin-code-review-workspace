@@ -1,23 +1,25 @@
 // @vitest-environment jsdom
 import { test, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 
-// Each file pierre draws, with the options it was given.
+// Each file pierre draws, with the options it was given; it fails to draw the files in `broken`.
 const drawn: { name: string; options: any }[] = [];
+const broken = new Set<string>();
 vi.mock("@pierre/diffs/react", () => ({
   FileDiff: ({ fileDiff, options }: any) => {
+    if (broken.has(fileDiff.name)) throw new Error(`Couldn't draw ${fileDiff.name}`);
     drawn.push({ name: fileDiff.name, options });
     return <div data-testid="filediff" />;
   },
 }));
 
-import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
+import { installTestPluginRuntime, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { FileViewFlags } from "./DiffViewer";
 
 installTestPluginRuntime();
 const { DiffViewer } = await import("./DiffViewer");
 
-afterEach(() => { cleanup(); drawn.length = 0; });
+afterEach(() => { cleanup(); drawn.length = 0; broken.clear(); });
 
 const file = (path: string, lines: string[]) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -0,0 +1,${lines.length} @@\n${lines.map((line) => `+${line}`).join("\n")}\n`;
 const show = (patch: string, files: string[], views = new Map<string, FileViewFlags>()) =>
@@ -108,4 +110,35 @@ test("a narrow pane draws its diff unified from the first, never side by side fi
     globalThis.ResizeObserver = original;
     Element.prototype.getBoundingClientRect = measure;
   }
+});
+
+test("a file whose diff fails to draw says so, with Try again and Open on GitHub, while the other files show", async () => {
+  const { createHash } = await import("node:crypto");
+  // React reports the error it caught.
+  const report = vi.spyOn(console, "error").mockImplementation(() => {});
+  broken.add("src/bad.ts");
+  // Mounted as BB mounts a slot, which its links need.
+  const component = () => <DiffViewer patch={file("src/bad.ts", ["b"]) + file("src/a.ts", ["a"])} files={["src/bad.ts", "src/a.ts"]} views={new Map()} onToggleViewed={() => {}} prUrl="https://github.com/acme/web/pull/42" />;
+  const slot = renderSlot({ component }, {}, { rpc: {} as any });
+  expect(new Set(drawn.map((d) => d.name))).toEqual(new Set(["src/a.ts"]));
+  const failed = within(header("src/bad.ts").getByRole("alert"));
+  expect(failed.getByText("Couldn’t show this file’s diff.")).toBeTruthy();
+  const anchor = createHash("sha256").update("src/bad.ts").digest("hex");
+  await waitFor(() => expect(failed.getByRole("link", { name: "Open on GitHub" }).getAttribute("href")).toBe(`https://github.com/acme/web/pull/42/files#diff-${anchor}`));
+  expect(header("src/a.ts").queryByRole("alert")).toBeNull();
+  broken.clear();
+  fireEvent.click(failed.getByRole("button", { name: "Try again" }));
+  expect(drawn.map((d) => d.name)).toContain("src/bad.ts");
+  expect(header("src/bad.ts").queryByRole("alert")).toBeNull();
+  slot.lifecycle.unmount();
+  report.mockRestore();
+});
+
+test("a local review's failed file offers Try again, with no GitHub to open", () => {
+  const report = vi.spyOn(console, "error").mockImplementation(() => {});
+  broken.add("src/bad.ts");
+  show(file("src/bad.ts", ["b"]), ["src/bad.ts"]);
+  expect(header("src/bad.ts").getByRole("button", { name: "Try again" })).toBeTruthy();
+  expect(header("src/bad.ts").queryByRole("link", { name: "Open on GitHub" })).toBeNull();
+  report.mockRestore();
 });

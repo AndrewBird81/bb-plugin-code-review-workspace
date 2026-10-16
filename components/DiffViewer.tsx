@@ -30,6 +30,8 @@ import { DiffThreadsContext, LineThreads, OutdatedThreads, threadLocation } from
 import { CheckFailuresContext, LineChecks, failureLocation } from "./CheckFailures";
 import type { ReviewThread } from "../src/threads";
 import { toast } from "sonner";
+import { UrlLink } from "@get-bb/plugin-sdk/app";
+import { ErrorBoundary } from "./ErrorBoundary";
 import type { rpcContract } from "../src/rpc-contract";
 
 /** A changed file's whole contents, or why only its diff shows. */
@@ -222,6 +224,28 @@ function tapLines(picked: SelectedLineRange | null, line: number, side: Annotati
   return { start: picked.start, end: line, side: anchor, ...(side !== anchor ? { endSide: side } : {}) };
 }
 
+/** In place of a file's diff that failed to draw: the rest of the review still shows. */
+function FileError({ path, prUrl, onRetry }: { path: string; prUrl?: string; onRetry: () => void }) {
+  // GitHub names a file's place on the PR's Files page by its path's SHA-256.
+  const [href, setHref] = useState(prUrl && `${prUrl}/files`);
+  useEffect(() => {
+    if (!prUrl) return;
+    let cancelled = false;
+    crypto.subtle?.digest("SHA-256", new TextEncoder().encode(path)).then((hash) => {
+      if (!cancelled) setHref(`${prUrl}/files#diff-${Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("")}`);
+    }, () => {});
+    return () => { cancelled = true; };
+  }, [prUrl, path]);
+  return (
+    <div role="alert" className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+      <Icon name="AlertTriangle" className="size-3.5 shrink-0 text-warning-text" aria-hidden />
+      <span className="min-w-0 flex-1">Couldn’t show this file’s diff.</span>
+      <Button variant="outline" size="sm" className={cn("h-7 px-2 text-xs", TOUCH_COMPACT)} onClick={onRetry}>Try again</Button>
+      {href && <Button asChild variant="ghost" size="sm" className={cn("h-7 px-2 text-xs", TOUCH_COMPACT)}><UrlLink href={href}><Icon name="Github" aria-hidden />Open on GitHub</UrlLink></Button>}
+    </div>
+  );
+}
+
 // One file's diff. Pierre redraws a file whenever its options or annotations
 // are new objects, which also takes focus from an open comment box, so both
 // stay the same until something in them changes.
@@ -339,6 +363,7 @@ export const DiffViewer = memo(function DiffViewer({
   foldAll,
   onSinceOnly,
   switchSlot,
+  prUrl,
 }: {
   diffLayout?: "split" | "unified";
   /** Wrap long lines instead of scrolling them sideways. */
@@ -382,6 +407,8 @@ export const DiffViewer = memo(function DiffViewer({
   onSinceOnly?: (sinceOnly: boolean) => void;
   /** Where that switch goes, in the chapter's intro: else it's above the files. */
   switchSlot?: HTMLElement | null;
+  /** The PR's link, where a file the diff can't show can be read. */
+  prUrl?: string;
 }) {
   const theme = useTheme();
   // A phone's, or one held sideways: the workspace's layout says, not the window's width.
@@ -798,6 +825,7 @@ export const DiffViewer = memo(function DiffViewer({
               <div data-pending-diff style={{ height: drawnHeight(full?.fileDiff ?? fileDiff, diffStyle) }} />
             )}
             {!folded && fileDiff && draws(path) && (
+              <ErrorBoundary resetKey={full?.fileDiff ?? fileDiff} fallback={(retry) => <FileError path={path} prUrl={prUrl} onRetry={retry} />}>
               <FileBody
                 path={path}
                 fileDiff={full?.fileDiff ?? fileDiff}
@@ -814,6 +842,7 @@ export const DiffViewer = memo(function DiffViewer({
                 onComment={draft?.editable ? draft.open : undefined}
                 unsafeCSS={css}
               />
+              </ErrorBoundary>
             )}
             {!folded && filtering && dropped && (
               <DiffDetails text={dropped} defaultOpen={!fileDiff} theme={theme} themeMode={themeMode} wrap={wrapLines} className={cn(fileDiff && "border-t border-border")}

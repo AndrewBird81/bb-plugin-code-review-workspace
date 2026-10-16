@@ -10,6 +10,12 @@ import { ReviewPanel } from "./components/ReviewPanel";
 import { ReviewSettings } from "./components/ReviewSettings";
 import { NeedsReviewSidebar } from "./components/NeedsReviewSidebar";
 import { TitleBarControls } from "./components/TitleBarControls";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+
+/** Needs review's rows in BB's own thread list: should they fail to draw, BB's list shows without them. */
+function SidebarOverlay() {
+  return <ErrorBoundary fallback={() => null}><NeedsReviewSidebar /></ErrorBoundary>;
+}
 
 export default definePluginApp((app) => {
   app.slots.settingsSection({ id: "review-settings", title: "Guided Review", component: ReviewSettings });
@@ -22,5 +28,5 @@ export default definePluginApp((app) => {
     headerContent: TitleBarControls,
   });
   // Optional call: BB hosts from before app overlays skip it rather than fail to load the plugin.
-  app.slots.experimental_appOverlay?.({ id: "needs-review", component: NeedsReviewSidebar });
+  app.slots.experimental_appOverlay?.({ id: "needs-review", component: SidebarOverlay });
 });
