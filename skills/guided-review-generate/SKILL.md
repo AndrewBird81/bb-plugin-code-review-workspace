@@ -11,10 +11,13 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat everythi
    commits, and the repo's review instructions. If the title, branch, or description names a
    ticket (like ABC-123) and you have a tool that reads it, read it.
 2. **Read the diff.** Call `list_review_files` with the provided `targetKey`: it lists every
-   changed file with its status, size, and kind. Then read the code file by file with
-   `read_review_patch` and `file` (paginate with `offset`/`limit` when a file is long). For
-   lockfiles and generated files, read only their first ~2,000 characters (`limit: 2000`). The
-   patch is the authoritative file set. A file marked `diff unavailable` (GitHub didn't send its
+   changed file with its status, size, and kind. Then read the diff in pages with
+   `read_review_patch` without `file`; each page ends on a file boundary. Pass `file` only to
+   re-read one file. Lockfiles and generated or vendored files show as one-line stubs in pages:
+   read one only if its kind looks wrong. A lockfile that adds a registry or a `resolved` host is
+   never mechanical; say so in its summary. If the diff is too large to read in full, read code
+   and config first, skim tests, and name what you skimmed in each chapter's overview. The patch
+   is the authoritative file set. A file marked `diff unavailable` (GitHub didn't send its
    diff) has no diff here: place it in the chapter it belongs to, and say in its summary that it
    must be read on GitHub. Never guess its content.
 3. **Chunk and order into sections.** Implementation heart first, its consequences next, and

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { describeReviewFiles, patchPage } from "./review-files";
+import { describeReviewFiles, patchPage, stubSkippedFiles } from "./review-files";
 
 const file = (path: string, body: string) => `diff --git a/${path} b/${path}\nindex 1..2 100644\n--- a/${path}\n+++ b/${path}\n${body}`;
 const patch = [
@@ -41,4 +41,16 @@ test("patch pages end on file boundaries, unless one file is longer than the pag
   expect(patchPage(first + second, first.length, 100_000)).toEqual({ text: second, end: first.length + second.length });
   expect(patchPage(first + second, 0, first.length + 3)).toEqual({ text: first, end: first.length });
   expect(patchPage(first + second, 0, 20)).toEqual({ text: first.slice(0, 20), end: 20 });
+});
+
+test("pages stub lockfiles and generated files after their headers, keeping what comes before the first file", () => {
+  const code = file("src/a.ts", "@@ -1 +1 @@\n-a\n+b\n");
+  expect(stubSkippedFiles(code)).toBe(code);
+  const lock = file("yarn.lock", "@@ -1 +1,2 @@\n-a\n+b\n+c\n");
+  const binary = "diff --git a/dist/logo.png b/dist/logo.png\nBinary files a/dist/logo.png and b/dist/logo.png differ\n";
+  const note = "GitHub listed only the first 3,000 changed files; later files aren't in this review.\n";
+  expect(stubSkippedFiles(note + code + lock + binary + file("src/api.ts", "@@ -1 +1 @@\n-x\n+y\n"), ["src/api.ts"])).toBe(note + code
+    + "diff --git a/yarn.lock b/yarn.lock\nindex 1..2 100644\n--- a/yarn.lock\n+++ b/yarn.lock\n[lockfile: +2 −1 lines; pass file to read it]\n"
+    + binary
+    + "diff --git a/src/api.ts b/src/api.ts\nindex 1..2 100644\n--- a/src/api.ts\n+++ b/src/api.ts\n[generated: +1 −1 lines; pass file to read it]\n");
 });

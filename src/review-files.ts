@@ -20,6 +20,26 @@ export function describeReviewFiles(patch: string, generated: string[] = []): st
   return [...capped, `${files.length} file${files.length === 1 ? "" : "s"} (path · status · lines added and removed · diff size · kind):`, ...rows].join("\n");
 }
 
+/**
+ * The diff as read_review_patch pages it: each lockfile's and generated or vendored file's hunks as one line, since they
+ * rarely need reading and can fill pages. `generated`: the files the repo's .gitattributes marks generated.
+ */
+export function stubSkippedFiles(patch: string, generated: string[] = []): string {
+  const files = splitPatchByFile(patch);
+  const skipped = (path: string) => { const kind = classifyFile(path, generated.includes(path)).category; return kind === "lockfile" || kind === "generated" ? kind : null; };
+  if (!files.some((file) => skipped(file.path))) return patch;
+  // What comes before the first file, such as readFilesPatch's note, stays.
+  const first = patch.startsWith("diff --git ") ? 0 : patch.indexOf("\ndiff --git ") + 1;
+  return patch.slice(0, first) + files.map(({ path, text }) => {
+    const kind = skipped(path);
+    const hunks = text.search(/^@@ /m);
+    if (!kind || hunks < 0) return text;
+    const rows = patchRows(text);
+    const count = (sign: "+" | "-") => rows.filter((row) => row.kind === sign).length;
+    return `${text.slice(0, hunks)}[${kind}: +${count("+")} −${count("-")} lines; pass file to read it]\n`;
+  }).join("");
+}
+
 /** A page of the diff from offset, cut back to the last file boundary that fits, so no file is split across pages unless it alone is longer than a page. */
 export function patchPage(patch: string, offset: number, limit: number): { text: string; end: number } {
   let end = Math.min(patch.length, offset + limit);

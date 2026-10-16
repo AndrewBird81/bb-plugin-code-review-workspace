@@ -7,7 +7,7 @@ import { z } from "zod";
 import { rpcContract } from "./src/rpc-contract";
 import { createStore } from "./src/store";
 import { changedFiles, splitPatchByFile } from "./src/patch";
-import { describeReviewFiles, patchPage } from "./src/review-files";
+import { describeReviewFiles, patchPage, stubSkippedFiles } from "./src/review-files";
 import { readPrContext } from "./src/pr-context";
 import { readFileContents, readGeneratedFiles } from "./src/file-contents";
 import { codeOwners, describeOwnership } from "./src/codeowners";
@@ -744,7 +744,7 @@ export default async function plugin(bb: BbPluginApi) {
   }
   bb.agents.registerTool({
     name: "read_review_patch",
-    description: "Return the diff text of your own review, by the targetKey you were given (paginated). Pass file to read one file's diff.",
+    description: "Return the diff text of your own review, by the targetKey you were given, in pages of about 80 KB that end on file boundaries. In pages, lockfiles and generated or vendored files show as one-line stubs. Pass file to read one file's whole diff.",
     parameters: z.object({
       targetKey: z.string(),
       file: z.string().optional(),
@@ -764,8 +764,10 @@ export default async function plugin(bb: BbPluginApi) {
         return text + (end < diff.text.length ? `\n\n[${end}/${diff.text.length} bytes — call again with offset=${end}]` : "");
       }
       const patch = store.patch(targetKey);
-      const { text, end } = patchPage(patch, offset ?? 0, limit ?? 200_000);
-      const more = end < patch.length ? `\n\n[${end}/${patch.length} bytes — call again with offset=${end}]` : "";
+      const review = store.getReview(targetKey);
+      const paged = stubSkippedFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : []);
+      const { text, end } = patchPage(paged, offset ?? 0, limit ?? 80_000);
+      const more = end < paged.length ? `\n\n[${end}/${paged.length} bytes — call again with offset=${end}]` : "";
       return text + more;
     },
   });
