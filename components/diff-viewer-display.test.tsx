@@ -81,3 +81,15 @@ test("split view goes unified when a side would be narrower than about 480px", (
   expect(drawn.at(-1)!.options.diffStyle).toBe("split");
   globalThis.ResizeObserver = original;
 });
+
+test("added and removed lines are marked + and −, not by color alone, in the diff and in the changes gone since", () => {
+  show(file("src/a.ts", ["a"]), ["src/a.ts"]);
+  expect(drawn.at(-1)!.options.diffIndicators).toBe("classic");
+  cleanup();
+  drawn.length = 0;
+  const since = new Map([["src/a.ts", { file: "src/a.ts", status: "changed", newLines: [1], newDeletions: [], patch: file("src/a.ts", ["a"]), dropped: file("src/a.ts", ["gone"]) }]]);
+  render(<DiffViewer patch={file("src/a.ts", ["a"])} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} since={since as any} sinceOnly />);
+  fireEvent.click(screen.getByText(/^Changes gone since/));
+  expect(drawn.length).toBeGreaterThan(0);
+  expect(drawn.every((d) => d.options.diffIndicators === "classic")).toBe(true);
+});

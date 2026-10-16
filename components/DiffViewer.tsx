@@ -166,6 +166,7 @@ const StaticDiff = memo(function StaticDiff({ text, darkTheme, lightTheme, theme
     ...(darkTheme && lightTheme ? { theme: { dark: darkTheme, light: lightTheme } } : {}),
     themeType: themeMode,
     diffStyle: "unified",
+    diffIndicators: "classic",
     disableFileHeader: true,
     tokenizeMaxLength: TOKENIZE_MAX_LENGTH,
     overflow: wrap ? "wrap" : "scroll",
@@ -268,6 +269,8 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
     ...(darkTheme && lightTheme ? { theme: { dark: darkTheme, light: lightTheme } } : {}),
     themeType: themeMode,
     diffStyle,
+    // + and − on changed lines, not their color alone.
+    diffIndicators: "classic",
     // The card's own header names the file, counts its changes, and marks it viewed.
     disableFileHeader: true,
     tokenizeMaxLength: TOKENIZE_MAX_LENGTH,
