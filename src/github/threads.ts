@@ -3,7 +3,7 @@ import { mentions } from "./pr-facts";
 import type { FeedbackThread, RunGh } from "./types";
 
 const PAGE_SIZE = 100;
-const MAX_THREADS = 300;
+const MAX_THREADS = 1000;
 
 const QUERY = `query($owner:String!,$repo:String!,$number:Int!,$after:String){
   repository(owner:$owner,name:$repo){pullRequest(number:$number){
@@ -15,7 +15,7 @@ const QUERY = `query($owner:String!,$repo:String!,$number:Int!,$after:String){
   }}
 }`;
 
-/** Pages through the PR's review threads (up to 300); a transport failure or unparseable output rejects. */
+/** Pages through the PR's review threads (up to 1,000, as the thread list does); a transport failure or unparseable output rejects. */
 export async function fetchMyThreads(run: RunGh, repo: string, number: number, viewer: string, author: string | null = null): Promise<FeedbackThread[]> {
   const [owner, name] = repo.split("/");
   const threads: FeedbackThread[] = [];

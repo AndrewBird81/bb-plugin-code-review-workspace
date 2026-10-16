@@ -96,14 +96,14 @@ test("isQuestion looks for a question mark in prose, or a mention", () => {
   expect(isQuestion("```\ncode\n```\nWhat about the other call?", "me")).toBe(true);
 });
 
-test("fetchMyThreads pages with the end cursor, up to 300 threads", async () => {
+test("fetchMyThreads pages with the end cursor, up to 1,000 threads", async () => {
   const run = vi.fn(async (args: string[]) => {
     const n = run.mock.calls.length;
     return { code: 0, stderr: "", stdout: JSON.stringify(page([thread("me", [])], { hasNextPage: true, endCursor: `cursor${n}` })) };
   });
   const threads = await fetchMyThreads(run, "cli/cli", 9083, "me");
-  expect(run).toHaveBeenCalledTimes(3);
-  expect(threads).toHaveLength(3);
+  expect(run).toHaveBeenCalledTimes(10);
+  expect(threads).toHaveLength(10);
   const [first] = run.mock.calls[0];
   expect(first).toEqual(expect.arrayContaining(["api", "graphql", "owner=cli", "repo=cli", "number=9083"]));
   expect(first.some((a) => a.startsWith("after="))).toBe(false);
@@ -147,4 +147,24 @@ test("a thread's label is its first comment's: a severity's, or a non-blocking o
   expect(threadLabel("Rename this?")).toBeNull();
   expect(threadLabel("A nit: spacing")).toBeNull();
   expect(threadLabel("**FYI: unclosed")).toBeNull();
+});
+
+test("fetchMyThreads reads a thread you started after the first 300, and stops at the thread list's 1,000", async () => {
+  const node = (id: string, login: string) => ({
+    id, isResolved: false, isOutdated: false, path: "a.ts", line: 1, originalLine: 1, startLine: null, diffSide: "RIGHT", subjectType: "LINE", resolvedBy: null,
+    first: { nodes: [{ id: `${id}-c`, databaseId: 1, author: { login }, body: "Please fix", createdAt: "2026-10-01T00:00:00Z", pullRequestReview: null }] },
+    recent: { nodes: [] },
+  });
+  // Threads oldest first; yours is the newest.
+  const pr = (total: number) => vi.fn(async (args: string[]) => {
+    const start = Number(args.find((a) => a.startsWith("after="))?.slice(6) ?? 0);
+    const nodes = Array.from({ length: 100 }, (_, i) => node(`t${start + i}`, start + i === total - 1 ? "me" : "alice"));
+    return { code: 0, stderr: "", stdout: JSON.stringify(page(nodes, { hasNextPage: start + 100 < total, endCursor: String(start + 100) })) };
+  });
+  const four = pr(400);
+  expect((await fetchMyThreads(four, "acme/web", 1, "me", "alice")).map((t) => t.id)).toEqual(["t399"]);
+  expect(four).toHaveBeenCalledTimes(4);
+  const huge = pr(1200);
+  await fetchMyThreads(huge, "acme/web", 1, "me", "alice");
+  expect(huge).toHaveBeenCalledTimes(10);
 });
