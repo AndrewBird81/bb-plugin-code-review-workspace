@@ -8,6 +8,7 @@ import { rushedDoubt, unviewedDoubt } from "../../lib/approve-guard";
 import { readOf } from "../../lib/agent-coverage";
 import { readDraftRecovery } from "../../lib/draft-recovery";
 import { linkImages } from "../../lib/link-images";
+import { useKnob } from "../../lib/settings";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
 import { statusWhy } from "../../lib/status-line";
 import { cn } from "../../lib/utils";
@@ -230,6 +231,8 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
   const comments = d.draft.comments;
   const agent = comments.filter((comment) => comment.author === "agent").length;
   const older = items.filter((item) => item.kind === "draft" && item.state === "older-diff");
+  // As MoveToSummary offers it.
+  const movable = useKnob("moveToSummary") && d.editable;
   const blocking = items.find((item) => item.kind === "draft" && d.blocks(item.comment));
   const link = (label: string, onClick: () => void) => <Button variant="ghost" size="sm" aria-label={label} className={cn("size-8 shrink-0 px-0 text-muted-foreground", TOUCH_CONTROL)} onClick={onClick}><Icon name="ChevronRight" aria-hidden /></Button>;
   const fix = (label: string, onClick: () => void) => <Button variant="outline" size="sm" className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} onClick={onClick}>{label}</Button>;
@@ -244,7 +247,7 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
           <MoveToSummary comments={older.flatMap((item) => item.kind === "draft" ? [item.comment] : [])} variant="outline" className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} />
           {link("Show the comments on an older diff", () => onList("needs-you", older[0].id))}
         </>}>
-          {plural(older.length, "comment")} on an older diff: edit or remove {older.length === 1 ? "it" : "them"}
+          {plural(older.length, "comment")} on an older diff: edit or remove {older.length === 1 ? "it" : "them"}{movable && `, or move ${older.length === 1 ? "it" : "them"} to the summary`}
         </Row>}
         {replyDrafts > 0 && <Row icon={<Icon name="CornerDownRight" className="size-4 shrink-0 text-primary" aria-hidden />} action={link("Show the reply drafts", () => onList("all", items.find((item) => item.kind === "thread" && item.replyDraft)?.id ?? null))}>
           {plural(replyDrafts, "reply draft")} not sent: replies post on their own

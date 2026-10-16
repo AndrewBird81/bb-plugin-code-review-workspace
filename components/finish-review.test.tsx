@@ -131,7 +131,8 @@ test("handing back to Comments, ‹ Comments and a Show link take the focus alon
 test("what holds Submit back is listed with its fix: a comment on an older diff, and Request changes without a summary", async () => {
   const { slot } = await renderWorkspace({ rpc: { getDraft: () => ({ draft: draftOf({ verdict: "REQUEST_CHANGES" }), stale: [{ file: "src/a.ts", line: 1, side: "RIGHT" }] }) } });
   const view = await finish(slot);
-  expect(view.getByText("1 comment on an older diff: edit or remove it")).toBeTruthy();
+  // 72-hands-on #3: the words name Move to summary beside them.
+  expect(view.getByText("1 comment on an older diff: edit or remove it, or move it to the summary")).toBeTruthy();
   expect(view.getByText("Request changes needs a summary: say what has to change.")).toBeTruthy();
   expect(submit(view).hasAttribute("disabled")).toBe(true);
   fireEvent.click(view.getByRole("button", { name: "Write it" }));
@@ -316,7 +317,7 @@ test("with Check before you approve off, every other doubt and row still shows",
   await waitFor(async () => expect(await ask()).toContain("The summary was written for Comment."));
   stale = [{ file: "src/a.ts", line: 1, side: "RIGHT" }];
   await slot.emitRealtime("draft:pr-42", {});
-  expect(await view.findByText("1 comment on an older diff: edit or remove it")).toBeTruthy();
+  expect(await view.findByText("1 comment on an older diff: edit or remove it, or move it to the summary")).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Switch to Request changes" }));
   expect(await view.findByText("Request changes needs a summary: say what has to change.")).toBeTruthy();
   slot.lifecycle.unmount();
