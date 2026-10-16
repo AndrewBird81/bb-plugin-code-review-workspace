@@ -3,6 +3,7 @@ import { Markdown, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import { ASK_LIFETIME } from "../src/asks";
+import { linkImages } from "../lib/link-images";
 import { getIntroCollapsed, setIntroCollapsed } from "../lib/panel-state";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
 import { useKnob, useSettings } from "../lib/settings";
@@ -145,7 +146,7 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
           folded Duo. */}
       {switchSlot && <div ref={switchSlot} className="col-span-full mt-2 empty:hidden @max-[340px]/intro:[&_[role=radio]]:px-1.5 @min-[494px]/intro:ml-2 @min-[494px]/intro:mt-0 @min-[494px]/intro:[grid-column:2] @min-[494px]/intro:[grid-row:1]" />}
       {overview && !collapsed && <div ref={overviewBox} className={cn("col-span-full mt-2 max-w-[80ch]", clamp && "max-h-[4.25rem] overflow-hidden", clamp && clipped && "[mask-image:linear-gradient(to_bottom,black_2.75rem,transparent)]")}>
-        <Markdown content={overview} className="text-sm leading-relaxed text-foreground/90" />
+        <Markdown content={linkImages(overview)} className="text-sm leading-relaxed text-foreground/90" />
       </div>}
       {brief && !collapsed && (checks.length > 0 || clipped) && (
         <div className="col-span-full mt-1 flex flex-wrap items-center gap-x-4 text-xs pointer-coarse:-mb-2">

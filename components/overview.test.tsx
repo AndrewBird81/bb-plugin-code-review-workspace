@@ -288,3 +288,18 @@ test("What and why says when the PR changes a file the agents read, and that the
   expect(main(off).queryByText(/which the agents read/)).toBeNull();
   off.lifecycle.unmount();
 });
+
+test("images in the guide's own words show as links: What and why, Since your review, and a chapter's overview", async () => {
+  const image = (name: string) => `![${name}](https://evil.example/${name}.png)`;
+  const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url }, {}, {
+    ...guide, intent: `Why ${image("intent")}`, sinceReview: `Since ${image("since")}`,
+    sections: [{ ...guide.sections[0], overview: `How ${image("overview")}` }],
+  });
+  const overview = within(await slot.findByRole("main", { name: "Review" }));
+  expect(await overview.findByText("Why [Image: intent](https://evil.example/intent.png)")).toBeTruthy();
+  expect(overview.getByText("Since [Image: since](https://evil.example/since.png)")).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: "Start reading: Refresh" }));
+  expect(await main(slot).findByText("How [Image: overview](https://evil.example/overview.png)")).toBeTruthy();
+  expect(main(slot).queryByText(/!\[/)).toBeNull();
+  slot.lifecycle.unmount();
+});

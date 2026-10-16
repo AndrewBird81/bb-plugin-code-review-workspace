@@ -7,6 +7,7 @@ import type { RequirementSchema } from "../src/guide";
 import { classifyFile } from "../src/classify";
 import { untrusted } from "../src/untrusted";
 import { changedInstructions } from "../lib/instruction-files";
+import { linkImages } from "../lib/link-images";
 import { useKnob } from "../lib/settings";
 import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
@@ -190,12 +191,12 @@ export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, 
       <div className="mt-5 divide-y divide-border border-t border-border">
         {guide.sinceReview && (
           <Section title="Since your review">
-            <Markdown content={guide.sinceReview} className="max-w-[80ch] text-sm leading-relaxed text-foreground/90" />
+            <Markdown content={linkImages(guide.sinceReview)} className="max-w-[80ch] text-sm leading-relaxed text-foreground/90" />
           </Section>
         )}
         {(guide.intent || instructions.length > 0) && (
           <Section title="What and why">
-            {guide.intent && <Markdown content={guide.intent} className="max-w-[80ch] text-sm leading-relaxed text-foreground/90" />}
+            {guide.intent && <Markdown content={linkImages(guide.intent)} className="max-w-[80ch] text-sm leading-relaxed text-foreground/90" />}
             {instructions.length > 0 && <InstructionChanges files={instructions} pr={review.kind === "pr"} className={guide.intent ? "mt-2" : undefined} />}
           </Section>
         )}
