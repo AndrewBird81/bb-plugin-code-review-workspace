@@ -378,6 +378,36 @@ test("a guide rebuilt for new commits asks the assistant to re-check its draft c
   expect(harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title)).toEqual(["Generate guide: pr-1", "Generate guide: pr-1"]);
 });
 
+test("a guide ready on a merged or closed PR starts no automatic review and records no skipped run; on an open PR it starts one", async () => {
+  for (const prState of ["MERGED", "CLOSED", "OPEN"] as const) {
+    const { bb, harness, store } = host(
+      { wait: async () => { store.saveGuide("pr-1", guide("Retry") as any); } },
+      { defaultExecutionOptions: async () => opus },
+    );
+    store.setLifecycle("pr-1", { prState });
+    await generateGuide(bb, store, "pr-1", "p1");
+    expect(store.getReview("pr-1")?.status).toBe("ready");
+    const titles = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title);
+    expect(titles).toEqual(prState === "OPEN" ? ["Generate guide: pr-1", "Review agent: pr-1"] : ["Generate guide: pr-1"]);
+    expect(store.getReview("pr-1")?.skippedRun).toBeUndefined();
+  }
+});
+
+test("a guide rebuilt for new commits on a merged PR sends its assistant nothing", async () => {
+  const { bb, harness, store } = host({ send: async () => ({}), wait: async () => { store.saveGuide("pr-1", guide("New retry behavior") as any); } });
+  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "p1", headSha: "1111111aaa" });
+  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
+  store.saveGuide("pr-1", guide("Old") as any);
+  store.setAssistantThread("pr-1", "assistant");
+  store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "**Should fix:** b", author: "agent" });
+  store.setLifecycle("pr-1", { prState: "MERGED" });
+  store.backupGuide("pr-1");
+  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "generating", createdAt: 1, projectId: "p1", headSha: "2222222bbb" });
+  await generateGuide(bb, store, "pr-1", "p1");
+  expect(store.getReview("pr-1")?.status).toBe("ready");
+  expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
+});
+
 test("with Re-check the agent's comments off, a guide rebuilt for new commits sends the assistant nothing", async () => {
   const { bb, harness, store } = host({ send: async () => ({}), wait: async () => { store.saveGuide("pr-1", guide("New retry behavior") as any); } });
   store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, recheckOnNewCommits: false } }, 0);

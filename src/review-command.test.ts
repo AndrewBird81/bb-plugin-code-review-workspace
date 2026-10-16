@@ -254,3 +254,18 @@ test("bb review from one of your threads approves agents on a PR's head only whe
     vi.mocked(gh.runGh).mockImplementation(base);
   }
 });
+
+test("bb review records whether gh says the PR is merged or closed", async () => {
+  const base = vi.mocked(gh.runGh).getMockImplementation()!;
+  vi.mocked(gh.runGh).mockImplementation(async (args, opts) => {
+    const out = await base(args, opts);
+    return args[1] === "view" ? { ...out, stdout: JSON.stringify({ ...JSON.parse(out.stdout), state: "MERGED" }) } : out;
+  });
+  try {
+    const { bb, store } = host();
+    expect(await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1" })).toMatchObject({ exitCode: 0 });
+    expect(store.getReview(key)?.prState).toBe("MERGED");
+  } finally {
+    vi.mocked(gh.runGh).mockImplementation(base);
+  }
+});

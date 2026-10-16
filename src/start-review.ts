@@ -12,6 +12,14 @@ interface Deps {
   gh: { runGh: typeof import("./gh").runGh; runGit: typeof import("./gh").runGit };
 }
 
+/**
+ * The PR's state as gh read it at the start, so the automatic review knows a merged or closed PR before the sync reads
+ * it. The sync's later read replaces it.
+ */
+export function recordPrState(store: Store, targetKey: string, state: string | undefined): void {
+  if (state === "OPEN" || state === "CLOSED" || state === "MERGED") store.setLifecycle(targetKey, { prState: state });
+}
+
 // Panel-driven counterpart to review-command.ts's PR branch: a user pastes a
 // full GitHub PR URL into the panel instead of running `bb review` in a
 // terminal. Only full PR URLs are accepted here — a bare PR number or local
@@ -69,10 +77,12 @@ export async function createPrReview(
   };
   // An existing review rebuilds as Re-review does, keeping its guide and comments.
   if (existing) {
+    recordPrState(deps.store, key, pr.state);
     rebuildReview(deps, meta, patch);
     return { ok: true, targetKey: key };
   }
   deps.store.saveReview(meta);
+  recordPrState(deps.store, key, pr.state);
   deps.store.savePatch(key, ensureGitHeaders(patch));
   // Starting a PR again brings it back into discovery after a delete.
   deps.store.unignoreDiscovery(key);

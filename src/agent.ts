@@ -195,6 +195,9 @@ export async function startAutomaticReview(bb: BbPluginApi, store: Store, target
   const preferences = store.getPreferences().preferences;
   const prompt = automaticReviewPrompt(preferences);
   if (!prompt && !newCommits) return;
+  // A merged or closed PR's drafts can't be submitted, as the review shows: there's nothing to review for.
+  const state = store.getReview(targetKey)?.prState;
+  if (state === "MERGED" || state === "CLOSED") return;
   const { threadId, defaults } = await getConversation(bb, store, targetKey);
   if (threadId) {
     // An untrusted author's new commits reach the conversation once you start agents on them.

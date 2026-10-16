@@ -5,6 +5,7 @@ import { ensureGitHeaders } from "./patch";
 import { generateGuide, guideWriterUnavailable } from "./generate";
 import { readPrSnapshot } from "./pr-snapshot";
 import { rebuildReview, upToDate } from "./rereview";
+import { recordPrState } from "./start-review";
 import { automaticReviewPrompt } from "./preferences";
 import { readAuthorTrust } from "./author-trust";
 import { trustedAuthor } from "../lib/trust";
@@ -78,6 +79,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
   let unattended = ownReview !== undefined;
 
   let patch = "";
+  let prState: string | undefined;
   const meta: any = { targetKey: key, kind: target.kind, status: "generating", createdAt: now };
   meta.projectId = ctx.projectId;
   meta.cwd = cwd;
@@ -111,6 +113,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
       headSha: pr.headRefOid,
     });
     patch = snapshot.patch;
+    prState = pr.state;
     // An agent in one of your threads may have been steered by what it read: on a PR whose author isn't trusted, or
     // whose trust GitHub didn't say, Run stays your click.
     if (!unattended && ctx.threadId) unattended = !trustedAuthor(await readAuthorTrust(deps.gh.runGh, repo, target.number) ?? { kind: "pr" }, deps.store.getPreferences().preferences);
@@ -137,9 +140,11 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
   if (building || current) {
     if (existing!.userArchivedAt) deps.store.setLifecycle(key, { userArchivedAt: null });
   } else if (existing) {
+    recordPrState(deps.store, key, prState);
     rebuildReview(deps, meta, patch, { unattended });
   } else {
     deps.store.saveReview(meta);
+    recordPrState(deps.store, key, prState);
     deps.store.savePatch(key, ensureGitHeaders(patch));
     deps.store.unignoreDiscovery(key);
     // Fire-and-forget generation; the panel refetches on the realtime signal.

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 
-const PR_FIELDS = "number,title,body,author,baseRefName,headRefName,url,headRefOid";
+const PR_FIELDS = "number,title,body,author,baseRefName,headRefName,url,headRefOid,state";
 
 export function ghPrViewArgs(number: number, repo?: string): string[] {
   const a = ["pr", "view", String(number), "--json", PR_FIELDS];
