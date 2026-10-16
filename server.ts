@@ -795,7 +795,8 @@ export default async function plugin(bb: BbPluginApi) {
       if (refused) return failed(refused);
       const patch = store.patch(targetKey);
       const review = store.getReview(targetKey);
-      return describeReviewFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : []);
+      const { knobs } = store.getPreferences().preferences;
+      return describeReviewFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [], { testWeakening: knobs.testWeakening });
     },
   });
 

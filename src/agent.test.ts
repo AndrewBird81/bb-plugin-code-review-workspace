@@ -523,13 +523,42 @@ test("on your own PR before the sync read it, the automatic review asks for the 
 });
 
 test("the assistant marks pre-existing problems only while Settings keeps them apart", () => {
-  const line = "Mark a problem in code the PR didn't change with introduced: false; never suggest REQUEST_CHANGES for those alone.";
+  const line = "Mark problems in code the PR didn't change introduced: false; never suggest REQUEST_CHANGES for those alone.";
   expect(assistantInstructions("pr-1", null, defaultPreferences)).toContain(line);
   expect(assistantInstructions("pr-1", null, { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, preExistingFindings: false } })).not.toContain("introduced");
 });
 
 test("the assistant is asked to say what it didn't check only while Finish review shows it", () => {
-  const line = "In set_review_summary, pass unchecked with what you didn't read or run.";
+  const line = "Pass set_review_summary unchecked: what you didn't read or run.";
   expect(assistantInstructions("pr-1", null, defaultPreferences)).toContain(line);
   expect(assistantInstructions("pr-1", null, { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, agentCoverage: false } })).not.toContain("unchecked");
+});
+
+test("the assistant checks weakened tests, registrations and re-implemented helpers only while Settings flags weakened tests", () => {
+  const text = assistantInstructions("pr-1", null, defaultPreferences);
+  expect(text).toContain("Check tests marked weakened, that an added enum value, route, handler or provider is registered wherever its siblings are, and for helpers the PR re-implements. Over ~1,000 changed lines in independent chapters, suggest a split.");
+  const off = assistantInstructions("pr-1", null, { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, testWeakening: false } });
+  expect(off).not.toMatch(/weakened|registered wherever|re-implements|suggest a split/);
+});
+
+test("Settings' checks are the first to go, a whole line at a time, before a chapter title or the reviewer's preferences are cut", () => {
+  const chapters = (count: number) => ({ title: "T", intent: "Big", unplacedFiles: [], sections: Array.from({ length: count }, (_, i) => ({ id: `s${i}`, title: `Chapter ${i}`, overview: "x".repeat(100), diffs: [] })) }) as any;
+  const checks = ["Mark problems in code", "Pass set_review_summary unchecked", "Check tests marked weakened"];
+  // With every switch on, every title of a 180-chapter guide is still listed: the last checks gave way.
+  const titled = assistantInstructions("pr-1", chapters(180), defaultPreferences);
+  expect(titled.length).toBeLessThanOrEqual(4000);
+  expect(titled).toMatch(/- Chapter 0\n[\s\S]*- Chapter 179\n<\/guide>$/);
+  expect(titled).not.toContain("Check tests marked weakened");
+  expect(titled).toContain("Mark problems in code");
+  // A guide that fits keeps them all, whole.
+  for (const check of checks) expect(assistantInstructions("pr-1", chapters(3), defaultPreferences)).toContain(check);
+  // Long preferences keep their words before the checks.
+  const preferred = assistantInstructions("pr-1", chapters(3), { ...defaultPreferences, assistantInstructions: "p".repeat(1900) }, 4242);
+  expect(preferred.length).toBeLessThanOrEqual(4000);
+  expect(preferred).toContain(`${"p".repeat(1900)}\n`);
+  expect(preferred).not.toContain("Check tests marked weakened");
+  // Without a guide, the checks give way to bb's limit too.
+  const noGuide = assistantInstructions("pr-1", null, { ...defaultPreferences, assistantInstructions: "p".repeat(2000) }, 4242);
+  expect(noGuide.length).toBeLessThanOrEqual(4000);
+  expect(noGuide).toContain("p".repeat(2000));
 });

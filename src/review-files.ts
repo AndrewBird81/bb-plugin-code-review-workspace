@@ -2,9 +2,16 @@
 import { patchRows, splitPatchByFile } from "./patch";
 import { classifyFile } from "./classify";
 import { FILES_CAPPED_NOTE } from "./pr-snapshot";
+import { testWeakening, weakeningMark } from "../lib/test-weakening";
 
-/** list_review_files: one line per changed file, so an agent can plan what to read. `generated`: the files the repo's .gitattributes marks generated. */
-export function describeReviewFiles(patch: string, generated: string[] = []): string {
+/** Settings' marks list_review_files adds to a row: a test the diff weakens (Flag weakened tests). */
+export interface FileMarks { testWeakening?: boolean }
+
+/**
+ * list_review_files: one line per changed file, so an agent can plan what to read. `generated`: the files the repo's
+ * .gitattributes marks generated; `marks`: what Settings adds.
+ */
+export function describeReviewFiles(patch: string, generated: string[] = [], marks: FileMarks = {}): string {
   const files = splitPatchByFile(patch);
   const rows = files.map(({ path, oldPath, text }) => {
     const status = oldPath ? `renamed from ${oldPath}`
@@ -14,7 +21,8 @@ export function describeReviewFiles(patch: string, generated: string[] = []): st
     const removed = lines.filter((row) => row.kind === "-").length;
     // readFilesPatch's note, outside the hunks, where a changed line can't fake it.
     const unsent = lines.some((row) => row.kind !== "+" && row.kind !== "-" && row.kind !== " " && row.text.startsWith("GitHub didn't send this file's diff"));
-    return `${path} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path, generated.includes(path)).category}${unsent ? " · diff unavailable: read it on GitHub" : ""}`;
+    const weakened = marks.testWeakening ? testWeakening(path, text, generated.includes(path)) : null;
+    return `${path} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path, generated.includes(path)).category}${unsent ? " · diff unavailable: read it on GitHub" : ""}${weakened ? ` · ${weakeningMark(weakened)}` : ""}`;
   });
   const capped = patch.startsWith(FILES_CAPPED_NOTE) ? [FILES_CAPPED_NOTE] : [];
   return [...capped, `${files.length} file${files.length === 1 ? "" : "s"} (path · status · lines added and removed · diff size · kind):`, ...rows].join("\n");

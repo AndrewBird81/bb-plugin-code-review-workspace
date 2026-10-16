@@ -320,3 +320,32 @@ test("a viewed-state refresh that changes nothing doesn't draw the workspace aga
   expect(workspaceRenders).toBe(before);
   slot.lifecycle.unmount();
 });
+
+const weakenedPatch = [
+  file("src/sum.test.ts", "@@ -1,3 +1,2 @@\n-  expect(a).toBe(1);\n-  expect(b).toBe(2);\n+it.skip(\"sums\", () => {\n keep();\n"),
+  file("src/sum.ts", "@@ -1 +1 @@\n-  assert(a);\n+  b();\n"),
+].join("");
+const weakenedGuide = { ...guide, sections: [{ id: "c1", title: "Sums", overview: "Sums rows.", diffs: [{ file: "src/sum.test.ts", summary: "Tests sums." }, { file: "src/sum.ts", summary: "Sums." }] }] };
+const weakenedBundle = () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: structuredClone(weakenedGuide), patch: weakenedPatch, revision: "r1" });
+
+test("a test file whose diff removes assertions or skips tests carries a chip saying what was counted; code doesn't", async () => {
+  patchReviewState("pr-42", { activeId: "c1" });
+  const { slot } = await renderWorkspace({ rpc: { getReviewBundle: weakenedBundle } });
+  const test = within(await slot.findByRole("region", { name: "src/sum.test.ts" }));
+  const chip = await test.findByText("2 assertions removed · 1 test skipped");
+  expect(chip.getAttribute("title")).toMatch(/^Counted from this diff: assertion lines .* removed, net of those added, and added \.skip, \.only/);
+  expect(within(slot.getByRole("region", { name: "src/sum.ts" })).queryByText(/removed|skipped/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("with Flag weakened tests off, a weakened test file has no chip", async () => {
+  patchReviewState("pr-42", { activeId: "c1" });
+  const { slot } = await renderWorkspace({ rpc: {
+    getReviewBundle: weakenedBundle,
+    getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, testWeakening: false } }, revision: 0 }),
+  } });
+  const test = within(await slot.findByRole("region", { name: "src/sum.test.ts" }));
+  await test.findByText("Tests sums.");
+  expect(test.queryByText(/assertions removed|skipped/)).toBeNull();
+  slot.lifecycle.unmount();
+});

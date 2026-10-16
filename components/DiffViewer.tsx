@@ -15,6 +15,7 @@ import { useOffFold } from "../lib/use-fold";
 import { buildItems, fileCounts } from "../lib/comments";
 import { classifyFile } from "../src/classify";
 import { useKnob } from "../lib/settings";
+import { testWeakening, weakeningChip, WEAKENING_COUNTED } from "../lib/test-weakening";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { Badge } from "./ui/badge";
@@ -432,6 +433,7 @@ export const DiffViewer = memo(function DiffViewer({
   // The chapter's files by value: a reload's new array with the same files mustn't re-parse every diff.
   const fileKey = files.join("\0");
   const foldGenerated = useKnob("foldGeneratedFiles");
+  const flagWeakTests = useKnob("testWeakening");
   const { perFile, unchanged, changed } = useMemo(() => {
     // In the guide's order, which reads the chapter's files on purpose.
     const order = new Map(fileKey.split("\0").map((path, index) => [path, index]));
@@ -476,11 +478,13 @@ export const DiffViewer = memo(function DiffViewer({
         dropped,
         // A split file's comments and threads show in the chapter with their line.
         inPart: split ? diffLines(own) : undefined,
+        // What the PR's diff of a test file takes out of its tests.
+        weakening: flagWeakTests ? testWeakening(f.path, f.text, generated.has(f.path)) : null,
       }];
     });
     // How many files changed since, as the filtered diff shows them: the switch counts them unfiltered too.
     return { perFile, unchanged: chapter.length - shown.length + partsUnchanged, changed: filtering ? perFile.length : perFile.filter((f) => f.changedHere).length };
-  }, [patch, fileKey, since, filtering, generated, splitFiles, hideWhitespace, foldGenerated]);
+  }, [patch, fileKey, since, filtering, generated, splitFiles, hideWhitespace, foldGenerated, flagWeakTests]);
   // Files loaded in full, each with the diff it was read for, and those showing every line. A new diff starts over.
   const [contents, setContents] = useState<Record<string, { text: string; result: "loading" | FileContentsResult }>>({});
   const [wholeFile, setWholeFile] = useState<Record<string, boolean>>({});
@@ -720,7 +724,7 @@ export const DiffViewer = memo(function DiffViewer({
     <div ref={root} className="space-y-4">
       {narrowedStatus}
       {compareSwitch}
-      {perFile.map(({ path, oldPath, stats, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, noisy: noise }) => {
+      {perFile.map(({ path, oldPath, stats, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, noisy: noise, weakening }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
@@ -809,6 +813,7 @@ export const DiffViewer = memo(function DiffViewer({
                       <span className="min-w-0 truncate">Owned by <span className="font-mono">{owned.owners.join(" ")}</span>{owned.mine && <span className="font-medium"> · yours</span>}</span>
                     </p>
                   )}
+                  {weakening && <p className="flex flex-wrap items-center gap-1.5"><Badge tone="warning" size="sm" title={WEAKENING_COUNTED}>{weakeningChip(weakening)}</Badge></p>}
                   {stale && <p className="flex items-center gap-1 text-[11px] font-medium text-warning-text"><Icon name="AlertTriangle" className="size-3 shrink-0" aria-hidden />Changed since you viewed it</p>}
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">

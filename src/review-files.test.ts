@@ -54,3 +54,11 @@ test("pages stub lockfiles and generated files after their headers, keeping what
     + binary
     + "diff --git a/src/api.ts b/src/api.ts\nindex 1..2 100644\n--- a/src/api.ts\n+++ b/src/api.ts\n[generated: +1 −1 lines; pass file to read it]\n");
 });
+
+test("list_review_files marks a test whose diff removes assertions or skips tests, while Settings flags weakened tests", () => {
+  const weakened = file("src/sum.test.ts", "@@ -1,3 +1,2 @@\n-  expect(a).toBe(1);\n-  expect(b).toBe(2);\n+it.skip(\"sums\", () => {\n keep();\n");
+  const text = describeReviewFiles(weakened + file("src/sum.ts", "@@ -1 +1 @@\n-  assert(a);\n+  b();\n"), [], { testWeakening: true });
+  expect(text).toMatch(/^src\/sum\.test\.ts · modified · \+1 −2 · \d+ chars · test · weakened: 2 assertions removed, 1 skip added$/m);
+  expect(text).toMatch(/^src\/sum\.ts · modified · \+1 −1 · \d+ chars · code$/m);
+  expect(describeReviewFiles(weakened)).not.toContain("weakened");
+});

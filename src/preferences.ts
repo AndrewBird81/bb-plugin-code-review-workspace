@@ -43,7 +43,7 @@ export const knobsSchema = z.object({
   requirements: z.boolean(), codeOwners: z.boolean(), ciInCode: z.boolean(),
   askAboutSelection: z.boolean(), approveGuard: z.boolean(),
   approveGuardPace: z.number().int().min(KNOB_RANGES.approveGuardPace.min).max(KNOB_RANGES.approveGuardPace.max),
-  preExistingFindings: z.boolean(), agentCoverage: z.boolean(),
+  preExistingFindings: z.boolean(), agentCoverage: z.boolean(), testWeakening: z.boolean(),
   runAutomaticReview: z.boolean(), recheckOnNewCommits: z.boolean(),
   mentionsWake: z.boolean(), prepareOnReturn: z.boolean(), runReReviewCheck: z.boolean(), trackReviewedPrs: z.boolean(),
   alertGuides: z.boolean(), alertTurns: z.boolean(),

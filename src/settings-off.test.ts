@@ -137,3 +137,15 @@ test("with every toggle off, the assistant isn't asked what it didn't check", as
   const { assistantInstructions } = await import("./agent");
   expect(assistantInstructions("pr-1", null, store.getPreferences().preferences)).not.toContain("unchecked");
 });
+
+test("with every toggle off, list_review_files marks no test weakened and the assistant isn't asked to check one", async () => {
+  const { bb, harness, store } = host();
+  await plugin(bb);
+  store.savePatch("pr-1", "diff --git a/a.test.ts b/a.test.ts\n--- a/a.test.ts\n+++ b/a.test.ts\n@@ -1,2 +1 @@\n-  expect(a).toBe(1);\n+it.skip(\"a\", () => {\n");
+  store.setAssistantThread("pr-1", "assistant");
+  const listed = await harness.behavior.callAgentTool("list_review_files", { targetKey: "pr-1" }, { threadId: "assistant" });
+  expect(JSON.stringify(listed)).toContain("a.test.ts · modified");
+  expect(JSON.stringify(listed)).not.toContain("weakened");
+  const { assistantInstructions } = await import("./agent");
+  expect(assistantInstructions("pr-1", null, store.getPreferences().preferences)).not.toContain("weakened");
+});

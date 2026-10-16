@@ -366,6 +366,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             {knob("singleKeyShortcuts")}
             {knob("foldViewedFiles")}
             {knob("foldGeneratedFiles")}
+            {knob("testWeakening")}
             {knob("requirements")}
             {knob("codeOwners")}
             {knob("ciInCode")}

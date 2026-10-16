@@ -45,7 +45,8 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat everythi
    concurrency, money, a public API or wire format, or removed validation or error handling.
    `low` means docs, tests only, or mechanical changes. Everything else is `medium`.
    Give each `medium` or `high` section a `focus`: 1–3 short things the reviewer should verify in
-   its code, each starting "Check that…". Leave it out on `low` sections.
+   its code, each starting "Check that…". Leave it out on `low` sections. When `list_review_files`
+   marks a test weakened, name it in that chapter's focus or the hotspots.
    Then list `hotspots`: the 1–3 places most likely to hide a defect, highest risk first, each
    `{ file, line, why }`, where `line` is a line the diff shows: a new-file line (added or
    context), or, for a defect in removed code such as a dropped check, `side: "LEFT"` and the
