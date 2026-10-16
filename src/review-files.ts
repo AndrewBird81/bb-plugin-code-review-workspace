@@ -9,10 +9,12 @@ export function describeReviewFiles(patch: string, generated: string[] = []): st
   const rows = files.map(({ path, oldPath, text }) => {
     const status = oldPath ? `renamed from ${oldPath}`
       : /^new file mode /m.test(text) ? "added" : /^deleted file mode /m.test(text) ? "deleted" : "modified";
-    const kinds = patchRows(text).map((row) => row.kind);
-    const added = kinds.filter((kind) => kind === "+").length;
-    const removed = kinds.filter((kind) => kind === "-").length;
-    return `${path} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path, generated.includes(path)).category}`;
+    const lines = patchRows(text);
+    const added = lines.filter((row) => row.kind === "+").length;
+    const removed = lines.filter((row) => row.kind === "-").length;
+    // readFilesPatch's note, outside the hunks, where a changed line can't fake it.
+    const unsent = lines.some((row) => row.kind !== "+" && row.kind !== "-" && row.kind !== " " && row.text.startsWith("GitHub didn't send this file's diff"));
+    return `${path} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path, generated.includes(path)).category}${unsent ? " · diff unavailable: read it on GitHub" : ""}`;
   });
   const capped = patch.startsWith(FILES_CAPPED_NOTE) ? [FILES_CAPPED_NOTE] : [];
   return [...capped, `${files.length} file${files.length === 1 ? "" : "s"} (path · status · lines added and removed · diff size · kind):`, ...rows].join("\n");

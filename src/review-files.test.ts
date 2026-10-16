@@ -25,6 +25,14 @@ test("list_review_files lists each file with its status, line counts, size, and 
   expect(describeReviewFiles(patch, ["src/a.ts"])).toMatch(/^src\/a\.ts · modified · \+2 −1 · \d+ chars · generated$/m);
 });
 
+test("list_review_files marks a file GitHub sent no diff for, and not one whose changed line says so", () => {
+  const unsent = "diff --git a/huge.sql b/huge.sql\nGitHub didn't send this file's diff: it's too large or binary.\n";
+  const quoting = file("notes.md", "@@ -1 +1 @@\n-a\n+GitHub didn't send this file's diff: it's too large or binary.\n");
+  const text = describeReviewFiles(unsent + quoting);
+  expect(text).toMatch(/^huge\.sql · modified · \+0 −0 · \d+ chars · code · diff unavailable: read it on GitHub$/m);
+  expect(text).toMatch(/^notes\.md · modified · \+1 −1 · \d+ chars · docs$/m);
+});
+
 test("patch pages end on file boundaries, unless one file is longer than the page", () => {
   const first = file("a.ts", "@@ -1 +1 @@\n-a\n+b\n");
   const second = file("b.ts", "@@ -1 +1 @@\n-c\n+d\n");

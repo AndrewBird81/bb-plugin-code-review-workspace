@@ -375,3 +375,7 @@ test("a rebuilt guide's prompt leaves out the plugin's Other files chapter, so i
   expect(prompt).not.toContain("Other files");
   expect(prompt).not.toContain("logo.png");
 });
+
+test("the guide-writing skill says to place a file with no diff and send the reviewer to GitHub for it, never guessing", async () => {
+  expect(await skillText()).toContain("A file marked `diff unavailable` (GitHub didn't send its diff) has no diff here: place it in the chapter it belongs to, and say in its summary that it must be read on GitHub. Never guess its content.");
+});

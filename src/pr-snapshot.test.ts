@@ -87,3 +87,8 @@ test("a diff rebuilt from GitHub's 3,000-file list says later files may be missi
   expect(patchPage(patch, 0, 1000).text.startsWith(note)).toBe(true);
   expect(await read(2999)).not.toContain(note);
 });
+
+test("a file GitHub sent no diff for lists as unavailable in list_review_files", async () => {
+  const run = vi.fn(async (args: string[]) => args[0] === "api" ? { code: 0, stderr: "", stdout: JSON.stringify({ filename: "huge.sql", status: "modified", changes: 90000 }) + "\n" } : tooLarge);
+  expect(describeReviewFiles(await readPrDiff(run, 7, "acme/web"))).toMatch(/^huge\.sql · .* · diff unavailable: read it on GitHub$/m);
+});

@@ -14,7 +14,9 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat everythi
    changed file with its status, size, and kind. Then read the code file by file with
    `read_review_patch` and `file` (paginate with `offset`/`limit` when a file is long). For
    lockfiles and generated files, read only their first ~2,000 characters (`limit: 2000`). The
-   patch is the authoritative file set.
+   patch is the authoritative file set. A file marked `diff unavailable` (GitHub didn't send its
+   diff) has no diff here: place it in the chapter it belongs to, and say in its summary that it
+   must be read on GitHub. Never guess its content.
 3. **Chunk and order into sections.** Implementation heart first, its consequences next, and
    glue/wiring/config grouped into a trailing chapter last. Put tests in the chapter of the code
    they test. Put mechanical churn (renames, import or formatting changes) and lockfiles or
