@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { readPrDiff, readPrSnapshot } from "./pr-snapshot";
-import { describeReviewFiles, patchPage } from "./review-files";
+import { describeReviewFiles, patchPage, stubSkippedFiles } from "./review-files";
 import { splitPatchByFile } from "./patch";
 import { diffPositions } from "./review-positions";
 
@@ -91,4 +91,30 @@ test("a diff rebuilt from GitHub's 3,000-file list says later files may be missi
 test("a file GitHub sent no diff for lists as unavailable in list_review_files", async () => {
   const run = vi.fn(async (args: string[]) => args[0] === "api" ? { code: 0, stderr: "", stdout: JSON.stringify({ filename: "huge.sql", status: "modified", changes: 90000 }) + "\n" } : tooLarge);
   expect(describeReviewFiles(await readPrDiff(run, 7, "acme/web"))).toMatch(/^huge\.sql · .* · diff unavailable: read it on GitHub$/m);
+});
+
+// Without git's header for an added or copied file, isChosenPath missed it, so a huge PR could still stub and fold its
+// own code under a path that reads as generated (95-recheck P2 #3).
+test("a file a PR too big for GitHub's diff adds or copies under a generated-looking path is paged in full and listed as code", async () => {
+  const listed = [
+    { filename: "src/vendor/hook.js", status: "added", patch: "@@ -0,0 +1 @@\n+exec(x);" },
+    { filename: "dist/payload.js", status: "added" },
+    { filename: "vendor/copy.js", previous_filename: "src/real.js", status: "copied", patch: "@@ -1 +1 @@\n-a\n+exec(y);" },
+    { filename: "vendor/same.js", previous_filename: "src/same.js", status: "copied", changes: 0 },
+    { filename: "vendor/gone.js", status: "removed", patch: "@@ -1 +0,0 @@\n-g" },
+    { filename: "vendor/lib.js", status: "modified", patch: "@@ -1 +1 @@\n-a\n+b" },
+  ];
+  const run = vi.fn(async (args: string[]) => args[0] === "api" ? { code: 0, stderr: "", stdout: listed.map((f) => JSON.stringify(f)).join("\n") + "\n" } : tooLarge);
+  const patch = await readPrDiff(run, 7, "acme/web");
+  const list = describeReviewFiles(patch);
+  expect(list).toMatch(/^src\/vendor\/hook\.js · added · \+1 −0 · \d+ chars · code$/m);
+  expect(list).toMatch(/^dist\/payload\.js · added · \+0 −0 · \d+ chars · code · diff unavailable: read it on GitHub$/m);
+  expect(list).toMatch(/^vendor\/copy\.js · modified · \+1 −1 · \d+ chars · code$/m);
+  expect(list).toMatch(/^vendor\/gone\.js · deleted · \+0 −1 · \d+ chars · generated$/m);
+  const pages = stubSkippedFiles(patch);
+  expect(pages).toContain("+exec(x);");
+  expect(pages).toContain("+exec(y);");
+  expect(pages).toContain("[generated: +1 −1 lines; pass file to read it]");
+  const same = splitPatchByFile(patch).find((file) => file.path === "vendor/same.js");
+  expect(same?.text).toBe("diff --git a/src/same.js b/vendor/same.js\ncopy from src/same.js\ncopy to vendor/same.js\n");
 });

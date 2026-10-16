@@ -58,16 +58,23 @@ function quoted(name: string): string {
 /** The line standing in for a file's hunks GitHub didn't send; its blob follows, so a changed file reads as changed. */
 export const NO_DIFF = "GitHub didn't send this file's diff";
 
-/** A git-style patch from GitHub's files, each with its hunks; a file GitHub sent no hunks for says so. */
+/**
+ * A git-style patch from GitHub's files, each with its hunks; a file GitHub sent no hunks for says so. An added, removed
+ * or copied file gets git's header saying so, which isChosenPath and the file list read; GitHub doesn't send modes, so
+ * the mode is a regular file's.
+ */
 function patchFromFiles(files: GithubFile[]): string {
   return files.map((f) => {
     const from = f.previous_filename ?? f.filename;
     const [a, b] = [quoted(`a/${from}`), quoted(`b/${f.filename}`)];
     const lines = [`diff --git ${a} ${b}`];
-    if (f.status === "renamed") lines.push(`rename from ${quoted(from)}`, `rename to ${quoted(f.filename)}`);
+    if (f.status === "added") lines.push("new file mode 100644");
+    else if (f.status === "removed") lines.push("deleted file mode 100644");
+    else if (f.status === "renamed") lines.push(`rename from ${quoted(from)}`, `rename to ${quoted(f.filename)}`);
+    else if (f.status === "copied") lines.push(`copy from ${quoted(from)}`, `copy to ${quoted(f.filename)}`);
     if (f.patch) lines.push(`--- ${f.status === "added" ? "/dev/null" : a}`, `+++ ${f.status === "removed" ? "/dev/null" : b}`, f.patch.replace(/\n$/, ""));
-    // A pure rename has no diff to send.
-    else if (f.status !== "renamed" || f.changes) lines.push(`${NO_DIFF}: it's too large or binary.${f.sha ? ` (blob ${f.sha.slice(0, 7)})` : ""}`);
+    // A pure rename or copy has no diff to send.
+    else if ((f.status !== "renamed" && f.status !== "copied") || f.changes) lines.push(`${NO_DIFF}: it's too large or binary.${f.sha ? ` (blob ${f.sha.slice(0, 7)})` : ""}`);
     return lines.join("\n") + "\n";
   }).join("");
 }
