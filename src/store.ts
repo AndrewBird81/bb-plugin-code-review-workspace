@@ -7,7 +7,7 @@ import type { AssessmentSummary, TurnSignals } from "../lib/turn";
 import type { AssessmentItem, AssessmentRun, ReplyDraft } from "../lib/feedback";
 import type { FeedbackThread } from "./github/types";
 import { diffPositions, rangeProblem, type FilePositions } from "./review-positions";
-import { reanchor } from "./reanchor";
+import { reanchorIn } from "./reanchor";
 import { renamedPaths } from "./patch";
 import { fileHashCache, type FileHashes } from "./file-views";
 import { agentCommentStore, type AgentCommentStore } from "./learning";
@@ -952,12 +952,16 @@ const REVIEW_TABLES = [
  * lines are gone are left out, as are ranges that lost an end or would no longer be a range GitHub takes.
  */
 export function reanchorAll(store: Store, k: string, previous: string, next: string): Array<{ at: CommentLocation; line: number; startLine?: number }> {
-  return store.getDraft(k).comments.flatMap((comment) => {
-    const placed = reanchor({ ...comment, code: store.draftCommentCode(k, comment) }, previous, next);
+  const comments = store.getDraft(k).comments;
+  if (!comments.length) return [];
+  // Each diff parsed once, not per comment.
+  const [before, after] = [diffPositions(previous), diffPositions(next)];
+  return comments.flatMap((comment) => {
+    const placed = reanchorIn({ ...comment, code: store.draftCommentCode(k, comment) }, before, after);
     if (placed.status === "lost") return [];
     const line = placed.status === "moved" ? placed.line : comment.line;
     if (comment.startLine === undefined) return [{ at: comment, line }];
-    const start = reanchor({ file: comment.file, line: comment.startLine, side: comment.startSide ?? comment.side, code: store.draftCommentCode(k, comment, "start") }, previous, next);
+    const start = reanchorIn({ file: comment.file, line: comment.startLine, side: comment.startSide ?? comment.side, code: store.draftCommentCode(k, comment, "start") }, before, after);
     if (start.status === "lost") return [];
     const startLine = start.status === "moved" ? start.line : comment.startLine;
     return rangeProblem(next, { ...comment, line, startLine }) ? [] : [{ at: comment, line, startLine }];

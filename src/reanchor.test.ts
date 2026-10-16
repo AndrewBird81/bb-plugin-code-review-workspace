@@ -1,5 +1,14 @@
-import { test, expect } from "vitest";
+import { test, expect, vi } from "vitest";
+import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { lineText, reanchor } from "./reanchor";
+import { createStore, reanchorAll, type Store } from "./store";
+
+// Count whole-diff parses.
+const parses = vi.hoisted(() => ({ count: 0 }));
+vi.mock("./review-positions", async (original) => {
+  const actual = await original<typeof import("./review-positions")>();
+  return { ...actual, diffPositions: (patch: string) => { parses.count++; return actual.diffPositions(patch); } };
+});
 
 const diff = (...lines: string[]) => lines.join("\n") + "\n";
 const headers = ["diff --git a/src/app.ts b/src/app.ts", "index 1111111..2222222 100644", "--- a/src/app.ts", "+++ b/src/app.ts"];
@@ -65,4 +74,43 @@ test("lost when the code is gone, unknown, or the file left the diff", () => {
   expect(reanchor({ file: "src/app.ts", line: 13, side: "RIGHT" }, previous, rewritten)).toEqual({ status: "lost" });
   expect(reanchor({ file: "src/app.ts", line: 99, side: "RIGHT" }, previous, previous)).toEqual({ status: "lost" });
   expect(reanchor({ file: "src/app.ts", line: 12, side: "RIGHT" }, previous, "")).toEqual({ status: "lost" });
+});
+
+const shiftedFile = (i: number, shift: number) => [
+  `diff --git a/f${i}.ts b/f${i}.ts`, `--- a/f${i}.ts`, `+++ b/f${i}.ts`, `@@ -1,0 +1,${200 + shift} @@`,
+  ...Array.from({ length: shift }, (_, n) => `+inserted ${n}`),
+  ...Array.from({ length: 200 }, (_, n) => `+line ${i}.${n}`),
+].join("\n");
+const shiftedPatch = (shift: number) => Array.from({ length: 300 }, (_, i) => shiftedFile(i, shift)).join("\n") + "\n";
+
+test("re-anchoring 100 stored comments on a 60k-line diff parses each diff once", () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
+  const before = shiftedPatch(0);
+  store.savePatch("pr-1", before);
+  for (let i = 0; i < 100; i++) store.upsertDraftComment("pr-1", { file: `f${i}.ts`, line: 10, side: "RIGHT", body: "x" });
+  // One range too, whose start is placed as well.
+  store.upsertDraftComment("pr-1", { file: "f200.ts", line: 20, startLine: 18, side: "RIGHT", body: "x" });
+  const after = shiftedPatch(2);
+  store.savePatch("pr-1", after);
+  parses.count = 0;
+  const placements = reanchorAll(store, "pr-1", before, after);
+  expect(placements.filter((p) => p.line === 12)).toHaveLength(100);
+  expect(placements.find((p) => p.at.file === "f200.ts")).toMatchObject({ line: 22, startLine: 20 });
+  expect(parses.count).toBeLessThanOrEqual(2);
+});
+
+test("re-anchoring 50 comments with no stored code on a 2,000-file diff parses each diff once", () => {
+  const out: string[] = [];
+  for (let f = 0; f < 2000; f++) {
+    out.push(`diff --git a/src/f${f}.ts b/src/f${f}.ts`, `--- a/src/f${f}.ts`, `+++ b/src/f${f}.ts`, "@@ -1,100 +1,100 @@");
+    for (let i = 0; i < 100; i++) out.push(i % 4 === 0 ? `-old ${f} ${i}` : i % 4 === 1 ? `+new ${f} ${i}` : ` same ${f} ${i}`);
+  }
+  const patch = out.join("\n") + "\n";
+  const comments = Array.from({ length: 50 }, (_, i) => ({ file: `src/f${i * 7}.ts`, line: 3, side: "RIGHT" as const, body: "x" }));
+  const store = { getDraft: () => ({ comments }), draftCommentCode: () => undefined } as unknown as Store;
+  parses.count = 0;
+  expect(reanchorAll(store, "k", patch, patch)).toHaveLength(50);
+  expect(parses.count).toBeLessThanOrEqual(2);
 });

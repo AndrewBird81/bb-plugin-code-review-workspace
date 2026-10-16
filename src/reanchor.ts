@@ -1,4 +1,4 @@
-import { diffPositions } from "./review-positions";
+import { diffPositions, type FilePositions } from "./review-positions";
 
 export interface AnchoredComment {
   file: string;
@@ -12,21 +12,26 @@ export type Reanchored = { status: "same" } | { status: "moved"; line: number } 
 
 const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
 
-function sideLines(patch: string, file: string, side: "LEFT" | "RIGHT"): Map<number, string> | undefined {
-  const p = diffPositions(patch).get(file);
+function sideLines(positions: Map<string, FilePositions>, file: string, side: "LEFT" | "RIGHT"): Map<number, string> | undefined {
+  const p = positions.get(file);
   return p && (side === "RIGHT" ? p.right : p.left);
 }
 
 /** The text of a line in a diff: RIGHT for added/context lines by new-file number, LEFT for deleted/context by old-file number. */
 export function lineText(patch: string, file: string, line: number, side: "LEFT" | "RIGHT"): string | undefined {
-  return sideLines(patch, file, side)?.get(line);
+  return sideLines(diffPositions(patch), file, side)?.get(line);
 }
 
 /** Where a draft comment's line is in the current diff: same number, the nearest line with the same code, or lost. */
 export function reanchor(comment: AnchoredComment, previousPatch: string, currentPatch: string): Reanchored {
-  const code = comment.code ?? lineText(previousPatch, comment.file, comment.line, comment.side);
+  return reanchorIn(comment, diffPositions(previousPatch), diffPositions(currentPatch));
+}
+
+/** reanchor, given both diffs' positions, for placing many comments with one parse of each diff. */
+export function reanchorIn(comment: AnchoredComment, previous: Map<string, FilePositions>, current: Map<string, FilePositions>): Reanchored {
+  const code = comment.code ?? sideLines(previous, comment.file, comment.side)?.get(comment.line);
   if (code === undefined) return { status: "lost" };
-  const lines = sideLines(currentPatch, comment.file, comment.side);
+  const lines = sideLines(current, comment.file, comment.side);
   if (!lines) return { status: "lost" };
   const want = normalize(code);
   const at = lines.get(comment.line);
