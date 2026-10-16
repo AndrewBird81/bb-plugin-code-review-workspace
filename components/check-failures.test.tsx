@@ -152,5 +152,10 @@ test("with Comment on or ask about a failing check off, a failure offers View ch
   const { slot, failure } = await renderChapter({ ...defaultKnobs, checkFailureActions: false });
   expect(failure.getByRole("link", { name: "View check" })).toBeTruthy();
   expect(failure.queryAllByRole("button")).toEqual([]);
+  // Laid out as before the actions: View check stays beside the message.
+  const note = failure.getByRole("link", { name: "View check" }).parentElement!;
+  expect(note.getAttribute("role")).toBe("note");
+  expect(note.className).toBe("flex items-start gap-2");
+  expect(note.querySelector("p")!.className).toBe("min-w-0 flex-1 break-words");
   slot.lifecycle.unmount();
 }, 15_000);

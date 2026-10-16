@@ -7,6 +7,7 @@ import { codeFence, untrusted } from "../src/untrusted";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
 import { linkImages } from "../lib/link-images";
 import { useKnob } from "../lib/settings";
+import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
 import { TOUCH_TARGET } from "./touch";
 import { Icon } from "./ui/icon";
@@ -65,6 +66,8 @@ function FailureActions({ failure }: { failure: CheckFailure }) {
   </>;
 }
 
+const viewCheck = (failure: CheckFailure) => <UrlLink href={failure.url} className={`relative shrink-0 text-primary hover:underline ${TOUCH_TARGET}`}>View check</UrlLink>;
+
 /**
  * A line's CI failures, each linking to its check, and with Settings' check failure actions on, Comment and Ask agent.
  * With comments folded, a pill: "Check failed · ‹name›".
@@ -85,18 +88,17 @@ export const LineChecks = memo(function LineChecks({ at }: { at: CommentLocation
   return (
     <div className="mx-2 my-2 max-w-3xl space-y-1 rounded-lg [contain:inline-size] border border-destructive/30 bg-destructive/10 px-3 py-2 font-sans text-xs leading-normal whitespace-normal text-foreground">
       {here.map((failure, index) => (
-        // Where the note is narrow, its links go under the message, at its end.
-        <div key={index} role="note" aria-label={`CI failure on ${failure.file}:${failure.line}`} className="flex flex-wrap items-start gap-x-2 gap-y-1">
+        // With its actions, where the note is narrow, its links go under the message, at its end.
+        <div key={index} role="note" aria-label={`CI failure on ${failure.file}:${failure.line}`} className={actions ? "flex flex-wrap items-start gap-x-2 gap-y-1" : "flex items-start gap-2"}>
           <Icon name="CircleX" className="mt-0.5 size-3.5 shrink-0 text-destructive-text" aria-hidden />
-          <p className="min-w-[min(100%_-_1.5rem,16rem)] flex-1 break-words">
+          <p className={cn(actions ? "min-w-[min(100%_-_1.5rem,16rem)]" : "min-w-0", "flex-1 break-words")}>
             <span className="font-medium text-destructive-text">{failure.check}</span>
             {failure.title && <span className="font-medium"> · {failure.title}</span>}
             <span className="whitespace-pre-wrap text-muted-foreground"> {failure.message}</span>
           </p>
-          <span className="ml-auto flex shrink-0 gap-x-3">
-            {actions && <FailureActions failure={failure} />}
-            <UrlLink href={failure.url} className={`relative shrink-0 text-primary hover:underline ${TOUCH_TARGET}`}>View check</UrlLink>
-          </span>
+          {actions
+            ? <span className="ml-auto flex shrink-0 gap-x-3"><FailureActions failure={failure} />{viewCheck(failure)}</span>
+            : viewCheck(failure)}
         </div>
       ))}
     </div>
