@@ -5,6 +5,7 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "../src/store";
 import plugin from "../server";
 import { runGh } from "../src/gh";
+import { loopbackUrl } from "./loopback";
 
 vi.mock("../src/gh", async (original) => ({ ...await original<typeof import("../src/gh")>(), runGh: vi.fn() }));
 
@@ -12,6 +13,7 @@ vi.mock("../src/gh", async (original) => ({ ...await original<typeof import("../
 // are routed through the official test host, with real SQLite and mocked GitHub
 // and agent boundaries. No test review, comment or agent is sent to production.
 test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reload → merge → archive, with in-plugin chat", async () => {
+  const base = loopbackUrl("BB_E2E_URL", process.env.BB_E2E_URL!);
   let prState = "OPEN";
   let approved = false;
   vi.mocked(runGh).mockImplementation(async (args) => {
@@ -55,7 +57,6 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
       await route.fulfill({ json: { ok: true, result } });
     } catch (error) { await route.fulfill({ status: 500, json: { ok: false, error: { message: String(error) } } }); }
   });
-  const base = process.env.BB_E2E_URL!;
   // The review's commands: in BB's title bar, at the band's end in full screen, and in a phone's dock.
   const commands = page.getByRole("group", { name: "Review commands" });
   try {
