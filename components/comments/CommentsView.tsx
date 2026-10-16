@@ -5,6 +5,7 @@ import { sameLocation, VERDICT_LABEL } from "../../src/draft";
 import { buildItems, checkTally, FILTER_LABEL, groups, needsYou, shownItems, toSend, type CommentFilter, type CommentGroup, type CommentItem, type CommentSources } from "../../lib/comments";
 import { clearOpenComments, forgetOpenComments, revealComment } from "../../lib/comments-fold";
 import { registerCommentStepper, showCommentStep, useCommentStep } from "../../lib/comment-stops";
+import { holdReview } from "../../lib/review-holds";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
 import { setNeedsYou } from "../../lib/workspace-store";
@@ -103,12 +104,13 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
     clearOpenComments(targetKey);
   }, [targetKey, display.commentsFolded]);
   useEffect(() => { setNeedsYou(targetKey, needing); }, [targetKey, needing]);
-  // Leaving the review: nothing it showed over the code comes back when it opens again.
-  useEffect(() => () => {
+  // Leaving the review: nothing it showed over the code comes back when it opens again. A new workspace of the
+  // review may already show it, though: it's forgotten with the last one.
+  useEffect(() => holdReview("comments", targetKey, () => {
     setNeedsYou(targetKey, 0);
     showCommentStep(targetKey, null);
     forgetOpenComments(targetKey);
-  }, [targetKey]);
+  }), [targetKey]);
   // Opened on what needs you, or on GitHub's threads: the chip, once. Then the workspace's tab is back to the list.
   useEffect(() => {
     if (tab === "drafts") return;

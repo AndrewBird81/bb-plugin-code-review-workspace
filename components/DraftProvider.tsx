@@ -9,6 +9,7 @@ import { getHideNits, setHideNits, type PanelView } from "../lib/panel-state";
 import { approveDoubts, type ApproveGuard } from "../lib/approve-guard";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
 import { setDraftStatus } from "../lib/draft-status";
+import { holdReview } from "../lib/review-holds";
 import { InlineComposerContext, InlineDraftContext, locationKey, type InlineComposer, type InlineDraft } from "./InlineDraft";
 
 /**
@@ -493,7 +494,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   useEffect(() => {
     setDraftStatus(targetKey, submittable ? { verdict: draft.verdict, comments: draft.comments.length } : null);
   }, [targetKey, submittable, draft.verdict, draft.comments.length]);
-  useEffect(() => () => setDraftStatus(targetKey, null), [targetKey]);
+  // A new workspace of the review may already show its draft: the status goes with the last one.
+  useEffect(() => holdReview("draft", targetKey, () => setDraftStatus(targetKey, null)), [targetKey]);
   // The diff shows the draft's comments and discussions, and the comment box while it's open there.
   const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange });
   latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange };

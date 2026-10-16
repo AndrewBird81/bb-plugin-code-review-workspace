@@ -390,3 +390,29 @@ test("Undo after removing keeps an agent's comment the agent's, and isn't offere
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo-agent", revision: "r1", comment: agents }));
   slot.lifecycle.unmount();
 });
+
+test("when BB mounts a review's new workspace before the old one goes, the old one going keeps its draft status and comments", async () => {
+  await loadPluginApp(() => import("../app"));
+  const DraftTray = await draftTray();
+  const { useDraftStatus } = await import("../lib/draft-status");
+  const { commentsOf } = await import("./comments/store");
+  const draft = draftOf({ targetKey: "pr-7", comments: [{ file: "src/a.ts", line: 1, side: "RIGHT", body: "x" }] });
+  const rpc = { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: structuredClone(draft), stale: [] }) };
+  const workspace = () => <DraftTray targetKey="pr-7" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" />;
+  let status: unknown = "unset";
+  const Probe = () => { status = useDraftStatus("pr-7"); return null; };
+  const probe = renderSlot({ component: Probe }, {}, { rpc: rpc as any });
+  const old = renderSlot({ component: workspace }, {}, { rpc: rpc as any });
+  await waitFor(() => expect(status).toEqual({ verdict: "COMMENT", comments: 1 }));
+  const fresh = renderSlot({ component: workspace }, {}, { rpc: rpc as any });
+  await waitFor(() => expect(fresh.getAllByText("Draft saved").length).toBeGreaterThan(0));
+  old.lifecycle.unmount();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(status).toEqual({ verdict: "COMMENT", comments: 1 });
+  expect(commentsOf("pr-7").items).toHaveLength(1);
+  // The last one going forgets them.
+  fresh.lifecycle.unmount();
+  await waitFor(() => expect(status).toBeNull());
+  expect(commentsOf("pr-7").items).toEqual([]);
+  probe.lifecycle.unmount();
+});

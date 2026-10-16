@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from "react";
 import type { CommentLocation } from "../src/draft";
 import type { ReviewItem } from "../lib/review-state";
+import { holdReview } from "../lib/review-holds";
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
 import { DraftProvider, type DraftProviderProps } from "./DraftProvider";
 import { CommentsView } from "./comments/CommentsView";
@@ -37,8 +38,8 @@ export function DraftTray({ children, workspace, onShowComment, ...props }: Draf
   const { targetKey } = props;
   const files = props.files ?? props.activeFiles;
   updateComments(targetKey, { loaded: true });
-  // As the workspace does when it goes: the next review starts with nothing open or filtered.
-  useEffect(() => () => dropComments(targetKey), [targetKey]);
+  // As the workspace does when the review's last one goes: the next review starts with nothing open or filtered.
+  useEffect(() => holdReview("threads", targetKey, () => dropComments(targetKey)), [targetKey]);
   const api = testWorkspace(targetKey, {
     review: (props.review ?? { targetKey, kind: props.isLocal ? "ref" : "pr" }) as ReviewItem,
     sections: [{ id: "c1", title: "Chapter", overview: "", diffs: files.map((file) => ({ file })) }],

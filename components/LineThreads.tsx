@@ -7,6 +7,7 @@ import { sameLocation, type CommentLocation } from "../src/draft";
 import type { FeedbackView, ReplyDraft } from "../lib/feedback";
 import type { ThreadItem } from "../lib/comments";
 import { setCommentOpen, useCommentOpen, useRevealedComment } from "../lib/comments-fold";
+import { holdReview } from "../lib/review-holds";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
 import { InlineDraftContext } from "./InlineDraft";
@@ -124,10 +125,9 @@ export function useDiffThreads(targetKey: string, enabled: boolean, account?: st
   const loadAll = useCallback(() => Promise.all([loadThreads(), loadFeedback(), loadDrafts()]), [loadThreads, loadFeedback, loadDrafts]);
 
   useEffect(() => { if (enabled) void loadAll(); }, [enabled, loadAll]);
-  useEffect(() => () => {
-    dropComments(targetKey);
-    done.current = { threads: false, feedback: false, drafts: false };
-  }, [targetKey]);
+  // A new workspace of the review may already show its comments: they go with the last one.
+  useEffect(() => holdReview("threads", targetKey, () => dropComments(targetKey)), [targetKey]);
+  useEffect(() => () => { done.current = { threads: false, feedback: false, drafts: false }; }, [targetKey]);
   // The sync read your threads again, a reply went out, or the agent checked them or drafted a reply.
   useRealtime(`feedback:${targetKey}`, () => { if (enabledRef.current) void loadAll(); });
   useRealtime(`review:${targetKey}`, () => { if (enabledRef.current) { void loadFeedback(); void loadDrafts(); } });
