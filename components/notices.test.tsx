@@ -104,3 +104,29 @@ test("while the guide is updated, the notice says the view and unsaved edits sta
   expect(rpc.rereview).not.toHaveBeenCalled();
   broken.slot.lifecycle.unmount();
 });
+
+test("while the connection is down the review says it's reconnecting, and once back it reads the review, views, draft and threads again", async () => {
+  const counted = { getFileViews: 0, getDraft: 0, getReviewThreads: 0 };
+  const count = <T,>(name: keyof typeof counted, answer: T) => vi.fn(() => { counted[name]++; return answer; });
+  const { slot, rpc } = await renderWorkspace({
+    getFileViews: count("getFileViews", { views: [] }),
+    getDraft: count("getDraft", { draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }),
+    getReviewThreads: count("getReviewThreads", { threads: [] }),
+    getFeedback: () => ({ feedback: null }),
+    getReplyDrafts: () => ({ drafts: [] }),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const before = { ...counted, bundle: rpc.getReviewBundle.mock.calls.length };
+  expect(slot.queryByText(/^Reconnecting…/)).toBeNull();
+  await slot.setRealtimeConnectionState("reconnecting");
+  expect(await slot.findByText(/^Reconnecting…/)).toBeTruthy();
+  await slot.setRealtimeConnectionState("connected");
+  await waitFor(() => expect(slot.queryByText(/^Reconnecting…/)).toBeNull());
+  await waitFor(() => {
+    expect(rpc.getReviewBundle.mock.calls.length).toBeGreaterThan(before.bundle);
+    expect(counted.getFileViews).toBeGreaterThan(before.getFileViews);
+    expect(counted.getDraft).toBeGreaterThan(before.getDraft);
+    expect(counted.getReviewThreads).toBeGreaterThan(before.getReviewThreads);
+  });
+  slot.lifecycle.unmount();
+});

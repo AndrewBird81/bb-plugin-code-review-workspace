@@ -1,5 +1,5 @@
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import { useRpc, useRealtime, useBbNavigate } from "@get-bb/plugin-sdk/app";
+import { useRpc, useRealtime, useRealtimeConnectionState, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { Toaster, toast } from "sonner";
 import type { SelectedLineRange } from "@pierre/diffs";
 import type { rpcContract } from "../src/rpc-contract";
@@ -25,7 +25,7 @@ import type { FileOwners } from "../src/codeowners";
 import { ChapterIntro } from "./ChapterIntro";
 import { ChapterViewSwitch } from "./ChapterNav";
 import { DiffViewer, diffLines, type FileViewFlags } from "./DiffViewer";
-import { DraftProvider, type CommentPrefill } from "./DraftProvider";
+import { DraftProvider, useDraft, type CommentPrefill } from "./DraftProvider";
 import { TrackedReview } from "./TrackedReview";
 import { NotRunButton } from "./NotRunBanner";
 import { AgentDock, type DockInjection } from "./AgentDock";
@@ -90,6 +90,15 @@ function DraftLines({ into }: { into: MutableRefObject<CommentLocation[]> }) {
     const nits = draft?.hideNits ? draft.comments.filter((c) => c.severity === "nit") : [];
     into.current = [...(draft?.comments ?? []), ...(draft?.discussions ?? [])].filter((at) => !nits.some((nit) => sameLocation(nit, at)));
   }, [draft, into]);
+  return null;
+}
+
+/** Reads the draft again each time `reconnects` counts up. */
+function DraftReload({ reconnects }: { reconnects: number }) {
+  const { load } = useDraft();
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => { if (reconnects) void loadRef.current(); }, [reconnects]);
   return null;
 }
 
@@ -1018,6 +1027,23 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     showLocation(file, line, side, url);
   }, [setShowThreads, showLocation]);
   const checkFailures = useCheckFailures(targetKey, isPr ? review?.headSha ?? null : null);
+  // While the realtime connection is down, nothing the server publishes reaches the review: once it's back, the review,
+  // its views, its draft and its threads are read again.
+  const connection = useRealtimeConnectionState();
+  const connectedOnce = useRef(false);
+  const [reconnects, setReconnects] = useState(0);
+  const reload = useRef(() => {});
+  reload.current = () => {
+    void load();
+    void loadViews();
+    if (isPr) void diffThreads.loadAll();
+    setReconnects((count) => count + 1);
+  };
+  useEffect(() => {
+    if (connection !== "connected") return;
+    if (connectedOnce.current) reload.current();
+    connectedOnce.current = true;
+  }, [connection]);
   const readContents = useCallback((file: string) => rpc.call("getFileContents", { targetKey, file }), [rpc, targetKey]);
 
   // GitHub-style line selection in the diff (via pierre) → comment / ask agent.
@@ -1191,6 +1217,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const noticeButton = cn("h-7", TOUCH_CONTROL);
   // The most pressing first: what went wrong, then what's under way, then what you might do.
   const notices: Notice[] = [
+    ...(connection === "reconnecting" ? [{ id: "reconnecting", tone: "warning", icon: "Loading", busy: true, text: "Reconnecting… The review reloads once it’s back." }] as const : []),
     ...(loadError ? [{ id: "load", tone: "danger", icon: "AlertCircle", role: "alert", text: loadError, action: <Button variant="outline" size="sm" className={noticeButton} onClick={() => void load()}>Try again</Button> }] as const : []),
     ...(review?.status === "error" ? [{ id: "rebuild", tone: "danger", icon: "AlertTriangle", role: "alert", text: "Couldn’t update the guide. Showing the previous one.", action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Try again</Button> }] as const : []),
     ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
@@ -1282,6 +1309,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       </div>
       {sheet && <PhoneDock hidden={!!lineSel} />}
       <DraftLines into={draftLines} />
+      <DraftReload reconnects={reconnects} />
 
       <StepBar hidden={!!lineSel} pill={pill} />
       <SelectionBar lines={lineSel} phone={sheet} onComment={() => commentOnLines()} onAskLines={askAboutLines} onClear={() => setLineSel(null)} />

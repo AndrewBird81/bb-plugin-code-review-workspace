@@ -41,7 +41,7 @@ const forgetTabReply = (targetKey: string, threadId: string) => {
  * cards and the Comments list together, so a reply or resolve in either shows in both. Read again whenever `enabled`
  * turns on, when the server says they changed, and after each change made here.
  */
-export function useDiffThreads(targetKey: string, enabled: boolean, account?: string): DiffThreads {
+export function useDiffThreads(targetKey: string, enabled: boolean, account?: string): DiffThreads & { loadAll: () => Promise<unknown> } {
   const rpc = useRpc<typeof rpcContract>();
   // The GitHub account the page verified, which replies and resolves post as.
   const accountRef = useRef(account);
@@ -220,7 +220,7 @@ export function useDiffThreads(targetKey: string, enabled: boolean, account?: st
   }, [rpc, targetKey, loadThreads, loadDrafts, showNewer]);
   useEffect(() => { updateComments(targetKey, { actions }); }, [targetKey, actions]);
 
-  return useMemo(() => ({ targetKey, threads }), [targetKey, threads]);
+  return useMemo(() => ({ targetKey, threads, loadAll }), [targetKey, threads, loadAll]);
 }
 
 /** Outlines a card a moment, once it's what you went to. */
