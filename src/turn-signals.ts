@@ -20,7 +20,7 @@ export function turnOptions(preferences: ReviewPreferences): TurnOptions {
 
 /** What the sync and the agents keep for the GitHub account reading the PR; another account starts without it. */
 export const READER_STATE: ReviewLifecycle = {
-  assessment: null, heldTurn: null, approvedHead: null, skippedRun: null, notifiedSignal: null, preparedSignal: null, pendingAlert: null,
+  assessment: null, heldTurn: null, approvedHead: null, approvedAt: null, skippedRun: null, notifiedSignal: null, preparedSignal: null, pendingAlert: null,
 };
 
 /**
@@ -31,7 +31,7 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
   const s = previous.signals ?? {};
   const update: ReviewLifecycle = {
     prState: facts.state, latestHeadSha: facts.headSha, ...(facts.baseRefName ? { latestBase: facts.baseRefName } : {}), unreachable: null, prSize: facts.size ?? null, stackParent: facts.stackParent ?? null, ownPr: !!facts.author && facts.author.toLowerCase() === viewer.toLowerCase(), authorAssociation: facts.authorAssociation ?? null,
-    foreignHeadOwner: foreignHeadOwner(facts, viewer),
+    foreignHeadOwner: foreignHeadOwner(facts, viewer), prEditedAt: facts.editedAt ?? null,
     archivedAt: facts.state === "OPEN" ? null : previous.archivedAt ?? now,
     // The account reading the PR, which the review's verdict and checks belong to.
     reviewer: viewer,

@@ -47,6 +47,8 @@ export interface PrFacts {
   /** Who owns the fork the head branch is in; null when it's in the PR's own repository, "" for a fork GitHub no longer shows. */
   headForkOwner?: string | null;
   updatedAt: number;
+  /** When the PR's title or description was last edited; null for never. */
+  editedAt?: number | null;
   /** The open PR whose head is this PR's base branch: the PR this one is stacked on. Null for none, or a base that's the default branch. */
   stackParent?: { number: number; title: string; url: string } | null;
   /** Lines added and deleted, and files changed. */

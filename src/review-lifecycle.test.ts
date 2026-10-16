@@ -852,6 +852,18 @@ test("the sync keeps the PR's size", async () => {
   expect(s.store.getReview("pr-1")?.prSize).toEqual({ additions: 120, deletions: 30, files: 8 });
 });
 
+test("the sync keeps when the PR's text was last edited, so an outside author's edit after your click needs another", async () => {
+  const s = setup({ reviewed: true, pr: { authorAssociation: "NONE", editedAt: T0 - HOUR } });
+  s.store.setLifecycle("pr-1", { approvedHead: "sha1", approvedAt: T0 - 2 * HOUR });
+  await s.sync.all();
+  expect(s.store.getReview("pr-1")?.prEditedAt).toBe(T0 - HOUR);
+  s.pr({ requests: [{ at: T0 + 0.1 * HOUR, by: "mallory", via: "user" }] });
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.actions.prepare).not.toHaveBeenCalled();
+  expect(s.store.getReview("pr-1")?.skippedRun).toMatchObject({ head: "sha1" });
+});
+
 test("the sync keeps the author's association with the repository", async () => {
   const s = setup({ pr: { authorAssociation: "CONTRIBUTOR" } });
   await s.sync.all();

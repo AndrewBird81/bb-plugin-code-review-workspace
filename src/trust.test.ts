@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "./store";
 import { defaultPreferences, readPreferences } from "./preferences";
-import { mayRunChecks, mayRunUnattended, notRunReason, skipWhy, trustedAuthor } from "../lib/trust";
+import { approve, mayRunChecks, mayRunUnattended, notRunReason, skipWhy, trustedAuthor } from "../lib/trust";
 import type { ReviewMeta } from "./store";
 
 const pr = (extra: Partial<ReviewMeta> = {}): ReviewMeta => ({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, author: "mallory", headSha: "sha1", status: "ready", createdAt: 1, ...extra });
@@ -36,6 +36,19 @@ test("an approved head runs unattended; another head doesn't", () => {
   expect(mayRunUnattended(review, defaultPreferences, "sha2")).toBe(false);
   expect(mayRunUnattended(pr({ authorAssociation: "FIRST_TIME_CONTRIBUTOR" }), defaultPreferences, null)).toBe(false);
   expect(mayRunUnattended(pr({ authorAssociation: "MEMBER" }), defaultPreferences, "sha2")).toBe(true);
+});
+
+test("a PR whose text was edited after your click needs a new click on the same head; a trusted author's doesn't", () => {
+  const clickedAt = 1_000, editedAt = 2_000;
+  const outsider = pr({ authorAssociation: "NONE", ...approve("sha1", clickedAt) });
+  expect(mayRunUnattended(outsider, defaultPreferences, "sha1")).toBe(true);
+  expect(mayRunUnattended({ ...outsider, prEditedAt: clickedAt - 1 }, defaultPreferences, "sha1")).toBe(true);
+  expect(mayRunUnattended({ ...outsider, prEditedAt: editedAt }, defaultPreferences, "sha1")).toBe(false);
+  // A click from before clicks were dated no longer counts once the PR has been edited.
+  expect(mayRunUnattended(pr({ authorAssociation: "NONE", approvedHead: "sha1", prEditedAt: editedAt }), defaultPreferences, "sha1")).toBe(false);
+  // Clicking again approves the edited text.
+  expect(mayRunUnattended({ ...outsider, prEditedAt: editedAt, ...approve("sha1", editedAt + 1) }, defaultPreferences, "sha1")).toBe(true);
+  expect(mayRunUnattended(pr({ authorAssociation: "MEMBER", prEditedAt: editedAt }), defaultPreferences, "sha1")).toBe(true);
 });
 
 test("the repo's checks run only when turned on, on a trusted author's PR; approving a head never allows them", () => {

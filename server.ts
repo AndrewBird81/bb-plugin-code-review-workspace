@@ -60,7 +60,7 @@ import { assess, changesSinceReview, describeFeedback, readFileAt, startVerifica
 import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
 import { threadSignals, turnOptions } from "./src/turn-signals";
-import { mayRunChecks, trustedAuthor } from "./lib/trust";
+import { approve, mayRunChecks, trustedAuthor } from "./lib/trust";
 import { restartInterruptedGuide, retryInterruptedGuides } from "./src/interrupted-guides";
 import { reReviewCheckPrompt } from "./src/preferences";
 import { createInstructionSuggester, describeRemovals, learningStats, noteReviewerRemoval, noteReviewerSave, recordOutcomes, removalWarning } from "./src/learning";
@@ -292,7 +292,7 @@ export default async function plugin(bb: BbPluginApi) {
         if (skipped.run === "guide" || review.status === "tracked" || skipped.run === "check" && guideBehind(review)) {
           result = await rerunReview(deps, targetKey);
         } else {
-          store.setLifecycle(targetKey, { approvedHead: skipped.run === "check" ? headOf(review) : review.headSha ?? null, skippedRun: null });
+          store.setLifecycle(targetKey, { ...approve(skipped.run === "check" ? headOf(review) : review.headSha ?? null, Date.now()), skippedRun: null });
           try {
             if (skipped.run === "review") await startAutomaticReview(bb, store, targetKey);
             result = skipped.run === "review" || await startVerification(bb, store, targetKey, "the reviewer asked for a check") ? { ok: true } : { ok: false, error: "The assistant couldn't start. Open Ask agent to choose its agent." };

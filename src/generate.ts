@@ -7,7 +7,7 @@ import { agentPlacement, machineUnavailable } from "./machines";
 import { startVerification } from "./verification";
 import { baselineOf } from "./feedback-view";
 import type { Guide } from "./guide";
-import { mayRunUnattended } from "../lib/trust";
+import { approve, mayRunUnattended } from "../lib/trust";
 import { fitHunks } from "./hunks";
 import { spawningFor } from "./thread-review";
 import { untrusted } from "./untrusted";
@@ -104,7 +104,7 @@ export async function generateGuide(
   try {
     const review = store.getReview(targetKey);
     // A guide you start approves agents on its head, whoever wrote the PR (lib/trust.ts).
-    if (!options.unattended && review?.headSha) store.setLifecycle(targetKey, { approvedHead: review.headSha, skippedRun: null });
+    if (!options.unattended && review?.headSha) store.setLifecycle(targetKey, { ...approve(review.headSha, Date.now()), skippedRun: null });
     // The diff is already the new one: hunks of the earlier guide that no longer fit it show as whole files.
     const kept = store.getGuide(targetKey);
     const patch = store.patch(targetKey);

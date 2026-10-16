@@ -190,6 +190,12 @@ test("size reads the PR's additions, deletions, and changed files", () => {
   expect(prFactsQuery([ref(1)]).query).toContain("additions deletions changedFiles");
 });
 
+test("editedAt reads when the PR's text was last edited", () => {
+  expect(prFactsQuery([ref(1)]).query).toContain("updatedAt lastEditedAt");
+  expect(one(pr({ lastEditedAt: "2026-10-02T00:00:00Z" })).editedAt).toBe(Date.parse("2026-10-02T00:00:00Z"));
+  expect(one(pr()).editedAt).toBeNull();
+});
+
 test("authorAssociation reads how the author is related to the repository", () => {
   expect(one(pr({ authorAssociation: "FIRST_TIME_CONTRIBUTOR" })).authorAssociation).toBe("FIRST_TIME_CONTRIBUTOR");
   expect(one(pr()).authorAssociation).toBeNull();

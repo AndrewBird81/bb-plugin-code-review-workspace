@@ -88,6 +88,10 @@ export interface ReviewLifecycle {
   foreignHeadOwner?: string | null;
   /** The head commit you started agents on (lib/trust.ts): runs that follow on it start with no click, whoever the author. */
   approvedHead?: string | null;
+  /** When you started agents on approvedHead; an edit to the PR's text after it needs a new click (lib/trust.ts). */
+  approvedAt?: number | null;
+  /** When the PR's title or description was last edited, as GitHub last said; null for never. */
+  prEditedAt?: number | null;
   /** A run that didn't start on its own because the author isn't trusted, or (why "settings") Start agents on their own is off, for the reviewer to start with one click. */
   skippedRun?: { run: "guide" | "review" | "check"; head: string | null; at: number; why?: "settings" } | null;
   /** Lines added and deleted, and files changed, as GitHub last said. */

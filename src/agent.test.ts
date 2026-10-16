@@ -421,7 +421,7 @@ test("a guide you start approves its head, so the automatic review follows; a ne
   const { bb, store, titles } = outsider();
   store.setLifecycle("pr-1", { skippedRun: { run: "guide", head: "sha1", at: 1 } });
   await generateGuide(bb, store, "pr-1", "p1");
-  expect(store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", skippedRun: null });
+  expect(store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", approvedAt: expect.any(Number), skippedRun: null });
   expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: pr-1"]);
 
   const next = outsider("sha2");
