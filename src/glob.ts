@@ -49,12 +49,14 @@ function charClass(body: string): ((c: string) => boolean) | null {
 }
 
 export function globMatches(glob: Glob, path: string): boolean {
+  // Two arrays of positions, swapped per character rather than one per character: every path meets every rule.
   let on = new Uint8Array(glob.length + 1);
+  let next = new Uint8Array(glob.length + 1);
   on[0] = 1;
   reach(glob, on);
   for (let j = 0; j < path.length; j++) {
     const c = path[j];
-    const next = new Uint8Array(glob.length + 1);
+    next.fill(0);
     for (let i = 0; i < glob.length; i++) {
       if (!on[i]) continue;
       const token = glob[i];
@@ -67,7 +69,7 @@ export function globMatches(glob: Glob, path: string): boolean {
     }
     if (!next.includes(1)) return false;
     reach(glob, next);
-    on = next;
+    [on, next] = [next, on];
   }
   return on[glob.length] === 1;
 }

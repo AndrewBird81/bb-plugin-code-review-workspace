@@ -24,3 +24,17 @@ test("a glob too long or with a backwards range isn't used", () => {
   expect(compileGlob("[z-a]")).toBeNull();
   expect(compileGlob("a".repeat(257))).toBeNull();
 });
+
+test("a match allocates its two position sets once, not per character of the path", () => {
+  const glob = compileGlob("**/gen/*.ts")!;
+  const path = "a/".repeat(200) + "gen/x.ts";
+  const real = globalThis.Uint8Array;
+  let made = 0;
+  globalThis.Uint8Array = new Proxy(real, { construct(target, args) { made++; return Reflect.construct(target, args); } });
+  try {
+    expect(globMatches(glob, path)).toBe(true);
+  } finally {
+    globalThis.Uint8Array = real;
+  }
+  expect(made).toBe(2);
+});
