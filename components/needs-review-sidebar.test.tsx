@@ -227,19 +227,26 @@ test("an archived review leaves Pinned", async () => {
   slot.lifecycle.unmount();
 });
 
-test("turned off in Settings, nothing goes into BB's list; turned back on, it comes back", async () => {
+test("turned off in Settings, nothing goes into BB's list and no review is listed; turned back on, it comes back", async () => {
   const groups = threadList();
   let enabled = false;
   const app = await loadPluginApp(() => import("../app"));
   const overlay = app.appOverlays.find((registration) => registration.id === "needs-review")!;
   const slot = renderSlot(overlay, {}, { rpc: { listReviews: () => ({ reviews: [pinnedReview, reviews[3]] }), getPreferences: () => settings(enabled) }, sidebarThreads: { status: "ready", threads: [pinnedThread] } });
+  const listed = () => slot.inspection.rpcCalls.filter((call) => call.method === "listReviews").length;
   await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "getPreferences")).toHaveLength(1));
-  await waitFor(() => expect(slot.inspection.rpcCalls.some((call) => call.method === "listReviews")).toBe(true));
+  // Off, neither a review changing nor a reconnect lists them.
+  await slot.emitRealtime("reviews", {});
+  await slot.setRealtimeConnectionState("reconnecting");
+  await slot.setRealtimeConnectionState("connected");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(listed()).toBe(0);
   expect(groups.children).toHaveLength(2);
   expect(document.querySelector('[data-testid="pinned-rows"]')!.children).toHaveLength(2);
   enabled = true;
   await slot.emitRealtime("preferences", {});
   expect(await within(document.body).findByRole("region", { name: "Needs review" })).toBeTruthy();
+  expect(listed()).toBe(1);
   expect(document.querySelector('[data-testid="pinned-rows"]')!.children).toHaveLength(3);
   enabled = false;
   await slot.emitRealtime("preferences", {});

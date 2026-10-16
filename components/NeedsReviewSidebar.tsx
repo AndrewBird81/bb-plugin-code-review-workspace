@@ -70,21 +70,26 @@ export function useThreadListReviews(): boolean | null {
   return enabled;
 }
 
-/** Reviews waiting on you, in the Needs review tab's order, and the ones you pinned, in the order you pinned them. */
-function useSidebarReviews() {
+/**
+ * Reviews waiting on you, in the Needs review tab's order, and the ones you pinned, in the order you pinned them. Listed
+ * only while `enabled`, as every BB window runs this.
+ */
+function useSidebarReviews(enabled: boolean) {
   const rpc = useRpc<typeof rpcContract>();
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const load = useCallback(() => {
+    if (!enabled) return;
     rpc.call("listReviews", null).then((result) => setReviews(result.reviews)).catch(() => {});
-  }, [rpc]);
+  }, [rpc, enabled]);
   // A sync pass can change many reviews at once: re-list once it settles.
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
   useRealtime("reviews", () => {
+    if (!enabled) return;
     clearTimeout(timer.current);
     timer.current = setTimeout(load, 250);
   });
-  // Also on reconnecting, as after a phone sleeps, for what changed meanwhile.
+  // Also on reconnecting, as after a phone sleeps, for what changed meanwhile, and on turning it on.
   const connection = useRealtimeConnectionState();
   useEffect(() => { if (connection === "connected") load(); }, [connection, load]);
   const setPinned = useCallback((targetKey: string, pinned: boolean) => {
@@ -133,7 +138,7 @@ function Group({ label, count, collapsedKey, children }: { label: string; count?
 export function NeedsReviewSidebar() {
   // Off in Settings, nothing goes into BB's list.
   const enabled = useThreadListReviews() === true;
-  const sidebarReviews = useSidebarReviews();
+  const sidebarReviews = useSidebarReviews(enabled);
   const needs = enabled ? sidebarReviews.needs : [], pinned = enabled ? sidebarReviews.pinned : [];
   const { setPinned } = sidebarReviews;
   // Whether BB draws its Pinned group: it does while you have a pinned thread. Until it says, pinned reviews wait.
