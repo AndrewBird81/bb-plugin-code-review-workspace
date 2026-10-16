@@ -403,7 +403,8 @@ function lineKinds(rows: string[]): LineKind[] {
         const after = tail.slice(item[0].length);
         if (after[0] === "\t") return null;
         const empty = blank(after);
-        if (!(matchedParagraph && (empty || (item[1] !== undefined && Number(item[1]) !== 1)))) {
+        // micromark lets an ordered item interrupt a paragraph only from 1 itself, not 01.
+        if (!(matchedParagraph && (empty || (item[1] !== undefined && item[1] !== "1")))) {
           if (!close()) return null;
           const gap = spaces(after);
           const padding = empty || gap >= 5 ? 1 : gap;
