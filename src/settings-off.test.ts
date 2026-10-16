@@ -223,3 +223,9 @@ test("with Dig deeper on a chapter off, Dig deeper is refused and nothing reache
   expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
   expect(store.getReview("pr-1")?.deepDive).toBeUndefined();
 });
+
+test("with Comment on or ask about a failing check off, a check's log isn't read", async () => {
+  const { bb, harness } = host();
+  await plugin(bb);
+  expect(await harness.behavior.callRpc("getCheckLog", { targetKey: "pr-1", runId: 77 })).toEqual({ ok: false, error: "Asking about a failing check is off in Settings." });
+});

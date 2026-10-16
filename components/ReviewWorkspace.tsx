@@ -1034,11 +1034,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [targetKey, sections, activeId, activeFiles, views, onSelectFile]);
   const chapterId = activeSection?.id as string | undefined;
   // Popped out, the agent takes the question where it is, its box focused: the side panel would only say it's popped out.
-  const ask = useCallback((context: AgentMessageContext) => {
-    setInjection({ context, nonce: Date.now() });
+  const ask = useCallback((context: AgentMessageContext, quote?: string) => {
+    setInjection({ context, nonce: Date.now(), ...(quote ? { quote } : {}) });
     if (layoutRef.current.mode !== "tablet" || agentDockMode(targetKey) !== "widget") openPanel("agent");
   }, [openPanel, targetKey]);
-  const askAgent = useCallback((context?: AgentMessageContext) => ask(context ?? { file: currentFileOf(targetKey), chapterId }), [ask, targetKey, chapterId]);
+  const askAgent = useCallback((context?: AgentMessageContext, quote?: string) => ask(context ?? { file: currentFileOf(targetKey), chapterId }, quote), [ask, targetKey, chapterId]);
   const showFeedback = useMemo(() => isPr ? () => openComments("feedback") : undefined, [isPr, openComments]);
   // The diff remounts after the Overview; it shouldn't jump back to an old comment.
   useEffect(() => { if (activeId === OVERVIEW) setReveal(undefined); }, [activeId]);

@@ -19,7 +19,8 @@ import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { Badge, SpeakerMark } from "./ui/badge";
 
-export interface DockInjection { context: AgentMessageContext; nonce: number; }
+/** What to ask the agent about: `context`, quoted from the diff, or `quote`, text to quote as it is, such as a failing check. */
+export interface DockInjection { context: AgentMessageContext; quote?: string; nonce: number; }
 export interface AgentDockProps {
   targetKey: string;
   /** The review's patch, for quoting selected lines. */
@@ -122,14 +123,17 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
     if (!injection || handledInjection.current === injection.nonce || !conversation) return;
     if (!threadId) {
       handledInjection.current = injection.nonce;
-      setChip(injection.context);
+      const { quote } = injection;
+      // A quote goes into the first message's box, unsent, after anything typed there.
+      if (quote) setInput((typed) => typed.trim() ? `${typed.trimEnd()}\n\n${quote}` : quote);
+      else setChip(injection.context);
       requestAnimationFrame(() => composerRef.current?.focus());
       return;
     }
     const composer = composers.find((candidate) => candidate.scope.kind === "thread" && candidate.scope.threadId === threadId);
     if (!composer) return; // ThreadChat's composer has not registered yet.
     handledInjection.current = injection.nonce;
-    composer.insert(contextQuote(injection.context, patch), { at: "end", block: true });
+    composer.insert(injection.quote ?? contextQuote(injection.context, patch), { at: "end", block: true });
     requestAnimationFrame(() => composer.focus());
   }, [injection, conversation, threadId, composers, patch]);
 

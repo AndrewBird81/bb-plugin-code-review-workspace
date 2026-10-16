@@ -379,6 +379,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             {knob("requirements")}
             {knob("codeOwners")}
             {knob("ciInCode")}
+            {knob("checkFailureActions")}
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="MessageSquare" title="Comments and Finish review" description="What selecting code offers, and what Finish review checks before you submit." />

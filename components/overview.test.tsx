@@ -217,3 +217,46 @@ test("every fact the 0.5.2 header showed is on the Overview", async () => {
   expect(overview.getByRole("button", { name: "Snooze" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+test("a failing Actions check's Ask agent reads the end of its log, then quotes it, fenced as CI output, into the agent's box, unsent", async () => {
+  let answer = (_value: unknown) => {};
+  const getCheckLog = vi.fn(() => new Promise((resolve) => { answer = resolve; }));
+  const startConversation = vi.fn(() => ({ threadId: "t1" }));
+  const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url }, {
+    getChecks: () => ({ bucket: "fail", checks: [
+      { name: "test", bucket: "fail", state: "FAILURE", link: "https://github.com/acme/web/actions/runs/123/job/456" },
+      { name: "external", bucket: "fail", state: "FAILURE", link: "https://ci.example.com/build/9" },
+      { name: "lint", bucket: "pending", state: "PENDING", link: "https://github.com/acme/web/actions/runs/124/job/457" },
+    ] }),
+    getCheckLog,
+    getConversation: () => ({ threadId: null, legacy: [], defaults: { providerId: "codex", model: "gpt-6", reasoningLevel: "medium" } }),
+    startConversation,
+  });
+  const checks = within(await slot.findByRole("list", { name: "Checks" }));
+  // Only a failing GitHub Actions run has a log to read.
+  expect(checks.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Ask agent about test"]);
+  fireEvent.click(checks.getByRole("button", { name: "Ask agent about test" }));
+  expect(getCheckLog).toHaveBeenCalledWith({ targetKey: "pr-42", runId: 123 });
+  expect(checks.getByRole("button", { name: "Reading the log…" })).toBeTruthy();
+  answer({ ok: true, log: "test\tnpm test\t```\ntest\tnpm test\tFAIL src/auth.test.ts" });
+  const agent = within(await slot.findByRole("region", { name: "Review agent" }));
+  await waitFor(() => expect((agent.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe(
+    "The check **test** fails. The end of its log:\n````text\n<untrusted source=\"CI log\">\ntest\tnpm test\t```\ntest\tnpm test\tFAIL src/auth.test.ts\n</untrusted>\n````",
+  ));
+  expect(startConversation).not.toHaveBeenCalled();
+  expect(checks.getByRole("button", { name: "Ask agent about test" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("a check's log that can't be read is said in a toast, and nothing is quoted", async () => {
+  const { toast } = await import("sonner");
+  const error = vi.spyOn(toast, "error");
+  const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url }, {
+    getChecks: () => ({ bucket: "fail", checks: [{ name: "test", bucket: "fail", state: "FAILURE", link: "https://github.com/acme/web/actions/runs/123/job/456" }] }),
+    getCheckLog: () => ({ ok: false, error: "Couldn’t read the check’s log: HTTP 404" }),
+  });
+  fireEvent.click(await slot.findByRole("button", { name: "Ask agent about test" }));
+  await waitFor(() => expect(error).toHaveBeenCalledWith("Couldn’t read the check’s log: HTTP 404"));
+  expect(slot.queryByRole("region", { name: "Review agent" })).toBeNull();
+  slot.lifecycle.unmount();
+});

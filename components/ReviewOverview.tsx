@@ -1,8 +1,11 @@
-import { memo, useId, type ReactNode } from "react";
-import { Markdown, UrlLink } from "@get-bb/plugin-sdk/app";
+import { memo, useId, useState, type ReactNode } from "react";
+import { Markdown, UrlLink, useRpc } from "@get-bb/plugin-sdk/app";
+import { toast } from "sonner";
 import type { z } from "zod";
+import type { rpcContract } from "../src/rpc-contract";
 import type { RequirementSchema } from "../src/guide";
 import { classifyFile } from "../src/classify";
+import { untrusted } from "../src/untrusted";
 import { useKnob } from "../lib/settings";
 import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
@@ -62,18 +65,61 @@ function Requirements({ requirements, onOpen }: { requirements: Requirement[]; o
   );
 }
 
-/** The checks that need a look, failing first, each linking to its run. */
+/** A GitHub Actions run's id, from its check's link; other checks have no log to read. */
+function actionsRunId(link: string | undefined): number | null {
+  const id = link?.match(/\/actions\/runs\/(\d+)/)?.[1];
+  return id ? Number(id) : null;
+}
+
+/** `text` in a code fence longer than any run of backticks in it, so nothing in it ends the fence. */
+function codeFence(text: string): string {
+  const fence = "`".repeat(Math.max(3, ...Array.from(text.matchAll(/`+/g), (run) => run[0].length + 1)));
+  return `${fence}text\n${text}\n${fence}`;
+}
+
+/** A failing check's Ask agent: it reads the end of the check's failed log and quotes it into the agent's box, unsent. */
+function AskAboutCheck({ name, runId }: { name: string; runId: number }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const { targetKey, askAgent } = useWorkspace();
+  const [reading, setReading] = useState(false);
+  async function ask() {
+    setReading(true);
+    try {
+      const result = await rpc.call("getCheckLog", { targetKey, runId });
+      if (!result.ok || !result.log) toast.error(result.error ?? "Couldn’t read the check’s log.");
+      // The log is the PR's CI output, to read as data.
+      else askAgent({}, `The check **${name}** fails. The end of its log:\n${codeFence(untrusted("CI log", result.log))}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn’t read the check’s log.");
+    } finally { setReading(false); }
+  }
+  return (
+    <button type="button" aria-label={reading ? undefined : `Ask agent about ${name}`} disabled={reading} onClick={() => void ask()}
+      className="inline-flex shrink-0 items-center gap-1 rounded-sm text-xs text-(--ansi-13) hover:underline disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:min-h-11">
+      {reading ? <><Icon name="Loading" className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />Reading the log…</> : <><Icon name="Sparkles" className="size-3" aria-hidden />Ask agent</>}
+    </button>
+  );
+}
+
+/** The checks that need a look, failing first, each linking to its run; a failing Actions run offers Ask agent, unless Settings turns it off. */
 function CheckList({ checks }: { checks: Checks["checks"] }) {
+  const askable = useKnob("checkFailureActions");
   return (
     <ul aria-label="Checks" className="space-y-1.5">
-      {checks.map((check, index) => (
-        <li key={`${check.name}:${index}`} className="flex min-w-0 items-center gap-2 text-sm leading-6">
-          {check.bucket === "fail" ? <Icon name="CircleX" className={cn("size-3.5 shrink-0", TONE_TEXT.danger)} aria-hidden /> : <span className="flex size-3.5 shrink-0 items-center justify-center"><Dot tone="warning" pulse /></span>}
-          <span className="min-w-0 truncate text-foreground/90">{check.name}</span>
-          <span className={cn("shrink-0 text-xs", check.bucket === "fail" ? TONE_TEXT.danger : TONE_TEXT.warning)}>{check.bucket === "fail" ? "Failing" : "Pending"}</span>
-          {check.link && <UrlLink href={check.link} className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-sm text-xs text-primary hover:underline pointer-coarse:min-h-11">View check<Icon name="ArrowUpRight" className="size-3" aria-hidden /></UrlLink>}
-        </li>
-      ))}
+      {checks.map((check, index) => {
+        const runId = askable && check.bucket === "fail" ? actionsRunId(check.link) : null;
+        return (
+          <li key={`${check.name}:${index}`} className="flex min-w-0 items-center gap-2 text-sm leading-6">
+            {check.bucket === "fail" ? <Icon name="CircleX" className={cn("size-3.5 shrink-0", TONE_TEXT.danger)} aria-hidden /> : <span className="flex size-3.5 shrink-0 items-center justify-center"><Dot tone="warning" pulse /></span>}
+            <span className="min-w-0 truncate text-foreground/90">{check.name}</span>
+            <span className={cn("shrink-0 text-xs", check.bucket === "fail" ? TONE_TEXT.danger : TONE_TEXT.warning)}>{check.bucket === "fail" ? "Failing" : "Pending"}</span>
+            {(runId || check.link) && <span className="ml-auto flex shrink-0 items-center gap-3">
+              {runId && <AskAboutCheck name={check.name} runId={runId} />}
+              {check.link && <UrlLink href={check.link} className="inline-flex shrink-0 items-center gap-1 rounded-sm text-xs text-primary hover:underline pointer-coarse:min-h-11">View check<Icon name="ArrowUpRight" className="size-3" aria-hidden /></UrlLink>}
+            </span>}
+          </li>
+        );
+      })}
     </ul>
   );
 }

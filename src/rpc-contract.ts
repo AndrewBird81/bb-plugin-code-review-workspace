@@ -121,6 +121,11 @@ export const rpcContract = defineRpcContract({
     input: targetKey,
     output: z.object({ failures: z.array(z.object({ file: z.string(), line: z.number().int(), check: z.string(), title: z.string().nullable(), message: z.string(), url: z.string() })) }),
   },
+  /** The end of a failed GitHub Actions run's log, at most 200 lines and 20,000 characters; read only when the reviewer asks. */
+  getCheckLog: {
+    input: z.object({ targetKey: z.string(), runId: z.number().int().positive() }).strict(),
+    output: z.object({ ok: z.boolean(), log: z.string().optional(), error: z.string().optional() }),
+  },
   /** The changed files the repo's .gitattributes marks linguist-generated or linguist-vendored. */
   getGeneratedFiles: { input: targetKey, output: z.object({ files: z.array(z.string()) }) },
   /** The changed files CODEOWNERS (a PR's base branch, a local review's new side) gives owners, and whether you or a team you're on is one; error: it couldn't be read. */

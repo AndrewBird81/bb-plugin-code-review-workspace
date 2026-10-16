@@ -5,6 +5,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
 import { useKnob } from "../lib/settings";
+import { useWorkspace } from "../lib/workspace-context";
 import { TOUCH_TARGET } from "./touch";
 import { Icon } from "./ui/icon";
 import { InlineDraftContext } from "./InlineDraft";
@@ -33,13 +34,39 @@ export function useCheckFailures(targetKey: string, headSha: string | null): Che
   return failures;
 }
 
-/** A line's CI failures, each linking to its check. With comments folded, a pill: "Check failed · ‹name›". */
+/** A failing check quoted in Markdown: "> **‹check›** · ‹title›", then its message, every line quoted. */
+function failureQuote(failure: Pick<CheckFailure, "check" | "title" | "message">): string {
+  return [`**${failure.check}**${failure.title ? ` · ${failure.title}` : ""}`, ...failure.message.trim().split("\n")].map((line) => `> ${line}`.trimEnd()).join("\n");
+}
+
+/**
+ * A failure's Comment, which opens the comment box at its line with Blocking set and the failure quoted, and Ask agent,
+ * which quotes it into the agent's box, unsent. Only inside the workspace, where a line has failures.
+ */
+function FailureActions({ failure }: { failure: CheckFailure }) {
+  const draft = useContext(InlineDraftContext);
+  const { askAgent, activeId } = useWorkspace();
+  const at = failureLocation(failure);
+  const action = `relative shrink-0 text-primary hover:underline disabled:pointer-events-none disabled:opacity-50 ${TOUCH_TARGET}`;
+  return <>
+    {draft?.editable && <button type="button" className={action} disabled={draft.busy || draft.writing} aria-label={`Comment on the ${failure.check} failure at ${failure.file}:${failure.line}`}
+      onClick={() => draft.open(at, { body: `${failureQuote(failure)}\n\n`, severity: "blocking" })}>Comment</button>}
+    <button type="button" className={`${action} text-(--ansi-13)`} aria-label={`Ask agent about the ${failure.check} failure at ${failure.file}:${failure.line}`}
+      onClick={() => askAgent({ file: failure.file, startLine: failure.line, endLine: failure.line, side: "additions", chapterId: activeId }, `In \`${failure.file}\` line ${failure.line}, a check fails:\n${failureQuote(failure)}`)}>Ask agent</button>
+  </>;
+}
+
+/**
+ * A line's CI failures, each linking to its check, and with Settings' check failure actions on, Comment and Ask agent.
+ * With comments folded, a pill: "Check failed · ‹name›".
+ */
 export const LineChecks = memo(function LineChecks({ at }: { at: CommentLocation }) {
   const here = useContext(CheckFailuresContext).filter((failure) => sameLocation(failureLocation(failure), at));
   const targetKey = useContext(InlineDraftContext)?.targetKey;
   const id = `check:${at.file}:${at.line}`;
   const folded = useComments(targetKey, "folded");
   const opened = useCommentOpen(targetKey, id);
+  const actions = useKnob("checkFailureActions");
   if (!here.length) return null;
   if (folded && !opened && targetKey) {
     return <CommentPill frame="border border-destructive/30" icon={<Icon name="CircleX" className="size-3.5 shrink-0 text-destructive-text" aria-hidden />} who={null}
@@ -49,14 +76,18 @@ export const LineChecks = memo(function LineChecks({ at }: { at: CommentLocation
   return (
     <div className="mx-2 my-2 max-w-3xl space-y-1 rounded-lg [contain:inline-size] border border-destructive/30 bg-destructive/10 px-3 py-2 font-sans text-xs leading-normal whitespace-normal text-foreground">
       {here.map((failure, index) => (
-        <div key={index} role="note" aria-label={`CI failure on ${failure.file}:${failure.line}`} className="flex items-start gap-2">
+        // Where the note is narrow, its links go under the message, at its end.
+        <div key={index} role="note" aria-label={`CI failure on ${failure.file}:${failure.line}`} className="flex flex-wrap items-start gap-x-2 gap-y-1">
           <Icon name="CircleX" className="mt-0.5 size-3.5 shrink-0 text-destructive-text" aria-hidden />
-          <p className="min-w-0 flex-1 break-words">
+          <p className="min-w-[min(100%_-_1.5rem,16rem)] flex-1 break-words">
             <span className="font-medium text-destructive-text">{failure.check}</span>
             {failure.title && <span className="font-medium"> · {failure.title}</span>}
             <span className="whitespace-pre-wrap text-muted-foreground"> {failure.message}</span>
           </p>
-          <UrlLink href={failure.url} className={`relative shrink-0 text-primary hover:underline ${TOUCH_TARGET}`}>View check</UrlLink>
+          <span className="ml-auto flex shrink-0 gap-x-3">
+            {actions && <FailureActions failure={failure} />}
+            <UrlLink href={failure.url} className={`relative shrink-0 text-primary hover:underline ${TOUCH_TARGET}`}>View check</UrlLink>
+          </span>
         </div>
       ))}
     </div>

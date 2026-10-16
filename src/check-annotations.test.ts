@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore, type ReviewMeta } from "./store";
-import { readCheckFailures } from "./check-annotations";
+import { readCheckFailures, readCheckLog } from "./check-annotations";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh }));
@@ -46,4 +46,41 @@ test("getCheckFailures says nothing when GitHub can't be read", async () => {
   expect(await harness.behavior.callRpc("getCheckFailures", { targetKey: "pr-1" })).toEqual({ failures: [] });
   runGh.mockImplementation(github());
   expect((await harness.behavior.callRpc("getCheckFailures", { targetKey: "pr-1" }) as any).failures).toHaveLength(1);
+});
+
+test("a failed run's log is read with gh run view --log-failed, and its last 200 lines kept, 20,000 characters at most", async () => {
+  const gh = vi.fn(async (_args: string[]) => ok(Array.from({ length: 500 }, (_, i) => `test\tstep\tline ${i + 1}`).join("\n") + "\n"));
+  const read = await readCheckLog(gh, pr, 123);
+  expect(gh).toHaveBeenCalledWith(["run", "view", "123", "--log-failed", "--repo", "acme/web"]);
+  expect(read.ok && read.log.split("\n")).toEqual(Array.from({ length: 200 }, (_, i) => `test\tstep\tline ${i + 301}`));
+  // Long lines: the end is kept, from a line's start.
+  gh.mockResolvedValueOnce(ok(Array.from({ length: 50 }, (_, i) => `${i}:${"x".repeat(999)}`).join("\n")));
+  const long = await readCheckLog(gh, pr, 123);
+  expect(long.ok && long.log.length).toBeLessThanOrEqual(20_000);
+  expect(long.ok && long.log.split("\n").map((line) => line.split(":")[0])).toEqual(Array.from({ length: 19 }, (_, i) => String(i + 31)));
+});
+
+test("a log gh can't read says why, an empty one says so, and a local review has none", async () => {
+  const gh = vi.fn(async (_args: string[]) => ({ stdout: "", stderr: "HTTP 404: Not Found\nmore", code: 1 }));
+  expect(await readCheckLog(gh, pr, 9)).toEqual({ ok: false, error: "Couldn’t read the check’s log: HTTP 404: Not Found" });
+  gh.mockResolvedValueOnce(ok("\n"));
+  expect(await readCheckLog(gh, pr, 9)).toEqual({ ok: false, error: "The check’s log has no failed steps to show." });
+  gh.mockClear();
+  expect(await readCheckLog(gh, { ...pr, kind: "ref", repo: undefined }, 9)).toMatchObject({ ok: false });
+  expect(gh).not.toHaveBeenCalled();
+});
+
+test("getCheckLog reads a PR's run, and refuses a local review", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview(pr);
+  store.saveReview({ targetKey: "local", kind: "ref", gitRef: "main", status: "ready", createdAt: 1 });
+  runGh.mockReset();
+  runGh.mockResolvedValue(ok("build\tnpm test\tFAIL src/a.test.ts\n"));
+  expect(await harness.behavior.callRpc("getCheckLog", { targetKey: "pr-1", runId: 77 })).toEqual({ ok: true, log: "build\tnpm test\tFAIL src/a.test.ts" });
+  expect(runGh).toHaveBeenCalledWith(["run", "view", "77", "--log-failed", "--repo", "acme/web"]);
+  runGh.mockClear();
+  expect(await harness.behavior.callRpc("getCheckLog", { targetKey: "local", runId: 77 })).toMatchObject({ ok: false, error: "Only a PR’s checks have logs to read." });
+  expect(runGh).not.toHaveBeenCalled();
 });

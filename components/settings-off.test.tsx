@@ -379,3 +379,15 @@ test("with Dig deeper on a chapter off, a high-risk chapter's What to verify off
     cleanup(); localStorage.clear(); sessionStorage.clear();
   }
 });
+
+// In the code, check-failures.test.tsx: this file's diff draws no line annotations.
+test("with Comment on or ask about a failing check off, the Overview's failing checks offer View check alone", async () => {
+  restores.push(desktopWindow());
+  const getChecks = () => ({ bucket: "fail", checks: [{ name: "test", bucket: "fail", state: "FAILURE", link: "https://github.com/acme/web/actions/runs/1/job/2" }] });
+  const { page, bar, main } = await renderReview({ ...defaultKnobs, checkFailureActions: false }, { getChecks });
+  const checks = within(await main().findByRole("list", { name: "Checks" }));
+  expect(checks.getByRole("link", { name: /View check/ })).toBeTruthy();
+  expect(checks.queryByRole("button")).toBeNull();
+  expect(page.inspection.rpcCalls.some((call) => call.method === "getCheckLog")).toBe(false);
+  page.lifecycle.unmount(); bar.lifecycle.unmount();
+});

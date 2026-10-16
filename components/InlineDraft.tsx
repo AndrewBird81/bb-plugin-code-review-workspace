@@ -37,8 +37,8 @@ export interface InlineDraft {
   composer: (CommentLocation & { startLine?: number; editing: boolean; asking: boolean }) | null;
   /** The line whose comment the box is open on, in the diff or the panel. */
   editingAt: CommentLocation | null;
-  /** Open the comment box at a line, on the line's comment if it has one. */
-  open(at: CommentLocation): void;
+  /** Open the comment box at a line, on the line's comment if it has one; a new comment starts with `start`. */
+  open(at: CommentLocation, start?: CommentStart): void;
   /** Open a box at a line for a message to the review assistant. */
   ask(at: CommentLocation): void;
   remove(comment: DraftComment): void;
@@ -79,6 +79,9 @@ export interface InlineComposer {
   /** Add a suggested change for the box's lines, when they're new-file lines. */
   suggest?: (() => void) | null;
 }
+
+/** What a new comment's box starts with, such as a failing check quoted under Blocking. */
+export interface CommentStart { body: string; severity?: Severity }
 
 export const InlineDraftContext = createContext<InlineDraft | null>(null);
 export const InlineComposerContext = createContext<InlineComposer | null>(null);

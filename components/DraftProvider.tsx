@@ -15,7 +15,7 @@ import { holdReview } from "../lib/review-holds";
 import { useKnob } from "../lib/settings";
 import { useWorkspace } from "../lib/workspace-context";
 import { RemovalWhy, type WhyRequest } from "./comments/RemovalWhy";
-import { InlineComposerContext, InlineDraftContext, locationKey, type InlineComposer, type InlineDraft } from "./InlineDraft";
+import { InlineComposerContext, InlineDraftContext, locationKey, type CommentStart, type InlineComposer, type InlineDraft } from "./InlineDraft";
 
 /**
  * A request from the diff to comment on a line, or with `ask` to message the agent about it; the box
@@ -218,9 +218,10 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   useEffect(() => { if (!showComposer && !body.trim()) setFile(firstFile); }, [firstFile, showComposer, body]);
   /**
    * Open the comment box, in the diff or this panel, on a line's comment if it has one, or on the
-   * summary (SUMMARY_AT); with `ask`, a box for a message to the agent. An unfinished comment or message is shown instead.
+   * summary (SUMMARY_AT); with `ask`, a box for a message to the agent; a new comment starts with `start`. An unfinished
+   * comment or message is shown instead.
    */
-  function openComposer(selected: (CommentLocation & Pick<CommentPrefill, "startLine" | "startSide">) | null, inDiff: boolean, ask = false) {
+  function openComposer(selected: (CommentLocation & Pick<CommentPrefill, "startLine" | "startSide">) | null, inDiff: boolean, ask = false, start?: CommentStart) {
     const writing = !!body.trim();
     if (writing) toast.info(asking ? "Send or cancel your message to the agent first." : onSummary ? "Save or cancel the summary you’re writing first." : "Finish or cancel the comment you’re writing first.");
     else {
@@ -241,9 +242,10 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       setAsking(ask);
       setSummaryBox(summary);
       summaryBase.current = summary ? draft.body : null;
-      openedBody.current = summary && !ask ? draft.body : existing ? existing.body : "";
+      const fresh = !summary && !existing ? start : undefined;
+      openedBody.current = summary && !ask ? draft.body : existing ? existing.body : fresh?.body ?? "";
       setBody(openedBody.current);
-      setSeverity(existing?.severity);
+      setSeverity(existing?.severity ?? fresh?.severity);
       setInline(inDiff);
       setShowComposer(true);
     }
@@ -574,7 +576,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   // The diff shows the draft's comments and discussions, and the comment box while it's open there.
   const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting });
   latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting };
-  const open = useCallback((at: CommentLocation) => latest.current.openComposer(at, true), []);
+  const open = useCallback((at: CommentLocation, start?: CommentStart) => latest.current.openComposer(at, true, false, start), []);
   const ask = useCallback((at: CommentLocation) => latest.current.openComposer(at, true, true), []);
   const remove = useCallback((comment: DraftComment) => { void latest.current.removeComment(comment); }, []);
   const dismiss = useCallback((at: CommentLocation) => { void latest.current.dismissDiscussion(at); }, []);

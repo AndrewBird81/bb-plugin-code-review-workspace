@@ -93,3 +93,56 @@ test("turning CI failures in the code off in Settings takes a shown failure off 
   expect(slot.getByTestId("filediff")).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
+
+/** The review on its chapter, with the failure on src/a.ts:2, the draft's saves recorded, and no conversation yet. */
+async function renderChapter(knobs: Knobs = defaultKnobs) {
+  const saveDraftComment = vi.fn(({ comment }: { comment: object }) => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [comment] }, stale: [], discussions: [] }));
+  const startConversation = vi.fn(() => ({ threadId: "t1" }));
+  patchReviewState("pr-42", { activeId: "c1" });
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: structuredClone(guide), patch, revision: "r1" }),
+    getChecks: () => ({ bucket: "fail", checks: [] }),
+    getPreferences: () => ({ preferences: { ...defaultPreferences, knobs }, revision: 0 }),
+    getFileViews: () => ({ views: [] }),
+    checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
+    checkForUpdates: () => ({ hasNewCommits: false }),
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }),
+    getReviewerNotes: () => ({ body: "", revision: 0 }),
+    getConversation: () => ({ threadId: null, legacy: [], defaults: { providerId: "codex", model: "gpt-6", reasoningLevel: "medium" } }),
+    markSeen: () => ({ ok: true }),
+    getCheckFailures: () => ({ failures: [{ file: "src/a.ts", line: 2, check: "lint", title: "no-shout", message: "Lower-case it.\nSee the style guide.", url: "https://github.com/acme/web/runs/1" }] }),
+    saveDraftComment, startConversation,
+  } as any });
+  const failure = await slot.findByRole("note", { name: "CI failure on src/a.ts:2" });
+  return { slot, failure: within(failure), saveDraftComment, startConversation };
+}
+
+test("a failure's Comment opens the comment box at its line, Blocking, with the failure quoted", async () => {
+  const { slot, failure, saveDraftComment } = await renderChapter();
+  fireEvent.click(failure.getByRole("button", { name: "Comment on the lint failure at src/a.ts:2" }));
+  const box = await slot.findByRole("textbox", { name: /comment/i }) as HTMLTextAreaElement;
+  expect(box.value).toBe("> **lint** · no-shout\n> Lower-case it.\n> See the style guide.\n\n");
+  expect((slot.getByRole("combobox", { name: "Severity" }) as HTMLSelectElement).value).toBe("blocking");
+  fireEvent.change(box, { target: { value: `${box.value}Lower-case it before merging.` } });
+  fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ file: "src/a.ts", line: 2, side: "RIGHT", severity: "blocking", body: "> **lint** · no-shout\n> Lower-case it.\n> See the style guide.\n\nLower-case it before merging." }) })));
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a failure's Ask agent quotes it into the agent's box, unsent", async () => {
+  const { slot, failure, startConversation } = await renderChapter();
+  fireEvent.click(failure.getByRole("button", { name: "Ask agent about the lint failure at src/a.ts:2" }));
+  const agent = within(await slot.findByRole("region", { name: "Review agent" }));
+  await waitFor(() => expect((agent.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("In `src/a.ts` line 2, a check fails:\n> **lint** · no-shout\n> Lower-case it.\n> See the style guide."));
+  expect(startConversation).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("with Comment on or ask about a failing check off, a failure offers View check alone", async () => {
+  const { slot, failure } = await renderChapter({ ...defaultKnobs, checkFailureActions: false });
+  expect(failure.getByRole("link", { name: "View check" })).toBeTruthy();
+  expect(failure.queryAllByRole("button")).toEqual([]);
+  slot.lifecycle.unmount();
+}, 15_000);

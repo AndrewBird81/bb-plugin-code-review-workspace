@@ -11,7 +11,7 @@ import { describeReviewFiles, patchPage, stubSkippedFiles } from "./src/review-f
 import { readPrContext } from "./src/pr-context";
 import { readFileContents, readGeneratedFiles } from "./src/file-contents";
 import { codeOwners, describeOwnership } from "./src/codeowners";
-import { readCheckFailures } from "./src/check-annotations";
+import { readCheckFailures, readCheckLog } from "./src/check-annotations";
 import { validateGuide, checkCoverage, checkGuideInput, checkHotspots, checkRequirements, checkUnplaced, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { hunkCounts } from "./src/hunks";
 import { runReviewCommand } from "./src/review-command";
@@ -484,6 +484,12 @@ export default async function plugin(bb: BbPluginApi) {
     async getCheckFailures({ targetKey }) {
       const review = store.getReview(targetKey);
       return { failures: review ? await readCheckFailures(runGh, review) : [] };
+    },
+    async getCheckLog({ targetKey, runId }) {
+      if (!store.getPreferences().preferences.knobs.checkFailureActions) return { ok: false, error: "Asking about a failing check is off in Settings." };
+      const review = store.getReview(targetKey);
+      if (!review) return { ok: false, error: "This review no longer exists." };
+      return readCheckLog(runGh, review, runId);
     },
     async getGeneratedFiles({ targetKey }) {
       const review = store.getReview(targetKey);

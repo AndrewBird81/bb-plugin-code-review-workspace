@@ -92,8 +92,8 @@ export interface WorkspaceApi {
   showLocation(file: string, line: number | null, side: Side, url?: string | null): void;
   /** Show a thread's line with a comment box open there, to follow up on it. */
   followUp(file: string, line: number | null, side: Side, url?: string | null): void;
-  /** Open the agent; its next message is about `context`, or else the file you're on. */
-  askAgent(context?: AgentMessageContext): void;
+  /** Open the agent; its next message is about `context`, or else the file you're on, or quotes `quote` as it is. */
+  askAgent(context?: AgentMessageContext, quote?: string): void;
   /** Open the draft at its summary. `replaced`: you agreed the agent's summary replaces the one you were writing. */
   openFinish(replaced?: boolean): void;
   /** `toggle` must run inside the click: a browser goes full screen only from one. */
