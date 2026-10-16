@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { test, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { ChapterNav } from "./ChapterNav";
+import { ChapterNav, shortPaths } from "./ChapterNav";
 import type { FileViewFlags } from "./DiffViewer";
 
 afterEach(cleanup);
@@ -69,9 +69,10 @@ test("a viewed file is struck through in the sidebar list", () => {
 test("the current file is marked for screen readers, and viewed files say so", () => {
   const views = new Map<string, FileViewFlags>([["src/auth.test.ts", { viewed: true, stale: false }]]);
   render(<ChapterNav sections={sections} activeId="c1" onSelect={() => {}} views={views} onSelectFile={() => {}} currentFile="src/auth.ts" />);
-  expect(screen.getByRole("button", { name: /^auth\.ts/ }).getAttribute("aria-current")).toBe("true");
-  expect(screen.getByRole("button", { name: /^auth\.test\.ts/ }).getAttribute("aria-current")).toBeNull();
-  expect(screen.getByRole("button", { name: /^auth\.test\.ts/ }).textContent).toContain("viewed");
+  expect(screen.getByRole("button", { name: /^src\/auth\.ts/ }).getAttribute("aria-current")).toBe("true");
+  expect(screen.getByRole("button", { name: /^src\/auth\.test\.ts/ }).getAttribute("aria-current")).toBeNull();
+  expect(screen.getByRole("button", { name: "src/auth.test.ts, test, viewed" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "src/auth.ts" })).toBeTruthy();
 });
 
 test("a file split across chapters counts in each only the lines of its hunks there", () => {
@@ -206,4 +207,34 @@ test("marking a chapter viewed with a tap that didn't focus the control leaves t
   elsewhere.focus();
   fireEvent.click(screen.getByRole("button", { name: "Mark chapter viewed" }));
   expect(document.activeElement).toBe(elsewhere);
+});
+
+test("the current file's row scrolls into sight as the current file moves on", () => {
+  const scrolled: Array<{ name: string | null; options: unknown }> = [];
+  const scrollIntoView = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (this: Element, options?: unknown) { scrolled.push({ name: this.getAttribute("aria-label"), options }); };
+  try {
+    const props = { sections, activeId: "c1", onSelect: () => {}, views: new Map<string, FileViewFlags>(), onSelectFile: () => {} };
+    const { rerender } = render(<ChapterNav {...props} currentFile="src/auth.ts" />);
+    expect(scrolled.at(-1)).toEqual({ name: "src/auth.ts", options: { block: "nearest" } });
+    rerender(<ChapterNav {...props} currentFile="src/auth.test.ts" />);
+    expect(scrolled.at(-1)).toEqual({ name: "src/auth.test.ts, test", options: { block: "nearest" } });
+  } finally {
+    Element.prototype.scrollIntoView = scrollIntoView;
+  }
+});
+
+test("rows show a file's name, with as much of its folder as tells it from another file of that name, and are named by the whole path", () => {
+  expect(shortPaths(["src/a/index.ts", "src/b/index.ts", "lib/b/index.ts", "src/util.ts", "README.md"])).toEqual(new Map([
+    ["src/a/index.ts", "a/index.ts"], ["src/b/index.ts", "src/b/index.ts"], ["lib/b/index.ts", "lib/b/index.ts"], ["src/util.ts", "util.ts"], ["README.md", "README.md"],
+  ]));
+  // A file split across chapters is one file.
+  expect(shortPaths(["src/a.ts", "src/a.ts"]).get("src/a.ts")).toBe("a.ts");
+  const split = [{ id: "c1", title: "One", overview: "", diffs: [{ file: "src/a/index.ts" }, { file: "src/b/index.ts" }, { file: "src/util.ts" }] }];
+  render(<ChapterNav sections={split} activeId="c1" onSelect={() => {}} views={new Map<string, FileViewFlags>()} onSelectFile={() => {}} />);
+  expect(screen.getByText("a/index.ts")).toBeTruthy();
+  expect(screen.getByText("b/index.ts")).toBeTruthy();
+  expect(screen.getByText("util.ts")).toBeTruthy();
+  expect(screen.getByRole("button", { name: /^src\/a\/index\.ts/ })).not.toBe(screen.getByRole("button", { name: /^src\/b\/index\.ts/ }));
+  expect(screen.getByRole("button", { name: /^src\/util\.ts/ })).toBeTruthy();
 });

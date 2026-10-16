@@ -197,7 +197,8 @@ test("picking a file jumps to it in a chapter still drawing its files, or far do
   const scrolls: Array<{ file?: string; behavior?: ScrollBehavior }> = [];
   const fake = Element.prototype.scrollIntoView;
   Element.prototype.scrollIntoView = function (this: Element, options?: boolean | ScrollIntoViewOptions) {
-    scrolls.push({ file: (this as HTMLElement).dataset.file, behavior: typeof options === "object" ? options.behavior : undefined });
+    // The file cards, not the sidebar's rows that follow them.
+    if ((this as HTMLElement).dataset.file) scrolls.push({ file: (this as HTMLElement).dataset.file, behavior: typeof options === "object" ? options.behavior : undefined });
     fake.call(this, options);
   };
   const clientHeight = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!;

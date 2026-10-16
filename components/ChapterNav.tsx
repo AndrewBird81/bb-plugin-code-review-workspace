@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/utils";
 import { classifyFile } from "../src/classify";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
@@ -25,6 +25,14 @@ interface Section {
   overview: string;
   diffs: { file: string; summary?: string; hunks?: number[] }[];
   risk?: string;
+}
+
+/** Each path's shortest tail that no other path in `paths` ends with: its name, unless another file has that name too. */
+export function shortPaths(paths: readonly string[]): Map<string, string> {
+  const tails = (path: string) => path.split("/").map((_, i, parts) => parts.slice(i).join("/")).reverse();
+  const seen = new Map<string, number>();
+  for (const path of new Set(paths)) for (const tail of tails(path)) seen.set(tail, (seen.get(tail) ?? 0) + 1);
+  return new Map(paths.map((path) => [path, tails(path).find((tail) => seen.get(tail) === 1) ?? path]));
 }
 
 export const RISK_TONE: Record<string, Tone> = { high: "danger", medium: "warning", low: "neutral" };
@@ -142,6 +150,10 @@ export const ChapterNav = memo(function ChapterNav({
   };
   // A file split across chapters counts once.
   const allFiles = [...new Set(sections.flatMap((s) => s.diffs.map((d) => d.file)))];
+  const shortNames = useMemo(() => shortPaths(sections.flatMap((s) => s.diffs.map((d) => d.file))), [sections]);
+  // The current file's row stays in sight as the code moves on through the chapter.
+  const currentRow = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => { currentRow.current?.scrollIntoView?.({ block: "nearest" }); }, [currentFile, activeId]);
   const viewedAll = allFiles.filter((f) => views.get(f)?.viewed).length;
   const toRead = useMemo(() => lines ? chapterReadingLines(sections, patch ?? "", lines, generated) : null, [sections, patch, lines, generated]);
   // A split file opens in the open chapter when it's there, else in the first chapter with it.
@@ -231,12 +243,17 @@ export const ChapterNav = memo(function ChapterNav({
                     {s.diffs.map((d) => {
                       const viewed = views.get(d.file)?.viewed ?? false;
                       const current = active && d.file === currentFile;
+                      const kind = classifyFile(d.file, generated?.has(d.file));
+                      // The row shows the folders only another file of its name needs; it's named by its whole path.
+                      const name = [d.file, kind.category !== "code" && (kind.skippable ? `${kind.label} · skip` : kind.label), viewed && "viewed"].filter(Boolean).join(", ");
                       return (
                         <li key={d.file}>
                           <button
                             type="button"
+                            ref={current ? currentRow : undefined}
                             onClick={() => onSelectFile(s.id, d.file)}
                             aria-current={current ? "true" : undefined}
+                            aria-label={name}
                             className={cn("flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left hover:bg-state-hover pointer-coarse:min-h-11", current && "bg-state-hover")}
                             title={d.summary ? `${d.file} — ${d.summary}` : d.file}
                           >
@@ -251,9 +268,8 @@ export const ChapterNav = memo(function ChapterNav({
                                 viewed ? "text-muted-foreground line-through decoration-muted-foreground/40" : current ? "text-primary" : "text-foreground/90",
                               )}
                             >
-                              {d.file.split("/").pop()}
+                              {shortNames.get(d.file) ?? d.file}
                             </span>
-                            {viewed && <span className="sr-only">viewed</span>}
                             <FileTag file={d.file} generated={generated?.has(d.file)} />
                           </button>
                         </li>
