@@ -754,7 +754,8 @@ export const DiffViewer = memo(function DiffViewer({
               <FilePath path={path} className="min-w-0 flex-1 text-xs" nameClassName="min-w-0 shrink-[0.01] truncate font-medium" />
               {changedHere && (
                 <Badge tone="primary" size="sm" icon={<Icon name="GitCommit" aria-hidden />} title={since} className="text-[11px]">
-                  {added ? "Added" : "Changed"}<span className="sr-only"> since {sinceWhat}</span>
+                  {/* In words: "Added" alone reads as a file new to the repo. A phone-sized pane keeps the path's room. */}
+                  {added ? "New" : "Changed"}<span className="@max-[480px]/review:sr-only"> since {sinceWhat}</span>
                 </Badge>
               )}
               {comments > 0 && (

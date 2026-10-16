@@ -66,10 +66,14 @@ test("removed files show only in the chapter that shows them", () => {
 test("with the filter off, every file shows in full and changed or added ones are badged", () => {
   render(<DiffViewer patch={current} files={chapter} views={new Map()} onToggleViewed={() => {}} since={since} />);
   expect(diffOf("src/a.ts")!.getByTestId("filediff").textContent).toContain("new");
-  // Briefly, with the whole of it in its tooltip and for screen readers.
-  expect(diffOf("src/a.ts")!.getByTitle("Changed since your review").textContent).toBe("Changed since your review");
+  // In words, all of them showing: a bare "Added" would read as a file new to the repo.
+  const changed = diffOf("src/a.ts")!.getByTitle("Changed since your review");
+  expect(changed.textContent).toBe("Changed since your review");
   // A file new to the PR since then says so, as All files does.
-  expect(diffOf("src/c.ts")!.getByTitle("Added to the PR since your review").textContent).toBe("Added since your review");
+  const added = diffOf("src/c.ts")!.getByTitle("Added to the PR since your review");
+  expect(added.textContent).toBe("New since your review");
+  // Only a phone-sized pane keeps "since …" for screen readers.
+  for (const badge of [changed, added]) expect(badge.querySelector("span")!.className).toBe("@max-[480px]/review:sr-only");
   expect(diffOf("src/b.ts")!.queryByTitle("Changed since your review")).toBeNull();
   expect(screen.queryByText(/unchanged since your review/)).toBeNull();
   expect(screen.queryByRole("region", { name: "src/d.ts removed" })).toBeNull();
