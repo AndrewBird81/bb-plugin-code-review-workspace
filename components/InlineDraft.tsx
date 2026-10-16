@@ -213,7 +213,8 @@ const SUGGESTION = /^```suggestion[ \t]*\n([\s\S]*?)^```[ \t]*$/m;
  * text, shown as GitHub would apply it.
  */
 export function CommentBody({ body, link = false }: { body: string; link?: boolean }) {
-  const parts = body.split(new RegExp(SUGGESTION, "gm"));
+  // GitHub's editor writes CRLF.
+  const parts = body.replace(/\r\n?/g, "\n").split(new RegExp(SUGGESTION, "gm"));
   return <div className="space-y-2">{parts.map((part, index) => index % 2
     ? <figure key={index} aria-label="Suggested change" className="overflow-hidden rounded-md border border-border">
         <figcaption className="border-b border-border bg-muted/25 px-2 py-1 text-xs text-muted-foreground">Suggested change</figcaption>

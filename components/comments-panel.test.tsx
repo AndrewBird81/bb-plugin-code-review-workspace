@@ -352,6 +352,20 @@ test("a suggestion by the agent or on GitHub shows its code as written, and only
   slot.lifecycle.unmount();
 });
 
+// GitHub sends a comment written in its editor with CRLF line endings, so its suggestion wasn't boxed (96-recheck-3 P3).
+test("a suggestion written with CRLF line endings shows as a suggested change", async () => {
+  const body = "Shorter:\r\n\r\n```suggestion\r\n  three(); four;\r\n```\r\nThanks.";
+  const { slot } = await renderWorkspace({ rpc: {
+    getReviewThreads: () => ({ threads: [{ ...threads()[0], comments: [said("c1", 111, "bob", body, 48)] }] }),
+    getFeedback: () => ({ feedback: feedbackOf([], null) }),
+  } });
+  const cards = code(slot, "src/a.ts");
+  await cards.findByRole("article", { name: "GitHub thread on src/a.ts:2" });
+  expect(cards.getByRole("figure", { name: "Suggested change" }).querySelector("pre code")?.textContent).toBe("  three(); four;");
+  expect(cards.getByText("Thanks.")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("a resolve in the code shows in the list at once, and one in the list in the code: they read the same threads", async () => {
   let resolved = false;
   const { slot, rpc } = await renderWorkspace({ rpc: {
