@@ -139,19 +139,15 @@ export default async function plugin(bb: BbPluginApi) {
   });
   bb.background.service("review-state", {
     async start(signal) {
-      let prunedAt = 0;
       while (!signal.aborted) {
         await updates.run(() => sync.all(), false).catch(() => {});
         await updates.run(() => retryInterruptedGuides(deps), false).catch(() => {});
-        // Once a day, drop the stored diffs of reviews out of play for a month.
-        if (Date.now() - prunedAt >= 86_400_000) {
-          prunedAt = Date.now();
-          try { pruneOldDiffs(store, prunedAt); } catch (error) { bb.log.warn(`Could not drop old diffs: ${String(error)}`); }
-        }
         await delay(60_000, undefined, { signal }).catch(() => {});
       }
     },
   });
+  // Once a day, drop the stored diffs of reviews out of play for a month. BB keeps the schedule, so a reload doesn't prune again.
+  bb.background.schedule("prune-old-diffs", "17 4 * * *", () => { pruneOldDiffs(store, Date.now()); });
   bb.onDispose(() => { stopGuideGenerations(bb); });
 
   bb.log.info("guided-review loaded");
