@@ -170,14 +170,18 @@ export function NeedsReviewSidebar() {
       const waited = turn.group === "needs" ? age(turn.at) : null;
       // Where the PR is, why it's yours, and for how long, in the inbox's words.
       const where = review.repo ? `${review.repo}${review.number ? ` #${review.number}` : ""}` : null;
-      const tooltip = [where, statusWhy(review)?.text, waited].filter(Boolean).join(" · ") || undefined;
+      const why = statusWhy(review)?.text;
+      const tooltip = [where, why, waited].filter(Boolean).join(" · ") || undefined;
+      // The tooltip reaches neither touch nor a screen reader: the row also says where and why in words.
+      const describedBy = where || why ? `gr-row-why-${isPinned ? "pinned" : "needs"}-${review.targetKey}` : undefined;
       return <li key={review.targetKey} className="group/row flex h-[var(--bb-sidebar-row-height)] min-w-0 items-center rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground max-md:pointer-coarse:h-[var(--bb-sidebar-row-height-coarse)]">
-        <a href={`/plugins/${pluginId}/review/${review.targetKey}`} title={tooltip} onClick={(event) => open(event, review.targetKey)}
+        <a href={`/plugins/${pluginId}/review/${review.targetKey}`} title={tooltip} aria-describedby={describedBy} onClick={(event) => open(event, review.targetKey)}
           className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md pl-2 pr-1 outline-none ring-sidebar-ring focus-visible:ring-2">
           <Icon name={kindLook(review).icon} className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <span className="min-w-0 flex-1 truncate">{title}</span>
           {waited && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{waited}</span>}
         </a>
+        {describedBy && <span id={describedBy} className="sr-only">{[where, why].filter(Boolean).join(", ")}</span>}
         {/* Shows on hover where there's a pointer, as BB's row actions do. A touch screen, which can't hover, keeps
             its rows clear, as BB's own are: the review's menu pins it there. */}
         <button type="button" aria-label={`${isPinned ? "Unpin" : "Pin"} ${title}`} onClick={() => setPinned(review.targetKey, !isPinned)}

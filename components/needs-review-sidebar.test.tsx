@@ -72,12 +72,14 @@ test("a row opens its review and closes the phone sidebar; a modified click is l
   slot.lifecycle.unmount();
 });
 
-test("a row's tooltip says where the PR is, why it's yours and for how long; its pin hides at rest, and on touch for good", async () => {
+test("a row's tooltip says where the PR is, why it's yours and for how long, as its description does; its pin hides at rest, and on touch for good", async () => {
   threadList();
   const slot = await renderSidebar([{ ...reviews[2], signals: { requestedBy: "alice" } }]);
   const row = await within(document.body).findByRole("link", { name: /Direct request/ });
   expect(row.getAttribute("title")).toBe("acme/web #1 · Requested by @alice · 2h");
   const pin = within(document.body).getByRole("button", { name: "Pin Direct request" });
+  // Touch and screen readers get no tooltip, so the row says where and why in words too.
+  expect(within(document.body).getByRole("link", { name: /Direct request/, description: "acme/web #1, Requested by @alice" })).toBe(row);
   // A screen that can't hover keeps its rows clear, as BB's own are; the review's menu pins it.
   expect(pin.className.split(" ")).toEqual(expect.arrayContaining(["[@media(hover:hover)]:opacity-0", "group-hover/row:opacity-100", "[@media(hover:none)]:hidden"]));
   slot.lifecycle.unmount();
