@@ -630,7 +630,7 @@ test("a pace being typed goes when Check before you approve is turned off, so Sa
   slot.lifecycle.unmount();
 });
 
-test("Save keeps keyboard focus as it saves; with nothing to save it's announced unavailable, and does nothing", async () => {
+test("Save settings is never disabled, only unavailable, so it keeps focus as it saves", async () => {
   const { slot, save, toggle, saveButton } = await renderSettings();
   // Unavailable, not disabled, so it stays focusable. jsdom keeps focus on a button that becomes disabled, so it can't
   // show focus being lost; a browser drops it to <body>. What keeps it is that Save never gets the disabled attribute.
