@@ -13,8 +13,8 @@ test("a reference image becomes a reference link, keeping its definition", () =>
   expect(linkImages(`![Logo][logo]${defs}`)).toBe(`[Image: Logo][logo]${defs}`);
   expect(linkImages(`![logo][]${defs}`)).toBe(`[Image: logo][logo]${defs}`);
   expect(linkImages(`A ![logo] B${defs}`)).toBe(`A [Image: logo][logo] B${defs}`);
-  // Without a definition, it was never an image.
-  expect(linkImages("A ![logo] B")).toBe("A ![logo] B");
+  // Without a definition it was never an image, and shows as it did.
+  expect(linkImages("A ![logo] B")).toBe("A \\![logo] B");
 });
 
 test("an HTML image becomes a link to its src, or its srcset's first url", () => {
@@ -28,12 +28,31 @@ test("an image inside a link's text, as a badge, becomes its words, the link kep
   expect(linkImages("[![CI](https://img.example/ci.svg)](https://ci.example/run)")).toBe("[Image: CI](https://ci.example/run)");
 });
 
-test("code spans and fences are left as written", () => {
-  expect(linkImages("Write `![x](y.png)` for an image, or ``![a](b) `c` ``.")).toBe("Write `![x](y.png)` for an image, or ``![a](b) `c` ``.");
+test("a closed fence at the margin is left as written", () => {
   const fenced = "Before ![a](a.png)\n```md\n![x](y.png)\n<img src=\"z.png\">\n```\n~~~\n![t](t.png)\n~~~\nAfter ![b](b.png)";
   expect(linkImages(fenced)).toBe("Before [Image: a](a.png)\n```md\n![x](y.png)\n<img src=\"z.png\">\n```\n~~~\n![t](t.png)\n~~~\nAfter [Image: b](b.png)");
-  // A fence left open runs to the end.
-  expect(linkImages("```\n![x](y.png)")).toBe("```\n![x](y.png)");
+});
+
+// Each of these rendered an image after linkImages (70-review #1, 71-security F2).
+test("code spans, open or indented fences, and definitions in a quote or list don't keep an image", () => {
+  // A code span can't cross a blank line, and backticks in an autolink or a tag start none.
+  expect(linkImages("`x\n\n![p](https://evil.example/a.png)\n\n`")).toBe("`x\n\n[Image: p](https://evil.example/a.png)\n\n`");
+  expect(linkImages("<https://a.test/`> ![x](https://evil.test/al.png) <https://b.test/`>")).toBe("<https://a.test/`> [Image: x](https://evil.test/al.png) <https://b.test/`>");
+  expect(linkImages("Write `![x](y.png)` for an image.")).toBe("Write `[Image: x](y.png)` for an image.");
+  // A fence in a list item ends with the item; one never closed may be cut where it's shown.
+  expect(linkImages("- item\n  ```\n![p](https://evil.example/b.png)")).toBe("- item\n  ```\n[Image: p](https://evil.example/b.png)");
+  expect(linkImages("1. item\n   ```\nend\n![x](https://evil.test/lf.png)\n```")).toBe("1. item\n   ```\nend\n[Image: x](https://evil.test/lf.png)\n```");
+  expect(linkImages("```\n![x](y.png)")).toBe("```\n[Image: x](y.png)");
+  // A definition this can't see: the image keeps its words, as a link at most.
+  expect(linkImages("![r]\n\n> [r]: https://evil.test/bq.png")).toBe("\\![r]\n\n> [r]: https://evil.test/bq.png");
+  expect(linkImages("![a\\]b]\n\n[a\\]b]: https://evil.test/esc.png")).toBe("\\![a\\]b]\n\n[a\\]b]: https://evil.test/esc.png");
+  expect(linkImages("![a `]` b](https://evil.test/c.png)")).toBe("\\![a `]` b](https://evil.test/c.png)");
+});
+
+test("a link after a `!` doesn't make a new image", () => {
+  expect(linkImages("!![x](https://evil.test/a.png)")).toBe("\\![Image: x](https://evil.test/a.png)");
+  expect(linkImages("!<img src=https://evil.test/b.png>")).toBe("\\![Image](https://evil.test/b.png)");
+  expect(linkImages("\\!![x](a.png)")).toBe("\\![Image: x](a.png)");
 });
 
 test("text with no image, an escaped one, or a plain link is unchanged", () => {
