@@ -203,6 +203,13 @@ function boxAt(draft: ReturnType<typeof useDraft>, at: { file: string; line: num
   return draft.asking ? "ask" : draft.editing ? "edit" : null;
 }
 
+/** For a box in the panel whose line the code doesn't draw, narrowed to what changed since: shows all of it, and the box under its line. */
+export function ShowBoxInDiff({ className }: { className?: string }) {
+  const draft = useDraft();
+  if (!draft.showBoxInDiff) return null;
+  return <Button variant="ghost" size="sm" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL, className)} onClick={draft.showBoxInDiff}>Show in diff</Button>;
+}
+
 /** A draft comment in a list, under its row: its words, its discussion with the agent, its box, and what you can do. */
 function DraftCard({ item }: { item: DraftItem }) {
   const draft = useDraft();
@@ -213,6 +220,7 @@ function DraftCard({ item }: { item: DraftItem }) {
   return (
     <article data-comment-at={`${comment.file}:${comment.line}:${comment.side}`} tabIndex={-1} aria-label={`Draft comment on ${where}`} className={cn("overflow-hidden rounded-lg bg-card text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
       {box === "edit" ? <>
+        {draft.showBoxInDiff && <p className="flex justify-end px-1.5 pt-1.5"><ShowBoxInDiff /></p>}
         {comment.startLine !== undefined && <p className="px-2.5 pt-2.5 text-xs text-muted-foreground tabular-nums">Lines {linesOf(comment)}</p>}
         <ComposerFields mode="edit" busy={draft.busy} composer={composer} controlsRef={draft.composerControls} />
       </> : <div className="space-y-2 px-3 pb-2.5 pt-2.5">

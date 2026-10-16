@@ -202,6 +202,38 @@ test("a recovered comment box on a line the diff no longer shows opens in the pa
   slot.lifecycle.unmount();
 });
 
+test("a recovered box on a hunk the diff hides, narrowed to what changed since, opens in the panel; Show in diff shows all and moves it under its line", async () => {
+  sessionStorage.setItem("guided-review:draft-recovery:narrowed", JSON.stringify({ composer: { file: "src/a.ts", line: "2", side: "RIGHT", body: "Hidden text", inline: true, revision: "r1" } }));
+  await loadPluginApp(() => import("../app"));
+  const DraftTray = await draftTray();
+  const { DiffViewer } = await import("./DiffViewer");
+  // Since your review only new line 1 changed: line 2's hunk isn't drawn.
+  const since = new Map([["src/a.ts", { file: "src/a.ts", status: "changed" as const, newLines: [1], newDeletions: [1], dropped: "", patch: "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n" }]]);
+  const showLocation = vi.fn();
+  const component = () => {
+    const [narrowed, setNarrowed] = useState(true);
+    const compare = { baseline: "old", head: "new", from: null, pick: () => {}, since, narrowed, setNarrowed, error: null, what: "your review" };
+    return (
+      <DraftTray targetKey="narrowed" patch={patch} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer"
+        workspace={{ compare, showLocation: (...at: unknown[]) => { setNarrowed(false); showLocation(...at); } }}>
+        <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} since={since} sinceOnly={narrowed} />
+      </DraftTray>
+    );
+  };
+  const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: empty("narrowed"), stale: [] }) } as any });
+  const panel = within(await slot.findByRole("region", { name: "Comments" }));
+  const box = await panel.findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  expect(box.value).toBe("Hidden text");
+  expect(within(slot.getByTestId("filediff")).queryByRole("textbox")).toBeNull();
+  fireEvent.click(panel.getByRole("button", { name: "Show in diff" }));
+  expect(showLocation).toHaveBeenCalledWith("src/a.ts", 2, "RIGHT");
+  const moved = await within(slot.getByTestId("filediff")).findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  expect(moved.value).toBe("Hidden text");
+  expect(panel.queryByRole("textbox", { name: "Draft comment" })).toBeNull();
+  expect(panel.getByText("Writing a comment on src/a.ts:2")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("a comment box in the panel of a draft with no comments doesn't sit above No comments yet", async () => {
   sessionStorage.setItem("guided-review:draft-recovery:alone", JSON.stringify({ composer: { file: "src/a.ts", line: "40", side: "RIGHT", body: "Stranded text", inline: true, revision: "r1" } }));
   const { slot, panel } = await renderReview("alone", { getDraft: () => ({ draft: empty("alone"), stale: [] }) });

@@ -11,6 +11,7 @@ import { approveDoubts, type ApproveGuard } from "../lib/approve-guard";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
 import { setDraftStatus } from "../lib/draft-status";
 import { holdReview } from "../lib/review-holds";
+import { useWorkspace } from "../lib/workspace-context";
 import { InlineComposerContext, InlineDraftContext, locationKey, type InlineComposer, type InlineDraft } from "./InlineDraft";
 
 /**
@@ -468,15 +469,29 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       return read.get(path);
     };
   }, [patch]);
-  // A box in the code on a line the diff no longer shows, as after a rebuild, or a reload with one between, has no row
-  // to show under: it moves to the panel, whose fields say where it is and can move it.
+  // What the code draws of a file: narrowed to what changed since your review, only those hunks, and none of a file
+  // unchanged since.
+  const { compare, showLocation } = useWorkspace();
+  const drawnOf = useCallback((path: string) => {
+    const change = compare.narrowed ? compare.since?.get(path) : undefined;
+    if (change?.status === "unchanged") return undefined;
+    return change?.status === "changed" ? diffPositions(change.patch).get(path) : positionsOf(path);
+  }, [compare.narrowed, compare.since, positionsOf]);
+  const onLine = (shown: FilePositions | undefined) => !!(side === "LEFT" ? shown?.left : shown?.right)?.has(Number(line));
+  // A box in the code on a line the code doesn't draw, as after a rebuild, a reload with one between, or with the diff
+  // narrowed to what changed since, has no row to show under: it moves to the panel, whose fields say where it is and
+  // can move it.
   useEffect(() => {
-    if (!showComposer || !inline || summaryBox || !patch) return;
-    const shown = positionsOf(file);
-    if ((side === "LEFT" ? shown?.left : shown?.right)?.has(Number(line))) return;
+    if (!showComposer || !inline || summaryBox || !patch || onLine(drawnOf(file))) return;
     setInline(false);
     onOpenPanel?.("comments");
-  }, [showComposer, inline, summaryBox, patch, positionsOf, file, line, side, onOpenPanel]);
+  }, [showComposer, inline, summaryBox, patch, drawnOf, file, line, side, onOpenPanel]);
+  // A box in the panel on a line the diff has, but the code doesn't draw, narrowed to what changed since: Show in diff
+  // shows all of it and moves the box under its line.
+  const showBoxInDiff = showComposer && !inline && !summaryBox && !!patch && onLine(positionsOf(file)) && !onLine(drawnOf(file)) ? () => {
+    showLocation(file, Number(line), side);
+    setInline(true);
+  } : null;
   // The new-file lines a comment's box is on, as they read now, for Suggest change; null on old-file lines.
   const suggestable = useMemo(() => {
     if (!showComposer || summaryBox || asking || side !== "RIGHT" || startSide) return null;
@@ -584,7 +599,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     targetKey, loadError, load, loaded, closed, review, draft, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
     showComposer, inline, edited, replacing, counts, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment,
-    file, boxLines, line, side, files, setFile, editing, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
+    file, boxLines, line, side, files, setFile, editing, showBoxInDiff, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
     ownPr, suggested, chooseVerdict, confirming, setConfirming, approval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
     inlineDraft, inlineComposer, askAgent, patch, account,
   };

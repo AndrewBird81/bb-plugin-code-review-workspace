@@ -22,7 +22,7 @@ import { Icon } from "../ui/icon";
 import { Input } from "../ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { CheckStrip } from "./CheckStrip";
-import { usePanelComposer } from "./CommentCard";
+import { ShowBoxInDiff, usePanelComposer } from "./CommentCard";
 import { CommentRow } from "./CommentRow";
 import { notSubmitted } from "./look";
 import { updateComments, useComments } from "./store";
@@ -369,7 +369,7 @@ function NewComment({ composer }: { composer: ReturnType<typeof usePanelComposer
   const field = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-foreground pointer-coarse:h-11";
   return (
     <section aria-label="New comment" className={cn("overflow-hidden rounded-lg bg-card", notSubmitted("yours"))}>
-      <p className="flex items-center gap-1.5 px-3 pt-2 text-xs font-medium text-muted-foreground"><Icon name="CircleDashed" className="size-3.5 text-primary" aria-hidden />{draft.asking ? "Message to the agent" : "New comment · not submitted"}</p>
+      <p className="flex items-center gap-1.5 px-3 pt-2 text-xs font-medium text-muted-foreground"><Icon name="CircleDashed" className="size-3.5 text-primary" aria-hidden />{draft.asking ? "Message to the agent" : "New comment · not submitted"}<ShowBoxInDiff className="-my-1 -mr-1.5 ml-auto" /></p>
       <div className="grid grid-cols-[minmax(0,1fr)_76px_104px] gap-2 px-2.5 pt-2">
         <label className="space-y-1 text-xs text-muted-foreground">File<select aria-label="Comment file" disabled={draft.busy || !!draft.editing} className={field} value={draft.file} onChange={(event) => draft.setFile(event.target.value)}>
           {(draft.file && !draft.files.includes(draft.file) ? [draft.file, ...draft.files] : draft.files).map((choice) => <option key={choice} value={choice}>{choice}</option>)}
