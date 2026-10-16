@@ -36,14 +36,15 @@ export async function startVerification(bb: BbPluginApi, store: Store, targetKey
   const prompt = reReviewCheckPrompt(store.getPreferences().preferences);
   const review = store.getReview(targetKey);
   if (!prompt || !review || review.kind !== "pr" || !baselineOf(review).at) return false;
+  let sent: Awaited<ReturnType<typeof messageAssistant>>;
   try {
-    await messageAssistant(bb, store, targetKey, prompt, verificationContext(review, reason));
+    sent = await messageAssistant(bb, store, targetKey, prompt, verificationContext(review, reason));
   } catch (error) {
     bb.log.warn(`The feedback check for ${targetKey} didn't start: ${String(error)}`);
     return false;
   }
   // The check is about this commit, even if the author pushes while it runs.
-  store.setLifecycle(targetKey, { verifyingSince: Date.now(), verifyingHead: headOf(review) });
+  store.setLifecycle(targetKey, { verifyingSince: Date.now(), verifyingHead: headOf(review), verifyingMessageId: sent.queuedMessageId ?? null });
   bb.realtime.publish(`conversation:${targetKey}`, {});
   return true;
 }

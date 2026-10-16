@@ -119,6 +119,10 @@ export default async function plugin(bb: BbPluginApi) {
   void (async () => {
     for (const review of store.listReviews()) {
       if (!review.verifyingSince && !store.listDiscussions(review.targetKey).some((d) => d.waiting)) continue;
+      // A check that left the queue while the plugin was down has had its turn, or is having it.
+      const threadId = review.verifyingMessageId ? store.getAssistantThread(review.targetKey) : null;
+      const queue = threadId ? await bb.sdk.threads.queuedMessages.list({ threadId }).catch(() => null) : null;
+      if (queue && !queue.some((m) => m.id === review.verifyingMessageId)) store.setLifecycle(review.targetKey, { verifyingMessageId: null });
       if (await assistantMayAnswer(bb, store, review.targetKey)) continue;
       if (endAssistantWaits(bb, store, review.targetKey)) await sync.evaluate(review.targetKey);
     }
@@ -994,17 +998,25 @@ export default async function plugin(bb: BbPluginApi) {
     const reviewKey = assistantReview(store, thread.id);
     const asking = reviewKey ? store.getReview(reviewKey) : null;
     for (const { at, ask } of asking ? listAsks(asking) : []) if (ask.state === "running" && ask.threadId === thread.id) setAsk(store, reviewKey!, at, null);
+    const checkQueued = !!asking?.verifyingMessageId;
     const targetKey = await settleDiscussions(bb, store, thread.id);
     if (targetKey) bb.realtime.publish(`draft:${targetKey}`, {});
     const review = reviewKey ? store.getReview(reviewKey) : null;
     if (!reviewKey || !review) return;
     // A feedback check ends with the assistant's turn; an alert waiting for it can go now. A check still
     // queued behind another message hasn't run yet.
-    if (review.verifyingSince && !(await bb.sdk.threads.queuedMessages.list({ threadId: thread.id }).catch(() => [])).length) {
-      store.setLifecycle(reviewKey, { verifyingSince: null, verifyingHead: null, preparedAt: Date.now() });
-      await sync.evaluate(reviewKey);
-      bb.realtime.publish(`feedback:${reviewKey}`, { ts: Date.now() });
-    }
+    if (review.verifyingSince && !checkQueued && !(await bb.sdk.threads.queuedMessages.list({ threadId: thread.id }).catch(() => [])).length) await checkEnded(reviewKey);
+  };
+  const checkEnded = async (reviewKey: string) => {
+    store.setLifecycle(reviewKey, { verifyingSince: null, verifyingHead: null, verifyingMessageId: null, preparedAt: Date.now() });
+    await sync.evaluate(reviewKey);
+    bb.realtime.publish(`feedback:${reviewKey}`, { ts: Date.now() });
+  };
+  /** The review whose feedback check waits in the queue as this message. */
+  const queuedCheck = (entry: { id: string; threadId: string }) => {
+    const reviewKey = assistantReview(store, entry.threadId);
+    const review = reviewKey ? store.getReview(reviewKey) : null;
+    return review?.verifyingSince && review.verifyingMessageId === entry.id ? reviewKey : null;
   };
   bb.events.on("thread.idle", settle);
   bb.events.on("thread.failed", settle);
@@ -1019,10 +1031,15 @@ export default async function plugin(bb: BbPluginApi) {
   bb.events.on("message.dispatched", ({ entry }) => {
     const found = queuedAsk(entry);
     if (found) setAsk(store, found.reviewKey, found.at, { threadId: found.ask.threadId, state: "running", at: Date.now() });
+    const checking = queuedCheck(entry);
+    if (checking) store.setLifecycle(checking, { verifyingMessageId: null });
   });
-  bb.events.on("message.cancelled", ({ entry }) => {
+  bb.events.on("message.cancelled", async ({ entry }) => {
     const found = queuedAsk(entry);
     if (found) setAsk(store, found.reviewKey, found.at, null);
+    // A check deleted from the queue never runs.
+    const checking = queuedCheck(entry);
+    if (checking) await checkEnded(checking);
   });
 
   const guideToolParameters = z.object({ targetKey: z.string(), generationId: z.string(), guide: GuideInputSchema });

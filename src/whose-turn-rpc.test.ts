@@ -230,6 +230,41 @@ test("a check queued behind another message isn't over when the assistant's curr
   void bb;
 });
 
+test("a check queued behind another message ends with its own turn, not with an idle before it dispatched", async () => {
+  const { bb, harness, store } = await setup();
+  const { makeThreadResponse, makeQueueEntry } = await import("@get-bb/plugin-sdk/testing");
+  const { startVerification } = await import("./verification");
+  const idle = () => harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: null });
+  const row = makeQueueEntry({ id: "q-check", threadId: "assistant" });
+  harness.inspection.sdk.stub("threads.send", async () => ({ ok: true, delivery: "queued", queuedMessage: row }));
+  expect(await startVerification(bb, store, "pr-1", "the author pushed")).toBe(true);
+  expect(store.getReview("pr-1")?.verifyingMessageId).toBe("q-check");
+  // The earlier turn's idle, heard after the queue let the check go but before it dispatched.
+  harness.inspection.sdk.stub("threads.queuedMessages.list", async () => []);
+  await idle();
+  expect(store.getReview("pr-1")?.verifyingSince).toEqual(expect.any(Number));
+  await harness.behavior.emitThreadEvent("message.dispatched", { entry: makeQueueEntry({ id: "someone-else", threadId: "assistant" }) });
+  await idle();
+  expect(store.getReview("pr-1")?.verifyingSince).toEqual(expect.any(Number));
+  await harness.behavior.emitThreadEvent("message.dispatched", { entry: row });
+  expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: expect.any(Number), verifyingMessageId: null });
+  await idle();
+  expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null, preparedAt: expect.any(Number) });
+});
+
+test("a queued check deleted from the queue stops the wait for it", async () => {
+  const { bb, harness, store } = await setup();
+  const { makeQueueEntry } = await import("@get-bb/plugin-sdk/testing");
+  const { startVerification } = await import("./verification");
+  const row = makeQueueEntry({ id: "q-check", threadId: "assistant" });
+  harness.inspection.sdk.stub("threads.send", async () => ({ ok: true, delivery: "queued", queuedMessage: row }));
+  await startVerification(bb, store, "pr-1", "the author pushed");
+  await harness.behavior.emitThreadEvent("message.cancelled", { entry: makeQueueEntry({ id: "someone-else", threadId: "assistant" }) });
+  expect(store.getReview("pr-1")?.verifyingSince).toEqual(expect.any(Number));
+  await harness.behavior.emitThreadEvent("message.cancelled", { entry: row });
+  expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingMessageId: null, preparedAt: expect.any(Number) });
+});
+
 test("a non-blocking thread is checked, but left out of what's addressed and of what's left, and listed with its label", async () => {
   const { tool, call, store } = await setup();
   store.saveFeedbackThreads("pr-1", [thread("t1", "answered"), { ...thread("t2", "open"), body: "**Nit:** name it `cacheKey`" }], 1);

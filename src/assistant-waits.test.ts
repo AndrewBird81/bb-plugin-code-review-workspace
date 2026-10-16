@@ -43,6 +43,25 @@ test("at startup, a review whose assistant is still working, or has a message qu
   }
 });
 
+test("at startup, a check whose message left the queue while the plugin was down ends with the turn under way", async () => {
+  const { bb, harness, store } = waiting({ status: "active" });
+  store.setLifecycle("pr-1", { verifyingMessageId: "q-check" });
+  await plugin(bb);
+  await vi.waitFor(() => expect(store.getReview("pr-1")?.verifyingMessageId).toBeNull());
+  expect(store.getReview("pr-1")?.verifyingSince).toBe(1);
+  await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: null });
+  expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null });
+});
+
+test("at startup, a check still in the queue keeps waiting for its turn", async () => {
+  const { bb, harness, store } = waiting({ status: "active" });
+  store.setLifecycle("pr-1", { verifyingMessageId: "q-check" });
+  harness.inspection.sdk.stub("threads.queuedMessages.list", async () => [{ id: "q-check" }]);
+  await plugin(bb);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(store.getReview("pr-1")?.verifyingMessageId).toBe("q-check");
+});
+
 test("a conversation found archived stops the waits for it", async () => {
   const { bb, store, stillWaiting } = waiting({ status: "idle", archivedAt: 5 });
   expect((await getConversation(bb, store, "pr-1")).threadId).toBeNull();

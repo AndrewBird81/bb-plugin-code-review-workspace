@@ -45,6 +45,8 @@ export interface ReviewLifecycle {
   pendingAlert?: { signal: string; since: number } | null;
   /** The assistant is checking your feedback, since this time. */
   verifyingSince?: number | null;
+  /** The feedback check's message while it waits in the assistant's queue; cleared once it dispatches, so its own turn ends the check. */
+  verifyingMessageId?: string | null;
   /** When the automatic re-review or check last finished. */
   preparedAt?: number | null;
   /** Your latest review summaries, newest last, for the assistant. */
