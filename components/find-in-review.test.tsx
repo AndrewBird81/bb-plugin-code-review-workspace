@@ -155,6 +155,18 @@ test("Find in review works from the keyboard: Enter opens the first result, arro
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("Enter or Esc that ends an IME conversion in Find in review does nothing else, Safari's included", async () => {
+  const slot = await renderWorkspace();
+  const box = slot.getByRole("searchbox", { name: "Find in review" });
+  fireEvent.change(box, { target: { value: "caching" } });
+  await slot.findByRole("list", { name: "Results" });
+  fireEvent.keyDown(box, { key: "Enter", isComposing: true, keyCode: 229 });
+  fireEvent.keyDown(box, { key: "Escape", keyCode: 229 });
+  expect((box as HTMLInputElement).value).toBe("caching");
+  expect(slot.queryByText(/evictOldest/)).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("the shortcut help lists / and f", async () => {
   const slot = await renderWorkspace();
   fireEvent.keyDown(document.body, { key: "?" });

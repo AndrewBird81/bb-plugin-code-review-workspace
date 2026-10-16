@@ -215,6 +215,18 @@ test("Enter in the filter opens the first file the tree shows, not the guide's f
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("Enter or Esc that ends an IME conversion in the filter does nothing else, Safari's included", async () => {
+  const slot = await renderWorkspace();
+  fireEvent.keyDown(document.body, { key: "f" });
+  const filter = await slot.findByRole("searchbox", { name: "Filter files" });
+  fireEvent.change(filter, { target: { value: "cache" } });
+  fireEvent.keyDown(filter, { key: "Enter", isComposing: true, keyCode: 229 });
+  fireEvent.keyDown(filter, { key: "Escape", keyCode: 229 });
+  expect((filter as HTMLInputElement).value).toBe("cache");
+  expect(fileRow(slot, "src/cache/evict.ts").getAttribute("aria-current")).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("on a coarse pointer All files' rows and filter are 44px targets", async () => {
   const slot = await renderWorkspace();
   fireEvent.click(nav(slot).getByRole("button", { name: "All files" }));

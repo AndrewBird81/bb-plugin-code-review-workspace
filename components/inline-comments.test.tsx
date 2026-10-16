@@ -257,6 +257,21 @@ test("Esc in a comment box with text leaves the box, keeping the text; Cancel di
   slot.lifecycle.unmount();
 });
 
+test("Enter or Esc that ends an IME conversion in a comment box does nothing else, Safari's included", async () => {
+  const saveDraftComment = vi.fn(() => ({ ok: true, revision: "r1" }));
+  const { slot, diff } = await renderReview("ime", { getDraft: () => ({ draft: empty("ime"), stale: [] }), saveDraftComment });
+  fireEvent.click(diff().getByRole("button", { name: "Gutter +" }));
+  const box = diff().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: "東京" } });
+  act(() => box.focus());
+  fireEvent.keyDown(box, { key: "Enter", ctrlKey: true, isComposing: true, keyCode: 229 });
+  // Safari has already cleared isComposing on the key that cancels the conversion.
+  fireEvent.keyDown(box, { key: "Escape", keyCode: 229 });
+  expect(document.activeElement).toBe(box);
+  expect(saveDraftComment).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+});
+
 test("choosing a comment, or the comment being written, in the panel shows it in the diff", async () => {
   const mine = { file: "src/a.ts", line: 1, side: "RIGHT", body: "My comment" };
   const onShowComment = vi.fn();

@@ -6,6 +6,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import type { AgentMessage, AgentMessageContext } from "../src/store";
 import type { AgentChoice } from "../src/agent";
 import { contextLabel, contextQuote } from "../src/assistant-context";
+import { composing } from "../lib/composing";
 import { cn } from "../lib/utils";
 import { usePortalScopeProps } from "../lib/portal-scope";
 import { clampRect, defaultRect, type Rect } from "../lib/dock-geometry";
@@ -184,7 +185,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
     <div className="shrink-0 space-y-2 border-t border-border bg-surface-raised p-3">
       {chip && <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"><span className="shrink-0">Context</span><Badge tone="primary" className="min-w-0 font-mono" icon={<Icon name="File" aria-hidden />}><span className="truncate">{contextLabel(chip)}</span></Badge><Button variant="ghost" size="sm" className={cn("relative h-6 px-1", TOUCH_TARGET)} aria-label="Clear selection context" onClick={() => setChip(null)}><Icon name="X" className="size-3" aria-hidden /></Button></div>}
       <Textarea ref={composerRef} aria-label="Ask the agent" disabled={busy} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => {
-        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void start(); }
+        if (event.key === "Enter" && !event.shiftKey && !composing(event)) { event.preventDefault(); void start(); }
       }} placeholder="Ask the agent…" className="max-h-32 min-h-20 resize-none rounded-lg bg-background text-sm focus-visible:border-(--ansi-13)/50 focus-visible:ring-[3px] focus-visible:ring-(--ansi-13)/15" />
       <div className="flex min-w-0 items-center gap-2">
         <ProviderModelPicker value={agent} onChange={(next) => setAgent({ ...(hostId ? { hostId } : {}), ...next })} routing={hostId ? { kind: "host", hostId } : undefined} disabled={busy} className="min-w-0" />

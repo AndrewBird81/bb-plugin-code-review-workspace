@@ -53,6 +53,16 @@ test("the first message starts the conversation on the chosen agent, then bb's c
   expect(screen.getByRole("button", { name: "New conversation" })).toBeTruthy();
 });
 
+test("Enter that confirms an IME conversion in Safari doesn't send the message", async () => {
+  const startConversation = vi.fn(async () => ({ threadId: "th-1" }));
+  await renderDock({}, { getConversation: unstarted, startConversation });
+  const box = await screen.findByRole("textbox", { name: "Ask the agent" });
+  fireEvent.change(box, { target: { value: "東京" } });
+  // Safari has already cleared isComposing on the key that confirms the conversion.
+  fireEvent.keyDown(box, { key: "Enter", keyCode: 229 });
+  expect(startConversation).not.toHaveBeenCalled();
+});
+
 test("a selection becomes the first message's quoted context", async () => {
   const startConversation = vi.fn(async () => ({ threadId: "th-1" }));
   const { inject } = await renderDock({}, { getConversation: unstarted, startConversation });

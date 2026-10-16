@@ -1,5 +1,6 @@
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
+import { composing } from "../lib/composing";
 import { searchIndex, searchReview, type SearchHit } from "../lib/review-search";
 import { useKnob } from "../lib/settings";
 import { Icon } from "./ui/icon";
@@ -88,6 +89,7 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
+            if (composing(event)) return;
             if (event.key === "Enter" && hits[0]) { event.preventDefault(); open(hits[0]); }
             else if (event.key === "ArrowDown") {
               event.preventDefault();

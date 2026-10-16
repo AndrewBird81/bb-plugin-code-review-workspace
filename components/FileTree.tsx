@@ -1,4 +1,5 @@
 import { memo, useContext, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { composing } from "../lib/composing";
 import { cn } from "../lib/utils";
 import { fileTree, filterPaths, firstFile, type TreeNode } from "../lib/file-tree";
 import type { FileInterdiff } from "../src/interdiff";
@@ -180,6 +181,7 @@ export const FileTree = memo(function FileTree({
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
           onKeyDown={(event) => {
+            if (composing(event)) return;
             if (event.key === "Enter" && shown.length) { event.preventDefault(); open(firstFile(tree)!); }
             else if (event.key === "ArrowDown") {
               event.preventDefault();

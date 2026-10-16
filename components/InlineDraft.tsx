@@ -2,6 +2,7 @@ import { createContext, memo, useContext, useState, type KeyboardEvent, type Rea
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { linesOf, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
 import { draftItemId, draftState, privateItemId, STATE_LABEL } from "../lib/comments";
+import { composing } from "../lib/composing";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
@@ -268,7 +269,7 @@ export function DiscussionView({ discussion, titled, chat, busy = false, onUndo,
 
 /** Cmd/Ctrl+Enter runs a box's primary action, when it can run; Esc cancels, without reaching a drawer around the panel. */
 export function composerKeys(event: KeyboardEvent<HTMLTextAreaElement>, primary: (() => void) | null, cancel: () => void) {
-  if (event.nativeEvent.isComposing) return;
+  if (composing(event)) return;
   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); primary?.(); }
   else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
 }
