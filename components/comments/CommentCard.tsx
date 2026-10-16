@@ -3,6 +3,7 @@ import { Markdown, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { linesOf, sameLocation } from "../../src/draft";
 import { withLineBreaks } from "../../src/line-breaks";
 import type { AskItem, CommentItem, DraftItem, PrivateItem, ThreadItem, ThreadMessage } from "../../lib/comments";
+import { linkImages } from "../../lib/link-images";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { cn } from "../../lib/utils";
 import { useWorkspaceFor } from "../../lib/workspace-store";
@@ -75,7 +76,7 @@ function Evidence({ item, onFix }: { item: ThreadItem | AskItem; onFix?: () => v
   if (!item.check?.evidence) return null;
   return <div className="flex gap-2 rounded-md border-l-2 border-(--ansi-13)/60 bg-(--ansi-13)/5 px-2.5 py-1.5">
     <Icon name="Sparkles" className="mt-0.5 size-3.5 shrink-0 text-(--ansi-13)" aria-label="Agent" />
-    <Markdown content={item.check.evidence} className="min-w-0 flex-1 text-sm leading-relaxed" />
+    <Markdown content={linkImages(item.check.evidence)} className="min-w-0 flex-1 text-sm leading-relaxed" />
     {item.check.fix && onFix && <Button variant="link" size="sm" className={cn("h-auto shrink-0 self-start p-0 text-xs", TOUCH_CONTROL)} onClick={onFix}>Show the fix<Icon name="ArrowRight" className="size-3" aria-hidden /></Button>}
   </div>;
 }
@@ -92,7 +93,7 @@ function Replies({ replies }: { replies: ThreadMessage[] }) {
     <ul className="space-y-2.5">
       {(all ? replies : replies.slice(-2)).map((reply, index) => <li key={`${reply.createdAt}:${index}`} className="space-y-1">
         <Speaker message={reply} />
-        <div className="pl-[22px]"><Markdown content={withLineBreaks(reply.body)} className="text-sm leading-relaxed" /></div>
+        <div className="pl-[22px]"><Markdown content={withLineBreaks(linkImages(reply.body))} className="text-sm leading-relaxed" /></div>
       </li>)}
     </ul>
   </div>;
@@ -131,7 +132,7 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
       </div>}
       {open ? <div className="space-y-2.5 px-3 pb-2.5">
         {!inline && first && <Speaker message={first} />}
-        {first && <Clamped body={first.body} />}
+        {first && <Clamped body={linkImages(first.body)} />}
         <Replies replies={replies} />
         <Evidence item={item} onFix={item.check?.fix && api ? () => api.showLocation(item.check!.fix!.file, item.check!.fix!.line, "RIGHT") : undefined} />
         {actions && replyShows && <ReplyBox targetKey={targetKey} item={item} where={where} actions={actions} busy={busy} writing={writing} onClose={() => setWriting(false)} replyButton={replyButton} />}
@@ -219,7 +220,7 @@ function DraftCard({ item }: { item: DraftItem }) {
           {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
           {comment.side === "LEFT" && <Badge size="sm">Old line</Badge>}
         </p>}
-        <CommentBody body={comment.body} />
+        <CommentBody body={comment.author === "agent" ? linkImages(comment.body) : comment.body} />
         {comment.evidence && <AgentEvidence evidence={comment.evidence} />}
         {item.state === "older-diff" && <p className="text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
         {draft.editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">

@@ -7,6 +7,7 @@ import type { AgentMessage, AgentMessageContext } from "../src/store";
 import type { AgentChoice } from "../src/agent";
 import { contextLabel, contextQuote } from "../src/assistant-context";
 import { composing } from "../lib/composing";
+import { linkImages } from "../lib/link-images";
 import { cn } from "../lib/utils";
 import { usePortalScopeProps } from "../lib/portal-scope";
 import { clampRect, defaultRect, type Rect } from "../lib/dock-geometry";
@@ -184,7 +185,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
         </div>
       : <div key={message.id} className="space-y-1">
           <span className="flex items-center gap-1.5 text-xs font-medium"><SpeakerMark agent />Agent</span>
-          <div className="pl-6"><Markdown content={message.text} className="text-sm leading-relaxed" /></div>
+          <div className="pl-6"><Markdown content={linkImages(message.text)} className="text-sm leading-relaxed" /></div>
         </div>)}
   </div> : undefined;
   const firstMessage = <>

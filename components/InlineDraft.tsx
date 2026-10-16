@@ -3,6 +3,7 @@ import { Markdown } from "@get-bb/plugin-sdk/app";
 import { linesOf, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
 import { draftItemId, draftState, privateItemId, STATE_LABEL } from "../lib/comments";
 import { composing } from "../lib/composing";
+import { linkImages } from "../lib/link-images";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
@@ -161,7 +162,7 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
           </span>
         )}
       </div>
-      <div className="space-y-2 px-3 pb-2.5"><CommentBody body={comment.body} />{comment.evidence && <AgentEvidence evidence={comment.evidence} />}</div>
+      <div className="space-y-2 px-3 pb-2.5"><CommentBody body={comment.author === "agent" ? linkImages(comment.body) : comment.body} />{comment.evidence && <AgentEvidence evidence={comment.evidence} />}</div>
       {state === "older-diff" && <p className="border-t border-warning/20 bg-warning/10 px-3 py-1.5 text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
     </article>
   );
@@ -204,7 +205,7 @@ export function AgentEvidence({ evidence }: { evidence: string }) {
     <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cn("flex min-h-7 w-full items-center gap-1.5 rounded-md px-2.5 text-left text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)}>
       <Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />How the agent checked<Icon name={open ? "ChevronDown" : "ChevronRight"} className="size-3" aria-hidden />
     </button>
-    {open && <Markdown content={evidence} className="px-2.5 pb-1.5 text-sm leading-relaxed" />}
+    {open && <Markdown content={linkImages(evidence)} className="px-2.5 pb-1.5 text-sm leading-relaxed" />}
   </div>;
 }
 
@@ -251,7 +252,7 @@ export function DiscussionView({ discussion, titled, chat, busy = false, onUndo,
       {discussion.entries.map((entry, index) => entry.kind === "message"
         ? <div key={index} className="space-y-1">
             <Speaker agent={entry.author === "agent"}>{entry.author === "agent" ? "Agent" : "You"}</Speaker>
-            <div className="pl-6"><Markdown content={entry.author === "agent" ? entry.body : withLineBreaks(entry.body)} className="text-sm leading-relaxed" /></div>
+            <div className="pl-6"><Markdown content={entry.author === "agent" ? linkImages(entry.body) : withLineBreaks(entry.body)} className="text-sm leading-relaxed" /></div>
           </div>
         : <p key={index} className="flex flex-wrap items-center gap-x-1.5 pl-0.5 text-xs italic text-muted-foreground">
             <Icon name={changeIcons[entry.kind]} className="size-3 text-(--ansi-13)" aria-hidden />{changeText(entry.kind, summary)}

@@ -265,6 +265,17 @@ test("with Check before you approve off, every other doubt and row still shows",
   slot.lifecycle.unmount();
 });
 
+test("images in the agent's summary and its suggested one show as links to them", async () => {
+  const { slot } = await renderWorkspace({ rpc: {
+    getDraft: () => ({ draft: draftOf({ body: "Fine ![a](https://attacker.example/a.png)", bodyAuthor: "agent" }), stale: [] }),
+    getFeedback: () => ({ feedback: feedbackOf({ run: { ...run, suggestedBody: "Asks ![b](https://attacker.example/b.png)" } }) }),
+  } });
+  const view = await finish(slot);
+  const texts = view.getAllByTestId("bb-markdown").map((markdown: HTMLElement) => markdown.textContent);
+  expect(texts).toEqual(expect.arrayContaining(["Fine [Image: a](https://attacker.example/a.png)", "Asks [Image: b](https://attacker.example/b.png)"]));
+  slot.lifecycle.unmount();
+});
+
 test("Use as draft and Request what's left put the agent's verdict and summary in the draft, asking before replacing yours", async () => {
   let draft = draftOf();
   const { slot, rpc } = await renderWorkspace({ rpc: {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FocusEvent, type RefObject } from "re
 import type { ThreadItem } from "../../lib/comments";
 import { REPLY_DRAFT_LABEL } from "../../lib/comments";
 import { setReplyWriting } from "../../lib/comments-fold";
+import { linkImages } from "../../lib/link-images";
 import { cn } from "../../lib/utils";
 import { CommentBody, composerKeys } from "../InlineDraft";
 import { TOUCH_CONTROL } from "../touch";
@@ -141,7 +142,7 @@ export function ReplyBox({ targetKey, item, where, actions, busy, writing, onClo
         ? <Textarea ref={box} aria-label={`Reply on ${where}`} value={text} disabled={busy} placeholder="Reply on GitHub…" className="min-h-16 bg-background text-sm"
             onChange={(event) => change(event.target.value)} onBlur={save}
             onKeyDown={(event) => composerKeys(event, text.trim() && !busy ? () => void send() : null, cancel)} />
-        : <CommentBody body={text} />}
+        : <CommentBody body={agent ? linkImages(text) : text} />}
       <div className="flex flex-wrap items-center gap-1">
         <Button size="sm" data-reply-action="send" className={action} disabled={busy || !text.trim()} onClick={() => void send()}>
           {busy ? <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-3.5" aria-hidden />}Send reply

@@ -123,6 +123,14 @@ test("a draft question and selection survive popping out and docking, including 
   slot.lifecycle.unmount(); container.remove();
 });
 
+test("an image in the agent's earlier answers shows as a link to it, and yours as you wrote it", async () => {
+  const earlier = { threadId: "th-1", legacy: [{ id: 1, role: "user", text: "See ![mine](https://a.example/mine.png)", context: null, createdAt: 1 }, { id: 2, role: "assistant", text: "Here: ![chart](https://attacker.example/c.png)", context: null, createdAt: 2 }], defaults: null };
+  await renderDock({}, { getConversation: async () => earlier });
+  const leading = within(await screen.findByTestId("bb-thread-chat-leading-content"));
+  expect(leading.getByTestId("bb-markdown").textContent).toBe("Here: [Image: chart](https://attacker.example/c.png)");
+  expect(leading.getByText("See ![mine](https://a.example/mine.png)")).toBeTruthy();
+});
+
 test("an earlier conversation stays visible, and New conversation starts over after confirming", async () => {
   const earlier = { threadId: "th-1", legacy: [{ id: 1, role: "user", text: "Earlier question", context: null, createdAt: 1 }, { id: 2, role: "assistant", text: "Earlier answer", context: null, createdAt: 2 }], defaults: null };
   const getConversation = vi.fn().mockResolvedValueOnce(earlier).mockResolvedValue(unstarted());

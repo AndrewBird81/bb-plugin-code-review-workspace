@@ -2,6 +2,7 @@ import type { Ref } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import { summaryChanges, VERDICT_LABEL, type Discussion, type Draft, type Verdict } from "../src/draft";
 import { SUMMARY_LABEL } from "../lib/comments";
+import { linkImages } from "../lib/link-images";
 import { cn } from "../lib/utils";
 import { withLineBreaks } from "../src/line-breaks";
 import { TONE_TEXT } from "./ui/badge";
@@ -64,7 +65,7 @@ export function SummaryCard({ cardRef, draft, discussion, editable, busy, writin
           <ComposerFields mode="edit" subject="summary" busy={busy} composer={composer} />
         </>
         : body ? <div className="space-y-1.5 px-3 pb-2.5">
-            <Markdown content={withLineBreaks(draft.body)} className="text-sm leading-relaxed" />
+            <Markdown content={withLineBreaks(agent ? linkImages(draft.body) : draft.body)} className="text-sm leading-relaxed" />
             {editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">
               <Button variant="ghost" size="sm" aria-label="Edit review summary" className={cn(action, "text-muted-foreground")} disabled={blocked || !!composer || working} onClick={onEdit}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
               <Button variant="ghost" size="sm" aria-label="Ask agent about the review summary" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={blocked || !!composer} onClick={onAsk}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>

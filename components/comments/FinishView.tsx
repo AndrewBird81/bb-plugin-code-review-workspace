@@ -6,6 +6,7 @@ import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "../../sr
 import type { CommentFilter, CommentItem } from "../../lib/comments";
 import { rushedDoubt, unviewedDoubt } from "../../lib/approve-guard";
 import { readDraftRecovery } from "../../lib/draft-recovery";
+import { linkImages } from "../../lib/link-images";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
 import { statusWhy } from "../../lib/status-line";
 import { cn } from "../../lib/utils";
@@ -169,7 +170,7 @@ function Verdicts({ revision }: { revision: string }) {
             {suggested && !(d.ownPr && suggested !== "COMMENT") ? `Agent suggests ${VERDICT_LABEL[suggested]}` : run?.suggestedVerdict ? `Agent suggests ${VERDICT_LABEL[run.suggestedVerdict]}` : left ? "The agent found open items" : "Agent’s check"}
           </p>
           {suggested && suggested !== d.draft.verdict && !d.ownPr && d.editable && <Button size="sm" variant="outline" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} disabled={d.busy} onClick={() => d.chooseVerdict(suggested)}>Switch to {VERDICT_LABEL[suggested]}</Button>}
-          {said && <div className="min-w-0 basis-full"><Clamped body={said} /></div>}
+          {said && <div className="min-w-0 basis-full"><Clamped body={linkImages(said)} /></div>}
           {run && (run.suggestedVerdict || left) && <span className="flex flex-wrap gap-1.5">
             {feedback?.suggestionInDraft
               ? <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="CircleCheck" className="size-3.5 text-diff-added" aria-hidden />In your draft</span>

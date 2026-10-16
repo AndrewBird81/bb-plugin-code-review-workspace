@@ -299,6 +299,39 @@ test("Reply posts now: on your thread through your feedback, on someone else's a
   slot.lifecycle.unmount();
 });
 
+test("images in GitHub's comments, by anyone, and in the agent's words show as links; your own draft's stay as written", async () => {
+  const image = (alt: string) => `![${alt}](https://attacker.example/${alt}.png)`;
+  const { slot } = await renderWorkspace({ rpc: {
+    getReviewThreads: () => ({ threads: [{ ...threads()[0], comments: [said("c1", 111, "bob", `Look ${image("bob")}`, 48), said("c2", 112, "alice", '<img src="https://attacker.example/alice.gif">', 5)] }] }),
+    getFeedback: () => ({ feedback: feedbackOf([], null) }),
+    getReplyDrafts: () => ({ drafts: [{ threadId: "t1", body: `Reply ${image("reply")}`, author: "agent", updatedAt: now }] }),
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [
+      { file: "src/a.ts", line: 1, side: "RIGHT", body: `Mine ${image("mine")}` },
+      { file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", body: `Agent ${image("agent")}`, evidence: `Checked ${image("evidence")}` },
+    ] }, stale: [], discussions: [{ file: "src/a.ts", line: 1, side: "RIGHT", waiting: false, entries: [
+      { author: "reviewer", kind: "message", body: `Asked ${image("asked")}`, createdAt: now - HOUR },
+      { author: "agent", kind: "message", body: `Answered ${image("answer")}`, createdAt: now },
+    ] }] }),
+  } });
+  const cards = code(slot, "src/a.ts");
+  await cards.findByRole("article", { name: "GitHub thread on src/a.ts:2" });
+  fireEvent.click(cards.getByRole("button", { name: "How the agent checked" }));
+  const texts = cards.getAllByTestId("bb-markdown").map((markdown: HTMLElement) => markdown.textContent);
+  expect(texts).toEqual(expect.arrayContaining([
+    "Look [Image: bob](https://attacker.example/bob.png)",
+    "[Image](https://attacker.example/alice.gif)",
+    "Agent [Image: agent](https://attacker.example/agent.png)",
+    "Checked [Image: evidence](https://attacker.example/evidence.png)",
+    "Reply [Image: reply](https://attacker.example/reply.png)",
+    "Answered [Image: answer](https://attacker.example/answer.png)",
+    "Mine ![mine](https://attacker.example/mine.png)",
+    "Asked ![asked](https://attacker.example/asked.png)",
+  ]));
+  expect(texts.join("\n")).not.toMatch(/!\[(bob|agent|evidence|reply|answer)\]|<img/);
+  expect(slot.container.querySelector("img[src^='https://attacker.example']")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("a resolve in the code shows in the list at once, and one in the list in the code: they read the same threads", async () => {
   let resolved = false;
   const { slot, rpc } = await renderWorkspace({ rpc: {
