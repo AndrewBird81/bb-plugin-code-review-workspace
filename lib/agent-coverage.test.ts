@@ -10,6 +10,12 @@ test("counts the files worth reading that the agent read, leaving out lockfiles 
   expect(readOf({ read: 0, total: 1, unread: ["x"] })).toBe("0 of 1 file");
 });
 
+test("a file the change put at a path that reads as generated counts as one to read", () => {
+  expect(agentCoverage(["src/a.ts", "src/vendor/hook.ts"], { head: "h1", files: ["src/a.ts"] }, "h1", new Set(), new Set(["src/vendor/hook.ts"])))
+    .toEqual({ read: 1, total: 2, unread: ["src/vendor/hook.ts"] });
+  expect(agentCoverage(["src/a.ts", "src/vendor/hook.ts"], { head: "h1", files: ["src/a.ts"] }, "h1", new Set()).total).toBe(1);
+});
+
 test("reads at another head, or none, count for nothing; a local review has no head to differ", () => {
   expect(agentCoverage(files, { head: "h0", files: ["src/a.ts"] }, "h1", new Set()).read).toBe(0);
   expect(agentCoverage(files, null, "h1", new Set()).read).toBe(0);

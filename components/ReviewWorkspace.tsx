@@ -57,6 +57,7 @@ import { TopBand, navigatorId } from "./shell/TopBand";
 import { ReviewMenu } from "./TitleBarControls";
 import { TOUCH_CONTROL } from "./touch";
 import { splitPatchByFile } from "../src/patch";
+import { chosenPaths } from "../src/classify";
 import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunks";
 import { approveGuard } from "../lib/approve-guard";
 import { agentCoverage } from "../lib/agent-coverage";
@@ -593,13 +594,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const shownOwners = codeOwners ? owners : NO_OWNERS;
   const sections = useMemo(() => guide?.sections ? withOtherFiles(fitHunks(guide.sections, patch), patch) : [], [guide, patch]);
   const lines = useMemo(() => changedLines(patch), [patch]);
-  const readLines = useMemo(() => readingLines([...lines.keys()], lines, generated), [lines, generated]);
-  const chapterLines = useMemo(() => chapterReadingLines(sections, patch, lines, generated), [sections, patch, lines, generated]);
+  // Files the change put at their paths, which their paths don't make generated.
+  const chosenFiles = useMemo(() => chosenPaths(splitPatchByFile(patch)), [patch]);
+  const readLines = useMemo(() => readingLines([...lines.keys()], lines, generated, chosenFiles), [lines, generated, chosenFiles]);
+  const chapterLines = useMemo(() => chapterReadingLines(sections, patch, lines, generated, chosenFiles), [sections, patch, lines, generated, chosenFiles]);
   // What Finish review asks about when you approve.
   const guardOn = useKnob("approveGuard");
   const pace = useKnob("approveGuardPace");
-  const guard = useMemo(() => guardOn ? approveGuard(sections, views, patch, lines, generated, pace) : undefined,
-    [sections, views, patch, lines, generated, guardOn, pace]);
+  const guard = useMemo(() => guardOn ? approveGuard(sections, views, patch, lines, generated, pace, chosenFiles) : undefined,
+    [sections, views, patch, lines, generated, guardOn, pace, chosenFiles]);
   // Whether a chapter's file changed since, and so shows narrowed.
   const texts = useMemo(() => new Map(splitPatchByFile(patch).map((f) => [f.path, f.text])), [patch]);
   const changedIn = useCallback((diff: any) => {
@@ -754,8 +757,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const reviewFiles: string[] = useMemo(() => [...new Set<string>(sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)))], [sections]);
   // What the agent read through Guided Review, beside its verdict in Finish review.
   const coverageOn = useKnob("agentCoverage");
-  const coverage = useMemo(() => coverageOn ? agentCoverage(reviewFiles, review?.agentReads, review?.headSha, generated) : undefined,
-    [coverageOn, reviewFiles, review?.agentReads, review?.headSha, generated]);
+  const coverage = useMemo(() => coverageOn ? agentCoverage(reviewFiles, review?.agentReads, review?.headSha, generated, chosenFiles) : undefined,
+    [coverageOn, reviewFiles, review?.agentReads, review?.headSha, generated, chosenFiles]);
 
   // Restore the saved scroll position once the page it was saved on shows. The diff draws its files a moment later, so
   // it follows them down until it gets there, for a few seconds, or until you scroll or tap yourself. Meanwhile the
@@ -1360,7 +1363,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     >
       <div className="relative flex min-h-0 flex-1">
         <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetTitle={<ChapterViewSwitch view={navView} onChange={changeNavView} />} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelDockWidth(paneWidth, panelWidth) : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
-          <NavigatorAtFile targetKey={targetKey} leading={<TopBand />} patch={patch} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={shownOwners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} initialFind={carry?.find} onFind={keepFind} />
+          <NavigatorAtFile targetKey={targetKey} leading={<TopBand />} patch={patch} changedSince={changedSince} lines={lines} generated={generated} chosen={chosenFiles} threads={diffThreads.threads} owners={shownOwners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} initialFind={carry?.find} onFind={keepFind} />
         </NavigatorHost>
         <main aria-label="Review" inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
           {/* With the keyboard up leaving a phone held sideways' room or less, the band and notices give way to the code. */}
@@ -1408,7 +1411,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
               </CheckFailuresContext.Provider>
               <ChapterFooter patch={patch} />
               </>
-            ) : <ReviewOverview checks={checks} readLines={readLines} changedSince={changedSince} generated={generated} snoozing={snoozing} resume={lastChapter} onShowFeedback={showFeedback} onOpenLine={openHotspot} />}
+            ) : <ReviewOverview checks={checks} readLines={readLines} changedSince={changedSince} generated={generated} chosen={chosenFiles} snoozing={snoozing} resume={lastChapter} onShowFeedback={showFeedback} onOpenLine={openHotspot} />}
           </div>
         </main>
         <SidePanel targetKey={targetKey} placement={layout.panel} sheet={sheet} view={shownPanel} width={panelWidth} maxWidth={Math.min(PANEL_WIDTH.max, paneWidth - READER_MIN - (layout.nav === "docked" ? navWidth : 0))} onWidth={setPanelWidth} onWidthDone={savePanelWidth} onClose={closePanel} onBack={() => { openPanel("comments"); focusComments(targetKey); }}>

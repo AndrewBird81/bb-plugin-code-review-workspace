@@ -43,6 +43,14 @@ test("lockfiles, generated files, and huge diffs start folded, keeping their tag
   expect(screen.getAllByRole("button", { name: /^Show diff of / }).map((button) => button.getAttribute("aria-label"))).toEqual(["Show diff of package-lock.json", "Show diff of dist/app.js"]);
 });
 
+test("a file the PR adds under a path that reads as generated opens as code, untagged", () => {
+  const added = (path: string) => file(path, ["exec(process.env.PAYLOAD);"]).replace(`b/${path}\n`, `b/${path}\nnew file mode 100644\n`);
+  show(added("src/vendor/hook.js") + file("vendor/lib.js", ["x"]), ["src/vendor/hook.js", "vendor/lib.js"]);
+  expect(drawn.map((d) => d.name)).toEqual(["src/vendor/hook.js"]);
+  expect(header("src/vendor/hook.js").queryByText(/skip/)).toBeNull();
+  expect(header("vendor/lib.js").getByText("generated · skip")).toBeTruthy();
+});
+
 test("a file's row sticks and names the file; what else there is about it scrolls away under it, Renamed from included", () => {
   const renamed = "diff --git a/src/util/time.ts b/src/util/clock-time.ts\nsimilarity index 90%\nrename from src/util/time.ts\nrename to src/util/clock-time.ts\n--- a/src/util/time.ts\n+++ b/src/util/clock-time.ts\n@@ -1 +1 @@\n-a\n+b\n";
   show(renamed + file("src/a.ts", ["a"]), ["src/util/clock-time.ts", "src/a.ts"]);

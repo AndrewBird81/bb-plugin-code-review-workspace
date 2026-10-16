@@ -1,6 +1,6 @@
 // What the agents read of a review's diff: a list of its files, and pages of it.
-import { patchRows, splitPatchByFile } from "./patch";
-import { classifyFile } from "./classify";
+import { patchRows, splitPatchByFile, type PatchFile } from "./patch";
+import { classifyFile, isChosenPath } from "./classify";
 import { FILES_CAPPED_NOTE } from "./pr-snapshot";
 import { testWeakening, weakeningMark } from "../lib/test-weakening";
 import { digestText, lockfileDigest } from "../lib/lockfile-digest";
@@ -14,7 +14,9 @@ export interface FileMarks { testWeakening?: boolean; lockfileDigest?: boolean }
  */
 export function describeReviewFiles(patch: string, generated: string[] = [], marks: FileMarks = {}): string {
   const files = splitPatchByFile(patch);
-  const rows = files.map(({ path, oldPath, text }) => {
+  const rows = files.map((file) => {
+    const { path, oldPath, text } = file;
+    const chosen = isChosenPath(file);
     const status = oldPath ? `renamed from ${oldPath}`
       : /^new file mode /m.test(text) ? "added" : /^deleted file mode /m.test(text) ? "deleted" : "modified";
     const lines = patchRows(text);
@@ -22,9 +24,9 @@ export function describeReviewFiles(patch: string, generated: string[] = [], mar
     const removed = lines.filter((row) => row.kind === "-").length;
     // readFilesPatch's note, outside the hunks, where a changed line can't fake it.
     const unsent = lines.some((row) => row.kind !== "+" && row.kind !== "-" && row.kind !== " " && row.text.startsWith("GitHub didn't send this file's diff"));
-    const weakened = marks.testWeakening ? testWeakening(path, text, generated.includes(path)) : null;
+    const weakened = marks.testWeakening ? testWeakening(path, text, generated.includes(path), chosen) : null;
     const digest = marks.lockfileDigest ? lockfileDigest(path, text) : null;
-    return `${path} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path, generated.includes(path)).category}${unsent ? " · diff unavailable: read it on GitHub" : ""}${weakened ? ` · ${weakeningMark(weakened)}` : ""}${digest ? ` · ${digestText(digest)}` : ""}`;
+    return `${path} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path, generated.includes(path), chosen).category}${unsent ? " · diff unavailable: read it on GitHub" : ""}${weakened ? ` · ${weakeningMark(weakened)}` : ""}${digest ? ` · ${digestText(digest)}` : ""}`;
   });
   const capped = patch.startsWith(FILES_CAPPED_NOTE) ? [FILES_CAPPED_NOTE] : [];
   return [...capped, `${files.length} file${files.length === 1 ? "" : "s"} (path · status · lines added and removed · diff size · kind):`, ...rows].join("\n");
@@ -32,17 +34,18 @@ export function describeReviewFiles(patch: string, generated: string[] = [], mar
 
 /**
  * The diff as read_review_patch pages it: each lockfile's and generated or vendored file's hunks as one line, since they
- * rarely need reading and can fill pages. `generated`: the files the repo's .gitattributes marks generated; with
+ * rarely need reading and can fill pages. A file at a path the change chose is paged in full, whatever its path. `generated`: the files the repo's .gitattributes marks generated; with
  * `marks.lockfileDigest`, a lockfile's stub says what it adds and removes.
  */
 export function stubSkippedFiles(patch: string, generated: string[] = [], marks: FileMarks = {}): string {
   const files = splitPatchByFile(patch);
-  const skipped = (path: string) => { const kind = classifyFile(path, generated.includes(path)).category; return kind === "lockfile" || kind === "generated" ? kind : null; };
-  if (!files.some((file) => skipped(file.path))) return patch;
+  const skipped = (file: PatchFile) => { const kind = classifyFile(file.path, generated.includes(file.path), isChosenPath(file)).category; return kind === "lockfile" || kind === "generated" ? kind : null; };
+  if (!files.some(skipped)) return patch;
   // What comes before the first file, such as readFilesPatch's note, stays.
   const first = patch.startsWith("diff --git ") ? 0 : patch.indexOf("\ndiff --git ") + 1;
-  return patch.slice(0, first) + files.map(({ path, text }) => {
-    const kind = skipped(path);
+  return patch.slice(0, first) + files.map((file) => {
+    const { path, text } = file;
+    const kind = skipped(file);
     const hunks = text.search(/^@@ /m);
     if (!kind || hunks < 0) return text;
     const rows = patchRows(text);

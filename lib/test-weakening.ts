@@ -17,9 +17,12 @@ const SKIP = /\.(?:skip|only)\b|\bx(?:it|describe|test)\s*\(|@Disabled\b|@Ignore
 /** What counts, for the chip's title. */
 export const WEAKENING_COUNTED = "Counted from this diff: assertion lines (expect(, assert, .should, t.Error, …) removed, net of those added, and added .skip, .only, xit, xdescribe, @Disabled, @Ignore, pytest.mark.skip or t.Skip(.";
 
-/** A test file's weakening in its diff, or null for a file that isn't a test or whose tests the diff doesn't weaken. `generated`: the repo marks it generated. */
-export function testWeakening(path: string, diff: string, generated = false): TestWeakening | null {
-  if (classifyFile(path, generated).category !== "test") return null;
+/**
+ * A test file's weakening in its diff, or null for a file that isn't a test or whose tests the diff doesn't weaken.
+ * `generated`: the repo marks it generated; `chosen`: the change put it at its path (isChosenPath).
+ */
+export function testWeakening(path: string, diff: string, generated = false, chosen = false): TestWeakening | null {
+  if (classifyFile(path, generated, chosen).category !== "test") return null;
   let assertions = 0, skips = 0;
   for (const row of patchRows(diff)) {
     if (row.kind !== "+" && row.kind !== "-") continue;

@@ -24,6 +24,14 @@ test("files in high-risk chapters not viewed are doubts, but not lockfiles, nor 
   expect(approveDoubts(guard({}))).toEqual(["2 files in high-risk chapters not viewed."]);
 });
 
+test("a file the change put at a path that reads as generated is a doubt unviewed, as any file to read", () => {
+  const withVendor = [chapter("auth", "high", "src/auth.ts", "src/vendor/hook.ts")];
+  const both = patch + added("src/vendor/hook.ts", 5);
+  const marks = viewed({ "src/auth.ts": 0 });
+  expect(approveGuard(withVendor, marks, both, changedLines(both)).unviewed).toEqual([]);
+  expect(approveGuard(withVendor, marks, both, changedLines(both), undefined, MAX_LINES_PER_HOUR, new Set(["src/vendor/hook.ts"])).unviewed).toEqual(["src/vendor/hook.ts"]);
+});
+
 test("a chapter is read from the mark before it to its last mark, and over 500 lines an hour is a doubt", () => {
   // The docs, then auth's 500 lines in 30 minutes (1,000 an hour), then ui's 400 lines in 60 minutes.
   const marks = { "README.md": 0, "src/auth.ts": 20 * MINUTE, "src/session.ts": 30 * MINUTE, "src/ui.ts": 90 * MINUTE };

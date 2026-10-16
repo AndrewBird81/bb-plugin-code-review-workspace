@@ -19,10 +19,11 @@ export interface ApproveGuard {
 
 /**
  * A chapter's reading time runs from the last mark before its first one, in any chapter, to its last mark. With no
- * mark before it, the files marked first have no reading time to measure, so they don't count.
+ * mark before it, the files marked first have no reading time to measure, so they don't count. `chosen`: files the
+ * change put at their paths, which their paths don't make generated.
  */
-export function approveGuard(sections: readonly Chapter[], views: ReadonlyMap<string, FileViewFlags>, patch: string, lines: ReadonlyMap<string, number>, generated?: ReadonlySet<string>, linesPerHour = MAX_LINES_PER_HOUR): ApproveGuard {
-  const toRead = (file: string) => !classifyFile(file, generated?.has(file)).skippable;
+export function approveGuard(sections: readonly Chapter[], views: ReadonlyMap<string, FileViewFlags>, patch: string, lines: ReadonlyMap<string, number>, generated?: ReadonlySet<string>, linesPerHour = MAX_LINES_PER_HOUR, chosen?: ReadonlySet<string>): ApproveGuard {
+  const toRead = (file: string) => !classifyFile(file, generated?.has(file), chosen?.has(file)).skippable;
   const markOf = (file: string) => { const view = views.get(file); return view?.viewed ? view.viewedAt : undefined; };
   const marks = [...views.values()].flatMap((view) => view.viewed && view.viewedAt !== undefined ? [view.viewedAt] : []);
   const unviewed = [...new Set(sections.filter((section) => section.risk === "high").flatMap((section) => section.diffs.map((diff) => diff.file)))]
@@ -38,7 +39,7 @@ export function approveGuard(sections: readonly Chapter[], views: ReadonlyMap<st
     const counted = earlier.length ? read : read.filter((diff) => markOf(diff.file)! > first);
     return [{ section: { id: section.id, diffs: counted }, number: index + 1, risk: section.risk, ms: last - start }];
   });
-  const counts = chapterReadingLines(timed.map(({ section }) => section), patch, lines, generated);
+  const counts = chapterReadingLines(timed.map(({ section }) => section), patch, lines, generated, chosen);
   const rushed = timed.flatMap(({ section, number, risk, ms }) => {
     const count = counts.get(section.id) ?? 0;
     return count >= PACE_MIN_LINES && count > linesPerHour * ms / 3_600_000 ? [{ id: section.id, number, risk, lines: count, minutes: ms / 60_000 }] : [];

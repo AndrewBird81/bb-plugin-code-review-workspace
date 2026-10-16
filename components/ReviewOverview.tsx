@@ -139,7 +139,7 @@ function CheckList({ checks }: { checks: Checks["checks"] }) {
  * what changed since your review, what and why, what to read first, what it asks for, checks that need a look, and the
  * chapters themselves.
  */
-export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, changedSince, generated, snoozing, resume, onShowFeedback, onOpenLine }: {
+export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, changedSince, generated, chosen, snoozing, resume, onShowFeedback, onOpenLine }: {
   checks: Checks | null;
   /** The changed lines worth reading (lib/review-size.ts readingLines). */
   readLines: number;
@@ -147,6 +147,8 @@ export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, 
   changedSince?: Record<string, number>;
   /** Files the repo's .gitattributes marks generated or vendored. */
   generated?: ReadonlySet<string>;
+  /** Files the change put at their paths (src/classify.ts isChosenPath), which their paths don't make generated. */
+  chosen?: ReadonlySet<string>;
   snoozing: boolean;
   /** The chapter you were reading, to continue from. */
   resume?: string;
@@ -203,7 +205,7 @@ export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, 
             {sections.map((section, index) => {
               const viewed = section.diffs.filter((diff) => files.views.get(diff.file)?.viewed).length;
               const total = section.diffs.length;
-              const skippable = section.diffs.filter((diff) => classifyFile(diff.file, generated?.has(diff.file)).skippable).length;
+              const skippable = section.diffs.filter((diff) => classifyFile(diff.file, generated?.has(diff.file), chosen?.has(diff.file)).skippable).length;
               const changedFiles = changedSince?.[section.id] ?? 0;
               return (
                 <li key={section.id}>

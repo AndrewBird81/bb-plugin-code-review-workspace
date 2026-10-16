@@ -13,7 +13,7 @@ import { Icon } from "./ui/icon";
  * Where you are in the review: Find in review's box after `leading`, then the Overview and the chapters, or every file.
  * The workspace hosts it beside the code, over it, or in a phone's sheet.
  */
-export const Navigator = memo(function Navigator({ leading, patch, currentFile, changedSince, lines, generated, threads, owners, onSelect, onSelectFile, onOpenLine, onOpenFile, initialFind, onFind }: {
+export const Navigator = memo(function Navigator({ leading, patch, currentFile, changedSince, lines, generated, chosen, threads, owners, onSelect, onSelectFile, onOpenLine, onOpenFile, initialFind, onFind }: {
   leading: ReactNode;
   /** Find in review's query as a remounted workspace had it, and where its changes go to be kept for the next. */
   initialFind?: string;
@@ -25,6 +25,8 @@ export const Navigator = memo(function Navigator({ leading, patch, currentFile, 
   changedSince?: Record<string, number>;
   lines?: ReadonlyMap<string, number>;
   generated?: ReadonlySet<string>;
+  /** Files the change put at their paths (src/classify.ts isChosenPath), which their paths don't make generated. */
+  chosen?: ReadonlySet<string>;
   threads?: readonly ReviewThread[];
   owners?: ReadonlyMap<string, FileOwners>;
   /** Show a chapter, or the Overview. */
@@ -50,6 +52,7 @@ export const Navigator = memo(function Navigator({ leading, patch, currentFile, 
         lines={lines}
         patch={patch}
         generated={generated}
+        chosen={chosen}
         view={nav.view}
         onViewChange={nav.setView}
         since={compare.since}

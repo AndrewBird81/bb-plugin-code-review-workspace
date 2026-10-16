@@ -101,6 +101,7 @@ export const ChapterNav = memo(function ChapterNav({
   changedSince,
   lines,
   generated,
+  chosen,
   view = "chapters",
   onViewChange,
   since,
@@ -126,6 +127,8 @@ export const ChapterNav = memo(function ChapterNav({
   lines?: ReadonlyMap<string, number>;
   /** Files the repo's .gitattributes marks generated or vendored. */
   generated?: ReadonlySet<string>;
+  /** Files the change put at their paths (src/classify.ts isChosenPath), which their paths don't make generated. */
+  chosen?: ReadonlySet<string>;
   /** The chapters, or every file as a folder tree. */
   view?: NavView;
   onViewChange?: (view: NavView) => void;
@@ -163,7 +166,7 @@ export const ChapterNav = memo(function ChapterNav({
   const currentRow = useRef<HTMLButtonElement | null>(null);
   useEffect(() => { currentRow.current?.scrollIntoView?.({ block: "nearest" }); }, [currentFile, activeId]);
   const viewedAll = allFiles.filter((f) => views.get(f)?.viewed).length;
-  const toRead = useMemo(() => lines ? chapterReadingLines(sections, patch ?? "", lines, generated) : null, [sections, patch, lines, generated]);
+  const toRead = useMemo(() => lines ? chapterReadingLines(sections, patch ?? "", lines, generated, chosen) : null, [sections, patch, lines, generated, chosen]);
   // A split file opens in the open chapter when it's there, else in the first chapter with it.
   const chapterOf = useMemo(() => {
     const map = new Map<string, string>();
@@ -193,7 +196,7 @@ export const ChapterNav = memo(function ChapterNav({
         </div>
       </div>
       {view === "files" ? (
-        <FileTree chapterOf={chapterOf} views={views} onSelectFile={onSelectFile} currentFile={currentFile} since={since} threads={threads} owners={owners} generated={generated} sinceWhat={sinceWhat} />
+        <FileTree chapterOf={chapterOf} views={views} onSelectFile={onSelectFile} currentFile={currentFile} since={since} threads={threads} owners={owners} generated={generated} chosen={chosen} sinceWhat={sinceWhat} />
       ) : (
       <div className="space-y-0.5">
       {overview}
@@ -201,7 +204,7 @@ export const ChapterNav = memo(function ChapterNav({
         {sections.map((s, index) => {
           const active = s.id === activeId;
           const open = isExpanded(s.id);
-          const skippable = s.diffs.filter((d) => classifyFile(d.file, generated?.has(d.file)).skippable).length;
+          const skippable = s.diffs.filter((d) => classifyFile(d.file, generated?.has(d.file), chosen?.has(d.file)).skippable).length;
           const allSkippable = s.diffs.length > 0 && skippable === s.diffs.length;
           const viewed = s.diffs.filter((d) => views.get(d.file)?.viewed).length;
           const done = s.diffs.length > 0 && viewed === s.diffs.length;
@@ -255,7 +258,7 @@ export const ChapterNav = memo(function ChapterNav({
                     {s.diffs.map((d) => {
                       const viewed = views.get(d.file)?.viewed ?? false;
                       const current = active && d.file === currentFile;
-                      const kind = classifyFile(d.file, generated?.has(d.file));
+                      const kind = classifyFile(d.file, generated?.has(d.file), chosen?.has(d.file));
                       // The row shows the folders only another file of its name needs; it's named by its whole path.
                       const name = [d.file, kind.category !== "code" && (kind.skippable ? `${kind.label} · skip` : kind.label), viewed && "viewed"].filter(Boolean).join(", ");
                       return (
@@ -282,7 +285,7 @@ export const ChapterNav = memo(function ChapterNav({
                             >
                               {shortNames.get(d.file) ?? d.file}
                             </span>
-                            <FileTag file={d.file} generated={generated?.has(d.file)} />
+                            <FileTag file={d.file} generated={generated?.has(d.file)} chosen={chosen?.has(d.file)} />
                           </button>
                         </li>
                       );

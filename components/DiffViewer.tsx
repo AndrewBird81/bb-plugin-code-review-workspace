@@ -13,7 +13,7 @@ import { sameLocation, type CommentLocation } from "../src/draft";
 import { cn } from "../lib/utils";
 import { useOffFold } from "../lib/use-fold";
 import { buildItems, fileCounts } from "../lib/comments";
-import { classifyFile } from "../src/classify";
+import { classifyFile, isChosenPath } from "../src/classify";
 import { useKnob } from "../lib/settings";
 import { testWeakening, weakeningChip, WEAKENING_COUNTED } from "../lib/test-weakening";
 import { lockfileDigest, packagesChange } from "../lib/lockfile-digest";
@@ -78,8 +78,8 @@ const LARGE_DIFF = 1500;
 const TOKENIZE_MAX_LENGTH = 5000;
 
 /** Lockfiles and generated output, while Settings folds them (`foldGenerated`), and huge diffs: noise to fold until asked for. */
-function startsFolded(path: string, stats: { add: number; del: number }, declared: boolean, foldGenerated: boolean): boolean {
-  const category = foldGenerated ? classifyFile(path, declared).category : null;
+function startsFolded(path: string, stats: { add: number; del: number }, declared: boolean, chosen: boolean, foldGenerated: boolean): boolean {
+  const category = foldGenerated ? classifyFile(path, declared, chosen).category : null;
   return category === "lockfile" || category === "generated" || stats.add + stats.del > LARGE_DIFF;
 }
 
@@ -464,11 +464,13 @@ export const DiffViewer = memo(function DiffViewer({
       }
       const stats = diffStats(text);
       const shownStats = shown === text ? stats : diffStats(shown);
+      const chosen = isChosenPath(f);
       return [{
         path: f.path,
         oldPath: f.oldPath,
         stats,
-        noisy: startsFolded(f.path, stats, generated.has(f.path), foldGenerated),
+        chosen,
+        noisy: startsFolded(f.path, stats, generated.has(f.path), chosen, foldGenerated),
         fileDiff,
         shown,
         whitespaceOnly: stats.add + stats.del > 0 && shownStats.add + shownStats.del === 0,
@@ -484,7 +486,7 @@ export const DiffViewer = memo(function DiffViewer({
         // A split file's comments and threads show in the chapter with their line.
         inPart: split ? diffLines(own) : undefined,
         // What the PR's diff of a test file takes out of its tests.
-        weakening: flagWeakTests ? testWeakening(f.path, f.text, generated.has(f.path)) : null,
+        weakening: flagWeakTests ? testWeakening(f.path, f.text, generated.has(f.path), chosen) : null,
         // What the PR's diff of a lockfile adds and removes.
         digest: digestLockfiles ? lockfileDigest(f.path, f.text) : null,
       }];
@@ -731,7 +733,7 @@ export const DiffViewer = memo(function DiffViewer({
     <div ref={root} className="space-y-4">
       {narrowedStatus}
       {compareSwitch}
-      {perFile.map(({ path, oldPath, stats, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, noisy: noise, weakening, digest }) => {
+      {perFile.map(({ path, oldPath, stats, chosen, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, noisy: noise, weakening, digest }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
@@ -749,7 +751,7 @@ export const DiffViewer = memo(function DiffViewer({
         // Noise folded unseen shows what it is and how to see it; any other folded file is its row alone.
         const showDiff = folded && !viewed && noise;
         const detailed = !folded || showDiff;
-        const tagged = classifyFile(path, generated.has(path)).category !== "code";
+        const tagged = classifyFile(path, generated.has(path), chosen).category !== "code";
         // A local review's file that's still in its checkout opens in an editor.
         const inEditor = !!editor && fileDiff?.type !== "deleted";
         const details = detailed && (summary || oldPath || split || owned || stale || tagged || showDiff || readContents && source && !folded || inEditor);
@@ -830,7 +832,7 @@ export const DiffViewer = memo(function DiffViewer({
                   {stale && <p className="flex items-center gap-1 text-[11px] font-medium text-warning-text"><Icon name="AlertTriangle" className="size-3 shrink-0" aria-hidden />Changed since you viewed it</p>}
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <FileTag file={path} generated={generated.has(path)} className="text-[11px]" />
+                  <FileTag file={path} generated={generated.has(path)} chosen={chosen} className="text-[11px]" />
                   {/* Why a file of code folded: its tag says why a lockfile or generated file did. */}
                   {showDiff && stats.add + stats.del > LARGE_DIFF && <span className="text-[11px] tabular-nums text-muted-foreground">Large diff · {(stats.add + stats.del).toLocaleString()} lines</span>}
                   {showDiff && (

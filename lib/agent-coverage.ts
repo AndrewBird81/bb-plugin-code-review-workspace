@@ -12,11 +12,12 @@ export interface AgentCoverage {
 
 /**
  * The agent's reads (src/agent-reads.ts) of `files`, in reading order, leaving out what a reviewer can skip: lockfiles,
- * and generated or vendored files, `generated` being those the repo marks. Reads at another PR head count for nothing.
+ * and generated or vendored files, `generated` being those the repo marks, but not files the change put at their paths
+ * (`chosen`). Reads at another PR head count for nothing.
  */
-export function agentCoverage(files: readonly string[], reads: { head: string; files: string[] } | null | undefined, headSha: string | undefined, generated: ReadonlySet<string>): AgentCoverage {
+export function agentCoverage(files: readonly string[], reads: { head: string; files: string[] } | null | undefined, headSha: string | undefined, generated: ReadonlySet<string>, chosen?: ReadonlySet<string>): AgentCoverage {
   const read = new Set(reads && (!headSha || reads.head === headSha) ? reads.files : []);
-  const worth = [...new Set(files)].filter((file) => !classifyFile(file, generated.has(file)).skippable);
+  const worth = [...new Set(files)].filter((file) => !classifyFile(file, generated.has(file), chosen?.has(file)).skippable);
   const unread = worth.filter((file) => !read.has(file));
   return { read: worth.length - unread.length, total: worth.length, unread };
 }

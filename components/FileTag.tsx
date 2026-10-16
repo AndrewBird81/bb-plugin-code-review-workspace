@@ -17,8 +17,8 @@ const CATEGORY_TONE: Record<Exclude<FileCategory, "code">, Tone> = {
  * hint so the reviewer can see what they don't need to read closely. Tests
  * get a plain tag: they deserve review with the code they test.
  */
-export const FileTag = memo(function FileTag({ file, generated = false, className }: { file: string; generated?: boolean; className?: string }) {
-  const c = classifyFile(file, generated);
+export const FileTag = memo(function FileTag({ file, generated = false, chosen = false, className }: { file: string; generated?: boolean; chosen?: boolean; className?: string }) {
+  const c = classifyFile(file, generated, chosen);
   if (c.category === "code") return null;
   return (
     <Badge

@@ -48,6 +48,7 @@ export const FileTree = memo(function FileTree({
   threads,
   owners,
   generated,
+  chosen,
   sinceWhat,
 }: {
   /** Each file in the review, in the guide's order, and its chapter. */
@@ -60,6 +61,8 @@ export const FileTree = memo(function FileTree({
   threads?: readonly ReviewThread[];
   owners?: ReadonlyMap<string, FileOwners>;
   generated?: ReadonlySet<string>;
+  /** Files the change put at their paths (src/classify.ts isChosenPath), which their paths don't make generated. */
+  chosen?: ReadonlySet<string>;
   /** What `since` compares with: "your review", or a commit. */
   sinceWhat: string;
 }) {
@@ -154,7 +157,7 @@ export const FileTree = memo(function FileTree({
                   <Icon name="BubbleChatQuestion" className="size-3" aria-hidden /><span aria-hidden>{talk}</span><span className="sr-only">{talkLabel}</span>
                 </span>
               )}
-              <FileTag file={file} generated={generated?.has(file)} />
+              <FileTag file={file} generated={generated?.has(file)} chosen={chosen?.has(file)} />
             </span>
             {owned && (
               <span className={cn("mt-0.5 flex items-center gap-1 text-[10px]", owned.mine ? "text-primary" : "text-subtle-foreground")} title={`CODEOWNERS: ${owned.owners.join(", ")}`}>

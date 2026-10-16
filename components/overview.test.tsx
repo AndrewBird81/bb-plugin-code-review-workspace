@@ -25,12 +25,12 @@ const twoChapters = {
   ],
 };
 
-function renderWorkspace(review: Record<string, unknown>, rpc: Record<string, (input: any) => unknown> = {}, sent: object = guide, knobs: Partial<Knobs> = {}) {
+function renderWorkspace(review: Record<string, unknown>, rpc: Record<string, (input: any) => unknown> = {}, sent: object = guide, knobs: Partial<Knobs> = {}, patch = "") {
   return loadPluginApp(() => import("../app")).then((app) => renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
     getChecks: () => ({ bucket: "none", checks: [] }),
     ...rpc,
     setReviewPresence: () => ({ ok: true }),
-    getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, ...review }, guide: structuredClone(sent), patch: "", revision: "r1" }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, ...review }, guide: structuredClone(sent), patch, revision: "r1" }),
     getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, ...knobs } }, revision: 0 }),
     getFileViews: () => ({ views: [] }),
     checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
@@ -301,5 +301,15 @@ test("images in the guide's own words show as links: What and why, Since your re
   fireEvent.click(slot.getByRole("button", { name: "Start reading: Refresh" }));
   expect(await main(slot).findByText("How [Image: overview](https://evil.example/overview.png)")).toBeTruthy();
   expect(main(slot).queryByText(/!\[/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("a file the PR adds under a path that reads as generated counts as one to read, in the chapter list and the lines to read", async () => {
+  const diff = (path: string, added: boolean) => `diff --git a/${path} b/${path}\n${added ? "new file mode 100644\n" : ""}--- a/${path}\n+++ b/${path}\n@@ -0,0 +1,2 @@\n+a\n+b\n`;
+  const sent = { ...guide, sections: [{ id: "c1", title: "Hooks", overview: "", risk: "high", diffs: [{ file: "src/vendor/hook.js" }, { file: "vendor/lib.js" }] }] };
+  const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url }, {}, sent, {}, diff("src/vendor/hook.js", true) + diff("vendor/lib.js", false));
+  const chapters = within(await within(await slot.findByRole("main", { name: "Review" })).findByRole("region", { name: "Chapters" }));
+  expect(chapters.getByRole("button").textContent).toContain("1 skippable");
+  expect(main(slot).getByText(/^2 changed lines/)).toBeTruthy();
   slot.lifecycle.unmount();
 });

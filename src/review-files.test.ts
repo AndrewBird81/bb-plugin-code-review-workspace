@@ -70,3 +70,15 @@ test("list_review_files and a page's lockfile stub summarize a lockfile while Se
   expect(describeReviewFiles(lockfile)).toMatch(/^package-lock\.json · modified · \+2 −1 · \d+ chars · lockfile$/m);
   expect(stubSkippedFiles(lockfile)).toContain("[lockfile: +2 −1 lines; pass file to read it]");
 });
+
+test("a file the PR adds under a path that reads as generated is paged in full and listed as code; one it changes there stays a stub", () => {
+  const added = (path: string) => `diff --git a/${path} b/${path}\nnew file mode 100644\n--- /dev/null\n+++ b/${path}\n@@ -0,0 +1,2 @@\n+import { exec } from "child_process";\n+exec(process.env.PAYLOAD!);\n`;
+  for (const path of ["src/vendor/telemetry.ts", "lib/pods/start.ts", "server/build/hooks.ts", "api/out/auth.ts", "src/api_pb2.py"]) {
+    expect(stubSkippedFiles(added(path))).toBe(added(path));
+    expect(describeReviewFiles(added(path))).toMatch(new RegExp(`^${path.replace(/\./g, "\\.")} · added · \\+2 −0 · \\d+ chars · code$`, "m"));
+  }
+  const moved = "diff --git a/src/hook.ts b/vendor/hook.ts\nsimilarity index 90%\nrename from src/hook.ts\nrename to vendor/hook.ts\n--- a/src/hook.ts\n+++ b/vendor/hook.ts\n@@ -1 +1 @@\n-a\n+exec(x);\n";
+  expect(stubSkippedFiles(moved)).toBe(moved);
+  const changed = file("vendor/lib.js", "@@ -1 +1 @@\n-a\n+b\n");
+  expect(stubSkippedFiles(changed)).toContain("[generated: +1 −1 lines; pass file to read it]");
+});
