@@ -115,8 +115,8 @@ test("code spans it can't be sure of, and what follows a doubtful fence, are cha
   // A fence in a list item ends with the item.
   expect(linkImages("- item\n  ```\n![p](https://evil.example/b.png)")).toBe("- item\n  ```\n[Image: p](https://evil.example/b.png)");
   expect(linkImages("1. item\n   ```\nend\n![x](https://evil.test/lf.png)\n```")).toBe("1. item\n   ```\nend\n[Image: x](https://evil.test/lf.png)\n```");
-  // Math, a directive, a definition's title and a tab can each hide where a fence is.
-  for (const before of ["$$\n```\n$$", ":::note\n```\n:::", '[a]: u "\n```\n"', "\t```\nx\n```"]) {
+  // Math, a directive, a definition's title and a tab in a list item can each hide where a fence is.
+  for (const before of ["$$\n```\n$$", ":::note\n```\n:::", '[a]: u "\n```\n"', "- a\n \t```\nx\n```"]) {
     expect(linkImages(`${before}\n<img src="https://evil.test/m.png">\n\`\`\``)).toBe(`${before}\n[Image](https://evil.test/m.png)\n\`\`\``);
   }
   // A definition this can't see: the image keeps its words, as a link at most.
@@ -149,6 +149,16 @@ test("a list item that can't interrupt a paragraph begins no fence", () => {
   expect(linkImages('a\n01. b\n    ```\n    <img src="https://evil.test/x.png">')).toBe("a\n01. b\n    ```\n    [Image](https://evil.test/x.png)");
   // From 1 it does.
   expect(linkImages("a\n1. b\n   ```\n   <img src={logo} />\n   ```")).toBe("a\n1. b\n   ```\n   <img src={logo} />\n   ```");
+});
+
+// At the margin a tab indents to 4 columns, as CommonMark reads it, so the code after a tab-indented line showed
+// changed for nothing (96-recheck-3 P3).
+test("a tab at the margin indents the line 4 columns", () => {
+  for (const text of ["Example:\n\n\tindented();\n\nthen `Array<string>`.", "Text\n\tgoes on `Map<K, V>`", "\t```\nx\n```\n<img src={logo} />\n```"]) {
+    expect(linkImages(text)).toBe(text);
+  }
+  // Indented code is still changed.
+  expect(linkImages('  \t<img src="https://evil.test/ti.png">')).toBe("  \t[Image](https://evil.test/ti.png)");
 });
 
 test("a link after a `!` doesn't make a new image", () => {

@@ -276,11 +276,11 @@ const spaces = (text: string, at = 0) => /^ */.exec(text.slice(at))![0].length;
 
 /**
  * Each row's kind, following CommonMark's block quotes, list items, lazy lines, fences, HTML blocks and paragraphs.
- * Where a reading is in doubt, every row from there on is raw, so nothing after it is kept as code: a tab in an
- * indent; front matter, a math block (`$$`), a directive (`:::`) or a GFM footnote definition (`[^`), whose indented
- * rows are its blocks; a lone tag after a paragraph's line; a fence or HTML block that a row outside its quote or list
- * item ends; a table, or a paragraph that may be a link definition, that a block interrupts or a lazy row continues.
- * Readers other than CommonMark's, or GFM's, may read those otherwise.
+ * Where a reading is in doubt, every row from there on is raw, so nothing after it is kept as code: a tab in a
+ * quote's or list item's indent; front matter, a math block (`$$`), a directive (`:::`) or a GFM footnote definition
+ * (`[^`), whose indented rows are its blocks; a lone tag after a paragraph's line; a fence or HTML block that a row
+ * outside its quote or list item ends; a table, or a paragraph that may be a link definition, that a block interrupts
+ * or a lazy row continues. Readers other than CommonMark's, or GFM's, may read those otherwise.
  */
 function lineKinds(rows: string[]): LineKind[] {
   const kinds = rows.map((): LineKind => "raw");
@@ -322,7 +322,7 @@ function lineKinds(rows: string[]): LineKind[] {
     }
     if (all && leaf?.kind === "indented") {
       const rest = row.slice(pos);
-      if (blank(rest) || spaces(rest) >= 4) return "raw";
+      if (blank(rest) || spaces(rest) >= 4 || (!stack.length && rest[spaces(rest)] === "\t")) return "raw";
       if (rest[spaces(rest)] === "\t") return null;
       leaf = null;
     }
@@ -349,11 +349,13 @@ function lineKinds(rows: string[]): LineKind[] {
       const rest = row.slice(pos);
       if (blank(rest)) break;
       const indent = spaces(rest);
-      if (indent < 4 && rest[indent] === "\t") return null;
+      // Outside any container a tab in the first 4 columns takes the indent to 4; in one, it may split a tab stop.
+      const tab = indent < 4 && rest[indent] === "\t";
+      if (tab && stack.length) return null;
       const tail = rest.slice(indent);
       // CommonMark's "the tip is a paragraph": this row can go on with it, lazily too.
       const continues = !!paragraph && !opened;
-      if (indent >= 4) {
+      if (indent >= 4 || tab) {
         if (continues) break;
         if (!close()) return null;
         leaf = { kind: "indented" };
