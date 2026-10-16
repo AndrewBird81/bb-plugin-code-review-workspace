@@ -182,3 +182,15 @@ test("with Ask why off, a removal takes no reason, and neither the agent nor Set
   expect(listed).not.toContain("why:");
   expect(await rpc("getAgentLearning", null)).toMatchObject({ removed: 1, reasons: [] });
 });
+
+test("with Move to summary off, a comment on an older diff stays put until it's edited or removed", async () => {
+  const { bb, harness, store } = host();
+  await plugin(bb);
+  store.setStatus("pr-1", "ready");
+  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+  store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "Why one?" });
+  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,1 @@\n+uno\n");
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" }) as any;
+  await expect(harness.behavior.callRpc("moveToSummary", { targetKey: "pr-1", revision, file: "a.ts", line: 1, side: "RIGHT" })).rejects.toThrow("Move to summary is off in Settings.");
+  expect(store.getDraft("pr-1")).toMatchObject({ body: "", comments: [{ file: "a.ts", line: 1, body: "Why one?" }] });
+});

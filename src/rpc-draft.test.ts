@@ -188,3 +188,36 @@ test("saving a draft comment tells the review's other windows, so one with its b
   await expect(harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-3", revision, replaces: "other", comment: { file: "a.ts", line: 1, side: "RIGHT", body: "mine" } })).rejects.toThrow(/changed as you wrote/);
   expect(harness.inspection.realtimeSignals.slice(refused).map((signal) => signal.channel)).not.toContain("draft:pr-3");
 });
+
+test("moveToSummary makes a comment on an older diff a line of the summary, which is then yours, and only such a comment", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-8", kind: "pr", number: 8, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
+  store.savePatch("pr-8", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,3 @@\n+one\n+two\n+three\n");
+  const rpc = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
+  const revisionOf = async () => (await rpc("getReviewBundle", { targetKey: "pr-8" })).revision;
+  store.upsertDraftComment("pr-8", { file: "a.ts", line: 1, side: "RIGHT", author: "agent", severity: "blocking", body: "Breaks." });
+  store.upsertDraftComment("pr-8", { file: "a.ts", line: 3, side: "RIGHT", startLine: 2, body: "Two lines.\n\n```ts\nfix();\n```" });
+  store.updateSummary("pr-8", { body: "The agent's summary.", bodyAuthor: "agent" });
+  const at = { targetKey: "pr-8", file: "a.ts", line: 1, side: "RIGHT" };
+  // On the current diff: edit or remove it.
+  await expect(rpc("moveToSummary", { ...at, revision: await revisionOf() })).rejects.toThrow("The comment on a.ts:1 isn’t on an older diff. Edit or remove it instead.");
+  store.savePatch("pr-8", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+uno\n+dos\n");
+  expect((await rpc("getDraft", { targetKey: "pr-8" })).stale).toHaveLength(2);
+  // Against the diff the page showed.
+  await expect(rpc("moveToSummary", { ...at, revision: "old" })).rejects.toThrow("This review changed in another window.");
+  const from = harness.inspection.realtimeSignals.length;
+  const moved = await rpc("moveToSummary", { ...at, revision: await revisionOf() });
+  expect(moved.draft.body).toBe("The agent's summary.\n\n- On `a.ts:1` (an earlier diff): **Blocking:** Breaks.");
+  expect(moved.draft.bodyAuthor).toBeUndefined();
+  expect(moved.draft.comments.map((c: any) => c.line)).toEqual([3]);
+  expect(moved.stale).toEqual([{ file: "a.ts", line: 3, side: "RIGHT" }]);
+  expect(harness.inspection.realtimeSignals.slice(from).map((signal) => signal.channel)).toContain("draft:pr-8");
+  // Moved, not removed: the agent's comment isn't a removal to learn from.
+  expect(store.agentCommentChanges("pr-8")).toEqual([]);
+  // The next goes under it, its later lines kept in the item.
+  const second = await rpc("moveToSummary", { targetKey: "pr-8", revision: await revisionOf(), file: "a.ts", line: 3, side: "RIGHT" });
+  expect(second.draft.body).toBe("The agent's summary.\n\n- On `a.ts:1` (an earlier diff): **Blocking:** Breaks.\n- On `a.ts:2–3` (an earlier diff): Two lines.\n\n  ```ts\n  fix();\n  ```");
+  expect(second.draft.comments).toEqual([]);
+});

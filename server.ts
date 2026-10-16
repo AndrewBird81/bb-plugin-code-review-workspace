@@ -23,6 +23,7 @@ import { addComment, assistantReview, deleteComment, editComment, replyInDiscuss
 import { commentsKey, rangeOf, sameLocation, SEVERITIES, severityOf, SUMMARY_AT } from "./src/draft";
 import { recordAgentReads } from "./src/agent-reads";
 import { describeDraft, writeSummary } from "./src/draft-summary";
+import { summaryLine, withSummaryLine } from "./lib/move-to-summary";
 import { runSummaryCommand } from "./src/summary-command";
 import { askAgent, settleDiscussions } from "./src/discussions";
 import { clearAsks, listAsks, setAsk } from "./src/asks";
@@ -651,6 +652,26 @@ export default async function plugin(bb: BbPluginApi) {
       // Your words now, whoever wrote them before, and an ask on the summary is over.
       store.setLifecycle(targetKey, { summaryAsk: null });
       const draft = store.updateSummary(targetKey, { body, bodyAuthor: undefined, written: undefined });
+      bb.realtime.publish(`draft:${targetKey}`, {});
+      return draftState(targetKey, draft);
+    },
+    moveToSummary({ targetKey, revision, file, line, side }) {
+      if (!store.getPreferences().preferences.knobs.moveToSummary) throw new Error("Move to summary is off in Settings. Edit or remove the comment instead.");
+      requireReviewRevision(store, targetKey, revision);
+      const at = { file, line, side };
+      // Only a comment the diff left behind: one on the current diff is edited or removed.
+      const comment = store.staleDraftComments(targetKey).find((c) => sameLocation(c, at));
+      if (!comment) throw new Error(`The comment on ${file}:${line} isn’t on an older diff. Edit or remove it instead.`);
+      const body = withSummaryLine(store.getDraft(targetKey).body, summaryLine(comment));
+      if (body.length > 65_000) throw new Error("The summary would be too long. Shorten it, or edit the comment instead.");
+      // As saveSummary does: your words now, and an ask on the summary is over. The line goes in before the comment
+      // goes, so nothing in between can lose it.
+      store.setLifecycle(targetKey, { summaryAsk: null });
+      store.updateSummary(targetKey, { body, bodyAuthor: undefined, written: undefined });
+      // Moved, not removed: learning doesn't count it. Its discussion and ask go with it, as with Remove.
+      const draft = store.deleteDraftComment(targetKey, at) ?? store.getDraft(targetKey);
+      store.deleteDiscussion(targetKey, at);
+      setAsk(store, targetKey, at, null);
       bb.realtime.publish(`draft:${targetKey}`, {});
       return draftState(targetKey, draft);
     },

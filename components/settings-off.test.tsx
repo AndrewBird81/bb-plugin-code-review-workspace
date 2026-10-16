@@ -329,3 +329,14 @@ test("with Ask why off, removing the agent's comment says Comment removed with U
   expect(vi.mocked(toast.info).mock.calls.at(-1)![1]).not.toHaveProperty("cancel");
   page.lifecycle.unmount(); bar.lifecycle.unmount();
 });
+
+test("with Move to summary off, Finish review's row for a comment on an older diff offers to show it, and nothing more", async () => {
+  restores.push(desktopWindow());
+  const { page, bar } = await renderReview({ ...defaultKnobs, moveToSummary: false }, { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "Upper case reads as a constant." }] }, stale: [{ file: "src/a.ts", line: 2, side: "RIGHT" }] }) });
+  const commands = within(await bar.findByRole("group", { name: "Review commands" }));
+  fireEvent.click(await commands.findByRole("button", { name: /^Finish review:/ }));
+  await page.findByText("1 comment on an older diff: edit or remove it");
+  expect(page.getByRole("button", { name: "Show the comments on an older diff" })).toBeTruthy();
+  expect(page.queryByRole("button", { name: "Move to summary" })).toBeNull();
+  page.lifecycle.unmount(); bar.lifecycle.unmount();
+});

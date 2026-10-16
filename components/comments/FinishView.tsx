@@ -25,6 +25,7 @@ import { InlineCode } from "../ui/inline-code";
 import { MetaLine } from "../MetaLine";
 import { Clamped } from "./CommentCard";
 import { notSubmitted } from "./look";
+import { MoveToSummary } from "./MoveToSummary";
 import { focusComments } from "./CommentsView";
 import { updateComments, useComments } from "./store";
 
@@ -239,7 +240,10 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
           <MetaLine className="text-sm text-foreground" items={[comments.length ? plural(comments.length, "comment") : "No line comments", ...(d.counts ? d.counts.split(" · ").map((count) => <span className="text-muted-foreground">{count}</span>) : []), ...(d.preExistingCount ? [<span className="text-muted-foreground">{d.preExistingCount} pre-existing</span>] : [])]} />
           {agent > 0 && <p className="text-xs text-muted-foreground">{agent} written by the agent</p>}
         </Row>
-        {older.length > 0 && <Row tone="warning" icon={<Icon name="AlertTriangle" className="size-4 shrink-0" aria-hidden />} action={link("Show the comments on an older diff", () => onList("needs-you", older[0].id))}>
+        {older.length > 0 && <Row tone="warning" icon={<Icon name="AlertTriangle" className="size-4 shrink-0" aria-hidden />} action={<>
+          <MoveToSummary comments={older.flatMap((item) => item.kind === "draft" ? [item.comment] : [])} variant="outline" className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} />
+          {link("Show the comments on an older diff", () => onList("needs-you", older[0].id))}
+        </>}>
           {plural(older.length, "comment")} on an older diff: edit or remove {older.length === 1 ? "it" : "them"}
         </Row>}
         {replyDrafts > 0 && <Row icon={<Icon name="CornerDownRight" className="size-4 shrink-0 text-primary" aria-hidden />} action={link("Show the reply drafts", () => onList("all", items.find((item) => item.kind === "thread" && item.replyDraft)?.id ?? null))}>

@@ -215,6 +215,8 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), revision: z.string().optional(), body: z.string().max(65_000) }).strict(),
     output: draftOutput,
   },
+  /** A comment on an older diff becomes a line at the end of the summary, which is then the reviewer's, and leaves the draft. */
+  moveToSummary: { input: z.object({ targetKey: z.string(), revision: z.string().optional(), ...location }).strict(), output: draftOutput },
   submitReview: {
     input: z.object({
       targetKey: z.string(), revision: z.string().optional(), account: z.string().optional(),

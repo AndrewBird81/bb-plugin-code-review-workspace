@@ -428,6 +428,16 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       toast.info(next ? SEVERITY_LABEL[next] : "No severity");
     });
   }
+  /**
+   * Make comments on an older diff lines of the summary, which is then yours. No Undo, as with Remove on an older diff:
+   * putting one back would bind it to the current diff unchecked.
+   */
+  async function moveToSummary(comments: DraftComment[]) {
+    await mutate(async () => {
+      for (const { file, line, side } of comments) apply(await enqueue(() => rpc.call("moveToSummary", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), file, line, side })) as { draft: Draft });
+      toast.info("Moved to the summary");
+    });
+  }
   /** Remove every nit; Undo puts back those drafted against the current diff. */
   async function removeNits() {
     const removed = draft.comments.filter((comment) => comment.severity === "nit");
@@ -644,7 +654,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   return {
     targetKey, loadError, load, loaded, closed, review, draft, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
-    showComposer, inline, edited, replacing, counts, preExistingCount, blocks, markPreExisting, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity,
+    showComposer, inline, edited, replacing, counts, preExistingCount, blocks, markPreExisting, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity, moveToSummary,
     file, boxLines, line, side, files, setFile, editing, showBoxInDiff, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
     changedWhileEditing, ownPr, suggested, chooseVerdict, confirming, setConfirming, approval, agentCoverage, unreadApproval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
     inlineDraft, inlineComposer, askAgent, patch, account, why, setWhy,

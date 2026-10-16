@@ -143,6 +143,63 @@ test("what holds Submit back is listed with its fix: a comment on an older diff,
   slot.lifecycle.unmount();
 });
 
+const olderDiff = [{ file: "src/a.ts", line: 1, side: "RIGHT" }];
+/** The draft once the agent's nit on an older diff moved to the summary. */
+const movedRpc = () => ({
+  getDraft: vi.fn(() => ({ draft: draftOf(), stale: olderDiff })),
+  moveToSummary: vi.fn(() => ({ draft: draftOf({ body: "- On `src/a.ts:1` (an earlier diff): **Nit:** Spacing.", comments: [comments[0]] }), stale: [] })),
+  saveDraftComment: vi.fn(),
+  saveSummary: vi.fn(),
+});
+
+test("Finish's row for a comment on an older diff moves it to the summary: a confirm shows its line, and there's no Undo", async () => {
+  const rpc = movedRpc();
+  const { slot } = await renderWorkspace({ rpc });
+  const view = await finish(slot);
+  fireEvent.click(view.getByRole("button", { name: "Move to summary" }));
+  const confirm = within(await slot.findByRole("dialog", { name: "Move to summary" }));
+  expect(confirm.getByText("Adds this line to your summary and removes the comment:")).toBeTruthy();
+  expect(confirm.getByText("- On `src/a.ts:1` (an earlier diff): **Nit:** Spacing.")).toBeTruthy();
+  fireEvent.click(confirm.getByRole("button", { name: "Move" }));
+  await waitFor(() => expect(rpc.moveToSummary).toHaveBeenCalledWith({ targetKey: "pr-42", revision: "r1", file: "src/a.ts", line: 1, side: "RIGHT" }));
+  await waitFor(() => expect(view.queryByText(/on an older diff/)).toBeNull());
+  // As Remove on an older diff: putting it back would bind it to the current diff unchecked.
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Moved to the summary"));
+  expect(vi.mocked(toast.info).mock.calls.find(([text]) => text === "Moved to the summary")).toEqual(["Moved to the summary"]);
+  expect([rpc.saveDraftComment, rpc.saveSummary].map((call) => call.mock.calls.length)).toEqual([0, 0]);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("an older-diff comment's card in Comments offers Move to summary too, and Cancel keeps it", async () => {
+  const rpc = movedRpc();
+  const { slot } = await renderWorkspace({ rpc });
+  const view = await finish(slot);
+  fireEvent.click(view.getByRole("button", { name: "Show the comments on an older diff" }));
+  const card = within(await slot.findByRole("article", { name: "Draft comment on src/a.ts:1" }));
+  fireEvent.click(card.getByRole("button", { name: "Move to summary" }));
+  const confirm = within(await slot.findByRole("dialog", { name: "Move to summary" }));
+  fireEvent.click(confirm.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(slot.queryByRole("dialog", { name: "Move to summary" })).toBeNull());
+  expect(rpc.moveToSummary).not.toHaveBeenCalled();
+  // A comment on the current diff has none.
+  fireEvent.click(slot.getByRole("radio", { name: /^All, / }));
+  fireEvent.click(await slot.findByRole("button", { name: "Expand Draft comment on src/a.ts:2" }));
+  expect(within(await slot.findByRole("article", { name: "Draft comment on src/a.ts:2" })).queryByRole("button", { name: "Move to summary" })).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("with Move to summary off, a comment on an older diff offers edit or remove only", async () => {
+  const { slot } = await renderWorkspace({ rpc: { ...movedRpc(), getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, moveToSummary: false } }, revision: 0 }) } });
+  const view = await finish(slot);
+  expect(view.getByText("1 comment on an older diff: edit or remove it")).toBeTruthy();
+  expect(view.queryByRole("button", { name: "Move to summary" })).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Show the comments on an older diff" }));
+  const card = within(await slot.findByRole("article", { name: "Draft comment on src/a.ts:1" }));
+  expect(card.getByRole("button", { name: "Remove comment on src/a.ts:1" })).toBeTruthy();
+  expect(card.queryByRole("button", { name: "Move to summary" })).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("doubts sit above Submit beside their fixes, and Submit still asks once more", async () => {
   const { slot, rpc } = await renderWorkspace({ rpc: { getDraft: () => ({ draft: draftOf({ verdict: "APPROVE", verdictChosen: true, suggestedVerdict: "REQUEST_CHANGES", body: "Fine." }), stale: [] }) } });
   const view = await finish(slot);
