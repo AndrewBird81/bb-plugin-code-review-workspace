@@ -5,14 +5,7 @@ import type { ReviewPreferences } from "./preferences";
 import { feedbackProgress, type Turn, type TurnOptions, type TurnSignals } from "../lib/turn";
 import { verdictFromMine } from "./review-verdict";
 import { threadLabel } from "./github/threads";
-
-/** The head branch's fork owner, when that's someone other than the PR's author and you. */
-function foreignHeadOwner(facts: PrFacts, viewer: string): string | null {
-  const owner = facts.headForkOwner;
-  if (owner == null) return null;
-  const login = owner.toLowerCase();
-  return login && (login === facts.author?.toLowerCase() || login === viewer.toLowerCase()) ? null : owner;
-}
+import { foreignHeadOwner } from "../lib/trust";
 
 export function turnOptions(preferences: ReviewPreferences): TurnOptions {
   return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks, teamRequests: preferences.trackTeamRequests, mentions: preferences.knobs.mentionsWake };
@@ -35,7 +28,7 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
   const edits = [facts.editedAt, previous.prEditedAt, retitled].filter((at): at is number => at != null);
   const update: ReviewLifecycle = {
     prState: facts.state, latestHeadSha: facts.headSha, ...(facts.baseRefName ? { latestBase: facts.baseRefName } : {}), unreachable: null, prSize: facts.size ?? null, stackParent: facts.stackParent ?? null, ownPr: !!facts.author && facts.author.toLowerCase() === viewer.toLowerCase(), authorAssociation: facts.authorAssociation ?? null,
-    foreignHeadOwner: foreignHeadOwner(facts, viewer), prEditedAt: edits.length ? Math.max(...edits) : null,
+    foreignHeadOwner: foreignHeadOwner(facts.headForkOwner, facts.author, viewer), prEditedAt: edits.length ? Math.max(...edits) : null,
     archivedAt: facts.state === "OPEN" ? null : previous.archivedAt ?? now,
     // The account reading the PR, which the review's verdict and checks belong to.
     reviewer: viewer,

@@ -18,6 +18,16 @@ export function trustedAuthor(review: Trust, preferences: Pick<ReviewPreferences
   return typeof review.foreignHeadOwner !== "string" && (review.ownPr === true || MEMBERS.has(review.authorAssociation ?? ""));
 }
 
+/**
+ * The owner of the fork a PR's head branch is in (`forkOwner`, "" when GitHub didn't say who), when that's someone other
+ * than its `author` and you, the `viewer`; null for a head in the repository itself.
+ */
+export function foreignHeadOwner(forkOwner: string | null | undefined, author: string | null | undefined, viewer: string): string | null {
+  if (forkOwner == null) return null;
+  const login = forkOwner.toLowerCase();
+  return login && (login === author?.toLowerCase() || login === viewer.toLowerCase()) ? null : forkOwner;
+}
+
 /** You started agents on the review at `head`: the lifecycle that approves it. */
 export function approve(head: string | null, now: number): Pick<ReviewMeta, "approvedHead" | "approvedAt"> {
   return { approvedHead: head, approvedAt: now };

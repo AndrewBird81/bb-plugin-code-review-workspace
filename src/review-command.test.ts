@@ -225,3 +225,32 @@ test("bb review list lists your reviews in All reviews' order, as text or JSON; 
   expect((await list()).stdout ?? "").not.toContain("ref-1");
   expect((await runReviewCommand({ bb, store, gh }, ["--help"], { projectId: "p1" })).stdout).not.toContain("bb review list");
 });
+
+test("bb review from one of your threads approves agents on a PR's head only when its author is trusted", async () => {
+  const base = vi.mocked(gh.runGh).getMockImplementation()!;
+  /** gh answering the author's trust read with `pr`, or failing it. */
+  const answering = (pr: Record<string, unknown> | null) => vi.mocked(gh.runGh).mockImplementation(async (args, opts) => args[1] !== "graphql" ? base(args, opts)
+    : pr ? { stdout: JSON.stringify({ data: { viewer: { login: "me" }, repository: { pullRequest: { author: { login: "a" }, isCrossRepository: false, ...pr } } } }), stderr: "", code: 0 }
+    : { stdout: "", stderr: "HTTP 502", code: 1 });
+  const approved = async (pr: Record<string, unknown> | null, threadId?: string) => {
+    const { bb, store } = host();
+    answering(pr);
+    expect(await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1", ...(threadId ? { threadId } : {}) })).toMatchObject({ exitCode: 0 });
+    return store.getReview(key)?.approvedHead ?? null;
+  };
+  try {
+    expect(await approved({ authorAssociation: "CONTRIBUTOR" }, "coder")).toBeNull();
+    expect(await approved({ authorAssociation: "MEMBER" }, "coder")).toBe("abc123");
+    expect(await approved({ authorAssociation: "MEMBER", isCrossRepository: true, headRepositoryOwner: { login: "mallory" } }, "coder")).toBeNull();
+    // Your own PR, as the automatic review counts it, unless its branch is in someone else's fork.
+    expect(await approved({ author: { login: "me" }, authorAssociation: "CONTRIBUTOR" }, "coder")).toBe("abc123");
+    expect(await approved({ author: { login: "me" }, authorAssociation: "MEMBER", isCrossRepository: true, headRepositoryOwner: { login: "mallory" } }, "coder")).toBeNull();
+    expect(await approved(null, "coder")).toBeNull();
+    // From a terminal, no thread: your click, whoever wrote it, and GitHub isn't asked.
+    vi.mocked(gh.runGh).mockClear();
+    expect(await approved({ authorAssociation: "CONTRIBUTOR" })).toBe("abc123");
+    expect(vi.mocked(gh.runGh).mock.calls.some(([args]) => args[1] === "graphql")).toBe(false);
+  } finally {
+    vi.mocked(gh.runGh).mockImplementation(base);
+  }
+});

@@ -6,6 +6,8 @@ import { generateGuide, guideWriterUnavailable } from "./generate";
 import { readPrSnapshot } from "./pr-snapshot";
 import { rebuildReview, upToDate } from "./rereview";
 import { automaticReviewPrompt } from "./preferences";
+import { readAuthorTrust } from "./author-trust";
+import { trustedAuthor } from "../lib/trust";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
 import {
@@ -73,7 +75,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
   let key = targetKey(target, cwd ? { projectId: ctx.projectId, cwd } : undefined);
   if (ownReview !== undefined && target.kind === "ref" && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
   const now = Date.now();
-  const unattended = ownReview !== undefined;
+  let unattended = ownReview !== undefined;
 
   let patch = "";
   const meta: any = { targetKey: key, kind: target.kind, status: "generating", createdAt: now };
@@ -109,6 +111,9 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
       headSha: pr.headRefOid,
     });
     patch = snapshot.patch;
+    // An agent in one of your threads may have been steered by what it read: on a PR whose author isn't trusted, or
+    // whose trust GitHub didn't say, Run stays your click.
+    if (!unattended && ctx.threadId) unattended = !trustedAuthor(await readAuthorTrust(deps.gh.runGh, repo, target.number) ?? { kind: "pr" }, deps.store.getPreferences().preferences);
   } else {
     const diff = await deps.gh.runGit(gitDiffArgs(target.gitRef, target.base), { cwd });
     if (diff.code !== 0) return { exitCode: 1, stderr: diff.stderr || "git diff failed" };

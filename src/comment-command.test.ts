@@ -124,11 +124,12 @@ test("bb review from a review's own agent rebuilds its guide without approving a
   vi.mocked(runGh).mockImplementation(async (args: string[]) =>
     args[1] === "view" ? { code: 0, stderr: "", stdout: JSON.stringify({ number: 7, headRefOid: "sha2", title: "Fix", body: "", author: { login: "a" }, baseRefName: "main", headRefName: "f", url }) }
     : args[1] === "diff" ? { code: 0, stderr: "", stdout: patch.replace("next", "later") }
+    : args[1] === "graphql" ? { code: 0, stderr: "", stdout: JSON.stringify({ data: { viewer: { login: "me" }, repository: { pullRequest: { author: { login: "a" }, authorAssociation: "MEMBER", isCrossRepository: false } } } }) }
     : { code: 0, stderr: "", stdout: "" });
   expect(await harness.behavior.runCli([url], { threadId: "assistant-7", projectId: "p1" })).toMatchObject({ exitCode: 0 });
   expect(store.getReview(key)?.headSha).toBe("sha2");
   expect(store.getReview(key)?.approvedHead).toBeUndefined();
-  // Your own bb review approves the head it starts the guide on.
+  // Your own bb review on a member's PR approves the head it starts the guide on.
   store.saveReview({ ...store.getReview(key)!, status: "ready", headSha: "sha1" });
   expect(await harness.behavior.runCli([url], { threadId: "ordinary", projectId: "p1" })).toMatchObject({ exitCode: 0 });
   expect(store.getReview(key)?.approvedHead).toBe("sha2");
