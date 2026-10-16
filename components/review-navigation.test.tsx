@@ -452,6 +452,18 @@ test("shortcuts wait while you type, and with Ctrl, Meta, or Alt held", async ()
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("keys work inside the chapters over the code, as in docked ones", async () => {
+  // Too narrow for the chapters to dock: they open over the code, a dialog with the focus in it.
+  window.innerWidth = 700;
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  fireEvent.click(slot.getByRole("button", { name: "Show chapters" }));
+  const side = slot.getByRole("dialog", { name: "Chapters" });
+  press("n", {}, within(side).getAllByRole("button")[0]!);
+  await slot.findByText("bb");
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("v and Mark chapter viewed (⇧V) fold or open a file the checkbox folded before", async () => {
   const viewed = new Set<string>();
   const { slot } = await renderWorkspace({ rpc: {
@@ -707,9 +719,6 @@ test("⇧V marks the chapter's files viewed, and the toast's Undo puts each back
   await waitFor(() => expect(currentChapter(slot)?.textContent).toContain("Caching"));
   const changed = () => within(slot.container.querySelector<HTMLElement>('[data-file="src/b.ts"]')!).queryByText("Changed since you viewed it");
   await waitFor(() => expect(changed()).toBeTruthy());
-  // Caps Lock's V, without Shift, is a v.
-  press("V");
-  expect(rpc.setFilesViewed).not.toHaveBeenCalled();
   press("V", { shiftKey: true });
   expect(rpc.setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts"] });
   const box = slot.getByRole("checkbox", { name: "Viewed src/b.ts" }) as HTMLInputElement;

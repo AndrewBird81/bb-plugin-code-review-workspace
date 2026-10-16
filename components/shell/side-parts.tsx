@@ -31,8 +31,8 @@ export function returnFocus(el: HTMLElement | null | undefined, from: HTMLElemen
 
 /**
  * A side's focus: closing it gives the focus back to what opened it. Over the code (`overlay`) it's a dialog too:
- * opening it moves the focus in, and Esc closes it; a `modal` one also keeps Tab inside it. Spread the returned props
- * on the side.
+ * opening it moves the focus in, and Esc closes it; a `modal` one also keeps Tab inside it. The review's shortcuts
+ * still work in it (`data-gr-side`), as in a docked side. Spread the returned props on the side.
  */
 export function useSide(ref: RefObject<HTMLElement | null>, { shown, overlay, modal = true, onClose }: { shown: boolean; overlay: boolean; modal?: boolean; onClose: () => void }) {
   const opener = useRef<HTMLElement | null>(null);
@@ -61,7 +61,7 @@ export function useSide(ref: RefObject<HTMLElement | null>, { shown, overlay, mo
     event.preventDefault();
     (next ?? el).focus({ preventScroll: true });
   };
-  return overlay ? { role: "dialog", ...(modal ? { "aria-modal": true } : {}), tabIndex: -1, onKeyDown } as const : {};
+  return overlay ? { role: "dialog", ...(modal ? { "aria-modal": true } : {}), "data-gr-side": "", tabIndex: -1, onKeyDown } as const : {};
 }
 
 /**

@@ -32,15 +32,25 @@ const TEXT_INPUT = "input" + ["checkbox", "radio", "button", "submit", "reset", 
 /** The boxes you type in, which a phone's keyboard comes up for. */
 export const TEXT_FIELD = `${TEXT_INPUT}, textarea, [role=textbox]`;
 
-/** The shortcut a key press asks for: none while typing, or with Ctrl, Meta, or Alt held. */
+/** Keys that some layouts type with Alt (a Mac's Option) or AltGr, which a browser reports as Ctrl and Alt. */
+const ALT_TYPED = new Set(["[", "]"]);
+/** Keys that step on as you hold them; the rest act once. */
+const REPEATING = new Set(["j", "k"]);
+
+/**
+ * The shortcut a key press asks for: none while typing, in a dialog other than an overlay side (`data-gr-side`), or with
+ * Ctrl, Meta, or Alt held, but for a bracket typed with Alt or AltGr.
+ */
 export function shortcutKey(event: KeyboardEvent): string | null {
-  if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || !KEYS.has(event.key)) return null;
-  // With Caps Lock on, v and f type V and F: only Shift makes them ⇧V and ⇧F.
-  if ((event.key === "V" || event.key === "F") && !event.shiftKey) return null;
+  if (event.metaKey || event.isComposing) return null;
+  // With Caps Lock on, letters type upper case: only Shift makes v and f ⇧V and ⇧F.
+  const key = /^[A-Z]$/.test(event.key) && !event.shiftKey ? event.key.toLowerCase() : event.key;
+  if (!KEYS.has(key) || (event.repeat && !REPEATING.has(key))) return null;
+  if (event.altKey ? !ALT_TYPED.has(key) : event.ctrlKey) return null;
   // The element typed in, even inside a shadow root. A checkbox or button keeps focus after a click, but takes no typing.
   const target = event.composedPath()[0];
-  if (target instanceof HTMLElement && (target.isContentEditable || target.closest(`${TEXT_FIELD}, select, [role=dialog], [role=alertdialog]`))) return null;
-  return event.key;
+  if (target instanceof HTMLElement && (target.isContentEditable || target.closest(`${TEXT_FIELD}, select, [role=dialog]:not([data-gr-side]), [role=alertdialog]`))) return null;
+  return key;
 }
 
 type Chapter = { id: string; diffs: Array<{ file: string; hunks?: number[] }> };
