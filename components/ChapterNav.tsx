@@ -242,7 +242,7 @@ export const ChapterNav = memo(function ChapterNav({
                   )}
                   <button
                     type="button"
-                    aria-label={open ? "Collapse chapter" : "Expand chapter"}
+                    aria-label={`${open ? "Collapse" : "Expand"} chapter ${index + 1}`}
                     aria-expanded={open}
                     className={cn("flex size-7 shrink-0 items-center justify-center rounded-md text-subtle-foreground hover:bg-state-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_CONTROL)}
                     onClick={() => setExpanded((e) => ({ ...e, [s.id]: !open }))}

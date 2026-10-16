@@ -178,7 +178,10 @@ test("a closed chapter's card has a ✓ that marks it viewed without opening it,
   // Chapter 3 is all viewed; the open chapter 1 has its own button.
   expect(screen.queryByRole("button", { name: "Mark chapter 3 viewed" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Mark chapter 1 viewed" })).toBeNull();
-  fireEvent.click(screen.getAllByRole("button", { name: "Expand chapter" })[0]);
+  // Each chevron names its chapter.
+  expect(screen.getByRole("button", { name: "Collapse chapter 1" }).getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByRole("button", { name: "Expand chapter 3" }).getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(screen.getByRole("button", { name: "Expand chapter 2" }));
   expect(screen.queryByRole("button", { name: "Mark chapter 2 viewed" })).toBeNull();
   expect(screen.getAllByRole("button", { name: "Mark chapter viewed" })).toHaveLength(2);
 });
