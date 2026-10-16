@@ -466,6 +466,27 @@ test("on a touch screen, which has no + beside a line, the empty list says to ta
   }
 });
 
+test("with a mouse, chips past a narrow panel's edge scroll sideways, the end fading until the last one shows", async () => {
+  const sizes = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) { return this.getAttribute("role") === "radiogroup" ? 420 : 0; });
+  const widths = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) { return this.getAttribute("role") === "radiogroup" ? 366 : 0; });
+  try {
+    const { slot } = await renderWorkspace();
+    const list = await openComments(slot);
+    const chips = list.getByRole("radiogroup", { name: "Show" });
+    expect(chips.className).toContain("overflow-x-auto");
+    expect(chips.className).toContain("pointer-coarse:flex-wrap");
+    await waitFor(() => expect(chips.hasAttribute("data-more")).toBe(true));
+    expect(chips.className).toContain("data-[more]:[mask-image:");
+    chips.scrollLeft = 54;
+    fireEvent.scroll(chips);
+    await waitFor(() => expect(chips.hasAttribute("data-more")).toBe(false));
+    slot.lifecycle.unmount();
+  } finally {
+    sizes.mockRestore();
+    widths.mockRestore();
+  }
+});
+
 test("empty states: no comments yet; nothing needs you, with Show all; a local review's comments stay in BB", async () => {
   const none = { getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }), getReviewThreads: () => ({ threads: [] }), getFeedback: () => ({ feedback: feedbackOf([], null) }), getReplyDrafts: () => ({ drafts: [] }) };
   let { slot } = await renderWorkspace({ rpc: none });

@@ -296,9 +296,22 @@ function Chips({ groups, total, filter, onFilter }: { groups: CommentGroup[]; to
     onFilter(next);
     requestAnimationFrame(() => group.querySelector<HTMLElement>(`[data-filter="${next}"]`)?.focus());
   };
+  // With a mouse, chips past the panel's edge scroll sideways: the end fades while there are more.
+  const strip = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    const el = strip.current;
+    if (!el) return;
+    const check = () => setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    check();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(check) : null;
+    observer?.observe(el);
+    el.addEventListener("scroll", check, { passive: true });
+    return () => { observer?.disconnect(); el.removeEventListener("scroll", check); };
+  }, [groups, total]);
   return (
     // Touch's wider chips wrap rather than scroll out of sight, as they would in a 400px panel or on a phone.
-    <div role="radiogroup" aria-label="Show" onKeyDown={arrow} className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none] pointer-coarse:flex-wrap">
+    <div ref={strip} role="radiogroup" aria-label="Show" onKeyDown={arrow} data-more={more || undefined} className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none] pointer-coarse:flex-wrap data-[more]:[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]">
       {FILTERS.map((id) => {
         const on = filter === id;
         return (
