@@ -74,7 +74,7 @@ test("the agent's drafted reply waits in its thread, not sent, and Send reply po
   expect(within(draft).getByText("Thanks, will check.")).toBeTruthy();
   expect(within(draft).getByText("Posts now, not with your review")).toBeTruthy();
   fireEvent.click(within(draft).getByRole("button", { name: "Send reply" }));
-  await waitFor(() => expect(rpc.replyToFeedback).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t1", body: "Thanks, will check." }));
+  await waitFor(() => expect(rpc.replyToFeedback).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t1", body: "Thanks, will check.", account: "me" }));
   await waitFor(() => expect(within(yours).queryByRole("group", { name: /reply draft/ })).toBeNull());
   slot.lifecycle.unmount();
 }, 15_000);
@@ -91,7 +91,7 @@ test("what you write in a reply waits on the server as the thread's draft when y
   expect(within(bobs).getByRole("group", { name: "Reply draft · not sent on src/a.ts:3" })).toBeTruthy();
   // Someone else's thread: the reply answers its first comment, and clears the draft it was.
   fireEvent.click(within(bobs).getByRole("button", { name: "Send reply" }));
-  await waitFor(() => expect(rpc.replyToThread).toHaveBeenCalledWith({ targetKey: "pr-42", inReplyTo: 113, body: "Yes, three.", threadId: "t2" }));
+  await waitFor(() => expect(rpc.replyToThread).toHaveBeenCalledWith({ targetKey: "pr-42", inReplyTo: 113, body: "Yes, three.", threadId: "t2", account: "me" }));
   slot.lifecycle.unmount();
 });
 

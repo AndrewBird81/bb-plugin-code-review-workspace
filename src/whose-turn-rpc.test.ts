@@ -21,6 +21,7 @@ const thread = (id: string, status: FeedbackThread["status"]): FeedbackThread =>
 async function setup() {
   runGh.mockReset();
   runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "auth" && args[1] === "token") return { stdout: "tok-me\n", stderr: "", code: 0 };
     if (args[0] === "api" && args[1] === "user") return { stdout: "me\n", stderr: "", code: 0 };
     if (args.includes("Accept: application/vnd.github.diff")) return { stdout: reviewed, stderr: "", code: 0 };
     if (args[0] === "api" && args.some((a) => a.includes("/commits"))) return { stdout: "sha1\tAdd cache\nsha2\tInvalidate on write\n", stderr: "", code: 0 };
@@ -159,10 +160,10 @@ test("a check's suggested summary goes into the draft, but never over the review
 test("replying from the Feedback view posts to the thread and clears the drafted reply", async () => {
   const { call, store } = await setup();
   store.setReplyDraft("pr-1", "t1", "Thanks!", "agent");
-  const result = await call("replyToFeedback", { targetKey: "pr-1", threadId: "t1", body: "Thanks, looks right." });
+  const result = await call("replyToFeedback", { targetKey: "pr-1", threadId: "t1", body: "Thanks, looks right.", account: "me" });
   expect(result.ok).toBe(true);
   const reply = runGh.mock.calls.find(([args]) => String(args[3]).includes("/comments/11/replies"));
-  expect(reply?.[1]).toEqual({ stdin: JSON.stringify({ body: "Thanks, looks right." }), timeoutMs: 0 });
+  expect(reply?.[1]).toEqual({ stdin: JSON.stringify({ body: "Thanks, looks right." }), timeoutMs: 0, authToken: "tok-me" });
   expect(store.listReplyDrafts("pr-1").size).toBe(0);
 });
 

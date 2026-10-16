@@ -126,17 +126,21 @@ export const rpcContract = defineRpcContract({
   // GitHub threads, reply/resolve, staleness, re-review
   /** error: GitHub couldn't be read, or not every page; threads holds what was. */
   getReviewThreads: { input: targetKey, output: z.object({ threads: z.array(z.any()), error: z.string().optional() }) },
-  /** With threadId, a posted reply also clears that thread's drafted reply. */
+  /**
+   * With threadId, a posted reply also clears that thread's drafted reply. account: the GitHub account the page
+   * verified, which replies and resolves post as; without it they're refused. Optional only so 0.7.0's pages are told to reload.
+   */
   replyToThread: {
-    input: z.object({ targetKey: z.string(), inReplyTo: z.number().int(), body: z.string().min(1), threadId: z.string().optional() }).strict(),
+    input: z.object({ targetKey: z.string(), inReplyTo: z.number().int(), body: z.string().min(1), threadId: z.string().optional(), account: z.string().optional() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
+  /** Only a thread of this review's PR. */
   resolveThread: {
-    input: z.object({ targetKey: z.string(), threadId: z.string() }).strict(),
+    input: z.object({ targetKey: z.string(), threadId: z.string(), account: z.string().optional() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   unresolveThread: {
-    input: z.object({ targetKey: z.string(), threadId: z.string() }).strict(),
+    input: z.object({ targetKey: z.string(), threadId: z.string(), account: z.string().optional() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   /** hasNewCommits: the guide is behind the PR, by new commits or, with baseChanged, a new base branch. */
@@ -280,9 +284,9 @@ export const rpcContract = defineRpcContract({
   refreshFeedback: { input: targetKey, output: z.object({ feedback: z.any() }) },
   /** Ask the assistant to check your feedback against the PR now. */
   checkFeedback: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
-  /** Post a reply to one of your threads on GitHub and clear its drafted reply. */
+  /** Post a reply to one of your threads on GitHub, as the account the page verified (see replyToThread), and clear its drafted reply. */
   replyToFeedback: {
-    input: z.object({ targetKey: z.string(), threadId: z.string(), body: z.string().trim().min(1).max(65_000) }).strict(),
+    input: z.object({ targetKey: z.string(), threadId: z.string(), body: z.string().trim().min(1).max(65_000), account: z.string().optional() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional(), feedback: z.any().optional() }),
   },
   saveReplyDraft: {

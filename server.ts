@@ -48,6 +48,7 @@ import { pluginThreadsTitled, threadReview, threadRole, toolThreadReview } from 
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { rerunReview } from "./src/rereview";
 import { getGhAccounts, switchGhAccount, checkRepoAccess } from "./src/gh-accounts";
+import { bindGhAccount } from "./src/gh-identity";
 
 import { completionNotifications } from "./src/completion-notifications";
 import { createPluginUpdates } from "./src/plugin-updates";
@@ -211,6 +212,49 @@ export default async function plugin(bb: BbPluginApi) {
     return review ? feedbackView(store, review) : null;
   };
 
+  /** The review's threads on GitHub, everyone's, read with `run`: every page, up to 1,000. */
+  async function readReviewThreads(repo: string, number: number, run: typeof runGh) {
+    const [owner, name] = repo.split("/");
+    // Threads come oldest first: page through them all, so the newest aren't the ones dropped.
+    const threads: ReturnType<typeof parseReviewThreads>["threads"] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 10; page++) {
+      const r = await run(ghReviewThreadsArgs(owner, name, number, after));
+      let json: any = null;
+      try { json = JSON.parse(r.stdout); } catch { /* reported below */ }
+      if (r.code !== 0 || !json?.data) return { threads, error: ghErrorMessage(r) };
+      threads.push(...parseReviewThreads(r.stdout).threads);
+      const info = json.data.repository?.pullRequest?.reviewThreads?.pageInfo;
+      if (!info?.hasNextPage || !info.endCursor) break;
+      after = info.endCursor;
+    }
+    return { threads };
+  }
+  const THREAD_WRITES = {
+    reply: { doing: "replying", kept: " Your reply is still here.", reload: "reply" },
+    update: { doing: "updating threads", kept: "", reload: "update its threads" },
+  };
+  /** gh bound to the account the page verified, as submitting is; a page that sent none, such as 0.7.0's, is told to reload. */
+  async function verifiedGh(account: string | undefined, write: keyof typeof THREAD_WRITES): Promise<{ run: typeof runGh } | { error: string }> {
+    const { doing, kept, reload } = THREAD_WRITES[write];
+    if (!account) return { error: `Verify your GitHub account before ${doing}. Reload this review to ${reload}.` };
+    try { return { run: await bindGhAccount(runGh, account, { doing, kept }) }; }
+    catch (error) { return { error: error instanceof Error ? error.message : `Couldn’t use this GitHub account.${kept}` }; }
+  }
+  const NOT_THIS_REVIEW = "That thread isn't part of this review anymore. Refresh and try again.";
+  /** Resolve or unresolve one of this PR's threads, as the verified account; any other thread id is refused. */
+  async function updateThread(targetKey: string, threadId: string, account: string | undefined, args: string[]): Promise<{ ok: boolean; error?: string }> {
+    const m = store.getReview(targetKey);
+    if (!m || m.kind !== "pr" || !m.number || !m.repo) return { ok: false, error: "Not a PR." };
+    const gh = await verifiedGh(account, "update");
+    if ("error" in gh) return { ok: false, error: gh.error };
+    const ours = store.listFeedbackThreads(targetKey).some((t) => t.id === threadId)
+      || (await readReviewThreads(m.repo, m.number, gh.run)).threads.some((t) => t.id === threadId);
+    if (!ours) return { ok: false, error: NOT_THIS_REVIEW };
+    const r = await gh.run(args, { timeoutMs: 0 });
+    return r.code === 0 ? { ok: true } : { ok: false, error: ghErrorMessage(r) };
+  }
+
   function turnHandlers() {
     return {
       async snoozeReview({ targetKey, snoozed, until }: { targetKey: string; snoozed: boolean; until?: number | null }) {
@@ -276,11 +320,13 @@ export default async function plugin(bb: BbPluginApi) {
         if (review.skippedRun?.run === "check") store.setLifecycle(targetKey, { skippedRun: null });
         return { ok: true };
       },
-      async replyToFeedback({ targetKey, threadId, body }: { targetKey: string; threadId: string; body: string }) {
+      async replyToFeedback({ targetKey, threadId, body, account }: { targetKey: string; threadId: string; body: string; account?: string }) {
         const review = store.getReview(targetKey);
         const thread = store.listFeedbackThreads(targetKey).find((t) => t.id === threadId);
-        if (!review?.repo || !review.number || !thread) return { ok: false, error: "That thread isn't part of this review anymore. Refresh and try again." };
-        const r = await runGh(ghReplyThreadArgs(review.repo, review.number, thread.commentId), { stdin: JSON.stringify({ body }), timeoutMs: 0 });
+        if (!review?.repo || !review.number || !thread) return { ok: false, error: NOT_THIS_REVIEW };
+        const gh = await verifiedGh(account, "reply");
+        if ("error" in gh) return { ok: false, error: gh.error };
+        const r = await gh.run(ghReplyThreadArgs(review.repo, review.number, thread.commentId), { stdin: JSON.stringify({ body }), timeoutMs: 0 });
         if (r.code !== 0) return { ok: false, error: ghErrorMessage(r) };
         store.deleteReplyDraft(targetKey, threadId);
         await refreshThreads(review).catch(() => {});
@@ -450,26 +496,14 @@ export default async function plugin(bb: BbPluginApi) {
     async getReviewThreads({ targetKey }) {
       const m = store.getReview(targetKey);
       if (!m || m.kind !== "pr" || !m.number || !m.repo) return { threads: [] };
-      const [owner, repo] = m.repo.split("/");
-      // Threads come oldest first: page through them all, up to 1,000, so the newest aren't the ones dropped.
-      const threads: ReturnType<typeof parseReviewThreads>["threads"] = [];
-      let after: string | undefined;
-      for (let page = 0; page < 10; page++) {
-        const r = await runGh(ghReviewThreadsArgs(owner, repo, m.number, after));
-        let json: any = null;
-        try { json = JSON.parse(r.stdout); } catch { /* reported below */ }
-        if (r.code !== 0 || !json?.data) return { threads, error: ghErrorMessage(r) };
-        threads.push(...parseReviewThreads(r.stdout).threads);
-        const info = json.data.repository?.pullRequest?.reviewThreads?.pageInfo;
-        if (!info?.hasNextPage || !info.endCursor) break;
-        after = info.endCursor;
-      }
-      return { threads };
+      return readReviewThreads(m.repo, m.number, runGh);
     },
-    async replyToThread({ targetKey, inReplyTo, body, threadId }) {
+    async replyToThread({ targetKey, inReplyTo, body, threadId, account }) {
       const m = store.getReview(targetKey);
       if (!m || m.kind !== "pr" || !m.number || !m.repo) return { ok: false, error: "Not a PR." };
-      const r = await runGh(ghReplyThreadArgs(m.repo, m.number, inReplyTo), { stdin: JSON.stringify({ body }), timeoutMs: 0 });
+      const gh = await verifiedGh(account, "reply");
+      if ("error" in gh) return { ok: false, error: gh.error };
+      const r = await gh.run(ghReplyThreadArgs(m.repo, m.number, inReplyTo), { stdin: JSON.stringify({ body }), timeoutMs: 0 });
       if (r.code !== 0) return { ok: false, error: ghErrorMessage(r) };
       // The thread's drafted reply went out as this one.
       if (threadId) {
@@ -478,13 +512,11 @@ export default async function plugin(bb: BbPluginApi) {
       }
       return { ok: true };
     },
-    async resolveThread({ threadId }) {
-      const r = await runGh(ghResolveThreadArgs(threadId), { timeoutMs: 0 });
-      return r.code === 0 ? { ok: true } : { ok: false, error: ghErrorMessage(r) };
+    async resolveThread({ targetKey, threadId, account }) {
+      return updateThread(targetKey, threadId, account, ghResolveThreadArgs(threadId));
     },
-    async unresolveThread({ threadId }) {
-      const r = await runGh(ghUnresolveThreadArgs(threadId), { timeoutMs: 0 });
-      return r.code === 0 ? { ok: true } : { ok: false, error: ghErrorMessage(r) };
+    async unresolveThread({ targetKey, threadId, account }) {
+      return updateThread(targetKey, threadId, account, ghUnresolveThreadArgs(threadId));
     },
     async checkForUpdates({ targetKey }) {
       // The sync records the PR's head when it reads it, at most a minute ago.

@@ -41,8 +41,11 @@ const forgetTabReply = (targetKey: string, threadId: string) => {
  * cards and the Comments list together, so a reply or resolve in either shows in both. Read again whenever `enabled`
  * turns on, when the server says they changed, and after each change made here.
  */
-export function useDiffThreads(targetKey: string, enabled: boolean): DiffThreads {
+export function useDiffThreads(targetKey: string, enabled: boolean, account?: string): DiffThreads {
   const rpc = useRpc<typeof rpcContract>();
+  // The GitHub account the page verified, which replies and resolves post as.
+  const accountRef = useRef(account);
+  accountRef.current = account;
   const [threads, setThreads] = useState<ReviewThread[]>([]);
   const requests = useRef({ threads: 0, feedback: 0, drafts: 0 });
   const enabledRef = useRef(enabled);
@@ -139,10 +142,15 @@ export function useDiffThreads(targetKey: string, enabled: boolean): DiffThreads
       const current = commentsOf(targetKey).replyDrafts ?? [];
       updateComments(targetKey, { replyDrafts: [...current.filter((entry) => entry.threadId !== threadId), ...(draft ? [{ threadId, ...draft }] : [])] });
     };
-    async function send(threadId: string, request: () => Promise<{ ok: boolean; error?: string }>, failed: string): Promise<boolean> {
+    async function send(threadId: string, request: (account: string) => Promise<{ ok: boolean; error?: string }>, failed: string): Promise<boolean> {
+      const account = accountRef.current;
+      if (!account) {
+        toast.error("Your GitHub account isn’t verified yet. Try again in a moment, or reload this review.");
+        return false;
+      }
       updateComments(targetKey, { busy: threadId });
       try {
-        const result = await request();
+        const result = await request(account);
         if (!result.ok) toast.error(result.error ?? failed);
         return result.ok;
       } catch (error) {
@@ -157,14 +165,14 @@ export function useDiffThreads(targetKey: string, enabled: boolean): DiffThreads
         const failed = "Couldn’t post the reply. It’s still here.";
         const ok = mine(threadId)
           // Your own threads: the server reads them again, so the thread waits on its author at once.
-          ? await send(threadId, async () => {
-            const result = await rpc.call("replyToFeedback", { targetKey, threadId, body });
+          ? await send(threadId, async (account) => {
+            const result = await rpc.call("replyToFeedback", { targetKey, threadId, body, account });
             if (result.ok && result.feedback) showNewer(result.feedback as FeedbackView);
             return result;
           }, failed)
-          : await send(threadId, () => {
+          : await send(threadId, (account) => {
             const inReplyTo = commentsOf(targetKey).threads.find((thread) => thread.id === threadId)?.comments[0]?.databaseId;
-            return inReplyTo == null ? Promise.resolve({ ok: false }) : rpc.call("replyToThread", { targetKey, inReplyTo, body, threadId });
+            return inReplyTo == null ? Promise.resolve({ ok: false }) : rpc.call("replyToThread", { targetKey, inReplyTo, body, threadId, account });
           }, failed);
         if (ok) {
           setDraft(threadId, null);
@@ -173,7 +181,7 @@ export function useDiffThreads(targetKey: string, enabled: boolean): DiffThreads
         return ok;
       },
       async setResolved(threadId, resolved) {
-        const ok = await send(threadId, () => rpc.call(resolved ? "resolveThread" : "unresolveThread", { targetKey, threadId }), "Couldn’t update the thread.");
+        const ok = await send(threadId, (account) => rpc.call(resolved ? "resolveThread" : "unresolveThread", { targetKey, threadId, account }), "Couldn’t update the thread.");
         if (!ok) return;
         await Promise.all([loadThreads(), mine(threadId) ? rpc.call("refreshFeedback", { targetKey }).then(({ feedback }) => showNewer(feedback as FeedbackView)).catch(() => {}) : null]);
       },

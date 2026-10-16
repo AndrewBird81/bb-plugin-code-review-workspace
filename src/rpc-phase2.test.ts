@@ -5,6 +5,9 @@ vi.mock("./gh", async (orig) => {
   return {
     ...real,
     runGh: vi.fn(async (args: string[]) => {
+      // Signed in as casey, the account the page verified.
+      if (args[0] === "auth" && args[1] === "token") return { stdout: "tok\n", stderr: "", code: 0 };
+      if (args[0] === "api" && args[1] === "user") return { stdout: "casey\n", stderr: "", code: 0 };
       if (args[0] === "pr" && args[1] === "checks") {
         return {
           stdout: JSON.stringify([
@@ -117,7 +120,7 @@ test("getReviewThreads returns parsed threads", async () => {
 
 test("resolveThread returns ok:true and calls gh with the thread id", async () => {
   const { harness } = await seeded();
-  const res: any = await harness.behavior.callRpc("resolveThread", { targetKey: "pr-1", threadId: "PRRT_1" });
+  const res: any = await harness.behavior.callRpc("resolveThread", { targetKey: "pr-1", threadId: "PRRT_1", account: "casey" });
   expect(res).toEqual({ ok: true });
   const calls = (gh.runGh as any).mock.calls.map((c: any[]) => c[0]);
   expect(
@@ -129,7 +132,7 @@ test("resolveThread returns ok:true and calls gh with the thread id", async () =
 
 test("unresolveThread returns ok:true and calls gh with the thread id", async () => {
   const { harness } = await seeded();
-  const res: any = await harness.behavior.callRpc("unresolveThread", { targetKey: "pr-1", threadId: "PRRT_1" });
+  const res: any = await harness.behavior.callRpc("unresolveThread", { targetKey: "pr-1", threadId: "PRRT_1", account: "casey" });
   expect(res).toEqual({ ok: true });
   const calls = (gh.runGh as any).mock.calls.map((c: any[]) => c[0]);
   expect(
@@ -141,13 +144,13 @@ test("unresolveThread returns ok:true and calls gh with the thread id", async ()
 
 test("replyToThread returns ok:true and calls gh with the reply endpoint + body", async () => {
   const { harness } = await seeded();
-  const res: any = await harness.behavior.callRpc("replyToThread", { targetKey: "pr-1", inReplyTo: 111, body: "thanks" });
+  const res: any = await harness.behavior.callRpc("replyToThread", { targetKey: "pr-1", inReplyTo: 111, body: "thanks", account: "casey" });
   expect(res).toEqual({ ok: true });
   const call = (gh.runGh as any).mock.calls.find((c: any[]) => c[0][3]?.includes("/comments/111/replies"));
   expect(call).toBeTruthy();
   expect(call[0]).toEqual(["api", "-X", "POST", "repos/acme/web/pulls/1/comments/111/replies", "--input", "-"]);
   // A write waits as long as it takes: a reply killed mid-flight could land twice on retry.
-  expect(call[1]).toEqual({ stdin: JSON.stringify({ body: "thanks" }), timeoutMs: 0 });
+  expect(call[1]).toEqual({ stdin: JSON.stringify({ body: "thanks" }), timeoutMs: 0, authToken: "tok" });
 });
 
 test("checkForUpdates compares the head the sync read with the guide's, without asking gh again", async () => {
