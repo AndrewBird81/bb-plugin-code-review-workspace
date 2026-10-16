@@ -5,7 +5,7 @@ import type { z } from "zod";
 import type { rpcContract } from "../src/rpc-contract";
 import type { RequirementSchema } from "../src/guide";
 import { classifyFile } from "../src/classify";
-import { untrusted } from "../src/untrusted";
+import { codeFence, untrusted } from "../src/untrusted";
 import { changedInstructions } from "../lib/instruction-files";
 import { linkImages } from "../lib/link-images";
 import { useKnob } from "../lib/settings";
@@ -71,12 +71,6 @@ function Requirements({ requirements, onOpen }: { requirements: Requirement[]; o
 function actionsRunId(link: string | undefined): number | null {
   const id = link?.match(/\/actions\/runs\/(\d+)/)?.[1];
   return id ? Number(id) : null;
-}
-
-/** `text` in a code fence longer than any run of backticks in it, so nothing in it ends the fence. */
-function codeFence(text: string): string {
-  const fence = "`".repeat(Math.max(3, ...Array.from(text.matchAll(/`+/g), (run) => run[0].length + 1)));
-  return `${fence}text\n${text}\n${fence}`;
 }
 
 /** A failing check's Ask agent: it reads the end of the check's failed log and quotes it into the agent's box, unsent. */

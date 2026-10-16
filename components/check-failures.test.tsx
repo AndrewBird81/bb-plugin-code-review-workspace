@@ -131,11 +131,11 @@ test("a failure's Comment opens the comment box at its line, Blocking, with the 
   slot.lifecycle.unmount();
 }, 15_000);
 
-test("a failure's Ask agent quotes it into the agent's box, unsent", async () => {
+test("a failure's Ask agent puts it into the agent's box, fenced as CI output, unsent", async () => {
   const { slot, failure, startConversation } = await renderChapter();
   fireEvent.click(failure.getByRole("button", { name: "Ask agent about the lint failure at src/a.ts:2" }));
   const agent = within(await slot.findByRole("region", { name: "Review agent" }));
-  await waitFor(() => expect((agent.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("In `src/a.ts` line 2, a check fails:\n> **lint** · no-shout\n> Lower-case it.\n> See the style guide."));
+  await waitFor(() => expect((agent.getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("In `src/a.ts` line 2, a check fails:\n```text\n<untrusted source=\"CI annotation\">\nlint · no-shout\nLower-case it.\nSee the style guide.\n</untrusted>\n```"));
   expect(startConversation).not.toHaveBeenCalled();
   slot.lifecycle.unmount();
 }, 15_000);

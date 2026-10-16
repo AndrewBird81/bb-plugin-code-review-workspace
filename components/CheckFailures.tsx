@@ -3,6 +3,7 @@ import { UrlLink, useRpc } from "@get-bb/plugin-sdk/app";
 import type { z } from "zod";
 import type { rpcContract } from "../src/rpc-contract";
 import { sameLocation, type CommentLocation } from "../src/draft";
+import { codeFence, untrusted } from "../src/untrusted";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
 import { useKnob } from "../lib/settings";
 import { useWorkspace } from "../lib/workspace-context";
@@ -39,9 +40,13 @@ function failureQuote(failure: Pick<CheckFailure, "check" | "title" | "message">
   return [`**${failure.check}**${failure.title ? ` · ${failure.title}` : ""}`, ...failure.message.trim().split("\n")].map((line) => `> ${line}`.trimEnd()).join("\n");
 }
 
+/** A failing check as the agent reads it: "‹check› · ‹title›", then its message, as data, since the PR's code writes it. */
+const failureData = (failure: Pick<CheckFailure, "check" | "title" | "message">) =>
+  codeFence(untrusted("CI annotation", [`${failure.check}${failure.title ? ` · ${failure.title}` : ""}`, failure.message.trim()].join("\n")));
+
 /**
  * A failure's Comment, which opens the comment box at its line with Blocking set and the failure quoted, and Ask agent,
- * which quotes it into the agent's box, unsent. Only inside the workspace, where a line has failures.
+ * which puts it in the agent's box, fenced, unsent. Only inside the workspace, where a line has failures.
  */
 function FailureActions({ failure }: { failure: CheckFailure }) {
   const draft = useContext(InlineDraftContext);
@@ -52,7 +57,7 @@ function FailureActions({ failure }: { failure: CheckFailure }) {
     {draft?.editable && <button type="button" className={action} disabled={draft.busy || draft.writing} aria-label={`Comment on the ${failure.check} failure at ${failure.file}:${failure.line}`}
       onClick={() => draft.open(at, { body: `${failureQuote(failure)}\n\n`, severity: "blocking" })}>Comment</button>}
     <button type="button" className={`${action} text-(--ansi-13)`} aria-label={`Ask agent about the ${failure.check} failure at ${failure.file}:${failure.line}`}
-      onClick={() => askAgent({ file: failure.file, startLine: failure.line, endLine: failure.line, side: "additions", chapterId: activeId }, `In \`${failure.file}\` line ${failure.line}, a check fails:\n${failureQuote(failure)}`)}>Ask agent</button>
+      onClick={() => askAgent({ file: failure.file, startLine: failure.line, endLine: failure.line, side: "additions", chapterId: activeId }, `In \`${failure.file}\` line ${failure.line}, a check fails:\n${failureData(failure)}`)}>Ask agent</button>
   </>;
 }
 
