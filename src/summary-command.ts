@@ -1,5 +1,6 @@
 import type { Store } from "./store";
 import { NOT_OWN_REVIEW } from "./review-command";
+import { BODY_LIMIT } from "./comment-command";
 import { verdictPicked, type Verdict } from "./draft";
 import { parseTarget, targetKey } from "./targets";
 import { describeSummary, writeSummary } from "./draft-summary";
@@ -10,7 +11,7 @@ export const SUMMARY_USAGE = [
   "",
   "Shows or writes the review summary in a review's local draft in this bb. Nothing is posted to GitHub; the reviewer picks the verdict and submits the draft from Guided Review.",
   "  <review>   a GitHub PR URL, or a review key (pr-…, ref-…)",
-  "  --body     the summary, in GitHub Markdown; quote it for your shell. A summary the reviewer wrote stays theirs",
+  "  --body     the summary, in GitHub Markdown, up to 65,000 characters; quote it for your shell. A summary the reviewer wrote stays theirs",
   "  --suggest  the verdict you'd suggest; the reviewer picks",
   "  --json     show the summary, who wrote it, and the verdicts as JSON",
 ].join("\n");
@@ -40,6 +41,7 @@ export function runSummaryCommand(store: Store, argv: string[], changed: (target
   if (values.json !== undefined && values.body !== undefined) return usage("--json shows the summary; it doesn't take --body.");
   if (values.suggest !== undefined && values.body === undefined) return usage("--suggest goes with --body.");
   if (values.body !== undefined && !values.body.trim()) return usage("--body needs the summary's text.");
+  if (values.body !== undefined && values.body.trim().length > BODY_LIMIT) return usage("--body is limited to 65,000 characters.");
   const suggest = values.suggest?.toUpperCase();
   if (suggest !== undefined && !VERDICTS.includes(suggest)) return usage("--suggest is APPROVE, COMMENT, or REQUEST_CHANGES.");
 

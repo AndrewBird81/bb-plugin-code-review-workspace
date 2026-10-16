@@ -16,7 +16,7 @@ export const COMMENT_USAGE = [
   "                 <file>:<start>-<end> for lines in one hunk, where edit sets the comment's first line",
   "  --code         the line's text, without the diff's +, -, or space, or a range's lines, one per line;",
   "                 add, and edit of a range, refuse lines that don't match",
-  "  --body         the comment, in GitHub Markdown; quote it for your shell",
+  "  --body         the comment, in GitHub Markdown, up to 65,000 characters; quote it for your shell",
   "  --severity     blocking, should-fix, question, nit, or none; a label the body starts with, such as",
   "                 **Blocking:**, sets it instead. Without either, edit keeps the comment's",
   "  --evidence     how you confirmed it: what you read or ran, with file:line (up to 600 characters). The",
@@ -31,6 +31,8 @@ const ACTIONS = {
 } as const;
 
 type CliResult = { exitCode: number; stdout?: string; stderr?: string };
+/** GitHub takes up to 65,536 characters in a comment or review body. */
+export const BODY_LIMIT = 65_000;
 const usage = (problem: string): CliResult => ({ exitCode: 2, stderr: `${problem}\n${COMMENT_USAGE}` });
 
 /** `bb review comment …`: list and change a review's draft comments. `changed` runs after a successful change.
@@ -74,6 +76,7 @@ export function runCommentCommand(store: Store, argv: string[], changed: (target
   const range = at[3] && action !== "delete" ? { startLine: ends[0] } : {};
   if (action === "add" && values.code === undefined) return usage("add needs --code with the line's text.");
   if (action !== "delete" && !values.body?.trim()) return usage(`${action} needs --body with the comment's text.`);
+  if (values.body !== undefined && values.body.trim().length > BODY_LIMIT) return usage("--body is limited to 65,000 characters.");
   const evidence = values.evidence?.trim();
   if (evidence && evidence.length > 600) return usage("--evidence is limited to 600 characters.");
   const result: DraftResult = action === "add" ? addComment(store, key, { ...location, ...range, code: values.code!, severity, body: values.body!, evidence })

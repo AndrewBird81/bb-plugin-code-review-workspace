@@ -158,6 +158,22 @@ test("the agent is told evidence's 600-character cap, on adding and on editing",
   }
 });
 
+test("what an agent writes for GitHub is capped under GitHub's 65,536 characters", async () => {
+  const { harness, store, add } = await host();
+  const { tools } = await harness.behavior.resolveAgentConfiguration({
+    pluginMetadata: {}, thread: { id: "assistant", title: "Review agent: pr-1", parentThreadId: null, sourceThreadId: null },
+    project: { id: "p1", kind: "personal", name: "Personal", gitRemoteUrl: null },
+    environment: { id: "env-1", name: null, path: null, workspaceProvisionType: "unmanaged", branchName: null },
+    host: { id: "host-1", name: "h" }, provider: { id: "claude-code", model: "opus", capabilities: { supportsNativeUserQuestion: false } },
+    origin: { kind: null, pluginId: "guided-review" },
+  } as any);
+  const cap = (tool: string, field: string) => (tools.find((t) => t.name === tool)?.inputSchema as { properties: Record<string, { maxLength?: number }> }).properties[field].maxLength;
+  expect([["add_draft_comment", "body"], ["edit_draft_comment", "body"], ["set_review_summary", "body"], ["reply_in_discussion", "body"], ["draft_thread_reply", "body"], ["assess_feedback", "suggestedBody"]]
+    .map(([tool, field]) => [tool, cap(tool, field)])).toEqual([["add_draft_comment", 65_000], ["edit_draft_comment", 65_000], ["set_review_summary", 65_000], ["reply_in_discussion", 65_000], ["draft_thread_reply", 65_000], ["assess_feedback", 65_000]]);
+  await expect(add({ file: "a.ts", line: 3, code: "const c = b * 2;", body: "x".repeat(65_001) })).rejects.toThrow("Too big");
+  expect(store.getDraft("pr-1").comments).toEqual([]);
+});
+
 test("an agent's comment keeps how it checked it, an edit replaces or keeps that, Undo puts it back, and the reviewer's edit drops it", async () => {
   const { harness, store, call, add, error } = await host();
   const at = { file: "a.ts", line: 3, side: "RIGHT" as const };

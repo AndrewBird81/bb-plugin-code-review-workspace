@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { startVerification, verificationContext } from "./verification";
+import { assess, startVerification, verificationContext } from "./verification";
 import { createStore, type ReviewMeta } from "./store";
 import { defaultPreferences } from "./preferences";
 
@@ -29,4 +29,25 @@ test("with Run the re-review check off, the check doesn't start, though the defa
   expect(await startVerification(bb, store, "pr-1", "the reviewer asked for a check")).toBe(false);
   expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
   expect(store.getReview("pr-1")?.verifyingSince).toBeFalsy();
+});
+
+test("assess_feedback keeps where its evidence is only as a line the current diff shows on its new side", () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, headSha: "sha1", status: "ready", createdAt: 1 });
+  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,3 +1,2 @@\n keep();\n-if (!isAdmin(user)) throw denied();\n next();\n");
+  const item = (id: string, at: { file?: string; line?: number }) => ({ id, title: "Ask", verdict: "addressed" as const, evidence: "Fixed", ...at });
+  expect(assess(store, store.getReview("pr-1")!, { items: [
+    item("summary:1", { file: "nowhere.ts", line: 999 }),
+    item("summary:2", { file: "a.ts", line: 2 }),
+    // Not a line of the diff, and no line at all.
+    item("summary:3", { file: "a.ts", line: 9 }),
+    item("summary:4", { file: "a.ts" }),
+  ] }).ok).toBe(true);
+  expect(store.getAssessment("pr-1", "sha1").items.map(({ id, file, line }) => ({ id, file, line }))).toEqual([
+    { id: "summary:1", file: undefined, line: undefined },
+    { id: "summary:2", file: "a.ts", line: 2 },
+    { id: "summary:3", file: undefined, line: undefined },
+    { id: "summary:4", file: undefined, line: undefined },
+  ]);
 });

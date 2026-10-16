@@ -170,10 +170,13 @@ export function assess(store: Store, review: ReviewMeta, input: AssessInput): { 
   const untitled = input.items.filter((item) => isSummaryItem(item.id) && !item.title?.trim() && !store.getAssessment(review.targetKey, head).items.some((i) => i.id === item.id && i.title));
   if (untitled.length) return { ok: false, error: `Give each summary ask a title: ${untitled.map((i) => i.id).join(", ")}. Nothing was recorded.` };
   const now = Date.now();
+  // Where the evidence is, only as a line the current diff shows on its new side, so it links to code the reviewer sees.
+  const positions = store.diffPositions(review.targetKey);
+  const shown = (file?: string, line?: number) => !!file && !!line && !!positions.get(file)?.right.has(line);
   const items: AssessmentItem[] = input.items.map((item) => ({
     id: item.id, verdict: item.verdict, evidence: item.evidence.trim().slice(0, 1000), assessedAt: now,
     ...(item.title?.trim() ? { title: item.title.trim().slice(0, 300) } : {}),
-    ...(item.file ? { file: item.file } : {}), ...(item.line ? { line: item.line } : {}),
+    ...(shown(item.file, item.line) ? { file: item.file, line: item.line } : {}),
   }));
   store.saveAssessmentItems(review.targetKey, head, items);
   const previous = store.getAssessment(review.targetKey, head).run;

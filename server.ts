@@ -795,7 +795,8 @@ export default async function plugin(bb: BbPluginApi) {
     line: z.number().int().min(1).describe("The line's number in the new file (side RIGHT) or the old file (side LEFT)."),
     side: z.enum(["RIGHT", "LEFT"]).optional().describe("RIGHT, the default, for an added or unchanged line; LEFT for a removed line."),
   };
-  const body = z.string().trim().min(1).describe("The comment, in GitHub Markdown.");
+  // GitHub takes up to 65,536 characters in a comment or review body.
+  const body = z.string().trim().min(1).max(65_000).describe("The comment, in GitHub Markdown.");
   const evidence = z.string().trim().max(600).optional().describe("How you confirmed it, in Markdown, under 600 characters: what you read or ran, with file:line, and repro steps. Only what you actually did. The reviewer sees it folded under the comment; it's never posted to GitHub.");
   const severity = z.enum([...SEVERITIES, "none"]).optional().describe("How much it matters: blocking, should-fix, question, nit, or none. Without it, a label the body starts with (**Blocking:**, **Should fix:**, **Question:**, **Nit:**) sets it; on edit, it otherwise stays. The label is kept apart from the text, and GitHub shows it in front.");
   const range = {
@@ -842,7 +843,7 @@ export default async function plugin(bb: BbPluginApi) {
     description: "Write the review summary in the reviewer's local draft for this review: the top-level comment GitHub shows with the verdict and the line comments. Optionally suggest a verdict; the reviewer picks it. Nothing reaches GitHub. Refuses a summary the reviewer wrote, unless they asked on the summary for the change.",
     instructions: "Write the review summary with set_review_summary: the overall assessment, what blocks merging and what doesn't, and points that have no line. Don't repeat your line comments, since GitHub shows them with the review; refer to them by file:line. Keep it short, in GitHub Markdown. Name anything you didn't read. Give the verdict you'd suggest: APPROVE only if nothing blocks and you read every non-generated file, REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT. The reviewer picks the verdict, and yours is marked on it. Without verdict, your earlier suggestion stays marked. Messages from the summary's discussion ask for changes to it: make them with set_review_summary, and answer with reply_in_discussion (summary: true).",
     parameters: z.object({
-      body: z.string().trim().min(1).describe("The summary, in GitHub Markdown."),
+      body: z.string().trim().min(1).max(65_000).describe("The summary, in GitHub Markdown."),
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional().describe("The verdict you'd suggest; the reviewer picks."),
     }),
     execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => writeSummary(store, targetKey, input, threadId)),
@@ -854,7 +855,7 @@ export default async function plugin(bb: BbPluginApi) {
     parameters: z.object({
       summary: z.boolean().optional().describe("true to reply in the review summary's discussion, without file and line."),
       file: location.file.optional(), line: location.line.optional(), side: location.side,
-      body: z.string().trim().min(1).describe("The reply, in Markdown."),
+      body: z.string().trim().min(1).max(65_000).describe("The reply, in Markdown."),
     }),
     execute: ({ summary, file, line, side, body }, { threadId }) => assistantDraft(threadId, true, (targetKey) =>
       summary ? replyInDiscussion(store, targetKey, { ...SUMMARY_AT, body })
@@ -943,7 +944,7 @@ export default async function plugin(bb: BbPluginApi) {
       })).min(1),
       summary: z.string().optional().describe("Two or three sentences on where the PR stands."),
       suggestedVerdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional(),
-      suggestedBody: z.string().optional().describe("The review summary you'd submit with that verdict, in GitHub Markdown. It goes into the reviewer's draft, unless they wrote the draft's summary."),
+      suggestedBody: z.string().max(65_000).optional().describe("The review summary you'd submit with that verdict, in GitHub Markdown. It goes into the reviewer's draft, unless they wrote the draft's summary."),
     }),
     async execute(input, { threadId }) {
       const review = await assistantReviewOf(threadId);
@@ -972,7 +973,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "draft_thread_reply",
     description: "Draft a reply on one of the reviewer's review threads. It waits on the thread in Comments; only the reviewer sends it to GitHub.",
-    parameters: z.object({ threadId: z.string().min(1).describe("The thread id from list_feedback."), body: z.string().trim().min(1).describe("The reply, in GitHub Markdown.") }),
+    parameters: z.object({ threadId: z.string().min(1).describe("The thread id from list_feedback."), body: z.string().trim().min(1).max(65_000).describe("The reply, in GitHub Markdown.") }),
     async execute({ threadId: thread, body }, { threadId }) {
       const review = await assistantReviewOf(threadId);
       if (typeof review === "string") return failed(review);

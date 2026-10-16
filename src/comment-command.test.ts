@@ -131,3 +131,12 @@ test("bb review from a review's own agent rebuilds its guide without approving a
   expect(await harness.behavior.runCli([url], { threadId: "ordinary", projectId: "p1" })).toMatchObject({ exitCode: 0 });
   expect(store.getReview(key)?.approvedHead).toBe("sha2");
 });
+
+test("bb review comment and bb review summary refuse a --body over 65,000 characters", async () => {
+  const { harness, store, cli } = await host();
+  const long = "x".repeat(65_001);
+  expect(await cli("add", url, "a.ts:2", "--code", "next();", "--body", long)).toMatchObject({ exitCode: 2, stderr: expect.stringMatching(/^--body is limited to 65,000 characters\./) });
+  expect(await harness.behavior.runCli(["summary", url, "--body", long])).toMatchObject({ exitCode: 2, stderr: expect.stringMatching(/^--body is limited to 65,000 characters\./) });
+  expect(store.getDraft(key)).toMatchObject({ body: "", comments: [] });
+  expect(await cli("add", url, "a.ts:2", "--code", "next();", "--body", "x".repeat(65_000))).toMatchObject({ exitCode: 0 });
+});
