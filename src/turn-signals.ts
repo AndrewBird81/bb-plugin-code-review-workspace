@@ -29,9 +29,13 @@ export const READER_STATE: ReviewLifecycle = {
  */
 export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string, startedAt: number, now: number): ReviewLifecycle {
   const s = previous.signals ?? {};
+  // GitHub's editedAt follows the PR's body. A new title, which the agents read too, is an edit from when a read saw
+  // it; once the PR is watched, as before then is history. The latest edit stands.
+  const retitled = previous.watchingSince != null && !!previous.title && !!facts.title && facts.title !== previous.title ? now : null;
+  const edits = [facts.editedAt, previous.prEditedAt, retitled].filter((at): at is number => at != null);
   const update: ReviewLifecycle = {
     prState: facts.state, latestHeadSha: facts.headSha, ...(facts.baseRefName ? { latestBase: facts.baseRefName } : {}), unreachable: null, prSize: facts.size ?? null, stackParent: facts.stackParent ?? null, ownPr: !!facts.author && facts.author.toLowerCase() === viewer.toLowerCase(), authorAssociation: facts.authorAssociation ?? null,
-    foreignHeadOwner: foreignHeadOwner(facts, viewer), prEditedAt: facts.editedAt ?? null,
+    foreignHeadOwner: foreignHeadOwner(facts, viewer), prEditedAt: edits.length ? Math.max(...edits) : null,
     archivedAt: facts.state === "OPEN" ? null : previous.archivedAt ?? now,
     // The account reading the PR, which the review's verdict and checks belong to.
     reviewer: viewer,
