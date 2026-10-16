@@ -498,6 +498,12 @@ test("every knob shows in its section, and each saves its non-default value", as
   slot.lifecycle.unmount();
 });
 
+// The agents' lockfile stubs name new download hosts whatever the switch (86285286); Settings didn't say so (95-recheck P3).
+test("Summarize lockfile changes says what stays with it off: the agents' pages still name new download hosts", async () => {
+  const { KNOB_CONTROLS } = await import("./SettingsKnobs");
+  expect(KNOB_CONTROLS.find((control) => control.id === "lockfileDigest")?.description).toMatch(/Off, lockfiles show only their diff, and the agents get no summary, though their pages still name a lockfile’s new download hosts\.$/);
+});
+
 test("a setting that depends on another is disabled while that one is off, and Trust's authors stay a choice", async () => {
   const { slot, toggle, pace } = await renderSettings();
   const automaticReview = slot.getByRole("textbox", { name: "Automatic review" }) as HTMLTextAreaElement;
