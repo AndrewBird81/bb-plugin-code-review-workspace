@@ -366,6 +366,22 @@ test("a suggestion written with CRLF line endings shows as a suggested change", 
   slot.lifecycle.unmount();
 });
 
+// GitHub, as CommonMark, also ends the block at an indented or longer fence, so the box showed lines it doesn't apply
+// (96-recheck-3 P3).
+test("a suggestion ends where GitHub ends it, at an indented or longer fence", async () => {
+  for (const close of ["   ```", "`````"]) {
+    const body = `\`\`\`suggestion\n  three();\n${close}\nAfter.\n\`\`\``;
+    const { slot } = await renderWorkspace({ rpc: {
+      getReviewThreads: () => ({ threads: [{ ...threads()[0], comments: [said("c1", 111, "bob", body, 48)] }] }),
+      getFeedback: () => ({ feedback: feedbackOf([], null) }),
+    } });
+    const cards = code(slot, "src/a.ts");
+    await cards.findByRole("article", { name: "GitHub thread on src/a.ts:2" });
+    expect(cards.getByRole("figure", { name: "Suggested change" }).querySelector("pre code")?.textContent).toBe("  three();");
+    slot.lifecycle.unmount();
+  }
+});
+
 test("a resolve in the code shows in the list at once, and one in the list in the code: they read the same threads", async () => {
   let resolved = false;
   const { slot, rpc } = await renderWorkspace({ rpc: {

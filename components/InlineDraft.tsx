@@ -204,8 +204,8 @@ export function SeveritySelect({ value, onChange, disabled, className }: { value
   );
 }
 
-// A ```suggestion block: the lines it would put in place of the comment's.
-const SUGGESTION = /^```suggestion[ \t]*\n([\s\S]*?)^```[ \t]*$/m;
+// A ```suggestion block: the lines it would put in place of the comment's, up to a fence of 3 backticks or more.
+const SUGGESTION = /^```suggestion[ \t]*\n([\s\S]*?)^ {0,3}`{3,}[ \t]*$/m;
 
 /**
  * A comment's text, with each ```suggestion block shown as the code it would put in place of the comment's lines.
