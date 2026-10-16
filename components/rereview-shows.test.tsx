@@ -646,3 +646,22 @@ test("the diff narrowing by itself as the comparison arrives says so to screen r
   await waitFor(() => expect(status.textContent).toBe("Showing changes since your review · 1 of 2 files"));
   slot.lifecycle.unmount();
 }, 15_000);
+
+test("d flips between Since your review and All changes on a re-review, unless single-key shortcuts are off", async () => {
+  let { slot } = await renderWorkspace();
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  fireEvent.keyDown(document.body, { key: "d" });
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts", "src/b.ts"]));
+  expect(checked(slot, "All changes")).toBe(true);
+  fireEvent.keyDown(document.body, { key: "d" });
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  slot.lifecycle.unmount();
+  localStorage.clear();
+  const { defaultKnobs } = await import("../lib/knobs");
+  ({ slot } = await renderWorkspace({ rpc: { getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, singleKeyShortcuts: false } }, revision: 0 }) } }));
+  await waitFor(() => expect(shown(slot)).toEqual(["src/a.ts"]));
+  fireEvent.keyDown(document.body, { key: "d" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(shown(slot)).toEqual(["src/a.ts"]);
+  slot.lifecycle.unmount();
+});

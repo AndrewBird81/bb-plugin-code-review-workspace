@@ -1213,6 +1213,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       case "c": togglePanel("comments"); return true;
       case "a": askAgent(); return true;
       case "s": showDraftSummary(); return true;
+      case "d": {
+        // Only where there's a comparison to flip, as the switch above the files shows.
+        if (!since) return false;
+        flip(!sinceOnly);
+        return true;
+      }
       case "i": changeCommentsFolded(!commentsFolded); return true;
       case "F": {
         if (canFullscreen) toggleFullscreen();

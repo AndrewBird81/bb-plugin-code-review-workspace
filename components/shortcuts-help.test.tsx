@@ -33,6 +33,7 @@ test("the shortcuts are grouped by what they're for, with Shift and Esc written 
   expect(row("Panels", "Close what's over the code, or leave full screen")).toBe("Esc");
   expect(row("View", "Fold or unfold comments in code")).toBe("i");
   expect(row("View", "Full screen on or off")).toBe("⇧F");
+  expect(row("View", "Since your review or All changes, on a re-review")).toBe("d");
 });
 
 test("its ✕ keeps its size but has a 44px target on a touch screen, an iPad's included", () => {

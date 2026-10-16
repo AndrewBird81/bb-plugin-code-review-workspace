@@ -16,6 +16,7 @@ export const SHORTCUTS = [
   { group: "Panels", keys: ["a"], label: "Ask agent" },
   { group: "Panels", keys: ["s"], label: "Finish review" },
   { group: "Panels", keys: ["Escape"], label: "Close what's over the code, or leave full screen" },
+  { group: "View", keys: ["d"], label: "Since your review or All changes, on a re-review" },
   { group: "View", keys: ["i"], label: "Fold or unfold comments in code" },
   { group: "View", keys: ["F"], label: "Full screen on or off" },
   { group: "View", keys: ["?"], label: "Show these shortcuts" },
