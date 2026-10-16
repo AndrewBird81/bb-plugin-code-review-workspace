@@ -71,9 +71,13 @@ test("Refresh reads all of GitHub, and says so while it does", async () => {
   const { bar, page } = await renderList({
     refreshReviews: () => new Promise((resolve) => { finish = () => resolve({ reviews, sync: { lastReadAt: Date.now(), error: null } }); }),
   });
-  fireEvent.click(await bar!.findByRole("button", { name: "Refresh" }));
+  const button = await bar!.findByRole("button", { name: "Refresh" });
+  button.focus();
+  fireEvent.click(button);
   const busy = await bar!.findByRole("button", { name: "Refreshing…" });
-  expect(busy.hasAttribute("disabled")).toBe(true);
+  // Unavailable, not disabled, so the keyboard's focus stays on it; a second click does nothing.
+  expect([busy.getAttribute("aria-disabled"), busy.hasAttribute("disabled"), document.activeElement === busy]).toEqual(["true", false, true]);
+  fireEvent.click(busy);
   expect(page.inspection.rpcCalls.filter((call) => call.method === "refreshReviews").map((call) => call.input)).toEqual([{ force: true }]);
   finish();
   await bar!.findByRole("button", { name: "Refresh" });

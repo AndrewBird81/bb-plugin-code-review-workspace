@@ -358,6 +358,22 @@ test("the check strip says what the agent checked, when, and how much is address
   slot.lifecycle.unmount();
 });
 
+test("Refresh comments stays focusable while it reads GitHub again, unavailable rather than disabled", async () => {
+  let finish!: () => void;
+  const { slot, rpc } = await renderWorkspace({ rpc: { refreshFeedback: vi.fn(() => new Promise((resolve) => { finish = () => resolve({ feedback: feedbackOf() }); })) } });
+  await openComments(slot);
+  const refresh = slot.getByRole("button", { name: "Refresh comments" });
+  refresh.focus();
+  fireEvent.click(refresh);
+  await waitFor(() => expect(refresh.getAttribute("aria-disabled")).toBe("true"));
+  expect([refresh.hasAttribute("disabled"), document.activeElement === refresh]).toEqual([false, true]);
+  fireEvent.click(refresh);
+  expect(rpc.refreshFeedback).toHaveBeenCalledTimes(1);
+  finish();
+  await waitFor(() => expect(refresh.getAttribute("aria-disabled")).toBe("false"));
+  slot.lifecycle.unmount();
+});
+
 test("when GitHub can't be read the list says so, apart from having no threads, and still shows what it has", async () => {
   let { slot } = await renderWorkspace({ rpc: { getReviewThreads: () => ({ threads: [], error: "HTTP 502: Bad Gateway" }) } });
   let list = await openComments(slot);

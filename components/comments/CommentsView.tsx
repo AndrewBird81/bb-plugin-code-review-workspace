@@ -209,7 +209,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   // ↻ and ⋯, in the panel's header; in the list's own top row where there's none.
   const headerActions = <>
     {isPr && actions && <Hint label={feedback?.fetchedAt ? `Refresh comments · GitHub read ${timeAgo(feedback.fetchedAt)}` : "Refresh comments"} container={container}>
-      <Button variant="ghost" size="sm" aria-label="Refresh comments" disabled={refreshing} className={cn("size-8 px-0 text-muted-foreground", TOUCH_CONTROL)} onClick={() => void actions.refresh()}>
+      <Button variant="ghost" size="sm" aria-label="Refresh comments" aria-disabled={refreshing} className={cn("size-8 px-0 text-muted-foreground aria-disabled:opacity-50", TOUCH_CONTROL)} onClick={() => { if (!refreshing) void actions.refresh(); }}>
         <Icon name="ArrowReloadHorizontal" className={cn(refreshing && "animate-spin motion-reduce:animate-none")} aria-hidden />
       </Button>
     </Hint>}

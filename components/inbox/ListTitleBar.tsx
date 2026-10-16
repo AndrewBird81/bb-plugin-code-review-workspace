@@ -31,7 +31,7 @@ export function ListTitleBar({ placement = "title" }: { placement?: "title" | "p
         </Button>
       </Hint>}
       <Hint label={read ? `Refresh · GitHub read ${read}` : "Refresh"}>
-        <Button type="button" variant="ghost" size="sm" aria-label={inbox.refreshing ? "Refreshing…" : "Refresh"} disabled={inbox.refreshing} className={button} onClick={inbox.refresh}>
+        <Button type="button" variant="ghost" size="sm" aria-label={inbox.refreshing ? "Refreshing…" : "Refresh"} aria-disabled={inbox.refreshing} className={cn(button, "aria-disabled:opacity-50")} onClick={() => { if (!inbox.refreshing) inbox.refresh(); }}>
           <Icon name="ArrowReloadHorizontal" className={cn(inbox.refreshing && "animate-spin motion-reduce:animate-none", inbox.health?.error && TONE_TEXT.warning)} aria-hidden />
         </Button>
       </Hint>
