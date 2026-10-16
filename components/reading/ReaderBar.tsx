@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { keyHint } from "../../lib/review-shortcuts";
+import { TITLE_BAR_WAIT_MS } from "../../lib/title-bar";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
 import { phoneWindow } from "../../lib/workspace-layout";
@@ -17,8 +18,6 @@ import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
 import { DiffOptions } from "./DiffOptions";
 
-/** How long BB's title bar has to take the review's commands before the band shows them itself. */
-const TITLE_BAR_WAIT_MS = 500;
 
 /** What the band shows beside its buttons: "All reviews" beside ‹, the review's title, the compare select, and Fold. */
 export interface BandFit {

@@ -3,10 +3,15 @@ import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
+import { TITLE_BAR_WAIT_MS } from "../lib/title-bar";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 const restores: (() => void)[] = [];
-afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); restores.splice(0).forEach((restore) => restore()); });
+afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); restores.splice(0).forEach((restore) => restore()); vi.useRealTimers(); });
+
+/** Time running as it does, but the title bar's wait passed at once. */
+const fakeTime = () => vi.useFakeTimers({ shouldAdvanceTime: true });
+const pastTitleBarWait = () => act(() => { vi.advanceTimersByTime(TITLE_BAR_WAIT_MS); });
 
 /** Every ResizeObserver reports this size, as the page measures itself; `resize` reports another, as a fold does. */
 function fakeSize(width: number, height: number) {
@@ -42,6 +47,7 @@ async function renderList(rpc: Record<string, (input: any) => unknown> = {}, { t
 }
 
 test("on All reviews BB's title bar has Refresh and Settings, and Settings opens Settings; on Settings it has nothing", async () => {
+  fakeTime();
   const { bar, page } = await renderList();
   const commands = within(await bar!.findByRole("group", { name: "Review list commands" }));
   expect(commands.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Refresh", "Settings"]);
@@ -49,7 +55,7 @@ test("on All reviews BB's title bar has Refresh and Settings, and Settings opens
   expect(bar!.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "settings" } }]);
   // The page has its own find box, and no controls of its own beside it.
   expect(page.getByRole("searchbox", { name: "Find a review, or paste a PR link" })).toBeTruthy();
-  await new Promise((resolve) => setTimeout(resolve, 600));
+  pastTitleBarWait();
   expect(within(page.container).queryByRole("group", { name: "Review list commands" })).toBeNull();
   page.lifecycle.unmount(); bar!.lifecycle.unmount();
   const app = await loadPluginApp(() => import("../app"));
@@ -94,17 +100,21 @@ test("on a phone the title bar has three buttons at most: Find a review opens th
 });
 
 test("without BB's title bar the page shows the list's controls itself, after a moment", async () => {
+  fakeTime();
   const { page } = await renderList({}, { titleBar: false });
   expect(page.queryByRole("group", { name: "Review list commands" })).toBeNull();
-  const commands = within(await page.findByRole("group", { name: "Review list commands" }));
+  pastTitleBarWait();
+  const commands = within(page.getByRole("group", { name: "Review list commands" }));
   expect(commands.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Refresh", "Settings"]);
   // Full-size targets on the page.
   for (const button of commands.getAllByRole("button")) expect(button.className).toContain("pointer-coarse:h-11");
 });
 
 test("the page's own Refresh and Settings leave a PR link typed in the find box alone", async () => {
+  fakeTime();
   const { page } = await renderList({ startReview: () => ({ ok: true, targetKey: "pr-8" }) }, { titleBar: false });
-  const commands = within(await page.findByRole("group", { name: "Review list commands" }));
+  pastTitleBarWait();
+  const commands = within(page.getByRole("group", { name: "Review list commands" }));
   fireEvent.change(page.getByRole("searchbox", { name: "Find a review, or paste a PR link" }), { target: { value: "acme/web#8" } });
   fireEvent.click(commands.getByRole("button", { name: "Refresh" }));
   await waitFor(() => expect(page.inspection.rpcCalls.filter((call) => call.method === "refreshReviews")).toHaveLength(1));

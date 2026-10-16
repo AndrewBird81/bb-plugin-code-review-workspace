@@ -8,6 +8,7 @@ import { parsePrLink } from "../../lib/pr-link";
 import { needsGroup, needsOrder, reviewState, type NeedsGroup, type ReviewItem } from "../../lib/review-state";
 import { useKnob } from "../../lib/settings";
 import { lastActivity } from "../../lib/status-line";
+import { TITLE_BAR_WAIT_MS } from "../../lib/title-bar";
 import type { TurnGroup } from "../../lib/turn";
 import { cn } from "../../lib/utils";
 import { useThreadListReviews } from "../NeedsReviewSidebar";
@@ -42,8 +43,6 @@ const VIEW_KEY = "gr:review-list";
 const SECTIONS_KEY = "gr:inbox-sections";
 type Collapsed = Partial<Record<TurnGroup, boolean>>;
 const COLLAPSED: Record<TurnGroup, boolean> = { needs: false, waiting: true, reviewed: true, archive: true };
-/** How long BB's title bar has to take the list's controls before the page shows them itself. */
-const TITLE_BAR_WAIT_MS = 500;
 
 function savedQuery(): string {
   try { return (JSON.parse(sessionStorage.getItem(VIEW_KEY) ?? "{}") as { query?: string }).query ?? ""; } catch { return ""; }

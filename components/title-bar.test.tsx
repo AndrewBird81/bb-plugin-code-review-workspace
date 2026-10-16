@@ -6,12 +6,13 @@ import { defaultPreferences } from "../src/preferences";
 import { defaultKnobs } from "../lib/knobs";
 import { patchReviewState } from "../lib/panel-state";
 import { setNeedsYou } from "../lib/workspace-store";
+import { TITLE_BAR_WAIT_MS } from "../lib/title-bar";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
 vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
 
 const restores: (() => void)[] = [];
-afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); restores.splice(0).forEach((restore) => restore()); });
+afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); restores.splice(0).forEach((restore) => restore()); vi.useRealTimers(); });
 
 /** Every ResizeObserver reports this size, and media queries answer for a screen this size. */
 function fakeSize(width: number, height: number) {
@@ -127,14 +128,17 @@ test("the title bar's commands fit the pane: labeled from 1000px, shorter below,
 
 test("where BB's title bar takes the commands the band doesn't show them; where it doesn't, the band does, after a moment", async () => {
   fakeSize(1400, 900);
+  // Time runs as it does, but the title bar's wait passes at once.
+  vi.useFakeTimers({ shouldAdvanceTime: true });
   const withBar = await renderReview();
   await withBar.bar!.findByRole("group", { name: "Review commands" });
-  await new Promise((resolve) => setTimeout(resolve, 600));
+  act(() => { vi.advanceTimersByTime(TITLE_BAR_WAIT_MS); });
   expect(withBar.band().queryByRole("group", { name: "Review commands" })).toBeNull();
   withBar.page.lifecycle.unmount(); withBar.bar!.lifecycle.unmount();
   const without = await renderReview({ titleBar: false });
   expect(without.band().queryByRole("group", { name: "Review commands" })).toBeNull();
-  expect(await without.band().findByRole("group", { name: "Review commands" })).toBeTruthy();
+  act(() => { vi.advanceTimersByTime(TITLE_BAR_WAIT_MS); });
+  expect(without.band().getByRole("group", { name: "Review commands" })).toBeTruthy();
 });
 
 test("Submit shows only what can be submitted: a local review and a closed PR have none", async () => {
