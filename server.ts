@@ -662,7 +662,7 @@ export default async function plugin(bb: BbPluginApi) {
       // Only a comment the diff left behind: one on the current diff is edited or removed.
       const comment = store.staleDraftComments(targetKey).find((c) => sameLocation(c, at));
       if (!comment) throw new Error(`The comment on ${file}:${line} isn’t on an older diff. Edit or remove it instead.`);
-      const body = withSummaryLine(store.getDraft(targetKey).body, summaryLine(comment));
+      const body = withSummaryLine(store.getDraft(targetKey).body, summaryLine(comment, store.getPreferences().preferences.knobs.preExistingFindings));
       if (body.length > 65_000) throw new Error("The summary would be too long. Shorten it, or edit the comment instead.");
       // As saveSummary does: your words now, and an ask on the summary is over. The line goes in before the comment
       // goes, so nothing in between can lose it.

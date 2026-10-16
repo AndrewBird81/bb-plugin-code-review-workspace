@@ -221,3 +221,15 @@ test("moveToSummary makes a comment on an older diff a line of the summary, whic
   expect(second.draft.body).toBe("The agent's summary.\n\n- On `a.ts:1` (an earlier diff): **Blocking:** Breaks.\n- On `a.ts:2–3` (an earlier diff): Two lines.\n\n  ```ts\n  fix();\n  ```");
   expect(second.draft.comments).toEqual([]);
 });
+
+test("moveToSummary marks a pre-existing comment's line as it would post", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-9", kind: "pr", number: 9, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
+  store.upsertDraftComment("pr-9", { file: "a.ts", line: 1, side: "RIGHT", author: "agent", severity: "blocking", introduced: false, body: "Already racy." });
+  store.savePatch("pr-9", "diff --git a/b.ts b/b.ts\n--- a/b.ts\n+++ b/b.ts\n@@ -0,0 +1 @@\n+uno\n");
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-9" }) as any;
+  const moved = await harness.behavior.callRpc("moveToSummary", { targetKey: "pr-9", revision, file: "a.ts", line: 1, side: "RIGHT" }) as any;
+  expect(moved.draft.body).toBe("- On `a.ts:1` (an earlier diff): **Pre-existing:** **Blocking:** Already racy.");
+});

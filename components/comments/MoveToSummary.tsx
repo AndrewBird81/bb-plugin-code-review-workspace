@@ -15,9 +15,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 export function MoveToSummary({ comments, variant = "ghost", className }: { comments: DraftComment[]; variant?: "ghost" | "outline"; className?: string }) {
   const draft = useDraft();
   const on = useKnob("moveToSummary");
+  const preExisting = useKnob("preExistingFindings");
   const [open, setOpen] = useState(false);
   if (!on || !draft.editable || !comments.length) return null;
-  const lines = comments.map(summaryLine);
+  const lines = comments.map((comment) => summaryLine(comment, preExisting));
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild>
       <Button variant={variant} size="sm" className={className} disabled={draft.busy || draft.writing}>Move to summary</Button>
