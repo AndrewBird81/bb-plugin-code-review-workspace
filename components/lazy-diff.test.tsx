@@ -49,6 +49,10 @@ test("a large chapter draws a file's code only once it nears the screen, holding
   expect(observer!.options?.rootMargin).toBe("2000px 0px");
   // 100 rows of 20px, and pierre's 16px of padding.
   expect(card("src/f3.ts").querySelector<HTMLElement>("[data-pending-diff]")!.style.height).toBe("2016px");
+  // Not a blank card: rows of muted bars where its lines will be, hidden from screen readers.
+  const pending = card("src/f3.ts").querySelector<HTMLElement>("[data-pending-diff]")!;
+  expect(pending.style.backgroundImage).toContain("repeating-linear-gradient");
+  expect(pending.getAttribute("aria-hidden")).toBe("true");
   near("src/f0.ts", "src/f1.ts");
   expect(drawn).toEqual(["src/f0.ts", "src/f1.ts"]);
   expect(card("src/f1.ts").querySelector("[data-pending-diff]")).toBeNull();

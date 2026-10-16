@@ -102,6 +102,17 @@ function drawnHeight(fileDiff: FileDiffMetadata, style: "split" | "unified"): nu
   return 16 + rowsOf(fileDiff, style) * 20 + fileDiff.hunks.filter((hunk) => hunk.collapsedBefore > 0).length * 48;
 }
 
+/**
+ * A file waiting to draw its code, as rows of muted bars where its lines will be, past the gutter's room: drawn by its
+ * background, so a chapter of hundreds of them adds no elements.
+ */
+const PENDING_ROWS = {
+  backgroundImage: "repeating-linear-gradient(to bottom, transparent 0 6px, color-mix(in oklab, var(--muted) 80%, transparent) 6px 14px, transparent 14px 20px)",
+  backgroundSize: "min(60%, 480px) calc(100% - 16px)",
+  backgroundPosition: "64px 8px",
+  backgroundRepeat: "no-repeat",
+} as const;
+
 /** Below this width the diff shows one column, whatever the reading layout: each side of a split needs about 480px. */
 const UNIFIED_BELOW = 960;
 
@@ -826,7 +837,7 @@ export const DiffViewer = memo(function DiffViewer({
               </p>
             )}
             {!folded && fileDiff && !draws(path) && (
-              <div data-pending-diff style={{ height: drawnHeight(full?.fileDiff ?? fileDiff, diffStyle) }} />
+              <div data-pending-diff aria-hidden style={{ ...PENDING_ROWS, height: drawnHeight(full?.fileDiff ?? fileDiff, diffStyle) }} />
             )}
             {!folded && fileDiff && draws(path) && (
               <ErrorBoundary resetKey={full?.fileDiff ?? fileDiff} fallback={(retry) => <FileError path={path} prUrl={prUrl} onRetry={retry} />}>
