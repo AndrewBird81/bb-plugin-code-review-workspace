@@ -1,4 +1,4 @@
-import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type MutableRefObject } from "react";
 import { useRpc, useRealtime, useRealtimeConnectionState, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { Toaster, toast } from "sonner";
 import type { SelectedLineRange } from "@pierre/diffs";
@@ -12,6 +12,7 @@ import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setCommentsFolded, setGithubThreadsInCode, setHideWhitespace, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView } from "../lib/panel-state";
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
+import { currentFileOf, setCurrentFile as storeCurrentFile, useCurrentFile } from "../lib/workspace-store";
 import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout, type LayoutState } from "../lib/workspace-layout";
 import { useKeyboardInset } from "../lib/use-keyboard-inset";
 import { useFold } from "../lib/use-fold";
@@ -75,11 +76,26 @@ function viewMap(views: { file: string; viewed: boolean; stale: boolean; viewedA
   return new Map(views.map((v) => [v.file, { viewed: v.viewed, stale: v.stale, viewedAt: v.viewedAt }]));
 }
 
+/** The views read, or the ones shown when they say the same of every file: a refresh that changed nothing draws nothing. */
+function newViews(shown: Map<string, FileViewFlags>, read: Map<string, FileViewFlags>): Map<string, FileViewFlags> {
+  if (shown.size !== read.size) return read;
+  for (const [file, flags] of read) {
+    const was = shown.get(file);
+    if (was?.viewed !== flags.viewed || was.stale !== flags.stale || was.viewedAt !== flags.viewedAt) return read;
+  }
+  return shown;
+}
+
 /** Where you're typing in the review `targetKey`, if you are: in its chapters (Find in review), its side panel, or elsewhere. */
 function typingIn(targetKey: string): LayoutState["typingIn"] {
   const active = document.activeElement;
   if (!(active instanceof HTMLElement && (active.isContentEditable || active.closest(TEXT_FIELD)))) return undefined;
   return document.getElementById(navigatorId(targetKey))?.contains(active) ? "nav" : document.getElementById(sidePanelId(targetKey))?.contains(active) ? "panel" : "other";
+}
+
+/** The navigator, marking the file you're on: it alone draws again as you move from file to file. */
+function NavigatorAtFile({ targetKey, ...props }: Omit<ComponentProps<typeof Navigator>, "currentFile"> & { targetKey: string }) {
+  return <Navigator {...props} currentFile={useCurrentFile(targetKey)} />;
 }
 
 /** Hands the workspace the lines with draft comments or discussions, which the draft provides, without the nits it hides. */
@@ -157,7 +173,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [views, setViews] = useState<Map<string, FileViewFlags>>(new Map());
   const [generated, setGenerated] = useState<Set<string>>(new Set());
   const [injection, setInjection] = useState<DockInjection | undefined>();
-  const [currentFile, setCurrentFile] = useState<string | undefined>();
+  // The file you're on, which a key or click went to or the code is scrolled to: in the workspace store, so moving from
+  // file to file draws again only the navigator that marks it. Read when needed, never drawn here.
+  const setCurrentFile = useCallback((next: string | undefined | ((current: string | undefined) => string | undefined)) => {
+    storeCurrentFile(targetKey, typeof next === "function" ? next(currentFileOf(targetKey)) : next);
+  }, [targetKey]);
+  // A review opens on no file, until its chapter's files show.
+  useLayoutEffect(() => storeCurrentFile(targetKey, undefined), [targetKey]);
   const [lineSel, setLineSel] = useState<{ file: string; range: SelectedLineRange } | null>(null);
   const [draftPrefill, setDraftPrefill] = useState<CommentPrefill | undefined>();
   const [showDraft, setShowDraft] = useState<{ at: number; replaced?: boolean } | undefined>();
@@ -397,7 +419,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const id = ++viewsRequest.current;
     try {
       const { views } = await rpc.call("getFileViews", { targetKey });
-      if (id === viewsRequest.current) setViews(viewMap(views));
+      if (id === viewsRequest.current) setViews((shown) => newViews(shown, viewMap(views)));
     } catch {
       // Non-fatal — the diff just won't show viewed state.
     }
@@ -440,7 +462,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       }
       setPatch(patch);
       if (diffError) setLoadError(diffError);
-      if (viewsRes && viewsId === viewsRequest.current) setViews(viewMap(viewsRes.views));
+      if (viewsRes && viewsId === viewsRequest.current) setViews((shown) => newViews(shown, viewMap(viewsRes.views)));
       if (generatedRes) setGenerated((current) => current.size === generatedRes.files.length && generatedRes.files.every((file) => current.has(file)) ? current : new Set(generatedRes.files));
       const chapters = guide?.sections ? withOtherFiles(fitHunks(guide.sections, patch), patch) : [];
       if (!chapters.length) return;
@@ -481,6 +503,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     void load();
     return () => { request.current++; };
   }, [load]);
+  // A new function each draw would draw the draft's provider, and all it holds, again with the workspace.
+  const reloadReview = useCallback(() => { void load(); }, [load]);
   useRealtime(`review:${targetKey}`, () => { void load(); });
   // The checks are read again when the sync sees the PR's head or CI state change, not on every reload.
   const checksKey = review?.kind === "pr" ? `${review.latestHeadSha ?? review.headSha ?? ""} ${review.signals?.ci ?? ""}` : null;
@@ -970,26 +994,23 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [outsideGuide, showLocation]);
   // Finish review shows the draft at its summary, which the draft focuses once it shows.
   const showDraftSummary = useCallback((replaced = false) => { openPanel("finish"); setShowDraft({ at: Date.now(), replaced }); }, [openPanel]);
-  // Read when you ask, so asking doesn't change with each scroll, nor the workspace's api with it.
-  const currentFileRef = useRef(currentFile);
-  currentFileRef.current = currentFile;
   // From the file you're on, or the chapter's start; on the Overview, from the first chapter.
   const nextUnviewed = useCallback(() => {
     const order = readingOrder(sections);
     const placeOf = (file: string | undefined) => order.findIndex((entry) => entry.chapter === activeId && entry.file === file);
-    const current = currentFileRef.current;
+    const current = currentFileOf(targetKey);
     const from = Math.max(current ? placeOf(current) : placeOf(activeFiles[0]) - 1, -1);
     const next = [...order.slice(from + 1), ...order.slice(0, from + 1)].find((entry) => !views.get(entry.file)?.viewed);
     if (!next) toast.info("Every file is viewed.");
     else onSelectFile(next.chapter, next.file);
-  }, [sections, activeId, activeFiles, views, onSelectFile]);
+  }, [targetKey, sections, activeId, activeFiles, views, onSelectFile]);
   const chapterId = activeSection?.id as string | undefined;
   // Popped out, the agent takes the question where it is, its box focused: the side panel would only say it's popped out.
   const ask = useCallback((context: AgentMessageContext) => {
     setInjection({ context, nonce: Date.now() });
     if (layoutRef.current.mode !== "tablet" || agentDockMode(targetKey) !== "widget") openPanel("agent");
   }, [openPanel, targetKey]);
-  const askAgent = useCallback((context?: AgentMessageContext) => ask(context ?? { file: currentFileRef.current, chapterId }), [ask, chapterId]);
+  const askAgent = useCallback((context?: AgentMessageContext) => ask(context ?? { file: currentFileOf(targetKey), chapterId }), [ask, targetKey, chapterId]);
   const showFeedback = useMemo(() => isPr ? () => openComments("feedback") : undefined, [isPr, openComments]);
   // The diff remounts after the Overview; it shouldn't jump back to an old comment.
   useEffect(() => { if (activeId === OVERVIEW) setReveal(undefined); }, [activeId]);
@@ -1111,6 +1132,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const lastLine = useRef<CommentLocation | null>(null);
   const shortcut = useRef<(key: string) => boolean>(() => false);
   shortcut.current = (key) => {
+    const currentFile = currentFileOf(targetKey);
     const shown = Array.from(scrollBox.current?.querySelectorAll<HTMLElement>("[data-file]") ?? []).map((el) => el.dataset.file!);
     const at = currentFile ? shown.indexOf(currentFile) : -1;
     const goToFile = (file: string | undefined) => {
@@ -1267,7 +1289,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   return (
     <WorkspaceProvider api={api}>
     {/* The draft's provider shares it with the diff, which shows each comment under its line, and with its panel. */}
-    <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} approveGuard={guard} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={() => { void load(); }} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
+    <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} approveGuard={guard} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={reloadReview} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
     {/* Kit popovers open as bottom drawers where the workspace is phone-sized or short. */}
     <CompactViewportOverrideProvider isCompactViewport={layout.mode !== "tablet"}>
     {/* It keeps clear of the screen's edges where it reaches them (--gr-safe-*: the notch, the Duo's rail, the home
@@ -1282,7 +1304,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     >
       <div className="relative flex min-h-0 flex-1">
         <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetTitle={<ChapterViewSwitch view={navView} onChange={changeNavView} />} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelDockWidth(paneWidth, panelWidth) : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
-          <Navigator leading={<TopBand />} patch={patch} currentFile={currentFile} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={shownOwners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} initialFind={carry?.find} onFind={keepFind} />
+          <NavigatorAtFile targetKey={targetKey} leading={<TopBand />} patch={patch} changedSince={changedSince} lines={lines} generated={generated} threads={diffThreads.threads} owners={shownOwners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} initialFind={carry?.find} onFind={keepFind} />
         </NavigatorHost>
         <main aria-label="Review" inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
           {/* With the keyboard up leaving a phone held sideways' room or less, the band and notices give way to the code. */}

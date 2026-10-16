@@ -284,3 +284,39 @@ test("scrolling measures the chapter's files once a frame, not on every scroll e
   expect(measure).toHaveBeenCalledTimes(files.length);
   slot.lifecycle.unmount();
 });
+
+test("scrolling past a file's end marks the next file in the chapters without drawing the workspace again", async () => {
+  patchReviewState("pr-42", { activeId: "c2" });
+  const { slot } = await renderWorkspace();
+  await slot.findByText("cc");
+  await slot.findByRole("button", { name: /^Submit review/ });
+  const row = (name: string) => within(slot.getByRole("navigation", { name: "Chapters" })).getByRole("button", { name });
+  await waitFor(() => expect(row("src/b.ts").getAttribute("aria-current")).toBe("true"));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  // b.ts has scrolled away above the code's top, and c.ts spans it.
+  const [b, c] = Array.from(slot.container.querySelectorAll<HTMLElement>("[data-file]"));
+  b.getBoundingClientRect = () => ({ top: -400, bottom: -100 }) as DOMRect;
+  c.getBoundingClientRect = () => ({ top: -100, bottom: 400 }) as DOMRect;
+  const before = workspaceRenders;
+  fireEvent.scroll(slot.getByRole("main").querySelector<HTMLElement>(".overflow-y-auto")!);
+  await waitFor(() => expect(row("src/c.ts").getAttribute("aria-current")).toBe("true"));
+  expect(workspaceRenders).toBe(before);
+  slot.lifecycle.unmount();
+});
+
+test("a viewed-state refresh that changes nothing doesn't draw the workspace again", async () => {
+  let views: Array<{ file: string; viewed: boolean; stale: boolean }> = [];
+  const { slot, rpc } = await renderWorkspace({ rpc: { getFileViews: vi.fn(() => ({ views })) } });
+  await slot.findByText("aa");
+  await slot.findByRole("button", { name: /^Submit review/ });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  // The server agrees with the mark already shown.
+  views = [{ file: "src/a.ts", viewed: true, stale: false }];
+  const reads = rpc.getFileViews.mock.calls.length;
+  act(() => { fireEvent.click(slot.getByRole("checkbox", { name: "Viewed src/a.ts" })); });
+  const before = workspaceRenders;
+  await waitFor(() => expect(rpc.getFileViews.mock.calls.length).toBeGreaterThan(reads));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(workspaceRenders).toBe(before);
+  slot.lifecycle.unmount();
+});
