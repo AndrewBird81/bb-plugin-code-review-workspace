@@ -49,8 +49,11 @@ export function usePaletteCommands() {
       const listed = (await list()).find((review) => review.repo?.toLowerCase() === link.repo && review.number === link.number);
       if (listed) { open(listed.targetKey); return; }
       const result = await rpc.call("startReview", { input: link.url });
-      if (result.ok && result.targetKey) open(result.targetKey);
-      else toast.error(result.error ?? "Couldn’t start the review. Try again.");
+      if (!result.ok || !result.targetKey) { toast.error(result.error ?? "Couldn’t start the review. Try again."); return; }
+      // Name the PR the clipboard held rather than open it unasked: Open is the way in.
+      const targetKey = result.targetKey;
+      const title = (await list().catch(() => [])).find((review) => review.targetKey === targetKey)?.title;
+      toast.success(`Started a review of ${link.name}${title ? `: ${title}` : ""}`, { action: { label: "Open", onClick: () => open(targetKey) } });
     }
     const handle = (command: PaletteCommand) => {
       run(command).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Couldn’t reach Guided Review. Try again."));

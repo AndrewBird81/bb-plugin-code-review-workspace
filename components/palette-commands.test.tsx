@@ -94,18 +94,27 @@ test("Next review that needs me opens the first review in Needs review's order, 
 test("Review PR from clipboard opens a listed PR's review, starts one for another PR link, and says when the clipboard has none", async () => {
   let clipboard = "https://github.com/acme/web/pull/7/files";
   vi.stubGlobal("navigator", { ...navigator, clipboard: { readText: async () => clipboard } });
-  const { command, mount } = await load();
+  let started = false;
+  const { command, mount } = await load({
+    listReviews: () => ({ reviews: started ? [...reviews, { targetKey: "pr-7", title: "Fix cache keys", repo: "acme/web", number: 7, status: "generating" }] : reviews }),
+    startReview: () => { started = true; return { ok: true, targetKey: "pr-7" }; },
+  });
   const slot = mount();
   const run = () => command("review-from-clipboard").run(context);
   await run();
-  await waitFor(() => expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "pr-7" } }]));
+  // It names the PR it started, from the list, and leaves opening it to Open.
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Started a review of acme/web#7: Fix cache keys", { action: { label: "Open", onClick: expect.any(Function) } }));
   expect(slot.inspection.rpcCalls.filter((call) => call.method === "startReview").map((call) => call.input)).toEqual([{ input: "https://github.com/acme/web/pull/7" }]);
+  expect(slot.inspection.navigateCalls).toEqual([]);
+  (vi.mocked(toast.success).mock.calls[0][1] as any).action.onClick();
+  expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "pr-7" } }]);
 
   clipboard = "acme/web#4";
   await run();
   await waitFor(() => expect(slot.inspection.navigateCalls).toHaveLength(2));
   expect(slot.inspection.navigateCalls[1]).toEqual({ method: "toPluginPanel", path: "review", options: { subPath: "pr-waiting" } });
   expect(slot.inspection.rpcCalls.filter((call) => call.method === "startReview")).toHaveLength(1);
+  expect(toast.success).toHaveBeenCalledTimes(1);
 
   clipboard = "Fix the token refresh";
   await run();
@@ -124,6 +133,16 @@ test("Review PR from clipboard says when the clipboard can't be read, or the rev
   vi.stubGlobal("navigator", { ...navigator, clipboard: { readText: async () => "acme/web#9" } });
   await command("review-from-clipboard").run(context);
   await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn’t read acme/web#9 on GitHub."));
+  expect(slot.inspection.navigateCalls).toEqual([]);
+  slot.lifecycle.unmount();
+});
+
+test("Review PR from clipboard names a started PR by its number when the list doesn't have its title", async () => {
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { readText: async () => "acme/web#7" } });
+  const { command, mount } = await load();
+  const slot = mount();
+  await command("review-from-clipboard").run(context);
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Started a review of acme/web#7", { action: { label: "Open", onClick: expect.any(Function) } }));
   expect(slot.inspection.navigateCalls).toEqual([]);
   slot.lifecycle.unmount();
 });
