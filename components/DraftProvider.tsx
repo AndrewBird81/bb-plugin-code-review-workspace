@@ -69,6 +69,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Submit is posting to GitHub, rather than a change being saved.
+  const [submitting, setSubmitting] = useState(false);
   // The status line: the draft is saved, being saved, or why the last save or submit failed.
   const [status, setStatus] = useState<{ saving?: true; error?: string }>({});
   // A chapter with no files starts the form on the review's first file.
@@ -438,7 +440,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     if (isLocal || !loaded || body.trim()) return;
     if ((doubts.length || approvingBlocked) && !confirmed) { setConfirming(true); requestAnimationFrame(() => confirmCancelRef.current?.focus()); return; }
     setConfirming(false);
-    await mutate(async () => {
+    setSubmitting(true);
+    try { await mutate(async () => {
       // What this page shows; the server refuses a draft that changed since.
       const { verdict, body: summary } = draft;
       const result = await enqueue(() => rpc.call("submitReview", { targetKey, ...(reviewRevision ? { revision: reviewRevision } : {}), ...(account ? { account } : {}), comments: shownComments.current, body: summary, verdict }));
@@ -448,7 +451,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       onSubmitted?.();
       toast.success("Review submitted to GitHub");
       await load();
-    });
+    }); } finally { if (mounted.current) setSubmitting(false); }
   }
 
   const canAdd = !busy && !rebuilding && !!file.trim() && !!body.trim() && Number.isInteger(Number(line)) && Number(line) >= 1;
@@ -579,7 +582,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const nitCount = draft.comments.filter((comment) => comment.severity === "nit").length;
   return {
     targetKey, loadError, load, loaded, closed, review, draft, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
-    summaryRef, summaryDiscussion, editable, busy, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
+    summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
     showComposer, inline, edited, replacing, counts, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment,
     file, boxLines, line, side, files, setFile, editing, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
     ownPr, suggested, chooseVerdict, confirming, setConfirming, approval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,

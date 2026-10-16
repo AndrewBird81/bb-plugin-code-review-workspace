@@ -317,6 +317,22 @@ test("the agent's summary shows with its suggestion, so you can read it while yo
   slot.lifecycle.unmount();
 });
 
+test("Submit says Submitting… while it posts to GitHub, and the draft's status still says Saving…", async () => {
+  let post!: () => void;
+  let draft = draftOf({ body: "Two asks." });
+  const { slot } = await renderWorkspace({ rpc: {
+    getDraft: vi.fn(() => ({ draft, stale: [] })),
+    submitReview: vi.fn(() => new Promise((resolve) => { post = () => { draft = draftOf({ comments: [] }); resolve({ ok: true }); }; })),
+  } });
+  const view = await finish(slot);
+  fireEvent.click(submit(view));
+  await waitFor(() => expect(view.getByRole("button", { name: "Submitting…" })).toBeTruthy());
+  expect(view.getAllByRole("status")[0].textContent).toBe("Saving…");
+  post();
+  await slot.findByRole("region", { name: "Submitted review" });
+  slot.lifecycle.unmount();
+});
+
 test("after Submit, the receipt says what went where, and offers the next review that needs you", async () => {
   let draft = draftOf({ body: "Two asks." });
   const { slot, rpc } = await renderWorkspace({ rpc: {

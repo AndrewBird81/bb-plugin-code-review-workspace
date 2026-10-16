@@ -260,7 +260,7 @@ function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean) => void }) {
       </div>
       : <Button ref={d.submitRef} className={cn("w-full gap-2", TOUCH_CONTROL)} disabled={blocked} onClick={() => onSubmit()}>
           {d.busy ? <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-4" aria-hidden />}
-          {d.busy ? "Saving…" : `Submit to GitHub · ${VERDICT_LABEL[d.draft.verdict]}`}
+          {d.busy ? d.submitting ? "Submitting…" : "Saving…" : `Submit to GitHub · ${VERDICT_LABEL[d.draft.verdict]}`}
         </Button>}
       <p className="text-xs leading-relaxed text-muted-foreground">{ready && where ? <>Posts to {where}{d.account ? <> as @{d.account}</> : null}.</> : d.hint}</p>
     </footer>
