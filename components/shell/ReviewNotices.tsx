@@ -28,12 +28,12 @@ const TONE = {
 } as const;
 
 /**
- * Whether the PR has moved on from its guide, by commits or a new base branch, and the notice that says so; asked again
- * each time the review changes.
+ * Whether the PR has moved on from its guide, by commits or a new base branch, or a local review's code has, and the
+ * notice that says so; asked again each time the review changes.
  */
 export function useNewCommits(targetKey: string, enabled: boolean): { newCommits: boolean; text: string } {
   const rpc = useRpc<typeof rpcContract>();
-  const [update, setUpdate] = useState<{ hasNewCommits: boolean; current?: string; stored?: string; baseChanged?: { from: string; to: string } }>({ hasNewCommits: false });
+  const [update, setUpdate] = useState<{ hasNewCommits: boolean; current?: string; stored?: string; baseChanged?: { from: string; to: string }; localChanged?: boolean }>({ hasNewCommits: false });
   const check = useCallback(() => {
     if (!enabled) return;
     // Without an answer there's nothing to say.
@@ -42,10 +42,11 @@ export function useNewCommits(targetKey: string, enabled: boolean): { newCommits
   useEffect(check, [check]);
   useRealtime(`review:${targetKey}`, check);
   const base = update.baseChanged;
-  const text = !base ? "New commits since this guide was written."
+  const text = update.localChanged ? "The code changed since this guide."
+    : !base ? "New commits since this guide was written."
     : update.current !== update.stored ? `New commits, and the PR’s base changed from ${base.from} to ${base.to}, since this guide was written.`
     : `The PR’s base changed from ${base.from} to ${base.to} since this guide was written.`;
-  return { newCommits: enabled && update.hasNewCommits, text };
+  return { newCommits: enabled && (update.hasNewCommits || !!update.localChanged), text };
 }
 
 /**

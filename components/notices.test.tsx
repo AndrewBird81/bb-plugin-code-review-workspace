@@ -150,3 +150,21 @@ test("the opening review's placeholder says in words what it shows in shapes", a
   expect(slot.getByRole("status", { name: "Opening the review" }).textContent).toBe("Opening the review…");
   slot.lifecycle.unmount();
 });
+
+test("a local review whose code changed since its guide says so, with Update guide; with its switch off it never asks", async () => {
+  const local = () => ({ review: { targetKey: "pr-42", kind: "ref", gitRef: "HEAD", cwd: "/repo", status: "ready", createdAt: 1, title: "HEAD" } });
+  const checkForUpdates = vi.fn(() => ({ hasNewCommits: false, localChanged: true }));
+  const { slot, rpc } = await renderWorkspace({ checkForUpdates }, local);
+  const text = "The code changed since this guide.";
+  await slot.findByText(text);
+  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Update guide" }));
+  await waitFor(() => expect(rpc.rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  slot.lifecycle.unmount();
+  cleanup();
+
+  const off = vi.fn(() => ({ hasNewCommits: false, localChanged: true }));
+  const quiet = await renderWorkspace({ checkForUpdates: off, getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, localDiffChanges: false } }, revision: 0 }) }, local);
+  expect(off).not.toHaveBeenCalled();
+  expect(quiet.slot.queryByText(text)).toBeNull();
+  quiet.slot.lifecycle.unmount();
+});

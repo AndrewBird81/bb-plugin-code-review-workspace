@@ -651,7 +651,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     } finally { setStopping(false); }
   }, [stopping, rpc, targetKey, load]);
   const archived = !!review?.archivedAt;
-  const { newCommits, text: newCommitsText } = useNewCommits(targetKey, isPr && !archived);
+  const localDiffChanges = useKnob("localDiffChanges");
+  const { newCommits, text: newCommitsText } = useNewCommits(targetKey, (isPr || review?.kind === "ref" && localDiffChanges) && !archived);
 
   const checkAccess = useMemo(
     () => async () => {

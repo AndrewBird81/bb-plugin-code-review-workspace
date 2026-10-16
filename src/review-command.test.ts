@@ -20,6 +20,7 @@ import { runReviewCommand } from "./review-command";
 import { defaultPreferences } from "./preferences";
 import * as gh from "./gh";
 import { targetKey } from "./targets";
+import plugin from "../server";
 const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
 
 test("bb review <number> fetches, stores patch+meta, and kicks generation", async () => {
@@ -157,4 +158,21 @@ test("a checkout whose GitHub repository gh can't name says Couldn't, and starts
   vi.mocked(gh.runGh).mockResolvedValueOnce({ stdout: JSON.stringify({ nameWithOwner: "not a repo" }), stderr: "", code: 0 });
   expect(await runReviewCommand({ bb, store, gh }, ["7"], { projectId: "p1", cwd: process.cwd() })).toEqual({ exitCode: 1, stderr: "Couldn't resolve the GitHub repository." });
   expect(store.listReviews()).toEqual([]);
+});
+
+test("bb review records the thread it ran in as the review's source thread, never this plugin's own agent", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  await plugin(bb);
+  const store = createStore(bb);
+  const run = (threadId?: string) => harness.behavior.runCli([url], { ...(threadId ? { threadId } : {}), projectId: "p1", cwd: process.cwd() });
+  expect(await run("coder")).toMatchObject({ exitCode: 0 });
+  expect(store.getReview(key)).toMatchObject({ sourceThreadId: "coder", sourceThreadAt: expect.any(Number) });
+  // Run again from another thread, it's that one.
+  expect(await run("fixer")).toMatchObject({ exitCode: 0 });
+  expect(store.getReview(key)?.sourceThreadId).toBe("fixer");
+  // The review's own agent, or no thread at all, leaves it.
+  store.setAssistantThread(key, "assistant-7");
+  expect(await run("assistant-7")).toMatchObject({ exitCode: 0 });
+  expect(await run()).toMatchObject({ exitCode: 0 });
+  expect(store.getReview(key)?.sourceThreadId).toBe("fixer");
 });

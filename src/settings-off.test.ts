@@ -20,6 +20,10 @@ import { defaultKnobs, type Knobs } from "../lib/knobs";
 import { generateGuide } from "./generate";
 import { createReviewSync, type GithubReads, type TurnActions } from "./review-lifecycle";
 import type { PrFacts, PrRef } from "./github/types";
+import { runGit } from "./gh";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /** What the reviewer's page shows of the draft, which submitReview takes to check it still matches. */
 const shown = (store: ReturnType<typeof createStore>, targetKey: string) => {
@@ -228,4 +232,20 @@ test("with Comment on or ask about a failing check off, a check's log isn't read
   const { bb, harness } = host();
   await plugin(bb);
   expect(await harness.behavior.callRpc("getCheckLog", { targetKey: "pr-1", runId: 77 })).toEqual({ ok: false, error: "Asking about a failing check is off in Settings." });
+});
+
+test("with every toggle off, a local review whose code changed says nothing new", async () => {
+  const { bb, harness, store } = host();
+  await plugin(bb);
+  const cwd = await mkdtemp(join(tmpdir(), "guided-review-"));
+  try {
+    for (const args of [["init", "-b", "main"], ["-c", "user.name=R", "-c", "user.email=r@example.invalid", "commit", "--allow-empty", "-m", "start"]]) expect((await runGit(args, { cwd })).code).toBe(0);
+    await writeFile(join(cwd, "a.ts"), "edited\n");
+    await runGit(["add", "a.ts"], { cwd });
+    store.saveReview({ targetKey: "local", kind: "ref", gitRef: "HEAD", cwd, status: "ready", createdAt: 1, projectId: "p1" });
+    store.savePatch("local", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+before\n");
+    expect(await harness.behavior.callRpc("checkForUpdates", { targetKey: "local" })).toEqual({ hasNewCommits: false });
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });

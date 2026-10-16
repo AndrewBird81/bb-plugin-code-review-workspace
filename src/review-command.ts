@@ -116,6 +116,8 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
   if (!patch.trim()) return { exitCode: 1, stderr: "No changes found for that target." };
 
   if (context !== undefined) deps.store.setReviewContext(key, context.trim() || null);
+  // The thread that ran it made the change, unless it's this plugin's own agent; a later run from another thread replaces it.
+  if (ctx.threadId && ownReview === undefined) deps.store.setLifecycle(key, { sourceThreadId: ctx.threadId, sourceThreadAt: now });
 
   // A review already building, or showing this diff, just opens; another existing one rebuilds as Re-review does.
   const existing = deps.store.getReview(key);

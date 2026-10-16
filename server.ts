@@ -49,7 +49,7 @@ import { createReviewSubmitter } from "./src/submit-review";
 import { GUIDE_WORKER_TITLE, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideRejected, guideWorkerFailed, guideWriterMode } from "./src/generate";
 import { pluginThreadsTitled, threadReview, threadRole, toolThreadReview } from "./src/thread-review";
 import { parseChecks, parseReviewThreads } from "./src/threads";
-import { rerunReview } from "./src/rereview";
+import { localDiffChanged, rerunReview } from "./src/rereview";
 import { getGhAccounts, switchGhAccount, checkRepoAccess } from "./src/gh-accounts";
 import { bindGhAccount } from "./src/gh-identity";
 
@@ -540,6 +540,11 @@ export default async function plugin(bb: BbPluginApi) {
       // The sync records the PR's head when it reads it, at most a minute ago.
       await sync.one(targetKey);
       const m = store.getReview(targetKey);
+      // A local review has no commits to read: its diff, run again, says whether its code changed.
+      if (m?.kind === "ref") {
+        const changed = store.getPreferences().preferences.knobs.localDiffChanges && await localDiffChanged(deps, m);
+        return { hasNewCommits: false, ...(changed ? { localChanged: true } : {}) };
+      }
       if (!m || m.kind !== "pr" || !m.number || m.archivedAt || !m.latestHeadSha) return { hasNewCommits: false };
       const baseChanged = m.base && m.latestBase && m.latestBase !== m.base ? { baseChanged: { from: m.base, to: m.latestBase } } : {};
       return { hasNewCommits: !!m.headSha && guideBehind(m), current: m.latestHeadSha, ...(m.headSha ? { stored: m.headSha } : {}), ...baseChanged };

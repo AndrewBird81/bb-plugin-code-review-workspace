@@ -162,7 +162,8 @@ export const rpcContract = defineRpcContract({
   /** hasNewCommits: the guide is behind the PR, by new commits or, with baseChanged, a new base branch. */
   checkForUpdates: {
     input: targetKey,
-    output: z.object({ hasNewCommits: z.boolean(), current: z.string().optional(), stored: z.string().optional(), baseChanged: z.object({ from: z.string(), to: z.string() }).optional() }),
+    // localChanged: a local review's diff, run again, differs from its guide's.
+    output: z.object({ hasNewCommits: z.boolean(), current: z.string().optional(), stored: z.string().optional(), baseChanged: z.object({ from: z.string(), to: z.string() }).optional(), localChanged: z.boolean().optional() }),
   },
   rereview: {
     input: targetKey,

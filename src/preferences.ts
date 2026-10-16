@@ -40,6 +40,7 @@ export const agentChoiceSchema = agentExecutionSchema.omit({ permissionMode: tru
 
 export const knobsSchema = z.object({
   singleKeyShortcuts: z.boolean(), returnToOverview: z.boolean(), foldViewedFiles: z.boolean(), foldGeneratedFiles: z.boolean(),
+  localDiffChanges: z.boolean(),
   requirements: z.boolean(), codeOwners: z.boolean(), ciInCode: z.boolean(),
   commentKeys: z.boolean(), removalReasons: z.boolean(), moveToSummary: z.boolean(),
   askAboutSelection: z.boolean(), approveGuard: z.boolean(),

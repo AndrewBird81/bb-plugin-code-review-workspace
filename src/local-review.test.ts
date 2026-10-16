@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createStore } from "./store";
 import { runReviewCommand } from "./review-command";
-import { runGit } from "./gh";
+import { gitDiffArgs, runGit } from "./gh";
+import { ensureGitHeaders } from "./patch";
+import { defaultPreferences } from "./preferences";
+import plugin from "../server";
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
@@ -59,4 +62,23 @@ test("missing cwd cannot accidentally review the BB server working directory", a
   const git = vi.fn();
   expect((await runReviewCommand({ ...deps, gh: { ...deps.gh, runGit: git } }, ["HEAD"], { projectId: "p1" })).exitCode).toBe(2);
   expect(git).not.toHaveBeenCalled();
+});
+
+test("checkForUpdates says when a local review's code changed since its guide, unless its switch is off or its checkout is gone", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  const cwd = await repository();
+  store.saveReview({ targetKey: "local", kind: "ref", gitRef: "HEAD", cwd, status: "ready", createdAt: 1, projectId: "p1" });
+  store.savePatch("local", ensureGitHeaders((await runGit(gitDiffArgs("HEAD"), { cwd })).stdout));
+  const check = () => harness.behavior.callRpc("checkForUpdates", { targetKey: "local" });
+  expect(await check()).toEqual({ hasNewCommits: false });
+  await writeFile(join(cwd, "code.txt"), "after, edited\n");
+  expect(await check()).toEqual({ hasNewCommits: false, localChanged: true });
+  const { revision } = store.getPreferences();
+  store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, localDiffChanges: false } }, revision);
+  expect(await check()).toEqual({ hasNewCommits: false });
+  store.savePreferences({ ...defaultPreferences }, revision + 1);
+  await rm(cwd, { recursive: true, force: true });
+  expect(await check()).toEqual({ hasNewCommits: false });
 });

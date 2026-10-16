@@ -389,5 +389,19 @@ test("with Comment on or ask about a failing check off, the Overview's failing c
   expect(checks.getByRole("link", { name: /View check/ })).toBeTruthy();
   expect(checks.queryByRole("button")).toBeNull();
   expect(page.inspection.rpcCalls.some((call) => call.method === "getCheckLog")).toBe(false);
+});
+
+/** The review as a local one, of HEAD in /repo. */
+function localBundle(review: Record<string, unknown> = {}) {
+  const { review: { url: _url, repo: _repo, number: _number, ...rest }, ...bundle } = settingsOffRpc(allKnobsOff).getReviewBundle();
+  return () => ({ ...bundle, review: { ...rest, kind: "ref", gitRef: "HEAD", cwd: "/repo", ...review } });
+}
+
+test("with every knob off, a local review never asks whether its code changed", async () => {
+  const checkForUpdates = vi.fn(() => ({ hasNewCommits: false, localChanged: true }));
+  const { page, bar } = await renderReview(allKnobsOff, { getReviewBundle: localBundle(), checkForUpdates });
+  await page.findByRole("heading", { name: "Parse rows" });
+  expect(checkForUpdates).not.toHaveBeenCalled();
+  expect(page.queryByText("The code changed since this guide.")).toBeNull();
   page.lifecycle.unmount(); bar.lifecycle.unmount();
 });

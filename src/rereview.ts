@@ -7,6 +7,7 @@ import { readPrSnapshot } from "./pr-snapshot";
 import { pruneDiffs } from "./feedback-view";
 import { skipRun } from "./agent";
 import { mayRunUnattended } from "../lib/trust";
+import { existsSync } from "node:fs";
 
 interface Deps {
   bb: BbPluginApi; store: Store;
@@ -81,6 +82,17 @@ export function rebuildReview(deps: Pick<Deps, "bb" | "store">, m: ReviewMeta & 
   deps.store.rebaseDraftComments(targetKey, reanchorAll(deps.store, targetKey, previous, next));
   pruneDiffs(deps.store, deps.store.getReview(targetKey)!);
   void generateGuide(deps.bb, deps.store, targetKey, m.projectId, options);
+}
+
+/**
+ * Whether a local review's diff, run again in its checkout, is no longer the one its guide was written for. False while
+ * its guide is building, and when the diff can't be run, as without its checkout, or comes back empty.
+ */
+export async function localDiffChanged(deps: Pick<Deps, "store" | "gh">, m: ReviewMeta): Promise<boolean> {
+  if (m.kind !== "ref" || m.status !== "ready" || !m.gitRef || !m.cwd || !existsSync(m.cwd)) return false;
+  const diff = await deps.gh.runGit(gitDiffArgs(m.gitRef), { cwd: m.cwd });
+  if (diff.code !== 0 || !diff.stdout.trim()) return false;
+  return deps.store.patch(m.targetKey) !== ensureGitHeaders(diff.stdout);
 }
 
 /** Whether a review already shows this diff: its guide is ready, at the same head, for the same patch. */

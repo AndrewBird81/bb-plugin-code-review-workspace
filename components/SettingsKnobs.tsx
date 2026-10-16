@@ -36,6 +36,7 @@ export const KNOB_CONTROLS: readonly KnobControlEntry[] = [
   { id: "singleKeyShortcuts", section: "reading", label: "Single-key shortcuts", description: "Keys like j, c, and s work anywhere in a review, and / finds a review in All reviews. Turn them off if you use speech input or press keys by accident. Esc still closes what’s over the code." },
   { id: "foldViewedFiles", section: "reading", label: "Fold files you’ve viewed", description: "Marking a file viewed folds it. Off, it stays open." },
   { id: "foldGeneratedFiles", section: "reading", label: "Fold lockfiles and generated files", description: "They start folded, with Show diff. Off, they open like any other file." },
+  { id: "localDiffChanges", section: "reading", label: "Notice when a local review’s code changes", description: "A local review checks its diff when you open it, and offers Update guide when the code changed. Off, update it from Review actions." },
   { id: "requirements", section: "reading", label: "Requirements", description: "What the PR and its linked tickets ask for, and whether the diff does it, on the Overview. The review agent still checks them." },
   { id: "codeOwners", section: "reading", label: "Code owners", description: "Owned by on each file, with yours marked, from CODEOWNERS. The review agent still knows which files are yours." },
   { id: "ciInCode", section: "reading", label: "CI failures in the code", description: "Failing checks’ annotations under their lines. The Overview lists failing checks either way." },
