@@ -43,6 +43,11 @@ interface Conversation {
 // bb's picker resolves the first provider's default model from an empty seed.
 const UNSET_AGENT: AgentChoice = { providerId: "", model: "", reasoningLevel: "medium" };
 function bounds() { return { width: window.innerWidth, height: window.innerHeight }; }
+/** How far an arrow key moves or sizes the widget, or null for any other key. */
+function arrowStep(key: string): { dx: number; dy: number } | null {
+  const step = { ArrowLeft: [-20, 0], ArrowRight: [20, 0], ArrowUp: [0, -20], ArrowDown: [0, 20] }[key];
+  return step ? { dx: step[0], dy: step[1] } : null;
+}
 function loadPersisted(targetKey: string): Persisted | null {
   try { return JSON.parse(localStorage.getItem(agentDockKey(targetKey)) ?? "null"); }
   catch { return null; }
@@ -211,7 +216,14 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
 
   const panel = <>
     <div className={cn("flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5", mode === "widget" && "cursor-move bg-surface-raised")} onPointerDown={mode === "widget" ? (event) => startGesture(event, "move") : undefined}>
-      <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />
+      {mode === "widget"
+        // The header drags it; from the keyboard, its mark moves it with the arrow keys, as its corner resizes it.
+        ? <span role="button" tabIndex={0} aria-label="Move agent widget" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown" title="Drag, or use the arrow keys, to move" onKeyDown={(event) => {
+            const step = arrowStep(event.key);
+            if (!step) return;
+            event.preventDefault(); setRect((rect) => clampRect({ ...rect, x: rect.x + step.dx, y: rect.y + step.dy }, bounds()));
+          }} className="flex rounded-sm focus-visible:outline focus-visible:outline-ring"><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /></span>
+        : <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />}
       <h2 className="text-sm font-medium">Review agent</h2>
       {(threadId || conversation?.legacy.length) ? <Button ref={resetRef} variant="ghost" size="icon" className="ml-auto size-7 pointer-coarse:size-11" aria-label="New conversation" onPointerDown={(event) => event.stopPropagation()} onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
       {popOut && <Button variant="ghost" size="sm" className={cn("pointer-coarse:h-11", !(threadId || conversation?.legacy.length) && "ml-auto")} onPointerDown={(event) => event.stopPropagation()} onClick={mode === "widget" ? dock : () => setMode("widget")}>
@@ -233,8 +245,9 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
   const widget = mode === "widget" && createPortal(<div role="dialog" aria-label="Review agent" {...scopeProps} className="fixed z-[49] flex flex-col overflow-hidden rounded-lg border border-border shadow-2xl" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
     {panel}
     <div role="separator" tabIndex={0} aria-label="Resize agent widget" aria-orientation="horizontal" onPointerDown={(event) => startGesture(event, "resize")} onKeyDown={(event) => {
-      if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
-      event.preventDefault(); setRect((rect) => clampRect({ ...rect, w: rect.w + (event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0), h: rect.h + (event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0) }, bounds()));
+      const step = arrowStep(event.key);
+      if (!step) return;
+      event.preventDefault(); setRect((rect) => clampRect({ ...rect, w: rect.w + step.dx, h: rect.h + step.dy }, bounds()));
     }} className="absolute bottom-0 right-0 size-3 cursor-nwse-resize border-b-2 border-r-2 border-muted-foreground focus-visible:outline focus-visible:outline-ring" />
   </div>, container ?? document.body);
   return <>

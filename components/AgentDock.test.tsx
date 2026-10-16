@@ -86,6 +86,24 @@ test("during a conversation, a selection is quoted into bb's composer for the re
   expect(screen.queryByRole("textbox", { name: "Ask the agent" })).toBeNull();
 });
 
+test("the popped-out agent moves with the arrow keys from its mark, as it resizes from its corner", async () => {
+  await renderDock({}, { getConversation: unstarted });
+  await screen.findByText("Ask about this change.");
+  fireEvent.click(screen.getByRole("button", { name: "Pop out" }));
+  const widget = await screen.findByRole("dialog", { name: "Review agent" });
+  const place = () => [widget.style.left, widget.style.top, widget.style.width, widget.style.height];
+  const [left, top] = place().map((value) => parseFloat(value));
+  const move = within(widget).getByRole("button", { name: "Move agent widget" });
+  fireEvent.keyDown(move, { key: "ArrowLeft" });
+  fireEvent.keyDown(move, { key: "ArrowUp" });
+  expect(place()).toEqual([`${left - 20}px`, `${top - 20}px`, "384px", "460px"]);
+  fireEvent.keyDown(within(widget).getByRole("separator", { name: "Resize agent widget" }), { key: "ArrowRight" });
+  expect(place()).toEqual([`${left - 20}px`, `${top - 20}px`, "404px", "460px"]);
+  // Docked, there's nothing to move.
+  fireEvent.click(within(widget).getByRole("button", { name: "Dock" }));
+  expect(screen.queryByRole("button", { name: "Move agent widget" })).toBeNull();
+});
+
 test("a draft question and selection survive popping out and docking, including fullscreen", async () => {
   const container = document.createElement("div"); document.body.appendChild(container);
   const onDock = vi.fn();
