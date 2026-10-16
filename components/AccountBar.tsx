@@ -72,6 +72,7 @@ export const AccountBar = memo(function AccountBar() {
         {!loading && (failed || !active) && <Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={refetch}>Check again</Button>}
         {!loading && !active && <p className="text-xs leading-relaxed text-muted-foreground">Run <code className="font-mono">gh auth login</code> on the BB server to connect GitHub. Local git reviews work without GitHub.</p>}
         {accounts.some((account) => !account.active) && <div className="space-y-1 border-t border-border pt-2">
+          <p className="pb-1 text-xs leading-relaxed text-muted-foreground">Switching changes gh for everything on this BB server, other agents and terminals included.</p>
           {accounts.map((account) => <Button key={account.login} variant="ghost" size="sm" className={`w-full justify-between ${TOUCH_CONTROL}`} disabled={switching !== null || account.active} aria-label={account.active ? `Current account @${account.login}` : `Use @${account.login} on this BB server`} onClick={() => void switchTo(account.login)}>
             <span className="flex min-w-0 items-center gap-2"><Avatar login={account.login} size={18} /><span className="truncate">{switching === account.login ? "Switching…" : `@${account.login}`}</span></span>
             {account.active && <Icon name="Check" className="size-4 text-primary" aria-hidden />}
