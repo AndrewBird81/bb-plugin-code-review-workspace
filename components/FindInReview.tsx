@@ -106,7 +106,7 @@ export const FindInReview = memo(function FindInReview({ patch, sections, onOpen
           aria-label="Find in review"
           className="h-8 pl-7 pr-7 text-xs pointer-coarse:h-9 max-md:pointer-coarse:h-9"
         />
-        {!query && shortcuts && <kbd aria-hidden className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1 font-mono text-[10px] leading-4 text-subtle-foreground max-md:pointer-coarse:hidden">/</kbd>}
+        {!query && shortcuts && <kbd aria-hidden className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-border bg-muted px-1 font-mono text-[10px] leading-4 text-subtle-foreground pointer-fine:block">/</kbd>}
       </label>
       </div>
       </div>

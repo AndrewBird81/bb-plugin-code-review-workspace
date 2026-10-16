@@ -189,6 +189,15 @@ test("f with a Find in review query clears it, so All files shows with the curso
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("Find in review's / hint shows only with a fine pointer, as All reviews' does, not on a keyboardless iPad", async () => {
+  const slot = await renderWorkspace();
+  const hint = slot.getByRole("searchbox", { name: "Find in review" }).parentElement!.querySelector("kbd")!;
+  expect(hint.textContent).toBe("/");
+  expect(hint.className.split(" ")).toEqual(expect.arrayContaining(["hidden", "pointer-fine:block"]));
+  expect(hint.className).not.toContain("max-md");
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("on a coarse pointer Find in review's box and its results are 44px targets, the box's label taking taps around it", async () => {
   const slot = await renderWorkspace();
   const box = slot.getByRole("searchbox", { name: "Find in review" });
