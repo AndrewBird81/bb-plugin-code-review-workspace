@@ -68,6 +68,8 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
   const [loadError, setLoadError] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const resetRef = useRef<HTMLButtonElement>(null);
+  const resetCancelRef = useRef<HTMLButtonElement>(null);
   const mounted = useRef(true);
   const locked = useRef(false);
   const gestureCleanup = useRef<(() => void) | null>(null);
@@ -140,6 +142,12 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
       if (mounted.current) setBusy(false);
     }
   }
+  // New conversation's confirmation takes the focus, as it asks; cancelling gives it back.
+  useEffect(() => { if (confirmingReset) resetCancelRef.current?.focus(); }, [confirmingReset]);
+  function cancelReset() {
+    setConfirmingReset(false);
+    requestAnimationFrame(() => resetRef.current?.focus());
+  }
   async function reset() {
     setConfirmingReset(false);
     try { await rpc.call("newConversation", { targetKey }); }
@@ -205,16 +213,19 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
     <div className={cn("flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-1.5", mode === "widget" && "cursor-move bg-surface-raised")} onPointerDown={mode === "widget" ? (event) => startGesture(event, "move") : undefined}>
       <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />
       <h2 className="text-sm font-medium">Review agent</h2>
-      {(threadId || conversation?.legacy.length) ? <Button variant="ghost" size="icon" className="ml-auto size-7 pointer-coarse:size-11" aria-label="New conversation" onPointerDown={(event) => event.stopPropagation()} onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
+      {(threadId || conversation?.legacy.length) ? <Button ref={resetRef} variant="ghost" size="icon" className="ml-auto size-7 pointer-coarse:size-11" aria-label="New conversation" onPointerDown={(event) => event.stopPropagation()} onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
       {popOut && <Button variant="ghost" size="sm" className={cn("pointer-coarse:h-11", !(threadId || conversation?.legacy.length) && "ml-auto")} onPointerDown={(event) => event.stopPropagation()} onClick={mode === "widget" ? dock : () => setMode("widget")}>
         <Icon name={mode === "widget" ? "Minimize2" : "Maximize2"} className="size-3.5" aria-hidden />{mode === "widget" ? "Dock" : "Pop out"}
       </Button>}
       {mode === "panel" && onCollapse && <Button variant="ghost" size="icon" className={cn("size-8 text-muted-foreground pointer-coarse:size-11", !popOut && !(threadId || conversation?.legacy.length) && "ml-auto")} aria-label={closeLabel} onClick={onCollapse}><Icon name="X" aria-hidden /></Button>}
     </div>
-    {confirmingReset && <div role="alertdialog" aria-label="Start a new conversation" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-warning/20 bg-warning/10 px-3 py-2 text-xs">
+    {confirmingReset && <div role="alertdialog" aria-label="Start a new conversation" onKeyDown={(event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault(); event.stopPropagation(); cancelReset();
+    }} className="flex shrink-0 flex-wrap items-center gap-2 border-b border-warning/20 bg-warning/10 px-3 py-2 text-xs">
       <span className="min-w-0 flex-1">Archive this conversation and start a new one?</span>
       <Button variant="outline" size="sm" className={TOUCH_CONTROL} onClick={() => void reset()}>Start new</Button>
-      <Button variant="ghost" size="sm" className={TOUCH_CONTROL} onClick={() => setConfirmingReset(false)}>Cancel</Button>
+      <Button ref={resetCancelRef} variant="ghost" size="sm" className={TOUCH_CONTROL} onClick={cancelReset}>Cancel</Button>
     </div>}
     {body}
   </>;

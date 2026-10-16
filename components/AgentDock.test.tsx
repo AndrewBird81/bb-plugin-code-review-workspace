@@ -117,6 +117,15 @@ test("an earlier conversation stays visible, and New conversation starts over af
   fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
   fireEvent.click(within(screen.getByRole("alertdialog", { name: "Start a new conversation" })).getByRole("button", { name: "Cancel" }));
   expect(newConversation).not.toHaveBeenCalled();
+  // The confirmation takes the focus, on Cancel; Esc cancels it, and the focus goes back.
+  const button = screen.getByRole("button", { name: "New conversation" });
+  fireEvent.click(button);
+  const confirm = within(screen.getByRole("alertdialog", { name: "Start a new conversation" }));
+  expect(document.activeElement).toBe(confirm.getByRole("button", { name: "Cancel" }));
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(button));
+  expect(newConversation).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
   fireEvent.click(screen.getByRole("button", { name: "Start new" }));
   await screen.findByText("Ask about this change.");
