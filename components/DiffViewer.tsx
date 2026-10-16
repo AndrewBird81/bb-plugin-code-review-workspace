@@ -399,7 +399,8 @@ export const DiffViewer = memo(function DiffViewer({
   /** The lines picked in the diff, highlighted until cleared. */
   selectedLines?: { file: string; range: SelectedLineRange } | null;
   /** Scroll to a comment's line, opening its file if it's collapsed; with `focus`, as a key asked, the focus goes there. */
-  reveal?: { at: CommentLocation; nonce: number; focus?: boolean };
+  /** `item`: the comment gone to with ] or [, whose card takes the focus when its line has others. */
+  reveal?: { at: CommentLocation; nonce: number; focus?: boolean; item?: string };
   /** Each file compared with the diff at your last review. */
   since?: Map<string, FileInterdiff> | null;
   /** Show only what changed since your review. */
@@ -655,8 +656,9 @@ export const DiffViewer = memo(function DiffViewer({
         if (center) scrollToCenter(el, behavior, fileEl!.querySelector("[data-file-header]")?.getBoundingClientRect().height, row?.getClientRects().length ? row : el);
         else el.scrollIntoView({ behavior, block: "start" });
         flash(el);
-        // The focus goes with the view: to the comment's card, or else the file's toggle.
-        const card = el !== fileEl ? el.querySelector<HTMLElement>("article[tabindex]") : null;
+        // The focus goes with the view: to the comment's card, or else the file's toggle. A GitHub thread's card is its own.
+        const own = reveal.item ? Array.from(fileEl?.querySelectorAll<HTMLElement>("[data-comment-id]") ?? []).find((card) => card.dataset.commentId === reveal.item) : undefined;
+        const card = own?.querySelector<HTMLElement>("article[tabindex]") ?? (el !== fileEl ? el.querySelector<HTMLElement>("article[tabindex]") : null);
         if (reveal.focus) (card ?? fileEl?.querySelector<HTMLElement>("[data-file-header] button"))?.focus({ preventScroll: true });
       };
       // No line: just the file.

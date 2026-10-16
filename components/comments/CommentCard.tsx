@@ -135,7 +135,7 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
   // Hidden, one line says what's under it.
   const shutLine = [item.state === "resolved" && item.resolvedBy ? `Resolved by @${item.resolvedBy}` : null, replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : null].filter(Boolean).join(" · ");
   return (
-    <article aria-label={`GitHub thread on ${where}`} className={cn(inline ? INLINE_CARD : "overflow-hidden rounded-lg bg-card pt-2.5 text-sm", frameOf(item))}>
+    <article tabIndex={-1} aria-label={`GitHub thread on ${where}`} className={cn(inline ? INLINE_CARD : "overflow-hidden rounded-lg bg-card pt-2.5 text-sm", "outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
       {inline && <div className={cn(HEAD, !open && "pb-1")}>
         <span className="flex shrink-0 items-center gap-1.5"><Icon name="Github" className="size-3.5 shrink-0" aria-hidden />On GitHub<span aria-hidden className="text-subtle-foreground">·</span></span>
         {first ? <Speaker message={first} /> : <span className="font-medium text-foreground">{item.who}</span>}

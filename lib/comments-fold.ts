@@ -65,6 +65,9 @@ export function revealComment(targetKey: string, id: string) {
   notify();
 }
 
+/** The comment last gone to, outside React. */
+export const revealedComment = (targetKey: string): { id: string; nonce: number } | null => revealed.get(targetKey) ?? null;
+
 export function useCommentOpen(targetKey: string | null | undefined, id: string): boolean {
   return useSyncExternalStore(subscribe, () => !!targetKey && (opened.get(targetKey) ?? NONE).has(id));
 }

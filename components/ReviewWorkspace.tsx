@@ -58,6 +58,7 @@ import { ReviewMenu } from "./TitleBarControls";
 import { TOUCH_CONTROL } from "./touch";
 import { splitPatchByFile } from "../src/patch";
 import { chosenPaths } from "../src/classify";
+import { revealedComment } from "../lib/comments-fold";
 import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunks";
 import { approveGuard } from "../lib/approve-guard";
 import { agentCoverage } from "../lib/agent-coverage";
@@ -202,9 +203,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [navView, setNavViewState] = useState(getNavView);
   const changeNavView = useCallback((next: NavView) => { setNavViewState(next); setNavView(next); }, []);
   const [snoozing, setSnoozing] = useState(false);
-  const [reveal, setReveal] = useState<{ at: CommentLocation; nonce: number; focus?: boolean }>();
-  // ] or [ is going to a comment: the focus goes where it lands.
-  const keyReveal = useRef(false);
+  const [reveal, setReveal] = useState<{ at: CommentLocation; nonce: number; focus?: boolean; item?: string }>();
+  // ] or [ is going to a comment, the one Comments last went to before it: the focus goes where it lands.
+  const keyReveal = useRef<{ from: ReturnType<typeof revealedComment> } | null>(null);
   const [foldAll, setFoldAll] = useState<{ folded: boolean; nonce: number }>();
   const [isFullscreen, setIsFullscreen] = useState(false);
   // An iPhone can't make a page full screen, so there the workspace covers the window from the top layer instead.
@@ -992,8 +993,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     closeOverlays();
     pinned.current = true;
     setCurrentFile(at.file);
-    setReveal({ at, nonce: Date.now(), ...(keyReveal.current ? { focus: true } : {}) });
-  }, [sections, patch, activeId, unhide, closeOverlays]);
+    // A step through Comments marks the comment it went to, whose card takes the focus where a line has more than one.
+    const step = keyReveal.current, gone = revealedComment(targetKey);
+    setReveal({ at, nonce: Date.now(), ...(step ? { focus: true, ...(gone && gone !== step.from ? { item: gone.id } : {}) } : {}) });
+  }, [targetKey, sections, patch, activeId, unhide, closeOverlays]);
   // A thread on a file the PR no longer changes has no diff here to show; its GitHub link can show it.
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
@@ -1228,8 +1231,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       }
       case "u": nextUnviewed(); return true;
       case "]": case "[": {
-        keyReveal.current = true;
-        try { stepThrough(key === "]" ? 1 : -1); } finally { keyReveal.current = false; }
+        keyReveal.current = { from: revealedComment(targetKey) };
+        try { stepThrough(key === "]" ? 1 : -1); } finally { keyReveal.current = null; }
         return true;
       }
       case "/": case "f": {

@@ -162,6 +162,32 @@ test("r opens the reply box of the GitHub thread ] landed on, and does nothing o
   slot.lifecycle.unmount();
 }, 15_000);
 
+// 72-hands-on #1: on a line with a draft and a thread, ] focused the draft's card while the keys acted on the thread.
+test("] focuses the card of the comment it lands on, where a line has a draft and a GitHub thread", async () => {
+  const rects = Element.prototype.getClientRects;
+  // Drawn, as in a browser: the step lands on its card rather than on the file.
+  Element.prototype.getClientRects = function () { return [{}] as unknown as DOMRectList; };
+  try {
+    const { slot, rpc } = await renderReview();
+    const focused = () => document.activeElement?.getAttribute("aria-label");
+    press("]");
+    await waitFor(() => expect(focused()).toBe("Draft comment on src/a.ts:2"));
+    // The agent's draft on b.ts:1, then alice's thread there.
+    press("]");
+    await waitFor(() => expect(focused()).toBe("Draft comment on src/b.ts:1"));
+    press("]");
+    await waitFor(() => expect(focused()).toBe("GitHub thread on src/b.ts:1"));
+    press("x");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(writes(rpc)).toBe(0);
+    press("[");
+    await waitFor(() => expect(focused()).toBe("Draft comment on src/b.ts:1"));
+    press("x");
+    await waitFor(() => expect(rpc.removeDraftComment).toHaveBeenCalledWith(expect.objectContaining({ file: "src/b.ts", line: 1 })));
+    slot.lifecycle.unmount();
+  } finally { Element.prototype.getClientRects = rects; }
+}, 15_000);
+
 test("with Comment keys off, or Single-key shortcuts off, the keys do nothing", async () => {
   for (const knobs of [{ ...defaultKnobs, commentKeys: false }, { ...defaultKnobs, singleKeyShortcuts: false }]) {
     const { slot, rpc } = await renderReview({ knobs });

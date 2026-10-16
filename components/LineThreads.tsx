@@ -243,14 +243,14 @@ function ThreadInCode({ targetKey, item, className }: { targetKey: string; item:
   const ref = useFlash(targetKey, item.id);
   const replies = item.messages.length - 1;
   if (folded && !opened) {
-    return <div ref={ref}>
+    return <div ref={ref} data-comment-id={item.id}>
       <CommentPill frame={frameOf(item)} icon={<Icon name="Github" className="size-3.5 shrink-0" aria-hidden />} who={item.who} words={itemWords(item)} text={item.messages[0]?.body ?? ""}
         badge={item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} />} briefBadge={item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} brief />}
         more={[replies > 0 ? `${replies} repl${replies === 1 ? "y" : "ies"}` : null, item.check ? `✦ ${item.check.label}` : null].filter(Boolean).join(" · ") || null}
         name={`GitHub thread on ${whereOf(item)}`} onShow={() => setCommentOpen(targetKey, item.id, true)} className={className} />
     </div>;
   }
-  return <div ref={ref} className={cn("rounded-lg", className)}><CommentCard targetKey={targetKey} item={item} variant="inline" /></div>;
+  return <div ref={ref} data-comment-id={item.id} className={cn("rounded-lg", className)}><CommentCard targetKey={targetKey} item={item} variant="inline" /></div>;
 }
 
 /** The threads in the list's items, by id, for the cards in the code. */
