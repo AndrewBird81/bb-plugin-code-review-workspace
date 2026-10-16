@@ -286,3 +286,55 @@ test("a submit blocked by a pending review started on github.com says how to cle
   expect(await gh.submit("pr-test", undefined, "me", ...page())).toEqual({ ok: false, error: "You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft has been kept." });
   expect(store.getDraft("pr-test")).toEqual(draft);
 });
+
+// Submission's last guards, each just before the POST.
+const posted = (run: ReturnType<typeof setup>["run"]) => run.mock.calls.filter(([args]) => args.includes("POST")).length;
+
+test("a review rebuilt while the PR's head was being checked isn't posted", async () => {
+  const { store, run, submit, page } = setup();
+  run.mockImplementation(async (args) => {
+    if (args[0] !== "pr") return { code: 0, stderr: "", stdout: '{"id":12}' };
+    // The guide was rebuilt for a new head as GitHub answered.
+    store.saveReview({ ...store.getReview("pr-test")!, headSha: "sha2" });
+    return { code: 0, stderr: "", stdout: '{"headRefOid":"sha1"}' };
+  });
+  expect(await submit("pr-test", undefined, undefined, ...page())).toEqual({ ok: false, error: "The review changed during submission. Wait for generation and review the draft again." });
+  expect(posted(run)).toBe(0);
+});
+
+test("a diff that changed while the PR's head was being checked fails the revision check, and isn't posted", async () => {
+  const { store, run, submit, page } = setup();
+  const revision = reviewRevision(store, "pr-test");
+  run.mockImplementation(async (args) => {
+    if (args[0] !== "pr") return { code: 0, stderr: "", stdout: '{"id":12}' };
+    store.savePatch("pr-test", patch + "diff --git a/b.ts b/b.ts\n--- a/b.ts\n+++ b/b.ts\n@@ -1 +1 @@\n-x\n+y\n");
+    return { code: 0, stderr: "", stdout: '{"headRefOid":"sha1"}' };
+  });
+  expect(await submit("pr-test", revision, undefined, ...page())).toMatchObject({ ok: false });
+  expect(posted(run)).toBe(0);
+});
+
+test("Request changes without a summary isn't posted", async () => {
+  const { store, run, submit, page } = setup();
+  store.setVerdict("pr-test", "REQUEST_CHANGES", "");
+  expect(await submit("pr-test", undefined, undefined, ...page())).toEqual({ ok: false, error: "Add a summary explaining the requested changes before submitting." });
+  expect(run).not.toHaveBeenCalled();
+});
+
+test("a draft comment on a line outside the current diff isn't posted", async () => {
+  const { store, run, submit, page } = setup();
+  store.upsertDraftComment("pr-test", { file: "a.ts", line: 9, side: "RIGHT", body: "Not in the diff" });
+  expect(await submit("pr-test", undefined, undefined, ...page())).toMatchObject({ ok: false, error: expect.stringContaining("These comments are outside the current diff: a.ts:9") });
+  expect(run).not.toHaveBeenCalled();
+});
+
+test("a PR head GitHub doesn't say keeps the draft and posts nothing", async () => {
+  const { store, run, submit, page } = setup();
+  const draft = store.getDraft("pr-test");
+  for (const stdout of ["{}", "not json", '{"headRefOid":""}']) {
+    run.mockResolvedValueOnce({ code: 0, stderr: "", stdout });
+    expect(await submit("pr-test", undefined, undefined, ...page())).toMatchObject({ ok: false, error: expect.stringMatching(/verify the PR revision\. Your draft has been kept\.$/) });
+  }
+  expect(posted(run)).toBe(0);
+  expect(store.getDraft("pr-test")).toEqual(draft);
+});

@@ -2,13 +2,15 @@ import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createPluginUpdates } from "./plugin-updates";
 
+/** `busy` stands for background review work, such as a guide generating; `advance` moves the clock, by an hour and a bit unless told. */
 function setup() {
   let now = 1_000_000;
+  const background = { busy: false };
   const check = vi.fn(async () => [{ id: "guided-review", outcome: "update-available", installed: { display: "0.2.0", version: "old" }, candidate: { display: "0.2.1", version: "new" } }]);
   const apply = vi.fn(async () => ({ outcome: "updated", applied: true, from: { display: "0.2.0", version: "old" }, to: { display: "0.2.1", version: "new" } }));
   const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { plugins: { checkUpdates: check, applyUpdate: apply } } });
-  const updates = createPluginUpdates(bb, () => false, () => now);
-  return { bb, updates, check, apply, advance: () => { now += 3_600_001; } };
+  const updates = createPluginUpdates(bb, () => background.busy, () => now);
+  return { bb, updates, check, apply, background, advance: (ms = 3_600_001) => { now += ms; } };
 }
 
 test("automatic updates default off, persist opt-in, and wait for open views to close", async () => {
@@ -51,4 +53,38 @@ test("errors stay visible and retries are delayed; a disabled opt-in cancels pen
   const tick = updates.tick(); updates.setAutomatic(false);
   finish([{ id: "guided-review", outcome: "update-available", installed: { display: "0.2.0", version: "old" }, candidate: { display: "0.2.1", version: "new" } }]);
   await tick; expect(apply).not.toHaveBeenCalled();
+});
+
+test("background review work, such as a guide generating, holds automatic and manual updates", async () => {
+  const { updates, check, apply, background, advance } = setup();
+  updates.setAutomatic(true); background.busy = true; advance();
+  await updates.tick();
+  expect(check).not.toHaveBeenCalled();
+  await expect(updates.apply("settings", "new")).rejects.toThrow("Wait for review work to finish before updating.");
+  background.busy = false;
+  await updates.tick();
+  expect(apply).toHaveBeenCalledTimes(1);
+});
+
+test("an automatic update waits five quiet minutes after the last review work", async () => {
+  const { updates, check, apply, advance } = setup();
+  updates.setAutomatic(true); advance();
+  await updates.run(() => {});
+  advance(4 * 60_000); await updates.tick();
+  expect(check).not.toHaveBeenCalled();
+  advance(60_001); await updates.tick();
+  expect(apply).toHaveBeenCalledTimes(1);
+});
+
+test("review work done while the update is checked cancels the automatic update", async () => {
+  const { updates, check, apply, advance } = setup();
+  updates.setAutomatic(true); advance();
+  let finish!: (result: any) => void;
+  check.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const tick = updates.tick();
+  // A comment saved during the network wait, finished before GitHub answers.
+  await updates.run(() => {});
+  finish([{ id: "guided-review", outcome: "update-available", installed: { display: "0.2.0", version: "old" }, candidate: { display: "0.2.1", version: "new" } }]);
+  await tick;
+  expect(apply).not.toHaveBeenCalled();
 });
