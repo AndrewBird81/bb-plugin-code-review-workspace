@@ -93,7 +93,7 @@ async function commitsSince(run: Run, review: ReviewMeta, sha: string): Promise<
   const index = rows.findIndex(([oid]) => oid === sha);
   // After a force-push the reviewed commit may be gone from the PR; show them all.
   const after = index >= 0 ? rows.slice(index + 1) : rows;
-  return after.length ? after.map(([oid, message]) => `- ${short(oid)} ${message}`).join("\n") + (index < 0 ? "\n(The reviewed commit is no longer on the branch; it was rebased or force-pushed.)" : "") : "None.";
+  return after.length ? untrusted("commit messages", after.map(([oid, message]) => `- ${short(oid)} ${message}`).join("\n")) + (index < 0 ? "\n(The reviewed commit is no longer on the branch; it was rebased or force-pushed.)" : "") : "None.";
 }
 
 /** A PR's file at a commit: its head now, your reviewed commit, or the commit its diff starts from. */

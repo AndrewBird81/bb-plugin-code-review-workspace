@@ -10,6 +10,7 @@ import type { Guide } from "./guide";
 import { mayRunUnattended } from "../lib/trust";
 import { fitHunks } from "./hunks";
 import { spawningFor } from "./thread-review";
+import { untrusted } from "./untrusted";
 
 /** Starts a guide-writing worker's title; `agents.configure` grants it the guide tools by it. */
 export const GUIDE_WORKER_TITLE = "Generate guide: ";
@@ -64,7 +65,7 @@ export function buildGenerationPrompt(targetKey: string, generationId?: string, 
     "Start with read_pr_context, then list_review_files, read the diff with read_review_patch, and submit with generate_review_guide.",
     "Take the guide's intent from what the PR says it does, and say in a chapter's overview where the code does something the description doesn't mention.",
     "Where the PR or its linked tickets say what it should do, check each ask against the diff in the guide's requirements.",
-    ...(chapters.length ? ["A guide exists for an earlier revision of this change. Keep its chapter ids, titles, and order where the files still fit, so the reviewer's map of the change stays stable:", ...chapters] : []),
+    ...(chapters.length ? ["A guide exists for an earlier revision of this change. Keep its chapter ids, titles, and order where the files still fit, so the reviewer's map of the change stays stable:", untrusted("the earlier guide's chapters", chapters.join("\n"))] : []),
     ...(earlier?.reviewed ? ["The reviewer reviewed an earlier revision. Call read_changes_since_review, then summarize what changed since their review in the guide's sinceReview field, in 2–4 sentences."] : []),
     guidePreferencesPrompt(preferences),
   ].join("\n");
