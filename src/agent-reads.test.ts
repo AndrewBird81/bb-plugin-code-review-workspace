@@ -83,3 +83,20 @@ test("after the upgrade that adds unchecked and introduced, idle review assistan
   await vi.waitFor(async () => expect(await bb.storage.kv.get("assistant-tools")).toBeGreaterThan(7));
   expect(harness.inspection.sdk.callsTo("threads.stop").map(([args]) => (args as any).threadId)).toEqual(["assistant"]);
 });
+
+test("a local review's bundle drops the reads of its diff before a rebuild; a PR's at the same head keeps them", async () => {
+  const { harness, store, call } = await host();
+  const bundled = async (targetKey: string) => (await harness.behavior.callRpc("getReviewBundle", { targetKey }) as any).review.agentReads;
+  store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main...feature", cwd: "/repo", status: "ready", createdAt: 1 });
+  store.savePatch("ref-1", patch);
+  store.setAssistantThread("ref-1", "local-assistant");
+  await call("read_review_patch", { targetKey: "ref-1", file: "a.ts" }, "local-assistant");
+  expect(await bundled("ref-1")).toEqual({ head: expect.stringMatching(/^diff:/), files: ["a.ts"] });
+  // Update guide reads the diff again, unchanged.
+  store.savePatch("ref-1", patch);
+  expect((await bundled("ref-1"))?.files).toEqual(["a.ts"]);
+  store.savePatch("ref-1", file("a.ts") + file("d.ts"));
+  expect(await bundled("ref-1")).toBeNull();
+  await call("read_review_patch", { targetKey: "pr-1", file: "a.ts" });
+  expect(await bundled("pr-1")).toEqual({ head: "sha1", files: ["a.ts"] });
+});

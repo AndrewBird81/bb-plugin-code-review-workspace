@@ -22,7 +22,7 @@ import { sendToSourceThread, sourceThread, startFixThread } from "./src/fix-hand
 import { listMachines, personalProjectId } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
 import { commentsKey, rangeOf, sameLocation, SEVERITIES, severityOf, SUMMARY_AT } from "./src/draft";
-import { recordAgentReads } from "./src/agent-reads";
+import { agentReadsHead, recordAgentReads } from "./src/agent-reads";
 import { describeDraft, writeSummary } from "./src/draft-summary";
 import { summaryLine, withSummaryLine } from "./lib/move-to-summary";
 import { runSummaryCommand } from "./src/summary-command";
@@ -413,7 +413,10 @@ export default async function plugin(bb: BbPluginApi) {
     async getReviewBundle({ targetKey, knownRevision }) {
       const diffError = await rereadPrunedDiff(targetKey);
       const revision = reviewRevision(store, targetKey);
-      return { review: decorate(await withOwnPr(store.getReview(targetKey))), guide: store.getGuide(targetKey),
+      const review = decorate(await withOwnPr(store.getReview(targetKey)));
+      // Reads of a local review's earlier diff don't count toward its rebuilt one, which the client can't tell apart.
+      if (review?.agentReads && review.agentReads.head !== agentReadsHead(store, targetKey)) review.agentReads = null;
+      return { review, guide: store.getGuide(targetKey),
         patch: revision === knownRevision ? null : store.patch(targetKey), revision,
         ...(diffError ? { diffError } : {}) };
     },
