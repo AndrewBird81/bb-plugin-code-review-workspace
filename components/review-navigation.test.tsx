@@ -326,6 +326,24 @@ test("a line selection's bar and highlight go once it's used, cleared, or its ch
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("Esc clears a line selection, once nothing is over the code", async () => {
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  const highlighted = () => slot.getByTestId("filediff").dataset.selected;
+  fireEvent.click(slot.getByRole("button", { name: "Pick line 1" }));
+  expect(highlighted()).toBe("1-1");
+  // The shortcuts over the code go first.
+  press("?");
+  const help = await slot.findByRole("dialog", { name: "Keyboard shortcuts" });
+  fireEvent.keyDown(help, { key: "Escape" });
+  await waitFor(() => expect(slot.queryByRole("dialog", { name: "Keyboard shortcuts" })).toBeNull());
+  expect(highlighted()).toBe("1-1");
+  press("Escape");
+  expect(highlighted()).toBe("");
+  expect(slot.queryByRole("group", { name: "Selection" })).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("code you select, as a long-press does on touch, offers Ask agent about selection, which asks the agent about it", async () => {
   const { slot } = await renderWorkspace();
   const text = await slot.findByText("aa");

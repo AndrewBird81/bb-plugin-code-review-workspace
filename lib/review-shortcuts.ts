@@ -15,7 +15,7 @@ export const SHORTCUTS = [
   { group: "Panels", keys: ["c"], label: "Show or hide Comments" },
   { group: "Panels", keys: ["a"], label: "Ask agent" },
   { group: "Panels", keys: ["s"], label: "Finish review" },
-  { group: "Panels", keys: ["Escape"], label: "Close what's over the code, or leave full screen" },
+  { group: "Panels", keys: ["Escape"], label: "Close what's over the code, leave full screen, or clear the lines selected" },
   { group: "View", keys: ["d"], label: "Since your review or All changes, on a re-review" },
   { group: "View", keys: ["i"], label: "Fold or unfold comments in code" },
   { group: "View", keys: ["F"], label: "Full screen on or off" },

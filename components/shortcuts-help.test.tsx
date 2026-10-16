@@ -30,7 +30,7 @@ test("the shortcuts are grouped by what they're for, with Shift and Esc written 
   expect(row("Panels", "Show or hide the chapters")).toBe("t");
   expect(row("Panels", "Show or hide Comments")).toBe("c");
   expect(row("Panels", "Finish review")).toBe("s");
-  expect(row("Panels", "Close what's over the code, or leave full screen")).toBe("Esc");
+  expect(row("Panels", "Close what's over the code, leave full screen, or clear the lines selected")).toBe("Esc");
   expect(row("View", "Fold or unfold comments in code")).toBe("i");
   expect(row("View", "Full screen on or off")).toBe("⇧F");
   expect(row("View", "Since your review or All changes, on a re-review")).toBe("d");

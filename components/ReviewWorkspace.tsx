@@ -1234,10 +1234,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         return canFullscreen;
       }
       case "Escape": {
-        // What's over the code, then the iPhone's cover; the browser's full screen leaves on Esc by itself.
+        // What's over the code, then the iPhone's cover, then the lines selected; the browser's full screen leaves on Esc
+        // by itself.
         const { nav, panel } = layoutRef.current;
         if (nav === "overlay" || panel === "overlay") closeOverlays();
         else if (covering) setCovering(false);
+        else if (lineSel) setLineSel(null);
         else return false;
         return true;
       }
