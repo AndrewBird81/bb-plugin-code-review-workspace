@@ -91,7 +91,7 @@ test("] and [ step with what the Comments list registered, from the file you're 
   const slot = await renderWorkspace();
   await slot.findByText("aa");
   // The draft and its comment have loaded.
-  await slot.findByRole("button", { name: "Submit review: Comment, 1 comment" });
+  await slot.findByRole("button", { name: "Finish review: Comment, 1 comment" });
   const step = vi.fn();
   const withdraw = registerCommentStepper("pr-42", step);
   fireEvent.keyDown(document.body, { key: "]" });

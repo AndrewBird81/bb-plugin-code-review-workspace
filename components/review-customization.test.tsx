@@ -210,14 +210,14 @@ test("the side panel's views keep what you were writing as it closes and switche
   expect(slot.queryByRole("textbox", { name: "Draft comment" })).toBeNull();
   fireEvent.click(slot.getByRole("button", { name: "Ask agent" }));
   fireEvent.change(await panel().findByRole("textbox", { name: "Ask the agent" }), { target: { value: "Keep this question" } });
-  fireEvent.click(slot.getByRole("button", { name: /^Submit review/ }));
+  fireEvent.click(slot.getByRole("button", { name: /^Finish review:/ }));
   expect(slot.queryByRole("textbox", { name: "Ask the agent" })).toBeNull();
   fireEvent.click(await panel().findByText("Private notes"));
   fireEvent.change(await panel().findByRole("textbox", { name: "Private notes" }), { target: { value: "Keep my notes" } });
   close();
   fireEvent.click(slot.getByRole("button", { name: "Ask agent" }));
   expect((panel().getByRole("textbox", { name: "Ask the agent" }) as HTMLTextAreaElement).value).toBe("Keep this question");
-  fireEvent.click(slot.getByRole("button", { name: /^Submit review/ }));
+  fireEvent.click(slot.getByRole("button", { name: /^Finish review:/ }));
   expect((panel().getByRole("textbox", { name: "Private notes" }) as HTMLTextAreaElement).value).toBe("Keep my notes");
   fireEvent.click(panel().getByRole("button", { name: "Comments" }));
   expect((panel().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Keep this unfinished comment");

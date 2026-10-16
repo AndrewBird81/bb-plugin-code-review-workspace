@@ -22,7 +22,7 @@ async function addComment(slot: { getByRole: (role: string, options: { name: str
 async function renderTray(targetKey: string, rpc: Record<string, unknown>, props: Record<string, unknown> = {}) {
   await loadPluginApp(() => import("../app"));
   const DraftTray = await draftTray();
-  // "Show draft" stands in for the Feedback view's Use as draft, and the top bar's Submit review.
+  // "Show draft" stands in for the Feedback view's Use as draft, and the title bar's Finish review.
   const component = () => {
     const [showDraft, setShowDraft] = useState<{ at: number }>();
     return <><button onClick={() => setShowDraft({ at: Date.now() })}>Show draft</button><DraftTray targetKey={targetKey} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" showDraft={showDraft} {...props} /></>;

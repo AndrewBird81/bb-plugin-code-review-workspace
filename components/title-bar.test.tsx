@@ -98,26 +98,26 @@ test("BB's title bar shows an open review's commands, and none on Settings (the 
   for (const name of ["Comments", "Ask agent", "Review actions"]) expect(commands.getByRole("button", { name })).toBeTruthy();
   // jsdom can't go full screen, nor cover the window.
   expect(commands.queryByRole("button", { name: "Full screen" })).toBeNull();
-  expect(await commands.findByRole("button", { name: "Submit review: Request changes, 2 comments" })).toBeTruthy();
+  expect(await commands.findByRole("button", { name: "Finish review: Request changes, 2 comments" })).toBeTruthy();
 });
 
 test("the title bar's commands fit the pane: labeled from 1000px, shorter below, icons on a phone held sideways, and none on a phone", async () => {
   const text = async (bar: Awaited<ReturnType<typeof renderReview>>["bar"]) => {
     const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
-    await commands.findByRole("button", { name: /^Submit review/ });
-    return ["Comments", "Ask agent", /^Submit review/].map((name) => commands.getByRole("button", { name }).textContent);
+    await commands.findByRole("button", { name: /^Finish review:/ });
+    return ["Comments", "Ask agent", /^Finish review:/].map((name) => commands.getByRole("button", { name }).textContent);
   };
   fakeSize(1400, 900);
   let { bar, page } = await renderReview();
-  expect(await text(bar)).toEqual(["Comments", "Ask agent", "Submit review· Request changes· 2"]);
+  expect(await text(bar)).toEqual(["Comments", "Ask agent", "Finish review· Request changes· 2"]);
   page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
   fakeSize(800, 1200);
   ({ bar, page } = await renderReview());
-  expect(await text(bar)).toEqual(["", "Ask agent", "Submit· 2"]);
+  expect(await text(bar)).toEqual(["", "Ask agent", "Finish· 2"]);
   page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
   fakeSize(844, 390);
   ({ bar, page } = await renderReview());
-  expect(await text(bar)).toEqual(["", "", "Submit· 2"]);
+  expect(await text(bar)).toEqual(["", "", "Finish· 2"]);
   page.lifecycle.unmount(); bar!.lifecycle.unmount(); restores.splice(0).forEach((restore) => restore());
   // A phone's are its own, in the workspace's dock.
   fakeSize(390, 844);
@@ -147,7 +147,7 @@ test("Submit shows only what can be submitted: a local review and a closed PR ha
     const { bar, page } = await renderReview({ review });
     const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
     expect(commands.getByRole("button", { name: "Comments" })).toBeTruthy();
-    expect(commands.queryByRole("button", { name: /^Submit review/ })).toBeNull();
+    expect(commands.queryByRole("button", { name: /^Finish review:/ })).toBeNull();
     page.lifecycle.unmount(); bar!.lifecycle.unmount();
   }
 });
@@ -220,18 +220,18 @@ test("with single-key shortcuts off, the commands' tooltips name no key, and Rev
   const off = { preferences: { ...defaultPreferences, knobs: { ...defaultKnobs, singleKeyShortcuts: false } }, revision: 1 };
   const { bar, page } = await renderReview({ rpc: { getPreferences: () => off } });
   const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
-  await commands.findByRole("button", { name: /^Submit review/ });
+  await commands.findByRole("button", { name: /^Finish review:/ });
   await waitFor(() => expect(page.inspection.rpcCalls.filter((call) => call.method === "getPreferences")).toHaveLength(2));
   await new Promise((resolve) => setTimeout(resolve, 20));
   const tips: string[] = [];
-  for (const name of ["Comments", "Ask agent", /^Submit review/, "Full screen"]) {
+  for (const name of ["Comments", "Ask agent", /^Finish review:/, "Full screen"]) {
     const button = commands.getByRole("button", { name });
     button.focus();
     tips.push((await bar!.findByRole("tooltip")).textContent!);
     button.blur();
     await waitFor(() => expect(bar!.queryByRole("tooltip")).toBeNull());
   }
-  expect(tips).toEqual(["Comments", "Ask agent", "Finish and submit", "Full screen"]);
+  expect(tips).toEqual(["Comments", "Ask agent", "Finish review", "Full screen"]);
   fireEvent.click(commands.getByRole("button", { name: "Review actions" }));
   await bar!.findByRole("button", { name: "Review settings…" });
   expect(bar!.queryByRole("button", { name: "Keyboard shortcuts" })).toBeNull();
@@ -244,9 +244,9 @@ test("the commands and the band's chapters toggle name their keys for screen rea
   const keysOf = async (preferences: unknown) => {
     const { bar, page } = await renderReview({ rpc: { getPreferences: () => preferences } });
     const commands = within(await bar!.findByRole("group", { name: "Review commands" }));
-    await commands.findByRole("button", { name: /^Submit review/ });
+    await commands.findByRole("button", { name: /^Finish review:/ });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    const keys = ["Comments", "Ask agent", /^Submit review/, "Full screen"].map((name) => commands.getByRole("button", { name }).getAttribute("aria-keyshortcuts"));
+    const keys = ["Comments", "Ask agent", /^Finish review:/, "Full screen"].map((name) => commands.getByRole("button", { name }).getAttribute("aria-keyshortcuts"));
     keys.push(page.getByRole("button", { name: "Hide chapters" }).getAttribute("aria-keyshortcuts"));
     page.lifecycle.unmount(); bar!.lifecycle.unmount();
     return keys;
@@ -275,7 +275,7 @@ test("Full screen goes from the title bar to the band's end and back; from the k
   // The commands end the band, after how the diff draws; one under 720px shows Submit as its icon and count.
   const buttons = band().getAllByRole("button").map((button) => button.getAttribute("aria-label"));
   expect(buttons.slice(buttons.indexOf("Diff options") - 1, buttons.indexOf("Diff options") + 2)).toEqual(["Fold comments in code", "Diff options", "Comments"]);
-  expect(band().getByText("Submit").className).toContain("@max-[720px]/band:hidden");
+  expect(band().getByText("Finish").className).toContain("@max-[720px]/band:hidden");
   const exit = await band().findByRole("button", { name: "Exit full screen" });
   await waitFor(() => expect(document.activeElement).toBe(exit));
   fireEvent.click(exit, { detail: 0 });

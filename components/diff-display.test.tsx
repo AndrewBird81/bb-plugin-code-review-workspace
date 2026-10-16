@@ -16,7 +16,7 @@ vi.mock("@pierre/diffs/react", () => ({
   },
 }));
 
-// The workspace's renders, by its Submit review button, which draws with its band where BB's title bar didn't take it.
+// The workspace's renders, by its Finish review button, which draws with its band where BB's title bar didn't take it.
 let workspaceRenders = 0;
 vi.mock("../lib/draft-status", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/draft-status")>();
@@ -151,7 +151,7 @@ test("dragging a wide pane's edge doesn't redraw the workspace on every frame", 
   const restore = fakeWidth(1400);
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
-  await slot.findByRole("button", { name: /^Submit review/ });
+  await slot.findByRole("button", { name: /^Finish review:/ });
   await new Promise((resolve) => setTimeout(resolve, 20));
   const before = workspaceRenders;
   for (const width of [1390, 1380, 1370, 1360]) act(() => restore.resize(width));
@@ -289,7 +289,7 @@ test("scrolling past a file's end marks the next file in the chapters without dr
   patchReviewState("pr-42", { activeId: "c2" });
   const { slot } = await renderWorkspace();
   await slot.findByText("cc");
-  await slot.findByRole("button", { name: /^Submit review/ });
+  await slot.findByRole("button", { name: /^Finish review:/ });
   const row = (name: string) => within(slot.getByRole("navigation", { name: "Chapters" })).getByRole("button", { name });
   await waitFor(() => expect(row("src/b.ts").getAttribute("aria-current")).toBe("true"));
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -308,7 +308,7 @@ test("a viewed-state refresh that changes nothing doesn't draw the workspace aga
   let views: Array<{ file: string; viewed: boolean; stale: boolean }> = [];
   const { slot, rpc } = await renderWorkspace({ rpc: { getFileViews: vi.fn(() => ({ views })) } });
   await slot.findByText("aa");
-  await slot.findByRole("button", { name: /^Submit review/ });
+  await slot.findByRole("button", { name: /^Finish review:/ });
   await new Promise((resolve) => setTimeout(resolve, 20));
   // The server agrees with the mark already shown.
   views = [{ file: "src/a.ts", viewed: true, stale: false }];

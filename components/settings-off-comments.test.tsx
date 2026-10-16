@@ -55,7 +55,7 @@ test("with every knob off, no Requirements, CI note or text bar shows, and a com
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ file: "src/a.ts", line: 1, side: "RIGHT", body: "Name the row." }) })));
 
   // Submit still sends.
-  fireEvent.click(await within(await bar.findByRole("group", { name: "Review commands" })).findByRole("button", { name: /^Submit review/ }));
+  fireEvent.click(await within(await bar.findByRole("group", { name: "Review commands" })).findByRole("button", { name: /^Finish review:/ }));
   const draft = within(await page.findByRole("region", { name: "Review draft" }));
   fireEvent.click(await draft.findByRole("button", { name: /^Submit to GitHub/ }));
   await waitFor(() => expect(submitReview).toHaveBeenCalled());

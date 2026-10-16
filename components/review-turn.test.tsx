@@ -282,12 +282,12 @@ test("a tracked review that can't start says why", async () => {
   slot.lifecycle.unmount();
 });
 
-test("Submit review says what the draft would submit, and opens Finish review at the summary", async () => {
+test("the title bar's Finish review says what the draft would submit, and opens Finish review at the summary", async () => {
   const draft = { targetKey: "pr-42", verdict: "REQUEST_CHANGES", body: "Two asks.", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "Handle it." }] };
   const { slot } = await renderWorkspace({}, { getDraft: vi.fn(() => ({ draft })) });
   // In the band, where BB's title bar didn't take it.
-  const open = await slot.findByRole("button", { name: "Submit review: Request changes, 1 comment" });
-  expect(open.textContent).toBe("Submit· 1");
+  const open = await slot.findByRole("button", { name: "Finish review: Request changes, 1 comment" });
+  expect(open.textContent).toBe("Finish· 1");
   expect(open.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(open);
   await slot.findByRole("heading", { name: "Finish review" });
@@ -296,11 +296,11 @@ test("Submit review says what the draft would submit, and opens Finish review at
   slot.lifecycle.unmount();
 });
 
-test("a merged review offers no Submit review", async () => {
+test("a merged review offers no Finish review in the title bar", async () => {
   const { slot } = await renderWorkspace({ prState: "MERGED", archivedAt: 1 });
   await slot.findByRole("region", { name: "Archived review", hidden: true });
   await slot.findByRole("button", { name: "Comments" });
-  expect(slot.queryByRole("button", { name: /^Submit review/ })).toBeNull();
+  expect(slot.queryByRole("button", { name: /^Finish review:/ })).toBeNull();
   slot.lifecycle.unmount();
 });
 

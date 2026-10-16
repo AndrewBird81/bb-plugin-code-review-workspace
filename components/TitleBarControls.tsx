@@ -25,7 +25,7 @@ export type TitleBarPlacement = "title" | "band";
 let focusToggle: { to: TitleBarPlacement; until: number } | null = null;
 
 /**
- * The review's commands: Comments, Ask agent, Submit review, Review actions (⋯) and Full screen; on All reviews, the
+ * The review's commands: Comments, Ask agent, Finish review, Review actions (⋯) and Full screen; on All reviews, the
  * list's. BB renders it in its title bar (navPanel headerContent) with the page's subPath, apart from the page, so it
  * reads the workspace from the store. A plain function, not memo: the SDK takes only a function as a slot's component.
  */
@@ -77,11 +77,11 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
             {tier !== "icons" && "Ask agent"}
           </Button>
         </Hint>
-        {status && <Hint label={keyHint("Finish and submit", "s", api.shortcuts)} container={container}>
-          <Button variant="ghost" size="sm" aria-label={`Submit review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`} aria-pressed={panel.view === "finish"} aria-controls={controls} aria-keyshortcuts={ariaKeys("s", api.shortcuts)} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
+        {status && <Hint label={keyHint("Finish review", "s", api.shortcuts)} container={container}>
+          <Button variant="ghost" size="sm" aria-label={`Finish review: ${VERDICT_LABEL[status.verdict]}, ${comments} comment${comments === 1 ? "" : "s"}`} aria-pressed={panel.view === "finish"} aria-controls={controls} aria-keyshortcuts={ariaKeys("s", api.shortcuts)} className={labeled} onClick={() => panel.view === "finish" ? panel.close() : api.openFinish()}>
             <Icon name="Github" aria-hidden />
             {/* A band under 720px (full screen on a phone) keeps its room for where you are: the icon and the count. */}
-            <span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>{tier === "labeled" ? "Submit review" : "Submit"}</span>
+            <span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>{tier === "labeled" ? "Finish review" : "Finish"}</span>
             {tier === "labeled" && <span className="font-normal text-subtle-foreground">· {VERDICT_LABEL[status.verdict]}</span>}
             {comments > 0 && <span className="font-normal text-subtle-foreground tabular-nums"><span className={cn(placement === "band" && "@max-[720px]/band:hidden")}>· </span>{comments}</span>}
           </Button>

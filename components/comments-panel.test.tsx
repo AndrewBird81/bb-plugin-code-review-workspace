@@ -131,7 +131,7 @@ test("one list: chips count what they show, the groups come in order, and each i
   expect(list.getByRole("button", { name: "1 resolved · 1 outdated" }).getAttribute("aria-expanded")).toBe("false");
   // The same count as Submit's, in the Finish bar and the title bar.
   expect(slot.getByText("3 to send", { exact: false })).toBeTruthy();
-  expect(slot.getByRole("button", { name: "Submit review: Comment, 3 comments" })).toBeTruthy();
+  expect(slot.getByRole("button", { name: "Finish review: Comment, 3 comments" })).toBeTruthy();
   // The title bar's Comments says how many need you.
   expect(slot.getByRole("button", { name: "Comments, 2 need you" })).toBeTruthy();
   // A file's row counts what the list has at it: a.ts's two drafts, and its threads not resolved, the outdated one too.

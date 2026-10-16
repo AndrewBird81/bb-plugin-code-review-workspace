@@ -189,7 +189,7 @@ test("with every knob off, the Overview, a chapter, Comments, Finish review, the
   fireEvent.click(commands.getByRole("button", { name: "Comments" }));
   const panel = within(await page.findByRole("complementary", { name: "Comments and agent" }));
   await panel.findByText("Upper case reads as a constant.");
-  fireEvent.click(await commands.findByRole("button", { name: /^Submit review/ }));
+  fireEvent.click(await commands.findByRole("button", { name: /^Finish review:/ }));
   await page.findByRole("heading", { name: "Finish review" });
   // Approving with the high-risk chapter's src/a.ts not viewed: no guard row, but the blocking comment's still.
   fireEvent.click(within(page.getByRole("group", { name: "Review verdict" })).getByRole("button", { name: /^Approve/ }));

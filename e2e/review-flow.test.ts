@@ -113,7 +113,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await commands.getByRole("button", { name: "Comments", exact: true }).focus();
     await page.getByRole("tooltip", { name: "Comments (c)", exact: true }).waitFor();
     // Finish review: the summary, the verdict, and what goes to GitHub.
-    await commands.getByRole("button", { name: /^Submit review/ }).click();
+    await commands.getByRole("button", { name: /^Finish review:/ }).click();
     const summary = page.getByRole("region", { name: "Review summary", exact: true });
     await summary.getByRole("button", { name: "Write summary", exact: true }).click();
     await summary.getByRole("textbox", { name: "Review summary", exact: true }).fill("The validation looks good with this test follow-up.");
@@ -152,7 +152,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     expect(await commands.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(53);
     await page.screenshot({ animations: "disabled", path: `${dir}/dock-mobile.png` });
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await commands.getByRole("button", { name: /^Submit review/ }).click();
+    await commands.getByRole("button", { name: /^Finish review:/ }).click();
     await verdicts.waitFor();
     await commands.getByRole("button", { name: "Full screen", exact: true }).click();
     await page.waitForFunction(() => !!document.fullscreenElement);
@@ -212,7 +212,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     // A docked panel opens again where it was.
     await page.reload();
     await assistant.waitFor();
-    await commands.getByRole("button", { name: /^Submit review/ }).click();
+    await commands.getByRole("button", { name: /^Finish review:/ }).click();
     await page.getByRole("region", { name: "Submitted review" }).waitFor();
     await page.getByText("Private notes", { exact: true }).click();
     expect(await page.getByRole("textbox", { name: "Private notes", exact: true }).inputValue()).toBe("Private: verify the staged rollout, then the cache.");
@@ -241,7 +241,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.getByRole("button", { name: "Open the archived review", exact: true }).click();
     await page.getByRole("region", { name: "Archived review" }).waitFor();
     expect(await page.getByRole("button", { name: /^Submit to GitHub/ }).count()).toBe(0);
-    expect(await commands.getByRole("button", { name: /^Submit review/ }).count()).toBe(0);
+    expect(await commands.getByRole("button", { name: /^Finish review:/ }).count()).toBe(0);
     await commands.getByRole("button", { name: "Review actions", exact: true }).click();
     expect(await page.getByRole("button", { name: /^(Update|Rebuild) guide$/ }).count()).toBe(0);
     await page.keyboard.press("Escape");
