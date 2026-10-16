@@ -1330,12 +1330,16 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }
 
   const noticeButton = cn("h-7", TOUCH_CONTROL);
+  const retryGuide = <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Try again</Button>;
   // The most pressing first: what went wrong, then what's under way, then what you might do.
   const notices: Notice[] = [
     ...(connection === "reconnecting" ? [{ id: "reconnecting", tone: "warning", icon: "Loading", busy: true, text: "Reconnecting… The review reloads once it’s back." }] as const : []),
     ...(loadError ? [{ id: "load", tone: "danger", icon: "AlertCircle", role: "alert", text: loadError, action: <Button variant="outline" size="sm" className={noticeButton} onClick={() => void load()}>Try again</Button> }] as const : []),
-    // Why, as a first guide's page says it: the writer's words or the last rejection, as plain text cut to a few lines.
-    ...(review?.status === "error" ? [{ id: "rebuild", tone: "danger", icon: "AlertTriangle", role: "alert", text: <>Couldn’t update the guide. Showing the previous one.{review.guideError?.text && <span className="mt-0.5 block line-clamp-3 whitespace-pre-line break-words">{review.guideError.text}</span>}</>, action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Try again</Button> }] as const : []),
+    ...(review?.status === "error" ? [review.restartPending
+      // A reload interrupted the update while its writer's machine was offline: it restarts on its own once that reconnects.
+      ? { id: "rebuild", tone: "warning", icon: "Clock", text: "The guide writer’s machine is offline. The update restarts on its own when it reconnects. Showing the previous guide.", action: retryGuide } as const
+      // Why, as a first guide's page says it: the writer's words or the last rejection, as plain text cut to a few lines.
+      : { id: "rebuild", tone: "danger", icon: "AlertTriangle", role: "alert", text: <>Couldn’t update the guide. Showing the previous one.{review.guideError?.text && <span className="mt-0.5 block line-clamp-3 whitespace-pre-line break-words">{review.guideError.text}</span>}</>, action: retryGuide } as const] : []),
     ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
     ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),
     ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review, { unattendedAgents })}.`, action: <NotRunButton review={review} /> }] as const : []),

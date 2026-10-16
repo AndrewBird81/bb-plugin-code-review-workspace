@@ -123,6 +123,23 @@ test("a failed update says why under its text, as plain text cut to a few lines,
   unknown.slot.lifecycle.unmount();
 });
 
+test("an update waiting for its writer's machine says it restarts on its own once that reconnects, with Try again, until the wait ends", async () => {
+  let pending: { since: number } | null = { since: 1 };
+  const { slot, rpc } = await renderWorkspace({}, () => ({ review: { targetKey: "pr-42", kind: "pr", status: "error", createdAt: 1, title: "Parse rows", headSha: "new", restartPending: pending } }));
+  const text = "The guide writer’s machine is offline. The update restarts on its own when it reconnects. Showing the previous guide.";
+  const waiting = notice(slot, text);
+  expect(waiting.getAttribute("role")).toBe("status");
+  expect(slot.queryByText("Couldn’t update the guide. Showing the previous one.")).toBeNull();
+  fireEvent.click(within(waiting).getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(rpc.rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  // The wait ends without a restart: it failed after all.
+  pending = null;
+  await slot.emitRealtime("review:pr-42", {});
+  await waitFor(() => expect(notice(slot, "Couldn’t update the guide. Showing the previous one.").getAttribute("role")).toBe("alert"));
+  expect(slot.queryByText(text)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("while the connection is down the review says it's reconnecting, and once back it reads the review, views, draft and threads again", async () => {
   const counted = { getFileViews: 0, getDraft: 0, getReviewThreads: 0 };
   const count = <T,>(name: keyof typeof counted, answer: T) => vi.fn(() => { counted[name]++; return answer; });

@@ -97,6 +97,31 @@ test("a guide that failed says what went wrong, in plain text, when it's known",
   unknown.lifecycle.unmount();
 });
 
+test("a guide waiting for its writer's machine says it restarts on its own once that reconnects, with Try again, until the wait ends", async () => {
+  const rereview = vi.fn(() => ({ ok: true }));
+  let review: Record<string, unknown> = { status: "error", restartPending: { since: 1 } };
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", createdAt: 1, title: "Parse rows", ...review }, guide: null, patch: "", revision: "r1" }),
+    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    rereview,
+  } as any });
+  const waiting = (await slot.findByRole("heading", { name: "Waiting for the guide writer’s machine" })).closest<HTMLElement>("[role]")!;
+  expect(waiting.getAttribute("role")).toBe("status");
+  expect(waiting.textContent).toContain("The guide writer’s machine is offline. The guide restarts on its own when it reconnects.");
+  expect(slot.queryByRole("alert")).toBeNull();
+  fireEvent.click(within(waiting).getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  // The wait ends without a restart: it failed after all.
+  review = { status: "error", restartPending: null };
+  await slot.emitRealtime("review:pr-42", {});
+  const failed = await slot.findByRole("alert");
+  expect(within(failed).getByRole("heading", { name: "Couldn’t build the guide" })).toBeTruthy();
+  expect(slot.queryByText(/Waiting for the guide writer/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("Review not found leads with Back to your reviews, and Try again comes second", async () => {
   const app = await loadPluginApp(() => import("../app"));
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {

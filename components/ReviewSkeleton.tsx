@@ -104,7 +104,7 @@ function BuildingGuide({ review, onBack, onStop, stopping }: { review: ReviewIte
 /**
  * A review page that failed: the page bar (with the review's menu, when there's a review), what failed, why a guide
  * failed when it's known, and the way on: Try again, or Back to your reviews when `primary` is "back", and the PR on GitHub.
- * A guide you stopped says "Guide stopped", with Build the guide.
+ * A guide you stopped says "Guide stopped", with Build the guide; one waiting for its writer's machine says so.
  */
 export const ReviewError = memo(function ReviewError({ review, title = "Couldn’t build the guide", message = "The guide writer stopped before it finished. Check your coding agent in BB’s Settings, then try again.", onRetry, onBack, busy = false, primary = "retry" }: {
   review?: ReviewItem;
@@ -119,20 +119,23 @@ export const ReviewError = memo(function ReviewError({ review, title = "Couldn�
   const pinnable = useThreadListReviews() === true;
   // You stopped its guide: nothing went wrong, and building it is the way on.
   const stopped = review?.status === "error" && review.guideError?.text === GUIDE_STOPPED;
+  // A reload interrupted it while its writer's machine was offline: it restarts on its own once that reconnects.
+  const waiting = review?.status === "error" && !stopped && !!review.restartPending;
   // The writer's own words or the guide's last rejection: plain text, cut to a few lines.
-  const reason = review?.status === "error" && !stopped ? review.guideError?.text : undefined;
+  const reason = review?.status === "error" && !stopped && !waiting ? review.guideError?.text : undefined;
   const reasonId = useId();
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <PageBar onBack={onBack} title={review && <InlineCode text={review.title ?? review.gitRef ?? review.targetKey} />}>
         {review && <ReviewActions review={review} pinnable={pinnable} trailing={[reviewSettingsItem(navigate, review.targetKey)]} onDeleted={onBack} className={TOUCH_CONTROL} />}
       </PageBar>
-      {/* A guide you stopped didn't fail: it says so plainly, not as an alert. */}
-      <div role={stopped ? "status" : "alert"} className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 overflow-y-auto p-6 text-center">
-        <IconTile tone={stopped ? "neutral" : "danger"} icon={stopped ? "Route" : "AlertTriangle"} className="size-10 rounded-xl" iconClassName="size-5" />
+      {/* A guide you stopped, or one waiting for its writer's machine, didn't fail: it says so plainly, not as an alert. */}
+      <div role={stopped || waiting ? "status" : "alert"} className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 overflow-y-auto p-6 text-center">
+        <IconTile tone={stopped ? "neutral" : waiting ? "warning" : "danger"} icon={stopped ? "Route" : waiting ? "Clock" : "AlertTriangle"} className="size-10 rounded-xl" iconClassName="size-5" />
         <div className="max-w-lg space-y-2">
-          <h2 className="text-base font-semibold text-foreground">{stopped ? "Guide stopped" : title}</h2>
-          <p className="break-words text-sm leading-relaxed text-muted-foreground">{stopped ? "You stopped the guide writer before it finished. Build the guide when you’re ready." : message}</p>
+          <h2 className="text-base font-semibold text-foreground">{stopped ? "Guide stopped" : waiting ? "Waiting for the guide writer’s machine" : title}</h2>
+          <p className="break-words text-sm leading-relaxed text-muted-foreground">{stopped ? "You stopped the guide writer before it finished. Build the guide when you’re ready."
+            : waiting ? "The guide writer’s machine is offline. The guide restarts on its own when it reconnects." : message}</p>
         </div>
         {reason && (
           <section aria-labelledby={reasonId} className="w-full max-w-lg rounded-md border border-border p-3 text-left">
