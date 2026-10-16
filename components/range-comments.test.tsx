@@ -18,7 +18,14 @@ vi.mock("@pierre/diffs/react", () => ({
   },
 }));
 
-afterEach(() => { cleanup(); sessionStorage.clear(); });
+// Passed through, to see what the draft reads of the patch.
+vi.mock("../src/review-positions", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/review-positions")>();
+  return { ...actual, diffPositions: vi.fn(actual.diffPositions) };
+});
+const { diffPositions } = await import("../src/review-positions");
+
+afterEach(() => { cleanup(); sessionStorage.clear(); vi.mocked(diffPositions).mockClear(); });
 
 /** The draft's provider with Comments and Finish review after what it wraps, as the side panel shows them. */
 async function draftTray() {
@@ -38,13 +45,13 @@ const patch = [
 ].join("\n");
 const draftOf = (comments: any[] = []) => ({ targetKey: "k", verdict: "COMMENT", body: "", comments });
 
-async function renderReview(rpc: Record<string, unknown>, prefill?: Record<string, unknown>) {
+async function renderReview(rpc: Record<string, unknown>, prefill?: Record<string, unknown>, text = patch) {
   await loadPluginApp(() => import("../app"));
   const DraftTray = await draftTray();
   const { DiffViewer } = await import("./DiffViewer");
   const component = () => (
-    <DraftTray targetKey="k" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" patch={patch} prefill={prefill as any}>
-      <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} />
+    <DraftTray targetKey="k" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" patch={text} prefill={prefill as any}>
+      <DiffViewer patch={text} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} />
     </DraftTray>
   );
   const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), ...rpc } as any });
@@ -86,6 +93,20 @@ test("Suggest change fills the box with the selected lines' current text, indent
   expect(box.value).toBe("Shorter:\n\n```suggestion\n  three();\n    four;\n```");
   // The cursor waits at the end of the lines to edit.
   await waitFor(() => expect([document.activeElement, box.selectionStart]).toEqual([box, box.value.length - 4]));
+  slot.lifecycle.unmount();
+});
+
+test("opening a review reads no file's lines; Suggest change reads only its box's file", async () => {
+  const other = ["diff --git a/src/b.ts b/src/b.ts", "--- a/src/b.ts", "+++ b/src/b.ts", "@@ -1 +1 @@", "-x", "+y", ""].join("\n");
+  const draft = () => ({ draft: draftOf(), stale: [], discussions: [] });
+  const first = await renderReview({ getDraft: draft }, undefined, patch + other);
+  expect(diffPositions).not.toHaveBeenCalled();
+  first.slot.lifecycle.unmount();
+  const { slot, diff } = await renderReview({ getDraft: draft }, { file: "src/a.ts", line: 4, side: "RIGHT", startLine: 3, startSide: "RIGHT", nonce: 1 }, patch + other);
+  const box = await diff().findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  fireEvent.click(diff().getByRole("button", { name: "Suggest change" }));
+  expect(box.value).toBe("```suggestion\n  three();\n    four;\n```");
+  expect(vi.mocked(diffPositions).mock.calls.map(([text]) => text)).toEqual([patch]);
   slot.lifecycle.unmount();
 });
 

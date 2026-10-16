@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
 import { commentsKey, isSummary, linesOf, rangeOf, sameLocation, SEVERITIES, severityCounts, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
-import { diffPositions, orderRange } from "../src/review-positions";
+import { diffPositions, orderRange, type FilePositions } from "../src/review-positions";
+import { splitPatchByFile } from "../src/patch";
 import { getHideNits, setHideNits, type PanelView } from "../lib/panel-state";
 import { approveDoubts, type ApproveGuard } from "../lib/approve-guard";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
@@ -451,20 +452,32 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   }
 
   const canAdd = !busy && !rebuilding && !!file.trim() && !!body.trim() && Number.isInteger(Number(line)) && Number(line) >= 1;
-  const positions = useMemo(() => diffPositions(patch), [patch]);
+  // A file's lines in the diff, read when a box opens on it: only the open box's file is needed.
+  const positionsOf = useMemo(() => {
+    let texts: Map<string, string> | undefined;
+    const read = new Map<string, FilePositions | undefined>();
+    return (path: string) => {
+      if (!read.has(path)) {
+        texts ??= new Map(splitPatchByFile(patch).map((f) => [f.path, f.text]));
+        const text = texts.get(path);
+        read.set(path, text === undefined ? undefined : diffPositions(text).get(path));
+      }
+      return read.get(path);
+    };
+  }, [patch]);
   // A box in the code on a line the diff no longer shows, as after a rebuild, or a reload with one between, has no row
   // to show under: it moves to the panel, whose fields say where it is and can move it.
   useEffect(() => {
     if (!showComposer || !inline || summaryBox || !patch) return;
-    const shown = positions.get(file);
+    const shown = positionsOf(file);
     if ((side === "LEFT" ? shown?.left : shown?.right)?.has(Number(line))) return;
     setInline(false);
     onOpenPanel?.("comments");
-  }, [showComposer, inline, summaryBox, patch, positions, file, line, side, onOpenPanel]);
+  }, [showComposer, inline, summaryBox, patch, positionsOf, file, line, side, onOpenPanel]);
   // The new-file lines a comment's box is on, as they read now, for Suggest change; null on old-file lines.
   const suggestable = useMemo(() => {
     if (!showComposer || summaryBox || asking || side !== "RIGHT" || startSide) return null;
-    const lines = positions.get(file)?.right;
+    const lines = positionsOf(file)?.right;
     const texts: string[] = [];
     for (let n = startLine ?? Number(line); n <= Number(line); n++) {
       const text = lines?.get(n);
@@ -472,7 +485,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       texts.push(text);
     }
     return texts.length ? texts : null;
-  }, [positions, showComposer, summaryBox, asking, file, line, side, startLine, startSide]);
+  }, [positionsOf, showComposer, summaryBox, asking, file, line, side, startLine, startSide]);
   const boxLines = linesOf({ line: Number(line), side, startLine, startSide });
   const hasReview = draft.comments.length > 0 || draft.body.trim().length > 0 || draft.verdict === "APPROVE";
   // GitHub refuses Request changes without a summary.
