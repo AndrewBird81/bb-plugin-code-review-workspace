@@ -5,6 +5,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import { sameLocation, type CommentLocation } from "../src/draft";
 import { codeFence, untrusted } from "../src/untrusted";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
+import { linkImages } from "../lib/link-images";
 import { useKnob } from "../lib/settings";
 import { useWorkspace } from "../lib/workspace-context";
 import { TOUCH_TARGET } from "./touch";
@@ -35,9 +36,12 @@ export function useCheckFailures(targetKey: string, headSha: string | null): Che
   return failures;
 }
 
-/** A failing check quoted in Markdown: "> **‹check›** · ‹title›", then its message, every line quoted. */
+/**
+ * A failing check quoted in Markdown: "> **‹check›** · ‹title›", then its message, every line quoted. The PR's code
+ * writes the message, and your own comments show their images, so its images are links.
+ */
 function failureQuote(failure: Pick<CheckFailure, "check" | "title" | "message">): string {
-  return [`**${failure.check}**${failure.title ? ` · ${failure.title}` : ""}`, ...failure.message.trim().split("\n")].map((line) => `> ${line}`.trimEnd()).join("\n");
+  return linkImages([`**${failure.check}**${failure.title ? ` · ${failure.title}` : ""}`, ...failure.message.trim().split("\n")].map((line) => `> ${line}`.trimEnd()).join("\n"));
 }
 
 /** A failing check as the agent reads it: "‹check› · ‹title›", then its message, as data, since the PR's code writes it. */

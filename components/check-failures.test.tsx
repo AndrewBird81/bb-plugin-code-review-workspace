@@ -95,7 +95,7 @@ test("turning CI failures in the code off in Settings takes a shown failure off 
 }, 15_000);
 
 /** The review on its chapter, with the failure on src/a.ts:2, the draft's saves recorded, and no conversation yet. */
-async function renderChapter(knobs: Knobs = defaultKnobs) {
+async function renderChapter(knobs: Knobs = defaultKnobs, message = "Lower-case it.\nSee the style guide.") {
   const saveDraftComment = vi.fn(({ comment }: { comment: object }) => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [comment] }, stale: [], discussions: [] }));
   const startConversation = vi.fn(() => ({ threadId: "t1" }));
   patchReviewState("pr-42", { activeId: "c1" });
@@ -112,7 +112,7 @@ async function renderChapter(knobs: Knobs = defaultKnobs) {
     getReviewerNotes: () => ({ body: "", revision: 0 }),
     getConversation: () => ({ threadId: null, legacy: [], defaults: { providerId: "codex", model: "gpt-6", reasoningLevel: "medium" } }),
     markSeen: () => ({ ok: true }),
-    getCheckFailures: () => ({ failures: [{ file: "src/a.ts", line: 2, check: "lint", title: "no-shout", message: "Lower-case it.\nSee the style guide.", url: "https://github.com/acme/web/runs/1" }] }),
+    getCheckFailures: () => ({ failures: [{ file: "src/a.ts", line: 2, check: "lint", title: "no-shout", message, url: "https://github.com/acme/web/runs/1" }] }),
     saveDraftComment, startConversation,
   } as any });
   const failure = await slot.findByRole("note", { name: "CI failure on src/a.ts:2" });
@@ -128,6 +128,14 @@ test("a failure's Comment opens the comment box at its line, Blocking, with the 
   fireEvent.change(box, { target: { value: `${box.value}Lower-case it before merging.` } });
   fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ file: "src/a.ts", line: 2, side: "RIGHT", severity: "blocking", body: "> **lint** · no-shout\n> Lower-case it.\n> See the style guide.\n\nLower-case it before merging." }) })));
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a failure's Comment quotes an image in its message as a link, so your comment loads nothing", async () => {
+  const { slot, failure } = await renderChapter(defaultKnobs, "Lower-case it. ![badge](https://evil.example/p.png)");
+  fireEvent.click(failure.getByRole("button", { name: "Comment on the lint failure at src/a.ts:2" }));
+  const box = await slot.findByRole("textbox", { name: /comment/i }) as HTMLTextAreaElement;
+  expect(box.value).toBe("> **lint** · no-shout\n> Lower-case it. [Image: badge](https://evil.example/p.png)\n\n");
   slot.lifecycle.unmount();
 }, 15_000);
 
