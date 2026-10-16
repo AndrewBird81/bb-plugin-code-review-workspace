@@ -61,6 +61,15 @@ test("contents that don't match the diff, binary files, and huge files stay as t
   expect(huge.mock.calls[1][1]).toMatchObject({ maxBuffer: 2 * 1024 * 1024 });
 });
 
+test("a file GitHub sent no diff for isn't fetched, as it may be binary", async () => {
+  const { readPrDiff } = await import("./pr-snapshot");
+  const stubbed = await readPrDiff(vi.fn(async (args: string[]) => args[1] === "diff" ? { code: 1, stdout: "", stderr: "HTTP 406: too_large" }
+    : ok(JSON.stringify({ filename: "assets/logo.png", status: "modified", changes: 0, sha: "1a2b3c4d5e" }) + "\n")), 1, "acme/web");
+  const gh = github({ "assets/logo.png?ref=base1": "\x89PNG\r\n", "assets/logo.png?ref=head1": "\x89PNG\r\n\x1a" });
+  expect(await readFileContents({ runGh: gh, runGit: noGit }, pr, fileOf(stubbed))).toEqual({ ok: false, error: "GitHub sent no diff for this file, so it shows as the diff only." });
+  expect(gh).not.toHaveBeenCalled();
+});
+
 test("a local review's file is read with git on either side of its range, or from the working tree", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "gr-file-contents-"));
   try {

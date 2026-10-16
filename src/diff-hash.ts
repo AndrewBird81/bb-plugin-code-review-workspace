@@ -23,7 +23,7 @@ export function withoutBaseBlob(text: string): string {
  * Rebase-proof hash of a single file's diff: only its change lines (sign +
  * content), so shifted @@ numbers, new `index` SHAs and changed context lines
  * don't count as a change. Diffs without change lines (binary, mode-only, pure
- * rename) hash their text minus the base-side blob SHA.
+ * rename, or GitHub's stub naming the new blob) hash their text minus the base-side blob SHA.
  */
 export function normalizedFileHash(text: string): string {
   const lines = text.split("\n");

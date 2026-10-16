@@ -32,7 +32,7 @@ export async function readPrDiff(run: typeof runGh, number: number, repo: string
   return readFilesPatch(run, ["api", "--paginate", `repos/${repo}/pulls/${number}/files?per_page=100`, "--jq", ".[] | @json"], cwd);
 }
 
-interface GithubFile { filename: string; previous_filename?: string; status: string; patch?: string; changes?: number }
+interface GithubFile { filename: string; previous_filename?: string; status: string; patch?: string; changes?: number; sha?: string }
 
 /** GitHub lists at most 3,000 of a PR's files. */
 const LISTED_FILES_LIMIT = 3_000;
@@ -55,6 +55,9 @@ function quoted(name: string): string {
   return `"${name.replace(/["\\]/g, "\\$&").replace(/[\x00-\x1f\x7f]/g, (c) => escapes[c] ?? `\\${c.charCodeAt(0).toString(8).padStart(3, "0")}`)}"`;
 }
 
+/** The line standing in for a file's hunks GitHub didn't send; its blob follows, so a changed file reads as changed. */
+export const NO_DIFF = "GitHub didn't send this file's diff";
+
 /** A git-style patch from GitHub's files, each with its hunks; a file GitHub sent no hunks for says so. */
 function patchFromFiles(files: GithubFile[]): string {
   return files.map((f) => {
@@ -64,7 +67,7 @@ function patchFromFiles(files: GithubFile[]): string {
     if (f.status === "renamed") lines.push(`rename from ${quoted(from)}`, `rename to ${quoted(f.filename)}`);
     if (f.patch) lines.push(`--- ${f.status === "added" ? "/dev/null" : a}`, `+++ ${f.status === "removed" ? "/dev/null" : b}`, f.patch.replace(/\n$/, ""));
     // A pure rename has no diff to send.
-    else if (f.status !== "renamed" || f.changes) lines.push("GitHub didn't send this file's diff: it's too large or binary.");
+    else if (f.status !== "renamed" || f.changes) lines.push(`${NO_DIFF}: it's too large or binary.${f.sha ? ` (blob ${f.sha.slice(0, 7)})` : ""}`);
     return lines.join("\n") + "\n";
   }).join("");
 }

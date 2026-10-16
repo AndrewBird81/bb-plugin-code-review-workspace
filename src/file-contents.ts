@@ -5,6 +5,7 @@ import type { ReviewMeta } from "./store";
 import { ghErrorMessage, type runGh, type runGit } from "./gh";
 import { patchRows, type PatchFile } from "./patch";
 import { declaredGenerated } from "./classify";
+import { NO_DIFF } from "./pr-snapshot";
 
 export type FileContentsResult = { ok: true; old: string | null; new: string | null } | { ok: false; error: string };
 /** `missing`: GitHub has no such file at that commit. */
@@ -87,6 +88,8 @@ export async function localRevs(git: typeof runGit, review: ReviewMeta): Promise
 export async function readFileContents(gh: { runGh: typeof runGh; runGit: typeof runGit }, review: ReviewMeta, file: PatchFile): Promise<FileContentsResult> {
   const rows = patchRows(file.text);
   if (rows.some((row) => row.kind === "header" && /^(Binary files |GIT binary patch)/.test(row.text))) return { ok: false, error: "A binary file shows as the diff only." };
+  // GitHub sent no diff for it, so it may be binary, and there's no diff to check its contents against.
+  if (file.text.split("\n").some((line) => line.startsWith(NO_DIFF))) return { ok: false, error: "GitHub sent no diff for this file, so it shows as the diff only." };
   // A repo-relative path only: no "." or ".." segments that could reach another endpoint or directory.
   const unsafe = (path: string) => path.startsWith("/") || path.split("/").some((segment) => !segment || segment === "." || segment === "..");
   const oldPath = file.oldPath ?? file.path;
