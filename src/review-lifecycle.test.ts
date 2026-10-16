@@ -363,6 +363,37 @@ test("with push checks on, the assistant checks settled pushes while you wait", 
   expect(s.actions.checkPushes).toHaveBeenCalledTimes(1);
 });
 
+test("with the re-review check off, settled pushes start no check", async () => {
+  const s = setup({ reviewed: true, preferences: { pushChecks: "progress", verificationPrompt: "" } });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"] });
+  s.at(0.1);
+  await s.sync.all(true);
+  s.at(0.5);
+  await s.sync.all();
+  expect(s.actions.checkPushes).not.toHaveBeenCalled();
+  expect(s.store.getReview("pr-1")?.autoRunHead).toBeUndefined();
+});
+
+test("a push check that can't start is tried again every 10 minutes, not every pass", async () => {
+  const s = setup({ reviewed: true, preferences: { pushChecks: "progress" } });
+  vi.mocked(s.actions.checkPushes).mockResolvedValue(false);
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"] });
+  s.at(0.1);
+  await s.sync.all(true);
+  // Ten one-minute passes after the push settled.
+  for (let minute = 0; minute < 10; minute++) {
+    s.at(0.5 + minute / 60);
+    await s.sync.all();
+  }
+  expect(s.actions.checkPushes).toHaveBeenCalledTimes(1);
+  expect(s.store.getReview("pr-1")?.autoRunHead).toBeNull();
+  s.at(0.5 + 10 / 60);
+  await s.sync.all();
+  expect(s.actions.checkPushes).toHaveBeenCalledTimes(2);
+});
+
 test("discovery adds PRs you're asked to review, skips deleted ones, and auto-starts matching repos", async () => {
   const s = setup({ preferences: { autoStartRepos: ["acme/*"] } });
   await s.sync.all(); // baseline, no discoveries yet
@@ -894,7 +925,7 @@ test("with the re-review check off, an outside author's settled pushes record no
   await s.sync.all(true);
   s.at(0.5);
   await s.sync.all(true);
-  expect(s.store.getReview("pr-1")).toMatchObject({ autoRunHead: "sha2" });
+  expect(s.store.getReview("pr-1")?.autoRunHead).toBeUndefined();
   expect(s.store.getReview("pr-1")?.skippedRun).toBeUndefined();
 });
 
@@ -914,7 +945,7 @@ test("with Run the re-review check off, an outside author's re-request and settl
   await pushed.sync.all(true);
   pushed.at(0.5);
   await pushed.sync.all(true);
-  expect(pushed.store.getReview("pr-1")).toMatchObject({ autoRunHead: "sha2" });
+  expect(pushed.store.getReview("pr-1")?.autoRunHead).toBeUndefined();
   expect(pushed.store.getReview("pr-1")?.skippedRun).toBeUndefined();
 });
 

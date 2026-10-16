@@ -74,6 +74,8 @@ export interface ReviewLifecycle {
   preparedSignal?: string | null;
   /** When preparing a re-review was last tried, to retry a failed start now and then. */
   prepareTriedAt?: number | null;
+  /** When checking the author's settled pushes was last tried, to retry a failed start now and then. */
+  pushCheckTriedAt?: number | null;
   /** The PR's author is the GitHub account reading it. */
   ownPr?: boolean | null;
   /** How the PR's author is related to its repository, as GitHub last said (OWNER, MEMBER, …). Unset until read. */

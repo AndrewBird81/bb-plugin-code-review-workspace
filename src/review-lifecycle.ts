@@ -329,14 +329,18 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       else if (now - waiting.since >= ALERT_WAIT || prepared(review, waiting.since)) await alert(key, current);
     }
     // While you wait, the assistant checks the author's pushes once they settle; ones from before bb watched are history.
+    // A check that's turned off has nothing to run; one that couldn't start is retried now and then.
     const s = review.signals ?? {};
-    if (actions && preferences.pushChecks !== "off" && turn.group === "waiting" && turn.updated && head && head !== review.watchedHead && review.status === "ready"
-      && review.autoRunHead !== head && review.assessment?.headSha !== head && ciSettled(s, now) && now - (s.headSeenAt ?? now) >= PUSH_QUIET) {
-      store.setLifecycle(key, { autoRunHead: head });
-      // An untrusted author's pushes wait for your click, when the check is on.
+    if (actions && preferences.pushChecks !== "off" && reReviewCheckPrompt(preferences) && turn.group === "waiting" && turn.updated && head && head !== review.watchedHead && review.status === "ready"
+      && review.autoRunHead !== head && review.assessment?.headSha !== head && ciSettled(s, now) && now - (s.headSeenAt ?? now) >= PUSH_QUIET
+      && now - (review.pushCheckTriedAt ?? 0) >= RETRY_PREPARE) {
+      // An untrusted author's pushes wait for your click.
       if (!mayRunUnattended(review, preferences, head)) {
-        if (reReviewCheckPrompt(preferences)) store.setLifecycle(key, { skippedRun: { run: "check", head, at: now, ...skipWhy(review, preferences) } });
-      } else if (!await actions.checkPushes(key).catch(() => false) && store.getReview(key)) store.setLifecycle(key, { autoRunHead: review.autoRunHead ?? null });
+        store.setLifecycle(key, { autoRunHead: head, skippedRun: { run: "check", head, at: now, ...skipWhy(review, preferences) } });
+      } else {
+        store.setLifecycle(key, { autoRunHead: head, pushCheckTriedAt: now });
+        if (!await actions.checkPushes(key).catch(() => false) && store.getReview(key)) store.setLifecycle(key, { autoRunHead: review.autoRunHead ?? null });
+      }
     }
     if (review.turnGroup === "needs" && turn.group !== "needs") void notifications.dismiss(key);
     if (review.turnGroup !== turn.group && store.getReview(key)) store.setLifecycle(key, { turnGroup: turn.group });
