@@ -34,8 +34,10 @@ export function describeReviewFiles(patch: string, generated: string[] = [], mar
 
 /**
  * The diff as read_review_patch pages it: each lockfile's and generated or vendored file's hunks as one line, since they
- * rarely need reading and can fill pages. A file at a path the change chose is paged in full, whatever its path. `generated`: the files the repo's .gitattributes marks generated; with
- * `marks.lockfileDigest`, a lockfile's stub says what it adds and removes.
+ * rarely need reading and can fill pages. A file at a path the change chose is paged in full, whatever its path.
+ * `generated`: the files the repo's .gitattributes marks generated. A lockfile's stub names the hosts its added lines
+ * download from that aren't a known registry, whatever Settings says; with `marks.lockfileDigest`, also the packages
+ * it adds and removes.
  */
 export function stubSkippedFiles(patch: string, generated: string[] = [], marks: FileMarks = {}): string {
   const files = splitPatchByFile(patch);
@@ -50,8 +52,10 @@ export function stubSkippedFiles(patch: string, generated: string[] = [], marks:
     if (!kind || hunks < 0) return text;
     const rows = patchRows(text);
     const count = (sign: "+" | "-") => rows.filter((row) => row.kind === sign).length;
-    const digest = marks.lockfileDigest && kind === "lockfile" ? lockfileDigest(path, text) : null;
-    return `${text.slice(0, hunks)}[${kind}: +${count("+")} −${count("-")} lines${digest ? `; ${digestText(digest)}` : ""}; pass file to read it]\n`;
+    const digest = kind === "lockfile" ? lockfileDigest(path, text) : null;
+    // A host swap hides in a lockfile's stub, so its hosts are named even with the digest off.
+    const said = digest && digestText(marks.lockfileDigest ? digest : { added: 0, removed: 0, hosts: digest.hosts });
+    return `${text.slice(0, hunks)}[${kind}: +${count("+")} −${count("-")} lines${said ? `; ${said}` : ""}; pass file to read it]\n`;
   }).join("");
 }
 

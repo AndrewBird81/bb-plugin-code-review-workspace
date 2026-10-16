@@ -68,7 +68,10 @@ test("list_review_files and a page's lockfile stub summarize a lockfile while Se
   expect(describeReviewFiles(lockfile, [], { lockfileDigest: true })).toMatch(/^package-lock\.json · modified · \+2 −1 · \d+ chars · lockfile · \+1 −1 packages, downloads from evil\.example\.com$/m);
   expect(stubSkippedFiles(lockfile, [], { lockfileDigest: true })).toContain("[lockfile: +2 −1 lines; +1 −1 packages, downloads from evil.example.com; pass file to read it]");
   expect(describeReviewFiles(lockfile)).toMatch(/^package-lock\.json · modified · \+2 −1 · \d+ chars · lockfile$/m);
-  expect(stubSkippedFiles(lockfile)).toContain("[lockfile: +2 −1 lines; pass file to read it]");
+  // Off, the stub still names a host an added package downloads from (71-security F1).
+  expect(stubSkippedFiles(lockfile)).toContain("[lockfile: +2 −1 lines; downloads from evil.example.com; pass file to read it]");
+  const bump = file("package-lock.json", '@@ -1,2 +1,2 @@\n-    "node_modules/is-odd": {\n+    "node_modules/tiny": {\n');
+  expect(stubSkippedFiles(bump)).toContain("[lockfile: +1 −1 lines; pass file to read it]");
 });
 
 test("a file the PR adds under a path that reads as generated is paged in full and listed as code; one it changes there stays a stub", () => {
