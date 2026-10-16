@@ -595,7 +595,10 @@ export default async function plugin(bb: BbPluginApi) {
       // Your words now, and an ask on the comment is over.
       setAsk(store, targetKey, comment, null);
       noteReviewerSave(store, targetKey, comment);
-      return draftState(targetKey, store.upsertDraftComment(targetKey, comment));
+      const saved = draftState(targetKey, store.upsertDraftComment(targetKey, comment));
+      // Another window of the review, perhaps with this comment's box open, reads it again.
+      bb.realtime.publish(`draft:${targetKey}`, {});
+      return saved;
     },
     removeDraftComment({ targetKey, file, line, side }) {
       noteReviewerRemoval(store, targetKey, { file, line, side });

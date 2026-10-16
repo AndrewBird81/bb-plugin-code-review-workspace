@@ -172,3 +172,19 @@ test("saveDraftComment keeps an agent's comment the agent's when Undo puts it ba
   await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-6", revision, comment: { file: "a.ts", line: 1, side: "RIGHT", author: "agent", body: "nit" } });
   expect(store.getDraft("pr-6").comments).toEqual([{ file: "a.ts", line: 1, side: "RIGHT", author: "agent", body: "nit" }]);
 });
+
+test("saving a draft comment tells the review's other windows, so one with its box open reads it again", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-3", kind: "pr", number: 3, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
+  store.savePatch("pr-3", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-3" }) as any;
+  const from = harness.inspection.realtimeSignals.length;
+  await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-3", revision, comment: { file: "a.ts", line: 1, side: "RIGHT", body: "nit" } });
+  expect(harness.inspection.realtimeSignals.slice(from).map((signal) => signal.channel)).toContain("draft:pr-3");
+  // A refused save changes nothing, and says nothing.
+  const refused = harness.inspection.realtimeSignals.length;
+  await expect(harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-3", revision, replaces: "other", comment: { file: "a.ts", line: 1, side: "RIGHT", body: "mine" } })).rejects.toThrow(/changed as you wrote/);
+  expect(harness.inspection.realtimeSignals.slice(refused).map((signal) => signal.channel)).not.toContain("draft:pr-3");
+});
