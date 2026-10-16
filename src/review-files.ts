@@ -1,5 +1,5 @@
 // What the agents read of a review's diff: a list of its files, and pages of it.
-import { patchRows, splitPatchByFile, type PatchFile } from "./patch";
+import { patchRows, splitPatchByFile, unquote, type PatchFile } from "./patch";
 import { classifyFile, isChosenPath } from "./classify";
 import { FILES_CAPPED_NOTE } from "./pr-snapshot";
 import { testWeakening, weakeningMark } from "../lib/test-weakening";
@@ -17,7 +17,10 @@ export function describeReviewFiles(patch: string, generated: string[] = [], mar
   const rows = files.map((file) => {
     const { path, oldPath, text } = file;
     const chosen = isChosenPath(file);
-    const status = oldPath ? `renamed from ${oldPath}`
+    // Read from the header only: a changed line can't fake it.
+    const hunks = text.search(/^@@ /m);
+    const copied = (hunks < 0 ? text : text.slice(0, hunks)).match(/^copy from (.+?)\r?$/m);
+    const status = oldPath ? `renamed from ${oldPath}` : copied ? `copied from ${unquote(copied[1])}`
       : /^new file mode /m.test(text) ? "added" : /^deleted file mode /m.test(text) ? "deleted" : "modified";
     const lines = patchRows(text);
     const added = lines.filter((row) => row.kind === "+").length;

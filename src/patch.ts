@@ -102,7 +102,7 @@ export function splitPatchByFile(patch: string): readonly PatchFile[] {
 const ESCAPES: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };
 
 /** Git C-quotes names with `"`, `\`, control or (by default) non-ASCII characters, writing their bytes in octal. */
-function unquote(name: string): string {
+export function unquote(name: string): string {
   if (!name.startsWith('"')) return name;
   const bytes: number[] = [];
   for (let i = 1; i < name.length && name[i] !== '"'; i++) {

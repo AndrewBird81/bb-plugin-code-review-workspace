@@ -109,7 +109,7 @@ test("a file a PR too big for GitHub's diff adds or copies under a generated-loo
   const list = describeReviewFiles(patch);
   expect(list).toMatch(/^src\/vendor\/hook\.js · added · \+1 −0 · \d+ chars · code$/m);
   expect(list).toMatch(/^dist\/payload\.js · added · \+0 −0 · \d+ chars · code · diff unavailable: read it on GitHub$/m);
-  expect(list).toMatch(/^vendor\/copy\.js · modified · \+1 −1 · \d+ chars · code$/m);
+  expect(list).toMatch(/^vendor\/copy\.js · copied from src\/real\.js · \+1 −1 · \d+ chars · code$/m);
   expect(list).toMatch(/^vendor\/gone\.js · deleted · \+0 −1 · \d+ chars · generated$/m);
   const pages = stubSkippedFiles(patch);
   expect(pages).toContain("+exec(x);");

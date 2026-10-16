@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { describeReviewFiles, patchPage, stubSkippedFiles } from "./review-files";
+import { readFilesPatch } from "./pr-snapshot";
 
 const file = (path: string, body: string) => `diff --git a/${path} b/${path}\nindex 1..2 100644\n--- a/${path}\n+++ b/${path}\n${body}`;
 const patch = [
@@ -23,6 +24,18 @@ test("list_review_files lists each file with its status, line counts, size, and 
   expect(text).toMatch(/^m\.sql · modified · \+1 −1/m);
   // Files the repo's .gitattributes marks generated say so.
   expect(describeReviewFiles(patch, ["src/a.ts"])).toMatch(/^src\/a\.ts · modified · \+2 −1 · \d+ chars · generated$/m);
+});
+
+test("list_review_files lists a copied file as copied from its source, through git's patch and GitHub's file list", async () => {
+  const git = "diff --git a/src/a.ts b/src/b.ts\nsimilarity index 90%\ncopy from src/a.ts\ncopy to src/b.ts\nindex 1..2 100644\n--- a/src/a.ts\n+++ b/src/b.ts\n@@ -1 +1 @@\n-a\n+b\n";
+  expect(describeReviewFiles(git)).toMatch(/^src\/b\.ts · copied from src\/a\.ts · \+1 −1 · \d+ chars · code$/m);
+  const quoted = "diff --git \"a/src/caf\\303\\251.ts\" b/src/b.ts\ncopy from \"src/caf\\303\\251.ts\"\ncopy to src/b.ts\n";
+  expect(describeReviewFiles(quoted)).toMatch(/^src\/b\.ts · copied from src\/café\.ts · \+0 −0/m);
+  const listed = [{ filename: "src/b.ts", previous_filename: "src/a.ts", status: "copied", patch: "@@ -1 +1 @@\n-a\n+b" }];
+  const rebuilt = await readFilesPatch(async () => ({ code: 0, stderr: "", stdout: listed.map((f) => JSON.stringify(f)).join("\n") + "\n" }), []);
+  expect(describeReviewFiles(rebuilt)).toMatch(/^src\/b\.ts · copied from src\/a\.ts · \+1 −1 · \d+ chars · code$/m);
+  // A changed line that reads as the header doesn't make a file copied.
+  expect(describeReviewFiles(file("src/c.ts", "@@ -1 +1 @@\n-copy from x\n+y\n"))).toMatch(/^src\/c\.ts · modified · /m);
 });
 
 test("list_review_files marks a file GitHub sent no diff for, and not one whose changed line says so", () => {
