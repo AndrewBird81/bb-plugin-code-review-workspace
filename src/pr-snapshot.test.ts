@@ -1,5 +1,6 @@
 import { expect, test, vi } from "vitest";
-import { readPrSnapshot } from "./pr-snapshot";
+import { readPrDiff, readPrSnapshot } from "./pr-snapshot";
+import { describeReviewFiles, patchPage } from "./review-files";
 import { splitPatchByFile } from "./patch";
 import { diffPositions } from "./review-positions";
 
@@ -71,4 +72,18 @@ test("a pure rename rebuilt from the PR's files has no note about a missing diff
   const [file] = splitPatchByFile((await readPrSnapshot(run, 7, "acme/web")).patch);
   expect(file).toMatchObject({ path: "src/b.ts", oldPath: "src/a.ts" });
   expect(file.text).not.toContain("GitHub didn't send");
+});
+
+test("a diff rebuilt from GitHub's 3,000-file list says later files may be missing, first in list_review_files and the first page", async () => {
+  const listed = (count: number) => Array.from({ length: count }, (_, i) => JSON.stringify({ filename: `f${i}.ts`, status: "modified", changes: 2, patch: "@@ -1 +1 @@\n-a\n+b" })).join("\n") + "\n";
+  const read = (count: number) => readPrDiff(vi.fn(async (args: string[]) => args[0] === "api" ? { code: 0, stderr: "", stdout: listed(count) } : tooLarge), 7, "acme/web");
+  const note = "GitHub listed only the first 3,000 changed files; later files aren't in this review.";
+  const patch = await read(3000);
+  expect(patch.startsWith(`${note}\ndiff --git a/f0.ts b/f0.ts\n`)).toBe(true);
+  // The diff itself doesn't show it.
+  expect(splitPatchByFile(patch)).toHaveLength(3000);
+  expect(splitPatchByFile(patch)[0].text.startsWith("diff --git a/f0.ts")).toBe(true);
+  expect(describeReviewFiles(patch).split("\n").slice(0, 2)).toEqual([note, "3000 files (path · status · lines added and removed · diff size · kind):"]);
+  expect(patchPage(patch, 0, 1000).text.startsWith(note)).toBe(true);
+  expect(await read(2999)).not.toContain(note);
 });

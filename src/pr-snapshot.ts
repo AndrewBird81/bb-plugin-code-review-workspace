@@ -34,11 +34,18 @@ export async function readPrDiff(run: typeof runGh, number: number, repo: string
 
 interface GithubFile { filename: string; previous_filename?: string; status: string; patch?: string; changes?: number }
 
+/** GitHub lists at most 3,000 of a PR's files. */
+const LISTED_FILES_LIMIT = 3_000;
+/** Heads a patch rebuilt from a list GitHub may have cut short. */
+export const FILES_CAPPED_NOTE = "GitHub listed only the first 3,000 changed files; later files aren't in this review.";
+
 /** Read GitHub's file list (one JSON file per line) as a patch. */
 export async function readFilesPatch(run: typeof runGh, args: string[], cwd?: string): Promise<string> {
   const out = await run(args, { cwd });
   if (out.code !== 0) throw new Error(ghErrorMessage(out));
-  return patchFromFiles(out.stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line) as GithubFile));
+  const files = out.stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line) as GithubFile);
+  // Before the first file's header, which splitPatchByFile drops, so the agents read it and the diff doesn't show it.
+  return (files.length >= LISTED_FILES_LIMIT ? `${FILES_CAPPED_NOTE}\n` : "") + patchFromFiles(files);
 }
 
 /** Git C-quotes a name with `"`, `\` or control characters. */

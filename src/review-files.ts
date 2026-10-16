@@ -1,6 +1,7 @@
 // What the agents read of a review's diff: a list of its files, and pages of it.
 import { patchRows, splitPatchByFile } from "./patch";
 import { classifyFile } from "./classify";
+import { FILES_CAPPED_NOTE } from "./pr-snapshot";
 
 /** list_review_files: one line per changed file, so an agent can plan what to read. `generated`: the files the repo's .gitattributes marks generated. */
 export function describeReviewFiles(patch: string, generated: string[] = []): string {
@@ -13,7 +14,8 @@ export function describeReviewFiles(patch: string, generated: string[] = []): st
     const removed = kinds.filter((kind) => kind === "-").length;
     return `${path} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path, generated.includes(path)).category}`;
   });
-  return [`${files.length} file${files.length === 1 ? "" : "s"} (path · status · lines added and removed · diff size · kind):`, ...rows].join("\n");
+  const capped = patch.startsWith(FILES_CAPPED_NOTE) ? [FILES_CAPPED_NOTE] : [];
+  return [...capped, `${files.length} file${files.length === 1 ? "" : "s"} (path · status · lines added and removed · diff size · kind):`, ...rows].join("\n");
 }
 
 /** A page of the diff from offset, cut back to the last file boundary that fits, so no file is split across pages unless it alone is longer than a page. */
