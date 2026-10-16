@@ -71,3 +71,15 @@ test("what the agent says it didn't check is kept with its summary, stays withou
   expect(posted).not.toContain("Didn't run the tests");
   expect(store.getDraft("pr-1")).not.toHaveProperty("unchecked");
 });
+
+test("after the upgrade that adds unchecked and introduced, idle review assistants restart once to pick up the tools", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { get: async () => ({ status: "idle", archivedAt: null, deletedAt: null }), stop: async () => ({}) } } as any });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
+  store.setAssistantThread("pr-1", "assistant");
+  // The version 0.7.0's tools were recorded at.
+  await bb.storage.kv.set("assistant-tools", 7);
+  await plugin(bb);
+  await vi.waitFor(async () => expect(await bb.storage.kv.get("assistant-tools")).toBeGreaterThan(7));
+  expect(harness.inspection.sdk.callsTo("threads.stop").map(([args]) => (args as any).threadId)).toEqual(["assistant"]);
+});
