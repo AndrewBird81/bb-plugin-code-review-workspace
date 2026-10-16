@@ -56,6 +56,22 @@ test("a menu's sheet keeps its content clear of each side's safe area, the Duo's
   expect(sheet).toEqual(expect.arrayContaining(["pl-[env(safe-area-inset-left)]", "pr-[env(safe-area-inset-right)]", "inset-x-0"]));
 });
 
+test("on a desktop a menu is named by its title, as its sheet is on a phone, unless it names itself", async () => {
+  const menu = (props: { "aria-label"?: string }) => render(
+    <CompactViewportOverrideProvider isCompactViewport={false}>
+      <Popover open onOpenChange={() => {}}>
+        <PopoverTrigger>More</PopoverTrigger>
+        <PopoverContent mobileTitle="Review actions" className="w-64 p-1" {...props}><button>Archive</button></PopoverContent>
+      </Popover>
+    </CompactViewportOverrideProvider>,
+  );
+  menu({});
+  expect(await screen.findByRole("dialog", { name: "Review actions" })).toBeTruthy();
+  cleanup();
+  menu({ "aria-label": "Diff options" });
+  expect(await screen.findByRole("dialog", { name: "Diff options" })).toBeTruthy();
+});
+
 const restores: (() => void)[] = [];
 const cleanupWindow = () => restores.splice(0).forEach((restore) => restore());
 afterEach(cleanupWindow);
