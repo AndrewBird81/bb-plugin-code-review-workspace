@@ -745,6 +745,9 @@ export const DiffViewer = memo(function DiffViewer({
             key={path}
             ref={(el) => registerFileEl?.(path, el)}
             data-file={path}
+            // A screen reader's region list goes from file to file.
+            role="region"
+            aria-label={path}
             className={cn(
               // clip, not hidden: the header sticks to the scrolling review, not to this card.
               "overflow-clip rounded-lg border border-border bg-card shadow-xs transition-opacity duration-150",

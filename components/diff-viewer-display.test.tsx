@@ -146,3 +146,9 @@ test("a local review's failed file offers Try again, with no GitHub to open", ()
   expect(header("src/bad.ts").queryByRole("link", { name: "Open on GitHub" })).toBeNull();
   report.mockRestore();
 });
+
+test("each file's card is a region named by its path, for a screen reader's list of them", () => {
+  show(file("src/a.ts", ["a"]) + file("src/b.ts", ["b"]), ["src/a.ts", "src/b.ts"]);
+  expect(screen.getByRole("region", { name: "src/a.ts" })).toBe(document.querySelector('[data-file="src/a.ts"]'));
+  expect(screen.getByRole("region", { name: "src/b.ts" })).toBe(document.querySelector('[data-file="src/b.ts"]'));
+});
