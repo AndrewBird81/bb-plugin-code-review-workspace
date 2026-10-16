@@ -187,3 +187,11 @@ test("Undo under a line waits while the panel's box edits that comment", () => {
   renderWithDraft({ comments: [comment], discussions: [discussion], editingAt: at });
   expect(within(screen.getByRole("region", { name: "Discussion with agent on src/a.ts:2" })).queryByRole("button", { name: "Undo" })).toBeNull();
 });
+
+test("a viewed file, folded, dims its path alone, not its row's other text", () => {
+  render(<DiffViewer patch={patch} files={["src/a.ts"]} views={new Map<string, FileViewFlags>([["src/a.ts", { viewed: true, stale: true }]])} onToggleViewed={() => {}} />);
+  const card = document.querySelector<HTMLElement>('[data-file="src/a.ts"]')!;
+  expect(card.className).not.toMatch(/opacity/);
+  expect(screen.getByTitle("src/a.ts").className.split(" ")).toEqual(expect.arrayContaining(["opacity-60", "group-hover/file:opacity-100", "group-focus-within/file:opacity-100"]));
+  expect(within(card).getByText("Viewed").className).not.toMatch(/opacity/);
+});

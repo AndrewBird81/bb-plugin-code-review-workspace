@@ -750,8 +750,7 @@ export const DiffViewer = memo(function DiffViewer({
             aria-label={path}
             className={cn(
               // clip, not hidden: the header sticks to the scrolling review, not to this card.
-              "overflow-clip rounded-lg border border-border bg-card shadow-xs transition-opacity duration-150",
-              viewed && folded && "opacity-75 focus-within:opacity-100 hover:opacity-100",
+              "group/file overflow-clip rounded-lg border border-border bg-card shadow-xs",
             )}
           >
             {/* The file's row, which sticks while its code scrolls: what it is, how it changed, its comments, Viewed.
@@ -765,7 +764,8 @@ export const DiffViewer = memo(function DiffViewer({
               >
                 <Icon name="ChevronDown" className={cn("size-3.5 transition-transform duration-150", folded && "-rotate-90")} aria-hidden />
               </button>
-              <FilePath path={path} className="min-w-0 flex-1 text-xs" nameClassName="min-w-0 shrink-[0.01] truncate font-medium" />
+              {/* A viewed file, folded, dims its path alone: dimmed, the row's smaller text fell to about 3:1. */}
+              <FilePath path={path} className={cn("min-w-0 flex-1 text-xs transition-opacity duration-150", viewed && folded && "opacity-60 group-focus-within/file:opacity-100 group-hover/file:opacity-100")} nameClassName="min-w-0 shrink-[0.01] truncate font-medium" />
               {changedHere && (
                 <Badge tone="primary" size="sm" icon={<Icon name="GitCommit" aria-hidden />} title={since} className="text-[11px]">
                   {/* In words: "Added" alone reads as a file new to the repo. A phone-sized pane keeps the path's room. */}
