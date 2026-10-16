@@ -124,25 +124,30 @@ export async function readFileContents(gh: { runGh: typeof runGh; runGit: typeof
   return { ok: true, ...contents };
 }
 
-/** Generated or not, by the repo's .gitattributes at a PR's head: kept per commit. */
+/** Generated or not, by the repo's .gitattributes at a PR's merge base: kept per commit. */
 const generatedCache = new Map<string, string>();
 /** What each PR's diff at a head has generated: every path is tried on every rule of a file the PR controls, so once. */
 const declaredCache = new Map<string, string[]>();
 
-/** The changed files the repo's root .gitattributes, at the diff's new side, marks generated or vendored. */
+/**
+ * The changed files the repo's root .gitattributes marks generated or vendored, read at the diff's old side
+ * (a PR's merge base), so a change can't mark its own code generated.
+ */
 export async function readGeneratedFiles(gh: { runGh: typeof runGh; runGit: typeof runGit }, review: ReviewMeta, paths: string[]): Promise<string[]> {
   let attributes: Read;
   if (review.kind === "pr") {
-    if (!review.repo || !review.headSha) return [];
-    const key = `${review.repo}\0${review.headSha}`;
+    if (!review.repo || !review.base || !review.headSha) return [];
+    const base = await mergeBase(gh.runGh, review, review.headSha);
+    if ("error" in base) return [];
+    const key = `${review.repo}\0${base.text}`;
     if (!generatedCache.has(key)) {
       // A repo without the file has nothing to declare; another failure is worth trying again.
-      const read = await githubFile(gh.runGh, review.repo, review.headSha, ".gitattributes");
+      const read = await githubFile(gh.runGh, review.repo, base.text, ".gitattributes");
       if ("error" in read && !read.missing) return [];
       generatedCache.set(key, "text" in read ? read.text : "");
       if (generatedCache.size > CACHE_SIZE) generatedCache.delete(generatedCache.keys().next().value!);
     }
-    const declared = `${review.targetKey}\0${review.headSha}`;
+    const declared = `${review.targetKey}\0${base.text}\0${review.headSha}`;
     if (!declaredCache.has(declared)) {
       declaredCache.set(declared, declaredGenerated(generatedCache.get(key)!, paths));
       if (declaredCache.size > CACHE_SIZE) declaredCache.delete(declaredCache.keys().next().value!);
@@ -152,7 +157,7 @@ export async function readGeneratedFiles(gh: { runGh: typeof runGh; runGit: type
     if (!review.cwd || !review.gitRef) return [];
     const revs = await localRevs(gh.runGit, review);
     if ("error" in revs) return [];
-    attributes = revs.to === null ? await workingTreeFile(review.cwd, ".gitattributes") : await gitFile(gh.runGit, review.cwd, revs.to, ".gitattributes");
+    attributes = await gitFile(gh.runGit, review.cwd, revs.from, ".gitattributes");
   }
   return "text" in attributes ? declaredGenerated(attributes.text, paths) : [];
 }

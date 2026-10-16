@@ -22,10 +22,10 @@ const fileOf = (text: string) => splitPatchByFile(text)[0]!;
 const noGit = vi.fn(async () => ok(""));
 
 /** GitHub, as gh api answers: the merge base, then each file at a commit. */
-function github(files: Record<string, string>) {
+function github(files: Record<string, string>, base = "base1") {
   return vi.fn(async (args: string[]) => {
     const url = args.at(-1)!;
-    if (args.some((arg) => arg.includes("/compare/"))) return ok("base1\n");
+    if (args.some((arg) => arg.includes("/compare/"))) return ok(`${base}\n`);
     const text = files[url.replace(/^repos\/acme\/web\/contents\//, "")];
     return text === undefined ? { stdout: "", stderr: "HTTP 404: Not Found", code: 1 } : ok(text);
   });
@@ -105,19 +105,27 @@ test("getFileContents reads a file of the review's diff", async () => {
   expect(await harness.behavior.callRpc("getFileContents", { targetKey: "pr-1", file: "src/b.ts" })).toEqual({ ok: false, error: "src/b.ts isn’t in this review’s diff." });
 });
 
-test("a PR's .gitattributes at its head says which changed files are generated, once per commit", async () => {
-  const gh = github({ ".gitattributes?ref=head7": "gen/** linguist-generated\n" });
+test("a PR's .gitattributes at its merge base says which changed files are generated, once per commit", async () => {
+  const gh = github({ ".gitattributes?ref=base7": "gen/** linguist-generated\n" }, "base7");
   expect(await readGeneratedFiles({ runGh: gh, runGit: noGit }, { ...pr, headSha: "head7" }, ["gen/a.ts", "src/b.ts"])).toEqual(["gen/a.ts"]);
   expect(await readGeneratedFiles({ runGh: gh, runGit: noGit }, { ...pr, headSha: "head7" }, ["gen/a.ts", "src/b.ts"])).toEqual(["gen/a.ts"]);
-  expect(gh).toHaveBeenCalledTimes(1);
+  expect(gh).toHaveBeenCalledTimes(2);
+  expect(gh.mock.calls[1][0].at(-1)).toBe("repos/acme/web/contents/.gitattributes?ref=base7");
   // No .gitattributes: nothing is declared generated, and that's kept too.
-  const none = github({});
+  const none = github({}, "base8");
   expect(await readGeneratedFiles({ runGh: none, runGit: noGit }, { ...pr, headSha: "head8" }, ["gen/a.ts"])).toEqual([]);
   expect(await readGeneratedFiles({ runGh: none, runGit: noGit }, { ...pr, headSha: "head8" }, ["gen/a.ts"])).toEqual([]);
-  expect(none).toHaveBeenCalledTimes(1);
+  expect(none).toHaveBeenCalledTimes(2);
 });
 
-test("a local review reads .gitattributes from the end of its range, or the working tree", async () => {
+test("a .gitattributes the PR itself adds doesn't mark the PR's code generated", async () => {
+  // The base has no .gitattributes; only the PR's head does.
+  const gh = github({ ".gitattributes?ref=attacker-head": "src/auth/** linguist-generated\n" }, "base-clean");
+  const attacker: ReviewMeta = { ...pr, targetKey: "pr-9", number: 9, headSha: "attacker-head" };
+  expect(await readGeneratedFiles({ runGh: gh, runGit: noGit }, attacker, ["src/auth/login.ts", ".gitattributes"])).toEqual([]);
+});
+
+test("a local review reads .gitattributes at the start of its range", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "gr-gitattributes-"));
   try {
     const git = (...args: string[]) => runGit(args, { cwd });
@@ -127,10 +135,15 @@ test("a local review reads .gitattributes from the end of its range, or the work
     await writeFile(join(cwd, ".gitattributes"), "*.gen.ts linguist-generated\n");
     await git("add", ".");
     await git("commit", "-qm", "base");
-    const local: ReviewMeta = { targetKey: "ref-1", kind: "ref", gitRef: "main..main", cwd, status: "ready", createdAt: 1 };
-    expect(await readGeneratedFiles({ runGh: vi.fn(), runGit }, local, ["a.gen.ts", "b.ts"])).toEqual(["a.gen.ts"]);
+    await git("checkout", "-qb", "topic");
     await writeFile(join(cwd, ".gitattributes"), "b.ts linguist-vendored\n");
-    expect(await readGeneratedFiles({ runGh: vi.fn(), runGit }, { ...local, gitRef: "HEAD" }, ["a.gen.ts", "b.ts"])).toEqual(["b.ts"]);
+    await git("commit", "-qam", "mark b.ts vendored");
+    const local: ReviewMeta = { targetKey: "ref-1", kind: "ref", gitRef: "main..topic", cwd, status: "ready", createdAt: 1 };
+    expect(await readGeneratedFiles({ runGh: vi.fn(), runGit }, local, ["a.gen.ts", "b.ts"])).toEqual(["a.gen.ts"]);
+    expect(await readGeneratedFiles({ runGh: vi.fn(), runGit }, { ...local, gitRef: "main...topic" }, ["a.gen.ts", "b.ts"])).toEqual(["a.gen.ts"]);
+    // Against the working tree, its edits to .gitattributes don't count either.
+    await writeFile(join(cwd, ".gitattributes"), "a.gen.ts -linguist-generated\n");
+    expect(await readGeneratedFiles({ runGh: vi.fn(), runGit }, { ...local, gitRef: "main" }, ["a.gen.ts", "b.ts"])).toEqual(["a.gen.ts"]);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
@@ -142,7 +155,7 @@ test("getGeneratedFiles lists the review's changed files its repo declares gener
   const store = createStore(bb);
   store.saveReview({ ...pr, headSha: "head9" });
   store.savePatch("pr-1", patch);
-  runGh.mockImplementation(github({ ".gitattributes?ref=head9": "src/a.ts linguist-generated\n" }));
+  runGh.mockImplementation(github({ ".gitattributes?ref=base9": "src/a.ts linguist-generated\n" }, "base9"));
   expect(await harness.behavior.callRpc("getGeneratedFiles", { targetKey: "pr-1" })).toEqual({ files: ["src/a.ts"] });
 });
 
@@ -153,7 +166,7 @@ test("list_review_files calls the files the repo declares generated what they ar
   store.saveReview({ ...pr, headSha: "head10" });
   store.savePatch("pr-1", patch);
   store.setAssistantThread("pr-1", "thread-test");
-  runGh.mockImplementation(github({ ".gitattributes?ref=head10": "src/a.ts linguist-generated\n" }));
+  runGh.mockImplementation(github({ ".gitattributes?ref=base10": "src/a.ts linguist-generated\n" }, "base10"));
   const out = await harness.behavior.callAgentTool("list_review_files", { targetKey: "pr-1" });
   expect(toolText(out)).toMatch(/^src\/a\.ts · modified · \+1 −1 · \d+ chars · generated$/m);
 });
