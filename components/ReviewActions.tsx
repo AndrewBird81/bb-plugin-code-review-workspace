@@ -5,6 +5,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import { reviewState, type ReviewItem } from "../lib/review-state";
 import { canSnooze, canSnoozeUntil, snoozeLabel } from "../lib/turn";
 import { updateDraftRecovery } from "../lib/draft-recovery";
+import { forgetReview } from "../lib/panel-state";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Icon, type IconName } from "./ui/icon";
@@ -121,6 +122,8 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
     if (!await actions.remove()) return;
     // This tab's unsaved-text recovery must not resurface if the PR is reviewed again.
     updateDraftRecovery(review.targetKey, { composer: undefined, summary: undefined });
+    // Nor where it was left, nor its agent dock.
+    forgetReview(review.targetKey);
     setConfirming(false);
     onDeleted?.();
   }

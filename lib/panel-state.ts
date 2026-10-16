@@ -2,7 +2,7 @@
 // survives tab switches / remounts: the chapter or Overview, the scroll
 // position, the side panel, and the turn it last opened in; and the layout's
 // widths and toggles, in every review. The floating agent dock persists its own
-// geometry separately (see AgentDock).
+// geometry separately (see AgentDock), under agentDockKey.
 import { NAV_WIDTH, PANEL_WIDTH } from "./workspace-layout";
 
 export type PanelView = "comments" | "agent" | "finish";
@@ -127,13 +127,33 @@ export function patchReviewState(targetKey: string, patch: Partial<ReviewUiState
   write(s);
 }
 
-/** Forgets what the diff compared with in each review not among `targetKeys`, all the reviews there are. */
-export function forgetCompares(targetKeys: ReadonlySet<string>) {
+/** Where AgentDock keeps the review's dock: how it shows, and where it was moved and sized to. */
+export function agentDockKey(targetKey: string): string {
+  return `gr:agentdock:${targetKey}`;
+}
+
+/** Forgets what was kept of a deleted review: its state here, and its agent dock. */
+export function forgetReview(targetKey: string) {
+  forget((key) => key === targetKey);
+}
+
+/** Forgets what was kept of each review not among `targetKeys`, all the reviews there are. */
+export function forgetReviews(targetKeys: ReadonlySet<string>) {
+  forget((key) => !targetKeys.has(key));
+}
+
+function forget(gone: (targetKey: string) => boolean) {
   const s = read();
-  const gone = Object.entries(s.perReview).filter(([key, review]) => review.compare && !targetKeys.has(key));
-  if (!gone.length) return;
-  for (const [key, { compare: _compare, ...rest }] of gone) s.perReview[key] = rest;
-  write(s);
+  const keys = Object.keys(s.perReview).filter(gone);
+  for (const key of keys) delete s.perReview[key];
+  if (keys.length) write(s);
+  const prefix = agentDockKey("");
+  try {
+    const docks = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i) ?? "").filter((key) => key.startsWith(prefix));
+    for (const key of docks) if (gone(key.slice(prefix.length))) localStorage.removeItem(key);
+  } catch {
+    // storage unavailable — persistence is best-effort.
+  }
 }
 
 export function getIntroCollapsed(): boolean | undefined {

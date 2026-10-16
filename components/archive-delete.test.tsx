@@ -2,7 +2,7 @@
 import { afterEach, expect, test } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
-import { patchReviewState } from "../lib/panel-state";
+import { getReviewState, patchReviewState } from "../lib/panel-state";
 import { readDraftRecovery, updateDraftRecovery } from "../lib/draft-recovery";
 import { defaultPreferences } from "../src/preferences";
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); });
@@ -96,8 +96,10 @@ test("merged reviews can be deleted but not unarchived", async () => {
   slot.lifecycle.unmount();
 });
 
-test("deleting asks for confirmation first, then removes the review and its unsaved recovery text", async () => {
+test("deleting asks for confirmation first, then removes the review, its unsaved recovery text, its place and its agent dock", async () => {
   updateDraftRecovery("d", { composer: { file: "", line: "0", side: "RIGHT", body: "Unsaved thoughts" } });
+  patchReviewState("d", { activeId: "core", scrollTop: 40 });
+  localStorage.setItem("gr:agentdock:d", JSON.stringify({ mode: "widget", rect: { x: 10, y: 10, w: 300, h: 400 } }));
   const { slot, menu, calls } = await list([{ targetKey: "d", title: "Unwanted change", status: "error" }]);
   await slot.findByText("Unwanted change");
   fireEvent.click((await menu()).getByRole("button", { name: "Delete…" }));
@@ -112,6 +114,8 @@ test("deleting asks for confirmation first, then removes the review and its unsa
   await slot.findByRole("region", { name: "Review your first pull request" });
   expect(calls("deleteReview")).toEqual([{ targetKey: "d" }]);
   expect(readDraftRecovery("d")).toEqual({});
+  expect(getReviewState("d")).toEqual({});
+  expect(localStorage.getItem("gr:agentdock:d")).toBeNull();
   slot.lifecycle.unmount();
 });
 

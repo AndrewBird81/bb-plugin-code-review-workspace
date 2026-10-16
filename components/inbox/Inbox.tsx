@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../../src/rpc-contract";
 import type { SyncHealth } from "../../src/review-lifecycle";
-import { forgetCompares } from "../../lib/panel-state";
+import { forgetReviews } from "../../lib/panel-state";
 import { parsePrLink } from "../../lib/pr-link";
 import { needsGroup, needsOrder, reviewState, type NeedsGroup, type ReviewItem } from "../../lib/review-state";
 import { useKnob } from "../../lib/settings";
@@ -169,8 +169,8 @@ export function Inbox() {
     setLoadError(false);
     rpc.call("listReviews", null)
       .then((result) => {
-        // Every review there is: what a deleted one's diff compared with goes with it.
-        forgetCompares(new Set((result.reviews as ReviewItem[]).map((review) => review.targetKey)));
+        // Every review there is: what was kept of a deleted one goes with it.
+        forgetReviews(new Set((result.reviews as ReviewItem[]).map((review) => review.targetKey)));
         if (!cancelled) { setReviews(result.reviews as ReviewItem[]); setHealth(result.sync); }
       })
       .catch(() => { if (!cancelled) setLoadError(true); })

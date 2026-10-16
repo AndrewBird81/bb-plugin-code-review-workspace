@@ -10,6 +10,7 @@ import { composing } from "../lib/composing";
 import { cn } from "../lib/utils";
 import { usePortalScopeProps } from "../lib/portal-scope";
 import { clampRect, defaultRect, type Rect } from "../lib/dock-geometry";
+import { agentDockKey } from "../lib/panel-state";
 import { Icon } from "./ui/icon";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
@@ -43,7 +44,7 @@ interface Conversation {
 const UNSET_AGENT: AgentChoice = { providerId: "", model: "", reasoningLevel: "medium" };
 function bounds() { return { width: window.innerWidth, height: window.innerHeight }; }
 function loadPersisted(targetKey: string): Persisted | null {
-  try { return JSON.parse(localStorage.getItem(`gr:agentdock:${targetKey}`) ?? "null"); }
+  try { return JSON.parse(localStorage.getItem(agentDockKey(targetKey)) ?? "null"); }
   catch { return null; }
 }
 
@@ -82,7 +83,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
     return () => { mounted.current = false; gestureCleanup.current?.(); };
   }, []);
   useEffect(() => {
-    try { localStorage.setItem(`gr:agentdock:${targetKey}`, JSON.stringify({ mode: chosenMode, rect })); } catch { /* optional persistence */ }
+    try { localStorage.setItem(agentDockKey(targetKey), JSON.stringify({ mode: chosenMode, rect })); } catch { /* optional persistence */ }
   }, [targetKey, chosenMode, rect]);
   useEffect(() => {
     const resize = () => setRect((previous) => clampRect(previous, bounds()));
