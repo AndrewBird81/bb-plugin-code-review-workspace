@@ -33,7 +33,11 @@ test("lockfiles, generated files, and huge diffs start folded, keeping their tag
   expect(drawn.map((d) => d.name)).toEqual(["src/a.ts"]);
   expect(header("package-lock.json").getByText("lockfile · skip")).toBeTruthy();
   expect(header("src/a.ts").queryByRole("button", { name: /^Show diff/ })).toBeNull();
+  // A huge file of code says why it folded, as a lockfile's tag does.
+  expect(header("src/huge.ts").getByText("Large diff · 1,600 lines")).toBeTruthy();
+  expect(header("package-lock.json").queryByText(/^Large diff/)).toBeNull();
   fireEvent.click(header("src/huge.ts").getByRole("button", { name: "Show diff of src/huge.ts" }));
+  expect(header("src/huge.ts").queryByText(/^Large diff/)).toBeNull();
   expect(drawn.map((d) => d.name)).toContain("src/huge.ts");
   expect(header("src/huge.ts").queryByRole("button", { name: /^Show diff/ })).toBeNull();
   expect(screen.getAllByRole("button", { name: /^Show diff of / }).map((button) => button.getAttribute("aria-label"))).toEqual(["Show diff of package-lock.json", "Show diff of dist/app.js"]);

@@ -810,6 +810,8 @@ export const DiffViewer = memo(function DiffViewer({
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <FileTag file={path} generated={generated.has(path)} className="text-[11px]" />
+                  {/* Why a file of code folded: its tag says why a lockfile or generated file did. */}
+                  {showDiff && stats.add + stats.del > LARGE_DIFF && <span className="text-[11px] tabular-nums text-muted-foreground">Large diff · {(stats.add + stats.del).toLocaleString()} lines</span>}
                   {showDiff && (
                     <Button variant="ghost" size="sm" aria-label={`Show diff of ${path}`} className={cn("h-6 shrink-0 px-2 text-[11px]", TOUCH_COMPACT)} onClick={() => toggleCollapsed(path)}>Show diff</Button>
                   )}
