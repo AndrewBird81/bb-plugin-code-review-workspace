@@ -45,7 +45,12 @@ export function ReplyBox({ targetKey, item, where, actions, busy, writing, onClo
     setText((current) => (current === saved.current && !unsaved.has(key) ? draft : current));
     saved.current = draft;
   }, [draft, key]);
-  useEffect(() => { if (writing) setEditing(true); }, [writing]);
+  useEffect(() => {
+    if (!writing) return;
+    // A drafted reply shown already, as r opens it: its box takes the focus too.
+    focusBox.current = true;
+    setEditing(true);
+  }, [writing]);
   // While you write, folding comments leaves the card open.
   useEffect(() => {
     if (!editing) return;

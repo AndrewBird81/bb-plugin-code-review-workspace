@@ -1,4 +1,5 @@
 import { COMMENT_BOX_KEYS, KEY_LABEL, SHORTCUTS } from "../lib/review-shortcuts";
+import { useKnob } from "../lib/settings";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 
 const GROUPS = [...new Set(SHORTCUTS.map((shortcut) => shortcut.group))];
@@ -24,6 +25,7 @@ function KeyGroup({ title, rows }: { title: string; rows: ReadonlyArray<{ keys: 
 
 /** The workspace's keyboard shortcuts, opened with "?", grouped by what they're for. */
 export function ShortcutsHelp({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const commentKeys = useKnob("commentKeys");
   // Closing, it fades out with the focus still in it, outside the review, whose keys would wait until it's gone.
   const change = (next: boolean) => {
     if (!next) (document.activeElement as HTMLElement | null)?.blur();
@@ -40,7 +42,7 @@ export function ShortcutsHelp({ open, onOpenChange }: { open: boolean; onOpenCha
           <DialogDescription>Work anywhere in the review except while you type.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          {GROUPS.map((group) => <KeyGroup key={group} title={group} rows={SHORTCUTS.filter((shortcut) => shortcut.group === group)} />)}
+          {GROUPS.filter((group) => commentKeys || group !== "Comment").map((group) => <KeyGroup key={group} title={group} rows={SHORTCUTS.filter((shortcut) => shortcut.group === group)} />)}
           <KeyGroup title="In a comment box" rows={COMMENT_BOX_KEYS} />
         </div>
       </DialogContent>

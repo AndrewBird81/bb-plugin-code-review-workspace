@@ -1,6 +1,7 @@
 // How ] and [ step through a review's comments: its Comments list registers how, in the list's own order and filter.
 // Until one has, the workspace steps through the draft's lines itself. Where a step landed shows over the code: as
-// the touch step bar after going to a comment from an overlay or sheet, or as a brief hint on a desktop.
+// the touch step bar after going to a comment from an overlay or sheet, or as a brief hint on a desktop. The comment
+// keys act on where a step landed, through the list too.
 import { useSyncExternalStore } from "react";
 
 /** Go to the next (1) or previous (-1) comment from `file`, the file you're on. */
@@ -21,6 +22,41 @@ export function stepComment(targetKey: string, direction: 1 | -1, file: string |
   const stepper = steppers.get(targetKey);
   stepper?.(direction, file);
   return !!stepper;
+}
+
+/** What a comment key (e, x, 0–4, r) does to the comment stepping last landed on: false when it does nothing to it. */
+export type CommentKeyHandler = (key: string) => boolean;
+
+const keyHandlers = new Map<string, CommentKeyHandler>();
+
+/** Act on the review's comment keys with `handler`. The returned function withdraws it, unless a newer one replaced it. */
+export function registerCommentKeys(targetKey: string, handler: CommentKeyHandler): () => void {
+  keyHandlers.set(targetKey, handler);
+  return () => {
+    if (keyHandlers.get(targetKey) === handler) keyHandlers.delete(targetKey);
+  };
+}
+
+/** A comment key pressed: whether it acted on the comment stepping last landed on. */
+export function actOnComment(targetKey: string, key: string): boolean {
+  return keyHandlers.get(targetKey)?.(key) ?? false;
+}
+
+const replies = new Map<string, { id: string; nonce: number }>();
+const replyListeners = new Set<() => void>();
+
+/** r on a GitHub thread: its card in the code opens its reply box. */
+export function askReply(targetKey: string, id: string) {
+  replies.set(targetKey, { id, nonce: Date.now() });
+  for (const listener of replyListeners) listener();
+}
+
+/** The thread whose reply box r last asked for, and when. */
+export function useReplyAsked(targetKey: string): { id: string; nonce: number } | null {
+  return useSyncExternalStore((listener) => {
+    replyListeners.add(listener);
+    return () => { replyListeners.delete(listener); };
+  }, () => replies.get(targetKey) ?? null);
 }
 
 /** Where stepping landed: the stop's place in the list's order and filter, and whether the bar or a hint shows it. */

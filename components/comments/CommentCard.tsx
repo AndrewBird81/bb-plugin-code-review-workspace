@@ -1,8 +1,9 @@
-import { useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Markdown, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { linesOf, sameLocation } from "../../src/draft";
 import { withLineBreaks } from "../../src/line-breaks";
 import type { AskItem, CommentItem, DraftItem, PrivateItem, ThreadItem, ThreadMessage } from "../../lib/comments";
+import { useReplyAsked } from "../../lib/comment-stops";
 import { linkImages } from "../../lib/link-images";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { useKnob } from "../../lib/settings";
@@ -119,6 +120,15 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
   const [first, ...replies] = item.messages;
   const followUp = item.at && api ? () => api.followUp(item.at!.file, item.at!.line, item.at!.side, item.url) : null;
   const replyShows = writing || !!item.replyDraft;
+  // r, on the thread stepping landed on: the card in the code opens its reply box. Only a request made since it mounted.
+  const asked = useReplyAsked(targetKey);
+  const answered = useRef(asked?.nonce);
+  useEffect(() => {
+    if (!inline || !asked || asked.id !== item.id || asked.nonce === answered.current) return;
+    answered.current = asked.nonce;
+    setShut(false);
+    setWriting(true);
+  }, [inline, asked, item.id]);
   // Hidden, one line says what's under it.
   const shutLine = [item.state === "resolved" && item.resolvedBy ? `Resolved by @${item.resolvedBy}` : null, replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : null].filter(Boolean).join(" · ");
   return (

@@ -34,7 +34,7 @@ import { ReviewSkeleton, ReviewError } from "./ReviewSkeleton";
 import { AccountBar } from "./AccountBar";
 import { defaultPreferences, type ReviewPreferences } from "../lib/review-preferences";
 import { TEXT_FIELD, inDiffOrder, readingOrder, shortcutKey } from "../lib/review-shortcuts";
-import { stepComment, useCommentStep } from "../lib/comment-stops";
+import { actOnComment, stepComment, useCommentStep } from "../lib/comment-stops";
 import { InlineDraftContext } from "./InlineDraft";
 import { DiffThreadsContext, useDiffThreads } from "./LineThreads";
 import { CheckFailuresContext, useCheckFailures } from "./CheckFailures";
@@ -1249,11 +1249,15 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         return true;
       }
       case "?": setShortcutsOpen(true); return true;
+      // On the comment ] or [ landed on; Settings → Reading can turn them off on their own.
+      case "e": case "x": case "r": case "0": case "1": case "2": case "3": case "4":
+        return commentKeys && actOnComment(targetKey, key);
     }
     return false;
   };
   // Settings → Reading can turn the keys off, all but Esc.
   const shortcutsOn = useKnob("singleKeyShortcuts");
+  const commentKeys = useKnob("commentKeys");
   const unattendedAgents = useKnob("unattendedAgents");
   const shortcutsRef = useRef(shortcutsOn);
   shortcutsRef.current = shortcutsOn;

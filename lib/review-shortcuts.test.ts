@@ -18,7 +18,8 @@ function pressOn(el: HTMLElement, init: KeyboardEventInit): string | null {
 
 test("a plain key asks for its shortcut, and a key that isn't one asks for none", () => {
   expect(shortcutKey(kd({ key: "j" }))).toBe("j");
-  expect(shortcutKey(kd({ key: "x" }))).toBeNull();
+  expect(shortcutKey(kd({ key: "x" }))).toBe("x");
+  expect(shortcutKey(kd({ key: "z" }))).toBeNull();
 });
 
 test("Caps Lock j still moves, and Caps Lock v marks the file: only Shift makes ⇧V and ⇧F", () => {

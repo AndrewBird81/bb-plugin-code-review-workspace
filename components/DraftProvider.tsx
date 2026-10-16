@@ -3,7 +3,7 @@ import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
-import { commentsKey, isPreExisting, isSummary, linesOf, rangeOf, sameLocation, SEVERITIES, severityCounts, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
+import { commentsKey, isPreExisting, isSummary, linesOf, rangeOf, sameLocation, SEVERITIES, severityCounts, SEVERITY_LABEL, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { diffPositions, orderRange, type FilePositions } from "../src/review-positions";
 import { splitPatchByFile } from "../src/patch";
 import { getHideNits, setHideNits, type PanelView } from "../lib/panel-state";
@@ -406,6 +406,18 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       else toast.info("Comment removed", { action: { label: "Undo", onClick: () => { void latest.current.restoreComments([comment]); } } });
     });
   }
+  /**
+   * Set a comment's severity, or clear it, as its box would save it: over the comment as shown, and yours from then on.
+   * One on an older diff waits for its box, whose save checks it against the current one.
+   */
+  async function setCommentSeverity(comment: DraftComment, next: Severity | undefined) {
+    if (stale.some((at) => sameLocation(at, comment))) return;
+    const { file, line, side, chapterId, body } = comment;
+    await mutate(async () => {
+      apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), replaces: body, comment: { file, line, side, ...rangeOf(comment), chapterId: chapterId ?? activeChapterId, ...(next ? { severity: next } : {}), body } })) as { draft: Draft });
+      toast.info(next ? SEVERITY_LABEL[next] : "No severity");
+    });
+  }
   /** Remove every nit; Undo puts back those drafted against the current diff. */
   async function removeNits() {
     const removed = draft.comments.filter((comment) => comment.severity === "nit");
@@ -622,7 +634,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   return {
     targetKey, loadError, load, loaded, closed, review, draft, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
-    showComposer, inline, edited, replacing, counts, preExistingCount, blocks, markPreExisting, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment,
+    showComposer, inline, edited, replacing, counts, preExistingCount, blocks, markPreExisting, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity,
     file, boxLines, line, side, files, setFile, editing, showBoxInDiff, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
     changedWhileEditing, ownPr, suggested, chooseVerdict, confirming, setConfirming, approval, agentCoverage, unreadApproval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
     inlineDraft, inlineComposer, askAgent, patch, account,

@@ -20,6 +20,11 @@ export const SHORTCUTS = [
   { group: "View", keys: ["i"], label: "Fold or unfold comments in code" },
   { group: "View", keys: ["F"], label: "Full screen on or off" },
   { group: "View", keys: ["?"], label: "Show these shortcuts" },
+  { group: "Comment", keys: ["e"], label: "Edit the comment ] or [ landed on" },
+  { group: "Comment", keys: ["x"], label: "Remove it, yours or the agent's" },
+  { group: "Comment", keys: ["1", "2", "3", "4"], label: "Blocking, Should fix, Question, or Nit" },
+  { group: "Comment", keys: ["0"], label: "Clear its severity" },
+  { group: "Comment", keys: ["r"], label: "Reply to the GitHub thread" },
 ] as const;
 
 /** The keys of a comment box, which the help sheet lists too: the box handles them itself, whatever the setting. */

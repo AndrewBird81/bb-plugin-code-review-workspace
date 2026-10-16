@@ -299,3 +299,19 @@ test("with every knob off, a weakened test and a changed lockfile show no chips"
   expect(page.queryByText(/assertions? removed|tests? skipped|packages|Downloads from/)).toBeNull();
   page.lifecycle.unmount();
 });
+
+test("with Comment keys off, the comment ] lands on takes none of their keys, and the shortcuts sheet doesn't list them", async () => {
+  const saveDraftComment = vi.fn(); const removeDraftComment = vi.fn();
+  const { page, bar } = await renderReview({ ...defaultKnobs, commentKeys: false }, { saveDraftComment, removeDraftComment });
+  await page.findByRole("heading", { name: "Parse rows" });
+  fireEvent.keyDown(document.body, { key: "]" });
+  for (const key of ["x", "2", "0", "e"]) fireEvent.keyDown(document.body, { key });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect([saveDraftComment.mock.calls.length, removeDraftComment.mock.calls.length]).toEqual([0, 0]);
+  expect(page.queryByRole("textbox", { name: "Draft comment" })).toBeNull();
+  fireEvent.keyDown(document.body, { key: "?" });
+  const sheet = within(await page.findByRole("dialog", { name: "Keyboard shortcuts" }));
+  expect(sheet.getByRole("region", { name: "Move" })).toBeTruthy();
+  expect(sheet.queryByRole("region", { name: "Comment" })).toBeNull();
+  page.lifecycle.unmount(); bar.lifecycle.unmount();
+});

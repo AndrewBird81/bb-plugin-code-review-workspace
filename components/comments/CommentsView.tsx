@@ -1,10 +1,10 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useBbNavigate } from "@get-bb/plugin-sdk/app";
-import { sameLocation, VERDICT_LABEL } from "../../src/draft";
+import { sameLocation, SEVERITIES, VERDICT_LABEL } from "../../src/draft";
 import { buildItems, checkTally, FILTER_LABEL, groups, needsYou, shownItems, toSend, type CommentFilter, type CommentGroup, type CommentItem, type CommentSources } from "../../lib/comments";
 import { clearOpenComments, forgetOpenComments, revealComment } from "../../lib/comments-fold";
-import { registerCommentStepper, showCommentStep, useCommentStep } from "../../lib/comment-stops";
+import { askReply, registerCommentKeys, registerCommentStepper, showCommentStep, useCommentStep } from "../../lib/comment-stops";
 import { holdReview } from "../../lib/review-holds";
 import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
@@ -173,6 +173,26 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
     }
     goTo(stops[index], "step");
   }), [targetKey, goTo]);
+  // The comment keys, on the item last gone to while it's still listed: e, x and 0–4 on a draft comment, r on a thread.
+  const keyed = useRef({ items, draft, actions });
+  keyed.current = { items, draft, actions };
+  useEffect(() => registerCommentKeys(targetKey, (key) => {
+    const { items, draft, actions } = keyed.current;
+    const item = last.current ? items.find((entry) => entry.id === last.current) : undefined;
+    if (item?.kind === "thread") {
+      if (key !== "r" || !actions || item.replyTo === null) return false;
+      askReply(targetKey, item.id);
+      return true;
+    }
+    if (item?.kind !== "draft" || !draft.editable) return false;
+    const { comment } = item;
+    // Its box opens where it shows: in the list while that's on screen, else under its line.
+    if (key === "e") draft.openComposer(comment, !live.current.visible);
+    else if (key === "x") void draft.removeComment(comment);
+    else if (/^[0-4]$/.test(key)) void draft.setCommentSeverity(comment, key === "0" ? undefined : SEVERITIES[Number(key) - 1]);
+    else return false;
+    return true;
+  }), [targetKey]);
   const show = useCallback((item: CommentItem) => goTo(item, "row"), [goTo]);
   const expand = useCallback((id: string | null) => updateComments(targetKey, { expanded: id }), [targetKey]);
   const setFilter = (next: CommentFilter) => updateComments(targetKey, { filter: next });

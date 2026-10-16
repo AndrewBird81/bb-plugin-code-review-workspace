@@ -364,6 +364,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             <SectionHeading icon="FileText" title="Reading" description="How a review opens, and what shows around the code. How the code draws is in each review’s Diff options." />
             {knob("returnToOverview")}
             {knob("singleKeyShortcuts")}
+            {knob("commentKeys")}
             {knob("foldViewedFiles")}
             {knob("foldGeneratedFiles")}
             {knob("testWeakening")}
