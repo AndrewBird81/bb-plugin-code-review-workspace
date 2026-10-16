@@ -12,6 +12,7 @@ vi.mock("./gh", async (importOriginal) => {
   };
 });
 
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
@@ -24,6 +25,7 @@ import { runGit } from "./gh";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { toolText } from "./fake-host.test-support";
 
 /** What the reviewer's page shows of the draft, which submitReview takes to check it still matches. */
 const shown = (store: ReturnType<typeof createStore>, targetKey: string) => {
@@ -269,4 +271,28 @@ test("with every toggle off, agents in your threads get no bb review skill, and 
   const ordinary = { thread: { id: "mine", title: "Fix it", parentThreadId: null, sourceThreadId: null }, origin: { kind: null, pluginId: null } } as any;
   expect(await harness.behavior.resolveAgentConfiguration(ordinary)).toMatchObject({ tools: [], skills: [] });
   expect((await harness.behavior.runCli(["list", "--json"], { threadId: "mine", projectId: "p1" })).stdout ?? "").not.toContain("Cache rows");
+});
+
+test("with Read REVIEW.md off, read_pr_context reads the repo's other instructions and no REVIEW.md", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "gr-settings-off-"));
+  const repo = (...args: string[]) => runGit(args, { cwd });
+  await repo("init", "-q", "-b", "main");
+  await repo("config", "user.email", "t@example.com");
+  await repo("config", "user.name", "t");
+  writeFileSync(join(cwd, "AGENTS.md"), "Run the tests.");
+  writeFileSync(join(cwd, "REVIEW.md"), "Flag every new dependency.");
+  writeFileSync(join(cwd, "a.ts"), "a");
+  await repo("add", ".");
+  await repo("commit", "-qm", "base");
+  const { bb, harness, store } = host();
+  await plugin(bb);
+  store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", cwd, status: "ready", createdAt: 1 });
+  store.savePatch("ref-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
+  store.setAssistantThread("ref-1", "assistant");
+  const read = async () => toolText(await harness.behavior.callAgentTool("read_pr_context", {}, { threadId: "assistant" }));
+  const off = await read();
+  expect(off).toContain("## AGENTS.md\nRun the tests.");
+  expect(off).not.toContain("Flag every new dependency.");
+  store.savePreferences({ ...defaultPreferences, knobs: { ...allKnobsOff, reviewMd: true } }, store.getPreferences().revision);
+  expect(await read()).toContain("## REVIEW.md, the repo's review rules\nFlag every new dependency.");
 });

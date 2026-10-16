@@ -51,6 +51,7 @@ export const knobsSchema = z.object({
   stopGenerating: z.boolean(),
   mentionsWake: z.boolean(), prepareOnReturn: z.boolean(), runReReviewCheck: z.boolean(), trackReviewedPrs: z.boolean(),
   alertGuides: z.boolean(), alertTurns: z.boolean(),
+  reviewMd: z.boolean(),
   unattendedAgents: z.boolean(),
 }).strict();
 

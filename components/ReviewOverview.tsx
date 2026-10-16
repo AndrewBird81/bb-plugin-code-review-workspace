@@ -6,6 +6,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import type { RequirementSchema } from "../src/guide";
 import { classifyFile } from "../src/classify";
 import { untrusted } from "../src/untrusted";
+import { changedInstructions } from "../lib/instruction-files";
 import { useKnob } from "../lib/settings";
 import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
@@ -101,6 +102,20 @@ function AskAboutCheck({ name, runId }: { name: string; runId: number }) {
   );
 }
 
+/** The instruction files a change edits, which the agents read at its base instead, in one muted line. */
+function InstructionChanges({ files, pr, className }: { files: string[]; pr: boolean; className?: string }) {
+  return (
+    <p className={cn("flex items-start gap-1.5 text-xs leading-5 text-muted-foreground", className)}>
+      <Icon name="Info" className="mt-[3px] size-3.5 shrink-0" aria-hidden />
+      <span>
+        {pr ? "This PR" : "This diff"} changes{" "}
+        {files.map((file, index) => <span key={file}>{index > 0 && (index === files.length - 1 ? `${files.length > 2 ? "," : ""} and ` : ", ")}<span className="font-mono">{file}</span></span>)}
+        , which the agents read; they use the base {files.length > 1 ? "versions" : "version"}.
+      </span>
+    </p>
+  );
+}
+
 /** The checks that need a look, failing first, each linking to its run; a failing Actions run offers Ask agent, unless Settings turns it off. */
 function CheckList({ checks }: { checks: Checks["checks"] }) {
   const askable = useKnob("checkFailureActions");
@@ -151,6 +166,8 @@ export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, 
   const [cta, next] = resumed ? ["Continue", resumed] : changed ? ["Review changes", changed] : ["Start reading", sections[0]];
   const nextIndex = next ? sections.indexOf(next) : -1;
   const requirements = useKnob("requirements") ? guide.requirements ?? [] : [];
+  const reviewMd = useKnob("reviewMd");
+  const instructions = reviewMd ? changedInstructions([...new Set(sections.flatMap((section) => section.diffs.map((diff) => diff.file)))], true) : [];
   const covered = requirements.filter((requirement) => requirement.status === "covered").length;
   // Passing checks are a fact in the status line; these need a look.
   const unsettled = [...(checks?.checks.filter((check) => check.bucket === "fail") ?? []), ...(checks?.checks.filter((check) => check.bucket === "pending") ?? [])];
@@ -176,9 +193,10 @@ export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, 
             <Markdown content={guide.sinceReview} className="max-w-[80ch] text-sm leading-relaxed text-foreground/90" />
           </Section>
         )}
-        {guide.intent && (
+        {(guide.intent || instructions.length > 0) && (
           <Section title="What and why">
-            <Markdown content={guide.intent} className="max-w-[80ch] text-sm leading-relaxed text-foreground/90" />
+            {guide.intent && <Markdown content={guide.intent} className="max-w-[80ch] text-sm leading-relaxed text-foreground/90" />}
+            {instructions.length > 0 && <InstructionChanges files={instructions} pr={review.kind === "pr"} className={guide.intent ? "mt-2" : undefined} />}
           </Section>
         )}
         {!!guide.hotspots?.length && <Section title="Start here"><StartHere hotspots={guide.hotspots} onOpen={onOpenLine} /></Section>}

@@ -435,3 +435,16 @@ test("with every knob off, a local review's files and comments offer no Open in 
   expect(listMachines).not.toHaveBeenCalled();
   page.lifecycle.unmount(); bar.lifecycle.unmount();
 });
+
+test("with Read REVIEW.md off, the Overview doesn't say the PR changes a file the agents read", async () => {
+  const review = { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", repo: "acme/web", number: 42 };
+  const guide = { title: "Guide", intent: "Parses rows.", unplacedFiles: [], sections: [{ id: "c1", title: "Parsing", overview: "Reads rows.", diffs: [{ file: "src/a.ts" }, { file: "CLAUDE.md" }] }] };
+  const rpc = { getReviewBundle: () => ({ review, guide: structuredClone(guide), patch: "", revision: "r1" }) };
+  const on = await renderReview(defaultKnobs, rpc);
+  expect(await on.main().findByText(/which the agents read/)).toBeTruthy();
+  on.page.lifecycle.unmount(); on.bar.lifecycle.unmount();
+  const off = await renderReview(allKnobsOff, rpc);
+  await off.main().findByText("Parses rows.");
+  expect(off.main().queryByText(/which the agents read/)).toBeNull();
+  off.page.lifecycle.unmount(); off.bar.lifecycle.unmount();
+});

@@ -15,6 +15,7 @@ export interface Knobs {
   stopGenerating: boolean;
   mentionsWake: boolean; prepareOnReturn: boolean; runReReviewCheck: boolean; trackReviewedPrs: boolean;
   alertGuides: boolean; alertTurns: boolean;
+  reviewMd: boolean;
   unattendedAgents: boolean;
 }
 export type KnobId = keyof Knobs;
@@ -32,6 +33,7 @@ export const defaultKnobs: Knobs = {
   stopGenerating: true,
   mentionsWake: true, prepareOnReturn: true, runReReviewCheck: true, trackReviewedPrs: true,
   alertGuides: true, alertTurns: true,
+  reviewMd: true,
   unattendedAgents: true,
 };
 

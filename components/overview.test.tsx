@@ -4,6 +4,7 @@ import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
+import type { Knobs } from "../lib/knobs";
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 // jsdom can't run pierre's diff element; these tests are about the Overview.
@@ -24,13 +25,13 @@ const twoChapters = {
   ],
 };
 
-function renderWorkspace(review: Record<string, unknown>, rpc: Record<string, (input: any) => unknown> = {}, sent: object = guide) {
+function renderWorkspace(review: Record<string, unknown>, rpc: Record<string, (input: any) => unknown> = {}, sent: object = guide, knobs: Partial<Knobs> = {}) {
   return loadPluginApp(() => import("../app")).then((app) => renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
     getChecks: () => ({ bucket: "none", checks: [] }),
     ...rpc,
     setReviewPresence: () => ({ ok: true }),
     getReviewBundle: () => ({ review: { targetKey: "pr-42", status: "ready", createdAt: 1, ...review }, guide: structuredClone(sent), patch: "", revision: "r1" }),
-    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, ...knobs } }, revision: 0 }),
     getFileViews: () => ({ views: [] }),
     checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
     checkForUpdates: () => ({ hasNewCommits: false }),
@@ -259,4 +260,31 @@ test("a check's log that can't be read is said in a toast, and nothing is quoted
   await waitFor(() => expect(error).toHaveBeenCalledWith("Couldn’t read the check’s log: HTTP 404"));
   expect(slot.queryByRole("region", { name: "Review agent" })).toBeNull();
   slot.lifecycle.unmount();
+});
+
+test("What and why says when the PR changes a file the agents read, and that they use the base version; not otherwise, nor with Read REVIEW.md off", async () => {
+  const pr = { kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url };
+  const withClaude = { ...guide, sections: [{ ...guide.sections[0], diffs: [{ file: "src/auth.ts", summary: "Lock" }, { file: "CLAUDE.md", summary: "Rules" }] }] };
+  const line = (text: string) => (_: string, element: Element | null) => element?.tagName === "P" && element.textContent === text;
+  const changed = await renderWorkspace(pr, {}, withClaude);
+  const why = within(await changed.findByRole("region", { name: "What and why" }));
+  expect(why.getByText("Serializes token refreshes.")).toBeTruthy();
+  expect(await why.findByText(line("This PR changes CLAUDE.md, which the agents read; they use the base version."))).toBeTruthy();
+  changed.lifecycle.unmount();
+
+  // Two of them, one a scoped REVIEW.md, with no intent: the section still says it.
+  const both = await renderWorkspace(pr, {}, { ...withClaude, intent: "", sections: [{ ...withClaude.sections[0], diffs: [...withClaude.sections[0].diffs, { file: "src/REVIEW.md" }] }] });
+  const bothWhy = within(await both.findByRole("region", { name: "What and why" }));
+  expect(bothWhy.getByText(line("This PR changes CLAUDE.md and src/REVIEW.md, which the agents read; they use the base versions."))).toBeTruthy();
+  both.lifecycle.unmount();
+
+  const unchanged = await renderWorkspace(pr);
+  await unchanged.findByRole("region", { name: "What and why" });
+  expect(main(unchanged).queryByText(/which the agents read/)).toBeNull();
+  unchanged.lifecycle.unmount();
+
+  const off = await renderWorkspace(pr, {}, withClaude, { reviewMd: false });
+  await off.findByRole("region", { name: "What and why" });
+  expect(main(off).queryByText(/which the agents read/)).toBeNull();
+  off.lifecycle.unmount();
 });
