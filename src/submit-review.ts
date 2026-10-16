@@ -8,7 +8,7 @@ import { invalidComments } from "./review-positions";
 export function createReviewSubmitter(store: Store, run: typeof runGh) {
   const inFlight = new Set<string>();
   /** `shown` is the list of comments the reviewer's page displays, and `summary` its summary and verdict; the draft must still match them. */
-  return async (targetKey: string, revision?: string, account?: string, shown?: Pick<DraftComment, "file" | "line" | "side" | "severity" | "body">[], summary?: { body: string; verdict: Verdict }): Promise<{ ok: boolean; error?: string; url?: string }> => {
+  return async (targetKey: string, revision: string | undefined, account: string | undefined, shown: Pick<DraftComment, "file" | "line" | "side" | "severity" | "body">[], summary: { body: string; verdict: Verdict }): Promise<{ ok: boolean; error?: string; url?: string }> => {
     if (inFlight.has(targetKey)) return { ok: false, error: "This review is already being submitted." };
     inFlight.add(targetKey);
     try {
@@ -19,8 +19,8 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       if (m.status === "generating") return { ok: false, error: "Wait for the review to finish generating before submitting." };
       if (!m.headSha) return { ok: false, error: "Rebuild the guide before submitting so the reviewed revision can be verified." };
       const draft = store.getDraft(targetKey);
-      if (shown && !sameComments(draft.comments, shown)) return { ok: false, error: "Your draft comments changed since this page showed them, possibly from the assistant. Check them, then submit again." };
-      if (summary && (draft.body !== summary.body || draft.verdict !== summary.verdict)) return { ok: false, error: "Your review summary or verdict changed since this page showed it, possibly from the assistant or another window. Check them, then submit again." };
+      if (!sameComments(draft.comments, shown)) return { ok: false, error: "Your draft comments changed since this page showed them, possibly from the assistant. Check them, then submit again." };
+      if (draft.body !== summary.body || draft.verdict !== summary.verdict) return { ok: false, error: "Your review summary or verdict changed since this page showed it, possibly from the assistant or another window. Check them, then submit again." };
       if (draft.verdict === "COMMENT" && !draft.body.trim() && !draft.comments.length) return { ok: false, error: "Add a summary or at least one comment before submitting a Comment review." };
       if (draft.verdict === "REQUEST_CHANGES" && !draft.body.trim()) return { ok: false, error: "Add a summary explaining the requested changes before submitting." };
       if (account && m.author && draft.verdict !== "COMMENT" && account.toLowerCase() === m.author.toLowerCase()) return { ok: false, error: "GitHub allows only a Comment review on your own PR. Choose Comment, then submit again." };

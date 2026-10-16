@@ -14,6 +14,12 @@ import plugin from "../server";
 import { createStore, reanchorAll } from "./store";
 import { OUTCOMES_KEPT, suggestionLines } from "./learning";
 
+/** What the reviewer's page shows of the draft, which submitReview takes to check it still matches. */
+const shown = (store: ReturnType<typeof createStore>, targetKey: string) => {
+  const { comments, body, verdict } = store.getDraft(targetKey);
+  return { comments, body, verdict };
+};
+
 const patch = [
   "diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", "@@ -1,3 +1,4 @@",
   " const a = 1;", "-const b = 2;", "+const b = 3;", "+const c = b * 2;", " export { a };", "",
@@ -83,7 +89,7 @@ test("submitting records each agent comment as kept, edited, or removed", async 
   // The reviewer's own comment isn't counted.
   await save("Mine", { file: "a.ts", line: 1, side: "RIGHT" });
   expect(store.listAgentOutcomes()).toEqual([]);
-  const result = await rpc("submitReview", { targetKey: "pr-1", revision: await revision(), account: "casey" });
+  const result = await rpc("submitReview", { targetKey: "pr-1", revision: await revision(), account: "casey", ...shown(store, "pr-1") });
   expect(result.ok).toBe(true);
   expect(store.listAgentOutcomes().map(({ at: _at, ...o }) => o)).toEqual([
     { repo: "acme/web", file: "a.ts", outcome: "removed", body: "**Nit:** rename.", edited: null },
@@ -105,7 +111,7 @@ test("a comment put back with Undo, or saved unchanged, counts as kept", async (
   await remove();
   await save("Can this overflow?");
   await save("Why 3?", { file: "a.ts", line: 2, side: "RIGHT" });
-  expect((await rpc("submitReview", { targetKey: "pr-1", revision: await revision(), account: "casey" })).ok).toBe(true);
+  expect((await rpc("submitReview", { targetKey: "pr-1", revision: await revision(), account: "casey", ...shown(store, "pr-1") })).ok).toBe(true);
   expect(store.listAgentOutcomes().map((o) => o.outcome)).toEqual(["kept", "kept"]);
 });
 

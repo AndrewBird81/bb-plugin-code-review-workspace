@@ -21,6 +21,12 @@ import { generateGuide } from "./generate";
 import { createReviewSync, type GithubReads, type TurnActions } from "./review-lifecycle";
 import type { PrFacts, PrRef } from "./github/types";
 
+/** What the reviewer's page shows of the draft, which submitReview takes to check it still matches. */
+const shown = (store: ReturnType<typeof createStore>, targetKey: string) => {
+  const { comments, body, verdict } = store.getDraft(targetKey);
+  return { comments, body, verdict };
+};
+
 // Every toggle off; the server reads no number knob.
 const allKnobsOff = Object.fromEntries(Object.entries(defaultKnobs).map(([id, value]) => [id, typeof value === "boolean" ? false : value])) as unknown as Knobs;
 const HOUR = 3_600_000;
@@ -107,6 +113,6 @@ test("with every toggle off, a review still submits", async () => {
   await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, comment: { file: "a.ts", line: 1, side: "RIGHT", body: "nit" } });
   await harness.behavior.callRpc("saveSummary", { targetKey: "pr-1", revision, body: "ok" });
   await harness.behavior.callRpc("setVerdict", { targetKey: "pr-1", revision, verdict: "COMMENT" });
-  expect(await harness.behavior.callRpc("submitReview", { targetKey: "pr-1", revision, account: "casey" })).toMatchObject({ ok: true });
+  expect(await harness.behavior.callRpc("submitReview", { targetKey: "pr-1", revision, account: "casey", ...shown(store, "pr-1") })).toMatchObject({ ok: true });
   expect(submit).toHaveBeenCalled();
 });

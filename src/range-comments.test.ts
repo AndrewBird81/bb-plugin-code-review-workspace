@@ -67,8 +67,9 @@ test("submitting a range sends it, and the page must show the same range", async
   store.upsertDraftComment("pr-1", at(4, 2));
   const run = vi.fn<typeof runGh>(async (args) => ({ code: 0, stderr: "", stdout: args[0] === "pr" ? '{"headRefOid":"sha1"}' : '{"id":12}' }));
   const submit = createReviewSubmitter(store, run);
-  expect(await submit("pr-1", undefined, undefined, [{ ...at(4), body: "x" }])).toMatchObject({ ok: false, error: expect.stringContaining("Your draft comments changed") });
-  expect(await submit("pr-1", undefined, undefined, [at(4, 2)])).toEqual({ ok: true });
+  const summary = { body: store.getDraft("pr-1").body, verdict: store.getDraft("pr-1").verdict };
+  expect(await submit("pr-1", undefined, undefined, [{ ...at(4), body: "x" }], summary)).toMatchObject({ ok: false, error: expect.stringContaining("Your draft comments changed") });
+  expect(await submit("pr-1", undefined, undefined, [at(4, 2)], summary)).toEqual({ ok: true });
   expect(JSON.parse(run.mock.calls[1][1]!.stdin!).comments).toEqual([{ path: "a.ts", line: 4, side: "RIGHT", start_line: 2, start_side: "RIGHT", body: "x" }]);
 });
 

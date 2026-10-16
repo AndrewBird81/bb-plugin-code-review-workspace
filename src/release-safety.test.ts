@@ -12,6 +12,6 @@ test('a stale window cannot stamp comments onto a newer stored patch, or submit'
  await expect(harness.behavior.callRpc('saveDraftComment',{targetKey:'pr-1',revision:old.revision,comment:{file:'a.ts',line:1,side:'RIGHT',body:'Old reasoning'}})).rejects.toThrow(/changed|latest/i);
  // The verdict doesn't depend on the diff, so it saves; submit still refuses the old window.
  await harness.behavior.callRpc('setVerdict',{targetKey:'pr-1',revision:old.revision,verdict:'APPROVE'});
- const submit=await harness.behavior.callRpc('submitReview',{targetKey:'pr-1',revision:old.revision,account:'casey'}) as any;expect(submit.ok).toBe(false);
+ const submit=await harness.behavior.callRpc('submitReview',{targetKey:'pr-1',revision:old.revision,account:'casey',comments:[],body:'',verdict:'APPROVE'}) as any;expect(submit.ok).toBe(false);
  expect(store.getDraft('pr-1').comments).toEqual([]);await harness.lifecycle.dispose();
 });

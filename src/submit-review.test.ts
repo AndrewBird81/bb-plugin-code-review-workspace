@@ -3,6 +3,12 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "./store";
 import { createReviewSubmitter } from "./submit-review";
 import type { runGh } from "./gh";
+import { reviewRevision } from "./review-revision";
+import plugin from "../server";
+
+// The server's gh, for submitting through the RPC; the submitter's own tests pass theirs.
+const serverGh = vi.hoisted(() => vi.fn());
+vi.mock("./gh", async (orig) => ({ ...(await orig<typeof import("./gh")>()), runGh: serverGh }));
 
 const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n";
 function setup() {
@@ -13,13 +19,18 @@ function setup() {
   store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "RIGHT", body: "Please explain this" });
   store.setVerdict("pr-test", "COMMENT", "My summary");
   const run = vi.fn<typeof runGh>(async (args) => ({ code: 0, stderr: "", stdout: args[0] === "pr" ? '{"headRefOid":"sha1"}' : '{"id":12}' }));
-  return { store, run, submit: createReviewSubmitter(store, run) };
+  /** What the reviewer's page shows of a draft now: its comments, then its summary and verdict. */
+  const page = (key = "pr-test") => {
+    const { comments, body, verdict } = store.getDraft(key);
+    return [comments, { body, verdict }] as const;
+  };
+  return { store, run, page, submit: createReviewSubmitter(store, run) };
 }
 
 test("submission pins the reviewed commit and clears only the submitted draft", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   store.saveReviewerNotes("pr-test", "Private: ask about rollout", 0);
-  expect(await submit("pr-test")).toEqual({ ok: true });
+  expect(await submit("pr-test", undefined, undefined, ...page("pr-test"))).toEqual({ ok: true });
   expect(run).toHaveBeenLastCalledWith(expect.arrayContaining(["repos/acme/web/pulls/7/reviews"]), {
     // No timeout: a submission killed mid-flight could land and then be submitted twice.
     timeoutMs: 0,
@@ -27,14 +38,14 @@ test("submission pins the reviewed commit and clears only the submitted draft", 
   });
   expect(store.getDraft("pr-test")).toMatchObject({ verdict: "COMMENT", body: "", comments: [] });
   expect(store.getReviewerNotes("pr-test").body).toBe("Private: ask about rollout");
-  expect(await submit("pr-test")).toMatchObject({ ok: false });
+  expect(await submit("pr-test", undefined, undefined, ...page("pr-test"))).toMatchObject({ ok: false });
   expect(run).toHaveBeenCalledTimes(2);
 });
 
 test("how the agent checked a comment stays in BB: GitHub gets the comment without it", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "RIGHT", author: "agent", severity: "should-fix", body: "Please explain this", evidence: "Read a.ts:1 and its callers." });
-  expect(await submit("pr-test", undefined, undefined, store.getDraft("pr-test").comments)).toEqual({ ok: true });
+  expect(await submit("pr-test", undefined, undefined, ...page())).toEqual({ ok: true });
   const sent = run.mock.calls.at(-1)![1]!.stdin!;
   expect(JSON.parse(sent).comments).toEqual([{ path: "a.ts", line: 1, side: "RIGHT", body: "**Should fix:** Please explain this" }]);
   expect(sent).not.toContain("evidence");
@@ -42,42 +53,42 @@ test("how the agent checked a comment stays in BB: GitHub gets the comment witho
 });
 
 test("new PR commits block all writes and retain the draft", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   const draft = store.getDraft("pr-test");
   run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha2"}' });
-  expect(await submit("pr-test")).toMatchObject({ ok: false, error: expect.stringContaining("new commits") });
+  expect(await submit("pr-test", undefined, undefined, ...page("pr-test"))).toMatchObject({ ok: false, error: expect.stringContaining("new commits") });
   expect(run).toHaveBeenCalledTimes(1);
   expect(store.getDraft("pr-test")).toEqual(draft);
 });
 
 test("a PR retargeted to a new base blocks all writes and retains the draft", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   store.saveReview({ ...store.getReview("pr-test")!, base: "parent" });
   const draft = store.getDraft("pr-test");
   run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha1","baseRefName":"main"}' });
-  expect(await submit("pr-test")).toEqual({ ok: false, error: "The PR's base changed to main. Update the guide for it before submitting. Your draft has been kept." });
+  expect(await submit("pr-test", undefined, undefined, ...page("pr-test"))).toEqual({ ok: false, error: "The PR's base changed to main. Update the guide for it before submitting. Your draft has been kept." });
   expect(run).toHaveBeenCalledTimes(1);
   expect(store.getDraft("pr-test")).toEqual(draft);
 });
 
 test("a failed GitHub write keeps the draft and surfaces field errors", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   const draft = store.getDraft("pr-test");
   run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha1"}' })
     .mockResolvedValueOnce({ code: 1, stderr: "HTTP 422", stdout: '{"message":"Validation Failed","errors":[{"message":"line must be part of the diff"}]}' });
-  expect(await submit("pr-test")).toMatchObject({ ok: false, error: expect.stringContaining("line must be part of the diff") });
+  expect(await submit("pr-test", undefined, undefined, ...page("pr-test"))).toMatchObject({ ok: false, error: expect.stringContaining("line must be part of the diff") });
   expect(store.getDraft("pr-test")).toEqual(draft);
 });
 
 test("concurrent submit clicks send one write and retain edits made during the request", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   let finish!: (value: Awaited<ReturnType<typeof runGh>>) => void;
   run.mockImplementation(async (args) => args[0] === "pr"
     ? { code: 0, stderr: "", stdout: '{"headRefOid":"sha1"}' }
     : new Promise((resolve) => { finish = resolve; }));
-  const first = submit("pr-test");
+  const first = submit("pr-test", undefined, undefined, ...page("pr-test"));
   await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
-  expect(await submit("pr-test")).toMatchObject({ ok: false, error: expect.stringContaining("already") });
+  expect(await submit("pr-test", undefined, undefined, ...page("pr-test"))).toMatchObject({ ok: false, error: expect.stringContaining("already") });
   store.setVerdict("pr-test", "COMMENT", "A new summary");
   store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "RIGHT", body: "Edited while sending" });
   finish({ code: 0, stdout: '{"id":12}', stderr: "" });
@@ -87,34 +98,34 @@ test("concurrent submit clicks send one write and retain edits made during the r
 });
 
 test("re-review cannot silently reuse comments whose line still exists in a changed diff", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   store.savePatch("pr-test", patch.replace("+new", "+different"));
-  expect(await submit("pr-test")).toEqual({ ok: false, error: "The diff changed after these comments were drafted. Edit and save, or remove: a.ts:1" });
+  expect(await submit("pr-test", undefined, undefined, ...page("pr-test"))).toEqual({ ok: false, error: "The diff changed after these comments were drafted. Edit and save, or remove: a.ts:1" });
   expect(run).not.toHaveBeenCalled();
 });
 
 test("submission refuses draft comments the reviewer's page hasn't shown", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   const shown = store.getDraft("pr-test").comments;
   store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "LEFT", body: "Added by the assistant" });
-  expect(await submit("pr-test", undefined, undefined, shown)).toMatchObject({ ok: false, error: expect.stringContaining("changed since this page showed them") });
+  expect(await submit("pr-test", undefined, undefined, shown, page()[1])).toMatchObject({ ok: false, error: expect.stringContaining("changed since this page showed them") });
   expect(run).not.toHaveBeenCalled();
   expect(store.getDraft("pr-test").comments).toHaveLength(2);
-  expect(await submit("pr-test", undefined, undefined, store.getDraft("pr-test").comments)).toEqual({ ok: true });
+  expect(await submit("pr-test", undefined, undefined, ...page())).toEqual({ ok: true });
 });
 
 test("local refs never submit to GitHub", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   store.saveReview({ targetKey: "local", kind: "ref", gitRef: "HEAD", status: "ready", createdAt: 1 });
   store.setVerdict("local", "APPROVE", "");
-  expect(await submit("local")).toMatchObject({ ok: false });
+  expect(await submit("local", undefined, undefined, ...page("local"))).toMatchObject({ ok: false });
   expect(run).not.toHaveBeenCalled();
 });
 
 test("approval persists separately from the cleared draft and survives metadata refresh", async () => {
-  const { store, submit } = setup();
+  const { store, submit, page } = setup();
   store.setVerdict("pr-test", "APPROVE", "Looks good");
-  expect(await submit("pr-test")).toEqual({ ok: true });
+  expect(await submit("pr-test", undefined, undefined, ...page("pr-test"))).toEqual({ ok: true });
   expect(store.getReview("pr-test")).toMatchObject({ submittedVerdict: "APPROVE", submittedHeadSha: "sha1", submittedAt: expect.any(Number) });
   const { submittedVerdict, submittedHeadSha, submittedAt, ...meta } = store.getReview("pr-test")! as any;
   store.saveReview(meta);
@@ -122,24 +133,24 @@ test("approval persists separately from the cleared draft and survives metadata 
 });
 
 test("a PR merged since opening the workspace blocks submission and archives the review", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha1","state":"MERGED"}' });
-  expect(await submit("pr-test")).toMatchObject({ ok: false, error: expect.stringContaining("merged") });
+  expect(await submit("pr-test", undefined, undefined, ...page("pr-test"))).toMatchObject({ ok: false, error: expect.stringContaining("merged") });
   expect(run).toHaveBeenCalledTimes(1);
   expect(store.getReview("pr-test")).toMatchObject({ prState: "MERGED", archivedAt: expect.any(Number) });
   expect(store.getDraft("pr-test").comments).toHaveLength(1);
 });
 
 test("submission records the reviewer from GitHub so account switches cannot misattribute it", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha1","state":"OPEN"}' })
     .mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"id":12,"user":{"login":"reviewer"}}' });
-  expect(await submit("pr-test")).toEqual({ ok: true });
+  expect(await submit("pr-test", undefined, undefined, ...page("pr-test"))).toEqual({ ok: true });
   expect(store.getReview("pr-test")?.reviewer).toBe("reviewer");
 });
 
 test("submission refuses a summary or verdict the page didn't show", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   const comments = store.getDraft("pr-test").comments;
   // The assistant rewrote the summary after the page last showed it.
   store.updateSummary("pr-test", { body: "The assistant's newer summary", bodyAuthor: "agent" });
@@ -151,28 +162,52 @@ test("submission refuses a summary or verdict the page didn't show", async () =>
 });
 
 test("a submitted review returns its link on GitHub", async () => {
-  const { run, submit } = setup();
+  const { run, submit, page } = setup();
   run.mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"headRefOid":"sha1"}' })
     .mockResolvedValueOnce({ code: 0, stderr: "", stdout: '{"id":12,"html_url":"https://github.com/acme/web/pull/7#pullrequestreview-12"}' });
-  expect(await submit("pr-test")).toEqual({ ok: true, url: "https://github.com/acme/web/pull/7#pullrequestreview-12" });
+  expect(await submit("pr-test", undefined, undefined, ...page("pr-test"))).toEqual({ ok: true, url: "https://github.com/acme/web/pull/7#pullrequestreview-12" });
 });
 
 test("on your own PR, only a Comment review is submitted", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   store.saveReview({ ...store.getReview("pr-test")!, author: "Casey" });
   store.setVerdict("pr-test", "APPROVE", "Ship it");
-  expect(await submit("pr-test", undefined, "casey")).toEqual({ ok: false, error: "GitHub allows only a Comment review on your own PR. Choose Comment, then submit again." });
+  expect(await submit("pr-test", undefined, "casey", ...page())).toEqual({ ok: false, error: "GitHub allows only a Comment review on your own PR. Choose Comment, then submit again." });
   expect(run).not.toHaveBeenCalledWith(expect.arrayContaining(["repos/acme/web/pulls/7/reviews"]), expect.anything());
   store.setVerdict("pr-test", "COMMENT", "Notes to self");
   // Past that check, it goes on to sign in as casey.
-  expect(await submit("pr-test", undefined, "casey")).not.toMatchObject({ error: expect.stringContaining("own PR") });
+  expect(await submit("pr-test", undefined, "casey", ...page())).not.toMatchObject({ error: expect.stringContaining("own PR") });
 });
 
 test("a comment's severity goes to GitHub as its label, and a severity changed since the page showed it refuses", async () => {
-  const { store, run, submit } = setup();
+  const { store, run, submit, page } = setup();
   const at = { file: "a.ts", line: 1, side: "RIGHT" as const };
   store.upsertDraftComment("pr-test", { ...at, severity: "blocking", body: "Please explain this" });
-  expect(await submit("pr-test", undefined, undefined, [{ ...at, body: "Please explain this" }])).toMatchObject({ ok: false, error: expect.stringContaining("changed since this page showed them") });
-  expect(await submit("pr-test", undefined, undefined, [{ ...at, severity: "blocking", body: "Please explain this" }])).toEqual({ ok: true });
+  expect(await submit("pr-test", undefined, undefined, [{ ...at, body: "Please explain this" }], page()[1])).toMatchObject({ ok: false, error: expect.stringContaining("changed since this page showed them") });
+  expect(await submit("pr-test", undefined, undefined, [{ ...at, severity: "blocking", body: "Please explain this" }], page()[1])).toEqual({ ok: true });
   expect(JSON.parse(run.mock.lastCall![1]!.stdin!).comments).toEqual([{ ...{ path: "a.ts", line: 1, side: "RIGHT" }, body: "**Blocking:** Please explain this" }]);
+});
+
+test("submitReview without the comments, summary, and verdict the page shows is refused, and posts nothing", async () => {
+  serverGh.mockReset();
+  serverGh.mockImplementation(async (args: string[]) =>
+    args.includes("token") ? { code: 0, stderr: "", stdout: "tok\n" }
+    : args.includes(".login") ? { code: 0, stderr: "", stdout: "me\n" }
+    : args[0] === "pr" ? { code: 0, stderr: "", stdout: JSON.stringify({ headRefOid: "sha1", state: "OPEN" }) }
+    : { code: 0, stderr: "", stdout: JSON.stringify({ id: 1, node_id: "R_1", html_url: "https://github.com/acme/web/pull/1#r1", user: { login: "me" } }) });
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha1" });
+  store.savePatch("pr-1", patch);
+  store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "Text the reviewer never saw" });
+  const posts = () => serverGh.mock.calls.filter(([args]) => args.some((a: string) => a.includes("/reviews"))).length;
+  // A local client that knows the revision and account but not what the page showed.
+  const input = { targetKey: "pr-1", revision: reviewRevision(store, "pr-1"), account: "me" };
+  await expect(harness.behavior.callRpc("submitReview", input)).rejects.toThrow();
+  const { comments, body, verdict } = store.getDraft("pr-1");
+  await expect(harness.behavior.callRpc("submitReview", { ...input, comments })).rejects.toThrow();
+  expect(posts()).toBe(0);
+  expect(await harness.behavior.callRpc("submitReview", { ...input, comments, body, verdict })).toMatchObject({ ok: true });
+  expect(posts()).toBe(1);
 });

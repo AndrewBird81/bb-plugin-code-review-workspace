@@ -639,7 +639,7 @@ export default async function plugin(bb: BbPluginApi) {
       try { requireReviewRevision(store, targetKey, revision); } catch (error) { return { ok: false, error: (error as Error).message }; }
       // The draft the submitter reads, before anything awaits.
       const submitted = store.getDraft(targetKey);
-      const result = await submitReview(targetKey, revision, account, comments, body === undefined || verdict === undefined ? undefined : { body, verdict });
+      const result = await submitReview(targetKey, revision, account, comments, { body, verdict });
       // The discussions were about this draft. The assistant's conversation keeps them.
       if (result.ok) {
         recordOutcomes(store, targetKey, submitted);

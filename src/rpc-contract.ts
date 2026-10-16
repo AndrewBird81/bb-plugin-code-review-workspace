@@ -203,9 +203,9 @@ export const rpcContract = defineRpcContract({
     input: z.object({
       targetKey: z.string(), revision: z.string().optional(), account: z.string().optional(),
       // The comments, summary, and verdict the page shows; submission refuses a draft that no longer matches.
-      comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), severity: z.enum(SEVERITIES).optional(), body: z.string() })).optional(),
-      body: z.string().optional(),
-      verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional(),
+      comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), severity: z.enum(SEVERITIES).optional(), body: z.string() })),
+      body: z.string(),
+      verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
     }).strict(),
     // url: the posted review on GitHub.
     output: z.object({ ok: z.boolean(), error: z.string().optional(), url: z.string().optional() }),
