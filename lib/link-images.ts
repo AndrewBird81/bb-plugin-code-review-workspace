@@ -460,7 +460,7 @@ function htmlBlock(text: string): 0 | 1 | 6 | 7 {
  * The code spans CommonMark finds in inline `lines`, read as `escapeHtml` leaves them. Backticks pair within a line;
  * within a run of lines between blank lines and fences, once a backtick may go uncounted (one no line closes, or one a
  * GFM autolink literal, math, a directive, a link's destination or title, a reference or a definition may hold), the
- * run's later backticks are text.
+ * run's later backticks are text. Math begins at `$$`: BB reads no single `$` as math.
  */
 function codeSpans(text: string, lines: Line[]): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
@@ -489,7 +489,7 @@ function codeSpans(text: string, lines: Line[]): Array<[number, number]> {
           if (kind === "inline") spans.push([start + i, start + close + length]);
           i = word = close + length;
         }
-      } else if (char === "$" || (char === ":" && /[A-Za-z]/.test(next))) paired = false;
+      } else if ((char === "$" && next === "$") || (char === ":" && /[A-Za-z]/.test(next))) paired = false;
       else if (char === "]" && (next === ":" || (next === "(" && !simpleResource(line, i + 1)) || (next === "[" && !/^\[[^[\]\\`\n]*\]/.test(line.slice(i + 1))))) paired = false;
       else i++;
     }

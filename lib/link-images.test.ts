@@ -79,6 +79,8 @@ test("formatting HTML, code spans and fences stay as written", () => {
     "This returns `Array<string>`, not `![x]`.\n\n```ts\nconst xs: Array<string> = [];\nif (![\"a\"].includes(kind)) return <img src={logo} />;\n```",
     "- One `a<b>`\n- Two:\n  ```tsx\n  <img src={logo} alt=\"Logo\" />\n  ```\n\n> ```\n> <video poster={p} /> ![x](y)\n> ```\n\n~~~\n<script>![a](b)</script>\n~~~",
     "See [the docs](https://a.example/docs) for `Map<K, V>`.\n\n```\nunclosed <img src=x>",
+    // BB reads no single $ as math (96-recheck-3 P3).
+    "Costs $5, and `Array<string>` is fine.",
   ]) expect(linkImages(text)).toBe(text);
   const shown = new DOMParser().parseFromString(linkImages("<details>\n<summary>More</summary>\n\nText\n\n</details>"), "text/html");
   expect(shown.querySelector("details > summary")?.textContent).toBe("More");
@@ -106,6 +108,8 @@ test("code spans it can't be sure of, and what follows a doubtful fence, are cha
   expect(linkImages('| a | `<img src="https://evil.test/t.png">` |\n|---|---|')).toBe("| a | `[Image](https://evil.test/t.png)` |\n|---|---|");
   expect(linkImages('See [x](u`) <img src="https://evil.test/r.png"> `y`')).toBe("See [x](u`) [Image](https://evil.test/r.png) `y`");
   expect(linkImages('https://a.test/` `a`<img src="https://evil.test/l.png">`')).toBe("https://a.test/` `a`[Image](https://evil.test/l.png)`");
+  // Inline math, as $$ begins it, can hold a backtick.
+  expect(linkImages('$$ ` $$ `<img src="https://evil.test/mt.png">`')).toBe("$$ ` $$ `[Image](https://evil.test/mt.png)`");
   // A table of one column needs no pipe (96-fixes-4).
   expect(linkImages('a\n:-:\n`<img src="https://evil.test/t1.png"> | y`')).toBe("a\n:-:\n`[Image](https://evil.test/t1.png) | y`");
   // A fence in a list item ends with the item.
