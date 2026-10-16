@@ -71,18 +71,18 @@ test("a head branch in someone else's fork isn't trusted, even on a member's or 
     expect(trustedAuthor(review, { ...defaultPreferences, unattendedAuthors: "anyone" })).toBe(true);
   }
   expect(trustedAuthor(pr({ authorAssociation: "MEMBER", foreignHeadOwner: null }), defaultPreferences)).toBe(true);
-  expect(notRunReason(pr({ authorAssociation: "MEMBER", foreignHeadOwner: "mallory" }))).toBe("Not run automatically: this PR’s branch is in @mallory’s fork");
-  expect(notRunReason(pr({ authorAssociation: "MEMBER", foreignHeadOwner: "" }))).toBe("Not run automatically: this PR’s branch is in someone else’s fork");
+  expect(notRunReason(pr({ authorAssociation: "MEMBER", foreignHeadOwner: "mallory" }), defaultPreferences.knobs)).toBe("Not run automatically: this PR’s branch is in @mallory’s fork");
+  expect(notRunReason(pr({ authorAssociation: "MEMBER", foreignHeadOwner: "" }), defaultPreferences.knobs)).toBe("Not run automatically: this PR’s branch is in someone else’s fork");
 });
 
 test("the reason names the author and the repository's owner", () => {
-  expect(notRunReason(pr({ authorAssociation: "NONE" }))).toBe("Not run automatically: @mallory isn’t a member of acme");
-  expect(notRunReason(pr({ authorAssociation: null, author: undefined }))).toBe("Not run automatically: the author isn’t a member of acme");
+  expect(notRunReason(pr({ authorAssociation: "NONE" }), defaultPreferences.knobs)).toBe("Not run automatically: @mallory isn’t a member of acme");
+  expect(notRunReason(pr({ authorAssociation: null, author: undefined }), defaultPreferences.knobs)).toBe("Not run automatically: the author isn’t a member of acme");
 });
 
 test("before the sync read who wrote the PR, the reason says so, even once it reads a member", () => {
-  expect(notRunReason(pr())).toBe("Not run automatically: GitHub hadn’t said who wrote this PR yet");
-  expect(notRunReason(pr({ authorAssociation: "MEMBER" }))).toBe("Not run automatically: GitHub hadn’t said who wrote this PR yet");
+  expect(notRunReason(pr(), defaultPreferences.knobs)).toBe("Not run automatically: GitHub hadn’t said who wrote this PR yet");
+  expect(notRunReason(pr({ authorAssociation: "MEMBER" }), defaultPreferences.knobs)).toBe("Not run automatically: GitHub hadn’t said who wrote this PR yet");
   expect(trustedAuthor(pr(), defaultPreferences)).toBe(false);
 });
 
@@ -108,6 +108,11 @@ test("a run skipped only because Start agents on their own is off says so; an un
   expect(skipWhy(member, off)).toEqual({ why: "settings" });
   expect(skipWhy(member, defaultPreferences)).toEqual({});
   expect(skipWhy(pr({ authorAssociation: "NONE" }), off)).toEqual({});
-  expect(notRunReason({ ...member, skippedRun: { run: "guide", head: "sha1", at: 1, why: "settings" } })).toBe("Not run automatically: Start agents on their own is off in Settings");
-  expect(notRunReason({ ...member, skippedRun: { run: "guide", head: "sha1", at: 1 } })).toBe("Not run automatically: GitHub hadn’t said who wrote this PR yet");
+  expect(notRunReason({ ...member, skippedRun: { run: "guide", head: "sha1", at: 1, why: "settings" } }, off.knobs)).toBe("Not run automatically: Start agents on their own is off in Settings");
+  expect(notRunReason({ ...member, skippedRun: { run: "guide", head: "sha1", at: 1 } }, off.knobs)).toBe("Not run automatically: GitHub hadn’t said who wrote this PR yet");
+});
+
+test("a run skipped while Start agents on their own was off says so once it's back on", () => {
+  const skipped = pr({ authorAssociation: "MEMBER", skippedRun: { run: "guide", head: "sha1", at: 1, why: "settings" } });
+  expect(notRunReason(skipped, defaultPreferences.knobs)).toBe("Not run automatically: Start agents on their own was off in Settings when this came in");
 });

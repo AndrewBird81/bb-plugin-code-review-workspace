@@ -6,6 +6,7 @@ import type { IconName } from "../components/ui/icon";
 import { timeAgo } from "../components/time-ago";
 import { reviewState, type ReviewItem } from "./review-state";
 import { notRunReason } from "./trust";
+import { defaultKnobs, type Knobs } from "./knobs";
 import { baselineOf, progressText, snoozeLabel, type TurnSignals } from "./turn";
 
 /** foreground: plain text that stands out, for what came back to you; the tones color only what changes your next move. */
@@ -85,9 +86,10 @@ const CHECKS: Record<"pass" | "fail" | "pending" | "expected", Pick<StatusPart, 
 /**
  * The status line, in order: Blocks merge, why, then a run that didn't start on its own, GitHub not reading the PR,
  * your feedback's progress, new commits, checks, size, and its place in a stack. Passing checks say nothing unless
- * `passingChecks`. `ci` is the checks as just read, where a page has them, in place of the last sync's.
+ * `passingChecks`. `ci` is the checks as just read, where a page has them, in place of the last sync's. `knobs` are the
+ * current settings, which a run's reason for not starting may name.
  */
-export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks = false, ci = review.signals?.ci }: { now?: number; passingChecks?: boolean; ci?: TurnSignals["ci"] } = {}): StatusPart[] {
+export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks = false, ci = review.signals?.ci, knobs = defaultKnobs }: { now?: number; passingChecks?: boolean; ci?: TurnSignals["ci"]; knobs?: Pick<Knobs, "unattendedAgents"> } = {}): StatusPart[] {
   const turn = reviewState(review);
   const s = review.signals ?? {};
   const parts: StatusPart[] = [];
@@ -95,7 +97,7 @@ export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks
   if (turn.blocking) parts.push({ kind: "blocking", text: "Blocks merge", tone: "warning", icon: "Lock", detail: "Everyone else approved: only your changes requested is left" });
   const reason = statusWhy(review, now);
   if (reason) parts.push(reason);
-  if (review.skippedRun && !review.archivedAt) parts.push({ kind: "not-run", text: notRunReason(review), tone: "warning", icon: "Lock" });
+  if (review.skippedRun && !review.archivedAt) parts.push({ kind: "not-run", text: notRunReason(review, knobs), tone: "warning", icon: "Lock" });
   if (review.unreachable && turn.reason !== "unreachable") {
     parts.push({ kind: "unreachable", text: "Can’t read on GitHub", tone: "warning", icon: "AlertCircle", detail: review.unreachable.reason === "forbidden" ? "GitHub refused access, for example for SSO" : "Deleted, or you lost access" });
   }

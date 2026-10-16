@@ -88,3 +88,10 @@ test("the line says why an agent didn't run, when GitHub can't read the PR, and 
   const bottom = review(turn("needs", "requested"), { stack: { members: [{ ...parent, reviewed: true }, { ...parent, targetKey: "pr-42", number: 42 }], index: 0, parent: null, children: [] } });
   expect(line(bottom)).toEqual(["Review requested", "Stack 1 of 2"]);
 });
+
+test("a run skipped while Start agents on their own was off says whether it still is", () => {
+  const skipped = review(turn("needs", "requested"), { authorAssociation: "MEMBER", skippedRun: { run: "guide", head: "h", at: 1, why: "settings" } });
+  const notRun = (unattendedAgents: boolean) => statusLine(skipped, { now, knobs: { unattendedAgents } }).find((part) => part.kind === "not-run")?.text;
+  expect(notRun(false)).toBe("Not run automatically: Start agents on their own is off in Settings");
+  expect(notRun(true)).toBe("Not run automatically: Start agents on their own was off in Settings when this came in");
+});

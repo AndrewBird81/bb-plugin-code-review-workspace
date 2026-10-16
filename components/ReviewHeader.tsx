@@ -7,6 +7,7 @@ import type { StackMember, StackPlace } from "../lib/stacks";
 import { LINES_PER_HOUR, readingTime } from "../lib/review-size";
 import { reviewState, type ReviewItem } from "../lib/review-state";
 import { statusLine, type StatusKind, type StatusTone } from "../lib/status-line";
+import { useKnob } from "../lib/settings";
 import { canSnooze, canSnoozeUntil, type ReviewRound } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
@@ -156,7 +157,8 @@ export const ReviewHeader = memo(function ReviewHeader({ review, checks, readLin
   const stack = review.stack ?? null;
   // The checks as just read, once they are; until then, as the last sync saw them.
   const ci = checks ? (checks.bucket === "fail" || checks.bucket === "pending" || checks.bucket === "pass" ? checks.bucket : "none") : undefined;
-  const facts = statusLine(review, { passingChecks: true, ci })
+  const unattendedAgents = useKnob("unattendedAgents");
+  const facts = statusLine(review, { passingChecks: true, ci, knobs: { unattendedAgents } })
     // A review that's simply ready has nothing to say about whose turn it is.
     .filter((part) => HERO_FACTS.has(part.kind) && !(part.kind === "why" && turn.label === "Ready"))
     .map((part) => part.kind === "progress" && progress ? (

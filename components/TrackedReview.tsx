@@ -5,6 +5,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
 import { statusLine } from "../lib/status-line";
 import { notRunReason } from "../lib/trust";
+import { useKnob } from "../lib/settings";
 import { Button } from "./ui/button";
 import { Avatar } from "./ui/avatar";
 import { Icon } from "./ui/icon";
@@ -23,6 +24,7 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: { r
   const navigate = useBbNavigate();
   const pinnable = useThreadListReviews() === true;
   const [starting, setStarting] = useState(false);
+  const unattendedAgents = useKnob("unattendedAgents");
   const kind = kindLook(review);
   // Its size, its stack and a run that didn't start have their own lines here.
   const parts = statusLine(review).filter((part) => part.kind !== "size" && part.kind !== "stack" && part.kind !== "stack-unreviewed" && part.kind !== "not-run");
@@ -59,7 +61,7 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: { r
             {review.stack && <p className="flex flex-wrap items-center justify-center text-xs text-muted-foreground"><StackLinks stack={review.stack} /></p>}
             <UnreviewedParent stack={review.stack} className="justify-center" />
           </div>
-          {review.skippedRun && <p className="flex items-center gap-1.5 text-sm text-warning-text"><Icon name="Lock" className="size-3.5 shrink-0" aria-hidden />{notRunReason(review)}.</p>}
+          {review.skippedRun && <p className="flex items-center gap-1.5 text-sm text-warning-text"><Icon name="Lock" className="size-3.5 shrink-0" aria-hidden />{notRunReason(review, { unattendedAgents })}.</p>}
           <div className="space-y-1">
             <h2 className="text-base font-semibold text-foreground">No guide yet</h2>
             <p className="text-sm text-muted-foreground">Building one takes a few minutes. Nothing reaches GitHub until you submit.</p>

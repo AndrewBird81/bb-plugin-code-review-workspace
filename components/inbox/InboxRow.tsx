@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { reviewState, type ReviewItem } from "../../lib/review-state";
 import { lastActivity, statusLine } from "../../lib/status-line";
+import { useKnob } from "../../lib/settings";
 import { canSnooze, canSnoozeUntil } from "../../lib/turn";
 import { cn } from "../../lib/utils";
 import { ReviewActions, useReviewActions } from "../ReviewActions";
@@ -29,6 +30,7 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   const turn = reviewState(review);
   const titleId = useId();
   const actions = useReviewActions(review, onChanged);
+  const unattendedAgents = useKnob("unattendedAgents");
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const title = review.title ?? review.gitRef ?? review.targetKey;
   const where = review.repo ? `${review.repo}${review.number ? ` #${review.number}` : ""}` : review.gitRef && review.title ? review.gitRef : null;
@@ -49,7 +51,7 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
           {when && <span className="w-7 shrink-0 text-right text-xs tabular-nums text-subtle-foreground">{when}</span>}
         </span>
         {/* Narrow, where the PR is follows its status, which comes first when there's no room for both. */}
-        <StatusLine parts={statusLine(review)} after={where ? { content: <span className="font-mono text-[11px]">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
+        <StatusLine parts={statusLine(review, { knobs: { unattendedAgents } })} after={where ? { content: <span className="font-mono text-[11px]">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
           className="mt-0.5 text-xs leading-4 text-muted-foreground" />
       </button>
       {/* A fine pointer's quick actions show over the end of the status line, clear of the line above, while the row is

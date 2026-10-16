@@ -1143,6 +1143,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   };
   // Settings → Reading can turn the keys off, all but Esc.
   const shortcutsOn = useKnob("singleKeyShortcuts");
+  const unattendedAgents = useKnob("unattendedAgents");
   const shortcutsRef = useRef(shortcutsOn);
   shortcutsRef.current = shortcutsOn;
   useEffect(() => {
@@ -1194,7 +1195,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     ...(review?.status === "error" ? [{ id: "rebuild", tone: "danger", icon: "AlertTriangle", role: "alert", text: "Couldn’t update the guide. Showing the previous one.", action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Try again</Button> }] as const : []),
     ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
     ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here." }] as const : []),
-    ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review)}.`, action: <NotRunButton review={review} /> }] as const : []),
+    ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review, { unattendedAgents })}.`, action: <NotRunButton review={review} /> }] as const : []),
     ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: newCommitsText, action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),
   ];
   // Inside the padding that keeps the workspace clear of the screen's edges.

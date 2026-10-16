@@ -46,9 +46,14 @@ export function mayRunChecks(review: Trust, preferences: Pick<ReviewPreferences,
   return preferences.runRepoChecks && review.kind === "pr" && trustedAuthor(review, preferences);
 }
 
-/** Why a run didn't start on its own. A member's run skipped before the sync read the association was skipped for that. */
-export function notRunReason(review: Pick<ReviewMeta, "author" | "repo" | "authorAssociation" | "foreignHeadOwner" | "skippedRun">): string {
-  if (review.skippedRun?.why === "settings") return "Not run automatically: Start agents on their own is off in Settings";
+/**
+ * Why a run didn't start on its own, with `knobs` the current settings. A member's run skipped before the sync read the
+ * association was skipped for that.
+ */
+export function notRunReason(review: Pick<ReviewMeta, "author" | "repo" | "authorAssociation" | "foreignHeadOwner" | "skippedRun">, knobs: Pick<Knobs, "unattendedAgents">): string {
+  if (review.skippedRun?.why === "settings") {
+    return knobs.unattendedAgents ? "Not run automatically: Start agents on their own was off in Settings when this came in" : "Not run automatically: Start agents on their own is off in Settings";
+  }
   if (typeof review.foreignHeadOwner === "string") return `Not run automatically: this PR’s branch is in ${review.foreignHeadOwner ? `@${review.foreignHeadOwner}’s` : "someone else’s"} fork`;
   if (review.authorAssociation === undefined || MEMBERS.has(review.authorAssociation ?? "")) return "Not run automatically: GitHub hadn’t said who wrote this PR yet";
   return `Not run automatically: ${review.author ? `@${review.author}` : "the author"} isn’t a member of ${review.repo?.split("/")[0] ?? "the repository"}`;
