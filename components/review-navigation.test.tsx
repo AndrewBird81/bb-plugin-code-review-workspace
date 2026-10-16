@@ -114,6 +114,25 @@ test("after a chapter's last file, Next opens the next chapter at its top", asyn
   slot.lifecycle.unmount();
 });
 
+test("the chapter end's Next, and Mark viewed and continue, give the focus to the next chapter's title", async () => {
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  const main = within(slot.getByRole("main"));
+  const next = main.getByRole("button", { name: "Next: Caching" });
+  next.focus();
+  fireEvent.click(next);
+  await waitFor(() => expect(document.activeElement).toBe(main.getByRole("heading", { name: "Caching" })));
+  slot.lifecycle.unmount();
+  patchReviewState("pr-42", { activeId: "c1" });
+  const again = await renderWorkspace();
+  await again.slot.findByText("aa");
+  const button = within(again.slot.getByRole("main")).getByRole("button", { name: "Mark viewed and continue" });
+  button.focus();
+  fireEvent.click(button);
+  await waitFor(() => expect(document.activeElement?.textContent).toBe("Caching"));
+  again.slot.lifecycle.unmount();
+}, 15_000);
+
 test("the last chapter ends on Finish review, marking the chapter viewed if you ask", async () => {
   patchReviewState("pr-42", { activeId: "c2" });
   const { slot, rpc } = await renderWorkspace();

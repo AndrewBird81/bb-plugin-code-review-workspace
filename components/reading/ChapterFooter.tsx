@@ -1,4 +1,4 @@
-import { useContext, useMemo } from "react";
+import { useContext, useMemo, useRef } from "react";
 import { chapterAt } from "../../src/hunks";
 import { splitPatchByFile } from "../../src/patch";
 import { draftState } from "../../lib/comments";
@@ -28,6 +28,7 @@ export function ChapterFooter({ patch }: {
   const draft = useContext(InlineDraftContext);
   // chapterAt splits the patch it's given: give it just the comment's file, split once per patch.
   const texts = useMemo(() => new Map(splitPatchByFile(patch).map((file) => [file.path, file.text])), [patch]);
+  const root = useRef<HTMLDivElement>(null);
   const index = sections.findIndex((section) => section.id === activeId);
   const chapter = sections[index];
   if (!chapter) return null;
@@ -42,19 +43,30 @@ export function ChapterFooter({ patch }: {
   // A closed PR has nothing to finish: the last chapter leads to its archived review instead.
   const closed = review.prState === "MERGED" || review.prState === "CLOSED";
   const button = cn("min-w-0 max-w-full @max-[480px]/review:w-full", TOUCH_CONTROL);
+  // The next chapter opens at its top: its title takes the focus, which would stay down here, past its files.
+  const goNext = (id: string) => {
+    const box = root.current?.parentElement;
+    go(id);
+    requestAnimationFrame(() => {
+      const title = box?.querySelector<HTMLElement>(":scope > section h3");
+      if (!title) return;
+      if (!title.hasAttribute("tabindex")) title.tabIndex = -1;
+      title.focus({ preventScroll: true });
+    });
+  };
   return (
-    <div className="mt-6 space-y-3 border-t border-border pt-4">
+    <div ref={root} className="mt-6 space-y-3 border-t border-border pt-4">
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
         <MetaLine className="mr-auto tabular-nums" items={[`${viewed} of ${plural(own.size, "file")} viewed`, comments > 0 && plural(comments, "comment")]} />
         {/* Where the pane is phone-sized, each button takes a row of its own. */}
         <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2 @max-[480px]/review:w-full">
           {left && (
-            <Button size="sm" className={button} onClick={() => { files.markChapterViewed(chapter.id); if (next) go(next.id); else if (!closed) openFinish(); }}>
+            <Button size="sm" className={button} onClick={() => { files.markChapterViewed(chapter.id); if (next) goNext(next.id); else if (!closed) openFinish(); }}>
               <Icon name="CircleCheck" aria-hidden />
               {next ? "Mark viewed and continue" : closed ? "Mark viewed" : "Mark viewed and finish"}
             </Button>
           )}
-          <Button variant={left ? "ghost" : "default"} size="sm" className={cn(button, left && "text-muted-foreground")} onClick={() => next ? go(next.id) : openFinish()}>
+          <Button variant={left ? "ghost" : "default"} size="sm" className={cn(button, left && "text-muted-foreground")} onClick={() => next ? goNext(next.id) : openFinish()}>
             <span className="truncate">{next ? <>Next: <InlineCode text={next.title} /></> : closed ? "Archived review" : "Finish review"}</span>
             <Icon name="ArrowRight" aria-hidden />
           </Button>
