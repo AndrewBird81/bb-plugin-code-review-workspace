@@ -379,6 +379,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             {knob("testWeakening")}
             {knob("lockfileDigest")}
             {knob("requirements")}
+            {knob("paletteCommands")}
             {knob("codeOwners")}
             {knob("localDiffChanges")}
             {knob("openInEditor")}

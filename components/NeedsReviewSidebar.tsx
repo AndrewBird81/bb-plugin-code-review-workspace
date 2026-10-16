@@ -6,6 +6,8 @@ import type { rpcContract } from "../src/rpc-contract";
 import { needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
 import { statusWhy } from "../lib/status-line";
 import { usePortalScopeProps } from "../lib/portal-scope";
+import { setPaletteCommands, usePaletteCommands } from "../lib/commands";
+import { withDefaults } from "../lib/settings";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
 import { kindLook } from "./ReviewStatus";
@@ -63,7 +65,11 @@ export function useThreadListReviews(): boolean | null {
   const rpc = useRpc<typeof rpcContract>();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const load = useCallback(() => {
-    rpc.call("getPreferences", null).then((record) => setEnabled(record.preferences.threadListReviews)).catch(() => {});
+    rpc.call("getPreferences", null).then((record) => {
+      setEnabled(record.preferences.threadListReviews);
+      // BB asks whether the palette's commands are available synchronously, so this always-mounted load keeps their switch.
+      setPaletteCommands(withDefaults(record.preferences).knobs.paletteCommands);
+    }).catch(() => {});
   }, [rpc]);
   useEffect(load, [load]);
   useRealtime("preferences", load);
@@ -136,6 +142,8 @@ function Group({ label, count, collapsedKey, children }: { label: string; count?
 }
 
 export function NeedsReviewSidebar() {
+  // BB's command palette's commands run here, the one place always mounted.
+  usePaletteCommands();
   // Off in Settings, nothing goes into BB's list.
   const enabled = useThreadListReviews() === true;
   const sidebarReviews = useSidebarReviews(enabled);

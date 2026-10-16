@@ -448,3 +448,13 @@ test("with Read REVIEW.md off, the Overview doesn't say the PR changes a file th
   expect(off.main().queryByText(/which the agents read/)).toBeNull();
   off.page.lifecycle.unmount(); off.bar.lifecycle.unmount();
 });
+
+test("with Commands in BB's command palette off, the palette lists none of them", async () => {
+  const app = await loadPluginApp(() => import("../app"));
+  const commands = (app as unknown as { commandPaletteActions: { id: string; isAvailable?(context: unknown): boolean }[] }).commandPaletteActions;
+  const context = { threadId: null, projectId: null, openPanel: () => false };
+  const overlay = app.appOverlays.find((registration) => registration.id === "needs-review")!;
+  const slot = renderSlot(overlay, {}, { rpc: settingsOffRpc(allKnobsOff) as any, sidebarThreads: { status: "ready", threads: [] } });
+  await waitFor(() => expect(commands.map((command) => command.isAvailable?.(context))).toEqual([false, false, false]));
+  slot.lifecycle.unmount();
+});

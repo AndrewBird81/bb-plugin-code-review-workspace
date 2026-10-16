@@ -1,0 +1,125 @@
+// @vitest-environment jsdom
+import { afterEach, expect, test, vi } from "vitest";
+import { cleanup, waitFor } from "@testing-library/react";
+import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import type { PluginCommandRegistration } from "@get-bb/plugin-sdk/app";
+import { toast } from "sonner";
+import type { Turn } from "../lib/turn";
+import { defaultPreferences } from "../src/preferences";
+import { defaultKnobs } from "../lib/knobs";
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }, Toaster: () => null }));
+
+afterEach(() => { cleanup(); localStorage.clear(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+
+const turn = (group: Turn["group"], reason: Turn["reason"], hoursAgo: number, blocking = false): Turn =>
+  ({ group, reason, label: "", signal: null, at: Date.now() - hoursAgo * 3_600_000, notify: false, blocking, updated: false, eventAt: null, failed: false });
+const reviews = [
+  { targetKey: "pr-team", title: "Team request", repo: "acme/web", number: 3, status: "ready", turn: turn("needs", "team-requested", 30) },
+  { targetKey: "pr-waiting", title: "Waiting on the author", repo: "acme/web", number: 4, status: "ready", turn: turn("waiting", "waiting", 1) },
+  { targetKey: "pr-blocking", title: "Blocks merge", repo: "acme/web", number: 2, status: "ready", turn: turn("needs", "re-requested", 1, true) },
+];
+const context = { threadId: null, projectId: null, openPanel: () => false };
+
+/** The plugin's palette commands, by id, and its app overlay, which handles them, mounted with these RPCs. */
+async function load(rpc: Record<string, (input: any) => unknown> = {}, paletteCommands = true) {
+  const app = await loadPluginApp(() => import("../app"));
+  // The test runtime collects app.commands.register's commands, though its type doesn't list them yet.
+  const commands = (app as unknown as { commandPaletteActions: (PluginCommandRegistration & { target: string })[] }).commandPaletteActions;
+  const command = (id: string) => commands.find((entry) => entry.id === id)!;
+  const mount = () => renderSlot(app.appOverlays.find((registration) => registration.id === "needs-review")!, {}, { rpc: {
+    listReviews: () => ({ reviews }),
+    startReview: () => ({ ok: true, targetKey: "pr-7" }),
+    getPreferences: () => ({ preferences: { ...defaultPreferences, threadListReviews: false, knobs: { ...defaultKnobs, paletteCommands } }, revision: 0 }),
+    ...rpc,
+  } as any, sidebarThreads: { status: "ready", threads: [] } });
+  return { commands, command, mount };
+}
+
+test("the three commands are in BB's palette with their ids and titles, and Next review that needs me has ⌘⇧R", async () => {
+  const { commands } = await load();
+  expect(commands.map(({ target, id, title, defaultShortcut }) => ({ target, id, title, defaultShortcut }))).toEqual([
+    { target: "app", id: "next-review", title: "Guided Review: Next review that needs me", defaultShortcut: { key: "r", mod: true, shift: true, meta: false, control: false, alt: false } },
+    { target: "app", id: "review-from-clipboard", title: "Guided Review: Review PR from clipboard", defaultShortcut: null },
+    { target: "app", id: "all-reviews", title: "Guided Review: All reviews", defaultShortcut: null },
+  ]);
+});
+
+test("the commands are listed while the overlay that runs them is mounted, and not with their switch off", async () => {
+  const on = await load();
+  // No overlay, as on a host without app overlays: nothing would run them.
+  expect(on.commands.map((command) => command.isAvailable!(context))).toEqual([false, false, false]);
+  const slot = on.mount();
+  expect(on.commands.map((command) => command.isAvailable!(context))).toEqual([true, true, true]);
+  slot.lifecycle.unmount();
+  expect(on.command("next-review").isAvailable!(context)).toBe(false);
+
+  const off = await load({}, false);
+  const offSlot = off.mount();
+  await waitFor(() => expect(off.commands.map((command) => command.isAvailable!(context))).toEqual([false, false, false]));
+  offSlot.lifecycle.unmount();
+  // Back on, they're listed again once the overlay loads its settings.
+  const again = (await load()).mount();
+  await waitFor(() => expect(on.command("all-reviews").isAvailable!(context)).toBe(true));
+  again.lifecycle.unmount();
+});
+
+test("Next review that needs me opens the first review in Needs review's order, or says nothing needs you", async () => {
+  const { command, mount } = await load();
+  const slot = mount();
+  await command("next-review").run(context);
+  await waitFor(() => expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "pr-blocking" } }]));
+  slot.lifecycle.unmount();
+
+  const none = await load({ listReviews: () => ({ reviews: [reviews[1]] }) });
+  const empty = none.mount();
+  await none.command("next-review").run(context);
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Nothing needs you."));
+  expect(empty.inspection.navigateCalls).toEqual([]);
+  empty.lifecycle.unmount();
+});
+
+test("Review PR from clipboard opens a listed PR's review, starts one for another PR link, and says when the clipboard has none", async () => {
+  let clipboard = "https://github.com/acme/web/pull/7/files";
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { readText: async () => clipboard } });
+  const { command, mount } = await load();
+  const slot = mount();
+  const run = () => command("review-from-clipboard").run(context);
+  await run();
+  await waitFor(() => expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "pr-7" } }]));
+  expect(slot.inspection.rpcCalls.filter((call) => call.method === "startReview").map((call) => call.input)).toEqual([{ input: "https://github.com/acme/web/pull/7" }]);
+
+  clipboard = "acme/web#4";
+  await run();
+  await waitFor(() => expect(slot.inspection.navigateCalls).toHaveLength(2));
+  expect(slot.inspection.navigateCalls[1]).toEqual({ method: "toPluginPanel", path: "review", options: { subPath: "pr-waiting" } });
+  expect(slot.inspection.rpcCalls.filter((call) => call.method === "startReview")).toHaveLength(1);
+
+  clipboard = "Fix the token refresh";
+  await run();
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith("The clipboard has no PR link."));
+  expect(slot.inspection.navigateCalls).toHaveLength(2);
+  expect(slot.inspection.rpcCalls.filter((call) => call.method === "startReview")).toHaveLength(1);
+  slot.lifecycle.unmount();
+});
+
+test("Review PR from clipboard says when the clipboard can't be read, or the review can't start", async () => {
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { readText: async () => { throw new DOMException("Denied", "NotAllowedError"); } } });
+  const { command, mount } = await load({ startReview: () => ({ ok: false, error: "Couldn’t read acme/web#9 on GitHub." }) });
+  const slot = mount();
+  await command("review-from-clipboard").run(context);
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn’t read the clipboard."));
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { readText: async () => "acme/web#9" } });
+  await command("review-from-clipboard").run(context);
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn’t read acme/web#9 on GitHub."));
+  expect(slot.inspection.navigateCalls).toEqual([]);
+  slot.lifecycle.unmount();
+});
+
+test("All reviews opens the review list", async () => {
+  const { command, mount } = await load();
+  const slot = mount();
+  await command("all-reviews").run(context);
+  expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review" }]);
+  slot.lifecycle.unmount();
+});
