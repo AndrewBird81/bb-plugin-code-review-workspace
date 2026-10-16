@@ -519,6 +519,24 @@ test("a setting that depends on another is disabled while that one is off, and T
   slot.lifecycle.unmount();
 });
 
+test("Trust warns while Anyone and running the repo's checks are both on, and only then", async () => {
+  const { slot, toggle } = await renderSettings();
+  const warning = () => slot.queryByText("With Anyone, this runs code from any GitHub user’s PR, forks included, on this server, where gh is signed in.");
+  const authors = (name: string) => within(slot.getByRole("group", { name: "Run agents on their own for PRs from" })).getByRole("button", { name });
+  const checks = toggle("Let the review agent run the repo’s tests and linters");
+  expect(warning()).toBeNull();
+  fireEvent.click(authors("Anyone"));
+  expect(warning()).toBeNull();
+  fireEvent.click(checks);
+  expect(warning()).not.toBeNull();
+  fireEvent.click(authors("Members and collaborators"));
+  expect(warning()).toBeNull();
+  fireEvent.click(authors("Anyone"));
+  fireEvent.click(checks);
+  expect(warning()).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("Start guides automatically says when its guides start, which follows the turn alerts and Start agents on their own", async () => {
   const { slot, toggle } = await renderSettings();
   const help = () => slot.container.querySelector("#auto-start-help")!.textContent;
