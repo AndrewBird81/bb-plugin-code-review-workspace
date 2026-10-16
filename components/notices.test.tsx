@@ -105,6 +105,24 @@ test("while the guide is updated, the notice says the view and unsaved edits sta
   broken.slot.lifecycle.unmount();
 });
 
+test("a failed update says why under its text, as plain text cut to a few lines, when it's known", async () => {
+  const text = "Its last guide wasn't accepted:\nmissing: src/a.ts is in the diff but not in the guide <b>";
+  const { slot } = await renderWorkspace({}, () => ({ review: { targetKey: "pr-42", kind: "pr", status: "error", createdAt: 1, title: "Parse rows", headSha: "new", guideError: { at: 1, text } } }));
+  const alert = notice(slot, "Couldn’t update the guide. Showing the previous one.");
+  expect(alert.getAttribute("role")).toBe("alert");
+  const reason = within(alert).getByText(/^Its last guide wasn't accepted:/);
+  expect(reason.textContent).toBe(text);
+  expect(reason.className).toContain("line-clamp-3");
+  expect(reason.className).toContain("whitespace-pre-line");
+  expect(within(alert).getByRole("button", { name: "Try again" })).toBeTruthy();
+  slot.lifecycle.unmount();
+  // Unknown, the notice is its text alone.
+  const unknown = await renderWorkspace({}, () => ({ review: { targetKey: "pr-42", kind: "pr", status: "error", createdAt: 1, title: "Parse rows", headSha: "new" } }));
+  const plain = notice(unknown.slot, "Couldn’t update the guide. Showing the previous one.");
+  expect(plain.textContent).toBe("Couldn’t update the guide. Showing the previous one.Try again");
+  unknown.slot.lifecycle.unmount();
+});
+
 test("while the connection is down the review says it's reconnecting, and once back it reads the review, views, draft and threads again", async () => {
   const counted = { getFileViews: 0, getDraft: 0, getReviewThreads: 0 };
   const count = <T,>(name: keyof typeof counted, answer: T) => vi.fn(() => { counted[name]++; return answer; });
