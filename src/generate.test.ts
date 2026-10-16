@@ -426,6 +426,7 @@ test("the guide-writing skill follows ticket references only from a trusted auth
 test("generate_review_guide's description names every rule it enforces, and its instructions say to stop once accepted", async () => {
   const writer = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate"] });
   await plugin(writer.bb);
+  recordWriter(writer.bb, "thread-1");
   const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("guided-review", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
   for (const rule of [
     "every problem listed", "each changed file (or each hunk of a split file) is in exactly one chapter", "chapter ids are unique", "unplaced files have no changed lines",
