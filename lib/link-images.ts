@@ -244,13 +244,13 @@ function outsideCode(text: string, change: (prose: string) => string): string {
   return out + change(text.slice(from));
 }
 
-type LineKind = "fence" | "inline" | "raw";
+type LineKind = "fence" | "inline" | "row" | "raw";
 interface Line { start: number; end: number; kind: LineKind }
 
 /**
  * Each line of `text` as CommonMark with GFM reads it once `escapeHtml` has run, so only FORMATTING tags can begin an
- * HTML block: a fenced code block's, inline text (a paragraph's or a heading's), or anything else; and the code spans
- * in inline text. See `lineKinds` and `codeSpans`.
+ * HTML block: a fenced code block's, inline text (a paragraph's or a heading's), a GFM table's row, or anything else;
+ * and the code spans in inline text and rows. See `lineKinds` and `codeSpans`.
  */
 function structure(text: string): { lines: Line[]; spans: Array<[number, number]> } {
   const rows = text.split("\n");
@@ -399,7 +399,7 @@ function lineKinds(rows: string[]): LineKind[] {
       if (delimiter && continues && !all) return null;
       if (delimiter && matchedParagraph && !/^[-+*][ \t]/.test(tail)) {
         paragraph!.table = true;
-        for (let n = paragraph!.first; n < index; n++) kinds[n] = "raw";
+        for (let n = paragraph!.first; n < index; n++) kinds[n] = "row";
         return "raw";
       }
       if (matchedParagraph && /^(?:=+|-+)[ \t]*$/.test(tail)) return close() ? "raw" : null;
@@ -429,7 +429,7 @@ function lineKinds(rows: string[]): LineKind[] {
     if (paragraph && !opened) {
       if (!all && (paragraph.definition || paragraph.table)) return null;
       if (all) fill();
-      return paragraph.table ? "raw" : "inline";
+      return paragraph.table ? "row" : "inline";
     }
     if (!close()) return null;
     leaf = { kind: "paragraph", first: index, definition: mayDefine(row.slice(pos).trimStart()), table: false };
@@ -462,10 +462,10 @@ function htmlBlock(text: string): 0 | 1 | 6 | 7 {
 }
 
 /**
- * The code spans CommonMark finds in inline `lines`, read as `escapeHtml` leaves them. Backticks pair within a line;
- * within a run of lines between blank lines and fences, once a backtick may go uncounted (one no line closes, or one a
- * GFM autolink literal, math, a directive, a link's destination or title, a reference or a definition may hold), the
- * run's later backticks are text. Math begins at `$$`: BB reads no single `$` as math.
+ * The code spans CommonMark finds in inline `lines` and table rows, read as `escapeHtml` leaves them. Backticks pair
+ * within a line; within a run of lines between blank lines and fences, once a backtick may go uncounted (one no line
+ * closes, or one a GFM autolink literal, math, a directive, a link's destination or title, a reference or a definition
+ * may hold), the run's later backticks are text. Math begins at `$$`: BB reads no single `$` as math.
  */
 function codeSpans(text: string, lines: Line[]): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
@@ -476,30 +476,54 @@ function codeSpans(text: string, lines: Line[]): Array<[number, number]> {
       paired = true;
       continue;
     }
-    // Where the word at `i` begins: an autolink literal runs to a space.
-    let word = 0;
-    for (let i = 0; paired && i < line.length;) {
-      const char = line[i];
-      const next = line[i + 1] ?? "";
-      if (char === "\\" && PUNCTUATION.test(next)) i += 2;
-      else if (char === " " || char === "\t") word = ++i;
-      else if (char === "<") {
-        const kept = keptEnd(line, i, kind === "inline");
-        i = kept > 0 ? (word = kept) : i + 1;
-      } else if (char === "`") {
-        const length = /^`+/.exec(line.slice(i))![0].length;
-        const close = closingRun(line, i + length, length);
-        if (close < 0 || /[:@]|www\./i.test(line.slice(word, i))) paired = false;
-        else {
-          if (kind === "inline") spans.push([start + i, start + close + length]);
-          i = word = close + length;
-        }
-      } else if ((char === "$" && next === "$") || (char === ":" && /[A-Za-z]/.test(next))) paired = false;
-      else if (char === "]" && (next === ":" || (next === "(" && !simpleResource(line, i + 1)) || (next === "[" && !/^\[[^[\]\\`\n]*\]/.test(line.slice(i + 1))))) paired = false;
-      else i++;
-    }
+    if (!paired) continue;
+    const found = lineSpans(line, kind === "inline");
+    paired = found.paired;
+    // A table's row, which BB may read as a paragraph's line or as cells: only a span that's one both ways.
+    const cells = kind === "row" && new Set(tableCells(line).flatMap(([from, to]) => lineSpans(line.slice(from, to), false).spans.map(([a, b]) => `${from + a} ${from + b}`)));
+    for (const [a, b] of found.spans) if (kind === "inline" || (cells && cells.has(`${a} ${b}`))) spans.push([start + a, start + b]);
   }
   return spans;
+}
+
+/** The code spans in `line` (see `codeSpans`) up to a backtick that may go uncounted, and whether there was none. */
+function lineSpans(line: string, inline: boolean): { spans: Array<[number, number]>; paired: boolean } {
+  const spans: Array<[number, number]> = [];
+  // Where the word at `i` begins: an autolink literal runs to a space.
+  let word = 0;
+  for (let i = 0; i < line.length;) {
+    const char = line[i];
+    const next = line[i + 1] ?? "";
+    if (char === "\\" && PUNCTUATION.test(next)) i += 2;
+    else if (char === " " || char === "\t") word = ++i;
+    else if (char === "<") {
+      const kept = keptEnd(line, i, inline);
+      i = kept > 0 ? (word = kept) : i + 1;
+    } else if (char === "`") {
+      const length = /^`+/.exec(line.slice(i))![0].length;
+      const close = closingRun(line, i + length, length);
+      if (close < 0 || /[:@]|www\./i.test(line.slice(word, i))) return { spans, paired: false };
+      spans.push([i, close + length]);
+      i = word = close + length;
+    } else if ((char === "$" && next === "$") || (char === ":" && /[A-Za-z]/.test(next))) return { spans, paired: false };
+    else if (char === "]" && (next === ":" || (next === "(" && !simpleResource(line, i + 1)) || (next === "[" && !/^\[[^[\]\\`\n]*\]/.test(line.slice(i + 1))))) return { spans, paired: false };
+    else i++;
+  }
+  return { spans, paired: true };
+}
+
+/** A table row's cells, as GFM splits it before it reads their code: at each pipe but `\|`, with `\\` an escape too. */
+function tableCells(line: string): Array<[number, number]> {
+  const cells: Array<[number, number]> = [];
+  let from = 0;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === "\\" && (line[i + 1] === "\\" || line[i + 1] === "|")) i++;
+    else if (line[i] === "|") {
+      cells.push([from, i]);
+      from = i + 1;
+    }
+  }
+  return [...cells, [from, line.length]];
 }
 
 /** Where the next run of exactly `length` backticks from `from` in `line` begins, or -1. */

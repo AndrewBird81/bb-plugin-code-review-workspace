@@ -105,7 +105,9 @@ test("code spans it can't be sure of, and what follows a doubtful fence, are cha
   expect(linkImages("`x\n\n![p](https://evil.example/a.png)\n\n`")).toBe("`x\n\n[Image: p](https://evil.example/a.png)\n\n`");
   expect(linkImages("<https://a.test/`> ![x](https://evil.test/al.png) <https://b.test/`>")).toBe("&lt;https://a.test/`> [Image: x](https://evil.test/al.png) &lt;https://b.test/`>");
   // A table's cells, a link's destination and an autolink literal can each take a backtick from a code span.
-  expect(linkImages('| a | `<img src="https://evil.test/t.png">` |\n|---|---|')).toBe("| a | `[Image](https://evil.test/t.png)` |\n|---|---|");
+  expect(linkImages('| a | b |\n|---|---|\n| ` | `<img src="https://evil.test/t.png">` |')).toBe("| a | b |\n|---|---|\n| ` | `[Image](https://evil.test/t.png)` |");
+  expect(linkImages('| a |\n|---|\n| `x | <img src="https://evil.test/t2.png"> | y` |')).toBe("| a |\n|---|\n| `x | [Image](https://evil.test/t2.png) | y` |");
+  expect(linkImages('| a |\n|---|\n| `x \\\\| <img src="https://evil.test/t3.png"> | y` |')).toBe("| a |\n|---|\n| `x \\\\| [Image](https://evil.test/t3.png) | y` |");
   expect(linkImages('See [x](u`) <img src="https://evil.test/r.png"> `y`')).toBe("See [x](u`) [Image](https://evil.test/r.png) `y`");
   expect(linkImages('https://a.test/` `a`<img src="https://evil.test/l.png">`')).toBe("https://a.test/` `a`[Image](https://evil.test/l.png)`");
   // Inline math, as $$ begins it, can hold a backtick.
@@ -153,6 +155,16 @@ test("a list item that can't interrupt a paragraph, or indented code, begins no 
   }
   // From 1 it does.
   expect(linkImages("a\n1. b\n   ```\n   <img src={logo} />\n   ```")).toBe("a\n1. b\n   ```\n   <img src={logo} />\n   ```");
+});
+
+// A table's rows were all changed like prose, so agents' tables of types showed Array&lt;T> (96-recheck-3 P3). A span
+// stays as written where it's one whether BB reads the row as cells or as a paragraph's line.
+test("a code span in a table's cell stays as written", () => {
+  for (const text of [
+    "| Type | Note |\n|---|:-:|\n| `Array<T>` | `![` and `<img src={logo} />` |\n| `a \\| b<c>` | x |",
+    "Before\n| a | `Map<K, V>` |\n| - | - |",
+    "> | a |\n> |---|\n> | `Promise<void>` |",
+  ]) expect(linkImages(text)).toBe(text);
 });
 
 // At the margin a tab indents to 4 columns, as CommonMark reads it, so the code after a tab-indented line showed
