@@ -116,3 +116,18 @@ test("with every toggle off, a review still submits", async () => {
   expect(await harness.behavior.callRpc("submitReview", { targetKey: "pr-1", revision, account: "casey", ...shown(store, "pr-1") })).toMatchObject({ ok: true });
   expect(submit).toHaveBeenCalled();
 });
+
+test("with every toggle off, a comment on code the PR didn't change posts like any other, and the assistant isn't asked to mark one", async () => {
+  const { store } = host();
+  store.setStatus("pr-1", "ready");
+  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+  store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", author: "agent", severity: "blocking", body: "Already racy.", introduced: false });
+  store.setVerdict("pr-1", "COMMENT", "ok");
+  const run = vi.fn(async (args: string[]) => ({ code: 0, stderr: "", stdout: args[0] === "pr" ? JSON.stringify({ headRefOid: "sha1" }) : "{}" }));
+  const { createReviewSubmitter } = await import("./submit-review");
+  const { comments, body, verdict } = store.getDraft("pr-1");
+  expect(await createReviewSubmitter(store, run as any)("pr-1", undefined, undefined, comments, { body, verdict })).toMatchObject({ ok: true });
+  expect(JSON.parse((run.mock.calls.at(-1) as any)[1].stdin).comments[0].body).toBe("**Blocking:** Already racy.");
+  const { assistantInstructions } = await import("./agent");
+  expect(assistantInstructions("pr-1", null, store.getPreferences().preferences)).not.toContain("introduced");
+});

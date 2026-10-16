@@ -200,9 +200,10 @@ export interface Store extends AgentCommentStore {
   upsertDraftComment(targetKey: string, c: DraftComment): Draft;
   /**
    * Change only a comment's text, with `severity` its severity, and with `evidence` how the agent checked it (null
-   * for none of either), keeping who added it and the diff it was drafted against. Null when there's no comment there.
+   * for none of either), and with `introduced` whether the PR introduced it, keeping who added it and the diff it was
+   * drafted against. Null when there's no comment there.
    */
-  editDraftComment(targetKey: string, at: CommentLocation, body: string, severity?: Severity | null, evidence?: string | null): Draft | null;
+  editDraftComment(targetKey: string, at: CommentLocation, body: string, severity?: Severity | null, evidence?: string | null, introduced?: boolean): Draft | null;
   /** Null when there's no comment there. */
   deleteDraftComment(targetKey: string, at: CommentLocation): Draft | null;
   /** The reviewer picks a verdict. With body, they also write the summary. */
@@ -288,7 +289,7 @@ export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor
  * change that suggested a verdict, `suggested` is that verdict and `suggestedVerdict` the one before (null for none).
  * For a comment's edit, `startCode` is the code its first line was drafted on.
  */
-export type PreviousState = { body: string; author?: "agent"; severity?: Severity; evidence?: string; chapterId?: string; startLine?: number; startSide?: "LEFT" | "RIGHT"; startCode?: string; relined?: true; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
+export type PreviousState = { body: string; author?: "agent"; severity?: Severity; evidence?: string; introduced?: false; chapterId?: string; startLine?: number; startSide?: "LEFT" | "RIGHT"; startCode?: string; relined?: true; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
 
 export function createStore(bb: BbPluginApi): Store {
   const db = bb.storage.database();
@@ -635,7 +636,7 @@ export function createStore(bb: BbPluginApi): Store {
         .run(k, c.file, c.line, c.side, this.patchHash(k), code, startCode);
       return d;
     },
-    editDraftComment(k, at, body, severity, evidence) {
+    editDraftComment(k, at, body, severity, evidence, introduced) {
       const d = this.getDraft(k);
       const comment = d.comments.find((c) => sameLocation(c, at));
       if (!comment) return null;
@@ -644,6 +645,8 @@ export function createStore(bb: BbPluginApi): Store {
       else if (severity === null) delete comment.severity;
       if (evidence) comment.evidence = evidence;
       else if (evidence === null) delete comment.evidence;
+      if (introduced === false) comment.introduced = false;
+      else if (introduced) delete comment.introduced;
       writeDraft(db, d);
       return d;
     },

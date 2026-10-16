@@ -140,3 +140,15 @@ test("bb review comment and bb review summary refuse a --body over 65,000 charac
   expect(store.getDraft(key)).toMatchObject({ body: "", comments: [] });
   expect(await cli("add", url, "a.ts:2", "--code", "next();", "--body", "x".repeat(65_000))).toMatchObject({ exitCode: 0 });
 });
+
+test("bb review comment marks a problem in code the PR didn't change with --pre-existing, and lists it", async () => {
+  const { store, cli } = await host();
+  expect(await cli("add", url, "a.ts:2", "--code", "next();", "--body", "old() was never awaited.", "--pre-existing")).toMatchObject({ exitCode: 0 });
+  expect(store.getDraft(key).comments[0].introduced).toBe(false);
+  expect((await cli("list", url)).stdout).toContain("a.ts:2 RIGHT · added by an agent · pre-existing");
+  expect(JSON.parse((await cli("list", url, "--json")).stdout).comments[0]).toMatchObject({ introduced: false });
+  // Without it, edit keeps the mark.
+  expect(await cli("edit", url, "a.ts:2", "--body", "old() is never awaited.")).toMatchObject({ exitCode: 0 });
+  expect(store.getDraft(key).comments[0]).toMatchObject({ body: "old() is never awaited.", introduced: false });
+  expect(await cli("delete", url, "a.ts:2", "--pre-existing")).toMatchObject({ exitCode: 2, stderr: expect.stringMatching(/^delete doesn't take --pre-existing/) });
+});

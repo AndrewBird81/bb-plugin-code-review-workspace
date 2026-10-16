@@ -253,3 +253,21 @@ test("with every knob off, the Overview, a chapter, Comments, Finish review, the
   expect(Array.from(inbox.container.querySelectorAll("kbd")).filter((key) => key.textContent === "/")).toHaveLength(0);
   inbox.lifecycle.unmount();
 });
+
+test("with every knob off, a comment on code the PR didn't change shows no Pre-existing badge, mark or count, and holds Approve", async () => {
+  restores.push(desktopWindow());
+  const comments = [{ file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", severity: "blocking", body: "Upper case was always read this way.", introduced: false }];
+  const getDraft = () => ({ draft: { targetKey: "pr-42", verdict: "APPROVE", verdictChosen: true, body: "", comments: structuredClone(comments) }, stale: [] });
+  const { page, bar } = await renderReview(allKnobsOff, { getDraft });
+  const commands = within(await bar.findByRole("group", { name: "Review commands" }));
+  fireEvent.click(await commands.findByRole("button", { name: "Comments" }));
+  const panel = within(await page.findByRole("complementary", { name: "Comments and agent" }));
+  fireEvent.click(await panel.findByRole("button", { name: "Agent draft · not submitted · src/a.ts:2 · Blocking" }));
+  fireEvent.click(panel.getByRole("button", { name: /^Expand Draft comment on src\/a\.ts:2/ }));
+  await panel.findByRole("button", { name: "Remove comment on src/a.ts:2" });
+  expect(panel.queryByRole("button", { name: /Mark as/ })).toBeNull();
+  expect(page.queryByText(/pre-existing/i)).toBeNull();
+  fireEvent.click(await commands.findByRole("button", { name: /^Finish review:/ }));
+  await page.findByText("Approving with 1 blocking comment.");
+  page.lifecycle.unmount(); bar.lifecycle.unmount();
+});

@@ -811,6 +811,7 @@ export default async function plugin(bb: BbPluginApi) {
   // GitHub takes up to 65,536 characters in a comment or review body.
   const body = z.string().trim().min(1).max(65_000).describe("The comment, in GitHub Markdown.");
   const evidence = z.string().trim().max(600).optional().describe("How you confirmed it, in Markdown, under 600 characters: what you read or ran, with file:line, and repro steps. Only what you actually did. The reviewer sees it folded under the comment; it's never posted to GitHub.");
+  const introduced = z.boolean().optional().describe("false when the problem is in code this PR didn't change.");
   const severity = z.enum([...SEVERITIES, "none"]).optional().describe("How much it matters: blocking, should-fix, question, nit, or none. Without it, a label the body starts with (**Blocking:**, **Should fix:**, **Question:**, **Nit:**) sets it; on edit, it otherwise stays. The label is kept apart from the text, and GitHub shows it in front.");
   const range = {
     startLine: z.number().int().min(1).optional().describe("For a comment on several lines, the first; line is the last. Both in one hunk of the diff."),
@@ -833,6 +834,7 @@ export default async function plugin(bb: BbPluginApi) {
       severity,
       body,
       evidence,
+      introduced,
     }),
     execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => {
       const added = addComment(store, targetKey, input);
@@ -842,7 +844,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "edit_draft_comment",
     description: "Replace the text of the draft comment at a file, line, and side in the reviewer's local draft; line is a range's last line. With startLine and code, it also sets the range's first line, for example to fit a suggestion block. Its last line stays; to move a comment, delete it and add it again. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked on that comment for the change.",
-    parameters: z.object({ ...location, ...range, code: z.string().optional().describe("With startLine: the lines' text, one per line, as add_draft_comment takes it."), severity, body, evidence: evidence.describe("Replaces how you confirmed it, under 600 characters; without it, that stays.") }),
+    parameters: z.object({ ...location, ...range, code: z.string().optional().describe("With startLine: the lines' text, one per line, as add_draft_comment takes it."), severity, body, evidence: evidence.describe("Replaces how you confirmed it, under 600 characters; without it, that stays."), introduced: introduced.describe("false when the problem is in code this PR didn't change; true when it's from this PR. Without it, that stays.") }),
     execute: (input, { threadId }) => assistantDraft(threadId, true, (targetKey) => editComment(store, targetKey, input, threadId)),
   });
   bb.agents.registerTool({
@@ -1131,7 +1133,7 @@ export default async function plugin(bb: BbPluginApi) {
     rendersHelp: true,
     commands: [
       { name: "review", summary: "Review a PR or ref", usage: "bb review <pr-url | pr-number | git-ref> [--base <ref>] [--context <text>]" },
-      { name: "comment", summary: "List, add, edit, or delete a review's local draft comments; never posts to GitHub", usage: "bb review comment <list | add | edit | delete> <review> [<file>:<line>] [--side LEFT|RIGHT] [--code <text>] [--body <text>] [--severity <severity>] [--json]" },
+      { name: "comment", summary: "List, add, edit, or delete a review's local draft comments; never posts to GitHub", usage: "bb review comment <list | add | edit | delete> <review> [<file>:<line>] [--side LEFT|RIGHT] [--code <text>] [--body <text>] [--severity <severity>] [--pre-existing] [--json]" },
       { name: "summary", summary: "Show or write a review's local review summary and suggested verdict; never posts to GitHub", usage: "bb review summary <review> [--json] | [--body <text> [--suggest APPROVE|COMMENT|REQUEST_CHANGES]]" },
     ],
     async run(argv, ctx) {

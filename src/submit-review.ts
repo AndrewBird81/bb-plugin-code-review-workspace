@@ -38,7 +38,7 @@ function refusal(result: { stdout: string; stderr: string }): string {
 export function createReviewSubmitter(store: Store, run: typeof runGh) {
   const inFlight = new Set<string>();
   /** `shown` is the list of comments the reviewer's page displays, and `summary` its summary and verdict; the draft must still match them. */
-  return async (targetKey: string, revision: string | undefined, account: string | undefined, shown: Pick<DraftComment, "file" | "line" | "side" | "severity" | "body">[], summary: { body: string; verdict: Verdict }): Promise<{ ok: boolean; error?: string; url?: string }> => {
+  return async (targetKey: string, revision: string | undefined, account: string | undefined, shown: Pick<DraftComment, "file" | "line" | "side" | "severity" | "introduced" | "body">[], summary: { body: string; verdict: Verdict }): Promise<{ ok: boolean; error?: string; url?: string }> => {
     if (inFlight.has(targetKey)) return { ok: false, error: "This review is already being submitted." };
     inFlight.add(targetKey);
     try {
@@ -79,7 +79,7 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       if (typeof base === "string" && base && m.base && base !== m.base) return { ok: false, error: `The PR's base changed to ${base}. Update the guide for it before submitting. Your draft has been kept.` };
       if (store.getReview(targetKey)?.status === "generating" || store.getReview(targetKey)?.headSha !== m.headSha) return { ok: false, error: "The review changed during submission. Wait for generation and review the draft again." };
       if (revision) requireReviewRevision(store, targetKey, revision);
-      const payload = { ...toGithubReviewPayload(draft), commit_id: m.headSha };
+      const payload = { ...toGithubReviewPayload(draft, store.getPreferences().preferences.knobs.preExistingFindings), commit_id: m.headSha };
       const attempted = Date.now();
       const result = await authenticatedRun(ghSubmitReviewArgs(m.repo, m.number), { timeoutMs: POST_TIMEOUT_MS, stdin: JSON.stringify(payload) });
       let posted = result.stdout;

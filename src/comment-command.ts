@@ -6,8 +6,8 @@ import { SEVERITIES, type Severity } from "./draft";
 
 export const COMMENT_USAGE = [
   "usage: bb review comment list   <review> [--json]",
-  "       bb review comment add    <review> <file>:<line> --code <text> --body <text> [--severity <severity>] [--evidence <text>] [--side LEFT|RIGHT]",
-  "       bb review comment edit   <review> <file>:<line> --body <text> [--code <text>] [--severity <severity>] [--evidence <text>] [--side LEFT|RIGHT]",
+  "       bb review comment add    <review> <file>:<line> --code <text> --body <text> [--severity <severity>] [--evidence <text>] [--pre-existing] [--side LEFT|RIGHT]",
+  "       bb review comment edit   <review> <file>:<line> --body <text> [--code <text>] [--severity <severity>] [--evidence <text>] [--pre-existing] [--side LEFT|RIGHT]",
   "       bb review comment delete <review> <file>:<line> [--side LEFT|RIGHT]",
   "",
   "Changes a review's local draft in this bb. Nothing is posted to GitHub; the reviewer submits the draft from Guided Review.",
@@ -21,12 +21,13 @@ export const COMMENT_USAGE = [
   "                 **Blocking:**, sets it instead. Without either, edit keeps the comment's",
   "  --evidence     how you confirmed it: what you read or ran, with file:line (up to 600 characters). The",
   "                 reviewer sees it under the comment; it's never posted. Without it, edit keeps the comment's",
+  "  --pre-existing the problem is in code this PR didn't change. Without it, edit keeps the comment's mark",
 ].join("\n");
 
 const ACTIONS = {
   list: { location: false, options: ["json"] },
-  add: { location: true, options: ["side", "code", "body", "severity", "evidence"] },
-  edit: { location: true, options: ["side", "code", "body", "severity", "evidence"] },
+  add: { location: true, options: ["side", "code", "body", "severity", "evidence", "pre-existing"] },
+  edit: { location: true, options: ["side", "code", "body", "severity", "evidence", "pre-existing"] },
   delete: { location: true, options: ["side"] },
 } as const;
 
@@ -43,7 +44,7 @@ export function runCommentCommand(store: Store, argv: string[], changed: (target
   if (!action || !(action in ACTIONS)) return usage(action ? `Unknown action: ${action}` : "Choose list, add, edit, or delete.");
   const spec = ACTIONS[action as keyof typeof ACTIONS];
   const positional: string[] = [];
-  const values: { side?: string; code?: string; body?: string; severity?: string; evidence?: string; json?: string } = {};
+  const values: { side?: string; code?: string; body?: string; severity?: string; evidence?: string; json?: string; "pre-existing"?: string } = {};
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
     if (arg === "--help" || arg === "-h") return { exitCode: 0, stdout: COMMENT_USAGE };
@@ -51,7 +52,7 @@ export function runCommentCommand(store: Store, argv: string[], changed: (target
     const name = arg.slice(2) as keyof typeof values;
     if (!(spec.options as readonly string[]).includes(name)) return usage(`${action} doesn't take ${arg}.`);
     if (values[name] !== undefined) return usage(`${arg} is given twice.`);
-    if (name === "json") { values.json = ""; continue; }
+    if (name === "json" || name === "pre-existing") { values[name] = ""; continue; }
     if (i + 1 >= rest.length) return usage(`${arg} needs a value.`);
     values[name] = rest[++i];
   }
@@ -79,8 +80,9 @@ export function runCommentCommand(store: Store, argv: string[], changed: (target
   if (values.body !== undefined && values.body.trim().length > BODY_LIMIT) return usage("--body is limited to 65,000 characters.");
   const evidence = values.evidence?.trim();
   if (evidence && evidence.length > 600) return usage("--evidence is limited to 600 characters.");
-  const result: DraftResult = action === "add" ? addComment(store, key, { ...location, ...range, code: values.code!, severity, body: values.body!, evidence })
-    : action === "edit" ? editComment(store, key, { ...location, ...range, ...(values.code !== undefined ? { code: values.code } : {}), severity, body: values.body!, evidence })
+  const introduced = values["pre-existing"] === undefined ? {} : { introduced: false };
+  const result: DraftResult = action === "add" ? addComment(store, key, { ...location, ...range, code: values.code!, severity, body: values.body!, evidence, ...introduced })
+    : action === "edit" ? editComment(store, key, { ...location, ...range, ...(values.code !== undefined ? { code: values.code } : {}), severity, body: values.body!, evidence, ...introduced })
     : deleteComment(store, key, location);
   if (!result.ok) return { exitCode: 1, stderr: result.error };
   changed(key);

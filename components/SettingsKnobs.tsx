@@ -38,6 +38,7 @@ export const KNOB_CONTROLS: readonly KnobControlEntry[] = [
   { id: "askAboutSelection", section: "comments", label: "Ask agent about selected text", description: "Selecting text in the code offers Ask agent about selection. Off, it only selects the text; selected lines still offer Comment and Ask agent." },
   { id: "approveGuard", section: "comments", label: "Check before you approve", description: "With Approve picked, Finish review flags unviewed files in high-risk chapters, and chapters marked viewed faster than anyone reads, and Submit asks once more." },
   { id: "approveGuardPace", section: "comments", label: "Flag chapters read faster than", unit: "lines an hour", description: "Medium- and high-risk chapters of 50 lines or more, marked viewed faster than this.", enabledWhen: (preferences) => preferences.knobs.approveGuard },
+  { id: "preExistingFindings", section: "comments", label: "Keep pre-existing problems apart", description: "The agent marks problems the PR didn’t introduce. They show a Pre-existing badge, don’t count against Approve, and post with “Pre-existing:” in front. Off, they’re like any comment." },
   { id: "unattendedAgents", section: "trust", label: "Start agents on their own", description: "Guides, the automatic review, and re-review checks start without your click on PRs from the authors below. Off, other people’s PRs wait for your click. Your own PRs and local reviews always run, unless the PR’s branch is in someone else’s fork." },
 ];
 

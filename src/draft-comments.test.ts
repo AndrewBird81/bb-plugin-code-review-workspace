@@ -195,3 +195,27 @@ test("an agent's comment keeps how it checked it, an edit replaces or keeps that
   const saved = await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, comment: { ...at, body: "Overflows for large b." } }) as any;
   expect(saved.draft.comments).toEqual([{ ...at, body: "Overflows for large b." }]);
 });
+
+test("a comment on code the PR didn't change keeps introduced: false through add, edit, the reviewer's save, and undo", async () => {
+  const { harness, store, call, add } = await host();
+  await add({ file: "a.ts", line: 3, code: "const c = b * 2;", severity: "blocking", body: "b was never checked.", introduced: false });
+  expect(store.getDraft("pr-1").comments[0]).toMatchObject({ severity: "blocking", introduced: false });
+  expect(await call("list_draft_comments", {})).toContain("a.ts:3 RIGHT · added by an agent · blocking · pre-existing");
+  store.addDiscussionMessage("pr-1", { file: "a.ts", line: 3, side: "RIGHT" }, "reviewer", "Is it new?");
+  // An edit without it keeps the mark; true marks it as from this PR.
+  await call("edit_draft_comment", { file: "a.ts", line: 3, body: "b is never checked." });
+  expect(store.getDraft("pr-1").comments[0].introduced).toBe(false);
+  await call("edit_draft_comment", { file: "a.ts", line: 3, body: "b is never checked.", introduced: true });
+  expect(store.getDraft("pr-1").comments[0]).not.toHaveProperty("introduced");
+  // Undo puts the mark back with the text.
+  await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", file: "a.ts", line: 3, side: "RIGHT" });
+  expect(store.getDraft("pr-1").comments[0]).toMatchObject({ body: "b is never checked.", introduced: false });
+  // The reviewer's toggle saves the comment with it, or without it.
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" }) as any;
+  const comment = { file: "a.ts", line: 2, side: "LEFT", body: "Old bug.", introduced: false };
+  await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, comment });
+  expect(store.getDraft("pr-1").comments[1]).toEqual({ file: "a.ts", line: 2, side: "LEFT", body: "Old bug.", introduced: false });
+  const { introduced: _introduced, ...fromThisPr } = comment;
+  await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, replaces: "Old bug.", comment: fromThisPr });
+  expect(store.getDraft("pr-1").comments[1]).not.toHaveProperty("introduced");
+});

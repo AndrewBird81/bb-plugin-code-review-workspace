@@ -2,7 +2,7 @@
 // everyone's threads on GitHub, and your feedback (your threads' status, the agent's check, drafted replies, the
 // asks from your review summary). A thread joins its feedback by node id, the same in both. Pure, so the list, the
 // code, the title bar and Finish show and count the same things.
-import { isSummary, linesOf, sameLocation, SEVERITIES, severityCounts, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
+import { isPreExisting, isSummary, linesOf, sameLocation, SEVERITIES, severityCounts, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { threadLabel } from "../src/github/threads";
 import { chapterAt } from "../src/hunks";
 import { splitPatchByFile } from "../src/patch";
@@ -329,9 +329,9 @@ export interface CommentGroup {
  * The list's groups in order, each in its own order, empty ones too so every chip has a count. Under All each item
  * shows once: Needs you, then drafts, then GitHub (yours first), then private discussions. Not submitted's chip also
  * shows the drafts on an older diff, which All shows under Needs you, so its count is what Submit sends. Pass the
- * items the list shows.
+ * items the list shows. `preExisting` (Settings' Keep pre-existing problems apart) adds Not submitted's "1 pre-existing".
  */
-export function groups(items: readonly CommentItem[]): CommentGroup[] {
+export function groups(items: readonly CommentItem[], preExisting = false): CommentGroup[] {
   const home = (id: GroupId) => items.filter((item) => item.group === id);
   const group = (id: GroupId, shown: CommentItem[], summary: string | null): CommentGroup => ({ id, title: GROUP_TITLE[id], count: shown.length, summary, items: shown, elsewhere: 0, folded: null });
   const drafts = home("not-submitted");
@@ -342,10 +342,12 @@ export function groups(items: readonly CommentItem[]): CommentGroup[] {
   const ordered = [...github.filter(yours), ...github.filter((item) => !yours(item))];
   const folded = ordered.filter(folds);
   const resolved = folded.filter((item) => item.state === "resolved").length;
+  const draftComments = everyDraft.flatMap((item) => item.kind === "draft" ? [item.comment] : []);
+  const apart = preExisting ? draftComments.filter(isPreExisting).length : 0;
   return [
     group("needs-you", needsYou(items), null),
     {
-      ...group("not-submitted", drafts, severityCounts(everyDraft.flatMap((item) => item.kind === "draft" ? [item.comment] : [])) || null),
+      ...group("not-submitted", drafts, [severityCounts(draftComments), apart ? `${apart} pre-existing` : ""].filter(Boolean).join(" · ") || null),
       count: everyDraft.length, elsewhere: everyDraft.length - drafts.length,
     },
     {

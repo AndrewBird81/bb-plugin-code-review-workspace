@@ -5,6 +5,7 @@ import { withLineBreaks } from "../../src/line-breaks";
 import type { AskItem, CommentItem, DraftItem, PrivateItem, ThreadItem, ThreadMessage } from "../../lib/comments";
 import { linkImages } from "../../lib/link-images";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
+import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { useWorkspaceFor } from "../../lib/workspace-store";
 import { useDraft } from "../DraftProvider";
@@ -217,6 +218,7 @@ function DraftCard({ item }: { item: DraftItem }) {
   const { comment } = item;
   const box = boxAt(draft, comment);
   const where = `${comment.file}:${linesOf(comment)}`;
+  const preExisting = useKnob("preExistingFindings");
   return (
     <article data-comment-at={`${comment.file}:${comment.line}:${comment.side}`} tabIndex={-1} aria-label={`Draft comment on ${where}`} className={cn("overflow-hidden rounded-lg bg-card text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
       {box === "edit" ? <>
@@ -234,6 +236,9 @@ function DraftCard({ item }: { item: DraftItem }) {
         {draft.editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">
           <Button variant="ghost" size="sm" aria-label={`Edit comment on ${where}`} className={ACTION} disabled={draft.busy || draft.writing} onClick={() => draft.openComposer(comment, false)}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
           <Button variant="ghost" size="sm" aria-label={`Ask agent about the comment on ${where}`} className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} disabled={draft.busy || draft.writing} onClick={() => draft.openComposer(comment, false, true)}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
+          {preExisting && item.state !== "older-diff" && <Button variant="ghost" size="sm" className={ACTION} disabled={draft.busy} onClick={() => void draft.markPreExisting(comment, comment.introduced !== false)}>
+            <Icon name="History" className="size-3.5" aria-hidden />{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}
+          </Button>}
           <Button variant="ghost" size="sm" aria-label={`Remove comment on ${where}`} className={cn(ACTION, "hover:text-destructive-text")} disabled={draft.busy} onClick={() => void draft.removeComment(comment)}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove</Button>
         </div>}
       </div>}

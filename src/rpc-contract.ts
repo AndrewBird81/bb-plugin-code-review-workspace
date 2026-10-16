@@ -24,6 +24,8 @@ const commentShape = z
     body: z.string().min(1),
     // And with how the agent checked it; an edit in the panel sends none, so it goes.
     evidence: z.string().max(600).optional(),
+    // A problem in code the PR didn't change (Settings' Keep pre-existing problems apart).
+    introduced: z.literal(false).optional(),
   })
   .strict();
 
@@ -209,7 +211,7 @@ export const rpcContract = defineRpcContract({
     input: z.object({
       targetKey: z.string(), revision: z.string().optional(), account: z.string().optional(),
       // The comments, summary, and verdict the page shows; submission refuses a draft that no longer matches.
-      comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), severity: z.enum(SEVERITIES).optional(), body: z.string() })),
+      comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), severity: z.enum(SEVERITIES).optional(), introduced: z.literal(false).optional(), body: z.string() })),
       body: z.string(),
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
     }).strict(),

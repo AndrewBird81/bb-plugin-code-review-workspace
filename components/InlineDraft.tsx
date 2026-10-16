@@ -5,6 +5,7 @@ import { draftItemId, draftState, privateItemId, STATE_LABEL } from "../lib/comm
 import { composing } from "../lib/composing";
 import { linkImages } from "../lib/link-images";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
+import { useKnob } from "../lib/settings";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
@@ -45,6 +46,8 @@ export interface InlineDraft {
   dismiss(at: CommentLocation): void;
   /** Undo the agent's latest change in the discussion at a line. */
   undo(at: CommentLocation): void;
+  /** Mark a comment as a problem in code the PR didn't change, or as from this PR. */
+  markPreExisting?(comment: DraftComment, preExisting: boolean): void;
   /** Show the review assistant's chat, when the review has one. */
   chat: (() => void) | null;
 }
@@ -145,6 +148,7 @@ function FoldButton({ onFold }: { onFold: () => void }) {
 
 function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft: InlineDraft; onFold: (() => void) | null }) {
   const state = draftState(comment, draft.stale);
+  const preExisting = useKnob("preExistingFindings");
   return (
     <article tabIndex={-1} aria-label={`Draft comment on ${comment.file}:${linesOf(comment)}`} className="outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50">
       <div className={bar}>
@@ -153,11 +157,13 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
         {state === "older-diff" && comment.author === "agent" && <Badge tone="agent" size="sm" icon={<Icon name="Sparkles" aria-hidden />}>Agent</Badge>}
         {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
         {comment.severity && <SeverityBadge severity={comment.severity} />}
+        {preExisting && comment.introduced === false && <PreExistingBadge />}
         {(draft.editable || onFold) && (
           <span className="-mr-1.5 ml-auto flex">
             {draft.editable && <>
               <Button variant="ghost" size="sm" className={action} disabled={draft.busy || draft.writing} onClick={() => draft.open(comment)}>Edit</Button>
               <Button variant="ghost" size="sm" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={draft.busy || draft.writing} onClick={() => draft.ask(comment)}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
+              {preExisting && state !== "older-diff" && draft.markPreExisting && <Button variant="ghost" size="sm" className={action} disabled={draft.busy} onClick={() => draft.markPreExisting!(comment, comment.introduced !== false)}>{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}</Button>}
               <Button variant="ghost" size="sm" className={cn(action, "hover:text-destructive-text")} disabled={draft.busy} onClick={() => draft.remove(comment)}>Remove</Button>
             </>}
             {onFold && <FoldButton onFold={onFold} />}
@@ -173,6 +179,11 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
 /** How much a comment matters, on its card. */
 export function SeverityBadge({ severity, size }: { severity: Severity; size?: "sm" | "md" }) {
   return <Badge tone={SEVERITY_TONE[severity]} size={size}>{SEVERITY_LABEL[severity]}</Badge>;
+}
+
+/** A problem in code the PR didn't change, beside the comment's severity (Settings' Keep pre-existing problems apart). */
+export function PreExistingBadge() {
+  return <Badge size="sm" icon={<Icon name="History" aria-hidden />} title="In code this PR didn’t change">Pre-existing</Badge>;
 }
 
 /** The comment box's choice of severity. */

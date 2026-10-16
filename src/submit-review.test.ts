@@ -52,6 +52,27 @@ test("how the agent checked a comment stays in BB: GitHub gets the comment witho
   expect(sent).not.toContain("Read a.ts:1");
 });
 
+test("a pre-existing problem posts with “Pre-existing:” in front while Settings keeps them apart, and as any comment with it off", async () => {
+  const { store, run, submit, page } = setup();
+  store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "RIGHT", author: "agent", severity: "blocking", body: "This was already unchecked.", introduced: false });
+  expect(await submit("pr-test", undefined, undefined, ...page())).toEqual({ ok: true });
+  expect(JSON.parse(run.mock.calls.at(-1)![1]!.stdin!).comments).toEqual([{ path: "a.ts", line: 1, side: "RIGHT", body: "**Pre-existing:** **Blocking:** This was already unchecked." }]);
+
+  const { store: off, run: offRun, submit: offSubmit, page: offPage } = setup();
+  off.savePreferences({ ...off.getPreferences().preferences, knobs: { ...off.getPreferences().preferences.knobs, preExistingFindings: false } }, off.getPreferences().revision);
+  off.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "RIGHT", body: "This was already unchecked.", introduced: false });
+  expect(await offSubmit("pr-test", undefined, undefined, ...offPage())).toEqual({ ok: true });
+  expect(JSON.parse(offRun.mock.calls.at(-1)![1]!.stdin!).comments).toEqual([{ path: "a.ts", line: 1, side: "RIGHT", body: "This was already unchecked." }]);
+});
+
+test("a comment marked pre-existing, or no longer, since the page showed it holds the submission", async () => {
+  const { store, run, submit, page } = setup();
+  const [shown, summary] = page();
+  store.upsertDraftComment("pr-test", { ...shown[0], introduced: false });
+  expect(await submit("pr-test", undefined, undefined, shown, summary)).toMatchObject({ ok: false, error: expect.stringContaining("Your draft comments changed") });
+  expect(run).not.toHaveBeenCalled();
+});
+
 test("new PR commits block all writes and retain the draft", async () => {
   const { store, run, submit, page } = setup();
   const draft = store.getDraft("pr-test");

@@ -6,6 +6,7 @@ import { buildItems, checkTally, FILTER_LABEL, groups, needsYou, shownItems, toS
 import { clearOpenComments, forgetOpenComments, revealComment } from "../../lib/comments-fold";
 import { registerCommentStepper, showCommentStep, useCommentStep } from "../../lib/comment-stops";
 import { holdReview } from "../../lib/review-holds";
+import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
 import { setNeedsYou } from "../../lib/workspace-store";
@@ -93,8 +94,9 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   // Hidden nits leave the list and the code, not what Submit sends; one that needs you stays.
   const listItems = useMemo(() => draft.hideNits ? items.filter((item) => !(item.kind === "draft" && item.comment.severity === "nit" && !item.needs)) : items, [items, draft.hideNits]);
   const hidden = items.length - listItems.length;
-  const counted = useMemo(() => groups(items), [items]);
-  const listed = useMemo(() => groups(listItems), [listItems]);
+  const preExisting = useKnob("preExistingFindings");
+  const counted = useMemo(() => groups(items, preExisting), [items, preExisting]);
+  const listed = useMemo(() => groups(listItems, preExisting), [listItems, preExisting]);
   const stops = useMemo(() => shownItems(listItems, filter, showFolded), [listItems, filter, showFolded]);
   const needing = counted[0].count;
 

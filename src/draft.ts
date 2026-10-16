@@ -20,11 +20,18 @@ export function severityOf(body: string, severity?: Severity | "none"): { body: 
   return { body, ...(severity && severity !== "none" ? { severity } : {}) };
 }
 
-/** The text GitHub gets: the severity's label, then the comment. A block, such as a suggestion, starts on its own line. */
-export function postedBody(c: Pick<DraftComment, "body" | "severity">): string {
-  if (!c.severity) return c.body;
-  return `**${SEVERITY_LABEL[c.severity]}:**${/^(```|~~~|#|>|[-*+] |\d+[.)] |\|)/.test(c.body) ? "\n\n" : " "}${c.body}`;
+/**
+ * The text GitHub gets: the severity's label, then the comment. A block, such as a suggestion, starts on its own line.
+ * With `preExisting` (Settings' Keep pre-existing problems apart), a problem the PR didn't introduce starts "**Pre-existing:**".
+ */
+export function postedBody(c: Pick<DraftComment, "body" | "severity" | "introduced">, preExisting = false): string {
+  const labels = [...preExisting && c.introduced === false ? ["**Pre-existing:**"] : [], ...c.severity ? [`**${SEVERITY_LABEL[c.severity]}:**`] : []];
+  if (!labels.length) return c.body;
+  return `${labels.join(" ")}${/^(```|~~~|#|>|[-*+] |\d+[.)] |\|)/.test(c.body) ? "\n\n" : " "}${c.body}`;
 }
+
+/** A problem in code the PR didn't change, as the agent or the reviewer marked it. */
+export const isPreExisting = (c: Pick<DraftComment, "introduced">) => c.introduced === false;
 
 /** "2 blocking · 3 should fix · 1 nit": how many comments have each severity. Empty when none has one. */
 export function severityCounts(comments: readonly Pick<DraftComment, "severity">[]): string {
@@ -52,6 +59,8 @@ export interface DraftComment {
   body: string;
   /** How the agent confirmed it: what it read or ran, with file:line. Shown in BB only; never posted. Gone once the reviewer edits the comment. */
   evidence?: string;
+  /** False for a problem in code the PR didn't change: it shows as Pre-existing and doesn't count against Approve. */
+  introduced?: false;
 }
 
 /** A comment's place in the diff; a draft holds at most one comment per location. */
@@ -119,9 +128,9 @@ export interface Draft {
   verdictChosen?: true;
 }
 
-type Keyed = Pick<DraftComment, "file" | "line" | "side" | "body" | "startLine" | "startSide" | "severity">;
-// A single-line comment's key is as it was before ranges and severities, so drafts saved then still match.
-const keyOf = (c: Keyed) => [c.file, c.line, c.side, c.body, ...c.startLine === undefined ? [] : [c.startLine, c.startSide ?? c.side], ...c.severity ? [{ severity: c.severity }] : []];
+type Keyed = Pick<DraftComment, "file" | "line" | "side" | "body" | "startLine" | "startSide" | "severity" | "introduced">;
+// A single-line comment's key is as it was before ranges, severities and pre-existing marks, so drafts saved then still match.
+const keyOf = (c: Keyed) => [c.file, c.line, c.side, c.body, ...c.startLine === undefined ? [] : [c.startLine, c.startSide ?? c.side], ...c.severity ? [{ severity: c.severity }] : [], ...c.introduced === false ? [{ introduced: false }] : []];
 
 /** A short fingerprint of the comments' places and text, to tell when they changed. */
 export function commentsKey(comments: readonly Keyed[]): string {
@@ -154,7 +163,8 @@ export function sameComments(a: readonly DraftComment[], b: readonly Keyed[]): b
   return a.length === b.length && a.every((c, i) => key(c) === key(b[i]));
 }
 
-export function toGithubReviewPayload(draft: Draft): {
+/** `preExisting`: mark the problems the PR didn't introduce, as postedBody does. */
+export function toGithubReviewPayload(draft: Draft, preExisting = false): {
   event: Verdict;
   body: string;
   comments: { path: string; line: number; side: string; start_line?: number; start_side?: string; body: string }[];
@@ -165,7 +175,7 @@ export function toGithubReviewPayload(draft: Draft): {
     comments: draft.comments.map((c) => ({
       path: c.file, line: c.line, side: c.side,
       ...(c.startLine !== undefined ? { start_line: c.startLine, start_side: c.startSide ?? c.side } : {}),
-      body: postedBody(c),
+      body: postedBody(c, preExisting),
     })),
   };
 }

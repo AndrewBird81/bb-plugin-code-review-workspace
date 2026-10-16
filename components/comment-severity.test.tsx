@@ -3,6 +3,8 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { DraftProviderProps } from "./DraftProvider";
+import { defaultKnobs, type Knobs } from "../lib/knobs";
+import { defaultPreferences } from "../lib/review-preferences";
 
 // Render the diff's annotations, not @pierre/diffs' internals.
 vi.mock("@pierre/diffs/react", () => ({
@@ -33,14 +35,19 @@ const blocking = { ...at(1), severity: "blocking", body: "This drops writes." };
 const nit = { ...at(2), author: "agent", severity: "nit", body: "Spacing." };
 const plain = { ...at(4), body: "No label." };
 
-async function renderReview(targetKey: string, rpc: Record<string, unknown>) {
+/** `knobs`: Settings' switches, else their defaults. */
+async function renderReview(targetKey: string, rpc: Record<string, unknown>, knobs: Partial<Knobs> = {}) {
   await loadPluginApp(() => import("../app"));
   const DraftTray = await draftTray();
   const { DiffViewer } = await import("./DiffViewer");
+  const { SettingsContext } = await import("../lib/settings");
+  const preferences = { ...defaultPreferences, knobs: { ...defaultKnobs, ...knobs } };
   const component = () => (
-    <DraftTray targetKey={targetKey} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" patch={patch}>
-      <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} />
-    </DraftTray>
+    <SettingsContext.Provider value={{ preferences, settled: Promise.resolve(preferences), fallback: preferences }}>
+      <DraftTray targetKey={targetKey} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" patch={patch}>
+        <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} />
+      </DraftTray>
+    </SettingsContext.Provider>
   );
   const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), ...rpc } as any });
   await slot.findByText("Draft saved");
@@ -210,5 +217,51 @@ test("an unfinished comment's severity is recovered with its text after the page
   slot.lifecycle.unmount();
   ({ slot, diff } = await renderReview("recover", rpc));
   expect((diff().getByRole("combobox", { name: "Severity" }) as HTMLSelectElement).value).toBe("should-fix");
+  slot.lifecycle.unmount();
+});
+
+test("a pre-existing comment shows its badge in the code and the list, counts apart, and doesn't hold Approve", async () => {
+  const submitReview = vi.fn(async () => ({ ok: true }));
+  const old = { ...at(3), author: "agent", severity: "blocking", body: "This was already racy.", introduced: false };
+  const rpc = stored([old, nit], { verdict: "APPROVE", verdictChosen: true });
+  const { slot, diff, panel } = await renderReview("pre-existing", { ...rpc, submitReview });
+  const card = await diff().findByRole("article", { name: "Draft comment on src/a.ts:3" });
+  expect(within(card).getByText("Pre-existing").getAttribute("title")).toBe("In code this PR didn’t change");
+  expect(within(card).getByText("Blocking")).toBeTruthy();
+  expect(panel().getByRole("button", { name: "Agent draft · not submitted · src/a.ts:3 · Blocking · Pre-existing" })).toBeTruthy();
+  expect(panel().getByText("1 blocking · 1 nit · 1 pre-existing")).toBeTruthy();
+  const goes = within(slot.getByRole("heading", { name: "Goes to GitHub" }).parentElement!);
+  expect(goes.getByText("1 pre-existing")).toBeTruthy();
+  // Blocking, but not this PR's: Approve doesn't ask about it.
+  expect(goes.queryByText(/Approving with/)).toBeNull();
+  fireEvent.click(slot.getByRole("button", { name: "Submit to GitHub · Approve" }));
+  await waitFor(() => expect(submitReview).toHaveBeenCalledWith(expect.objectContaining({ comments: expect.arrayContaining([expect.objectContaining({ introduced: false })]) })));
+  slot.lifecycle.unmount();
+});
+
+test("Mark as pre-existing and Mark as from this PR save the comment with the mark, or without it, as whoever wrote it", async () => {
+  const rpc = stored([{ ...at(3), author: "agent", severity: "should-fix", body: "Unchecked.", evidence: "Read a.ts:3." }]);
+  const { slot, diff, panel } = await renderReview("mark", rpc);
+  const card = await diff().findByRole("article", { name: "Draft comment on src/a.ts:3" });
+  fireEvent.click(within(card).getByRole("button", { name: "Mark as pre-existing" }));
+  await waitFor(() => expect(rpc.saveDraftComment).toHaveBeenLastCalledWith(expect.objectContaining({ replaces: "Unchecked.", comment: { ...at(3), author: "agent", severity: "should-fix", body: "Unchecked.", evidence: "Read a.ts:3.", introduced: false } })));
+  expect(await within(card).findByText("Pre-existing")).toBeTruthy();
+  // From the list's card too.
+  fireEvent.click(panel().getByRole("button", { name: /^Expand Draft comment on src\/a\.ts:3/ }));
+  fireEvent.click(await panel().findByRole("button", { name: "Mark as from this PR" }));
+  await waitFor(() => expect(rpc.saveDraftComment).toHaveBeenLastCalledWith(expect.objectContaining({ comment: { ...at(3), author: "agent", severity: "should-fix", body: "Unchecked.", evidence: "Read a.ts:3." } })));
+  await waitFor(() => expect(within(card).queryByText("Pre-existing")).toBeNull());
+  slot.lifecycle.unmount();
+});
+
+test("with Keep pre-existing problems apart off, a pre-existing comment is like any other: no badge, count, or mark, and it holds Approve", async () => {
+  const old = { ...at(3), author: "agent", severity: "blocking", body: "This was already racy.", introduced: false };
+  const { slot, diff, panel } = await renderReview("pre-existing-off", stored([old], { verdict: "APPROVE", verdictChosen: true }), { preExistingFindings: false });
+  const card = await diff().findByRole("article", { name: "Draft comment on src/a.ts:3" });
+  expect(within(card).queryByText("Pre-existing")).toBeNull();
+  expect(within(card).queryByRole("button", { name: /Mark as/ })).toBeNull();
+  expect(panel().getByRole("button", { name: "Agent draft · not submitted · src/a.ts:3 · Blocking" })).toBeTruthy();
+  expect(slot.queryByText(/pre-existing/)).toBeNull();
+  expect(slot.getByText("Approving with 1 blocking comment.")).toBeTruthy();
   slot.lifecycle.unmount();
 });

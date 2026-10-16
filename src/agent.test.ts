@@ -521,3 +521,9 @@ test("on your own PR before the sync read it, the automatic review asks for the 
   expect(context).toContain("This is the reviewer's own PR");
   expect(context).not.toContain("Run the repo's checks");
 });
+
+test("the assistant marks pre-existing problems only while Settings keeps them apart", () => {
+  const line = "Mark a problem in code the PR didn't change with introduced: false; never suggest REQUEST_CHANGES for those alone.";
+  expect(assistantInstructions("pr-1", null, defaultPreferences)).toContain(line);
+  expect(assistantInstructions("pr-1", null, { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, preExistingFindings: false } })).not.toContain("introduced");
+});

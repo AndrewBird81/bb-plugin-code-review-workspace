@@ -211,14 +211,14 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
   const comments = d.draft.comments;
   const agent = comments.filter((comment) => comment.author === "agent").length;
   const older = items.filter((item) => item.kind === "draft" && item.state === "older-diff");
-  const blocking = items.find((item) => item.kind === "draft" && item.comment.severity === "blocking");
+  const blocking = items.find((item) => item.kind === "draft" && d.blocks(item.comment));
   const link = (label: string, onClick: () => void) => <Button variant="ghost" size="sm" aria-label={label} className={cn("size-8 shrink-0 px-0 text-muted-foreground", TOUCH_CONTROL)} onClick={onClick}><Icon name="ChevronRight" aria-hidden /></Button>;
   const fix = (label: string, onClick: () => void) => <Button variant="outline" size="sm" className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} onClick={onClick}>{label}</Button>;
   return (
     <Part title="Goes to GitHub">
       <ul className="space-y-1.5">
         <Row icon={<Icon name="CircleDashed" className="size-4 shrink-0 text-primary" aria-hidden />} action={comments.length > 0 && link("Show the comments to send", () => onList("not-submitted"))}>
-          <MetaLine className="text-sm text-foreground" items={[comments.length ? plural(comments.length, "comment") : "No line comments", ...(d.counts ? d.counts.split(" · ").map((count) => <span className="text-muted-foreground">{count}</span>) : [])]} />
+          <MetaLine className="text-sm text-foreground" items={[comments.length ? plural(comments.length, "comment") : "No line comments", ...(d.counts ? d.counts.split(" · ").map((count) => <span className="text-muted-foreground">{count}</span>) : []), ...(d.preExistingCount ? [<span className="text-muted-foreground">{d.preExistingCount} pre-existing</span>] : [])]} />
           {agent > 0 && <p className="text-xs text-muted-foreground">{agent} written by the agent</p>}
         </Row>
         {older.length > 0 && <Row tone="warning" icon={<Icon name="AlertTriangle" className="size-4 shrink-0" aria-hidden />} action={link("Show the comments on an older diff", () => onList("needs-you", older[0].id))}>
