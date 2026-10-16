@@ -144,6 +144,23 @@ test("a code span or \\< that BB reads as raw HTML loads nothing", () => {
   expect(linkImages("a \\<b> c")).toBe("a &lt;b> c");
 });
 
+// A footnote reference defined later takes its label's backtick before a code span can, so BB read the tag after it as
+// raw HTML where linkImages kept it as code (96-recheck-4).
+test("a backtick in a footnote reference's label pairs with nothing", () => {
+  const img = '<img src="https://evil.test/x.png">';
+  expect(linkImages(`x [^\`] ${img} \`\n\n[^\`]: n`)).toBe("x [^`] [Image](https://evil.test/x.png) `\n\n[^`]: n");
+  for (const text of [
+    `x [^\`] ${img} \`\n\n> [^\`]: n`,
+    `x [^\`] ${img} \`\n\n- [^\`]: n`,
+    `x [^\`\`] ${img} \`\`\n\n[^\`\`]: n`,
+    `| a |\n|---|\n| [^\`] ${img} \` |\n\n[^\`]: n`,
+    `# [^\`] ${img} \`\n\n[^\`]: n`,
+    `x [^a\\]\`] ${img} \`\n\n[^a\\]\`]: n`,
+  ]) expect(linkImages(text)).not.toMatch(/<img/);
+  // A label without one takes none.
+  expect(linkImages("See [^1] and `<img src={logo} />`.\n\n[^1]: n")).toBe("See [^1] and `<img src={logo} />`.\n\n[^1]: n");
+});
+
 // An ordered item can interrupt a paragraph only from 1, and an empty one none, so after "a" an "01." line goes on
 // with it, and BB read the "fence" in it as text with raw HTML (96-fixes-4).
 test("a list item that can't interrupt a paragraph, or indented code, begins no fence", () => {
