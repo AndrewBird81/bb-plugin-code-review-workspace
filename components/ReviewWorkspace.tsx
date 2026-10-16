@@ -61,7 +61,7 @@ import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunk
 import { approveGuard } from "../lib/approve-guard";
 import { agentCoverage } from "../lib/agent-coverage";
 import { useKnob, useSettings } from "../lib/settings";
-import { ReviewLinksContext } from "../lib/review-links";
+import { ReviewLinksContext, useReviewLinks } from "../lib/review-links";
 import { changedLines, chapterReadingLines, readingLines } from "../lib/review-size";
 
 /** The guide's chapters, then any changed files they don't list, such as an older guide's unplaced files. */
@@ -653,8 +653,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [stopping, rpc, targetKey, load]);
   const archived = !!review?.archivedAt;
   const localDiffChanges = useKnob("localDiffChanges");
-  const sendToThread = useKnob("sendToThread");
-  const reviewLinks = useMemo(() => ({ sent: sendToThread ? review?.sent ?? null : null }), [sendToThread, review?.sent]);
+  const reviewLinks = useReviewLinks(review);
   const { newCommits, text: newCommitsText } = useNewCommits(targetKey, (isPr || review?.kind === "ref" && localDiffChanges) && !archived);
 
   const checkAccess = useMemo(

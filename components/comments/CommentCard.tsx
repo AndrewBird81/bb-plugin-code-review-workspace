@@ -24,6 +24,7 @@ import { CheckBadge, frameOf, plainLine, TAG_TONE, ThreadState } from "./look";
 import { MoveToSummary } from "./MoveToSummary";
 import { ReplyBox } from "./ReplyBox";
 import { SentLine } from "../SentLine";
+import { CommentEditorMenu } from "../OpenInEditor";
 import { useComments } from "./store";
 
 /** In the code: inside pierre's code view, so it sets its own text style rather than inheriting the code's. */
@@ -254,6 +255,7 @@ function DraftCard({ item }: { item: DraftItem }) {
           </Button>}
           <Button variant="ghost" size="sm" aria-label={`Remove comment on ${where}`} className={cn(ACTION, "hover:text-destructive-text")} disabled={draft.busy} onClick={() => void draft.removeComment(comment)}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove</Button>
           {item.state === "older-diff" && <MoveToSummary comments={[comment]} className={ACTION} />}
+          <CommentEditorMenu comment={comment} />
         </div>}
       </div>}
       {item.discussion && <DiscussionView discussion={item.discussion} titled chat={draft.chat} busy={draft.busy} onUndo={draft.editable && !box ? () => void draft.undo(item.discussion!) : undefined} />}

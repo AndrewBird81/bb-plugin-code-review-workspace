@@ -17,6 +17,7 @@ import { DraftIcon, draftEdge, notSubmitted, privately, SEVERITY_TONE } from "./
 import { useComments } from "./comments/store";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { SentLine } from "./SentLine";
+import { CommentEditorMenu } from "./OpenInEditor";
 
 /** The draft as the diff shows it, under each comment's line. DraftProvider owns the draft and provides this. */
 export interface InlineDraft {
@@ -169,6 +170,7 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
               <Button variant="ghost" size="sm" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={draft.busy || draft.writing} onClick={() => draft.ask(comment)}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
               {preExisting && state !== "older-diff" && draft.markPreExisting && <Button variant="ghost" size="sm" className={action} disabled={draft.busy} onClick={() => draft.markPreExisting!(comment, comment.introduced !== false)}>{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}</Button>}
               <Button variant="ghost" size="sm" className={cn(action, "hover:text-destructive-text")} disabled={draft.busy} onClick={() => draft.remove(comment)}>Remove</Button>
+              <CommentEditorMenu comment={comment} />
             </>}
             {onFold && <FoldButton onFold={onFold} />}
           </span>

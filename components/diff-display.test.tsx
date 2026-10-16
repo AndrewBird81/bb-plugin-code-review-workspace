@@ -377,3 +377,34 @@ test("with Summarize lockfile changes off, a lockfile shows only its diff", asyn
   expect(lockfile.queryByText(/packages|Downloads from/)).toBeNull();
   slot.lifecycle.unmount();
 });
+
+test("a local review's file opens in an editor on the BB server at its first changed line, but not a deleted one, a PR review's, or with Open in editor off", async () => {
+  const deleted = "diff --git a/src/old.ts b/src/old.ts\ndeleted file mode 100644\n--- a/src/old.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n";
+  const bundle = {
+    review: { targetKey: "pr-42", kind: "ref", gitRef: "HEAD", cwd: "/repo/", status: "ready", createdAt: 1, title: "HEAD" },
+    guide: { ...guide, sections: [{ id: "c1", title: "Parsing", overview: "", diffs: [{ file: "src/a.ts" }, { file: "src/old.ts" }] }] },
+    patch: file("src/a.ts", "@@ -3 +3 @@\n-a\n+aa\n") + deleted, revision: "r1",
+  };
+  const listMachines = vi.fn(() => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }, { hostId: "laptop", name: "Laptop", connected: true, server: false }] }));
+  const local = await renderWorkspace({ rpc: { getReviewBundle: () => structuredClone(bundle), listMachines } });
+  fireEvent.click(await local.slot.findByRole("link", { name: "Open src/a.ts in editor" }));
+  expect(local.slot.inspection.navigateCalls).toContainEqual({ method: "experimental_openFilePreview", options: { target: { kind: "host", hostId: "server", path: "/repo/src/a.ts" }, location: { kind: "line", line: 3, column: null } } });
+  expect(local.slot.getByRole("region", { name: "src/old.ts" })).toBeTruthy();
+  expect(local.slot.queryByRole("link", { name: "Open src/old.ts in editor" })).toBeNull();
+  local.slot.lifecycle.unmount();
+  cleanup();
+
+  const pr = await renderWorkspace({ rpc: { listMachines } });
+  await pr.slot.findByText("aa");
+  expect(pr.slot.queryByRole("link", { name: /in editor$/ })).toBeNull();
+  pr.slot.lifecycle.unmount();
+  cleanup();
+
+  const preferences = { ...defaultPreferences, knobs: { ...defaultKnobs, openInEditor: false } };
+  listMachines.mockClear();
+  const off = await renderWorkspace({ rpc: { getReviewBundle: () => structuredClone(bundle), listMachines, getPreferences: () => ({ preferences, revision: 1 }) } });
+  await off.slot.findByText("aa");
+  expect(off.slot.queryByRole("link", { name: /in editor$/ })).toBeNull();
+  expect(listMachines).not.toHaveBeenCalled();
+  off.slot.lifecycle.unmount();
+});

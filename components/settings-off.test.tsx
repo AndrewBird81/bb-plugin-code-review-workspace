@@ -424,3 +424,14 @@ test("with every knob off, Finish review on a local review a thread started offe
   expect(page.queryByText(/Sent to/)).toBeNull();
   page.lifecycle.unmount(); bar.lifecycle.unmount();
 });
+
+test("with every knob off, a local review's files and comments offer no Open in editor, and never ask where the BB server is", async () => {
+  const listMachines = vi.fn(() => ({ machines: [{ hostId: "server", name: "Server", connected: true, server: true }] }));
+  const { page, bar, main } = await renderReview(allKnobsOff, { getReviewBundle: localBundle(), listMachines });
+  fireEvent.click(await main().findByRole("button", { name: "Start reading: Parsing" }));
+  await waitFor(() => expect(page.getAllByTestId("filediff")).toHaveLength(2));
+  expect(page.queryByRole("link", { name: /in editor/ })).toBeNull();
+  expect(page.queryByRole("button", { name: /^More on the comment/ })).toBeNull();
+  expect(listMachines).not.toHaveBeenCalled();
+  page.lifecycle.unmount(); bar.lifecycle.unmount();
+});

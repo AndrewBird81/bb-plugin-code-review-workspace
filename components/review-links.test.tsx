@@ -1,29 +1,30 @@
 // @vitest-environment jsdom
-// A draft comment Send to thread sent says so on its card, in the code and in Comments' list, and is still only in BB.
+// What a draft comment's card links to, in the code and in Comments' list: the thread Send to thread sent it to, and on
+// a local review, the line in an editor.
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { ReviewLinks } from "../lib/review-links";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
-// Pierre's annotations at new lines 1 and 2, not its internals.
+// Pierre's annotations at its rows, new lines 1–3 and old lines 1–2, not its internals.
 vi.mock("@pierre/diffs/react", () => ({
   FileDiff: ({ lineAnnotations, renderAnnotation }: any) => <div data-testid="filediff">
-    {lineAnnotations?.filter((a: any) => a.side === "additions" && a.lineNumber <= 2).map((annotation: any, index: number) => <div key={index}>{renderAnnotation?.(annotation)}</div>)}
+    {lineAnnotations?.filter((a: any) => a.lineNumber <= (a.side === "additions" ? 3 : 2)).map((annotation: any, index: number) => <div key={index}>{renderAnnotation?.(annotation)}</div>)}
   </div>,
 }));
 
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.useRealTimers(); });
 
-const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1,2 @@\n-old\n+new\n+more\n";
-const comments = [{ file: "src/a.ts", line: 1, side: "RIGHT", body: "Name it." }, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Not sent." }];
+const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,3 @@\n-old\n-gone\n+new\n+more\n+most\n";
+const comments = [{ file: "src/a.ts", line: 1, side: "RIGHT", body: "Name it." }, { file: "src/a.ts", line: 3, side: "RIGHT", body: "Not sent." }, { file: "src/a.ts", line: 2, side: "LEFT", body: "Why drop it?" }];
 
-async function renderSent(links: ReviewLinks) {
+async function renderSent(links: Partial<ReviewLinks>) {
   await loadPluginApp(() => import("../app"));
   const { DraftTray } = await import("./draft-tray.test-support");
   const { DiffViewer } = await import("./DiffViewer");
   const { ReviewLinksContext } = await import("../lib/review-links");
-  const component = () => <ReviewLinksContext.Provider value={links}>
+  const component = () => <ReviewLinksContext.Provider value={{ sent: null, editor: null, ...links }}>
     <DraftTray targetKey="k" patch={patch} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" isLocal>
       <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} />
     </DraftTray>
@@ -43,7 +44,7 @@ test("a sent comment's card says where it went and when, under its state, in the
   expect(line.textContent).toBe("Sent to Retry uploads· 2m");
   // It follows the state line, before the comment's words.
   expect(line.compareDocumentPosition(within(sentCard).getByText("Name it.")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(within(diff.getByRole("article", { name: "Draft comment on src/a.ts:2" })).queryByText(/Sent to/)).toBeNull();
+  expect(within(diff.getByRole("article", { name: "Draft comment on src/a.ts:3" })).queryByText(/Sent to/)).toBeNull();
   const list = within(slot.getByRole("region", { name: "Comments" }));
   fireEvent.click(list.getByRole("button", { name: /^Expand .*src\/a\.ts:1/ }));
   const listed = list.getByRole("article", { name: "Draft comment on src/a.ts:1" });
@@ -56,4 +57,24 @@ test("nothing says sent when nothing was, or Send to thread is off", async () =>
   await within(slot.getByTestId("filediff")).findByRole("article", { name: "Draft comment on src/a.ts:1" });
   expect(slot.queryByText(/Sent to/)).toBeNull();
   slot.lifecycle.unmount();
+});
+
+test("on a local review, a comment's ⋯ opens its line in an editor on the BB server; not a comment on removed lines, nor without the editor", async () => {
+  const slot = await renderSent({ editor: { hostId: "server", root: "/repo" } });
+  const diff = within(slot.getByTestId("filediff"));
+  const card = await diff.findByRole("article", { name: "Draft comment on src/a.ts:1" });
+  fireEvent.click(within(card).getByRole("button", { name: "More on the comment on src/a.ts:1" }));
+  fireEvent.click(await slot.findByRole("link", { name: "Open in editor at line 1" }));
+  expect(slot.inspection.navigateCalls).toContainEqual({ method: "experimental_openFilePreview", options: { target: { kind: "host", hostId: "server", path: "/repo/src/a.ts" }, location: { kind: "line", line: 1, column: null } } });
+  expect(within(diff.getByRole("article", { name: "Draft comment on src/a.ts:2" })).queryByRole("button", { name: /^More on/ })).toBeNull();
+  // In Comments' list too.
+  const list = within(slot.getByRole("region", { name: "Comments" }));
+  fireEvent.click(list.getByRole("button", { name: /^Expand .*src\/a\.ts:3/ }));
+  expect(within(list.getByRole("article", { name: "Draft comment on src/a.ts:3" })).getByRole("button", { name: "More on the comment on src/a.ts:3" })).toBeTruthy();
+  slot.lifecycle.unmount();
+  cleanup();
+  const none = await renderSent({ editor: null });
+  await within(none.getByTestId("filediff")).findByRole("article", { name: "Draft comment on src/a.ts:1" });
+  expect(none.queryByRole("button", { name: /^More on the comment/ })).toBeNull();
+  none.lifecycle.unmount();
 });

@@ -34,6 +34,8 @@ import type { ReviewThread } from "../src/threads";
 import { toast } from "sonner";
 import { UrlLink } from "@get-bb/plugin-sdk/app";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { FileEditorLink } from "./OpenInEditor";
+import { ReviewLinksContext } from "../lib/review-links";
 import type { rpcContract } from "../src/rpc-contract";
 
 /** A changed file's whole contents, or why only its diff shows. */
@@ -429,6 +431,7 @@ export const DiffViewer = memo(function DiffViewer({
   const draft = useContext(InlineDraftContext);
   const github = useContext(DiffThreadsContext);
   const failures = useContext(CheckFailuresContext);
+  const { editor } = useContext(ReviewLinksContext);
   const root = useRef<HTMLDivElement>(null);
   const filtering = sinceOnly && !!since;
   // The chapter's files by value: a reload's new array with the same files mustn't re-parse every diff.
@@ -747,7 +750,9 @@ export const DiffViewer = memo(function DiffViewer({
         const showDiff = folded && !viewed && noise;
         const detailed = !folded || showDiff;
         const tagged = classifyFile(path, generated.has(path)).category !== "code";
-        const details = detailed && (summary || oldPath || split || owned || stale || tagged || showDiff || readContents && source && !folded);
+        // A local review's file that's still in its checkout opens in an editor.
+        const inEditor = !!editor && fileDiff?.type !== "deleted";
+        const details = detailed && (summary || oldPath || split || owned || stale || tagged || showDiff || readContents && source && !folded || inEditor);
         return (
           <div
             key={path}
@@ -840,6 +845,7 @@ export const DiffViewer = memo(function DiffViewer({
                       <Icon name={loading ? "Loading" : "ArrowUpDown"} className={cn("size-3", loading && "animate-spin motion-reduce:animate-none")} aria-hidden />Expand
                     </Button>
                   ))}
+                  {inEditor && <FileEditorLink file={path} line={fileDiff?.hunks[0]?.additionStart ?? null} />}
                 </div>
               </div>
             )}

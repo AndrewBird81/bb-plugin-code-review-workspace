@@ -379,6 +379,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             {knob("requirements")}
             {knob("codeOwners")}
             {knob("localDiffChanges")}
+            {knob("openInEditor")}
             {knob("ciInCode")}
             {knob("checkFailureActions")}
           </section>
