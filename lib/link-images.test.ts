@@ -24,6 +24,15 @@ test("an HTML image becomes a link to its src, or its srcset's first url", () =>
   expect(linkImages('<img alt="nothing">')).toBe("Image: nothing");
 });
 
+// BB's HTML renders <video src poster> and <source src srcset>, which loaded from wherever they pointed (95-recheck P2 #2).
+test("an HTML video or source becomes links to what it would load", () => {
+  expect(linkImages('<video poster="https://evil.test/p.png"></video>')).toBe("[Video poster](https://evil.test/p.png)</video>");
+  expect(linkImages("<VIDEO controls src=https://evil.test/v.mp4 poster='https://evil.test/p.png' title=\"Demo\">")).toBe("[Video: Demo](https://evil.test/v.mp4) [Poster](https://evil.test/p.png)");
+  expect(linkImages('<video controls>\n<source src="https://evil.test/v.webm" type="video/webm">\n</video>')).toBe("Video\n[Media](https://evil.test/v.webm)\n</video>");
+  expect(linkImages('<picture><source srcset="https://evil.test/a.avif 1x, https://evil.test/b.avif 2x"><img src="https://evil.test/c.png" alt="c"></picture>')).toBe("<picture>[Media](https://evil.test/a.avif)[Image: c](https://evil.test/c.png)</picture>");
+  expect(linkImages('<source type="video/mp4">')).toBe("");
+});
+
 test("an image inside a link's text, as a badge, becomes its words, the link kept", () => {
   expect(linkImages("[![CI](https://img.example/ci.svg)](https://ci.example/run)")).toBe("[Image: CI](https://ci.example/run)");
 });

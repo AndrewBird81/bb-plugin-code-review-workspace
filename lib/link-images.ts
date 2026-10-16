@@ -3,15 +3,15 @@
 
 /**
  * `markdown` with each image as a link to it, `[Image: alt](url)` or `[Image](url)`, so nothing loads until it's
- * clicked: inline and reference images, and HTML `<img>`. An image inside a link's text becomes its words, the link
+ * clicked: inline and reference images, and HTML `<img>`, `<video>` and `<source>`. An image inside a link's text becomes its words, the link
  * kept. Code is changed too: whether backticks make a code span, or a fence code, depends on links, HTML blocks, tables
  * and list items around them, so an image written inside code shows as a link.
  */
 export function linkImages(markdown: string): string {
-  if (!/!\[|<img\b/i.test(markdown)) return markdown;
+  if (!/!\[|<(img|video|source)\b/i.test(markdown)) return markdown;
   const text = markdown.replace(/\r\n?/g, "\n");
   const labels = new Set([...text.matchAll(/^ {0,3}\[([^\]\n]+)\]:/gm)].map((match) => normalLabel(match[1])));
-  return linkMarkdownImages(linkHtmlImages(text), labels);
+  return linkMarkdownImages(linkHtmlMedia(text), labels);
 }
 
 const normalLabel = (label: string) => label.trim().replace(/\s+/g, " ").toLowerCase();
@@ -20,26 +20,40 @@ const imageLabel = (alt: string) => alt.trim() ? `Image: ${alt.trim()}` : "Image
 /** `text` and then `link`: a `!` ending the text is escaped, so that with a link's `[` it isn't an image. */
 const thenLink = (text: string, link: string) => link.startsWith("[") && /(^|[^\\])(\\\\)*!$/.test(text) ? `${text.slice(0, -1)}\\!${link}` : text + link;
 
-/** Each `<img>` in `text` as its link. */
-function linkHtmlImages(text: string): string {
+/**
+ * Each `<img>`, `<video>` and `<source>` in `text` as links to what it would load, the media BB's HTML allows. A video
+ * is replaced even without a url, so the links of its `<source>`s show rather than sit in a player as fallback.
+ */
+function linkHtmlMedia(text: string): string {
   let out = "";
   let from = 0;
-  for (const { 0: tag, index } of text.matchAll(/<img\b[^>]*>/gi)) {
-    out = thenLink(out + text.slice(from, index), htmlImageLink(tag));
+  for (const { 0: tag, 1: name, index } of text.matchAll(/<(img|video|source)\b[^>]*>/gi)) {
+    out = thenLink(out + text.slice(from, index), htmlMediaLink(name.toLowerCase(), tag));
     from = index + tag.length;
   }
   return out + text.slice(from);
 }
 
-/** `<img … src="url" alt="…">` as a link to its url; one without a url as its words alone. */
-function htmlImageLink(tag: string): string {
-  const attribute = (name: string) => {
-    const match = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i").exec(tag);
+/**
+ * `<img … src="url" alt="…">` as a link to its url, one without a url as its words alone; `<video>` as links to its
+ * src and poster, or its word; `<source>` as a link to its src or srcset's first url, or nothing.
+ */
+function htmlMediaLink(name: string, tag: string): string {
+  const attribute = (attributeName: string) => {
+    const match = new RegExp(`\\s${attributeName}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i").exec(tag);
     return match ? (match[1] ?? match[2] ?? match[3]).replace(/&amp;/g, "&") : "";
   };
-  const url = attribute("src") || attribute("srcset").trim().split(/\s+/)[0] || "";
+  const link = (label: string, url: string) => `[${label}](${destination(url)})`;
+  const src = attribute("src") || attribute("srcset").trim().split(/\s+/)[0] || "";
+  if (name === "source") return src && link("Media", src);
+  if (name === "video") {
+    const title = attribute("title").replace(/[[\]]/g, "").trim();
+    const label = title ? `Video: ${title}` : "Video";
+    const poster = attribute("poster");
+    return [src && link(label, src), poster && link(src ? "Poster" : `${label} poster`, poster)].filter(Boolean).join(" ") || label;
+  }
   const label = imageLabel(attribute("alt").replace(/[[\]]/g, ""));
-  return url ? `[${label}](${destination(url)})` : label;
+  return src ? link(label, src) : label;
 }
 
 /** A url as a link's destination, in angle brackets when it has spaces or parentheses. */
