@@ -107,6 +107,23 @@ test("code spans it can't be sure of, and what follows a doubtful fence, are cha
   expect(linkImages("![a `]` b](https://evil.test/c.png)")).toBe("\\![a `]` b](https://evil.test/c.png)");
 });
 
+// BB read each of these as raw HTML where linkImages read a paragraph, so the code span or `\<` loaded (96-recheck-3 P2):
+// `<pre/>` begins CommonMark's 7th HTML block, which runs to a blank line, and a footnote definition is a container.
+test("a code span or \\< that BB reads as raw HTML loads nothing", () => {
+  const media = ['`<img src="https://evil.test/x.png">`', '\\<Image src="https://evil.test/x.png">', '`<video poster="https://evil.test/x.png">`'];
+  for (const [first, next] of [["", ""], ["> ", "> "], ["- ", "  "], ["01. ", "    "]]) {
+    for (const payload of media) {
+      expect(linkImages(`${first}<pre/>\n${next}</pre>\n${next}${payload}`)).not.toMatch(/<(?:img|image|video)/i);
+    }
+  }
+  for (const tag of ["<b>", "<pre>", "</pre>", "<div>", "<details>", "<summary>x</summary>", "<br/>", '<p align="center">', "<hr>", "<code>", "<td>"]) {
+    expect(linkImages(`x[^1]\n\n[^1]: ${tag}\n    \\<Image src="https://evil.test/x.png">`)).not.toMatch(/<(?:img|image|video)/i);
+  }
+  expect(linkImages("| a | b |\n[^1]: <pre/>\n\\<Image src=x>")).not.toMatch(/<image/i);
+  // On a paragraph's line `\<` shows as `<` either way.
+  expect(linkImages("a \\<b> c")).toBe("a &lt;b> c");
+});
+
 test("a link after a `!` doesn't make a new image", () => {
   expect(linkImages("!![x](https://evil.test/a.png)")).toBe("\\![Image: x](https://evil.test/a.png)");
   expect(linkImages("!<img src=https://evil.test/b.png>")).toBe("\\![Image](https://evil.test/b.png)");

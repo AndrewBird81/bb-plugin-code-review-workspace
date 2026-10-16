@@ -186,7 +186,8 @@ const PUNCTUATION = /[!-/:-@[-`{-~]/;
 
 /**
  * `text` with every `<` outside code that isn't kept (`keptEnd`) as `&lt;`, and any `![` left outside code as `\![`.
- * Each `<` is judged in `text` as given, so escaping one can't make a tag of what's around it.
+ * Each `<` is judged in `text` as given, so escaping one can't make a tag of what's around it. On inline text `\<`
+ * is `&lt;` too: it shows the same, and is text still if BB reads the line as HTML.
  */
 function escapeHtml(text: string): string {
   const { lines, spans } = structure(text);
@@ -199,7 +200,10 @@ function escapeHtml(text: string): string {
       if (span < spans.length && spans[span][0] === i) {
         out += text.slice(i, spans[span][1]);
         i = spans[span++][1];
-      } else if (char === "\\" && PUNCTUATION.test(text[i + 1] ?? "") && (kind === "inline" || text[i + 1] !== "<")) {
+      } else if (char === "\\" && text[i + 1] === "<" && kind === "inline") {
+        out += "&lt;";
+        i += 2;
+      } else if (char === "\\" && PUNCTUATION.test(text[i + 1] ?? "") && text[i + 1] !== "<") {
         out += text.slice(i, i + 2);
         i += 2;
       } else if (char === "<") {
@@ -266,9 +270,10 @@ const spaces = (text: string, at = 0) => /^ */.exec(text.slice(at))![0].length;
 /**
  * Each row's kind, following CommonMark's block quotes, list items, lazy lines, fences, HTML blocks and paragraphs.
  * Where a reading is in doubt, every row from there on is raw, so nothing after it is kept as code: a tab in an
- * indent; front matter, a math block (`$$`) or a directive (`:::`); a lone tag after a paragraph's line; a fence or
- * HTML block that a row outside its quote or list item ends; a table, or a paragraph that may be a link definition,
- * that a block interrupts or a lazy row continues. Readers other than CommonMark's, or GFM's, may read those otherwise.
+ * indent; front matter, a math block (`$$`), a directive (`:::`) or a GFM footnote definition (`[^`), whose indented
+ * rows are its blocks; a lone tag after a paragraph's line; a fence or HTML block that a row outside its quote or list
+ * item ends; a table, or a paragraph that may be a link definition, that a block interrupts or a lazy row continues.
+ * Readers other than CommonMark's, or GFM's, may read those otherwise.
  */
 function lineKinds(rows: string[]): LineKind[] {
   const kinds = rows.map((): LineKind => "raw");
@@ -347,7 +352,7 @@ function lineKinds(rows: string[]): LineKind[] {
         leaf = { kind: "indented" };
         return "raw";
       }
-      if (/^(?:\$\$|:::)/.test(tail)) return null;
+      if (/^(?:\$\$|:::|\[\^)/.test(tail)) return null;
       if (tail[0] === ">") {
         if (!close()) return null;
         pos += indent + 1;
@@ -437,7 +442,7 @@ function mayDefine(text: string): boolean {
 function htmlBlock(text: string): 0 | 1 | 6 | 7 {
   const tag = text[0] === "<" ? formattingTag(text, 0) : null;
   if (!tag) return 0;
-  if (!tag.close && tag.name === "pre") return 1;
+  if (!tag.close && tag.name === "pre" && text[4] !== "/") return 1;
   if (BLOCK_TAGS.has(tag.name)) return 6;
   return blank(text.slice(tag.end)) ? 7 : 0;
 }
