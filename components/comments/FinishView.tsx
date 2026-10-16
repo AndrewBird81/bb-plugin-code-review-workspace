@@ -112,7 +112,7 @@ function Part({ title, children }: { title: string; children: ReactNode }) {
   </section>;
 }
 
-/** The verdict, the agent's suggestion, and its two ways into the draft: Use as draft and Request what's left. */
+/** The verdict, the agent's suggestion with Switch to it, and its two ways into the draft: Use as draft and Request what's left. */
 function Verdicts({ revision }: { revision: string }) {
   const { targetKey, openFinish } = useWorkspace();
   const d = useDraft();
@@ -168,6 +168,7 @@ function Verdicts({ revision }: { revision: string }) {
           <p className="flex min-w-0 flex-1 basis-40 items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Sparkles" className="size-3.5 shrink-0 text-(--ansi-13)" aria-hidden />
             {suggested && !(d.ownPr && suggested !== "COMMENT") ? `Agent suggests ${VERDICT_LABEL[suggested]}` : run?.suggestedVerdict ? `Agent suggests ${VERDICT_LABEL[run.suggestedVerdict]}` : left ? "The agent found open items" : "Agent’s check"}
           </p>
+          {suggested && suggested !== d.draft.verdict && !d.ownPr && d.editable && <Button size="sm" variant="outline" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} disabled={d.busy} onClick={() => d.chooseVerdict(suggested)}>Switch to {VERDICT_LABEL[suggested]}</Button>}
           {said && <div className="min-w-0 basis-full"><Clamped body={said} /></div>}
           {run && (run.suggestedVerdict || left) && <span className="flex flex-wrap gap-1.5">
             {feedback?.suggestionInDraft
@@ -229,9 +230,6 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
           {d.onSummary ? "You’re writing the summary" : d.asking ? <>You’re writing to the agent about <span className="font-mono text-xs">{d.file}:{d.boxLines}</span></> : <>You’re writing a comment on <span className="font-mono text-xs">{d.file}:{d.boxLines}</span></>}
         </Row>}
         {d.needsSummary && <Row tone="warning" icon={<Icon name="AlertCircle" className="size-4 shrink-0" aria-hidden />} action={d.editable && !d.writing && fix("Write it", () => d.openComposer(SUMMARY_AT, false))}>Request changes needs a summary: say what has to change.</Row>}
-        {d.suggested && d.suggested !== d.draft.verdict && !d.ownPr && <Row tone="warning" icon={<Icon name="Sparkles" className="size-4 shrink-0" aria-hidden />} action={d.editable && fix(`Switch to ${VERDICT_LABEL[d.suggested]}`, () => d.chooseVerdict(d.suggested!))}>
-          The agent suggested {VERDICT_LABEL[d.suggested]}.
-        </Row>}
         {d.approvingBlocked && <Row tone="warning" icon={<Icon name="AlertTriangle" className="size-4 shrink-0" aria-hidden />} action={blocking && fix("Show", () => onList("not-submitted", blocking.id))}>
           Approving with {plural(d.blockingCount, "blocking comment")}.
         </Row>}

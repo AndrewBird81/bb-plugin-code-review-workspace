@@ -146,15 +146,18 @@ test("what holds Submit back is listed with its fix: a comment on an older diff,
 test("doubts sit above Submit beside their fixes, and Submit still asks once more", async () => {
   const { slot, rpc } = await renderWorkspace({ rpc: { getDraft: () => ({ draft: draftOf({ verdict: "APPROVE", verdictChosen: true, suggestedVerdict: "REQUEST_CHANGES", body: "Fine." }), stale: [] }) } });
   const view = await finish(slot);
-  expect(view.getByText("The agent suggested Request changes.")).toBeTruthy();
+  // The agent's suggestion says it once, with its fix.
+  const suggestion = within(view.getByRole("region", { name: "Agent’s suggestion" }));
+  expect(suggestion.getByText("Agent suggests Request changes")).toBeTruthy();
+  expect(view.queryByText("The agent suggested Request changes.")).toBeNull();
   expect(view.getByText("Approving with 1 blocking comment.")).toBeTruthy();
   fireEvent.click(submit(view));
   expect((await view.findByRole("alert")).textContent).toContain("Approve with 1 blocking comment? The agent suggested Request changes.");
   expect(rpc.submitReview).not.toHaveBeenCalled();
   fireEvent.click(view.getByRole("button", { name: "Cancel" }));
-  fireEvent.click(view.getByRole("button", { name: "Switch to Request changes" }));
+  fireEvent.click(suggestion.getByRole("button", { name: "Switch to Request changes" }));
   await waitFor(() => expect(rpc.setVerdict).toHaveBeenCalledWith({ targetKey: "pr-42", verdict: "REQUEST_CHANGES", revision: "r1" }));
-  expect(view.queryByText("The agent suggested Request changes.")).toBeNull();
+  await waitFor(() => expect(view.queryByRole("button", { name: "Switch to Request changes" })).toBeNull());
   slot.lifecycle.unmount();
 });
 
@@ -235,7 +238,7 @@ test("with Check before you approve off, every other doubt and row still shows",
     setVerdict: vi.fn(({ verdict }: any) => ({ draft: draftOf({ verdict, verdictChosen: true, body: "" }) })),
   } });
   const view = await finish(slot);
-  expect(view.getByText("The agent suggested Request changes.")).toBeTruthy();
+  expect(view.getByText("Agent suggests Request changes")).toBeTruthy();
   expect(view.getByText("Approving with 1 blocking comment.")).toBeTruthy();
   expect(view.queryByText(/not viewed/)).toBeNull();
   const ask = async () => {
