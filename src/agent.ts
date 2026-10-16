@@ -8,6 +8,8 @@ import { mayRunChecks, mayRunUnattended, skipWhy } from "../lib/trust";
 import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
 import { spawningFor } from "./thread-review";
 
+type ThreadSendArgs = Parameters<BbPluginApi["sdk"]["threads"]["send"]>[0];
+
 /** Starts an assistant thread's title; `agents.configure` grants it the review tools by it. */
 export const ASSISTANT_TITLE = "Review agent: ";
 // bb truncates configure instructions at 4,096 characters.
@@ -258,7 +260,8 @@ export async function messageAssistant(bb: BbPluginApi, store: Store, targetKey:
   if (threadId) {
     const providerId = effort ? (await bb.sdk.threads.get({ threadId }).catch(() => null))?.providerId : undefined;
     const reasoningLevel = effort && providerId ? await raisedLevel(bb, store, targetKey, effort, providerId) : undefined;
-    const sent = await bb.sdk.threads.send({ threadId, mode: "queue-if-active", ...(reasoningLevel ? { reasoningLevel } : {}), input: [
+    // Any level BB lists; an older SDK's types name eight.
+    const sent = await bb.sdk.threads.send({ threadId, mode: "queue-if-active", ...(reasoningLevel ? { reasoningLevel: reasoningLevel as ThreadSendArgs["reasoningLevel"] } : {}), input: [
       { type: "text", text, mentions: [] },
       { type: "text", text: context, mentions: [], visibility: "agent-only" },
     ] });
