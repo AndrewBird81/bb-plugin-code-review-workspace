@@ -16,7 +16,7 @@ export default defineConfig({
       {
         test: {
           name: "frontend",
-          include: ["components/**/*.test.tsx", "lib/**/*.test.ts"],
+          include: ["components/**/*.test.{ts,tsx}", "lib/**/*.test.{ts,tsx}", "hooks/**/*.test.{ts,tsx}"],
           environment: "jsdom",
           // A file's first render imports the whole app cold: about 2 s alone, and past the 5 s default under load.
           testTimeout: 15_000,
