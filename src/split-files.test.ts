@@ -69,7 +69,7 @@ test("generate_review_guide checks a split file's hunks against the diff", async
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
   store.savePatch("pr-1", patch);
   const generationId = store.beginGeneration("pr-1");
-  const submit = (sections: ReturnType<typeof section>[]) => harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide: { title: "T", intent: "I", sections } });
+  const submit = (sections: ReturnType<typeof section>[]) => harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide: { title: "T", intent: "I", sections: sections.map((s) => ({ ...s, risk: "low" })) } });
   const bad = await submit([section("s1", [{ file: "a.ts", hunks: [1] }, { file: "b.ts" }])]);
   expect(toolFailed(bad)).toBe(true);
   expect(toolText(bad)).toContain("missing: hunks 2, 3 of a.ts aren't in any chapter");

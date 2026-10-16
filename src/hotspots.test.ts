@@ -6,7 +6,7 @@ import plugin from "../server";
 import { toolFailed, toolText } from "./fake-host.test-support";
 
 const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -10,3 +10,3 @@\n keep\n-old\n+new\n keep2\n";
-const guide = (hotspots?: unknown) => ({ title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", diffs: [{ file: "a.ts", summary: "x" }] }], ...(hotspots ? { hotspots } : {}) });
+const guide = (hotspots?: unknown) => ({ title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] }], ...(hotspots ? { hotspots } : {}) });
 
 test("a guide takes 1–3 hotspots, each a file, line, and why", () => {
   expect(validateGuide(guide([{ file: "a.ts", line: 11, why: "Drops the null check." }])).ok).toBe(true);

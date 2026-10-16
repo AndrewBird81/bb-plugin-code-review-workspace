@@ -68,9 +68,40 @@ export function checkRequirements(guide: Guide, patch: string): { ok: true } | {
   return errors.length ? { ok: false, errors } : { ok: true };
 }
 
+// What the guide writer submits is held to more than a stored guide, which earlier versions wrote without these rules.
+const SectionInputSchema = SectionSchema.extend({
+  title: SectionSchema.shape.title.max(120),
+  overview: SectionSchema.shape.overview.max(1_200),
+  risk: z.enum(["low", "medium", "high"], { error: "every chapter needs a risk: low, medium, or high" }).describe(SectionSchema.shape.risk.description ?? ""),
+  focus: z.array(z.string().min(1).max(200)).max(3).optional().describe("Required on medium- and high-risk chapters: 1–3 short things to verify, each starting \"Check that\"."),
+  diffs: z.array(DiffRefSchema.extend({ summary: DiffRefSchema.shape.summary.max(400) })).min(1).describe(SectionSchema.shape.diffs.description ?? ""),
+}).superRefine((section, ctx) => {
+  if (section.risk !== "low" && !section.focus?.length) ctx.addIssue({ code: "custom", path: ["focus"], message: `a ${section.risk}-risk chapter needs a focus: 1–3 things to check` });
+});
+const HotspotsInputSchema = z.array(HotspotSchema.extend({ why: HotspotSchema.shape.why.max(300) })).max(3).superRefine((hotspots, ctx) => {
+  const seen = new Set<string>();
+  for (const [i, { file, line, side }] of hotspots.entries()) {
+    const at = `${file}:${line}${side === "LEFT" ? " (LEFT)" : ""}`;
+    if (seen.has(at)) ctx.addIssue({ code: "custom", path: [i], message: `${at} is already a hotspot; list each place once` });
+    seen.add(at);
+  }
+});
+
 /** What the guide writer submits; the plugin stamps the rest. */
-export const GuideInputSchema = GuideSchema.omit({ review: true, source: true, generator: true });
+export const GuideInputSchema = GuideSchema.omit({ review: true, source: true, generator: true }).extend({
+  title: GuideSchema.shape.title.max(120),
+  sections: z.array(SectionInputSchema).describe(GuideSchema.shape.sections.description ?? ""),
+  hotspots: HotspotsInputSchema.optional().describe(GuideSchema.shape.hotspots.description ?? ""),
+});
 export type Guide = z.infer<typeof GuideSchema>;
+
+const issues = (error: z.ZodError) => error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`);
+
+/** A submitted guide held to GuideInputSchema, without what the plugin stamps; every problem at once. */
+export function checkGuideInput(raw: unknown): { ok: true; guide: z.infer<typeof GuideInputSchema> } | { ok: false; errors: string[] } {
+  const parsed = GuideInputSchema.safeParse(raw);
+  return parsed.success ? { ok: true, guide: parsed.data } : { ok: false, errors: issues(parsed.error) };
+}
 
 export function validateGuide(raw: unknown):
   | { ok: true; guide: Guide }
@@ -82,7 +113,7 @@ export function validateGuide(raw: unknown):
       seen.add(section.id);
     }
   }).safeParse(raw);
-  if (!parsed.success) return { ok: false, errors: parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`) };
+  if (!parsed.success) return { ok: false, errors: issues(parsed.error) };
   // An empty list means none, as leaving it out does.
   const { hotspots, requirements, ...guide } = parsed.data;
   return { ok: true, guide: {

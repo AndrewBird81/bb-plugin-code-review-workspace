@@ -12,7 +12,7 @@ import { readPrContext } from "./src/pr-context";
 import { readFileContents, readGeneratedFiles } from "./src/file-contents";
 import { codeOwners, describeOwnership } from "./src/codeowners";
 import { readCheckFailures } from "./src/check-annotations";
-import { validateGuide, checkCoverage, checkHotspots, checkRequirements, checkUnplaced, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
+import { validateGuide, checkCoverage, checkGuideInput, checkHotspots, checkRequirements, checkUnplaced, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { hunkCounts } from "./src/hunks";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
@@ -1021,27 +1021,36 @@ export default async function plugin(bb: BbPluginApi) {
     if (found) setAsk(store, found.reviewKey, found.at, null);
   });
 
+  const guideToolParameters = z.object({ targetKey: z.string(), generationId: z.string(), guide: GuideInputSchema });
   bb.agents.registerTool({
     name: "generate_review_guide",
     description: "Submit the authored guide. Validates shape and coverage.",
-    parameters: z.object({ targetKey: z.string(), generationId: z.string(), guide: GuideInputSchema }),
-    async execute({ targetKey, generationId, guide }) {
+    // A JSON schema, not zod, so the guide's rules are checked here, with its coverage, and every error comes back at once.
+    parameters: z.toJSONSchema(guideToolParameters, { io: "input" }),
+    async execute(raw) {
+      const ids = guideToolParameters.pick({ targetKey: true, generationId: true }).safeParse(raw);
+      if (!ids.success) return failed("Pass targetKey and generationId exactly as your task gives them.");
+      const { targetKey, generationId } = ids.data;
       if (!store.isCurrentGeneration(targetKey, generationId) || store.getReview(targetKey)?.status !== "generating") {
         return failed("This generation was superseded or interrupted. Do not overwrite the current review.");
       }
-      const v = validateGuide(guide);
-      if (!v.ok) return failed("Invalid guide:\n" + v.errors.join("\n"));
+      const guide = (raw as { guide?: unknown }).guide;
+      const input = checkGuideInput(guide);
+      // The input's parse drops what the plugin stamps; a guide that fails it is never saved.
+      const v = validateGuide(input.ok ? input.guide : guide);
+      const invalid = [...new Set([...(input.ok ? [] : input.errors), ...(v.ok ? [] : v.errors)])];
+      if (!v.ok) return failed("Invalid guide:\n" + invalid.join("\n"));
       const patch = store.patch(targetKey);
       const files = changedFiles(patch);
       // Every category's errors in one answer, so one more call can fix them all.
-      const errors = ([
+      const errors = [...(invalid.length ? [`Invalid guide:\n${invalid.join("\n")}`] : []), ...([
         ["Coverage errors", [checkCoverage(v.guide, files, hunkCounts(patch)), checkUnplaced(v.guide, patch)]],
         ["Hotspot errors", [checkHotspots(v.guide, patch)]],
         ["Requirement errors", [checkRequirements(v.guide, patch)]],
       ] as const).flatMap(([heading, checks]) => {
         const found = checks.flatMap((check) => check.ok ? [] : check.errors);
         return found.length ? [`${heading}:\n${found.join("\n")}`] : [];
-      });
+      })];
       if (errors.length) return failed(errors.join("\n\n"));
       // Stamp the store's authoritative gitRef/base over whatever the agent
       // submitted — the guide must never carry a wrong or stale review ref.

@@ -7,7 +7,7 @@ import plugin from "../server";
 import { toolFailed, toolText } from "./fake-host.test-support";
 
 const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -10,3 +10,3 @@\n keep\n-old\n+new\n keep2\n";
-const section = { id: "s1", title: "S", overview: "o", diffs: [{ file: "a.ts", summary: "x" }] };
+const section = { id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] };
 const guide = (extra: Record<string, unknown> = {}) => ({ title: "T", intent: "I", sections: [section], ...extra });
 const covered = { text: "Retry a failed refresh once", status: "covered", evidence: "refresh() retries on 401.", file: "a.ts", line: 11 };
 

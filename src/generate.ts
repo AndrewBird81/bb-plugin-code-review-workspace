@@ -56,7 +56,8 @@ export async function guideWriterMode(bb: BbPluginApi, projectId: string, known?
 }
 
 export function buildGenerationPrompt(targetKey: string, generationId?: string, preferences: ReviewPreferences = defaultPreferences, earlier?: { guide: Guide | null; reviewed: boolean }): string {
-  const chapters = earlier?.guide?.sections.map((s) => `- ${s.id}: ${s.title} (${s.diffs.map((d) => d.hunks ? `${d.file} hunks ${d.hunks.join(", ")}` : d.file).join(", ")})`) ?? [];
+  // The "Other files" chapter is the plugin's, made from unplaced files; kept, it would come back as a second one.
+  const chapters = earlier?.guide?.sections.filter((s) => !s.id.startsWith("other-files")).map((s) => `- ${s.id}: ${s.title} (${s.diffs.map((d) => d.hunks ? `${d.file} hunks ${d.hunks.join(", ")}` : d.file).join(", ")})`) ?? [];
   return [
     "Author a Guided Review for this change.",
     "Follow the guided-review-generate skill exactly.",

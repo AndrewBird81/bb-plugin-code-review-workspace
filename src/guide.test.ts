@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { validateGuide, checkCoverage, checkHotspots, checkRequirements, GuideInputSchema, placeUnplacedFiles, type Guide } from "./guide";
+import { validateGuide, checkCoverage, checkGuideInput, checkHotspots, checkRequirements, GuideInputSchema, placeUnplacedFiles, type Guide } from "./guide";
 
 const good = {
   title: "T", intent: "I",
@@ -97,4 +97,43 @@ test("a hotspot or requirement can point at removed code with side LEFT, on an o
   expect(checkHotspots(guide("LEFT", 3), deleted)).toEqual({ ok: false, errors: ["hotspots.0: line 3 of auth.ts isn't an old-file line the diff shows"] });
   // A guide stored before side existed reads its lines as new-file ones.
   expect(validateGuide({ ...guide(), sections: [] }).ok).toBe(true);
+});
+
+const input = { title: "T", intent: "I", sections: [{ id: "s", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] }] };
+const errorsOf = (raw: unknown) => { const r = checkGuideInput(raw); return r.ok ? [] : r.errors; };
+
+test("a submitted chapter needs a risk, and a medium- or high-risk one a focus, though stored guides without them still read", () => {
+  expect(errorsOf(input)).toEqual([]);
+  const { risk: _, ...riskless } = input.sections[0];
+  expect(errorsOf({ ...input, sections: [riskless] })).toEqual(["sections.0.risk: every chapter needs a risk: low, medium, or high"]);
+  expect(errorsOf({ ...input, sections: [{ ...input.sections[0], risk: "high" }, { ...input.sections[0], id: "t", risk: "medium", focus: [] }] })).toEqual([
+    "sections.0.focus: a high-risk chapter needs a focus: 1–3 things to check",
+    "sections.1.focus: a medium-risk chapter needs a focus: 1–3 things to check",
+  ]);
+  expect(errorsOf({ ...input, sections: [{ ...input.sections[0], risk: "high", focus: ["Check that it retries once."] }] })).toEqual([]);
+  // What 0.7.0 stored has no such rules.
+  expect(validateGuide({ ...input, sections: [riskless] }).ok).toBe(true);
+});
+
+test("a submitted guide can't list the same hotspot twice, on the same side", () => {
+  const twice = { ...input, hotspots: [{ file: "a.ts", line: 1, why: "a" }, { file: "a.ts", line: 1, side: "RIGHT", why: "b" }] };
+  expect(errorsOf(twice)).toEqual(["hotspots.1: a.ts:1 is already a hotspot; list each place once"]);
+  expect(errorsOf({ ...input, hotspots: [{ file: "a.ts", line: 1, why: "a" }, { file: "a.ts", line: 1, side: "LEFT", why: "b" }] })).toEqual([]);
+  expect(validateGuide(twice).ok).toBe(true);
+});
+
+test("a submitted guide's text is capped, every problem reported at once", () => {
+  const long = (n: number) => "x".repeat(n + 1);
+  const errors = errorsOf({
+    title: long(120), intent: "I",
+    sections: [{ id: "s", title: long(120), overview: long(1_200), risk: "high", focus: [long(200)], diffs: [{ file: "a.ts", summary: long(400) }] }],
+    hotspots: [{ file: "a.ts", line: 1, why: long(300) }],
+  });
+  expect(errors.map((e) => e.split(":")[0])).toEqual(["title", "sections.0.title", "sections.0.overview", "sections.0.focus.0", "sections.0.diffs.0.summary", "hotspots.0.why"]);
+  expect(errors[0]).toMatch(/<=120 characters/);
+});
+
+test("the input's parse drops what the plugin stamps", () => {
+  const r = checkGuideInput({ ...input, review: { gitRef: "wrong" }, source: "agent", generator: "agent" });
+  expect(r.ok && Object.keys(r.guide)).toEqual(["title", "intent", "sections", "unplacedFiles"]);
 });

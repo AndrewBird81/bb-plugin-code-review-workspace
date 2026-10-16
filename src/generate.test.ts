@@ -91,7 +91,7 @@ test("generate_review_guide rejects incomplete coverage then accepts a full guid
   const good = await harness.behavior.callAgentTool("generate_review_guide", {
     targetKey: "pr-1",
     generationId,
-    guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: [], review: { gitRef: "x" } },
+    guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: [], review: { gitRef: "x" } },
   });
   expect(toolFailed(good)).toBeFalsy();
 });
@@ -120,17 +120,21 @@ test("generate_review_guide stamps the store's authoritative gitRef (and base) o
           title: "S",
           overview: "o",
           risk: "high",
+          focus: ["Check that the ref is stamped."],
           diffs: [{ file: "a.ts", summary: "x" }],
         },
       ],
       unplacedFiles: [],
       review: { gitRef: "wrong-or-stale-ref", base: "wrong-base" },
+      source: "the agent", generator: "the agent",
     },
   });
   expect(toolFailed(good)).toBeFalsy();
 
   const stored = store.getGuide("pr-1");
   expect(stored?.review).toEqual({ gitRef: "main...feature-authoritative", base: "main" });
+  expect(stored).not.toHaveProperty("source");
+  expect(stored).not.toHaveProperty("generator");
   expect(stored?.sections[0].risk).toBe("high");
 });
 
@@ -151,7 +155,7 @@ test("generate_review_guide stamps gitRef even when the submitted guide omitted 
     guide: {
       title: "T",
       intent: "I",
-      sections: [{ id: "s1", title: "S", overview: "o", diffs: [{ file: "a.ts", summary: "x" }] }],
+      sections: [{ id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] }],
       unplacedFiles: [],
     },
   });
@@ -287,7 +291,7 @@ test("files the guide leaves unplaced get a final low-risk chapter, so the revie
   store.savePatch("pr-1", patch + "diff --git a/logo.png b/logo.png\nindex 1..2 100644\nBinary files a/logo.png and b/logo.png differ\n");
   const out = await harness.behavior.callAgentTool("generate_review_guide", {
     targetKey: "pr-1", generationId,
-    guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: ["logo.png"] },
+    guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: ["logo.png"] },
   });
   expect(toolFailed(out)).toBeFalsy();
   const saved = store.getGuide("pr-1");
@@ -315,11 +319,11 @@ test("generate_review_guide reports every category of error in one answer", asyn
     targetKey: "pr-1", generationId,
     guide: {
       title: "T", intent: "I", sections: [{ id: "s", title: "S", overview: "o", diffs: [{ file: "ghost.ts", summary: "x" }] }],
-      hotspots: [{ file: "ghost.ts", line: 9, why: "w" }], requirements: [{ text: "Cache", status: "covered", evidence: "e" }],
+      hotspots: [{ file: "ghost.ts", line: 9, why: "w" }, { file: "ghost.ts", line: 9, why: "again" }], requirements: [{ text: "Cache", status: "covered", evidence: "e" }],
     },
   });
   if (typeof out === "string") throw new Error(`expected errors, got ${out}`);
-  expect(out.content[0].type === "text" && out.content[0].text).toMatch(/^Coverage errors:\nextra: ghost\.ts .*\nmissing: a\.ts .*\n\nHotspot errors:\nhotspots\.0: ghost\.ts isn't in the diff\n\nRequirement errors:\nrequirements\.0: a covered requirement needs/s);
+  expect(out.content[0].type === "text" && out.content[0].text).toMatch(/^Invalid guide:\nsections\.0\.risk: every chapter needs a risk: low, medium, or high\nhotspots\.1: ghost\.ts:9 is already a hotspot; list each place once\n\nCoverage errors:\nextra: ghost\.ts .*\nmissing: a\.ts .*\n\nHotspot errors:\nhotspots\.0: ghost\.ts isn't in the diff\nhotspots\.1: ghost\.ts isn't in the diff\n\nRequirement errors:\nrequirements\.0: a covered requirement needs/s);
 });
 
 test("the guide writer lists the files first, and patch pages end on file boundaries", async () => {
@@ -357,4 +361,17 @@ test("the guide-writing skill lets a hotspot or requirement point at a removed l
   const skill = await skillText();
   expect(skill).toContain("for a defect in removed code such as a dropped check, `side: \"LEFT\"` and the old-file line");
   expect(skill).toContain("or `side: \"LEFT\"` and the old-file line for one met by removing code");
+});
+
+test("a rebuilt guide's prompt leaves out the plugin's Other files chapter, so it doesn't come back as a second one", async () => {
+  const { buildGenerationPrompt } = await import("./generate");
+  const earlier = { reviewed: false, guide: { title: "T", intent: "I", unplacedFiles: [], sections: [
+    { id: "s1", title: "Parsing", overview: "o", risk: "high" as const, diffs: [{ file: "a.ts", summary: "x" }] },
+    { id: "other-files", title: "Other files", overview: "o", risk: "low" as const, diffs: [{ file: "logo.png", summary: "Binary file." }] },
+    { id: "other-files-2", title: "Other files", overview: "o", risk: "low" as const, diffs: [{ file: "icon.png", summary: "Binary file." }] },
+  ] } };
+  const prompt = buildGenerationPrompt("pr-1", "g", undefined, earlier);
+  expect(prompt).toContain("- s1: Parsing (a.ts)");
+  expect(prompt).not.toContain("Other files");
+  expect(prompt).not.toContain("logo.png");
 });
