@@ -56,6 +56,8 @@ export function classifyFile(path: string, declared = false): FileClass {
 
   // Test snapshots are written by the test runner, not by hand.
   if (/(^|\/)__snapshots__\//.test(p) || name.endsWith(".snap")) return is("generated", true);
+  // Vendored dependencies, and code protoc or build_runner writes, even their tests.
+  if (/(^|\/)(vendor|third_party|pods)\//.test(p) || /(\.pb\.go|_pb2\.py|_pb2_grpc\.py|\.g\.dart|\.freezed\.dart)$/.test(name)) return is("generated", true);
 
   if (
     /(^|\/)__tests__\//.test(p) ||

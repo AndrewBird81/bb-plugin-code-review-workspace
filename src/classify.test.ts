@@ -39,6 +39,16 @@ test("generated/build output is skippable", () => {
   }
 });
 
+test("vendored dependencies and protoc or Dart generated files are skippable", () => {
+  for (const p of ["vendor/github.com/x/y/z.go", "services/api/vendor/golang.org/x/net/http2_test.go", "third_party/lib/a.c", "ios/Pods/Alamofire/Source/Session.swift",
+    "api/v1/service.pb.go", "proto/service_pb2.py", "proto/service_pb2_grpc.py", "lib/models/user.g.dart", "lib/models/user.freezed.dart"]) {
+    const c = classifyFile(p);
+    expect(c.category, p).toBe("generated");
+    expect(c.skippable, p).toBe(true);
+  }
+  for (const p of ["src/vendors.ts", "lib/user.dart", "api/service.go", "proto/service.py"]) expect(classifyFile(p).category, p).toBe("code");
+});
+
 test("hand-written declarations are code", () => {
   expect(classifyFile("src/env.d.ts").category).toBe("code");
 });
