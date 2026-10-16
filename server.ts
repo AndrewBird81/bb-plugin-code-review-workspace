@@ -43,7 +43,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
-import { GUIDE_WORKER_TITLE, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideWorkerFailed, guideWriterMode } from "./src/generate";
+import { GUIDE_WORKER_TITLE, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideRejected, guideWorkerFailed, guideWriterMode } from "./src/generate";
 import { pluginThreadsTitled, threadReview, threadRole, toolThreadReview } from "./src/thread-review";
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { rerunReview } from "./src/rereview";
@@ -1039,12 +1039,14 @@ export default async function plugin(bb: BbPluginApi) {
       if (!store.isCurrentGeneration(targetKey, generationId) || store.getReview(targetKey)?.status !== "generating") {
         return failed("This generation was superseded or interrupted. Do not overwrite the current review.");
       }
+      // The run remembers why, to remind its worker and tell the reviewer if the guide fails.
+      const reject = (text: string) => { guideRejected(bb, generationId, text); return failed(text); };
       const guide = (raw as { guide?: unknown }).guide;
       const input = checkGuideInput(guide);
       // The input's parse drops what the plugin stamps; a guide that fails it is never saved.
       const v = validateGuide(input.ok ? input.guide : guide);
       const invalid = [...new Set([...(input.ok ? [] : input.errors), ...(v.ok ? [] : v.errors)])];
-      if (!v.ok) return failed("Invalid guide:\n" + invalid.join("\n"));
+      if (!v.ok) return reject("Invalid guide:\n" + invalid.join("\n"));
       const patch = store.patch(targetKey);
       const files = changedFiles(patch);
       // Every category's errors in one answer, so one more call can fix them all.
@@ -1056,7 +1058,7 @@ export default async function plugin(bb: BbPluginApi) {
         const found = checks.flatMap((check) => check.ok ? [] : check.errors);
         return found.length ? [`${heading}:\n${found.join("\n")}`] : [];
       })];
-      if (errors.length) return failed(errors.join("\n\n"));
+      if (errors.length) return reject(errors.join("\n\n"));
       // Stamp the store's authoritative gitRef/base over whatever the agent
       // submitted — the guide must never carry a wrong or stale review ref.
       const meta = store.getReview(targetKey);

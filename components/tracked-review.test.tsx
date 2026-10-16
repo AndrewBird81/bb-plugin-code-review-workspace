@@ -75,3 +75,34 @@ test("a guide that failed says so, with Try again, its menu, and the PR on GitHu
   expect(slot.getByRole("button", { name: "Review actions" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+test("a guide that failed says what went wrong, in plain text, when it's known", async () => {
+  const text = "Its last guide wasn't accepted:\nCoverage errors:\nmissing: src/a.ts is in the diff but not in the guide";
+  const slot = await reviewPage({ status: "error", guideError: { at: 1, text } });
+  const failed = await slot.findByRole("alert");
+  const reason = within(failed).getByRole("region", { name: "What went wrong" });
+  expect(reason.querySelector("p")?.textContent).toBe(text);
+  expect(reason.querySelector("p")?.className).toContain("line-clamp-6");
+  slot.lifecycle.unmount();
+  // Unknown, it says nothing more.
+  const unknown = await reviewPage({ status: "error" });
+  expect(within(await unknown.findByRole("alert")).queryByRole("region", { name: "What went wrong" })).toBeNull();
+  unknown.lifecycle.unmount();
+});
+
+test("Review not found leads with Back to your reviews, and Try again comes second", async () => {
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getReviewBundle: () => ({ review: null, guide: null, patch: null, revision: "r0" }),
+    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+  } as any });
+  const missing = await slot.findByRole("alert");
+  expect(within(missing).getByRole("heading", { name: "Review not found" })).toBeTruthy();
+  const [back, retry] = within(missing).getAllByRole("button");
+  expect([back.textContent, retry.textContent]).toEqual(["Back to your reviews", "Try again"]);
+  expect(retry.className).not.toBe(back.className);
+  fireEvent.click(back);
+  await waitFor(() => expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review" }));
+  slot.lifecycle.unmount();
+});

@@ -23,9 +23,15 @@ const active = new WeakMap<BbPluginApi, Set<AbortController>>();
 const failures = new WeakMap<BbPluginApi, Map<string, AbortController>>();
 /** thread.failed: a guide worker that failed ends its generation now, instead of at the wait's timeout. */
 export function guideWorkerFailed(bb: BbPluginApi, threadId: string) { failures.get(bb)?.get(threadId)?.abort(); }
-const acceptances = new WeakMap<BbPluginApi, Map<string, AbortController>>();
+/** Each running generation, by its id: told when generate_review_guide accepts its guide, and why it last refused one. */
+const generations = new WeakMap<BbPluginApi, Map<string, { accepted: AbortController; rejection?: string }>>();
 /** generate_review_guide accepted generation `generationId`'s guide: its run finishes now, not when the worker's turn ends. */
-export function guideAccepted(bb: BbPluginApi, generationId: string) { acceptances.get(bb)?.get(generationId)?.abort(); }
+export function guideAccepted(bb: BbPluginApi, generationId: string) { generations.get(bb)?.get(generationId)?.accepted.abort(); }
+/** generate_review_guide refused generation `generationId`'s guide, saying `text`: the worker is reminded of it, and the reviewer told. */
+export function guideRejected(bb: BbPluginApi, generationId: string, text: string) {
+  const generation = generations.get(bb)?.get(generationId);
+  if (generation) generation.rejection = text;
+}
 
 // Each wait lasts up to WAIT_STEP; a worker still working is waited for again, up to a cap that grows with the diff.
 const WAIT_STEP = 600_000;
@@ -88,7 +94,10 @@ export async function generateGuide(
   let workerId: string | undefined;
   let threads: BbPluginApi["sdk"]["threads"] | undefined;
   const controller = new AbortController();
-  const accepted = new AbortController();
+  const generation: { accepted: AbortController; rejection?: string } = { accepted: new AbortController() };
+  const accepted = generation.accepted;
+  /** Why the guide failed, for the reviewer. */
+  let failure: string | undefined;
   const runs = active.get(bb) ?? new Set<AbortController>();
   active.set(bb, runs);
   runs.add(controller);
@@ -101,9 +110,10 @@ export async function generateGuide(
     const patch = store.patch(targetKey);
     const earlier = { guide: kept && { ...kept, sections: fitHunks(kept.sections, patch) }, reviewed: !!(review && baselineOf(review).at) };
     generationId = store.beginGeneration(targetKey);
-    const accepting = acceptances.get(bb) ?? new Map<string, AbortController>();
-    acceptances.set(bb, accepting);
-    accepting.set(generationId, accepted);
+    store.setLifecycle(targetKey, { guideError: null });
+    const running = generations.get(bb) ?? new Map<string, typeof generation>();
+    generations.set(bb, running);
+    running.set(generationId, generation);
     threads = bb.sdk.threads;
     const preferences = store.getPreferences().preferences;
     const title = `${GUIDE_WORKER_TITLE}${targetKey}`;
@@ -129,12 +139,12 @@ export async function generateGuide(
     try {
       const deadline = Date.now() + waitCap(store.patch(targetKey).length);
       const signal = AbortSignal.any([controller.signal, failed.signal, accepted.signal]);
+      let nudged = false;
       for (;;) {
         const started = Date.now();
         const timeoutMs = Math.min(WAIT_STEP, deadline - started);
         try {
           await threads.wait({ threadId: worker.id, status: "idle", timeoutMs, signal });
-          break;
         } catch (error) {
           // An accepted guide ends the wait: whatever the worker says after it, no one reads.
           if (accepted.signal.aborted) break;
@@ -142,16 +152,28 @@ export async function generateGuide(
           if (signal.aborted || Date.now() >= deadline || Date.now() - started < timeoutMs) throw error;
           const thread = await threads.get({ threadId: worker.id }).catch(() => null);
           if (!thread || !workerActive(thread.status)) throw error;
+          continue;
         }
+        // Idle without an accepted guide: the worker is told why, once, and has the rest of its time to fix it.
+        if (nudged || store.getGuide(targetKey) !== null || Date.now() >= deadline) break;
+        nudged = true;
+        await threads.send({ threadId: worker.id, mode: "queue-if-active", input: [{ type: "text", mentions: [], text: generation.rejection
+          ? `Your guide wasn't accepted:\n${generation.rejection}\nFix it and call generate_review_guide again with the same targetKey and generationId.`
+          : "You haven't submitted the guide. Finish it and call generate_review_guide with the same targetKey and generationId." }] });
       }
-      if (failed.signal.aborted && !accepted.signal.aborted) throw new Error("the worker failed");
+      if (failed.signal.aborted && !accepted.signal.aborted) throw new Error("the guide writer failed");
+      if (!accepted.signal.aborted && store.getGuide(targetKey) === null) throw new Error("the guide writer stopped without an accepted guide");
     } finally {
       watched.delete(worker.id);
     }
   } catch (error) {
     // spawn/wait failed — fall through and finalize as error below. The log
-    // carries the reason, such as a custom agent bb can no longer start.
-    if (!controller.signal.aborted) bb.log.warn(`Guide generation for ${targetKey} failed: ${String(error)}`);
+    // carries the reason, such as a custom agent bb can no longer start, and the guide's last rejection.
+    if (!controller.signal.aborted) {
+      const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
+      failure = generation.rejection ? `Its last guide wasn't accepted:\n${generation.rejection}` : `${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`;
+      bb.log.warn(`Guide generation for ${targetKey} failed: ${String(error)}${generation.rejection ? `. Its last guide wasn't accepted:\n${generation.rejection}` : ""}`);
+    }
   } finally {
     if (workerId && threads) {
       try { await threads.archive({ threadId: workerId }); } catch { /* best effort */ }
@@ -166,6 +188,7 @@ export async function generateGuide(
     if (ok) store.dropGuideBackup(targetKey);
     else store.restoreGuide(targetKey);
     store.setStatus(targetKey, ok ? "ready" : "error");
+    store.setLifecycle(targetKey, { guideError: ok || !failure ? null : { at: Date.now(), text: failure } });
     // The review's assistant reads the new guide when its runtime restarts.
     if (ok) void refreshAssistants(bb, store, [targetKey]);
     bb.realtime.publish(`review:${targetKey}`, { status: ok ? "ready" : "error" });
@@ -191,6 +214,6 @@ export async function generateGuide(
     // The next factory marks interrupted runs as errors without reusing a guide.
   } finally {
     runs.delete(controller);
-    if (generationId) acceptances.get(bb)?.delete(generationId);
+    if (generationId) generations.get(bb)?.delete(generationId);
   }
 }

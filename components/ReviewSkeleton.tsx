@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useId } from "react";
 import { UrlLink, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import type { ReviewItem } from "../lib/review-state";
 import { Skeleton } from "./ui/skeleton";
@@ -97,19 +97,23 @@ function BuildingGuide({ review, onBack }: { review: ReviewItem; onBack: () => v
 }
 
 /**
- * A review page that failed: the page bar (with the review's menu, when there's a review), what failed, and the way
- * on: Try again, and the PR on GitHub.
+ * A review page that failed: the page bar (with the review's menu, when there's a review), what failed, why a guide
+ * failed when it's known, and the way on: Try again, or Back to your reviews when `primary` is "back", and the PR on GitHub.
  */
-export const ReviewError = memo(function ReviewError({ review, title = "Couldn’t build the guide", message = "The guide writer stopped before it finished. Check your coding agent in BB’s Settings, then try again.", onRetry, onBack, busy = false }: {
+export const ReviewError = memo(function ReviewError({ review, title = "Couldn’t build the guide", message = "The guide writer stopped before it finished. Check your coding agent in BB’s Settings, then try again.", onRetry, onBack, busy = false, primary = "retry" }: {
   review?: ReviewItem;
   title?: string;
   message?: string;
   onRetry?: () => void;
   onBack: () => void;
   busy?: boolean;
+  primary?: "retry" | "back";
 }) {
   const navigate = useBbNavigate();
   const pinnable = useThreadListReviews() === true;
+  // The writer's own words or the guide's last rejection: plain text, cut to a few lines.
+  const reason = review?.status === "error" ? review.guideError?.text : undefined;
+  const reasonId = useId();
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <PageBar onBack={onBack} title={review && <InlineCode text={review.title ?? review.gitRef ?? review.targetKey} />}>
@@ -121,8 +125,15 @@ export const ReviewError = memo(function ReviewError({ review, title = "Couldn�
           <h2 className="text-base font-semibold text-foreground">{title}</h2>
           <p className="break-words text-sm leading-relaxed text-muted-foreground">{message}</p>
         </div>
+        {reason && (
+          <section aria-labelledby={reasonId} className="w-full max-w-lg rounded-md border border-border p-3 text-left">
+            <h3 id={reasonId} className="text-xs font-medium text-foreground">What went wrong</h3>
+            <p className="mt-1 line-clamp-6 whitespace-pre-line break-words text-xs leading-5 text-muted-foreground">{reason}</p>
+          </section>
+        )}
         <div className="flex flex-wrap justify-center gap-2">
-          {onRetry && <Button disabled={busy} className={TOUCH_CONTROL} onClick={onRetry}>{busy ? "Trying again…" : "Try again"}</Button>}
+          {primary === "back" && <Button className={TOUCH_CONTROL} onClick={onBack}>Back to your reviews</Button>}
+          {onRetry && <Button disabled={busy} variant={primary === "back" ? "outline" : "default"} className={TOUCH_CONTROL} onClick={onRetry}>{busy ? "Trying again…" : "Try again"}</Button>}
           {review?.url && <Button asChild variant="outline" className={TOUCH_CONTROL}><UrlLink href={review.url}><Icon name="Github" aria-hidden />Open on GitHub</UrlLink></Button>}
         </div>
       </div>

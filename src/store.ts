@@ -25,6 +25,8 @@ export interface ReviewLifecycle {
   latestHeadSha?: string;
   /** The PR's base branch as the sync last read it; `base` stays the one the guide was written against. */
   latestBase?: string;
+  /** Why the last guide failed: its last rejection, or what stopped its writer. Cleared when a guide starts or is accepted. */
+  guideError?: { at: number; text: string } | null;
   /** What GitHub says about whose turn it is. */
   signals?: TurnSignals | null;
   /** Snoozed until the author responds: hidden from Needs review until a newer signal. */

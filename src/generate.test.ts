@@ -1,4 +1,4 @@
-import { test, expect } from "vitest";
+import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
 import { createStore } from "./store";
@@ -437,4 +437,54 @@ test("generate_review_guide's description names every rule it enforces, and its 
 
 test("the guide-writing skill stops once the guide is accepted, without a recap", async () => {
   expect(await skillText()).toContain("When the tool answers `Guide accepted.`, stop. End your turn without a recap.");
+});
+
+/** A guide writer whose turns `turns` play, one per wait: each may call generate_review_guide with the run's ids. */
+async function writerRun(turns: Array<(submit: (guide: unknown) => Promise<unknown>) => Promise<void>>) {
+  const { generateGuide } = await import("./generate");
+  let prompt = "";
+  const send = vi.fn(async () => ({ ok: true, delivery: "sent" }));
+  const h = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: async (args: { prompt: string }) => { prompt = args.prompt; return { id: "worker" }; },
+    archive: async () => ({}), stop: async () => ({}), send,
+    get: async () => ({ id: "worker", title: "Generate guide: pr-1", status: "idle", archivedAt: null, deletedAt: null }),
+    wait: async () => {
+      const generationId = prompt.match(/generationId "([^"]+)"/)![1];
+      await turns.shift()?.((guide) => h.harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide }));
+      return { matched: true };
+    },
+  } } as any });
+  await plugin(h.bb);
+  const store = createStore(h.bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, headSha: "sha1", status: "generating", createdAt: 1, projectId: "p1" });
+  store.savePatch("pr-1", patch);
+  await generateGuide(h.bb, store, "pr-1", "p1", { notify: false });
+  const logs = h.harness.inspection.logEntries.map((e) => `${e.level}: ${e.message}`).filter((line) => line.includes("pr-1"));
+  return { store, send, logs };
+}
+const ghostGuide = { title: "T", intent: "I", sections: [{ id: "s", title: "S", overview: "o", risk: "low", diffs: [{ file: "ghost.ts", summary: "x" }] }] };
+
+test("a guide writer that stops without an accepted guide is told why once, then the guide fails with the reason logged and kept", async () => {
+  const { store, send, logs } = await writerRun([async (submit) => { await submit(ghostGuide); }]);
+  expect(store.getReview("pr-1")?.status).toBe("error");
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(send.mock.calls[0]).toEqual([{ threadId: "worker", mode: "queue-if-active", input: [{ type: "text", mentions: [], text: expect.stringMatching(/^Your guide wasn't accepted:\nCoverage errors:\nextra: ghost\.ts .*\nmissing: a\.ts .*\nFix it and call generate_review_guide again with the same targetKey and generationId\.$/s) }] }]);
+  expect(logs).toEqual([expect.stringMatching(/^warn: Guide generation for pr-1 failed: .*stopped without an accepted guide.*Coverage errors:\nextra: ghost\.ts/s)]);
+  expect(store.getReview("pr-1")?.guideError).toEqual({ at: expect.any(Number), text: expect.stringMatching(/^Its last guide wasn't accepted:\nCoverage errors:\nextra: ghost\.ts/) });
+});
+
+test("a guide writer that never submits is told to, and the guide's failure says it stopped", async () => {
+  const { store, send, logs } = await writerRun([]);
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(send.mock.calls[0])).toContain("You haven't submitted the guide.");
+  expect(logs).toHaveLength(1);
+  expect(store.getReview("pr-1")?.guideError?.text).toBe("The guide writer stopped without an accepted guide.");
+});
+
+test("a guide writer told why its guide wasn't accepted can fix it, and the guide is ready with no error kept", async () => {
+  const fixed = { ...ghostGuide, sections: [{ ...ghostGuide.sections[0], diffs: [{ file: "a.ts", summary: "x" }] }] };
+  const { store, send } = await writerRun([async (submit) => { await submit(ghostGuide); }, async (submit) => { await submit(fixed); }]);
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(store.getReview("pr-1")?.status).toBe("ready");
+  expect(store.getReview("pr-1")?.guideError).toBeNull();
 });
