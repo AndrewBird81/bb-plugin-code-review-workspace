@@ -4,6 +4,8 @@ import { linesOf, postedBody, sameLocation, type CommentLocation, type DraftComm
 import { runGh } from "./gh";
 import { patchRows, splitPatchByFile } from "./patch";
 import { spawnExecution } from "./preferences";
+import { assistantReview } from "./draft-comments";
+import { isMissingThread } from "./thread-errors";
 
 const MAX_CODE_LINES = 40;
 
@@ -92,4 +94,51 @@ export async function startFixThread(bb: BbPluginApi, store: Store, targetKey: s
   } catch (error) {
     throw new Error(`Couldn’t start the thread: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/** What Send to thread asks for after the comments: a reply per comment, and no push. */
+const REPORT_BACK = "Reply in this thread with what you changed for each comment, as `file:line — done` or `not done (why)`. Don't push unless I ask.";
+
+/** The thread `bb review` ran in for the review, as Finish review offers it. */
+export interface SourceThread { threadId: string; title: string | null; state: "open" | "archived" | "gone" }
+
+/** The review's source thread: open, archived, or gone. Null without one, and for one of this plugin's own agents. */
+export async function sourceThread(bb: BbPluginApi, store: Store, targetKey: string): Promise<SourceThread | null> {
+  const threadId = store.getReview(targetKey)?.sourceThreadId;
+  if (!threadId || assistantReview(store, threadId) || store.generationOf(threadId)) return null;
+  const thread = await bb.sdk.threads.get({ threadId }).catch((error) => {
+    if (isMissingThread(error)) return null;
+    throw error;
+  });
+  if (!thread || thread.deletedAt) return { threadId, title: null, state: "gone" };
+  return { threadId, title: thread.title ?? null, state: thread.archivedAt ? "archived" : "open" };
+}
+
+/**
+ * Send the draft comments at `picked` to the review's source thread, the one that made the change, after its current
+ * turn if it's busy, and record them as sent. Only for your own PR or a local review; the draft stays as it is.
+ */
+export async function sendToSourceThread(bb: BbPluginApi, store: Store, targetKey: string, picked: readonly CommentLocation[]): Promise<{ ok: true; delivery: "sent" | "queued"; title: string | null }> {
+  const review = store.getReview(targetKey);
+  if (!review) throw new Error("This review no longer exists.");
+  if (!(await isOwnChange(review))) throw new Error("Send to thread is only for your own PR or a local review.");
+  const source = await sourceThread(bb, store, targetKey);
+  if (!source) throw new Error("This review has no thread to send to. Run `bb review` in the thread that made the change.");
+  if (source.state === "gone") throw new Error("The thread that started this review was deleted.");
+  if (source.state === "archived") throw new Error(`${source.title ?? "The thread that started this review"} is archived.`);
+  const comments = store.getDraft(targetKey).comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
+  if (!comments.length) throw new Error("Those comments are no longer in the draft.");
+  const text = [fixMessage(review, comments, store.patch(targetKey), store.staleDraftComments(targetKey)), REPORT_BACK].join("\n\n");
+  let delivery: "sent" | "queued";
+  try {
+    const sent = await bb.sdk.threads.send({ threadId: source.threadId, mode: "queue-if-active", input: [{ type: "text", text, mentions: [] }] });
+    delivery = sent?.delivery === "queued" ? "queued" : "sent";
+  } catch (error) {
+    throw new Error(`Couldn’t send to the thread: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const at = Date.now();
+  // Comments sent to this thread before stay marked; one sent again is marked now.
+  const earlier = review.sent?.threadId === source.threadId ? review.sent.comments.filter((comment) => !comments.some((sent) => sameLocation(sent, comment))) : [];
+  store.setLifecycle(targetKey, { sent: { at, threadId: source.threadId, title: source.title, comments: [...earlier, ...comments.map(({ file, line, side }) => ({ file, line, side, at }))] } });
+  return { ok: true, delivery, title: source.title };
 }

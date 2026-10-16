@@ -61,6 +61,7 @@ import { chapterAt, droppedNear, filePart, fitHunks, hunksIn } from "../src/hunk
 import { approveGuard } from "../lib/approve-guard";
 import { agentCoverage } from "../lib/agent-coverage";
 import { useKnob, useSettings } from "../lib/settings";
+import { ReviewLinksContext } from "../lib/review-links";
 import { changedLines, chapterReadingLines, readingLines } from "../lib/review-size";
 
 /** The guide's chapters, then any changed files they don't list, such as an older guide's unplaced files. */
@@ -652,6 +653,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [stopping, rpc, targetKey, load]);
   const archived = !!review?.archivedAt;
   const localDiffChanges = useKnob("localDiffChanges");
+  const sendToThread = useKnob("sendToThread");
+  const reviewLinks = useMemo(() => ({ sent: sendToThread ? review?.sent ?? null : null }), [sendToThread, review?.sent]);
   const { newCommits, text: newCommitsText } = useNewCommits(targetKey, (isPr || review?.kind === "ref" && localDiffChanges) && !archived);
 
   const checkAccess = useMemo(
@@ -1341,6 +1344,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   return (
     <WorkspaceProvider api={api}>
+    <ReviewLinksContext.Provider value={reviewLinks}>
     {/* The draft's provider shares it with the diff, which shows each comment under its line, and with its panel. */}
     <DraftProvider patch={patch} reviewRevision={revision} rebuilding={generatingReplacement} ownPr={review?.ownPr === true} approveGuard={guard} agentCoverage={coverage} account={repoAccess?.account ?? undefined} onOpenPanel={openDraftView} review={review} onSubmitted={reloadReview} isLocal={review?.kind === "ref"} targetKey={targetKey} activeChapterId={activeId} activeFiles={activeFiles} files={reviewFiles} prefill={draftPrefill} showDraft={showDraft}>
     {/* Kit popovers open as bottom drawers where the workspace is phone-sized or short. */}
@@ -1429,6 +1433,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     </div>
     </CompactViewportOverrideProvider>
     </DraftProvider>
+    </ReviewLinksContext.Provider>
     </WorkspaceProvider>
   );
 });

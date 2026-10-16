@@ -16,6 +16,7 @@ import { CommentPill } from "./comments/CommentPill";
 import { DraftIcon, draftEdge, notSubmitted, privately, SEVERITY_TONE } from "./comments/look";
 import { useComments } from "./comments/store";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
+import { SentLine } from "./SentLine";
 
 /** The draft as the diff shows it, under each comment's line. DraftProvider owns the draft and provides this. */
 export interface InlineDraft {
@@ -173,6 +174,7 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
           </span>
         )}
       </div>
+      <SentLine at={comment} className="px-3 pb-1.5" />
       <div className="space-y-2 px-3 pb-2.5"><CommentBody body={comment.author === "agent" ? linkImages(comment.body) : comment.body} />{comment.evidence && <AgentEvidence evidence={comment.evidence} />}</div>
       {state === "older-diff" && <p className="border-t border-warning/20 bg-warning/10 px-3 py-1.5 text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
     </article>

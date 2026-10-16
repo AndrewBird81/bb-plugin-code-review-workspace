@@ -405,3 +405,22 @@ test("with every knob off, a local review never asks whether its code changed", 
   expect(page.queryByText("The code changed since this guide.")).toBeNull();
   page.lifecycle.unmount(); bar.lifecycle.unmount();
 });
+
+test("with every knob off, Finish review on a local review a thread started offers only Fix in a new thread, and no comment says it was sent", async () => {
+  restores.push(desktopWindow());
+  const getSourceThread = vi.fn(() => ({ thread: { threadId: "coder", title: "Retry uploads", state: "open" } }));
+  const sent = { at: Date.now(), threadId: "coder", title: "Retry uploads", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT", at: Date.now() }] };
+  const { page, bar } = await renderReview(allKnobsOff, { getReviewBundle: localBundle({ sourceThreadId: "coder", sent }), getSourceThread });
+  const commands = within(await bar.findByRole("group", { name: "Review commands" }));
+  fireEvent.click(commands.getByRole("button", { name: "Comments" }));
+  const panel = within(await page.findByRole("complementary", { name: "Comments and agent" }));
+  await panel.findByText("Upper case reads as a constant.");
+  fireEvent.click(panel.getByRole("button", { name: /^Expand .*src\/a\.ts:2/ }));
+  expect(panel.getByRole("article", { name: "Draft comment on src/a.ts:2" }).textContent).not.toContain("Sent to");
+  fireEvent.click(panel.getByRole("button", { name: "Finish review" }));
+  expect(await page.findByRole("button", { name: "Fix in a new thread" })).toBeTruthy();
+  expect(page.queryByRole("button", { name: /^Send/ })).toBeNull();
+  expect(getSourceThread).not.toHaveBeenCalled();
+  expect(page.queryByText(/Sent to/)).toBeNull();
+  page.lifecycle.unmount(); bar.lifecycle.unmount();
+});

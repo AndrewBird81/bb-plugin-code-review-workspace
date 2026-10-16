@@ -22,6 +22,8 @@ export interface ReviewLifecycle {
   /** The thread `bb review` last ran in for this review, since `sourceThreadAt`: where the change was made. Never one of this plugin's agents. */
   sourceThreadId?: string | null;
   sourceThreadAt?: number | null;
+  /** The draft comments last sent to the source thread, each since when, and the thread's title then. Sending submits nothing. */
+  sent?: { at: number; threadId: string; title: string | null; comments: Array<CommentLocation & { at: number }> } | null;
   submittedVerdict?: Verdict | null;
   submittedAt?: number | null;
   submittedHeadSha?: string | null;

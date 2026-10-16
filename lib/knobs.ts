@@ -3,7 +3,7 @@
 /** Settings → Guide generation, Reading, Comments and Finish review, Review agent, Whose turn, Notifications, and Trust. */
 export interface Knobs {
   singleKeyShortcuts: boolean; returnToOverview: boolean; foldViewedFiles: boolean; foldGeneratedFiles: boolean;
-  localDiffChanges: boolean;
+  localDiffChanges: boolean; sendToThread: boolean;
   requirements: boolean; codeOwners: boolean; ciInCode: boolean;
   commentKeys: boolean; removalReasons: boolean; moveToSummary: boolean;
   askAboutSelection: boolean; approveGuard: boolean;
@@ -22,7 +22,7 @@ export type KnobId = keyof Knobs;
 /** Every toggle on; the pace is lib/approve-guard.ts's MAX_LINES_PER_HOUR. */
 export const defaultKnobs: Knobs = {
   singleKeyShortcuts: true, returnToOverview: true, foldViewedFiles: true, foldGeneratedFiles: true,
-  localDiffChanges: true,
+  localDiffChanges: true, sendToThread: true,
   requirements: true, codeOwners: true, ciInCode: true,
   commentKeys: true, removalReasons: true, moveToSummary: true,
   askAboutSelection: true, approveGuard: true, approveGuardPace: 500,

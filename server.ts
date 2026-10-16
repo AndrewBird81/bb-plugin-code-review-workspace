@@ -17,7 +17,7 @@ import { hunkCounts } from "./src/hunks";
 import { runReviewCommand } from "./src/review-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startAutomaticReview, startConversation } from "./src/agent";
-import { startFixThread } from "./src/fix-handoff";
+import { sendToSourceThread, sourceThread, startFixThread } from "./src/fix-handoff";
 import { listMachines, personalProjectId } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
 import { commentsKey, rangeOf, sameLocation, SEVERITIES, severityOf, SUMMARY_AT } from "./src/draft";
@@ -773,6 +773,16 @@ export default async function plugin(bb: BbPluginApi) {
     },
     startFixThread({ targetKey, comments }) {
       return startFixThread(bb, store, targetKey, comments);
+    },
+    async getSourceThread({ targetKey }) {
+      if (!store.getPreferences().preferences.knobs.sendToThread) return { thread: null };
+      return { thread: await sourceThread(bb, store, targetKey) };
+    },
+    async sendToSourceThread({ targetKey, comments }) {
+      if (!store.getPreferences().preferences.knobs.sendToThread) throw new Error("Send to thread is off in Review settings.");
+      const result = await sendToSourceThread(bb, store, targetKey, comments);
+      changed(targetKey);
+      return result;
     },
     // GitHub account indicator + switcher
     async getGhAccounts() {

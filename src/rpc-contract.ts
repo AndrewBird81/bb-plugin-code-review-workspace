@@ -281,6 +281,15 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1) }).strict(),
     output: z.object({ threadId: z.string(), title: z.string() }),
   },
+  // The thread `bb review` ran in, which Finish review's Send to thread sends comments to (src/fix-handoff.ts).
+  getSourceThread: {
+    input: targetKey,
+    output: z.object({ thread: z.object({ threadId: z.string(), title: z.string().nullable(), state: z.enum(["open", "archived", "gone"]) }).nullable() }),
+  },
+  sendToSourceThread: {
+    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1) }).strict(),
+    output: z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable() }),
+  },
 
   // GitHub account indicator + switcher
   getGhAccounts: {

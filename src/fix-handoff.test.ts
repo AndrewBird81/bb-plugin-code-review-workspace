@@ -5,7 +5,9 @@ const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 
 import { createStore } from "./store";
-import { fixMessage, startFixThread } from "./fix-handoff";
+import { fixMessage, sendToSourceThread, sourceThread, startFixThread } from "./fix-handoff";
+import plugin from "../server";
+import { defaultPreferences } from "./preferences";
 
 const PATCH = [
   "diff --git a/src/a.ts b/src/a.ts", "--- a/src/a.ts", "+++ b/src/a.ts", "@@ -1,3 +1,4 @@",
@@ -111,4 +113,74 @@ test("each comment keeps its severity, a block below the label", () => {
   ], PATCH, [{ file: "src/a.ts", line: 4, side: "RIGHT" }]);
   expect(text).toContain("````\n**Blocking:** Name this better.");
   expect(text).toContain("may have moved:\n**Nit:**\n\n```suggestion");
+});
+
+/** A host whose BB has the threads in `threads`, by id, and whose send answers `delivery`. */
+function sendHost(threads: Record<string, { title: string | null; archivedAt?: number | null; deletedAt?: number | null }>, delivery: "sent" | "queued" = "sent") {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    get: async ({ threadId }: { threadId: string }) => {
+      const thread = threads[threadId];
+      if (!thread) throw Object.assign(new Error("HTTP 404: Thread not found"), { status: 404 });
+      return { id: threadId, archivedAt: null, deletedAt: null, status: "idle", ...thread };
+    },
+    send: async () => delivery === "queued" ? { ok: true, delivery, queuedMessage: { id: "q1" } } : { ok: true, delivery },
+  } } as any });
+  const store = createStore(bb);
+  return { bb, harness, store, sends: () => harness.inspection.sdk.callsTo("threads.send").map((call) => call[0] as any) };
+}
+
+test("Send to thread sends the comments you chose to the thread that made the change, after its turn, and marks them sent", async () => {
+  const { bb, store, sends } = sendHost({ coder: { title: "Retry uploads" } }, "queued");
+  ownPr(store, { sourceThreadId: "coder", sourceThreadAt: 1 });
+  const before = store.getDraft("pr-1");
+  expect(await sourceThread(bb, store, "pr-1")).toEqual({ threadId: "coder", title: "Retry uploads", state: "open" });
+  expect(await sendToSourceThread(bb, store, "pr-1", [{ file: "src/a.ts", line: 3, side: "RIGHT" }])).toEqual({ ok: true, delivery: "queued", title: "Retry uploads" });
+  const [send] = sends();
+  expect(send).toMatchObject({ threadId: "coder", mode: "queue-if-active" });
+  const text: string = send.input[0].text;
+  expect(text).toContain("acme/web PR #12 (Retry uploads)");
+  expect(text).toContain("Name this better.");
+  expect(text).not.toContain("Why change b?");
+  expect(text.endsWith("Reply in this thread with what you changed for each comment, as `file:line — done` or `not done (why)`. Don't push unless I ask.")).toBe(true);
+  const sent = store.getReview("pr-1")?.sent;
+  expect(sent).toMatchObject({ threadId: "coder", title: "Retry uploads", comments: [{ file: "src/a.ts", line: 3, side: "RIGHT" }] });
+  // Sending another keeps the first marked, each with when it was sent.
+  await sendToSourceThread(bb, store, "pr-1", [{ file: "src/a.ts", line: 2, side: "LEFT" }]);
+  expect(store.getReview("pr-1")?.sent?.comments.map(({ line, at }) => ({ line, at: typeof at }))).toEqual([{ line: 3, at: "number" }, { line: 2, at: "number" }]);
+  // Sending submits nothing: the draft is as it was.
+  expect(store.getDraft("pr-1")).toEqual(before);
+});
+
+test("Send to thread refuses someone else's PR, a review no thread started, and a thread that's gone or archived", async () => {
+  const { bb, store, sends } = sendHost({ coder: { title: "Retry uploads" }, old: { title: "Old work", archivedAt: 5 } });
+  const at = [{ file: "src/a.ts", line: 3, side: "RIGHT" as const }];
+  ownPr(store, { ownPr: false, sourceThreadId: "coder" });
+  await expect(sendToSourceThread(bb, store, "pr-1", at)).rejects.toThrow("Send to thread is only for your own PR or a local review.");
+  ownPr(store, { ownPr: true, sourceThreadId: null });
+  await expect(sendToSourceThread(bb, store, "pr-1", at)).rejects.toThrow("This review has no thread to send to.");
+  ownPr(store, { sourceThreadId: "deleted" });
+  expect(await sourceThread(bb, store, "pr-1")).toEqual({ threadId: "deleted", title: null, state: "gone" });
+  await expect(sendToSourceThread(bb, store, "pr-1", at)).rejects.toThrow("The thread that started this review was deleted.");
+  ownPr(store, { sourceThreadId: "old" });
+  await expect(sendToSourceThread(bb, store, "pr-1", at)).rejects.toThrow("Old work is archived.");
+  // This plugin's own agent is never a source thread.
+  store.setAssistantThread("pr-1", "coder");
+  ownPr(store, { sourceThreadId: "coder" });
+  expect(await sourceThread(bb, store, "pr-1")).toBeNull();
+  expect(sends()).toHaveLength(0);
+  expect(store.getReview("pr-1")?.sent).toBeUndefined();
+});
+
+test("sendToSourceThread tells the review's page, and with Send to thread off neither RPC offers or sends", async () => {
+  const { bb, harness, store, sends } = sendHost({ coder: { title: "Retry uploads" } });
+  await plugin(bb);
+  ownPr(store, { sourceThreadId: "coder" });
+  const comments = [{ file: "src/a.ts", line: 3, side: "RIGHT" }];
+  expect(await harness.behavior.callRpc("getSourceThread", { targetKey: "pr-1" })).toEqual({ thread: { threadId: "coder", title: "Retry uploads", state: "open" } });
+  expect(await harness.behavior.callRpc("sendToSourceThread", { targetKey: "pr-1", comments })).toEqual({ ok: true, delivery: "sent", title: "Retry uploads" });
+  expect(harness.inspection.realtimeSignals.map((signal) => signal.channel)).toContain("review:pr-1");
+  store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, sendToThread: false } }, store.getPreferences().revision);
+  expect(await harness.behavior.callRpc("getSourceThread", { targetKey: "pr-1" })).toEqual({ thread: null });
+  await expect(harness.behavior.callRpc("sendToSourceThread", { targetKey: "pr-1", comments })).rejects.toThrow("Send to thread is off in Review settings.");
+  expect(sends()).toHaveLength(1);
 });

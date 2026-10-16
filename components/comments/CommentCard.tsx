@@ -23,6 +23,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { CheckBadge, frameOf, plainLine, TAG_TONE, ThreadState } from "./look";
 import { MoveToSummary } from "./MoveToSummary";
 import { ReplyBox } from "./ReplyBox";
+import { SentLine } from "../SentLine";
 import { useComments } from "./store";
 
 /** In the code: inside pierre's code view, so it sets its own text style rather than inheriting the code's. */
@@ -237,6 +238,7 @@ function DraftCard({ item }: { item: DraftItem }) {
         {comment.startLine !== undefined && <p className="px-2.5 pt-2.5 text-xs text-muted-foreground tabular-nums">Lines {linesOf(comment)}</p>}
         <ComposerFields mode="edit" busy={draft.busy} composer={composer} controlsRef={draft.composerControls} />
       </> : <div className="space-y-2 px-3 pb-2.5 pt-2.5">
+        <SentLine at={comment} />
         {(comment.startLine !== undefined || comment.side === "LEFT") && <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
           {comment.side === "LEFT" && <Badge size="sm">Old line</Badge>}
