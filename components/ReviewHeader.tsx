@@ -179,7 +179,8 @@ export const ReviewHeader = memo(function ReviewHeader({ review, checks, readLin
         review.author && <span className="inline-flex items-center gap-1.5 align-top"><Avatar login={review.author} size={16} /><span className="text-foreground/90">@{review.author}</span></span>,
         review.repo && <span className="inline-flex items-center gap-1 align-top"><Icon name={kind.icon} className={cn("size-3.5 shrink-0", TONE_TEXT[kind.tone])} aria-hidden /><span className="font-mono text-[11px]">{review.repo}</span>{review.number ? <span className="text-subtle-foreground">#{review.number}</span> : null}</span>,
         review.base && review.head
-          ? <span className="inline-flex min-w-0 max-w-full items-center gap-1 align-top"><BranchChip>{review.base}</BranchChip><Icon name="ArrowRight" className="size-3 shrink-0 rotate-180 text-subtle-foreground" aria-hidden /><BranchChip>{review.head}</BranchChip></span>
+          // base ← head, which a screen reader hears in words, the way the PR merges: "fix-race into main".
+          ? <span className="inline-flex min-w-0 max-w-full items-center gap-1 align-top"><span className="sr-only">{review.head} into {review.base}</span><span aria-hidden className="contents"><BranchChip>{review.base}</BranchChip><Icon name="ArrowRight" className="size-3 shrink-0 rotate-180 text-subtle-foreground" /><BranchChip>{review.head}</BranchChip></span></span>
           : review.gitRef && <BranchChip className="align-top">{review.gitRef}</BranchChip>,
         !!readLines && <span className="tabular-nums" title={`Without lockfiles and generated files. Reading time at about ${LINES_PER_HOUR} changed lines an hour.`}>{readLines.toLocaleString()} changed {readLines === 1 ? "line" : "lines"} · {readingTime(readLines)}</span>,
       ]} />

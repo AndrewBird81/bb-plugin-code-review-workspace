@@ -209,6 +209,9 @@ test("every fact the 0.5.2 header showed is on the Overview", async () => {
   for (const fact of ["@octo", "acme/web", "#42", "main", "fix-race", "Re-requested", "Blocks merge", "1/3 addressed", "Checks passing", "Stack · 2 of 2", "Serializes token refreshes.", "The lock is released on error now.", "The lock outlives a failed refresh.", "One refresh at a time", "Only in the client."]) {
     expect(overview.getByText(fact)).toBeTruthy();
   }
+  // main ← fix-race, which a screen reader hears the way the PR merges.
+  expect(overview.getByText("fix-race into main").className).toBe("sr-only");
+  expect(overview.getByText("main").closest("[aria-hidden]")).toBeTruthy();
   expect(overview.getByRole("list", { name: "Your reviews" }).textContent).toBe("Changes requested 1d ago");
   expect(overview.getByText("You haven’t reviewed #41, which this builds on.")).toBeTruthy();
   expect(overview.getByRole("button", { name: "Snooze" })).toBeTruthy();
