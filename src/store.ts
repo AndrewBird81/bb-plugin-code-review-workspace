@@ -683,6 +683,8 @@ export function createStore(bb: BbPluginApi): Store {
       writeDraft(db, current);
     },
     listDiscussions(k) {
+      // Startup asks of every review: one with no discussion reads no patch.
+      if (!db.prepare(`SELECT 1 FROM discussion_entries WHERE target_key=? UNION ALL SELECT 1 FROM discussion_waits WHERE target_key=? LIMIT 1`).get(k, k)) return [];
       followRenames(k);
       const waiting = db.prepare(`SELECT file,line,side FROM discussion_waits WHERE target_key=?`).all(k) as CommentLocation[];
       const discussions: Discussion[] = [];

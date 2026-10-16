@@ -1,8 +1,15 @@
-import { test, expect } from "vitest";
+import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore, reanchorAll } from "./store";
+import { renamedPaths } from "./patch";
 import { askAt, setAsk } from "./asks";
 import { createHash } from "node:crypto";
+
+// To count reads of a review's renames, which split its whole patch.
+vi.mock("./patch", async (original) => {
+  const actual = await original<typeof import("./patch")>();
+  return { ...actual, renamedPaths: vi.fn(actual.renamedPaths) };
+});
 
 function store() {
   const { bb } = createFakePluginHost({ pluginId: "guided-review" });
@@ -403,4 +410,20 @@ test("a comment's severity round-trips, a draft saved before severities loads wi
   expect(s.getDraft("pr-1").comments[1].severity).toBe("blocking");
   s.editDraftComment("pr-1", at, "Spacing here", null);
   expect(s.getDraft("pr-1").comments[1]).toEqual({ ...at, body: "Spacing here" });
+});
+
+test("listing discussions reads no patch for a review that has none, as startup does for every review", () => {
+  const s = store();
+  const renamed = "diff --git a/old.ts b/new.ts\nsimilarity index 90%\nrename from old.ts\nrename to new.ts\n--- a/old.ts\n+++ b/new.ts\n@@ -1 +1 @@\n-a\n+b\n";
+  for (let i = 0; i < 40; i++) {
+    s.saveReview({ targetKey: `pr-${i}`, kind: "pr", number: i, status: "ready", createdAt: i });
+    s.savePatch(`pr-${i}`, renamed);
+  }
+  vi.mocked(renamedPaths).mockClear();
+  for (const review of s.listReviews()) expect(s.listDiscussions(review.targetKey)).toEqual([]);
+  expect(renamedPaths).not.toHaveBeenCalled();
+  // A review with a discussion still moves it to the file's new path.
+  s.addDiscussionMessage("pr-1", { file: "old.ts", line: 1, side: "RIGHT" }, "reviewer", "why?");
+  expect(s.listDiscussions("pr-1").map((d) => [d.file, d.waiting])).toEqual([["new.ts", true]]);
+  expect(renamedPaths).toHaveBeenCalledTimes(1);
 });
