@@ -76,3 +76,10 @@ test("read_pr_context judges the author's trust from its own read until the sync
   store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
   expect(await warned({ authorAssociation: "CONTRIBUTOR" })).toBe(false);
 });
+
+test("read_pr_context's description says a local review's instructions are read where its diff starts", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const tool = harness.inspection.registrations.agentTools.find((t) => t.name === "read_pr_context");
+  expect(tool?.description).toContain("For a local review, its commits and the review instructions at the diff's start.");
+});
