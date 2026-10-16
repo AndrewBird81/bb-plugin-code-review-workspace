@@ -106,6 +106,8 @@ test("code spans it can't be sure of, and what follows a doubtful fence, are cha
   expect(linkImages('| a | `<img src="https://evil.test/t.png">` |\n|---|---|')).toBe("| a | `[Image](https://evil.test/t.png)` |\n|---|---|");
   expect(linkImages('See [x](u`) <img src="https://evil.test/r.png"> `y`')).toBe("See [x](u`) [Image](https://evil.test/r.png) `y`");
   expect(linkImages('https://a.test/` `a`<img src="https://evil.test/l.png">`')).toBe("https://a.test/` `a`[Image](https://evil.test/l.png)`");
+  // A table of one column needs no pipe (96-fixes-4).
+  expect(linkImages('a\n:-:\n`<img src="https://evil.test/t1.png"> | y`')).toBe("a\n:-:\n`[Image](https://evil.test/t1.png) | y`");
   // A fence in a list item ends with the item.
   expect(linkImages("- item\n  ```\n![p](https://evil.example/b.png)")).toBe("- item\n  ```\n[Image: p](https://evil.example/b.png)");
   expect(linkImages("1. item\n   ```\nend\n![x](https://evil.test/lf.png)\n```")).toBe("1. item\n   ```\nend\n[Image: x](https://evil.test/lf.png)\n```");

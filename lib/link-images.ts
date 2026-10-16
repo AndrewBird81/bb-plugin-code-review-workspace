@@ -389,7 +389,8 @@ function lineKinds(rows: string[]): LineKind[] {
         fill();
         return "raw";
       }
-      const delimiter = /^\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/.test(tail) && (tail.includes("|") || !!rows[index - 1]?.includes("|"));
+      // A GFM delimiter row has a pipe or a colon (`a\n:-:` is a table of one column); without, a setext underline.
+      const delimiter = /^\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/.test(tail) && (/[|:]/.test(tail) || !!rows[index - 1]?.includes("|"));
       if (delimiter && continues && !all) return null;
       if (delimiter && matchedParagraph && !/^[-+*][ \t]/.test(tail)) {
         paragraph!.table = true;
