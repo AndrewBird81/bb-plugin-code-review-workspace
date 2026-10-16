@@ -1,26 +1,29 @@
 import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
-import { computeFileViewState, hashForFile } from "./file-views";
+import { createStore, type FileView } from "./store";
+import { computeFileViewState, fileHashCache, hashForFile } from "./file-views";
 import { hashFileDiff, normalizedFileHash } from "./diff-hash";
 import { rpcContract } from "./rpc-contract";
 
 vi.mock("./diff-hash", async (original) => {
   const actual = await original<typeof import("./diff-hash")>();
-  return { ...actual, normalizedFileHash: vi.fn(actual.normalizedFileHash) };
+  return { ...actual, normalizedFileHash: vi.fn(actual.normalizedFileHash), hashFileDiff: vi.fn(actual.hashFileDiff) };
 });
+
+/** computeFileViewState against a patch's hashes. */
+const viewStateOf = (stored: FileView[], patch: string) => computeFileViewState(stored, fileHashCache(() => patch));
 
 const patch = "diff --git a/a.ts b/a.ts\n+one\n" + "diff --git a/b.ts b/b.ts\n+two\n";
 
 test("a file marked viewed at its current hash reads as viewed, not stale", () => {
   const hash = hashForFile(patch, "a.ts")!;
-  const state = computeFileViewState([{ file: "a.ts", hash, viewedAt: 1 }], patch);
+  const state = viewStateOf([{ file: "a.ts", hash, viewedAt: 1 }], patch);
   expect(state).toEqual([{ file: "a.ts", viewed: true, stale: false, viewedAt: 1 }]);
 });
 
 test("a file whose diff changed since viewing reads as stale, not viewed", () => {
-  const state = computeFileViewState([{ file: "a.ts", hash: "old-hash", viewedAt: 1 }], patch);
+  const state = viewStateOf([{ file: "a.ts", hash: "old-hash", viewedAt: 1 }], patch);
   expect(state).toEqual([{ file: "a.ts", viewed: false, stale: true, viewedAt: 1 }]);
 });
 
@@ -101,7 +104,7 @@ const reviewed = appDiff("1111111..2222222", "@@ -10,3 +10,3 @@", "   const a = 
 test("a rebase (new @@ numbers, index, context) keeps a file viewed", () => {
   const hash = hashForFile(reviewed, "src/app.ts")!;
   const rebased = appDiff("3333333..4444444", "@@ -20,3 +20,3 @@ start()", "   const a = 10;");
-  expect(computeFileViewState([{ file: "src/app.ts", hash, viewedAt: 1 }], rebased)).toEqual([
+  expect(viewStateOf([{ file: "src/app.ts", hash, viewedAt: 1 }], rebased)).toEqual([
     { file: "src/app.ts", viewed: true, stale: false, viewedAt: 1 },
   ]);
 });
@@ -109,14 +112,14 @@ test("a rebase (new @@ numbers, index, context) keeps a file viewed", () => {
 test("changing an added line makes a viewed file stale", () => {
   const hash = hashForFile(reviewed, "src/app.ts")!;
   const edited = appDiff("1111111..2222222", "@@ -10,3 +10,3 @@", "   const a = 1;", "+  run(a, c);");
-  expect(computeFileViewState([{ file: "src/app.ts", hash, viewedAt: 1 }], edited)).toEqual([
+  expect(viewStateOf([{ file: "src/app.ts", hash, viewedAt: 1 }], edited)).toEqual([
     { file: "src/app.ts", viewed: false, stale: true, viewedAt: 1 },
   ]);
 });
 
 test("a mark saved with the legacy whole-diff hash still counts as viewed", () => {
   const legacy = hashFileDiff(reviewed);
-  expect(computeFileViewState([{ file: "src/app.ts", hash: legacy, viewedAt: 1 }], reviewed)).toEqual([
+  expect(viewStateOf([{ file: "src/app.ts", hash: legacy, viewedAt: 1 }], reviewed)).toEqual([
     { file: "src/app.ts", viewed: true, stale: false, viewedAt: 1 },
   ]);
 });
@@ -125,6 +128,34 @@ test("a binary stays viewed across a rebase but goes stale when replaced", () =>
   const bin = (index: string) => `diff --git a/x.png b/x.png\nindex ${index} 100644\nBinary files a/x.png and b/x.png differ\n`;
   const hash = hashForFile(bin("aaaaaaa..bbbbbbb"), "x.png")!;
   const view = [{ file: "x.png", hash, viewedAt: 1 }];
-  expect(computeFileViewState(view, bin("ccccccc..bbbbbbb"))[0]).toMatchObject({ viewed: true, stale: false });
-  expect(computeFileViewState(view, bin("aaaaaaa..ddddddd"))[0]).toMatchObject({ viewed: false, stale: true });
+  expect(viewStateOf(view, bin("ccccccc..bbbbbbb"))[0]).toMatchObject({ viewed: true, stale: false });
+  expect(viewStateOf(view, bin("aaaaaaa..ddddddd"))[0]).toMatchObject({ viewed: false, stale: true });
+});
+
+const manyFiles = (files: number, changed = -1) => Array.from({ length: files }, (_, f) =>
+  [`diff --git a/src/f${f}.ts b/src/f${f}.ts`, `--- a/src/f${f}.ts`, `+++ b/src/f${f}.ts`, "@@ -1,2 +1,2 @@", `-old${f}`, f === changed ? "+changed" : `+new${f}`, " same", ""].join("\n")).join("");
+
+test("reading Viewed marks on a 2,000-file review hashes only the marked files, once per patch", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1 });
+  store.savePatch("pr-1", manyFiles(2000));
+  const call = (name: "setFileViewed" | "getFileViews", input: object) => harness.behavior.callRpc(name, input as never);
+  for (let i = 0; i < 6; i++) expect(await call("setFileViewed", { targetKey: "pr-1", file: `src/f${i}.ts`, viewed: true })).toEqual({ ok: true });
+  // A mark from an older diff, checked against the legacy hash too.
+  store.setFileViewed("pr-1", "src/f9.ts", "old-hash", 1);
+  vi.mocked(normalizedFileHash).mockClear();
+  vi.mocked(hashFileDiff).mockClear();
+  for (let i = 0; i < 3; i++) {
+    const { views } = await call("getFileViews", { targetKey: "pr-1" }) as { views: Array<{ file: string; viewed: boolean; stale: boolean }> };
+    expect(views.filter((view) => view.viewed)).toHaveLength(6);
+    expect(views.find((view) => view.file === "src/f9.ts")).toMatchObject({ viewed: false, stale: true });
+  }
+  expect(vi.mocked(normalizedFileHash).mock.calls.length + vi.mocked(hashFileDiff).mock.calls.length).toBeLessThanOrEqual(7);
+  // A new diff hashes again: f0 changed since it was viewed.
+  store.savePatch("pr-1", manyFiles(2000, 0));
+  const { views } = await call("getFileViews", { targetKey: "pr-1" }) as { views: Array<{ file: string; viewed: boolean; stale: boolean }> };
+  expect(views.find((view) => view.file === "src/f0.ts")).toMatchObject({ viewed: false, stale: true });
+  expect(views.find((view) => view.file === "src/f1.ts")).toMatchObject({ viewed: true, stale: false });
 });

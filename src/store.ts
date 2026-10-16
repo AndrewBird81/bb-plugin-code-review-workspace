@@ -9,6 +9,7 @@ import type { FeedbackThread } from "./github/types";
 import { diffPositions, rangeProblem, type FilePositions } from "./review-positions";
 import { reanchor } from "./reanchor";
 import { renamedPaths } from "./patch";
+import { fileHashCache, type FileHashes } from "./file-views";
 import { agentCommentStore, type AgentCommentStore } from "./learning";
 
 export interface ReviewLifecycle {
@@ -174,6 +175,8 @@ export interface Store extends AgentCommentStore {
   patchHash(targetKey: string): string;
   /** The stored patch's commentable lines by file, parsed once per patch. Read-only. */
   diffPositions(targetKey: string): Map<string, FilePositions>;
+  /** The stored patch's file hashes, each taken once per patch. */
+  fileHashes(targetKey: string): FileHashes;
   saveGuide(targetKey: string, guide: Guide): void;
   getGuide(targetKey: string): Guide | null;
   beginGeneration(targetKey: string): string;
@@ -369,7 +372,7 @@ export function createStore(bb: BbPluginApi): Store {
   const stopWaitingAt = (k: string, location: CommentLocation) =>
     db.prepare(`DELETE FROM discussion_waits WHERE target_key=? AND file=? AND line=? AND side=?`).run(...at(k, location));
   // What's parsed from each review's patch, by the patch's hash, for the few reviews used last.
-  const parsed = new Map<string, { hash: string; positions?: Map<string, FilePositions>; renamed?: Map<string, string>; followed?: boolean }>();
+  const parsed = new Map<string, { hash: string; positions?: Map<string, FilePositions>; renamed?: Map<string, string>; followed?: boolean; fileHashes?: FileHashes }>();
   const parsedPatch = (k: string) => {
     const hash = storedPatchHash(k);
     let entry = parsed.get(k);
@@ -524,6 +527,10 @@ export function createStore(bb: BbPluginApi): Store {
     diffPositions(k) {
       const { entry, patch } = parsedPatch(k);
       return entry.positions ??= diffPositions(patch());
+    },
+    fileHashes(k) {
+      const { entry, patch } = parsedPatch(k);
+      return entry.fileHashes ??= fileHashCache(patch);
     },
     saveGuide(k, guide) {
       db.prepare(

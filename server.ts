@@ -27,7 +27,7 @@ import { askAgent, settleDiscussions } from "./src/discussions";
 import { clearAsks, listAsks, setAsk } from "./src/asks";
 import { runCommentCommand } from "./src/comment-command";
 import { isMissingThread } from "./src/thread-errors";
-import { computeFileViewState, fileHashes, hashForFile } from "./src/file-views";
+import { computeFileViewState } from "./src/file-views";
 import {
   ghPrChecksJsonArgs,
   ghReviewThreadsArgs,
@@ -662,15 +662,14 @@ export default async function plugin(bb: BbPluginApi) {
 
     // Per-file "Viewed" state (viewed/stale computed against the patch)
     getFileViews({ targetKey }) {
-      const patch = store.patch(targetKey);
-      return { views: computeFileViewState(store.getFileViews(targetKey), patch) };
+      return { views: computeFileViewState(store.getFileViews(targetKey), store.fileHashes(targetKey)) };
     },
     setFileViewed({ targetKey, file, viewed }) {
       if (!viewed) {
         store.unsetFileViewed(targetKey, file);
         return { ok: true };
       }
-      const hash = hashForFile(store.patch(targetKey), file);
+      const hash = store.fileHashes(targetKey).current([file]).get(file);
       if (!hash) return { ok: false };
       store.setFileViewed(targetKey, file, hash);
       return { ok: true };
@@ -685,7 +684,7 @@ export default async function plugin(bb: BbPluginApi) {
         }
         return { ok: true };
       }
-      const hashes = fileHashes(store.patch(targetKey), files);
+      const hashes = store.fileHashes(targetKey).current(files);
       const replaced = store.getFileViews(targetKey).filter((view) => hashes.has(view.file));
       for (const [file, hash] of hashes) store.setFileViewed(targetKey, file, hash);
       return { ok: hashes.size === new Set(files).size, previous: replaced };
