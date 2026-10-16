@@ -307,7 +307,10 @@ test("a resolve in the code shows in the list at once, and one in the list in th
     unresolveThread: vi.fn(() => { resolved = false; return { ok: true }; }),
   } });
   const list = await openComments(slot);
-  fireEvent.click(within(code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2" })).getByRole("button", { name: "Resolve" }));
+  const resolve = within(code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2" })).getByRole("button", { name: "Resolve" });
+  // Unlike the draft, it doesn't wait for Submit, and says so.
+  expect(document.getElementById(resolve.getAttribute("aria-describedby")!)?.textContent).toBe("Posts to GitHub now");
+  fireEvent.click(resolve);
   await waitFor(() => expect(rpc.resolveThread).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t1", account: "me" }));
   // Yours: your feedback is read from GitHub again too.
   await waitFor(() => expect(rpc.refreshFeedback).toHaveBeenCalledWith({ targetKey: "pr-42" }));

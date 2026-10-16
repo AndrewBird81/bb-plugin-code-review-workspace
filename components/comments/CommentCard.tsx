@@ -1,8 +1,9 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { Markdown, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { linesOf, sameLocation } from "../../src/draft";
 import { withLineBreaks } from "../../src/line-breaks";
 import type { AskItem, CommentItem, DraftItem, PrivateItem, ThreadItem, ThreadMessage } from "../../lib/comments";
+import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { cn } from "../../lib/utils";
 import { useWorkspaceFor } from "../../lib/workspace-store";
 import { useDraft } from "../DraftProvider";
@@ -12,6 +13,7 @@ import { TOUCH_CONTROL } from "../touch";
 import { Avatar } from "../ui/avatar";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Hint } from "../ui/hint";
 import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
@@ -109,6 +111,8 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
   const [writing, setWriting] = useState(false);
   const [menu, setMenu] = useState(false);
   const replyButton = useRef<HTMLButtonElement>(null);
+  const container = useFullscreenPortalContainer();
+  const postsNow = useId();
   const where = whereOf(item);
   const [first, ...replies] = item.messages;
   const followUp = item.at && api ? () => api.followUp(item.at!.file, item.at!.line, item.at!.side, item.url) : null;
@@ -133,9 +137,13 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
         {actions && replyShows && <ReplyBox targetKey={targetKey} item={item} where={where} actions={actions} busy={busy} writing={writing} onClose={() => setWriting(false)} replyButton={replyButton} />}
         {actions && <div className="-mb-1 -ml-2 flex flex-wrap items-center gap-0.5">
           {!replyShows && <Button ref={replyButton} variant="ghost" size="sm" className={ACTION} disabled={busy || item.replyTo === null} onClick={() => setWriting(true)}><Icon name="CornerDownRight" className="size-3.5" aria-hidden />Reply</Button>}
-          <Button variant="ghost" size="sm" className={ACTION} disabled={busy} onClick={() => void actions.setResolved(item.id, item.state !== "resolved")}>
-            <Icon name={item.state === "resolved" ? "RotateCcw" : "CircleCheck"} className="size-3.5" aria-hidden />{item.state === "resolved" ? "Unresolve" : "Resolve"}
-          </Button>
+          {/* Unlike the draft, Resolve doesn't wait for Submit. */}
+          <Hint label="Posts to GitHub now" container={container}>
+            <Button variant="ghost" size="sm" className={ACTION} disabled={busy} aria-describedby={postsNow} onClick={() => void actions.setResolved(item.id, item.state !== "resolved")}>
+              <Icon name={item.state === "resolved" ? "RotateCcw" : "CircleCheck"} className="size-3.5" aria-hidden />{item.state === "resolved" ? "Unresolve" : "Resolve"}
+            </Button>
+          </Hint>
+          <span id={postsNow} hidden>Posts to GitHub now</span>
           {(followUp || item.url) && <Popover open={menu} onOpenChange={setMenu}>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="sm" aria-label={`More on the thread on ${where}`} className={cn(ACTION, "w-7 px-0")}><Icon name="MoreHorizontal" className="size-3.5" aria-hidden /></Button>
