@@ -49,7 +49,7 @@ test("a requirement's line is a new-file line the diff shows, and a covered one 
     { text: "Log it", status: "partial", evidence: "Half.", file: "a.ts" },
   ])).toEqual({ ok: false, errors: [
     "requirements.0: b.ts isn't in the diff",
-    "requirements.1: line 40 of a.ts isn't a new-file line the diff shows",
+    "requirements.1: line 40 of a.ts isn't a new-file line the diff shows; for a removed line, give side LEFT and its old-file line",
     "requirements.2: a covered requirement needs the file and line that do it",
     "requirements.3: give both file and line, or neither",
   ] });

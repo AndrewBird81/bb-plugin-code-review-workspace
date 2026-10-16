@@ -21,7 +21,7 @@ test("hotspots must be on new-file lines the diff shows", () => {
   expect(check([{ file: "a.ts", line: 11, why: "w" }, { file: "a.ts", line: 10, why: "context" }])).toEqual({ ok: true });
   expect(check([{ file: "b.ts", line: 1, why: "w" }, { file: "a.ts", line: 40, why: "w" }])).toEqual({ ok: false, errors: [
     "hotspots.0: b.ts isn't in the diff",
-    "hotspots.1: line 40 of a.ts isn't a new-file line the diff shows",
+    "hotspots.1: line 40 of a.ts isn't a new-file line the diff shows; for a removed line, give side LEFT and its old-file line",
   ] });
 });
 

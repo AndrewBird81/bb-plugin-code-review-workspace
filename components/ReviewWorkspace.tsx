@@ -923,7 +923,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     if (sinceOnly || !compared) narrow(false);
     showComment({ file, line: line ?? 0, side });
   }, [outsideGuide, sinceOnly, compared, narrow, showComment]);
-  const openHotspot = useCallback((file: string, line: number) => showLocation(file, line, "RIGHT"), [showLocation]);
+  const openHotspot = useCallback((file: string, line: number, side: "LEFT" | "RIGHT") => showLocation(file, line, side), [showLocation]);
   // Find in review's results: a line, a chapter, or a file's summary, in the diff.
   const openFoundFile = useCallback((_chapterId: string, file: string) => showLocation(file, null, "RIGHT"), [showLocation]);
   const followUp = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {

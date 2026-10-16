@@ -36,11 +36,12 @@ function Section({ title, children }: { title: ReactNode; children: ReactNode })
 }
 
 /** What the PR asks for and whether the diff does it, each with its evidence, a covered one opening its line. */
-function Requirements({ requirements, onOpen }: { requirements: Requirement[]; onOpen: (file: string, line: number) => void }) {
+function Requirements({ requirements, onOpen }: { requirements: Requirement[]; onOpen: (file: string, line: number, side: "LEFT" | "RIGHT") => void }) {
   return (
     <ul aria-label="Requirements" className="space-y-2.5">
-      {requirements.map(({ text, status, evidence, file, line }, index) => {
+      {requirements.map(({ text, status, evidence, file, line, side = "RIGHT" }, index) => {
         const look = REQUIREMENT_LOOK[status];
+        const at = `${file}:${line}${side === "LEFT" ? " (removed line)" : ""}`;
         return (
           // Where the page is narrow, the requirement takes the row under its status and line.
           <li key={index} className="grid grid-cols-[5.5rem_minmax(0,1fr)_auto] items-start gap-x-2.5 @max-[480px]/overview:grid-cols-[minmax(0,1fr)_auto]">
@@ -50,7 +51,7 @@ function Requirements({ requirements, onOpen }: { requirements: Requirement[]; o
               <span className="block text-xs leading-5 text-muted-foreground"><InlineCode text={evidence} /></span>
             </span>
             {file && line && (
-              <button type="button" aria-label={`${file}:${line}`} title={`${file}:${line}`} className="col-start-3 row-start-1 justify-self-end rounded-sm font-mono text-xs leading-6 text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring @max-[480px]/overview:col-start-2 pointer-coarse:-my-2.5 pointer-coarse:min-h-11" onClick={() => onOpen(file, line)}>
+              <button type="button" aria-label={at} title={at} className="col-start-3 row-start-1 justify-self-end rounded-sm font-mono text-xs leading-6 text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring @max-[480px]/overview:col-start-2 pointer-coarse:-my-2.5 pointer-coarse:min-h-11" onClick={() => onOpen(file, line, side)}>
                 {file.split("/").pop()}:{line}
               </button>
             )}
@@ -95,7 +96,7 @@ export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, 
   resume?: string;
   /** Your feedback's progress opens it in Comments. */
   onShowFeedback?: () => void;
-  onOpenLine: (file: string, line: number) => void;
+  onOpenLine: (file: string, line: number, side: "LEFT" | "RIGHT") => void;
 }) {
   const { review, guide, sections, go, snooze, files } = useWorkspace();
   const changed = changedSince ? sections.find((section) => changedSince[section.id] > 0) : undefined;

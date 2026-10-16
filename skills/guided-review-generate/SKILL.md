@@ -37,14 +37,17 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat everythi
    Give each `medium` or `high` section a `focus`: 1–3 short things the reviewer should verify in
    its code, each starting "Check that…". Leave it out on `low` sections.
    Then list `hotspots`: the 1–3 places most likely to hide a defect, highest risk first, each
-   `{ file, line, why }`, where `line` is a new-file line the diff shows (added or context) and
-   `why` names the defect that could hide there in one sentence. The reviewer reads these first,
-   since defects in what's read last get missed. Leave `hotspots` out for a purely mechanical change.
+   `{ file, line, why }`, where `line` is a line the diff shows: a new-file line (added or
+   context), or, for a defect in removed code such as a dropped check, `side: "LEFT"` and the
+   old-file line. `why` names the defect that could hide there in one sentence. The reviewer reads
+   these first, since defects in what's read last get missed. Leave `hotspots` out for a purely
+   mechanical change.
    When the PR description or a linked ticket says what the change should do, list each thing it
    asks for in `requirements`: `{ text, status, evidence, file, line }`, with `status` exactly
    `covered`, `partial`, `missing`, or `unclear`, and `evidence` saying in one short sentence what
-   the code does or what's absent. A `covered` requirement names the `file` and `line` (a new-file
-   line the diff shows) that do it. Leave `requirements` out when the PR doesn't say what it should do.
+   the code does or what's absent. A `covered` requirement names the `file` and `line` that do it:
+   a new-file line the diff shows, or `side: "LEFT"` and the old-file line for one met by removing
+   code. Leave `requirements` out when the PR doesn't say what it should do.
    On a re-review the task says so: keep the earlier guide's chapter ids, titles, and order where
    the files still fit, and write `sinceReview`: 2–4 sentences on what changed since the reviewer's
    last review, from `read_changes_since_review`. Leave `sinceReview` out otherwise.

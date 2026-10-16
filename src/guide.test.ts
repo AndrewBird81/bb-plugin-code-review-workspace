@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { validateGuide, checkCoverage, GuideInputSchema, placeUnplacedFiles } from "./guide";
+import { validateGuide, checkCoverage, checkHotspots, checkRequirements, GuideInputSchema, placeUnplacedFiles, type Guide } from "./guide";
 
 const good = {
   title: "T", intent: "I",
@@ -82,4 +82,19 @@ test("validateGuide takes an empty hotspots, requirements, or focus list as none
   expect(r.guide).not.toHaveProperty("requirements");
   expect(r.guide.sections[0]).not.toHaveProperty("focus");
   expect(GuideInputSchema.safeParse({ title: "T", intent: "I", sections: [], hotspots: [] }).success).toBe(true);
+});
+
+test("a hotspot or requirement can point at removed code with side LEFT, on an old-file line the diff shows", () => {
+  const deleted = "diff --git a/auth.ts b/auth.ts\ndeleted file mode 100644\n--- a/auth.ts\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-export const check = (u) => u.isAdmin;\n-export default check;\n";
+  const guide = (side?: "LEFT" | "RIGHT", line = 1) => ({ title: "T", intent: "I", unplacedFiles: [], sections: [],
+    hotspots: [{ file: "auth.ts", line, side, why: "the admin check is deleted" }],
+    requirements: [{ text: "Drop the check", status: "covered", evidence: "Deleted.", file: "auth.ts", line, side }] }) as Guide;
+  expect(checkHotspots(guide("LEFT"), deleted)).toEqual({ ok: true });
+  expect(checkRequirements(guide("LEFT"), deleted)).toEqual({ ok: true });
+  // A deleted file has no new-file lines, and the old file has no line 3.
+  expect(checkHotspots(guide(), deleted).ok).toBe(false);
+  expect(checkHotspots(guide("RIGHT"), deleted).ok).toBe(false);
+  expect(checkHotspots(guide("LEFT", 3), deleted)).toEqual({ ok: false, errors: ["hotspots.0: line 3 of auth.ts isn't an old-file line the diff shows"] });
+  // A guide stored before side existed reads its lines as new-file ones.
+  expect(validateGuide({ ...guide(), sections: [] }).ok).toBe(true);
 });

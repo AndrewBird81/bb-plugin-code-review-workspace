@@ -18,7 +18,8 @@ export const SectionSchema = z.object({
 });
 export const HotspotSchema = z.object({
   file: z.string().min(1).describe("The file's exact repo-relative path, as the diff shows it."),
-  line: z.number().int().min(1).describe("A new-file line the diff shows: added or context."),
+  line: z.number().int().min(1).describe("A line the diff shows: a new-file line (added or context), or with side LEFT an old-file line."),
+  side: z.enum(["LEFT", "RIGHT"]).optional().describe("RIGHT, the default, for a new-file line; LEFT for a removed line, such as a dropped check."),
   why: z.string().min(1).describe("The defect that could hide there, in one sentence."),
 });
 export const RequirementSchema = z.object({
@@ -26,7 +27,8 @@ export const RequirementSchema = z.object({
   status: z.enum(["covered", "partial", "missing", "unclear"]).describe("Whether the diff does it."),
   evidence: z.string().min(1).describe("Why, in one short sentence: what the code does, or what's absent."),
   file: z.string().min(1).optional().describe("Where the diff does it: the file's exact repo-relative path. Required when covered."),
-  line: z.number().int().min(1).optional().describe("A new-file line the diff shows in that file. Required when covered."),
+  line: z.number().int().min(1).optional().describe("A line the diff shows in that file: a new-file line, or with side LEFT an old-file line. Required when covered."),
+  side: z.enum(["LEFT", "RIGHT"]).optional().describe("RIGHT, the default, for a new-file line; LEFT for a removed line."),
 });
 export const GuideSchema = z.object({
   title: z.string().min(1).describe("The change, in one line."),
@@ -41,24 +43,25 @@ export const GuideSchema = z.object({
   source: z.unknown().optional(),
   generator: z.unknown().optional(),
 });
-function lineErrors(positions: ReturnType<typeof diffPositions>, at: string, file: string, line: number): string[] {
-  const lines = positions.get(file)?.right;
-  if (!lines) return [`${at}: ${file} isn't in the diff`];
-  return lines.has(line) ? [] : [`${at}: line ${line} of ${file} isn't a new-file line the diff shows`];
+function lineErrors(positions: ReturnType<typeof diffPositions>, at: string, file: string, line: number, side: "LEFT" | "RIGHT" = "RIGHT"): string[] {
+  const filePositions = positions.get(file);
+  if (!filePositions) return [`${at}: ${file} isn't in the diff`];
+  if (side === "LEFT") return filePositions.left.has(line) ? [] : [`${at}: line ${line} of ${file} isn't an old-file line the diff shows`];
+  return filePositions.right.has(line) ? [] : [`${at}: line ${line} of ${file} isn't a new-file line the diff shows; for a removed line, give side LEFT and its old-file line`];
 }
 
-/** Hotspots the reviewer can open: each on a new-file line the diff shows. */
+/** Hotspots the reviewer can open: each on a line the diff shows, new-file unless side is LEFT. */
 export function checkHotspots(guide: Guide, patch: string): { ok: true } | { ok: false; errors: string[] } {
   const positions = diffPositions(patch);
-  const errors = (guide.hotspots ?? []).flatMap(({ file, line }, i) => lineErrors(positions, `hotspots.${i}`, file, line));
+  const errors = (guide.hotspots ?? []).flatMap(({ file, line, side }, i) => lineErrors(positions, `hotspots.${i}`, file, line, side));
   return errors.length ? { ok: false, errors } : { ok: true };
 }
 
-/** Requirements the reviewer can check: a covered one opens the new-file line that does it. */
+/** Requirements the reviewer can check: a covered one opens the line that does it. */
 export function checkRequirements(guide: Guide, patch: string): { ok: true } | { ok: false; errors: string[] } {
   const positions = diffPositions(patch);
-  const errors = (guide.requirements ?? []).flatMap(({ status, file, line }, i) => {
-    if (file !== undefined && line !== undefined) return lineErrors(positions, `requirements.${i}`, file, line);
+  const errors = (guide.requirements ?? []).flatMap(({ status, file, line, side }, i) => {
+    if (file !== undefined && line !== undefined) return lineErrors(positions, `requirements.${i}`, file, line, side);
     if (file !== undefined || line !== undefined) return [`requirements.${i}: give both file and line, or neither`];
     return status === "covered" ? [`requirements.${i}: a covered requirement needs the file and line that do it`] : [];
   });

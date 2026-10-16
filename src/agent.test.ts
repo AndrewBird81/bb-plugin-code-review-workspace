@@ -178,6 +178,14 @@ test("the assistant sees each chapter's risk and where to start, as the default 
   expect(text).toContain("<guide>\nChange intent: Add caching\nChapters:\n- [high risk] Auth middleware: Changes token checks.\n- [low risk] Docs: Readme.\nStart here:\n- src/auth.ts:42 — expiry compared with < instead of <=\n</guide>");
 });
 
+test("the assistant's Start here and requirements say when a line is a removed one", () => {
+  const removed = { ...risky, hotspots: [{ file: "src/auth.ts", line: 7, side: "LEFT", why: "the admin check is dropped" }],
+    requirements: [{ text: "Drop the legacy check", status: "covered", evidence: "Deleted.", file: "src/auth.ts", line: 7, side: "LEFT" }] };
+  const text = assistantInstructions("pr-1", removed as any, defaultPreferences);
+  expect(text).toContain("- src/auth.ts:7 (removed line) — the admin check is dropped");
+  expect(text).toContain("Deleted. (src/auth.ts:7, removed line)");
+});
+
 test("the longest preferences, with the repo's checks and requirements, leave the guide's intent, start, and chapters", () => {
   const withAsks = { ...risky, requirements: [{ text: "Cache for 5 minutes", status: "missing", evidence: "No TTL." }] };
   const text = assistantInstructions("pr-1", withAsks as any, { ...defaultPreferences, assistantInstructions: "x".repeat(2000) }, 123);
