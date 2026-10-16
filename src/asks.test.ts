@@ -57,3 +57,16 @@ test("a turn carries an ask only while it runs on that thread, and for ASK_LIFET
   vi.advanceTimersByTime(1);
   expect(asked(store, "pr-1", a, "t1")).toBe(false);
 });
+
+test("Dig deeper's ask is kept with its chapter, listed last, withdrawn only for that chapter, and cleared with the rest", () => {
+  const store = review();
+  setAsk(store, "pr-1", { deepDive: "c1" }, running("t1", 4));
+  setAsk(store, "pr-1", SUMMARY_AT, running("t2", 5));
+  expect(store.getReview("pr-1")?.deepDive).toEqual({ chapterId: "c1", ask: running("t1", 4) });
+  expect(askAt(store.getReview("pr-1"), { deepDive: "c2" })).toBeNull();
+  expect(listAsks(store.getReview("pr-1")!)).toEqual([{ at: SUMMARY_AT, ask: running("t2", 5) }, { at: { deepDive: "c1" }, ask: running("t1", 4) }]);
+  setAsk(store, "pr-1", { deepDive: "c2" }, null);
+  expect(askAt(store.getReview("pr-1"), { deepDive: "c1" })?.threadId).toBe("t1");
+  clearAsks(store, "pr-1");
+  expect(listAsks(store.getReview("pr-1")!)).toEqual([]);
+});

@@ -1,20 +1,63 @@
-import { memo, useId, useLayoutEffect, useRef, useState } from "react";
-import { Markdown } from "@get-bb/plugin-sdk/app";
+import { memo, useContext, useId, useLayoutEffect, useRef, useState } from "react";
+import { Markdown, useRpc } from "@get-bb/plugin-sdk/app";
+import { toast } from "sonner";
+import type { rpcContract } from "../src/rpc-contract";
+import { ASK_LIFETIME } from "../src/asks";
 import { getIntroCollapsed, setIntroCollapsed } from "../lib/panel-state";
+import { useFullscreenPortalContainer } from "../lib/portal-scope";
+import { useKnob, useSettings } from "../lib/settings";
 import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
 import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Hint } from "./ui/hint";
 import { Icon } from "./ui/icon";
 import { InlineCode } from "./ui/inline-code";
+import { InlineDraftContext } from "./InlineDraft";
 import { MetaLine } from "./MetaLine";
 import { RISK_LABEL, RISK_TONE } from "./ChapterNav";
 import { TOUCH_CONTROL } from "./touch";
+
+/**
+ * Dig deeper on a medium- or high-risk chapter, unless Settings turns it off: the review agent's closer pass over it, at
+ * high effort. While the agent is on it, from the click until its turn ends, the chapter says so instead.
+ */
+function useDeepDive(chapterId: string | undefined, risk: string | undefined) {
+  const rpc = useRpc<typeof rpcContract>();
+  const { targetKey, review } = useWorkspace();
+  const on = useKnob("digDeeper");
+  const model = useSettings().preferences.assistantAgent?.model;
+  // An archived PR's draft can't change, so nothing would come of it.
+  const editable = useContext(InlineDraftContext)?.editable ?? false;
+  const [sending, setSending] = useState(false);
+  const running = review.deepDive && Date.now() - review.deepDive.ask.at < ASK_LIFETIME ? review.deepDive.chapterId : null;
+  const offered = on && editable && !!chapterId && (risk === "medium" || risk === "high");
+  async function dig() {
+    if (!chapterId || sending) return;
+    setSending(true);
+    try {
+      const result = await rpc.call("digDeeper", { targetKey, chapterId });
+      if (!result.ok) toast.error(result.error ?? "The agent couldn’t start.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The agent couldn’t start.");
+    } finally { setSending(false); }
+  }
+  return {
+    offered,
+    digging: offered && (sending || running === chapterId),
+    /** Another chapter's deep dive is under way. */
+    elsewhere: !!running && running !== chapterId,
+    hint: ["Review agent", model, "high effort"].filter(Boolean).join(" · "),
+    dig,
+  };
+}
 
 /**
  * The open chapter above its diff: where it is in the guide, its risk and size, its title, full overview, and what to
  * verify. Hiding the overview sticks in this browser. On a phone (`brief`) the overview shows three lines until More,
  * and what to verify one line until you open it, so the code starts on screen. A re-review's switch goes in it
  * (`switchSlot`): on its first row where there's room, else under the title, so it costs the code no block of its own.
+ * What to verify ends with Dig deeper on a medium- or high-risk chapter.
  */
 export const ChapterIntro = memo(function ChapterIntro({ index, total, title, overview, risk, focus, lines, collapsedByDefault = false, brief = false, switchSlot }: {
   index: number;
@@ -34,6 +77,8 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
   switchSlot?: (el: HTMLDivElement | null) => void;
 }) {
   const { sections, files } = useWorkspace();
+  const deepDive = useDeepDive(sections[index]?.id, risk);
+  const container = useFullscreenPortalContainer();
   const [chosen, setCollapsed] = useState(getIntroCollapsed);
   const collapsed = chosen ?? collapsedByDefault;
   const titleId = useId();
@@ -119,7 +164,20 @@ export const ChapterIntro = memo(function ChapterIntro({ index, total, title, ov
           <ul aria-label="What to verify" className={cn("list-disc space-y-0.5 pl-5 text-foreground/90 marker:text-subtle-foreground", !brief && "mt-1")}>
             {checks.map((item) => <li key={item}><InlineCode text={item} /></li>)}
           </ul>
+          {deepDive.offered && !deepDive.digging && (
+            <Hint label={deepDive.hint} container={container}>
+              <Button variant="outline" size="sm" className={cn("mt-2 h-7 border-(--ansi-13)/30 text-(--ansi-13) hover:text-(--ansi-13)", TOUCH_CONTROL)} disabled={deepDive.elsewhere} onClick={() => void deepDive.dig()}>
+                <Icon name="Sparkles" className="size-3.5" aria-hidden />Dig deeper
+              </Button>
+            </Hint>
+          )}
         </div>
+      )}
+      {/* Whether What to verify shows or not. */}
+      {deepDive.digging && (
+        <p role="status" className="col-span-full mt-2 flex items-center gap-1.5 text-xs text-(--ansi-13)">
+          <Icon name="Loading" className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden />The agent is digging into this chapter…
+        </p>
       )}
     </section>
   );

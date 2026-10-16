@@ -46,6 +46,7 @@ export const knobsSchema = z.object({
   approveGuardPace: z.number().int().min(KNOB_RANGES.approveGuardPace.min).max(KNOB_RANGES.approveGuardPace.max),
   preExistingFindings: z.boolean(), agentCoverage: z.boolean(), testWeakening: z.boolean(), lockfileDigest: z.boolean(),
   runAutomaticReview: z.boolean(), recheckOnNewCommits: z.boolean(),
+  digDeeper: z.boolean(),
   stopGenerating: z.boolean(),
   mentionsWake: z.boolean(), prepareOnReturn: z.boolean(), runReReviewCheck: z.boolean(), trackReviewedPrs: z.boolean(),
   alertGuides: z.boolean(), alertTurns: z.boolean(),

@@ -362,3 +362,20 @@ test("with Stop a guide while it builds off, neither the building card nor a reb
   expect(workspace.queryByRole("button", { name: "Stop" })).toBeNull();
   workspace.lifecycle.unmount();
 });
+
+test("with Dig deeper on a chapter off, a high-risk chapter's What to verify offers no Dig deeper", async () => {
+  restores.push(desktopWindow());
+  const base = settingsOffRpc(allKnobsOff);
+  const getReviewBundle = () => {
+    const bundle = base.getReviewBundle() as { guide: { sections: object[] } };
+    return { ...bundle, guide: { ...bundle.guide, sections: bundle.guide.sections.map((section) => ({ ...section, focus: ["Check that upper case parses."] })) } };
+  };
+  for (const knobs of [defaultKnobs, { ...defaultKnobs, digDeeper: false }]) {
+    const { page, bar, main } = await renderReview(knobs, { getReviewBundle });
+    fireEvent.click(await main().findByRole("button", { name: "Start reading: Parsing" }));
+    await page.findByRole("list", { name: "What to verify" });
+    expect({ digDeeper: knobs.digDeeper, offered: !!page.queryByRole("button", { name: "Dig deeper" }) }).toEqual({ digDeeper: knobs.digDeeper, offered: knobs.digDeeper });
+    page.lifecycle.unmount(); bar.lifecycle.unmount();
+    cleanup(); localStorage.clear(); sessionStorage.clear();
+  }
+});

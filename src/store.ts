@@ -61,6 +61,8 @@ export interface ReviewLifecycle {
    * turn is under way, since `at`.
    */
   summaryAsk?: Ask | null;
+  /** The reviewer asked the assistant to dig deeper into this chapter (src/deep-dive.ts), until the turn that carries it ends. */
+  deepDive?: { chapterId: string; ask: Ask } | null;
   /** The reviewer asked on draft comments: each opens the reviewer's comment there as summaryAsk opens the summary. */
   commentAsks?: Array<CommentLocation & { ask: Ask }>;
   /** When bb first read the PR's state. Earlier events don't alert or start work. */

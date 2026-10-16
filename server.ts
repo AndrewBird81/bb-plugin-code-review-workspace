@@ -27,6 +27,7 @@ import { summaryLine, withSummaryLine } from "./lib/move-to-summary";
 import { runSummaryCommand } from "./src/summary-command";
 import { askAgent, settleDiscussions } from "./src/discussions";
 import { clearAsks, listAsks, setAsk } from "./src/asks";
+import { digDeeper } from "./src/deep-dive";
 import { runCommentCommand } from "./src/comment-command";
 import { isMissingThread } from "./src/thread-errors";
 import { computeFileViewState } from "./src/file-views";
@@ -628,6 +629,16 @@ export default async function plugin(bb: BbPluginApi) {
       if (started) bb.realtime.publish(`conversation:${targetKey}`, {});
       return draftState(targetKey);
     },
+    async digDeeper({ targetKey, chapterId }) {
+      if (!store.getPreferences().preferences.knobs.digDeeper) return { ok: false, error: "Dig deeper is off in Settings. Use Ask agent." };
+      let started: boolean;
+      try { ({ started } = await digDeeper(bb, store, targetKey, chapterId)); }
+      catch (error) { return { ok: false, error: error instanceof Error ? error.message : "The agent couldn’t start." }; }
+      if (started) bb.realtime.publish(`conversation:${targetKey}`, {});
+      // The chapter says the agent is digging into it.
+      bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
+      return { ok: true };
+    },
     dismissDiscussion({ targetKey, file, line, side }) {
       store.deleteDiscussion(targetKey, { file, line, side });
       // Dismissed, the ask there is withdrawn.
@@ -1048,7 +1059,11 @@ export default async function plugin(bb: BbPluginApi) {
     // awaits, so a turn after it can't find it open.
     const reviewKey = assistantReview(store, thread.id);
     const asking = reviewKey ? store.getReview(reviewKey) : null;
-    for (const { at, ask } of asking ? listAsks(asking) : []) if (ask.state === "running" && ask.threadId === thread.id) setAsk(store, reviewKey!, at, null);
+    for (const { at, ask } of asking ? listAsks(asking) : []) if (ask.state === "running" && ask.threadId === thread.id) {
+      setAsk(store, reviewKey!, at, null);
+      // Its chapter stops saying the agent is digging into it.
+      if ("deepDive" in at) bb.realtime.publish(`review:${reviewKey}`, { ts: Date.now() });
+    }
     const checkQueued = !!asking?.verifyingMessageId;
     const targetKey = await settleDiscussions(bb, store, thread.id);
     if (targetKey) bb.realtime.publish(`draft:${targetKey}`, {});
@@ -1088,6 +1103,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.events.on("message.cancelled", async ({ entry }) => {
     const found = queuedAsk(entry);
     if (found) setAsk(store, found.reviewKey, found.at, null);
+    if (found && "deepDive" in found.at) bb.realtime.publish(`review:${found.reviewKey}`, { ts: Date.now() });
     // A check deleted from the queue never runs.
     const checking = queuedCheck(entry);
     if (checking) await checkEnded(checking);

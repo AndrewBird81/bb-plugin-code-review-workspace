@@ -196,6 +196,11 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), ...location, startLine: z.number().int().min(1).optional(), body: z.string().trim().min(1).max(20_000) }).strict(),
     output: draftOutput,
   },
+  /** Ask the review agent for a closer pass over a medium- or high-risk chapter, at high effort; its comments arrive in the draft. */
+  digDeeper: {
+    input: z.object({ targetKey: z.string(), chapterId: z.string().min(1) }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
   dismissDiscussion: { input: z.object({ targetKey: z.string(), ...location }).strict(), output: draftOutput },
   /** Undo the agent's latest change in the discussion at a line, or the summary's. */
   undoAgentChange: { input: z.object({ targetKey: z.string(), ...location }).strict(), output: draftOutput },

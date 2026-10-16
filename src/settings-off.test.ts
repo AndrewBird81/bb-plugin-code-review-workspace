@@ -211,3 +211,15 @@ test("with Stop a guide while it builds off, Stop is refused and the guide runs 
   await run;
   expect(store.getReview("pr-1")?.status).toBe("ready");
 });
+
+test("with Dig deeper on a chapter off, Dig deeper is refused and nothing reaches the assistant", async () => {
+  const { bb, harness, store } = host();
+  await plugin(bb);
+  store.setStatus("pr-1", "ready");
+  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+  store.saveGuide("pr-1", { title: "T", intent: "I", unplacedFiles: [], sections: [{ id: "c1", title: "Parsing", overview: "O", risk: "high", focus: ["Check that it parses."], diffs: [{ file: "a.ts", summary: "S" }] }] });
+  store.setAssistantThread("pr-1", "assistant");
+  expect(await harness.behavior.callRpc("digDeeper", { targetKey: "pr-1", chapterId: "c1" })).toMatchObject({ ok: false });
+  expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
+  expect(store.getReview("pr-1")?.deepDive).toBeUndefined();
+});

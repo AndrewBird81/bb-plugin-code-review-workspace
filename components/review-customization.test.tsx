@@ -506,7 +506,7 @@ test("a setting that depends on another is disabled while that one is off, and T
   // A disabled dependent's label and description dim with its control, still readable.
   const texts = ["Automatic review", /^Sent to the review agent when a guide is ready/, "Re-review check", /^Sent to the review agent when a review comes back/,
     "After the author pushes", /^The review agent checks once the author’s pushes settle/, "Include team requests", /^Also show PRs that ask a team/,
-    "Include PRs you’ve reviewed", /^Open PRs you reviewed on GitHub/, "Flag chapters read faster than", "lines an hour", /^Medium- and high-risk chapters/];
+    "Include PRs you’ve reviewed", /^Open PRs you reviewed on GitHub/, "Flag chapters read faster than", "lines an hour", /^Medium- and high-risk chapters of 50 lines/];
   const dimmed = () => texts.map((text) => slot.getByText(text).closest(".opacity-80") !== null);
   expect(dimmed()).toEqual(texts.map(() => false));
   for (const label of ["Run the automatic review", "Run the re-review check", "Track reviews from GitHub", "Check before you approve", "Start agents on their own"]) fireEvent.click(toggle(label));

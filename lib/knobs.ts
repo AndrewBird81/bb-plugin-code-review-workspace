@@ -10,6 +10,7 @@ export interface Knobs {
   approveGuardPace: number;
   preExistingFindings: boolean; agentCoverage: boolean; testWeakening: boolean; lockfileDigest: boolean;
   runAutomaticReview: boolean; recheckOnNewCommits: boolean;
+  digDeeper: boolean;
   stopGenerating: boolean;
   mentionsWake: boolean; prepareOnReturn: boolean; runReReviewCheck: boolean; trackReviewedPrs: boolean;
   alertGuides: boolean; alertTurns: boolean;
@@ -25,6 +26,7 @@ export const defaultKnobs: Knobs = {
   askAboutSelection: true, approveGuard: true, approveGuardPace: 500,
   preExistingFindings: true, agentCoverage: true, testWeakening: true, lockfileDigest: true,
   runAutomaticReview: true, recheckOnNewCommits: true,
+  digDeeper: true,
   stopGenerating: true,
   mentionsWake: true, prepareOnReturn: true, runReReviewCheck: true, trackReviewedPrs: true,
   alertGuides: true, alertTurns: true,

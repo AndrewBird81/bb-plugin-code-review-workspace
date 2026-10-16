@@ -342,6 +342,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
             {knob("runAutomaticReview")}
             <label className="ml-6 block space-y-2"><span className={`text-sm font-medium ${automaticReviewDim}`}>Automatic review</span><Textarea aria-label="Automatic review" disabled={!record.preferences.knobs.runAutomaticReview} maxLength={12000} rows={4} value={record.preferences.automaticReview} onChange={(event) => { setSaved(false); setRecord({ ...record, preferences: { ...record.preferences, automaticReview: event.target.value } }); }} /><span className={`block text-xs text-muted-foreground ${automaticReviewDim}`}>Sent to the review agent when a guide is ready and the review has no conversation yet. Its draft comments wait in Comments for you to edit and submit. Leave blank to turn the automatic review off.</span></label>
             {knob("recheckOnNewCommits")}
+            {knob("digDeeper")}
           </section>
           <section className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-xs">
             <SectionHeading icon="ListTodo" title="Whose turn" description="What brings a review back to Needs review, and which reviews to follow." />

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, within } from "@testing-library/react";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { getReviewState, patchReviewState } from "../lib/panel-state";
@@ -38,12 +38,12 @@ const guide = {
   ],
 };
 
-function renderWorkspace(sent: object) {
+function renderWorkspace(sent: object, { rpc = {}, review = () => ({}) }: { rpc?: Record<string, unknown>; review?: () => object } = {}) {
   // Opened before, on its first chapter: a first open shows the Overview.
   if (!getReviewState("pr-42").activeId) patchReviewState("pr-42", { activeId: "c1" });
   return loadPluginApp(() => import("../app")).then((app) => renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
     setReviewPresence: () => ({ ok: true }),
-    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: structuredClone(sent), patch, revision: "r1" }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", ...review() }, guide: structuredClone(sent), patch, revision: "r1" }),
     getChecks: () => ({ bucket: "none", checks: [] }),
     getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
     getFileViews: () => ({ views: [] }),
@@ -53,6 +53,7 @@ function renderWorkspace(sent: object) {
     getReviewerNotes: () => ({ body: "", revision: 0 }),
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
     markSeen: () => ({ ok: true }),
+    ...rpc,
   } as any }));
 }
 
@@ -121,5 +122,68 @@ test("on a phone an overview three lines hold has no More, and doesn't fade", as
   const intro = within(slot.getByRole("region", { name: "Parsing" }));
   expect(intro.getByText("Reads rows.").closest("[class*='mask-image']")).toBeNull();
   expect(intro.queryByRole("button", { name: "More" })).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("What to verify ends with Dig deeper on medium- and high-risk chapters, which asks the agent and says it's digging until its turn ends", async () => {
+  let deepDive: object | null = null;
+  const digDeeper = vi.fn(({ chapterId }: { chapterId: string }) => {
+    deepDive = { chapterId, ask: { threadId: "assistant", state: "running", at: Date.now() } };
+    return { ok: true };
+  });
+  const sections = [guide.sections[0], { ...guide.sections[1], risk: "medium", focus: ["Check that the cache expires."] }];
+  const slot = await renderWorkspace({ ...guide, sections }, { rpc: { digDeeper }, review: () => ({ deepDive }) });
+  await slot.findByText("aa");
+  const intro = within(slot.getByRole("region", { name: "Parsing" }));
+  fireEvent.click(intro.getByRole("button", { name: "Dig deeper" }));
+  expect(digDeeper).toHaveBeenCalledWith({ targetKey: "pr-42", chapterId: "c1" });
+  await slot.emitRealtime("review:pr-42", {});
+  await intro.findByText("The agent is digging into this chapter…");
+  expect(intro.getByRole("status").textContent).toBe("The agent is digging into this chapter…");
+  expect(intro.queryByRole("button", { name: "Dig deeper" })).toBeNull();
+  // The medium-risk chapter offers it too, while another chapter's deep dive is under way, not yet.
+  fireEvent.keyDown(document.body, { key: "n" });
+  const next = within(await slot.findByRole("region", { name: "Caching" }));
+  expect((next.getByRole("button", { name: "Dig deeper" }) as HTMLButtonElement).disabled).toBe(true);
+  // The assistant's turn ends.
+  deepDive = null;
+  await slot.emitRealtime("review:pr-42", {});
+  await waitFor(() => expect((next.getByRole("button", { name: "Dig deeper" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.keyDown(document.body, { key: "p" });
+  const back = within(await slot.findByRole("region", { name: "Parsing" }));
+  expect(back.queryByText("The agent is digging into this chapter…")).toBeNull();
+  expect(back.getByRole("button", { name: "Dig deeper" })).toBeTruthy();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a low-risk chapter offers no Dig deeper, nor does a merged PR's", async () => {
+  const lowRisk = await renderWorkspace({ ...guide, sections: [{ ...guide.sections[0], risk: "low" }, guide.sections[1]] });
+  await lowRisk.findByText("aa");
+  expect(lowRisk.getByRole("list", { name: "What to verify" })).toBeTruthy();
+  expect(lowRisk.queryByRole("button", { name: "Dig deeper" })).toBeNull();
+  lowRisk.lifecycle.unmount();
+  const merged = await renderWorkspace(guide, { review: () => ({ prState: "MERGED" }) });
+  await merged.findByText("aa");
+  expect(merged.queryByRole("button", { name: "Dig deeper" })).toBeNull();
+  merged.lifecycle.unmount();
+}, 15_000);
+
+test("Dig deeper's refusal is said in a toast", async () => {
+  const { toast } = await import("sonner");
+  const slot = await renderWorkspace(guide, { rpc: { digDeeper: () => ({ ok: false, error: "Choose this review's agent first." }) } });
+  await slot.findByText("aa");
+  fireEvent.click(slot.getByRole("button", { name: "Dig deeper" }));
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Choose this review's agent first."));
+  expect(slot.queryByText("The agent is digging into this chapter…")).toBeNull();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("Dig deeper's tooltip names the review agent's model and the effort", async () => {
+  const { act } = await import("@testing-library/react");
+  const assistantAgent = { providerId: "codex", model: "gpt-6", reasoningLevel: "medium", permissionMode: "auto" };
+  const slot = await renderWorkspace(guide, { rpc: { getPreferences: () => ({ preferences: { ...defaultPreferences, assistantAgent }, revision: 0 }) } });
+  await slot.findByText("aa");
+  const button = slot.getByRole("button", { name: "Dig deeper" });
+  await waitFor(() => { act(() => { button.blur(); button.focus(); }); expect(slot.getByRole("tooltip").textContent).toBe("Review agent · gpt-6 · high effort"); });
   slot.lifecycle.unmount();
 }, 15_000);

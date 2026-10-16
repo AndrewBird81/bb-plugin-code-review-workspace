@@ -231,14 +231,34 @@ const RUN_CHECKS = "Run the repo's checks as your instructions describe before y
 const SELF_REVIEW = "This is the reviewer's own PR, so this is a self-review. GitHub allows only a Comment review on your own PR: suggest COMMENT, and frame comments as what to fix before asking for review.";
 
 /**
+ * The reasoning level to send at for `wanted` effort: `wanted` when the review agent's level is lower on its provider's
+ * ladder, which offers `wanted`; otherwise none, so it's unchanged. The review agent is Settings', else the project's
+ * default; a conversation on another provider (`providerId`) is at a level unknown here, and stays unchanged.
+ */
+async function raisedLevel(bb: BbPluginApi, store: Store, targetKey: string, wanted: string, providerId?: string): Promise<string | undefined> {
+  const custom = store.getPreferences().preferences.assistantAgent;
+  const projectId = store.getReview(targetKey)?.projectId;
+  const agent = custom ?? (projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }).catch(() => null) : null);
+  if (!agent || (providerId && agent.providerId !== providerId)) return undefined;
+  const providers = await bb.sdk.providers.list().catch(() => []);
+  // The picker's levels, lowest first.
+  const ladder = providers.find((provider) => provider.id === agent.providerId)?.reasoningLevels?.map((level) => level.id) ?? [];
+  const level = ladder.indexOf(agent.reasoningLevel);
+  return level >= 0 && level < ladder.indexOf(wanted) ? wanted : undefined;
+}
+
+/**
  * Send the reviewer's message to the review's assistant, after its current
  * work if it's busy, plus `context` only the assistant sees. Without a
  * conversation, this starts one on the agent a new conversation defaults to.
+ * `effort` raises the message's reasoning level to it (raisedLevel).
  */
-export async function messageAssistant(bb: BbPluginApi, store: Store, targetKey: string, text: string, context: string): Promise<{ started: boolean; threadId: string; queuedMessageId?: string }> {
+export async function messageAssistant(bb: BbPluginApi, store: Store, targetKey: string, text: string, context: string, effort?: string): Promise<{ started: boolean; threadId: string; queuedMessageId?: string }> {
   const { threadId, defaults } = await getConversation(bb, store, targetKey);
   if (threadId) {
-    const sent = await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [
+    const providerId = effort ? (await bb.sdk.threads.get({ threadId }).catch(() => null))?.providerId : undefined;
+    const reasoningLevel = effort && providerId ? await raisedLevel(bb, store, targetKey, effort, providerId) : undefined;
+    const sent = await bb.sdk.threads.send({ threadId, mode: "queue-if-active", ...(reasoningLevel ? { reasoningLevel } : {}), input: [
       { type: "text", text, mentions: [] },
       { type: "text", text: context, mentions: [], visibility: "agent-only" },
     ] });
@@ -250,10 +270,11 @@ export async function messageAssistant(bb: BbPluginApi, store: Store, targetKey:
   const pending = starting(bb, targetKey);
   if (pending) {
     await pending.catch(() => {});
-    return messageAssistant(bb, store, targetKey, text, context);
+    return messageAssistant(bb, store, targetKey, text, context, effort);
   }
   if (!defaults) throw new Error("Choose this review's agent first: open Ask agent and send it a message.");
-  const started = await startConversation(bb, store, { targetKey, text, context, agent: defaults });
+  const reasoningLevel = effort ? await raisedLevel(bb, store, targetKey, effort, defaults.providerId) : undefined;
+  const started = await startConversation(bb, store, { targetKey, text, context, agent: reasoningLevel ? { ...defaults, reasoningLevel } : defaults });
   return { started: true, threadId: started.threadId };
 }
 
