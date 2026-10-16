@@ -115,6 +115,30 @@ test("each comment keeps its severity, a block below the label", () => {
   expect(text).toContain("may have moved:\n**Nit:**\n\n```suggestion");
 });
 
+test("a problem the PR didn't introduce says so, as it would post, while Keep pre-existing problems apart is on (70-review #11)", () => {
+  const review = { targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 12, head: "retry-uploads", status: "ready", createdAt: 1 } as const;
+  const comments = [{ file: "src/a.ts", line: 3, side: "RIGHT", severity: "should-fix", introduced: false, body: "Already racy." }] as const;
+  expect(fixMessage(review, comments, PATCH, [], true)).toContain("**Pre-existing:** **Should fix:** Already racy.");
+  expect(fixMessage(review, comments, PATCH, [], false)).not.toContain("Pre-existing");
+});
+
+test("Fix in a new thread and Send to thread mark a pre-existing problem while Settings keeps them apart, and not while it doesn't", async () => {
+  for (const preExistingFindings of [true, false]) {
+    const { bb, store, spawns } = host();
+    ownPr(store, { sourceThreadId: "coder", sourceThreadAt: 1 });
+    store.upsertDraftComment("pr-1", { file: "src/a.ts", line: 3, side: "RIGHT", introduced: false, body: "Name this better." });
+    store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, preExistingFindings } }, store.getPreferences().revision);
+    await startFixThread(bb, store, "pr-1", [{ file: "src/a.ts", line: 3, side: "RIGHT" }]);
+    expect(spawns()[0].prompt.includes("**Pre-existing:** Name this better.")).toBe(preExistingFindings);
+    const sending = sendHost({ coder: { title: "Retry uploads" } });
+    ownPr(sending.store, { sourceThreadId: "coder", sourceThreadAt: 1 });
+    sending.store.upsertDraftComment("pr-1", { file: "src/a.ts", line: 3, side: "RIGHT", introduced: false, body: "Name this better." });
+    sending.store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, preExistingFindings } }, sending.store.getPreferences().revision);
+    await sendToSourceThread(sending.bb, sending.store, "pr-1", [{ file: "src/a.ts", line: 3, side: "RIGHT" }]);
+    expect(sending.sends()[0].input[0].text.includes("**Pre-existing:** Name this better.")).toBe(preExistingFindings);
+  }
+});
+
 /** A host whose BB has the threads in `threads`, by id, and whose send answers `delivery`. */
 function sendHost(threads: Record<string, { title: string | null; archivedAt?: number | null; deletedAt?: number | null }>, delivery: "sent" | "queued" = "sent") {
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {

@@ -10,7 +10,7 @@ import { isMissingThread } from "./thread-errors";
 const MAX_CODE_LINES = 40;
 
 /** A comment as the fix thread reads it; a range comment also has its first line. */
-type FixComment = Pick<DraftComment, "file" | "line" | "side" | "severity" | "body"> & { startLine?: number; startSide?: "LEFT" | "RIGHT" };
+type FixComment = Pick<DraftComment, "file" | "line" | "side" | "severity" | "body" | "introduced"> & { startLine?: number; startSide?: "LEFT" | "RIGHT" };
 
 /** Whether you may hand this review's comments to a coding thread: a local review, or your own PR. */
 async function isOwnChange(review: ReviewMeta): Promise<boolean> {
@@ -55,14 +55,18 @@ function where(review: ReviewMeta): string {
   ].join("\n");
 }
 
-/** The fix thread's first message: where to work, each comment with its lines' code, and what not to do. */
-export function fixMessage(review: ReviewMeta, comments: readonly FixComment[], patch: string, stale: readonly CommentLocation[]): string {
+/**
+ * The fix thread's first message: where to work, each comment with its lines' code, and what not to do. `preExisting`
+ * (Settings' Keep pre-existing problems apart): each comment reads as it would post, a problem the PR didn't introduce
+ * marked so.
+ */
+export function fixMessage(review: ReviewMeta, comments: readonly FixComment[], patch: string, stale: readonly CommentLocation[], preExisting = false): string {
   const items = comments.map((comment) => {
     const cross = comment.startLine !== undefined && (comment.startSide ?? comment.side) !== comment.side;
     const at = `\`${comment.file}:${linesOf(comment)}\`${cross ? ` (old line ${comment.startLine} to new line ${comment.line})` : comment.side === "LEFT" ? " (old line)" : ""}`;
-    if (stale.some((s) => sameLocation(s, comment))) return `${at}, written against an older diff, so the line may have moved:\n${postedBody(comment)}`;
+    if (stale.some((s) => sameLocation(s, comment))) return `${at}, written against an older diff, so the line may have moved:\n${postedBody(comment, preExisting)}`;
     const code = codeAt(patch, comment);
-    return code ? `${at}\n${fenced(code, "diff")}\n${postedBody(comment)}` : `${at}\n${postedBody(comment)}`;
+    return code ? `${at}\n${fenced(code, "diff")}\n${postedBody(comment, preExisting)}` : `${at}\n${postedBody(comment, preExisting)}`;
   });
   return [where(review), ...items, "Don't push, open or update a PR, or change anything on GitHub unless I ask in this thread."].join("\n\n");
 }
@@ -86,7 +90,7 @@ export async function startFixThread(bb: BbPluginApi, store: Store, targetKey: s
   try {
     const thread = await bb.sdk.threads.spawn({
       projectId: review.projectId, environment: { type: "project-default" },
-      prompt: fixMessage(review, comments, patch, store.staleDraftComments(targetKey)),
+      prompt: fixMessage(review, comments, patch, store.staleDraftComments(targetKey), store.getPreferences().preferences.knobs.preExistingFindings),
       title,
       ...spawnExecution(agent),
     });
@@ -128,7 +132,7 @@ export async function sendToSourceThread(bb: BbPluginApi, store: Store, targetKe
   if (source.state === "archived") throw new Error(`${source.title ?? "The thread that started this review"} is archived.`);
   const comments = store.getDraft(targetKey).comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
   if (!comments.length) throw new Error("Those comments are no longer in the draft.");
-  const text = [fixMessage(review, comments, store.patch(targetKey), store.staleDraftComments(targetKey)), REPORT_BACK].join("\n\n");
+  const text = [fixMessage(review, comments, store.patch(targetKey), store.staleDraftComments(targetKey), store.getPreferences().preferences.knobs.preExistingFindings), REPORT_BACK].join("\n\n");
   let delivery: "sent" | "queued";
   try {
     const sent = await bb.sdk.threads.send({ threadId: source.threadId, mode: "queue-if-active", input: [{ type: "text", text, mentions: [] }] });
