@@ -67,6 +67,16 @@ test("editing the agent's summary saves it as yours", async () => {
   slot.lifecycle.unmount();
 });
 
+// Move to summary leaves the summary yours with an agent's comment in it, which showed its images (95-recheck P3).
+test("the summary shows images as links, whoever wrote it, since Move to summary puts an agent's words in yours", async () => {
+  const body = "Mine.\n\n- On `src/a.ts:1` (an earlier diff): See ![chart](https://attacker.example/c.png) <img src=\"https://attacker.example/d.png\">";
+  const slot = await renderTray("moved", { getDraft: () => ({ draft: draftOf({ body }) }) });
+  await summary(slot).findByText("Summary · not submitted");
+  expect(summary(slot).getByTestId("bb-markdown").textContent).toBe("Mine.\n\n- On `src/a.ts:1` (an earlier diff): See [Image: chart](https://attacker.example/c.png) [Image](https://attacker.example/d.png)");
+  expect(slot.container.querySelector("img[src^='https://attacker.example']")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("Remove clears the summary", async () => {
   let draft = draftOf({ body: "Old words" });
   const saveSummary = vi.fn(({ body }: any) => { draft = draftOf({ body }); return { draft, stale: [], discussions: [] }; });
