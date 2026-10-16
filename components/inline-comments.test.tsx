@@ -271,6 +271,40 @@ test("a recovered box on a hunk the diff hides, narrowed to what changed since, 
   slot.lifecycle.unmount();
 });
 
+test("editing a comment whose line Since your review doesn't draw shows Show in diff in its box, which shows all and moves the box under its line", async () => {
+  await loadPluginApp(() => import("../app"));
+  const DraftTray = await draftTray();
+  const { DiffViewer } = await import("./DiffViewer");
+  // Since your review only new line 1 changed: line 2's hunk, and the comment on it, aren't drawn.
+  const since = new Map([["src/a.ts", { file: "src/a.ts", status: "changed" as const, newLines: [1], newDeletions: [1], dropped: "", patch: "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n" }]]);
+  const showLocation = vi.fn();
+  const comments = [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "Name it better." }];
+  const component = () => {
+    const [narrowed, setNarrowed] = useState(true);
+    const compare = { baseline: "old", head: "new", from: null, pick: () => {}, since, narrowed, setNarrowed, error: null, what: "your review" };
+    return (
+      <DraftTray targetKey="edit-narrowed" patch={patch} activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer"
+        workspace={{ compare, showLocation: (...at: unknown[]) => { setNarrowed(false); showLocation(...at); } }}>
+        <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} since={since} sinceOnly={narrowed} />
+      </DraftTray>
+    );
+  };
+  const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: { ...empty("edit-narrowed"), comments }, stale: [] }) } as any });
+  const panel = within(await slot.findByRole("region", { name: "Comments" }));
+  fireEvent.click(await panel.findByRole("button", { name: /^Expand .*src\/a\.ts:2/ }));
+  fireEvent.click(panel.getByRole("button", { name: "Edit comment on src/a.ts:2" }));
+  const card = panel.getByRole("article", { name: "Draft comment on src/a.ts:2" });
+  expect((within(card).getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Name it better.");
+  expect(within(slot.getByTestId("filediff")).queryByRole("textbox")).toBeNull();
+  fireEvent.click(within(card).getByRole("button", { name: "Show in diff" }));
+  expect(showLocation).toHaveBeenCalledWith("src/a.ts", 2, "RIGHT");
+  const moved = await within(slot.getByTestId("filediff")).findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  expect(moved.value).toBe("Name it better.");
+  expect(moved.closest("[data-draft-at]")?.getAttribute("data-draft-at")).toBe("src/a.ts:2:RIGHT");
+  expect(panel.queryByRole("textbox", { name: "Draft comment" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 test("a comment box in the panel of a draft with no comments doesn't sit above No comments yet", async () => {
   sessionStorage.setItem("guided-review:draft-recovery:alone", JSON.stringify({ composer: { file: "src/a.ts", line: "40", side: "RIGHT", body: "Stranded text", inline: true, revision: "r1" } }));
   const { slot, panel } = await renderReview("alone", { getDraft: () => ({ draft: empty("alone"), stale: [] }) });
