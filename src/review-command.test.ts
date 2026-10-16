@@ -203,6 +203,13 @@ test("bb review list lists your reviews in All reviews' order, as text or JSON; 
     "ref-1  main...feature · Needs review (Ready) · guide ready",
     "pr-9  Retry uploads · Archive (Merged) · guide building",
   ].join("\n"));
+  // A first guide you stopped isn't a failure (70-review #11).
+  store.saveReview({ ...store.getReview("pr-9")!, status: "error" });
+  store.setLifecycle("pr-9", { guideError: { at: 6, text: "Stopped" } });
+  expect((await list()).stdout).toContain("pr-9  Retry uploads · Archive (Merged) · guide stopped");
+  store.setLifecycle("pr-9", { guideError: { at: 6, text: "The agent failed." } });
+  expect((await list()).stdout).toContain("pr-9  Retry uploads · Archive (Merged) · guide failed");
+  store.saveReview({ ...store.getReview("pr-9")!, status: "generating" });
   expect(JSON.parse((await list("--json")).stdout!).reviews).toEqual([
     { key: "ref-1", title: "main...feature", whoseTurn: "Needs review", turn: "Ready", status: "guide ready" },
     { key: "pr-9", title: "Retry uploads", whoseTurn: "Archive", turn: "Merged", status: "guide building", url: "https://github.com/acme/web/pull/9" },

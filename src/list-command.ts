@@ -1,5 +1,5 @@
 import { lastActivity } from "../lib/status-line";
-import { needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
+import { GUIDE_STOPPED, needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
 import type { TurnGroup } from "../lib/turn";
 
 export const LIST_USAGE = [
@@ -34,7 +34,8 @@ export function runListCommand(reviews: ReviewItem[], argv: string[]): CliResult
     title: review.title ?? review.gitRef ?? review.targetKey,
     whoseTurn: SECTION[group],
     turn: reviewState(review).label,
-    status: STATUS[review.status ?? ""] ?? review.status ?? "",
+    // A first guide you stopped didn't fail.
+    status: review.status === "error" && review.guideError?.text === GUIDE_STOPPED ? "guide stopped" : STATUS[review.status ?? ""] ?? review.status ?? "",
     ...(review.url ? { url: review.url } : {}),
   })));
   if (json) return { exitCode: 0, stdout: JSON.stringify({ reviews: rows }, null, 2) };
