@@ -117,7 +117,7 @@ test("the Overview totals the changed lines worth reading, with a rough reading 
     getReviewerNotes: () => ({ body: "", revision: 0 }),
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
   } });
-  const size = await slot.findByText("100 changed lines · about 15 min");
+  const size = await slot.findByText("100 changed lines · about 15 min to read");
   expect(size.getAttribute("title")).toBe("Without lockfiles and generated files. Reading time at about 400 changed lines an hour.");
   slot.lifecycle.unmount();
 });

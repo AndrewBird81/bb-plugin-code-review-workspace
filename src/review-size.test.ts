@@ -28,10 +28,14 @@ test("each chapter reads its files' changed lines, a split file only its hunks t
   expect(chapterReadingLines(sections, all, changedLines(all))).toEqual(new Map([["c1", 3 + 2], ["c2", 4]]));
 });
 
-test("reading time is a rough estimate at LINES_PER_HOUR", () => {
+test("reading time is a rough estimate at LINES_PER_HOUR, said as one, and in days past a day", () => {
   expect(LINES_PER_HOUR).toBe(400);
-  expect(readingTime(10)).toBe("a few minutes");
-  expect(readingTime(100)).toBe("about 15 min");
-  expect(readingTime(400)).toBe("about 1 h");
-  expect(readingTime(1000)).toBe("about 2.5 h");
+  expect(readingTime(10)).toBe("a few minutes to read");
+  expect(readingTime(100)).toBe("about 15 min to read");
+  expect(readingTime(400)).toBe("about 1 h to read");
+  expect(readingTime(1000)).toBe("about 2.5 h to read");
+  expect(readingTime(LINES_PER_HOUR * 23.5)).toBe("about 23.5 h to read");
+  expect(readingTime(LINES_PER_HOUR * 24)).toBe("about 1 day to read");
+  // Not "about 60.5 h".
+  expect(readingTime(LINES_PER_HOUR * 60.4)).toBe("about 2.5 days to read");
 });

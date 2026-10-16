@@ -25,10 +25,14 @@ export function chapterReadingLines(sections: ReadonlyArray<{ id: string; diffs:
   }));
 }
 
-/** About how long reading that many changed lines takes, at LINES_PER_HOUR. */
+/** About how long reading that many changed lines takes, at LINES_PER_HOUR, as it reads: "about 4 h to read". */
 export function readingTime(lines: number): string {
   const minutes = lines / LINES_PER_HOUR * 60;
-  if (minutes < 5) return "a few minutes";
-  if (minutes < 60) return `about ${Math.ceil(minutes / 5) * 5} min`;
-  return `about ${Math.round(minutes / 30) / 2} h`;
+  if (minutes < 5) return "a few minutes to read";
+  if (minutes < 60) return `about ${Math.ceil(minutes / 5) * 5} min to read`;
+  const hours = Math.round(minutes / 30) / 2;
+  if (hours < 24) return `about ${hours} h to read`;
+  // Past a day, to the half day: "about 60.5 h" is more precise than an estimate.
+  const days = Math.round(hours / 12) / 2;
+  return `about ${days} ${days === 1 ? "day" : "days"} to read`;
 }
