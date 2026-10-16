@@ -176,3 +176,41 @@ test("bb review records the thread it ran in as the review's source thread, neve
   expect(await run()).toMatchObject({ exitCode: 0 });
   expect(store.getReview(key)?.sourceThreadId).toBe("fixer");
 });
+
+test("bb review links to the review where BB has an app URL, and says to open the panel where it hasn't, or with its switch off", async () => {
+  const linked = createFakePluginHost({ pluginId: "guided-review", appUrl: "https://bb.example/", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  const store = createStore(linked.bb);
+  expect((await runReviewCommand({ bb: linked.bb, store, gh }, [url], { projectId: "p1", cwd: process.cwd() })).stdout)
+    .toBe(`Guided Review started for ${key}. Open https://bb.example/plugins/guided-review/review/${key} to watch it build and review.`);
+  store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, reviewCommandInThreads: false } }, store.getPreferences().revision);
+  expect((await runReviewCommand({ bb: linked.bb, store, gh }, [url], { projectId: "p1", cwd: process.cwd() })).stdout)
+    .toBe(`Guided Review for ${key} is already building. Open the Guided Review panel to watch it build and review.`);
+  const { bb, store: other } = host();
+  expect((await runReviewCommand({ bb, store: other, gh }, [url], { projectId: "p1", cwd: process.cwd() })).stdout)
+    .toBe(`Guided Review started for ${key}. Open the Guided Review panel to watch it build and review.`);
+});
+
+test("bb review list lists your reviews in All reviews' order, as text or JSON; a review's own agent can't, and with its switch off there's no list", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  await plugin(bb);
+  const store = createStore(bb);
+  const list = (...argv: string[]) => harness.behavior.runCli(["list", ...argv], { threadId: "coder", projectId: "p1", cwd: process.cwd() });
+  expect(await list()).toMatchObject({ exitCode: 0, stdout: "No reviews yet. Start one with `bb review <pr-url | git-ref>`." });
+  store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main...feature", cwd: "/repo", status: "ready", createdAt: 2, projectId: "p1" });
+  store.saveReview({ targetKey: "pr-9", kind: "pr", repo: "acme/web", number: 9, title: "Retry uploads", url: "https://github.com/acme/web/pull/9", status: "generating", createdAt: 1, projectId: "p1" });
+  store.setLifecycle("pr-9", { prState: "MERGED", archivedAt: 5 });
+  expect((await list()).stdout).toBe([
+    "ref-1  main...feature · Needs review (Ready) · guide ready",
+    "pr-9  Retry uploads · Archive (Merged) · guide building",
+  ].join("\n"));
+  expect(JSON.parse((await list("--json")).stdout!).reviews).toEqual([
+    { key: "ref-1", title: "main...feature", whoseTurn: "Needs review", turn: "Ready", status: "guide ready" },
+    { key: "pr-9", title: "Retry uploads", whoseTurn: "Archive", turn: "Merged", status: "guide building", url: "https://github.com/acme/web/pull/9" },
+  ]);
+  expect(await list("--all")).toMatchObject({ exitCode: 2, stderr: expect.stringContaining("usage: bb review list [--json]") });
+  store.setAssistantThread("ref-1", "assistant-1");
+  expect(await harness.behavior.runCli(["list"], { threadId: "assistant-1", projectId: "p1" })).toMatchObject({ exitCode: 2, stderr: "This agent works only on its own review, so it can't list reviews." });
+  store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, reviewCommandInThreads: false } }, store.getPreferences().revision);
+  expect((await list()).stdout ?? "").not.toContain("ref-1");
+  expect((await runReviewCommand({ bb, store, gh }, ["--help"], { projectId: "p1" })).stdout).not.toContain("bb review list");
+});

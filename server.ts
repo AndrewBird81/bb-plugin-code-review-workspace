@@ -15,6 +15,7 @@ import { readCheckFailures, readCheckLog } from "./src/check-annotations";
 import { validateGuide, checkCoverage, checkGuideInput, checkHotspots, checkRequirements, checkUnplaced, GuideInputSchema, placeUnplacedFiles } from "./src/guide";
 import { hunkCounts } from "./src/hunks";
 import { runReviewCommand } from "./src/review-command";
+import { NOT_LISTED, runListCommand } from "./src/list-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startAutomaticReview, startConversation } from "./src/agent";
 import { sendToSourceThread, sourceThread, startFixThread } from "./src/fix-handoff";
@@ -1177,7 +1178,8 @@ export default async function plugin(bb: BbPluginApi) {
   // Tools go only to THIS plugin's own spawned threads, by the role each is recorded with: a thread can retitle
   // itself, so its title chooses only while its spawn is in flight, before its id is recorded.
   bb.agents.configure((context) => {
-    if (context.origin?.pluginId !== bb.pluginId) return { tools: [], skills: [] };
+    // Agents in your own threads get the skill for bb review; this plugin's threads get only what their role needs.
+    if (context.origin?.pluginId !== bb.pluginId) return { tools: [], skills: store.getPreferences().preferences.knobs.reviewCommandInThreads ? ["guided-review"] : [] };
     const role = context.thread ? threadRole(bb, store, context.thread) : null;
     if (role === "writer") {
       return { tools: ["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"], skills: ["guided-review-generate"] };
@@ -1214,12 +1216,16 @@ export default async function plugin(bb: BbPluginApi) {
       { name: "review", summary: "Review a PR or ref", usage: "bb review <pr-url | pr-number | git-ref> [--base <ref>] [--context <text>]" },
       { name: "comment", summary: "List, add, edit, or delete a review's local draft comments; never posts to GitHub", usage: "bb review comment <list | add | edit | delete> <review> [<file>:<line>] [--side LEFT|RIGHT] [--code <text>] [--body <text>] [--severity <severity>] [--pre-existing] [--json]" },
       { name: "summary", summary: "Show or write a review's local review summary and suggested verdict; never posts to GitHub", usage: "bb review summary <review> [--json] | [--body <text> [--suggest APPROVE|COMMENT|REQUEST_CHANGES]]" },
+      { name: "list", summary: "List your reviews, in Needs review's order, with whose turn it is", usage: "bb review list [--json]" },
     ],
     async run(argv, ctx) {
       const changedDraft = (targetKey: string) => bb.realtime.publish(`draft:${targetKey}`, {});
       return updates.run(async () => {
         // A review's own assistant or guide writer, by its recorded identity, may change only that review.
         const ownReview = (ctx.threadId ? await toolThreadReview(bb, store, ctx.threadId) : null) ?? undefined;
+        if (argv[0] === "list" && store.getPreferences().preferences.knobs.reviewCommandInThreads) {
+          return ownReview === undefined ? runListCommand(await listed(), argv.slice(1)) : { exitCode: 2, stderr: NOT_LISTED };
+        }
         return argv[0] === "comment" ? runCommentCommand(store, argv.slice(1), changedDraft, ownReview)
           : argv[0] === "summary" ? runSummaryCommand(store, argv.slice(1), changedDraft, ownReview)
           : runReviewCommand(deps, argv, ctx, ownReview);

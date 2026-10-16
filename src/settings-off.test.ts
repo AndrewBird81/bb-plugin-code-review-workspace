@@ -259,3 +259,14 @@ test("with every toggle off, a review a thread started offers no thread to send 
   await expect(harness.behavior.callRpc("sendToSourceThread", { targetKey: "pr-1", comments: [{ file: "a.ts", line: 1, side: "RIGHT" }] })).rejects.toThrow("Send to thread is off");
   expect(harness.inspection.sdk.callsTo("threads.send")).toHaveLength(0);
 });
+
+test("with every toggle off, agents in your threads get no bb review skill, and bb review lists nothing", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate", "guided-review"] });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.savePreferences({ ...defaultPreferences, knobs: allKnobsOff }, 0);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, title: "Cache rows", status: "ready", createdAt: 1, projectId: "p1" });
+  const ordinary = { thread: { id: "mine", title: "Fix it", parentThreadId: null, sourceThreadId: null }, origin: { kind: null, pluginId: null } } as any;
+  expect(await harness.behavior.resolveAgentConfiguration(ordinary)).toMatchObject({ tools: [], skills: [] });
+  expect((await harness.behavior.runCli(["list", "--json"], { threadId: "mine", projectId: "p1" })).stdout ?? "").not.toContain("Cache rows");
+});

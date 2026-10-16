@@ -19,10 +19,12 @@ interface Deps {
 }
 interface Ctx { projectId?: string; threadId?: string; cwd?: string }
 
-const USAGE = [
+/** The usage, with `bb review list` while Help agents in your threads use bb review is on. */
+const usage = (list: boolean) => [
   "usage: bb review <pr-url | pr-number | git-ref> [--base <ref>] [--context <text>]",
   "       bb review comment <list | add | edit | delete> …   (see bb review comment --help)",
   "       bb review summary <review> [--body <text>] …        (see bb review summary --help)",
+  ...list ? ["       bb review list [--json]                             (see bb review list --help)"] : [],
   "",
   "  --context  text for the assistant's automatic review, such as the ticket the change implements. It's kept with the review; '' removes it.",
 ].join("\n");
@@ -36,6 +38,8 @@ export const NOT_OWN_REVIEW = "This agent can change only its own review.";
  * and its guide is unattended, so it doesn't approve agents on the PR's head as your click does.
  */
 export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, ownReview?: string) {
+  const inThreads = deps.store.getPreferences().preferences.knobs.reviewCommandInThreads;
+  const USAGE = usage(inThreads);
   let input: string | undefined;
   let base: string | undefined;
   let context: string | undefined;
@@ -137,9 +141,12 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
     void generateGuide(deps.bb, deps.store, key, ctx.projectId, { unattended });
   }
 
-  const lines = [current ? `Guided Review for ${key} is up to date. Open the Guided Review panel to review it.`
-    : building ? `Guided Review for ${key} is already building. Open the Guided Review panel to watch it build and review.`
-    : `Guided Review started for ${key}. Open the Guided Review panel to watch it build and review.`];
+  // A link to the review where BB has an address for its app.
+  const appUrl = inThreads ? deps.bb.server.experimental_appUrl : null;
+  const open = appUrl ? `Open ${appUrl.replace(/\/+$/, "")}/plugins/${deps.bb.pluginId}/review/${key}` : "Open the Guided Review panel";
+  const lines = [current ? `Guided Review for ${key} is up to date. ${open} to review it.`
+    : building ? `Guided Review for ${key} is already building. ${open} to watch it build and review.`
+    : `Guided Review started for ${key}. ${open} to watch it build and review.`];
   if (context !== undefined && !context.trim()) lines.push("Removed the review's context.");
   else if (context !== undefined) lines.push(
     !automaticReviewPrompt(deps.store.getPreferences().preferences) ? "Automatic review is off in Review settings, so no assistant gets this context."
