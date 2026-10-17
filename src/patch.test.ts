@@ -145,3 +145,22 @@ test("splitting one file's diff keeps the whole patch's split", () => {
   expect(splitPatchByFile(two)).not.toBe(files);
   expect(other).toHaveLength(3);
 });
+
+// A pure copy has no ---/+++ lines and no rename to, so its name came from the `diff --git` line alone, which is
+// ambiguous when a name holds " b/", and was unread when an unquoted name with a space sat beside a quoted one
+// (bug bash FUZ-4).
+test("a pure copy from a path holding ' b/' is keyed by its copy, as git's copy to says", () => {
+  // `git -c diff.renames=copies diff --cached` after `cp "x b/y" z` and an edit to "x b/y".
+  const patch = [
+    "diff --git a/x b/y b/x b/y", "index 0ff3bbb..85c54e7 100644", "--- a/x b/y\t", "+++ b/x b/y\t", "@@ -20 +20,2 @@", " 20", "+",
+    "diff --git a/x b/y b/z", "similarity index 100%", "copy from x b/y", "copy to z", "",
+  ].join("\n");
+  expect(changedFiles(patch)).toEqual(["x b/y", "z"]);
+});
+
+test("a header's unquoted name may hold a space beside a quoted one", () => {
+  const patch = 'diff --git a/old name.txt "b/tab\\there.txt"\ncopy from old name.txt\ncopy to "tab\\there.txt"\n';
+  expect(splitPatchByFile(patch).map((file) => file.path)).toEqual(["tab\there.txt"]);
+  // Without copy to, from the header itself.
+  expect(splitPatchByFile('diff --git a/old name.txt "b/tab\\there.txt"\n').map((file) => file.path)).toEqual(["tab\there.txt"]);
+});

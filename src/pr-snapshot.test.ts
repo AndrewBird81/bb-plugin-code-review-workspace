@@ -1,8 +1,9 @@
 import { expect, test, vi } from "vitest";
-import { readPrDiff, readPrSnapshot } from "./pr-snapshot";
+import { readFilesPatch, readPrDiff, readPrSnapshot } from "./pr-snapshot";
 import { describeReviewFiles, patchPage, stubSkippedFiles } from "./review-files";
 import { splitPatchByFile } from "./patch";
 import { diffPositions } from "./review-positions";
+import { rng } from "./fuzz-gen.test-support";
 
 const pr = { headRefOid: "old", title: "Change", baseRefName: "main", headRefName: "feature", url: "https://github.com/acme/web/pull/7" };
 test("a commit pushed while fetching the diff cannot be saved under the previous head", async () => {
@@ -117,4 +118,27 @@ test("a file a PR too big for GitHub's diff adds or copies under a generated-loo
   expect(pages).toContain("[generated: +1 −1 lines; pass file to read it]");
   const same = splitPatchByFile(patch).find((file) => file.path === "vendor/same.js");
   expect(same?.text).toBe("diff --git a/src/same.js b/vendor/same.js\ncopy from src/same.js\ncopy to vendor/same.js\n");
+});
+
+const NAME_PARTS = ["a", "b", " ", "b/", " b/", "\t", "\n", "\r", '"', "\\", "ü", "日本", "😀", "@@", "-", "+", "#", "x.ts", "/", "a/", "\\303", "dev/null", "\x01", "\x7f"];
+
+// A pure copy whose names git quotes differently lost its name, at seed 73 (bug bash FUZ-4).
+test("a patch rebuilt from GitHub's file list keeps every file's name, old name and lines", async () => {
+  for (let seed = 1; seed <= 1500; seed++) {
+    const r = rng(seed);
+    const name = () => Array.from({ length: r.int(1, 5) }, () => r.pick(NAME_PARTS)).join("").replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "") || "f";
+    const files = Array.from({ length: r.int(1, 4) }, () => {
+      const status = r.pick(["added", "removed", "modified", "renamed", "copied"]);
+      const filename = name();
+      const patch = r.bool(0.8) ? (status === "added" ? "@@ -0,0 +1 @@\n+x" : status === "removed" ? "@@ -1 +0,0 @@\n-x" : "@@ -1 +1 @@\n-x\n+y") : undefined;
+      return { filename, status, ...(status === "renamed" || status === "copied" ? { previous_filename: name() } : {}), ...(patch ? { patch } : {}), changes: patch ? 2 : 0 };
+    });
+    if (new Set(files.map((f) => f.filename)).size !== files.length) continue;
+    const stdout = files.map((f) => JSON.stringify(f)).join("\n") + "\n";
+    const patch = await readFilesPatch((async () => ({ code: 0, stdout, stderr: "" })) as never, []);
+    const want = files.map((f) => ({ path: f.filename, oldPath: f.status === "renamed" ? f.previous_filename : undefined }));
+    expect({ seed, got: splitPatchByFile(patch).map((f) => ({ path: f.path, oldPath: f.oldPath })) }).toEqual({ seed, got: want });
+    const positions = diffPositions(patch);
+    for (const f of files) if (f.patch) expect({ seed, f: f.filename, has: positions.get(f.filename)?.[f.status === "removed" ? "left" : "right"].has(1) }).toEqual({ seed, f: f.filename, has: true });
+  }
 });

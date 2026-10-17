@@ -131,12 +131,25 @@ function markerName(rest: string, prefix: "a/" | "b/"): string | null {
   return name.startsWith(prefix) ? name.slice(2) : name;
 }
 
-/** The names in `diff --git a/X b/Y`, quote-aware. Unquoted, X and Y may hold " b/", so an unrenamed file's halves must match. */
+// A C-quoted name that runs to the end of the line, from where it's tried.
+const QUOTED_TO_END = /"(?:[^"\\]|\\.)*"$/y;
+
+/**
+ * The names in `diff --git a/X b/Y`, quote-aware. Git quotes only the name that needs it, so the other, unquoted, may
+ * hold spaces. Unquoted, X and Y may hold " b/", so an unrenamed file's halves must match.
+ */
 function headerNames(line: string): { a: string; b: string } | null {
   const rest = line.slice("diff --git ".length).replace(/\r$/, "");
-  const quoted = rest.match(/^("(?:[^"\\]|\\.)*"|\S+) ("(?:[^"\\]|\\.)*"|.+)$/);
-  if (quoted && (quoted[1].startsWith('"') || quoted[2].startsWith('"'))) {
-    const [a, b] = [unquote(quoted[1]), unquote(quoted[2])];
+  let quoted: [string, string] | null = null;
+  const first = rest.match(/^("(?:[^"\\]|\\.)*") (.+)$/);
+  if (first) quoted = [first[1], first[2]];
+  // A quoted Y begins at a space and a quote; only one such place can quote the rest of the line.
+  else for (let at = rest.indexOf(' "'); at >= 0 && !quoted; at = rest.indexOf(' "', at + 1)) {
+    QUOTED_TO_END.lastIndex = at + 1;
+    if (QUOTED_TO_END.test(rest)) quoted = [rest.slice(0, at), rest.slice(at + 1)];
+  }
+  if (quoted) {
+    const [a, b] = [unquote(quoted[0]), unquote(quoted[1])];
     return a.startsWith("a/") && b.startsWith("b/") ? { a: a.slice(2), b: b.slice(2) } : null;
   }
   const half = (rest.length - 1) / 2;
@@ -150,7 +163,7 @@ function headerNames(line: string): { a: string; b: string } | null {
 /** A file is keyed by its new path; a deleted one by its old path. */
 function fileNames(text: string): { path: string; oldPath?: string } {
   let header: { a: string; b: string } | null = null;
-  let renameFrom: string | undefined, renameTo: string | undefined;
+  let renameFrom: string | undefined, renameTo: string | undefined, copyTo: string | undefined;
   let minus: string | null | undefined, plus: string | null | undefined;
   // Only the header: the hunks can be most of the text.
   const end = text.indexOf("\n@@");
@@ -159,10 +172,12 @@ function fileNames(text: string): { path: string; oldPath?: string } {
     if (line.startsWith("diff --git ")) header = headerNames(line);
     else if (line.startsWith("rename from ")) renameFrom = unquote(line.slice(12).replace(/\r$/, ""));
     else if (line.startsWith("rename to ")) renameTo = unquote(line.slice(10).replace(/\r$/, ""));
+    else if (line.startsWith("copy to ")) copyTo = unquote(line.slice(8).replace(/\r$/, ""));
     else if (line.startsWith("--- ")) minus = markerName(line.slice(4), "a/");
     else if (line.startsWith("+++ ")) plus = markerName(line.slice(4), "b/");
   }
-  const path = plus ?? renameTo ?? (plus === null ? minus : undefined) ?? header?.b ?? "";
+  // A pure copy has no ---/+++ lines; its copy to names it, as rename to names a pure rename.
+  const path = plus ?? renameTo ?? copyTo ?? (plus === null ? minus : undefined) ?? header?.b ?? "";
   return renameFrom === undefined ? { path } : { path, oldPath: renameFrom };
 }
 
