@@ -598,6 +598,40 @@ test("u opens the next unviewed file in any chapter", async () => {
   slot.lifecycle.unmount();
 }, 15_000);
 
+// bug bash RDG-2: a chapter opens on its intro with its first file current but not reached (j knows this and goes to
+// it first). Next unviewed started after the current file, so from the intro it skipped the chapter's first file.
+test("from a chapter's intro, u goes to the chapter's first file when it isn't viewed", async () => {
+  const layout = fakeLayout();
+  // A chapter long enough to scroll.
+  const sizes = { scrollHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight"), clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight") };
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 5000 });
+  Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get: () => 800 });
+  try {
+    // Parsing is read; Caching isn't.
+    const { slot } = await renderWorkspace({ rpc: { getFileViews: () => ({ views: [{ file: "src/a.ts", viewed: true, stale: false, viewedAt: 1 }] }) } });
+    await slot.findByRole("checkbox", { name: "Viewed src/a.ts" });
+    await waitFor(() => expect(chapters(slot).getByText("1/3 files viewed")).toBeTruthy());
+    // Caching opens on its intro.
+    fireEvent.click(chapters(slot).getByText("Caching"));
+    await slot.findByText("bb");
+    layout.scrollTo(undefined);
+    await waitFor(() => expect(currentFile(slot)).toBe("b.ts"));
+    press("u");
+    await waitFor(() => expect(layout.top()).toBe("src/b.ts"));
+    expect(currentFile(slot)).toBe("b.ts");
+    // Reached, the file you're on is behind you: u goes on from it.
+    press("u");
+    await waitFor(() => expect(layout.top()).toBe("src/c.ts"));
+    slot.lifecycle.unmount();
+  } finally {
+    for (const [name, descriptor] of Object.entries(sizes)) {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+      else delete (HTMLElement.prototype as any)[name];
+    }
+    layout.restore();
+  }
+}, 15_000);
+
 test("] and [ go through draft comments and discussions in the Comments list's order", async () => {
   const comments = [
     { file: "src/c.ts", line: 1, side: "RIGHT", body: "Third", author: "reviewer" },

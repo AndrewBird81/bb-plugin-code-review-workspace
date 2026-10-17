@@ -1070,16 +1070,23 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [outsideGuide, showLocation]);
   // Finish review shows the draft at its summary, which the draft focuses once it shows.
   const showDraftSummary = useCallback((replaced = false) => { openPanel("finish"); setShowDraft({ at: Date.now(), replaced }); }, [openPanel]);
+  // On a chapter's intro the first file is current but not reached yet: its header is still below the top.
+  const notReached = useCallback((file: string | undefined) => {
+    const box = scrollBox.current;
+    const header = file ? fileEls.current.get(file) : undefined;
+    return !pinned.current && !!box && !!header && box.scrollHeight > box.clientHeight
+      && header.getBoundingClientRect().top > box.getBoundingClientRect().top + 1;
+  }, []);
   // From the file you're on, or the chapter's start; on the Overview, from the first chapter.
   const nextUnviewed = useCallback(() => {
     const order = readingOrder(sections);
     const placeOf = (file: string | undefined) => order.findIndex((entry) => entry.chapter === activeId && entry.file === file);
     const current = currentFileOf(targetKey);
-    const from = Math.max(current ? placeOf(current) : placeOf(activeFiles[0]) - 1, -1);
+    const from = Math.max(current && !notReached(current) ? placeOf(current) : placeOf(current ?? activeFiles[0]) - 1, -1);
     const next = [...order.slice(from + 1), ...order.slice(0, from + 1)].find((entry) => !views.get(entry.file)?.viewed);
     if (!next) toast.info("Every file is viewed.");
     else onSelectFile(next.chapter, next.file);
-  }, [targetKey, sections, activeId, activeFiles, views, onSelectFile]);
+  }, [targetKey, sections, activeId, activeFiles, views, onSelectFile, notReached]);
   const chapterId = activeSection?.id as string | undefined;
   // Popped out, the agent takes the question where it is, its box focused: the side panel would only say it's popped out.
   const ask = useCallback((context: AgentMessageContext, quote?: string) => {
@@ -1246,11 +1253,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
           selectChapter(sections[0].id);
           return true;
         }
-        // On a chapter's intro the first file is current but not reached yet: j goes to it first.
-        const box = scrollBox.current;
-        const header = currentFile ? fileEls.current.get(currentFile) : undefined;
-        const ahead = key === "j" && !pinned.current && !!box && !!header && box.scrollHeight > box.clientHeight
-          && header.getBoundingClientRect().top > box.getBoundingClientRect().top + 1;
+        // On a chapter's intro j goes to the first file first.
+        const ahead = key === "j" && notReached(currentFile);
         goToFile(shown[ahead ? Math.max(at, 0) : key === "j" ? at + 1 : Math.max(at - 1, 0)]);
         return true;
       }
