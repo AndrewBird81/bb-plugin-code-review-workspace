@@ -86,9 +86,10 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   const [view, setView] = useState<"actions" | "snooze">("actions");
   const [confirming, setConfirming] = useState(false);
   const title = review.title ?? review.gitRef ?? review.targetKey;
-  // GitHub state archives merged and closed PRs; only the reviewer's own archive can be undone.
-  const closed = review.prState === "MERGED" || review.prState === "CLOSED" || !!review.archivedAt;
   const turn = reviewState(review);
+  // GitHub state archives merged and closed PRs, and those you can no longer read or are no longer asked to review: only
+  // the reviewer's own archive can be undone, and a review already in Archive can't be archived.
+  const archivable = review.userArchivedAt ? !(review.prState === "MERGED" || review.prState === "CLOSED" || review.archivedAt) : turn.group !== "archive";
   // Only a review you've already given can wait for the author.
   const untilAuthor = canSnooze(review, turn);
   const untilTime = canSnoozeUntil(review, turn);
@@ -96,7 +97,7 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   // Archive takes a review out of Pinned, so it offers only Unpin there.
   const pin = pinnable && (!!review.pinnedAt || turn.group !== "archive");
   // The menu's first part (the page's items, guide, Snooze, Pin, Archive): a merged or closed review may have none of it.
-  const top = !!items?.length || review.status === "tracked" || snoozed || untilAuthor || untilTime || pin || !closed;
+  const top = !!items?.length || review.status === "tracked" || snoozed || untilAuthor || untilTime || pin || archivable;
   const open = (next: boolean) => {
     setMenuOpen(next);
     if (!next) setView("actions");
@@ -154,7 +155,7 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
               <Icon name="Clock" aria-hidden />Snooze<Icon name="ChevronRight" className="ml-auto text-subtle-foreground" aria-hidden />
             </Button>}
           {pin && item({ label: review.pinnedAt ? "Unpin" : "Pin", icon: review.pinnedAt ? "PinOff" : "Pin", onSelect: () => void actions.setPinned(!review.pinnedAt) })}
-          {!closed && item({ label: review.userArchivedAt ? "Unarchive" : "Archive", icon: review.userArchivedAt ? "ArchiveRestore" : "Archive", onSelect: () => void moving(actions.setArchived(!review.userArchivedAt)) })}
+          {archivable && item({ label: review.userArchivedAt ? "Unarchive" : "Archive", icon: review.userArchivedAt ? "ArchiveRestore" : "Archive", onSelect: () => void moving(actions.setArchived(!review.userArchivedAt)) })}
           {top && <div role="separator" className="my-1 h-px bg-border" />}
           {review.url && <Button variant="ghost" size="sm" className={MENU_ITEM} onClick={() => pick(() => navigate.openUrl(review.url!))}>
             <Icon name="Github" aria-hidden />Open on GitHub<Icon name="ArrowUpRight" className="ml-auto text-subtle-foreground" aria-hidden />

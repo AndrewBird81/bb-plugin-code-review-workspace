@@ -49,7 +49,8 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   const title = review.title ?? review.gitRef ?? review.targetKey;
   const where = review.repo ? `${review.repo}${review.number ? ` #${review.number}` : ""}` : review.gitRef && review.title ? review.gitRef : null;
   const when = age(turn.group === "needs" ? turn.at ?? review.createdAt : lastActivity(review));
-  const closed = review.prState === "MERGED" || review.prState === "CLOSED" || !!review.archivedAt;
+  // Only the reviewer's own archive can be undone, and a review already in Archive can't be archived.
+  const archivable = review.userArchivedAt ? !(review.prState === "MERGED" || review.prState === "CLOSED" || review.archivedAt) : turn.group !== "archive";
   const untilAuthor = canSnooze(review, turn), untilTime = canSnoozeUntil(review, turn);
   const snoozable = (untilAuthor || untilTime) && turn.reason !== "snoozed";
   // Busy, a quick action stays focusable, unavailable and drawn as disabled, and ignores the click.
@@ -93,7 +94,7 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
               <Icon name={review.pinnedAt ? "PinOff" : "Pin"} aria-hidden />
             </Button>
           </Hint>}
-          {!closed && <Hint label={review.userArchivedAt ? "Unarchive" : "Archive"}>
+          {archivable && <Hint label={review.userArchivedAt ? "Unarchive" : "Archive"}>
             <Button variant="ghost" size="sm" aria-label={review.userArchivedAt ? "Unarchive" : "Archive"} aria-describedby={titleId} aria-disabled={actions.busy} className={quick} onClick={() => { if (!actions.busy) void moving(actions.setArchived(!review.userArchivedAt)); }}>
               <Icon name={review.userArchivedAt ? "ArchiveRestore" : "Archive"} aria-hidden />
             </Button>

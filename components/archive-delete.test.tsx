@@ -174,3 +174,24 @@ test("an open review deleted elsewhere shows Review not found, not a regeneratio
   await slot.findByText("Review not found");
   slot.lifecycle.unmount();
 });
+
+test("a review in Archive because it's no longer requested or can't be read offers no Archive; your own archive still offers Unarchive", async () => {
+  const { slot, open, menu } = await list([
+    { targetKey: "u", kind: "pr", title: "Change unrequested", status: "tracked", prState: "OPEN", signals: { requestPending: false } },
+    { targetKey: "g", kind: "pr", title: "Change gone", status: "ready", prState: "OPEN", unreachable: { since: 1, reason: "not-found" } },
+    { targetKey: "a", kind: "pr", title: "Change archived and unrequested", status: "tracked", prState: "OPEN", signals: { requestPending: false }, userArchivedAt: 1 },
+  ]);
+  await open(/^Archive/);
+  for (const [title, archive] of [["Change unrequested", null], ["Change gone", null], ["Change archived and unrequested", "Unarchive"]] as const) {
+    const row = (await slot.findByText(title)).closest(".group\\/row") as HTMLElement;
+    const quick = within(row).queryAllByRole("button", { name: /^(un)?archive$/i }).map((button) => button.getAttribute("aria-label"));
+    expect([title, quick]).toEqual([title, archive ? [archive] : []]);
+    fireEvent.click(within(row).getByRole("button", { name: "Review actions" }));
+    const actions = within(await slot.findByRole("dialog"));
+    await actions.findByRole("button", { name: "Delete…" });
+    expect([title, actions.queryAllByRole("button", { name: /^(un)?archive$/i }).map((button) => button.textContent)]).toEqual([title, archive ? [archive] : []]);
+    fireEvent.keyDown(slot.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(slot.queryByRole("dialog")).toBeNull());
+  }
+  slot.lifecycle.unmount();
+});
