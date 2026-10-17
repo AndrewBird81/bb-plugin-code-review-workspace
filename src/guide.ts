@@ -104,8 +104,12 @@ const HotspotsInputSchema = z.array(HotspotSchema.extend({ why: HotspotSchema.sh
 /** What the guide writer submits; the plugin stamps the rest. */
 export const GuideInputSchema = GuideSchema.omit({ review: true, source: true, generator: true }).extend({
   title: GuideSchema.shape.title.max(120),
+  intent: GuideSchema.shape.intent.max(800),
   sections: z.array(SectionInputSchema).describe(GuideSchema.shape.sections.description ?? ""),
   hotspots: HotspotsInputSchema.optional().describe(GuideSchema.shape.hotspots.description ?? ""),
+  requirements: z.array(RequirementSchema.extend({ text: RequirementSchema.shape.text.max(300), evidence: RequirementSchema.shape.evidence.max(400) })).max(25)
+    .optional().describe(GuideSchema.shape.requirements.description ?? ""),
+  sinceReview: z.string().max(1_200).optional().describe(GuideSchema.shape.sinceReview.description ?? ""),
 });
 export type Guide = z.infer<typeof GuideSchema>;
 

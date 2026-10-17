@@ -147,3 +147,13 @@ test("a submitted chapter can't take the Overview page's id, and says why", () =
   // The writer is told before it submits, in the tool's parameters.
   expect(JSON.stringify(z.toJSONSchema(GuideInputSchema, { io: "input" }))).toContain("Not \\\"overview\\\", the Overview page's.");
 });
+
+test("a submitted guide's intent, since-review note and requirements are capped too, though stored guides stay readable", () => {
+  const long = (n: number) => "x".repeat(n + 1);
+  const requirement = { text: "Retries once", status: "unclear", evidence: "No retry in the diff." };
+  const capped = { ...input, intent: long(800), sinceReview: long(1_200), requirements: [{ ...requirement, text: long(300), evidence: long(400) }] };
+  expect(errorsOf(capped).map((e) => e.split(":")[0])).toEqual(["intent", "requirements.0.text", "requirements.0.evidence", "sinceReview"]);
+  expect(errorsOf({ ...input, requirements: Array.from({ length: 26 }, () => requirement) })).toEqual(["requirements: Too big: expected array to have <=25 items"]);
+  expect(errorsOf({ ...input, intent: long(799), sinceReview: long(1_199), requirements: Array.from({ length: 25 }, () => ({ ...requirement, text: long(299), evidence: long(399) })) })).toEqual([]);
+  expect(validateGuide({ ...capped, requirements: Array.from({ length: 26 }, () => capped.requirements[0]) }).ok).toBe(true);
+});
