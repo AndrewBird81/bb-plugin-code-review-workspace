@@ -534,3 +534,29 @@ test("a run that couldn't start keeps its reason as one line, capped", () => {
   expect(error).toHaveLength(200);
   expect(error).toMatch(/^spawn failed: x+…$/);
 });
+
+// bug bash AGT-12: only a re-review asks the writer for sinceReview, but a first guide's was saved, and the Overview
+// showed it as "Since your review".
+test("a first guide's sinceReview is dropped; a re-review's is kept", async () => {
+  for (const reviewed of [false, true]) {
+    let prompt = "";
+    const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+      spawn: async (args: { prompt?: string; title: string }) => { if (args.prompt) prompt = args.prompt; return { id: "writer" }; },
+      wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })),
+      archive: async () => ({}), stop: async () => ({}),
+    } } as any });
+    await plugin(bb);
+    const store = createStore(bb);
+    store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
+    store.savePatch("ref-1", patch);
+    if (reviewed) store.setLifecycle("ref-1", { submittedVerdict: "COMMENT", submittedAt: 1000, signals: { lastReviewAt: 1000 } });
+    const run = generateGuide(bb, store, "ref-1", "p1", { notify: false });
+    await vi.waitFor(() => expect(prompt).toContain("generationId"));
+    const generationId = prompt.match(/generationId "([^"]+)"/)![1];
+    const guide = { title: "T", intent: "I", sinceReview: "The retry now backs off.", sections: [{ id: "c1", title: "A", overview: "O", risk: "low", diffs: [{ file: "a.ts", summary: "S" }] }], unplacedFiles: [] };
+    expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "ref-1", generationId, guide }))).toBeFalsy();
+    await run;
+    expect(prompt.includes("sinceReview")).toBe(reviewed);
+    expect(store.getGuide("ref-1")?.sinceReview).toBe(reviewed ? "The retry now backs off." : undefined);
+  }
+});

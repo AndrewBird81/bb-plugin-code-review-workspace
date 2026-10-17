@@ -25,8 +25,12 @@ const active = new WeakMap<BbPluginApi, Set<AbortController>>();
 const failures = new WeakMap<BbPluginApi, Map<string, AbortController>>();
 /** thread.failed: a guide worker that failed ends its generation now, instead of at the wait's timeout. */
 export function guideWorkerFailed(bb: BbPluginApi, threadId: string) { failures.get(bb)?.get(threadId)?.abort(); }
-/** Each running generation, by its id: told when generate_review_guide accepts its guide, why it last refused one, and whether the reviewer stopped it. */
-const generations = new WeakMap<BbPluginApi, Map<string, { accepted: AbortController; rejection?: string; stopped?: boolean }>>();
+/**
+ * Each running generation, by its id: told when generate_review_guide accepts its guide, why it last refused one, and
+ * whether the reviewer stopped it; and whether it asked for sinceReview, as a re-review does.
+ */
+const generations = new WeakMap<BbPluginApi, Map<string, Generation>>();
+interface Generation { accepted: AbortController; rejection?: string; stopped?: boolean; sinceReview?: boolean }
 /** generate_review_guide accepted generation `generationId`'s guide: its run finishes now, not when the worker's turn ends. */
 export function guideAccepted(bb: BbPluginApi, generationId: string) { generations.get(bb)?.get(generationId)?.accepted.abort(); }
 /** generate_review_guide refused generation `generationId`'s guide, saying `text`: the worker is reminded of it, and the reviewer told. */
@@ -36,6 +40,8 @@ export function guideRejected(bb: BbPluginApi, generationId: string, text: strin
 }
 /** The reviewer stopped generation `generationId`: until it's finalized, generate_review_guide refuses its guide. */
 export function guideStopped(bb: BbPluginApi, generationId: string): boolean { return !!generations.get(bb)?.get(generationId)?.stopped; }
+/** Whether generation `generationId` asked for the guide's sinceReview: a first guide's is dropped, as there's no review to be since. */
+export function guideAsksSinceReview(bb: BbPluginApi, generationId: string): boolean { return !!generations.get(bb)?.get(generationId)?.sinceReview; }
 
 // Each wait lasts up to WAIT_STEP; a worker still working is waited for again, up to a cap that grows with the diff.
 const WAIT_STEP = 600_000;
@@ -111,7 +117,7 @@ export async function generateGuide(
   let workerId: string | undefined;
   let threads: BbPluginApi["sdk"]["threads"] | undefined;
   const controller = new AbortController();
-  const generation: { accepted: AbortController; rejection?: string; stopped?: boolean } = { accepted: new AbortController() };
+  const generation: Generation = { accepted: new AbortController() };
   const accepted = generation.accepted;
   /** Why the guide failed, for the reviewer. */
   let failure: string | undefined;
@@ -137,6 +143,7 @@ export async function generateGuide(
     const kept = store.getGuide(targetKey);
     const patch = store.patch(targetKey);
     const earlier = { guide: kept && { ...kept, sections: fitHunks(kept.sections, patch) }, reviewed: !!(review && baselineOf(review).at) };
+    generation.sinceReview = earlier.reviewed;
     // The writer this generation replaces can still run commands: as a former writer, only on its own review.
     const replaced = store.generationWorker(targetKey);
     if (replaced) void recordFormerWorker(bb, replaced, targetKey, "writer");

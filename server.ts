@@ -47,7 +47,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
-import { GUIDE_WORKER_TITLE, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideRejected, guideStopped, guideWorkerFailed, guideWriterMode } from "./src/generate";
+import { GUIDE_WORKER_TITLE, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideAsksSinceReview, guideRejected, guideStopped, guideWorkerFailed, guideWriterMode } from "./src/generate";
 import { pluginThreadsTitled, threadReview, threadRole, toolThreadReview } from "./src/thread-review";
 import { formerWorkerReview, recordFormerWorker } from "./src/former-workers";
 import { parseChecks, parseReviewThreads } from "./src/threads";
@@ -1203,6 +1203,8 @@ export default async function plugin(bb: BbPluginApi) {
       // submitted — the guide must never carry a wrong or stale review ref.
       const meta = store.getReview(targetKey);
       if (meta?.gitRef) v.guide.review = { gitRef: meta.gitRef, ...(meta.base ? { base: meta.base } : {}) };
+      // Only a re-review is asked what changed since your review; a first guide's would show as if you had reviewed it.
+      if (!guideAsksSinceReview(bb, generationId)) delete v.guide.sinceReview;
       store.saveGuide(targetKey, placeUnplacedFiles(v.guide, patch));
       guideAccepted(bb, generationId);
       return "Guide accepted.";
