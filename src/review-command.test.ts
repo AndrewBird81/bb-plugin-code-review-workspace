@@ -253,6 +253,29 @@ test("bb review with a renamed repository's PR URL opens the review the sync kee
   expect(await runReviewCommand({ bb, store, gh }, ["https://github.com/acme/site/pull/8"], { projectId: "p1", threadId: "assistant-7" }, key)).toEqual({ exitCode: 2, stderr: NOT_OWN_REVIEW });
 });
 
+test("bb review tells open pages of the review it starts, rebuilds, or brings back from Archive, at once (bug bash LIV-5)", async () => {
+  // The writer's spawn never settles, so only the command itself can have published.
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: () => new Promise(() => {}), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  const store = createStore(bb);
+  const channels = async () => {
+    harness.inspection.realtimeSignals.length = 0;
+    expect(await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1" })).toMatchObject({ exitCode: 0 });
+    return harness.inspection.realtimeSignals.map((signal) => signal.channel).sort();
+  };
+  expect(await channels()).toEqual([`review:${key}`, "reviews"]);
+  // Up to date, it just opens and tells no one, unless it was archived.
+  store.saveReview({ ...store.getReview(key)!, status: "ready" });
+  store.saveGuide(key, { title: "G", intent: "I", sections: [], unplacedFiles: [] });
+  expect(await channels()).toEqual([]);
+  store.setLifecycle(key, { userArchivedAt: 5 });
+  expect(await channels()).toEqual([`review:${key}`, "reviews"]);
+  expect(store.getReview(key)?.userArchivedAt).toBeNull();
+  // New commits rebuild it.
+  store.saveReview({ ...store.getReview(key)!, headSha: "old" });
+  expect(await channels()).toEqual([`review:${key}`, "reviews"]);
+  expect(store.getReview(key)?.status).toBe("generating");
+});
+
 test("a PR number in a checkout whose owner holds _, as an Enterprise Managed User's does, reviews that repository's PR", async () => {
   const { bb, store } = host();
   vi.mocked(gh.runGh).mockResolvedValueOnce({ stdout: JSON.stringify({ nameWithOwner: "jdoe_acme/web" }), stderr: "", code: 0 });

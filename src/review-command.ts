@@ -162,6 +162,11 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
     // Fire-and-forget generation; the panel refetches on the realtime signal.
     void generateGuide(deps.bb, deps.store, key, ctx.projectId, { unattended });
   }
+  // Open pages hear of a review started, rebuilding, or back from Archive at once, not when its guide is done.
+  if (!(building || current) || existing!.userArchivedAt) {
+    deps.bb.realtime.publish(`review:${key}`, { ts: now });
+    deps.bb.realtime.publish("reviews", { ts: now });
+  }
 
   // A link to the review where BB has an address for its app.
   const appUrl = inThreads ? deps.bb.server.experimental_appUrl : null;

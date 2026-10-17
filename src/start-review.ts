@@ -51,11 +51,19 @@ export async function createPrReview(
 
   const key = prReviewKey(deps.store, { repo: target.repo, number: target.number });
   const now = Date.now();
+  // Open pages hear of a review started, rebuilding, or back from Archive at once, not when its guide is done.
+  const told = () => {
+    deps.bb.realtime.publish(`review:${key}`, { ts: now });
+    deps.bb.realtime.publish("reviews", { ts: now });
+  };
 
   const existing = deps.store.getReview(key);
   // A review already building, or showing this diff, just opens.
   if (existing && (existing.status === "generating" || upToDate(deps.store, existing, pr.headRefOid, patch))) {
-    if (existing.userArchivedAt) deps.store.setLifecycle(key, { userArchivedAt: null });
+    if (existing.userArchivedAt) {
+      deps.store.setLifecycle(key, { userArchivedAt: null });
+      told();
+    }
     return { ok: true, targetKey: key };
   }
   const meta: ReviewMeta & { projectId: string } = {
@@ -79,6 +87,7 @@ export async function createPrReview(
   if (existing) {
     recordPrState(deps.store, key, pr.state);
     rebuildReview(deps, meta, patch);
+    told();
     return { ok: true, targetKey: key };
   }
   deps.store.saveReview(meta);
@@ -89,6 +98,7 @@ export async function createPrReview(
 
   // Fire-and-forget generation; the panel refetches on the realtime signal.
   void generateGuide(deps.bb, deps.store, key, args.projectId);
+  told();
 
   return { ok: true, targetKey: key };
 }

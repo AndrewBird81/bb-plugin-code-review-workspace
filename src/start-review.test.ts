@@ -127,6 +127,24 @@ test("pasting a renamed repository's PR link opens the review the sync keeps und
   expect(store.listReviews().map((review) => review.targetKey)).toEqual([key]);
 });
 
+test("pasting a PR link tells open pages of the review it starts, rebuilds, or brings back from Archive, at once (bug bash LIV-5)", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: () => new Promise(() => {}), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  const store = createStore(bb);
+  const channels = async () => {
+    harness.inspection.realtimeSignals.length = 0;
+    expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
+    return harness.inspection.realtimeSignals.map((signal) => signal.channel).sort();
+  };
+  expect(await channels()).toEqual([`review:${key}`, "reviews"]);
+  seedReady(store, "abc123", reviewed);
+  expect(await channels()).toEqual([]);
+  store.setLifecycle(key, { userArchivedAt: 5 });
+  expect(await channels()).toEqual([`review:${key}`, "reviews"]);
+  seedReady(store, "old", reviewed);
+  expect(await channels()).toEqual([`review:${key}`, "reviews"]);
+  expect(store.getReview(key)?.status).toBe("generating");
+});
+
 test("pasting the link of a review with new commits rebuilds it like Re-review, keeping the guide and comments if it fails", async () => {
   const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
     spawn: async () => ({ id: "w" }), wait: async () => { throw new Error("worker failed"); }, archive: async () => ({}), stop: async () => ({}),
