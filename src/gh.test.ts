@@ -59,6 +59,14 @@ test("git diff builds a range", () => {
   expect(gitDiffArgs("main...HEAD")).toEqual([...standard, "main...HEAD", "--"]);
 });
 
+// Only the range's left side was checked, so `HEAD~1..--output=x` reached git, and its right side went on to lead
+// `git show` and `git merge-base`, which read it as an option (bug bash SEC-9).
+test("git diff refuses a ref or range with a side that reads as an option", () => {
+  for (const gitRef of ["-x", "HEAD~1..--output=/tmp/x", "main...-p", "--output=x..HEAD"]) expect(() => gitDiffArgs(gitRef), gitRef).toThrow("not an option");
+  expect(() => gitDiffArgs("feature", "-main")).toThrow("not an option");
+  expect(gitDiffArgs("main..feature-x").at(-2)).toBe("main..feature-x");
+});
+
 test("a local diff keeps the standard format whatever the repo's git config says", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "gr-gitconfig-"));
   try {

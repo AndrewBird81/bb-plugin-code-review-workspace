@@ -131,6 +131,8 @@ async function prFile(run: Run, review: ReviewMeta, path: string, ref: FileRef):
 async function localFile(git: typeof runGit, review: ReviewMeta, path: string, ref: FileRef): Promise<{ at: string; text: string } | string> {
   if (!review.cwd || !review.gitRef) return "There's no such commit for this review.";
   if (ref === "reviewed") return "A local review has no reviewed commit. Use ref \"current\" or \"base\".";
+  // Each side goes to git first among its arguments, so none may read as an option.
+  if (review.gitRef.split(/\.\.\.?/).some((side) => side.startsWith("-"))) return `${review.gitRef} isn't a git ref or range.`;
   const [, from, dots, to] = review.gitRef.match(/^(.*?)(\.\.\.?)(.*)$/) ?? [];
   let rev: string;
   if (ref === "current") {

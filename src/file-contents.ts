@@ -76,6 +76,8 @@ export async function workingTreeFile(cwd: string, path: string): Promise<Read> 
 
 /** Where a local review's diff starts and ends: `a...b` from their merge base, `a..b` from a, and a single ref against the working tree (null). */
 export async function localRevs(git: typeof runGit, review: ReviewMeta): Promise<{ from: string; to: string | null } | { error: string }> {
+  // Each side goes to git first among its arguments, so none may read as an option.
+  if (review.gitRef!.split(/\.\.\.?/).some((side) => side.startsWith("-"))) return { error: `${review.gitRef} isn’t a git ref or range.` };
   const [, from, dots, to] = review.gitRef!.match(/^(.*?)(\.\.\.?)(.*)$/) ?? [];
   if (!dots) return { from: review.gitRef!, to: null };
   if (dots === "..") return { from: from || "HEAD", to: to || "HEAD" };

@@ -21,8 +21,11 @@ export function ghSubmitReviewArgs(repo: string, number: number): string[] {
 export function ghPrReviewsArgs(repo: string, number: number): string[] {
   return ["api", `repos/${repo}/pulls/${number}/reviews?per_page=100`, "--paginate", "--jq", ".[] | @json"];
 }
+/** Whether a local review's ref or range has a side git would read as an option: `a..--output=x` as much as `-x`. */
+const refIsOption = (gitRef: string) => gitRef.split(/\.\.\.?/).some((side) => side.startsWith("-"));
+
 export function gitDiffArgs(gitRef: string, base?: string): string[] {
-  if (!gitRef || gitRef.startsWith("-") || base?.startsWith("-")) throw new Error("Expected a git ref, not an option.");
+  if (!gitRef || refIsOption(gitRef) || base?.startsWith("-")) throw new Error("Expected a git ref, not an option.");
   const range = gitRef.includes("..") ? gitRef : base ? `${base}...${gitRef}` : gitRef;
   // The standard format whatever the user's git config says (diff.noprefix, diff.mnemonicPrefix, color.diff, diff.relative).
   return ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "--no-relative", range, "--"];

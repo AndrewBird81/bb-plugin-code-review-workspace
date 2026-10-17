@@ -7,6 +7,7 @@ import plugin from "../server";
 import { createStore, type ReviewMeta } from "./store";
 import { runGit } from "./gh";
 import { readFileAt } from "./verification";
+import { localRevs } from "./file-contents";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -60,6 +61,17 @@ test("read_file reads a local review's files with git, from either side of its d
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+});
+
+// read_file, and a local review's CODEOWNERS and file contents, passed the range's right side to `git show <to>:<path>`
+// and `git merge-base <from> <to>` first among their arguments (bug bash SEC-9).
+test("a local review whose range has a side that reads as an option runs no git", async () => {
+  const git = vi.fn(async () => ok(""));
+  const local: ReviewMeta = { targetKey: "ref-1", kind: "ref", gitRef: "HEAD~1..--output=/tmp/x", cwd: "/tmp", status: "ready", createdAt: 1 };
+  for (const ref of ["current", "base"] as const) expect(await readFileAt(vi.fn(), git, local, "a.ts", ref)).toBe("HEAD~1..--output=/tmp/x isn't a git ref or range.");
+  expect(await localRevs(git, { ...local, gitRef: "-p...main" })).toEqual({ error: "-p...main isn’t a git ref or range." });
+  expect(await localRevs(git, { ...local, gitRef: "main...--output=x" })).toEqual({ error: "main...--output=x isn’t a git ref or range." });
+  expect(git).not.toHaveBeenCalled();
 });
 
 test("the assistant of a local review can read files", async () => {
