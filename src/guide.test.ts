@@ -75,6 +75,31 @@ test("placeUnplacedFiles sums up each unplaced file from the patch", () => {
   ]);
 });
 
+// bug bash AGT-4: a PR too large for GitHub's diff has its patch rebuilt from the files list, where GitHub sends no
+// patch for an added image or a modified file too large to diff; Other files said "New empty file." and "No content
+// changes." for them.
+test("placeUnplacedFiles says a file GitHub sent no diff for is to be read on GitHub, not empty or unchanged", async () => {
+  const [{ readFilesPatch }, { checkUnplaced }] = await Promise.all([import("./pr-snapshot"), import("./guide")]);
+  const files = [
+    { filename: "src/a.ts", status: "modified", patch: "@@ -1 +1 @@\n-a\n+b", changes: 2 },
+    { filename: "assets/logo.png", status: "added", changes: 0, sha: "1234567890" },
+    { filename: "db/seed.sql", status: "modified", changes: 40000, sha: "abcdef1234" },
+    { filename: "db/rows.sql", previous_filename: "db/old.sql", status: "renamed", changes: 30000, sha: "fedcba4321" },
+  ];
+  const run = async () => ({ code: 0, stdout: files.map((f) => JSON.stringify(f)).join("\n"), stderr: "" });
+  const patch = await readFilesPatch(run as any, []);
+  const v = validateGuide({ title: "T", intent: "I", unplacedFiles: ["assets/logo.png", "db/seed.sql", "db/rows.sql"],
+    sections: [{ id: "c1", title: "A", overview: "O", risk: "low", diffs: [{ file: "src/a.ts", summary: "S" }] }] });
+  if (!v.ok) throw new Error(v.errors.join("\n"));
+  // generate_review_guide lets them stay unplaced: no changed lines it can count.
+  expect(checkUnplaced(v.guide, patch)).toEqual({ ok: true });
+  expect(placeUnplacedFiles(v.guide, patch).sections.at(-1)!.diffs).toEqual([
+    { file: "assets/logo.png", summary: "GitHub didn't send this file's diff; read it on GitHub." },
+    { file: "db/seed.sql", summary: "GitHub didn't send this file's diff; read it on GitHub." },
+    { file: "db/rows.sql", summary: "Renamed from `db/old.sql`. GitHub didn't send this file's diff; read it on GitHub." },
+  ]);
+});
+
 test("validateGuide takes an empty hotspots, requirements, or focus list as none", () => {
   const r = validateGuide({ ...good, sections: [{ ...good.sections[0], risk: "high", focus: [] }], hotspots: [], requirements: [] });
   expect(r.ok).toBe(true);

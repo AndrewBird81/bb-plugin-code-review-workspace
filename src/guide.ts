@@ -180,8 +180,11 @@ export function checkCoverage(guide: Guide, files: string[], hunks: ReadonlyMap<
   return errors.length ? { ok: false, errors } : { ok: true };
 }
 
-/** What a file's diff does besides changing lines, for a file the guide left unplaced. */
-function unplacedSummary(file: PatchFile | undefined): string {
+/**
+ * What a file's diff does besides changing lines, for a file the guide left unplaced or a file with no hunks to show.
+ * The no-diff line is pr-snapshot's NO_DIFF, spelled out: this module runs in the browser too, and that one doesn't.
+ */
+export function unplacedSummary(file: PatchFile | undefined): string {
   if (!file) return "Nothing to review in the diff.";
   const rows = patchRows(file.text);
   const header = (prefix: string) => rows.find((row) => row.kind === "header" && row.text.startsWith(prefix))?.text.slice(prefix.length).trim();
@@ -190,6 +193,7 @@ function unplacedSummary(file: PatchFile | undefined): string {
     file.oldPath && `Renamed from \`${file.oldPath}\`.`,
     rows.some((row) => /^Binary files |^GIT binary patch/.test(row.text)) && "Binary file.",
     oldMode && newMode && (newMode === "100755" ? "Made executable." : oldMode === "100755" ? "No longer executable." : `Mode changed from ${oldMode} to ${newMode}.`),
+    rows.some((row) => row.text.startsWith("GitHub didn't send this file's diff")) && "GitHub didn't send this file's diff; read it on GitHub.",
   ].filter(Boolean);
   if (parts.length) return parts.join(" ");
   return header("new file mode") ? "New empty file." : header("deleted file mode") ? "Deleted empty file." : "No content changes.";
