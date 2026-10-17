@@ -174,6 +174,22 @@ test("a list item that can't interrupt a paragraph, or indented code, begins no 
   expect(linkImages("a\n1. b\n   ```\n   <img src={logo} />\n   ```")).toBe("a\n1. b\n   ```\n   <img src={logo} />\n   ```");
 });
 
+// A backtick fence's info string can't hold a backtick, but the test's `.` stopped at U+2028 and U+2029, so after one
+// it read a fence where BB reads a paragraph, and kept the raw <img> below it as code (bug bash SEC-1).
+for (const [name, separator] of [["U+2028", "\u2028"], ["U+2029", "\u2029"]]) {
+  test(`a backtick after ${name} in a backtick fence's info string opens no fence, so the image after it stays a link`, () => {
+    const url = "https://evil.test/x.png";
+    expect(linkImages(`\`\`\`a${separator}\`\n<img src="${url}">\n\`\`\``)).not.toContain("<img");
+    expect(linkImages(`\`\`\`a${separator}\`\n![x](${url})\n\`\`\``)).not.toContain(`![x](${url})`);
+    // Blank lines between: BB reads the <img> as an HTML block of its own.
+    expect(linkImages(`\`\`\`${separator}\`\n\n<img src="${url}">\n\n\`\`\``)).not.toContain("<img");
+    // The opener and the x are a paragraph's lines; only the last ``` (an unclosed fence of its own) may be code.
+    const text = `\`\`\`a${separator}\`\nx\n\`\`\``;
+    const x = text.indexOf("\nx\n") + 1;
+    expect(codeRanges(text).filter(([start, end]) => (start <= x && x < end) || end <= x)).toEqual([]);
+  });
+}
+
 // A table's rows were all changed like prose, so agents' tables of types showed Array&lt;T> (96-recheck-3 P3). A span
 // stays as written where it's one whether BB reads the row as cells or as a paragraph's line.
 test("a code span in a table's cell stays as written", () => {

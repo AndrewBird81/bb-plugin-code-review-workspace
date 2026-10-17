@@ -378,7 +378,7 @@ function lineKinds(rows: string[]): LineKind[] {
         fill();
         return "inline";
       }
-      const fence = /^(?:`{3,}(?!.*`)|~{3,})/.exec(tail);
+      const fence = /^(?:`{3,}(?![^\n]*`)|~{3,})/.exec(tail);
       if (fence) {
         if (!close()) return null;
         leaf = { kind: "fence", char: fence[0][0], length: fence[0].length };
