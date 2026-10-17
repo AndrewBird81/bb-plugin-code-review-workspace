@@ -1061,8 +1061,8 @@ export default async function plugin(bb: BbPluginApi) {
       if (!review) return failed("This conversation is no longer a review's assistant.");
       const read = await readFileAt(runGh, runGit, review, path, ref ?? "current", startLine, endLine);
       if (!read.ok) return failed(read.error);
-      // A changed file it got: what it read through Guided Review.
-      if (changedFiles(store.patch(review.targetKey)).includes(path)) recordAgentReads(store, threadId, review.targetKey, [path]);
+      // A changed file it got as the change leaves it: what it read through Guided Review. Its base or reviewed commit isn't the change.
+      if ((ref ?? "current") === "current" && changedFiles(store.patch(review.targetKey)).includes(path)) recordAgentReads(store, threadId, review.targetKey, [path]);
       return read.text;
     },
   });

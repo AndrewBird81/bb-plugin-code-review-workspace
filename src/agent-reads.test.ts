@@ -116,3 +116,18 @@ test("a read past the end fails, naming the length, and isn't counted", async ()
   expect((await call("read_file", { path: "b.ts", startLine: 3, endLine: 2 }) as any).isError).toBe(true);
   expect(store.getReview("pr-1")?.agentReads).toBeUndefined();
 });
+
+test("read_file counts a changed file read as the change leaves it, not at its base or the reviewed commit", async () => {
+  const { store, call } = await host();
+  store.setLifecycle("pr-1", { submittedHeadSha: "sha0", submittedAt: 10, submittedVerdict: "COMMENT" });
+  store.saveReview({ ...store.getReview("pr-1")!, base: "main" });
+  const original = vi.mocked(runGh).getMockImplementation()!;
+  vi.mocked(runGh).mockImplementation(async (args: string[]) => ({ code: 0, stderr: "", stdout: args.some((a) => a.includes("/compare/")) ? "base1\n" : "x\n" }));
+  try {
+    expect(await call("read_file", { path: "a.ts", ref: "base" })).toContain("a.ts at base1");
+    expect(await call("read_file", { path: "b.ts", ref: "reviewed" })).toContain("b.ts at sha0");
+  } finally { vi.mocked(runGh).mockImplementation(original); }
+  expect(store.getReview("pr-1")?.agentReads).toBeUndefined();
+  await call("read_file", { path: "c.ts", ref: "current" });
+  expect(store.getReview("pr-1")?.agentReads?.files).toEqual(["c.ts"]);
+});
