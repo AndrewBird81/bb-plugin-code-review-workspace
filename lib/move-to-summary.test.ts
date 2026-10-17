@@ -17,3 +17,14 @@ test("the line goes under the summary's list, or after a blank line, or alone", 
   expect(withSummaryLine("Looks good.\n", "- y")).toBe("Looks good.\n\n- y");
   expect(withSummaryLine("Asks:\n- x\n  more of x", "- y")).toBe("Asks:\n- x\n  more of x\n- y");
 });
+
+// bug bash DFT-6: a comment that's only a suggestion put its opening fence at the end of the item's first line, where it
+// opens nothing, so its closing fence opened a block that never closed.
+test("a moved suggestion's fence starts a line of its own in the item, as it does after a severity", () => {
+  const suggestion = { file: "src/a.ts", line: 2, side: "RIGHT" as const, body: "```suggestion\nconst total = rows.length;\n```" };
+  expect(summaryLine(suggestion)).toBe("- On `src/a.ts:2` (an earlier diff):\n\n  ```suggestion\n  const total = rows.length;\n  ```");
+  expect(summaryLine({ ...suggestion, severity: "nit" })).toBe("- On `src/a.ts:2` (an earlier diff): **Nit:**\n\n  ```suggestion\n  const total = rows.length;\n  ```");
+  // The summary's fences pair up.
+  const summary = withSummaryLine(withSummaryLine("", summaryLine(suggestion)), summaryLine({ ...suggestion, line: 9, body: "Rename it." }));
+  expect(summary.split("\n").filter((line) => /^\s*```/.test(line))).toHaveLength(2);
+});

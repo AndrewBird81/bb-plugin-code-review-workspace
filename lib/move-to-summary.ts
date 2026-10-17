@@ -8,9 +8,14 @@ import { linesOf, postedBody, type DraftComment } from "../src/draft";
  */
 export function summaryLine(comment: DraftComment, preExisting = false): string {
   const where = `${comment.file}:${linesOf(comment)}`;
-  const [first, ...rest] = postedBody(comment, preExisting).trim().split("\n");
-  return [`- On \`${where}\` (an earlier diff${comment.side === "LEFT" ? ", old line" : ""}): ${first}`, ...rest.map((line) => line ? `  ${line}` : "")].join("\n");
+  const posted = postedBody(comment, preExisting).trim();
+  // A block, such as a suggestion, starts on its own line, as postedBody puts it after a severity.
+  const [first, ...rest] = BLOCK.test(posted) ? ["", "", ...posted.split("\n")] : posted.split("\n");
+  return [`- On \`${where}\` (an earlier diff${comment.side === "LEFT" ? ", old line" : ""}):${first ? ` ${first}` : ""}`, ...rest.map((line) => line ? `  ${line}` : "")].join("\n");
 }
+
+/** What starts a Markdown block, as postedBody tells it. */
+const BLOCK = /^(```|~~~|#|>|[-*+] |\d+[.)] |\|)/;
 
 /** The summary with `line` added at its end: under its list, or after a blank line. */
 export function withSummaryLine(summary: string, line: string): string {
