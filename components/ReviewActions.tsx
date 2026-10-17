@@ -61,7 +61,7 @@ export function useReviewActions(review: ReviewItem, onChanged?: () => void) {
  * Archive, then Open on GitHub and the page's `trailing` items, then Delete…, which asks first. A tracked review builds
  * its guide; a review you gave can wait until its author responds, and any request until a time you pick.
  */
-export function ReviewActions({ review, items, trailing, pinnable = false, onChanged, onDeleted, describedBy, className }: {
+export function ReviewActions({ review, items, trailing, pinnable = false, onChanged, onMoved, onDeleted, describedBy, className }: {
   review: ReviewItem;
   /** Offer Pin: Settings shows reviews in BB's thread list. */
   pinnable?: boolean;
@@ -70,6 +70,8 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   /** Listed after Open on GitHub, such as Keyboard shortcuts. */
   trailing?: ReviewMenuItem[];
   onChanged?: () => void;
+  /** After Snooze, Back to Needs review, Archive or Unarchive, which move the review to another section. */
+  onMoved?: () => void;
   onDeleted?: () => void;
   /** Id of the element naming this review, for screen readers. */
   describedBy?: string;
@@ -103,6 +105,7 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
     open(false);
     void action();
   };
+  const moving = async (action: Promise<boolean>) => { if (await action) onMoved?.(); };
   // Switching between the menu and its Snooze choices keeps the focus in the menu: on the first choice, or back on Snooze.
   const switched = useRef(false);
   useEffect(() => {
@@ -131,7 +134,8 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   return <>
     <Popover open={menuOpen} onOpenChange={open}>
       <PopoverTrigger asChild>
-        <Button ref={trigger} variant="ghost" size="icon" aria-label="Review actions" aria-describedby={describedBy} disabled={actions.busy} className={cn("shrink-0 text-muted-foreground", className)}>
+        <Button ref={trigger} variant="ghost" size="icon" aria-label="Review actions" aria-describedby={describedBy} aria-disabled={actions.busy} className={cn("shrink-0 text-muted-foreground aria-disabled:opacity-50", className)}
+          onClick={(event) => { if (actions.busy) event.preventDefault(); }}>
           <Icon name="MoreHorizontal" aria-hidden />
         </Button>
       </PopoverTrigger>
@@ -141,16 +145,16 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
             <Icon name="ChevronLeft" aria-hidden />Snooze
           </Button>
           <div role="separator" className="my-1 h-px bg-border" />
-          <SnoozeChoices disabled={actions.busy} onUntilAuthor={untilAuthor ? () => pick(() => actions.snooze()) : undefined} onPick={untilTime ? (until) => pick(() => actions.snooze(until)) : undefined} />
+          <SnoozeChoices disabled={actions.busy} onUntilAuthor={untilAuthor ? () => pick(() => moving(actions.snooze())) : undefined} onPick={untilTime ? (until) => pick(() => moving(actions.snooze(until))) : undefined} />
         </> : <>
           {items?.map(item)}
           {review.status === "tracked" && item({ label: "Build the guide", icon: "Sparkles", onSelect: () => void actions.buildGuide() })}
-          {snoozed ? item({ label: "Back to Needs review", icon: "ArrowTurnBackward", onSelect: () => void actions.unsnooze() })
+          {snoozed ? item({ label: "Back to Needs review", icon: "ArrowTurnBackward", onSelect: () => void moving(actions.unsnooze()) })
             : (untilAuthor || untilTime) && <Button data-snooze-item variant="ghost" size="sm" className={MENU_ITEM} onClick={() => show("snooze")}>
               <Icon name="Clock" aria-hidden />Snooze<Icon name="ChevronRight" className="ml-auto text-subtle-foreground" aria-hidden />
             </Button>}
           {pin && item({ label: review.pinnedAt ? "Unpin" : "Pin", icon: review.pinnedAt ? "PinOff" : "Pin", onSelect: () => void actions.setPinned(!review.pinnedAt) })}
-          {!closed && item({ label: review.userArchivedAt ? "Unarchive" : "Archive", icon: review.userArchivedAt ? "ArchiveRestore" : "Archive", onSelect: () => void actions.setArchived(!review.userArchivedAt) })}
+          {!closed && item({ label: review.userArchivedAt ? "Unarchive" : "Archive", icon: review.userArchivedAt ? "ArchiveRestore" : "Archive", onSelect: () => void moving(actions.setArchived(!review.userArchivedAt)) })}
           {top && <div role="separator" className="my-1 h-px bg-border" />}
           {review.url && <Button variant="ghost" size="sm" className={MENU_ITEM} onClick={() => pick(() => navigate.openUrl(review.url!))}>
             <Icon name="Github" aria-hidden />Open on GitHub<Icon name="ArrowUpRight" className="ml-auto text-subtle-foreground" aria-hidden />

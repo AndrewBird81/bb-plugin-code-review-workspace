@@ -414,3 +414,67 @@ test("the page scrolls itself, since BB clips a plugin page to the window", asyn
   expect(page.className.split(" ")).toEqual(expect.arrayContaining(["h-full", "overflow-y-auto"]));
   slot.lifecycle.unmount();
 });
+
+test("a row's quick actions stay focusable while one runs, rather than turning disabled under the focus, and ignore the click", async () => {
+  let finish!: () => void;
+  const { slot, calls } = await inbox([{ targetKey: "a", title: "Change Pinned", status: "ready", prState: "OPEN" }], {
+    pinReview: () => new Promise((resolve) => { finish = () => resolve({ ok: true }); }),
+    getPreferences: () => ({ preferences: { ...defaultPreferences, threadListReviews: true }, revision: 0 }),
+  });
+  const row = (await slot.findByText("Change Pinned")).closest(".group\\/row") as HTMLElement;
+  const pin = await within(row).findByRole("button", { name: "Pin" });
+  pin.focus();
+  fireEvent.click(pin);
+  await waitFor(() => expect(calls("pinReview")).toHaveLength(1));
+  // Chrome drops the focus to the page from a focused control that turns disabled; jsdom doesn't, so this asserts the cause.
+  for (const name of ["Pin", "Snooze", "Archive"]) {
+    const button = within(row).getByRole("button", { name });
+    expect([name, button.hasAttribute("disabled"), button.getAttribute("aria-disabled")]).toEqual([name, false, "true"]);
+  }
+  expect(document.activeElement).toBe(pin);
+  fireEvent.click(pin);
+  fireEvent.click(within(row).getByRole("button", { name: "Archive" }));
+  expect(calls("pinReview")).toHaveLength(1);
+  expect(calls("archiveReview")).toHaveLength(0);
+  finish();
+  await waitFor(() => expect(within(row).getByRole("button", { name: "Pin" }).getAttribute("aria-disabled")).toBe("false"));
+  // Review actions (⋯), while what was picked from it runs.
+  const menu = within(row).getByRole("button", { name: "Review actions" });
+  fireEvent.click(menu);
+  const menuPin = await waitFor(() => {
+    const item = within(document.body).getAllByRole("button", { name: "Pin" }).find((button) => !row.contains(button));
+    expect(item).toBeTruthy();
+    return item!;
+  });
+  fireEvent.click(menuPin);
+  await waitFor(() => expect(calls("pinReview")).toHaveLength(2));
+  expect([menu.hasAttribute("disabled"), menu.getAttribute("aria-disabled")]).toEqual([false, "true"]);
+  fireEvent.click(menu);
+  expect(menu.getAttribute("aria-expanded")).toBe("false");
+  finish();
+  await waitFor(() => expect(menu.getAttribute("aria-disabled")).toBe("false"));
+  slot.lifecycle.unmount();
+});
+
+test("archiving a row from the keyboard moves the focus to the next row, or the previous one from the last", async () => {
+  let reviews = ["A", "B", "C"].map((name) => ({ targetKey: name, title: `Change ${name}`, status: "ready", prState: "OPEN", userArchivedAt: null as number | null }));
+  const { slot, header } = await inbox(reviews, {
+    listReviews: () => ({ reviews }),
+    archiveReview: ({ targetKey, archived }: any) => { reviews = reviews.map((r) => r.targetKey === targetKey ? { ...r, userArchivedAt: archived ? 5 : null } : r); return { ok: true }; },
+  });
+  await slot.findByText("Change C");
+  const section = header("Needs review").closest("section")!;
+  const rowButtons = () => Array.from(section.querySelectorAll<HTMLElement>("[data-row]"));
+  const archive = async (row: HTMLElement) => {
+    const button = within(row.closest(".group\\/row") as HTMLElement).getByRole("button", { name: "Archive" });
+    button.focus();
+    fireEvent.click(button);
+    await waitFor(() => expect(rowButtons()).not.toContain(row));
+  };
+  const [first, middle, last] = rowButtons();
+  await archive(middle!);
+  expect(document.activeElement).toBe(last);
+  await archive(last!);
+  expect(document.activeElement).toBe(first);
+  slot.lifecycle.unmount();
+});

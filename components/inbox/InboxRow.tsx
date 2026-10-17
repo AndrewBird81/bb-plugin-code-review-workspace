@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { reviewState, type ReviewItem } from "../../lib/review-state";
 import { lastActivity, statusLine } from "../../lib/status-line";
 import { useKnob } from "../../lib/settings";
@@ -32,15 +32,30 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   const actions = useReviewActions(review, onChanged);
   const unattendedAgents = useKnob("unattendedAgents");
   const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+  /**
+   * Once an action moves the review to another section, the focus that was on the row goes to the next row in its
+   * section, or the previous one if it was the last, or else the section's header, rather than to the page.
+   */
+  function keepFocus() {
+    const row = rowRef.current;
+    if (!row?.contains(document.activeElement)) return;
+    const section = row.closest("section");
+    const rows = Array.from(section?.querySelectorAll<HTMLElement>("[data-row]") ?? []);
+    const at = rows.findIndex((candidate) => row.contains(candidate));
+    (rows[at + 1] ?? rows[at - 1] ?? section?.querySelector<HTMLElement>("h2 button"))?.focus();
+  }
+  const moving = async (action: Promise<boolean>) => { if (await action) keepFocus(); };
   const title = review.title ?? review.gitRef ?? review.targetKey;
   const where = review.repo ? `${review.repo}${review.number ? ` #${review.number}` : ""}` : review.gitRef && review.title ? review.gitRef : null;
   const when = age(turn.group === "needs" ? turn.at ?? review.createdAt : lastActivity(review));
   const closed = review.prState === "MERGED" || review.prState === "CLOSED" || !!review.archivedAt;
   const untilAuthor = canSnooze(review, turn), untilTime = canSnoozeUntil(review, turn);
   const snoozable = (untilAuthor || untilTime) && turn.reason !== "snoozed";
-  const quick = "size-6 px-0 text-muted-foreground hover:text-foreground";
+  // Busy, a quick action stays focusable, unavailable and drawn as disabled, and ignores the click.
+  const quick = "size-6 px-0 text-muted-foreground hover:text-foreground aria-disabled:opacity-50";
   return (
-    <div className="group/row relative flex min-w-0 items-center hover:bg-state-hover has-[[data-row]:focus-visible]:bg-state-hover">
+    <div ref={rowRef} className="group/row relative flex min-w-0 items-center hover:bg-state-hover has-[[data-row]:focus-visible]:bg-state-hover">
       <button type="button" data-row onClick={onOpen} className={cn("min-w-0 flex-1 px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", short ? "py-1.5" : "py-2 pointer-coarse:py-3")}>
         <span className="flex min-w-0 items-baseline gap-3">
           <span id={titleId} className="min-w-0 flex-1 truncate text-sm font-medium leading-5 text-foreground">
@@ -64,27 +79,27 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
           {snoozable && <Popover open={snoozeOpen} onOpenChange={setSnoozeOpen}>
             <Hint label="Snooze">
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" aria-label="Snooze" aria-describedby={titleId} disabled={actions.busy} className={quick}><Icon name="Clock" aria-hidden /></Button>
+                <Button variant="ghost" size="sm" aria-label="Snooze" aria-describedby={titleId} aria-disabled={actions.busy} className={quick} onClick={(event) => { if (actions.busy) event.preventDefault(); }}><Icon name="Clock" aria-hidden /></Button>
               </PopoverTrigger>
             </Hint>
             <PopoverContent align="end" mobileTitle="Snooze" className="w-60 max-w-[calc(100vw-24px)] p-1">
               <SnoozeChoices disabled={actions.busy}
-                onUntilAuthor={untilAuthor ? () => { setSnoozeOpen(false); void actions.snooze(); } : undefined}
-                onPick={untilTime ? (until) => { setSnoozeOpen(false); void actions.snooze(until); } : undefined} />
+                onUntilAuthor={untilAuthor ? () => { setSnoozeOpen(false); void moving(actions.snooze()); } : undefined}
+                onPick={untilTime ? (until) => { setSnoozeOpen(false); void moving(actions.snooze(until)); } : undefined} />
             </PopoverContent>
           </Popover>}
           {pinnable && (review.pinnedAt || turn.group !== "archive") && <Hint label={review.pinnedAt ? "Unpin" : "Pin"}>
-            <Button variant="ghost" size="sm" aria-label={review.pinnedAt ? "Unpin" : "Pin"} aria-describedby={titleId} disabled={actions.busy} className={quick} onClick={() => void actions.setPinned(!review.pinnedAt)}>
+            <Button variant="ghost" size="sm" aria-label={review.pinnedAt ? "Unpin" : "Pin"} aria-describedby={titleId} aria-disabled={actions.busy} className={quick} onClick={() => { if (!actions.busy) void actions.setPinned(!review.pinnedAt); }}>
               <Icon name={review.pinnedAt ? "PinOff" : "Pin"} aria-hidden />
             </Button>
           </Hint>}
           {!closed && <Hint label={review.userArchivedAt ? "Unarchive" : "Archive"}>
-            <Button variant="ghost" size="sm" aria-label={review.userArchivedAt ? "Unarchive" : "Archive"} aria-describedby={titleId} disabled={actions.busy} className={quick} onClick={() => void actions.setArchived(!review.userArchivedAt)}>
+            <Button variant="ghost" size="sm" aria-label={review.userArchivedAt ? "Unarchive" : "Archive"} aria-describedby={titleId} aria-disabled={actions.busy} className={quick} onClick={() => { if (!actions.busy) void moving(actions.setArchived(!review.userArchivedAt)); }}>
               <Icon name={review.userArchivedAt ? "ArchiveRestore" : "Archive"} aria-hidden />
             </Button>
           </Hint>}
         </div>
-        <ReviewActions review={review} pinnable={pinnable} onChanged={onChanged} onDeleted={onChanged} describedBy={titleId} className={cn(quick, "pointer-coarse:size-11")} />
+        <ReviewActions review={review} pinnable={pinnable} onChanged={onChanged} onMoved={keepFocus} onDeleted={onChanged} describedBy={titleId} className={cn(quick, "pointer-coarse:size-11")} />
       </div>
     </div>
   );
