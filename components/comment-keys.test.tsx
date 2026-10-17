@@ -114,6 +114,23 @@ test("a severity key keeps a comment's Pre-existing mark", async () => {
   slot.lifecycle.unmount();
 }, 15_000);
 
+// bug bash DFT-8: a severity key on the comment whose box was open left the box's severity, which its Save then put back.
+test("a severity key on the comment whose box is open sets the box's severity too, so Save keeps it", async () => {
+  const { slot, rpc } = await renderReview();
+  press("]");
+  press("e");
+  const box = await slot.findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  press("3");
+  await waitFor(() => expect(rpc.saveDraftComment).toHaveBeenCalledTimes(1));
+  expect(rpc.saveDraftComment.mock.calls[0][0].comment).toMatchObject({ file: "src/a.ts", line: 2, severity: "question" });
+  const card = box.closest("article, [data-draft-at]") as HTMLElement;
+  await waitFor(() => expect((within(card).getByRole("combobox", { name: "Severity" }) as HTMLSelectElement).value).toBe("question"));
+  fireEvent.click(within(card).getByRole("button", { name: "Save comment" }));
+  await waitFor(() => expect(rpc.saveDraftComment).toHaveBeenCalledTimes(2));
+  expect(rpc.saveDraftComment.mock.calls[1][0].comment).toMatchObject({ file: "src/a.ts", line: 2, severity: "question", body: "Upper case reads as a constant." });
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("e opens the box of the comment ] landed on, with its text", async () => {
   const { slot } = await renderReview();
   press("]");

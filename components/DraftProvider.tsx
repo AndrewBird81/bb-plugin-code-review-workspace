@@ -473,6 +473,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     const { file, line, side, chapterId, introduced, body } = comment;
     await mutate(async () => {
       apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), replaces: body, comment: { file, line, side, ...rangeOf(comment), chapterId: chapterId ?? activeChapterId, ...(next ? { severity: next } : {}), ...(introduced === false ? { introduced } : {}), body } })) as { draft: Draft });
+      // The comment's open box saves the severity it shows.
+      if (editing && sameLocation(editing, comment)) setSeverity(next);
       toast.info(next ? SEVERITY_LABEL[next] : "No severity");
     });
   }
