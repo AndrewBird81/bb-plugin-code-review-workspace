@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Turn } from "./turn";
 import { snoozeLabel } from "./turn";
-import type { ReviewItem } from "./review-state";
+import { GUIDE_STOPPED, reviewState, type ReviewItem } from "./review-state";
 import { statusLine, statusWhy } from "./status-line";
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
@@ -54,6 +54,9 @@ test("agent work and a failed guide take the place of why, in the agent's tone a
   // One waiting for its writer's machine to restart it says so, as its page does, until the wait ends (72-hands-on #2).
   expect(said(review({ ...requested, failed: true, label: "Failed" }, { status: "error", restartPending: { since: now } }))).toEqual(["Waiting for the guide writer’s machine", "warning", "Clock"]);
   expect(said(review({ ...requested, failed: true, label: "Failed" }, { status: "error", restartPending: null }))).toEqual(["Guide failed", "danger", "AlertTriangle"]);
+  // A first guide you stopped didn't fail (bug bash LIV-2); it stays in Needs review.
+  expect(said(review({ ...requested, failed: true, label: "Failed" }, { status: "error", guideError: { at: now, text: GUIDE_STOPPED } }))).toEqual(["Guide stopped", "neutral", "Route"]);
+  expect(said(review({ ...requested, failed: true, label: "Failed" }, { status: "error", guideError: { at: now, text: "The guide writer failed." } }))).toEqual(["Guide failed", "danger", "AlertTriangle"]);
   expect(statusWhy(review(turn("needs", "re-requested"), { verifyingSince: now - 60_000 }), now)).toMatchObject({ text: "Checking your feedback…", tone: "agent", busy: true });
   // Over by the time it's archived.
   expect(said(review(turn("archive", "merged"), { verifyingSince: now - 60_000 }))).toEqual(["Merged", "merged", "GitMerge"]);
@@ -105,4 +108,12 @@ test("a run that couldn't start says why", () => {
   expect(statusLine(failed, { now }).find((part) => part.kind === "not-run")?.text).toBe("Not run automatically: it couldn’t start (Laptop is <b>offline</b>)");
   const unsaid = review(turn("needs", "new"), { kind: "ref", skippedRun: { run: "review", head: null, at: 1, why: "failed" } });
   expect(statusLine(unsaid, { now }).find((part) => part.kind === "not-run")?.text).toBe("Not run automatically: it couldn’t start");
+});
+
+// bug bash LIV-2: a first guide you stopped is stored as status "error" with guideError "Stopped". Its page and bb review
+// list say "Guide stopped", but All reviews and the Overview said "Guide failed", in red.
+test("a guide you stopped says so, not that it failed, and still needs you", () => {
+  const stopped = review({ ...turn("needs", "requested"), failed: true, label: "Failed" }, { status: "error", guideError: { at: now, text: GUIDE_STOPPED } });
+  expect(reviewState(stopped)).toMatchObject({ group: "needs", failed: true });
+  expect(statusWhy(stopped, now)).toEqual({ kind: "why", text: "Guide stopped", tone: "neutral", icon: "Route" });
 });

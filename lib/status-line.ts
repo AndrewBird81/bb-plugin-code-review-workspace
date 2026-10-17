@@ -4,7 +4,7 @@
 import type { Tone } from "../components/ui/badge";
 import type { IconName } from "../components/ui/icon";
 import { timeAgo } from "../components/time-ago";
-import { reviewState, type ReviewItem } from "./review-state";
+import { GUIDE_STOPPED, reviewState, type ReviewItem } from "./review-state";
 import { notRunReason } from "./trust";
 import { defaultKnobs, type Knobs } from "./knobs";
 import { baselineOf, progressText, snoozeLabel, type TurnSignals } from "./turn";
@@ -36,6 +36,8 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
   if (review.status === "generating") return why("Building guide…", "agent", "Loading", { busy: true });
   // A reload interrupted it while its writer's machine was offline: it restarts on its own once that reconnects.
   if (turn.failed && review.restartPending) return why("Waiting for the guide writer’s machine", "warning", "Clock", { detail: "The guide writer’s machine is offline. The guide restarts on its own when it reconnects." });
+  // A first guide you stopped didn't fail: it waits for Build the guide, as its page says.
+  if (turn.failed && review.guideError?.text === GUIDE_STOPPED) return why("Guide stopped", "neutral", "Route");
   if (turn.failed) return why("Guide failed", "danger", "AlertTriangle");
   if (review.verifyingSince && turn.group !== "archive") return why("Checking your feedback…", "agent", "Loading", { busy: true });
   switch (turn.reason) {
