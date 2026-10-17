@@ -4,6 +4,9 @@ import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { DraftProviderProps } from "./DraftProvider";
 
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+const { toast } = await import("sonner");
+
 // Render the diff's annotations, not @pierre/diffs' internals. Like pierre,
 // the gutter "+" reports a line selection right after its own click, and
 // annotations show only at rows the diff has: new lines 1–2 and old line 1.
@@ -20,7 +23,7 @@ vi.mock("@pierre/diffs/react", () => ({
   },
 }));
 
-afterEach(() => { cleanup(); sessionStorage.clear(); });
+afterEach(() => { cleanup(); sessionStorage.clear(); vi.clearAllMocks(); });
 
 /** The draft's provider with Comments and Finish review after what it wraps, as the side panel shows them. */
 async function draftTray() {
@@ -525,5 +528,47 @@ test("an agent's comment folds how it checked it under its words, in the code an
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalled());
   expect(saveDraftComment.mock.calls[0][0].comment).not.toHaveProperty("evidence");
   await waitFor(() => expect(diff().queryByRole("button", { name: "How the agent checked" })).toBeNull());
+  slot.lifecycle.unmount();
+});
+
+// bug bash DFT-3: Undo saved the removed comment with the revision the page showed when Undo was clicked, so after a
+// rebuild it went back on the new diff's line of the same number, unchecked, over any comment that took it meanwhile.
+test("Undo after a rebuild doesn't put the removed comment back on the new diff's line of the same number", async () => {
+  await loadPluginApp(() => import("../app"));
+  const DraftTray = await draftTray();
+  const before = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,2 @@\n one\n-two\n+TWO\n";
+  // The new commit puts a line above: line 2 is now "added", and TWO is line 3.
+  const after = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,3 @@\n one\n+added\n-two\n+TWO\n";
+  const mine = { file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c1", body: "Upper case reads as a constant." };
+  let draft: Record<string, any> = { ...empty("undo-rebuild"), comments: [mine] };
+  let current = "r1";
+  const removeDraftComment = vi.fn(async () => { draft = { ...draft, comments: [] }; return { draft, stale: [] }; });
+  // As the server: a save against a diff the review no longer shows is refused.
+  const saveDraftComment = vi.fn(async ({ comment, revision }: any) => {
+    if (revision !== current) throw new Error("This review changed in another window. Reload it, then try again.");
+    draft = { ...draft, comments: [comment] };
+    return { draft, stale: [] };
+  });
+  const component = () => {
+    const [state, setState] = useState({ revision: "r1", patch: before });
+    return <>
+      <button onClick={() => { current = "r2"; setState({ revision: "r2", patch: after }); }}>Rebuilt</button>
+      <DraftTray targetKey="undo-rebuild" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision={state.revision} patch={state.patch} account="reviewer" />
+    </>;
+  };
+  const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft, stale: [] }), removeDraftComment, saveDraftComment } as any });
+  await slot.findByText("Draft saved");
+  fireEvent.click(slot.getByRole("button", { name: "Expand Draft comment on src/a.ts:2" }));
+  fireEvent.click(slot.getByRole("button", { name: "Remove comment on src/a.ts:2" }));
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Comment removed", expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) })));
+  // The guide finishes rebuilding for a new commit while the toast still offers Undo.
+  fireEvent.click(slot.getByRole("button", { name: "Rebuilt" }));
+  const [, { action }] = vi.mocked(toast.info).mock.calls[0] as any;
+  action.onClick();
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledTimes(1));
+  // Bound to the diff it was removed from, over no comment: the server refuses, and says why.
+  expect(saveDraftComment.mock.calls[0][0]).toMatchObject({ revision: "r1", replaces: null, comment: { line: 2, body: mine.body } });
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith("This review changed in another window. Reload it, then try again."));
+  expect(draft.comments).toEqual([]);
   slot.lifecycle.unmount();
 });

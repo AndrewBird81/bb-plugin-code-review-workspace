@@ -452,11 +452,13 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       setWhy({ at: { file, line, side }, rect: box ? { left: box.left, top: box.top, width: box.width, height: box.height } : { left: window.innerWidth - 16, top: window.innerHeight - 16, width: 0, height: 0 } });
     } } } : null;
     const refocus = focusAfterRemoval();
+    // Undo puts it back on the diff it was removed from: after a rebuild, the server refuses.
+    const revision = revisionRef.current;
     await mutate(async () => {
       apply(await enqueue(() => rpc.call("removeDraftComment", { targetKey, file, line, side })) as { draft: Draft });
       refocus();
       if (older) { if (reason) toast.info("Comment removed", reason); else toast.info("Comment removed"); }
-      else toast.info("Comment removed", { ...reason, action: { label: "Undo", onClick: () => { void latest.current.restoreComments([comment]); } } });
+      else toast.info("Comment removed", { ...reason, action: { label: "Undo", onClick: () => { void latest.current.restoreComments([comment], revision); } } });
     });
   }
   /**
@@ -486,15 +488,19 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   async function removeNits() {
     const removed = draft.comments.filter((comment) => comment.severity === "nit");
     const restorable = removed.filter((comment) => !stale.some((at) => sameLocation(at, comment)));
+    const revision = revisionRef.current;
     await mutate(async () => {
       for (const { file, line, side } of removed) apply(await enqueue(() => rpc.call("removeDraftComment", { targetKey, file, line, side })) as { draft: Draft });
       const text = `Removed ${removed.length} nit${removed.length === 1 ? "" : "s"}`;
-      if (restorable.length) toast.info(text, { action: { label: "Undo", onClick: () => { void latest.current.restoreComments(restorable); } } });
+      if (restorable.length) toast.info(text, { action: { label: "Undo", onClick: () => { void latest.current.restoreComments(restorable, revision); } } });
       else toast.info(text);
     });
   }
-  /** Put back comments you removed, as they were, except where a line has another comment by now. */
-  async function restoreComments(comments: DraftComment[]) {
+  /**
+   * Put back comments you removed, as they were, on the diff they were removed from (`revision`), except where a line has
+   * another comment by now.
+   */
+  async function restoreComments(comments: DraftComment[], revision: string | undefined) {
     const free = comments.filter(({ file, line, side }) => {
       const taken = shownComments.current.some((c) => sameLocation(c, { file, line, side }));
       if (taken) toast.info(`${file}:${line} has another comment now, so the removed one stays removed.`);
@@ -504,7 +510,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     await mutate(async () => {
       for (const comment of free) {
         const { file, line, side, chapterId, author, severity, body, evidence, introduced } = comment;
-        apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revisionRef.current ? { revision: revisionRef.current } : {}), comment: { file, line, side, ...rangeOf(comment), ...(chapterId ? { chapterId } : {}), ...(author ? { author } : {}), ...(severity ? { severity } : {}), body, ...(evidence ? { evidence } : {}), ...(introduced === false ? { introduced } : {}) } })) as { draft: Draft });
+        apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revision ? { revision } : {}), replaces: null, comment: { file, line, side, ...rangeOf(comment), ...(chapterId ? { chapterId } : {}), ...(author ? { author } : {}), ...(severity ? { severity } : {}), body, ...(evidence ? { evidence } : {}), ...(introduced === false ? { introduced } : {}) } })) as { draft: Draft });
       }
     });
   }
