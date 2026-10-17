@@ -8,7 +8,7 @@ import { rebuildReview, upToDate } from "./rereview";
 import { recordPrState } from "./start-review";
 import { automaticReviewPrompt } from "./preferences";
 import { readAuthorTrust } from "./author-trust";
-import { trustedAuthor } from "../lib/trust";
+import { mayRunUnattended } from "../lib/trust";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
 import {
@@ -118,11 +118,15 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
     });
     patch = snapshot.patch;
     prState = pr.state;
-    // An agent in one of your threads may have been steered by what it read: on a PR whose author isn't trusted, or
-    // whose trust GitHub didn't say, Run stays your click. With Unattended authors set to Anyone, or a review that just
-    // opens below, GitHub isn't asked.
+    // An agent in one of your threads may have been steered by what it read: on a PR where agents wouldn't start on
+    // their own, or whose trust GitHub didn't say, Run stays your click. With Unattended authors set to Anyone and Start
+    // agents on their own on, or a review that just opens below, GitHub isn't asked.
     const preferences = deps.store.getPreferences().preferences;
-    if (!unattended && ctx.threadId && preferences.unattendedAuthors !== "anyone" && !opensAsIs(deps.store.getReview(key))) unattended = !trustedAuthor(await readAuthorTrust(deps.gh.runGh, repo, target.number) ?? { kind: "pr" }, preferences);
+    const everyone = preferences.unattendedAuthors === "anyone" && preferences.knobs.unattendedAgents !== false;
+    if (!unattended && ctx.threadId && !everyone && !opensAsIs(deps.store.getReview(key))) {
+      // No head: whether the author alone lets agents start, not an earlier click.
+      unattended = !mayRunUnattended(await readAuthorTrust(deps.gh.runGh, repo, target.number) ?? { kind: "pr" }, preferences, null);
+    }
   } else {
     const diff = await deps.gh.runGit(gitDiffArgs(target.gitRef, target.base), { cwd });
     if (diff.code !== 0) return { exitCode: 1, stderr: diff.stderr || "git diff failed" };

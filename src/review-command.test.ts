@@ -232,8 +232,9 @@ test("bb review from one of your threads approves agents on a PR's head only whe
   const answering = (pr: Record<string, unknown> | null) => vi.mocked(gh.runGh).mockImplementation(async (args, opts) => args[1] !== "graphql" ? base(args, opts)
     : pr ? { stdout: JSON.stringify({ data: { viewer: { login: "me" }, repository: { pullRequest: { author: { login: "a" }, isCrossRepository: false, ...pr } } } }), stderr: "", code: 0 }
     : { stdout: "", stderr: "HTTP 502", code: 1 });
-  const approved = async (pr: Record<string, unknown> | null, threadId?: string) => {
+  const approved = async (pr: Record<string, unknown> | null, threadId?: string, preferences = defaultPreferences) => {
     const { bb, store } = host();
+    store.savePreferences(preferences, 0);
     answering(pr);
     expect(await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1", ...(threadId ? { threadId } : {}) })).toMatchObject({ exitCode: 0 });
     return store.getReview(key)?.approvedHead ?? null;
@@ -258,6 +259,15 @@ test("bb review from one of your threads approves agents on a PR's head only whe
     expect(await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1", threadId: "coder" })).toMatchObject({ exitCode: 0 });
     expect(store.getReview(key)?.approvedHead).toBe("abc123");
     expect(vi.mocked(gh.runGh).mock.calls.some(([args]) => args[1] === "graphql")).toBe(false);
+    // With Start agents on their own off, agents run on their own only on your own PR, so only it counts as your click,
+    // and GitHub is asked even under Anyone (bug bash SET-1).
+    for (const unattendedAuthors of ["members", "anyone"] as const) {
+      const off = { ...defaultPreferences, unattendedAuthors, knobs: { ...defaultPreferences.knobs, unattendedAgents: false } };
+      expect(await approved({ authorAssociation: "MEMBER" }, "coder", off), unattendedAuthors).toBeNull();
+      expect(await approved({ author: { login: "me" }, authorAssociation: "CONTRIBUTOR" }, "coder", off), unattendedAuthors).toBe("abc123");
+      expect(await approved({ author: { login: "me" }, authorAssociation: "OWNER", isCrossRepository: true, headRepositoryOwner: { login: "mallory" } }, "coder", off), unattendedAuthors).toBeNull();
+      expect(await approved(null, "coder", off), unattendedAuthors).toBeNull();
+    }
     // A review already building, or up to date, just opens, so its author's trust isn't asked for either.
     for (const status of ["generating", "ready"] as const) {
       const { bb, store } = host();
