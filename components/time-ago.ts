@@ -3,8 +3,9 @@ export function age(ts?: number | null, now = Date.now()): string | null {
   if (typeof ts !== "number" || !Number.isFinite(ts) || ts < 1_000_000_000_000) return null;
   const s = Math.max(0, Math.floor((now - ts) / 1000));
   if (s < 45) return "now";
+  // 45 to 59 seconds are a minute, not yet a whole one.
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
+  if (m < 60) return `${Math.max(1, m)}m`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h`;
   const d = Math.floor(h / 24);
