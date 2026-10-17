@@ -266,6 +266,9 @@ test("a review snoozed until a time alerts again when it wakes, once, but not wh
   await s.sync.all();
   expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs" });
   await vi.waitFor(() => expect(s.published).toHaveLength(2));
+  // The wake's alert is an event of its own, so Needs You raises it again (bug bash SET-7).
+  expect(s.published[0].eventId).toBe(`turn:re-requested:${T0 + 0.1 * HOUR}`);
+  expect(s.published[1].eventId).toBe(`turn:re-requested:${T0 + 0.1 * HOUR}:woke:${T0 + HOUR}`);
   s.at(1.2);
   await s.sync.all();
   expect(s.published).toHaveLength(2);

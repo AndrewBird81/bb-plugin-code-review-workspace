@@ -13,6 +13,8 @@ interface Pending {
   status: "ready" | "error"; projectId: string;
   /** A turn alert's text. */
   body?: string;
+  /** The turn alert's event id in Needs You, when it isn't `turn:<signal>`, as for a snooze's wake. */
+  eventId?: string;
 }
 const managers = new WeakMap<BbPluginApi, ReturnType<typeof createNotifications>>();
 export function completionNotifications(bb: BbPluginApi, store: Store) {
@@ -91,7 +93,7 @@ function createNotifications(bb: BbPluginApi, store: Store) {
         : record.status === "ready" ? "Your guide is ready. Open it to start reviewing." : "The guide couldn’t be generated. Open the review to try again.";
       const result = await bb.sdk.plugins.callRpc({ pluginId: "inbox", method: "publishActivity", input: {
         sourceId: "guided-review", sourceName: "Guided Review", entityId: record.targetKey,
-        eventId: (record.kind === "turn" ? `turn:${record.generationId}` : record.generationId).slice(0, 128),
+        eventId: (record.kind === "turn" ? record.eventId ?? `turn:${record.generationId}` : record.generationId).slice(0, 128),
         occurredAt: record.occurredAt, projectId: record.projectId,
         title, status: record.status, body: body.slice(0, 600),
         target: { panel: "review", segments: [record.targetKey] },
@@ -138,10 +140,13 @@ function createNotifications(bb: BbPluginApi, store: Store) {
       if (disposed || !store.getPreferences().preferences.knobs.alertGuides || !store.isCurrentGeneration(record.targetKey, record.generationId)) return;
       await enqueue({ ...record, kind: "generation" });
     },
-    /** Alert that a review became your turn; `signal` identifies the event, so it alerts once. */
-    async queueTurn(record: { targetKey: string; signal: string; projectId: string; body: string }) {
+    /**
+     * Alert that a review became your turn; `signal` identifies the event, so it alerts once. An alert of the same
+     * signal again, as when a snooze wakes, passes its own `eventId`, so Needs You raises it as new.
+     */
+    async queueTurn(record: { targetKey: string; signal: string; eventId?: string; projectId: string; body: string }) {
       if (disposed || !store.getPreferences().preferences.knobs.alertTurns) return;
-      await enqueue({ kind: "turn", generationId: record.signal, targetKey: record.targetKey, projectId: record.projectId, status: "ready", body: record.body });
+      await enqueue({ kind: "turn", generationId: record.signal, targetKey: record.targetKey, projectId: record.projectId, status: "ready", body: record.body, ...(record.eventId ? { eventId: record.eventId } : {}) });
     },
     /** You acted on the review: clear its inbox item and anything queued for it. */
     async dismiss(targetKey: string): Promise<void> {

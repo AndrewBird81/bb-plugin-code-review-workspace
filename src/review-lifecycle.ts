@@ -261,10 +261,12 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     return review.status !== "generating" && (review.preparedAt ?? 0) >= since;
   }
 
-  async function alert(key: string, turn: Turn) {
+  /** `woke`: the time a snooze that held this turn ended, whose alert is an event of its own. */
+  async function alert(key: string, turn: Turn, woke: number | null = null) {
     const review = store.getReview(key)!;
     store.setLifecycle(key, { notifiedSignal: turn.signal, pendingAlert: null });
-    await notifications.queueTurn({ targetKey: key, signal: turn.signal!, projectId: review.projectId ?? "", body: alertBody(review, turn) }).catch(() => {});
+    const eventId = woke != null ? `turn:${turn.signal}:woke:${woke}` : undefined;
+    await notifications.queueTurn({ targetKey: key, signal: turn.signal!, eventId, projectId: review.projectId ?? "", body: alertBody(review, turn) }).catch(() => {});
   }
 
   // One evaluation per review at a time: two could both see a new signal and prepare it twice.
@@ -287,8 +289,10 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     if (!review || disposed) return;
     const now = clock();
     // A snooze until a time ends then. The turn it set aside alerts again, once; one that woke it earlier has alerted.
+    let woke: number | null = null;
     if (review.snoozedUntil != null && now >= review.snoozedUntil) {
       const held = turnOf(review, review.snoozedUntil - 1).reason === "snoozed";
+      if (held) woke = review.snoozedUntil;
       store.setLifecycle(key, { snoozedAt: null, snoozedUntil: null, ...(held ? { notifiedSignal: null, pendingAlert: null } : {}) });
       review = store.getReview(key)!;
     }
@@ -313,7 +317,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
           if (!store.getReview(key)) return;
           if (!turn.notify) store.setLifecycle(key, { notifiedSignal: turn.signal });
           else if (preparing) store.setLifecycle(key, { pendingAlert: { signal: turn.signal, since: now } });
-          else await alert(key, turn);
+          else await alert(key, turn, woke);
         }
       } else if (review.preparedSignal !== turn.signal && now - (review.prepareTriedAt ?? 0) >= RETRY_PREPARE) {
         // A re-review that couldn't start (an offline machine, a GitHub hiccup) is retried now and then.

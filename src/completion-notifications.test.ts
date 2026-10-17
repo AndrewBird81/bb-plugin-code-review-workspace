@@ -173,3 +173,19 @@ test("an alert waiting in the outbox isn't sent once its switch is turned off", 
   expect(f.delivered).toEqual([]);
   await f.harness.lifecycle.dispose();
 });
+
+// A timed snooze's wake alerts its turn again under its own event id (bug bash SET-7).
+test("a turn alert queued with its own event id keeps it when it's sent after waiting in the outbox", async () => {
+  const f = fixture();
+  f.offline(true);
+  const notifications = completionNotifications(f.bb, f.store);
+  notifications.useTurns(() => "re-requested:1");
+  await notifications.queueTurn({ targetKey: "target", signal: "re-requested:1", eventId: "turn:re-requested:1:woke:5", projectId: "p1", body: "@alice re-requested your review" });
+  await notifications.flush();
+  expect(f.delivered).toEqual([]);
+  f.offline(false);
+  await notifications.flush();
+  expect(f.delivered).toHaveLength(1);
+  expect(f.delivered[0].eventId).toBe("turn:re-requested:1:woke:5");
+  await f.harness.lifecycle.dispose();
+});
