@@ -66,10 +66,11 @@ function placeOf(url: string): { host: string; path: string } | null {
   return m ? { host: m[1].toLowerCase(), path: m[2].replace(/\\/g, "/").replace(/^\/*/, "/").toLowerCase() } : null;
 }
 
-// Every URL on a line, and git's scp-style "git@host:owner/repo", which isn't one; JSON may write / as \/. A scheme
-// starts only where a run of its characters does, or a long run like "a.a.a…" is scanned again from each "a".
-const URLS = /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/[^\s"'<>()[\]{},]+|(?<![^\s"'=([,])[\w.-]+@[a-z0-9.-]+:(?!\/\/)[\w~./-][^\s"'<>()[\]{},]*/gi;
-const urlsIn = (code: string) => code.replace(/\\\//g, "/").match(URLS) ?? [];
+// Every URL on a line, and git's scp-style "git@host:owner/repo", which isn't one; JSON may write / as \/. A scan
+// starts only where a run of a scheme's characters does, or a long run like "a.a.a…" is scanned again from each "a",
+// and the URL is from the run's first letter, so "-https://" still holds one.
+const URLS = /(?<![a-z0-9+.-])[0-9+.-]*([a-z][a-z0-9+.-]*:\/\/[^\s"'<>()[\]{},]+)|(?<![^\s"'=([,])[\w.-]+@[a-z0-9.-]+:(?!\/\/)[\w~./-][^\s"'<>()[\]{},]*/gi;
+const urlsIn = (code: string) => [...code.replace(/\\\//g, "/").matchAll(URLS)].map((match) => match[1] ?? match[0]);
 
 // A registry given by its path is at it only by a path without . or .. segments, which could climb out of it.
 const atRegistry = ({ host, path }: { host: string; path: string }, registries: string[]) =>

@@ -163,12 +163,14 @@ test("Gemfile.lock, uv.lock, Package.resolved, Cargo.lock and bun.lock name an a
 // Each word boundary in a long run of a scheme's characters began a scan to the run's end, so one long row in any
 // lockfile but npm's, yarn's and pnpm's blocked the server for seconds (71-review-security F2).
 test("a long row of a scheme's characters digests at once, and a URL after one still counts", () => {
-  for (const [path, row] of [["flake.lock", `+${"a.".repeat(100_000)}`], ["Gemfile.lock", `+${"a+".repeat(100_000)}`], ["composer.lock", `+    "url": "${"a-".repeat(100_000)}",`]]) {
+  for (const [path, row] of [["flake.lock", `+${"a.".repeat(100_000)}`], ["Gemfile.lock", `+${"a+".repeat(100_000)}`], ["composer.lock", `+    "url": "${"a-".repeat(100_000)}",`], ["flake.lock", `+${"-1".repeat(100_000)}`]]) {
     const start = performance.now();
     expect(lockfileDigest(path, diff([row]))).toBeNull();
     expect(performance.now() - start).toBeLessThan(500);
   }
   expect(lockfileDigest("flake.lock", diff([`+  "url": "git+https://evil.test/a.git", ${"a.".repeat(50)} https://b.evil.test/c`]))?.hosts).toEqual(["evil.test", "b.evil.test"]);
+  // A scheme starts at a letter, so a run that starts with -, ., + or a digit still has a URL in it (95-recheck).
+  for (const prefix of ["-", ".", "+", "-1."]) expect(lockfileDigest("Gemfile.lock", diff([`+  remote: ${prefix}https://evil.test/`]))?.hosts, prefix).toEqual(["evil.test"]);
 });
 
 // "\@" ended the userinfo here but not in npm's, yarn's or uv's URL parser, which download from the host before it, and a
