@@ -34,6 +34,9 @@ export async function retryInterruptedGuides(deps: Deps, now = Date.now()): Prom
     const unavailable = await guideWriterUnavailable(deps.bb, deps.store).catch((error) => String(error));
     if (now - pending.since >= RESTART_WAIT) {
       deps.store.setLifecycle(review.targetKey, { restartPending: null });
+      // An open page stops saying the guide restarts on its own.
+      deps.bb.realtime.publish(`review:${review.targetKey}`, { ts: now });
+      deps.bb.realtime.publish("reviews", { ts: now });
       deps.bb.log.warn(`The interrupted guide for ${review.targetKey} stays failed: ${unavailable ?? "its machine didn't reconnect in time"}`);
       continue;
     }

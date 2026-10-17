@@ -100,10 +100,14 @@ test("an interrupted guide whose machine stays offline past 10 minutes isn't tri
   await vi.waitFor(() => expect(store.getReview("pr-1")?.restartPending).toBeTruthy());
   store.setLifecycle("pr-1", { restartPending: { since: Date.now() - 11 * 60_000 } });
   host.status = "connected";
+  const told = () => harness.inspection.realtimeSignals.filter((signal) => signal.channel === "review:pr-1").length;
+  const before = told();
   const { controller, done } = harness.runService("review-state");
   await vi.waitFor(() => expect(store.getReview("pr-1")?.restartPending).toBeNull());
   controller.abort();
   await done;
+  // The open page hears, so it stops saying the guide restarts on its own (70-review-correctness #3).
+  expect(told()).toBeGreaterThan(before);
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
   expect(store.getReview("pr-1")).toMatchObject({ status: "error", headSha: "sha1" });
   expect(harness.inspection.logEntries.some((entry: any) => String(entry.message).includes("stays failed"))).toBe(true);
