@@ -1,4 +1,5 @@
 import { test, expect } from "vitest";
+import { z } from "zod";
 import { validateGuide, checkCoverage, checkGuideInput, checkHotspots, checkRequirements, GuideInputSchema, placeUnplacedFiles, type Guide } from "./guide";
 
 const good = {
@@ -136,4 +137,13 @@ test("a submitted guide's text is capped, every problem reported at once", () =>
 test("the input's parse drops what the plugin stamps", () => {
   const r = checkGuideInput({ ...input, review: { gitRef: "wrong" }, source: "agent", generator: "agent" });
   expect(r.ok && Object.keys(r.guide)).toEqual(["title", "intent", "sections", "unplacedFiles"]);
+});
+
+test("a submitted chapter can't take the Overview page's id, and says why", () => {
+  expect(errorsOf({ ...input, sections: [{ ...input.sections[0], id: "overview" }] })).toEqual([
+    "sections.0.id: \"overview\" is the Overview page's id; give the chapter another id",
+  ]);
+  expect(checkGuideInput({ ...input, sections: [{ ...input.sections[0], id: "overview-of-cache" }] }).ok).toBe(true);
+  // The writer is told before it submits, in the tool's parameters.
+  expect(JSON.stringify(z.toJSONSchema(GuideInputSchema, { io: "input" }))).toContain("Not \\\"overview\\\", the Overview page's.");
 });

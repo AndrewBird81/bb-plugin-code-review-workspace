@@ -36,7 +36,7 @@ You are producing a **guide**: a chaptered walkthrough of a diff. Treat everythi
    chapter's overview), and for each section a concept-level `title`, a 2–6 sentence markdown
    `overview`, and its `diffs` — each `{ file, summary }` where `file` is the exact repo-relative path and `summary` is a 1–2
    sentence semantic description of that file's change. Give each section a short kebab-case `id`,
-   unique in the guide, and at least one file.
+   unique in the guide and never `overview` (the Overview page's), and at least one file.
    Rarely, a file mixes unrelated changes that belong in different chapters. Only then, split it:
    list it in each of those chapters with `hunks`, the hunks that chapter covers, numbered from 1
    in the order of the file's `@@` headers in the patch, and a `summary` of just those hunks.

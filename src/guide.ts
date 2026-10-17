@@ -68,8 +68,22 @@ export function checkRequirements(guide: Guide, patch: string): { ok: true } | {
   return errors.length ? { ok: false, errors } : { ok: true };
 }
 
+/** The id of the review's Overview page (OVERVIEW in lib/workspace-context.tsx), which a chapter's would take over. */
+export const OVERVIEW_ID = "overview";
+
+/** A stored guide with a chapter whose id is the Overview page's, as earlier versions accepted, renamed to an id no other chapter has. */
+export function renameOverviewChapter(guide: Guide): Guide {
+  if (!guide.sections.some((section) => section.id === OVERVIEW_ID)) return guide;
+  const ids = new Set(guide.sections.map((section) => section.id));
+  let id = "overview-chapter";
+  for (let n = 2; ids.has(id); n++) id = `overview-chapter-${n}`;
+  return { ...guide, sections: guide.sections.map((section) => section.id === OVERVIEW_ID ? { ...section, id } : section) };
+}
+
 // What the guide writer submits is held to more than a stored guide, which earlier versions wrote without these rules.
 const SectionInputSchema = SectionSchema.extend({
+  id: SectionSchema.shape.id.refine((id) => id !== OVERVIEW_ID, `"${OVERVIEW_ID}" is the Overview page's id; give the chapter another id`)
+    .describe(`A short kebab-case id, unique in the guide. Not "${OVERVIEW_ID}", the Overview page's.`),
   title: SectionSchema.shape.title.max(120),
   overview: SectionSchema.shape.overview.max(1_200),
   risk: z.enum(["low", "medium", "high"], { error: "every chapter needs a risk: low, medium, or high" }).describe(SectionSchema.shape.risk.description ?? ""),

@@ -427,3 +427,12 @@ test("listing discussions reads no patch for a review that has none, as startup 
   expect(s.listDiscussions("pr-1").map((d) => [d.file, d.waiting])).toEqual([["new.ts", true]]);
   expect(renamedPaths).toHaveBeenCalledTimes(1);
 });
+
+test("a stored guide's chapter with the Overview page's id reads back under an id no other chapter has", () => {
+  const s = store();
+  const chapter = (id: string, file: string) => ({ id, title: id, overview: "o", diffs: [{ file, summary: "x" }] });
+  s.saveGuide("pr-1", { title: "t", intent: "i", unplacedFiles: [], sections: [chapter("c1", "a.ts"), chapter("overview", "b.ts"), chapter("overview-chapter", "c.ts")] });
+  expect(s.getGuide("pr-1")?.sections.map((section) => [section.id, section.diffs[0].file])).toEqual([["c1", "a.ts"], ["overview-chapter-2", "b.ts"], ["overview-chapter", "c.ts"]]);
+  s.saveGuide("pr-2", { title: "t", intent: "i", unplacedFiles: [], sections: [chapter("overview", "a.ts")] });
+  expect(s.getGuide("pr-2")?.sections.map((section) => section.id)).toEqual(["overview-chapter"]);
+});

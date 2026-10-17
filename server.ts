@@ -1180,7 +1180,7 @@ export default async function plugin(bb: BbPluginApi) {
   const guideToolParameters = z.object({ targetKey: z.string(), generationId: z.string(), guide: GuideInputSchema });
   bb.agents.registerTool({
     name: "generate_review_guide",
-    description: "Submit the guide. It's rejected, with every problem listed, unless: each changed file (or each hunk of a split file) is in exactly one chapter; chapter ids are unique; unplaced files have no changed lines; every chapter has a risk, and medium- and high-risk chapters a focus; no hotspot is listed twice; each hotspot and covered requirement points at a line the diff shows, a new-file line or, with side LEFT, a removed line's old-file line; and its text fits the schema's length limits. Fix and resubmit with the same targetKey and generationId.",
+    description: "Submit the guide. It's rejected, with every problem listed, unless: each changed file (or each hunk of a split file) is in exactly one chapter; chapter ids are unique, and none is \"overview\", the Overview page's; unplaced files have no changed lines; every chapter has a risk, and medium- and high-risk chapters a focus; no hotspot is listed twice; each hotspot and covered requirement points at a line the diff shows, a new-file line or, with side LEFT, a removed line's old-file line; and its text fits the schema's length limits. Fix and resubmit with the same targetKey and generationId.",
     instructions: "When generate_review_guide answers `Guide accepted.`, stop.",
     // A JSON schema, not zod, so the guide's rules are checked here, with its coverage, and every error comes back at once.
     parameters: z.toJSONSchema(guideToolParameters, { io: "input" }),

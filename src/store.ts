@@ -1,5 +1,5 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { Guide } from "./guide";
+import { renameOverviewChapter, type Guide } from "./guide";
 import { sameLocation, type CommentLocation, type Discussion, type DiscussionEntry, type Draft, type DraftComment, type Severity, type Verdict } from "./draft";
 import { createHash, randomUUID } from "node:crypto";
 import { preferencesSchema, readPreferences, unknownKnobs, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
@@ -558,7 +558,7 @@ export function createStore(bb: BbPluginApi): Store {
     getGuide(k) {
       const row: any = db.prepare(`SELECT guide FROM guides WHERE target_key=?`).get(k);
       if (!row) return null;
-      const guide = JSON.parse(row.guide) as Guide;
+      const guide = renameOverviewChapter(JSON.parse(row.guide) as Guide);
       const renamed = renamesOf(k);
       if (!renamed.size) return guide;
       return { ...guide, sections: guide.sections.map((s) => ({ ...s, diffs: s.diffs.map((d) => ({ ...d, file: renamed.get(d.file) ?? d.file })) })), unplacedFiles: guide.unplacedFiles.map((f) => renamed.get(f) ?? f) };
