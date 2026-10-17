@@ -395,12 +395,14 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   /** Add a ```suggestion block holding the box's lines as they read now, for the reviewer to edit in place. */
   function suggestChange() {
     if (!suggestable) return;
-    const next = `${body.trimEnd() ? `${body.trimEnd()}\n\n` : ""}\`\`\`suggestion\n${suggestable.join("\n")}\n\`\`\``;
+    // Longer than any backtick run in the lines, so a fence among them doesn't close the block.
+    const fence = "`".repeat(Math.max(3, ...suggestable.flatMap((text) => text.match(/`+/g) ?? []).map((run) => run.length + 1)));
+    const next = `${body.trimEnd() ? `${body.trimEnd()}\n\n` : ""}${fence}suggestion\n${suggestable.join("\n")}\n${fence}`;
     changeBody(next);
     requestAnimationFrame(() => {
       const box = bodyRef.current;
       // Typing goes at the end of the lines, before the closing fence.
-      box?.focus(); box?.setSelectionRange(next.length - 4, next.length - 4);
+      box?.focus(); box?.setSelectionRange(next.length - fence.length - 1, next.length - fence.length - 1);
     });
   }
   async function removeComment(comment: DraftComment) {

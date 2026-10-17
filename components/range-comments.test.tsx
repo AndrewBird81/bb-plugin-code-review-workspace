@@ -96,6 +96,18 @@ test("Suggest change fills the box with the selected lines' current text, indent
   slot.lifecycle.unmount();
 });
 
+// Suggest change always wrote a 3-backtick fence, so a suggestion on lines holding ``` closed early (70-review-correctness #5).
+test("Suggest change on lines holding a fence fences them with more backticks than any run in them", async () => {
+  const fenced = patch.replace("+  three();", "+```ts").replace("+    four;", "+  `a` ````");
+  const { slot, diff } = await renderReview({ getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }) },
+    { file: "src/a.ts", line: 4, side: "RIGHT", startLine: 3, startSide: "RIGHT", nonce: 1 }, fenced);
+  const box = await diff().findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
+  fireEvent.click(diff().getByRole("button", { name: "Suggest change" }));
+  expect(box.value).toBe("`````suggestion\n```ts\n  `a` ````\n`````");
+  await waitFor(() => expect([document.activeElement, box.selectionStart]).toEqual([box, box.value.length - 6]));
+  slot.lifecycle.unmount();
+});
+
 test("opening a review reads no file's lines; Suggest change reads only its box's file", async () => {
   const other = ["diff --git a/src/b.ts b/src/b.ts", "--- a/src/b.ts", "+++ b/src/b.ts", "@@ -1 +1 @@", "-x", "+y", ""].join("\n");
   const draft = () => ({ draft: draftOf(), stale: [], discussions: [] });
