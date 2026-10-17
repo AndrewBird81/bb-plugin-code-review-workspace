@@ -100,3 +100,19 @@ test("a local review's bundle drops the reads of its diff before a rebuild; a PR
   await call("read_review_patch", { targetKey: "pr-1", file: "a.ts" });
   expect(await bundled("pr-1")).toEqual({ head: "sha1", files: ["a.ts"] });
 });
+
+test("a read past the end fails, naming the length, and isn't counted", async () => {
+  const { store, call } = await host();
+  const page = await call("read_review_patch", { targetKey: "pr-1", offset: 90_000 }) as any;
+  expect(page.isError).toBe(true);
+  expect(page.content[0].text).toBe(`offset 90000 is past the end of the diff (${patch.length} bytes).`);
+  const one = await call("read_review_patch", { targetKey: "pr-1", file: "a.ts", offset: 500 }) as any;
+  expect(one.isError).toBe(true);
+  expect(one.content[0].text).toBe(`offset 500 is past the end of a.ts's diff (${file("a.ts").length} bytes).`);
+  // Each file holds one line.
+  const lines = await call("read_file", { path: "b.ts", startLine: 5 }) as any;
+  expect(lines.isError).toBe(true);
+  expect(lines.content[0].text).toBe("startLine 5 is past the end: b.ts at sha1 has 1 line.");
+  expect((await call("read_file", { path: "b.ts", startLine: 3, endLine: 2 }) as any).isError).toBe(true);
+  expect(store.getReview("pr-1")?.agentReads).toBeUndefined();
+});

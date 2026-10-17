@@ -64,6 +64,11 @@ export function stubSkippedFiles(patch: string, generated: string[] = [], marks:
   }).join("");
 }
 
+/** Why a read of `what` from `offset` returns nothing; null when it returns something, or `what` is empty. */
+export function offsetPastEnd(what: string, offset: number, length: number): string | null {
+  return offset > 0 && offset >= length ? `offset ${offset} is past the end of ${what} (${length} bytes).` : null;
+}
+
 /** A page of the diff from offset, cut back to the last file boundary that fits, so no file is split across pages unless it alone is longer than a page. */
 export function patchPage(patch: string, offset: number, limit: number): { text: string; end: number } {
   let end = Math.min(patch.length, offset + limit);

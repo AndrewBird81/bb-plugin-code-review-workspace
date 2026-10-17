@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { describeReviewFiles, patchPage, stubSkippedFiles } from "./review-files";
+import { describeReviewFiles, offsetPastEnd, patchPage, stubSkippedFiles } from "./review-files";
 import { readFilesPatch } from "./pr-snapshot";
 
 const file = (path: string, body: string) => `diff --git a/${path} b/${path}\nindex 1..2 100644\n--- a/${path}\n+++ b/${path}\n${body}`;
@@ -117,4 +117,11 @@ test("a file the PR adds under a path that reads as generated is paged in full a
   expect(stubSkippedFiles(moved)).toBe(moved);
   const changed = file("vendor/lib.js", "@@ -1 +1 @@\n-a\n+b\n");
   expect(stubSkippedFiles(changed)).toContain("[generated: +1 −1 lines; pass file to read it]");
+});
+
+test("a read from an offset past the end says so, while an empty diff's first page is just empty", () => {
+  expect(offsetPastEnd("the diff", 90_000, 85_123)).toBe("offset 90000 is past the end of the diff (85123 bytes).");
+  expect(offsetPastEnd("the diff", 85_123, 85_123)).toBe("offset 85123 is past the end of the diff (85123 bytes).");
+  expect(offsetPastEnd("the diff", 85_122, 85_123)).toBeNull();
+  expect(offsetPastEnd("the diff", 0, 0)).toBeNull();
 });

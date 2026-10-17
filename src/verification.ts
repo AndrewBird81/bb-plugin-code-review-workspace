@@ -163,17 +163,19 @@ type FileRef = "base" | "current" | "reviewed";
 const MAX_FILE_LINES = 400;
 
 /** read_file: a file at the diff's base, your reviewed commit, or the PR's head (a local review's new side), with line numbers. */
-export async function readFileAt(run: Run, git: typeof runGit, review: ReviewMeta, path: string, ref: FileRef, startLine = 1, endLine?: number): Promise<string> {
+export async function readFileAt(run: Run, git: typeof runGit, review: ReviewMeta, path: string, ref: FileRef, startLine = 1, endLine?: number): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   // A repo-relative path only: no "." or ".." segments that could reach another GitHub endpoint.
   const segments = path.split("/");
-  if (path.startsWith("/") || segments.some((segment) => !segment || segment === "." || segment === "..")) return `${path} isn't a repo-relative file path.`;
-  const file = review.kind === "pr" ? await prFile(run, review, path, ref) : await localFile(git, review, path, ref);
-  if (typeof file === "string") return file;
-  const lines = file.text.replace(/\n$/, "").split("\n");
+  if (path.startsWith("/") || segments.some((segment) => !segment || segment === "." || segment === "..")) return { ok: false, error: `${path} isn't a repo-relative file path.` };
   const from = Math.max(1, startLine);
+  if (endLine !== undefined && endLine < from) return { ok: false, error: `endLine ${endLine} is before startLine ${from}.` };
+  const file = review.kind === "pr" ? await prFile(run, review, path, ref) : await localFile(git, review, path, ref);
+  if (typeof file === "string") return { ok: false, error: file };
+  const lines = file.text.replace(/\n$/, "").split("\n");
+  if (from > lines.length) return { ok: false, error: `startLine ${from} is past the end: ${path} at ${file.at} has ${lines.length} line${lines.length === 1 ? "" : "s"}.` };
   const to = Math.min(lines.length, from + MAX_FILE_LINES - 1, endLine ?? Infinity);
   const body = lines.slice(from - 1, to).map((line, i) => `${String(from + i).padStart(5)}  ${line}`).join("\n");
-  return `${path} at ${file.at}, lines ${from}–${to} of ${lines.length}:\n${body}${to < lines.length ? `\n[Call again with startLine=${to + 1} for more.]` : ""}`;
+  return { ok: true, text: `${path} at ${file.at}, lines ${from}–${to} of ${lines.length}:\n${body}${to < lines.length ? `\n[Call again with startLine=${to + 1} for more.]` : ""}` };
 }
 
 export interface AssessInput {

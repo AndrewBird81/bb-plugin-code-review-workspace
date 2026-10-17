@@ -215,7 +215,7 @@ test("with Run the re-review check off, Check again says so and sends the assist
 test("read_file only reads repo-relative paths", async () => {
   const { tool } = await setup();
   for (const path of ["../../user", "a/../../b", "/etc/passwd", "a//b", "./a.ts"]) {
-    expect(await tool("read_file", { path })).toContain("isn't a repo-relative file path");
+    expect(await tool("read_file", { path })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("isn't a repo-relative file path") }] });
   }
   expect(runGh.mock.calls.some(([args]) => String(args.at(-1)).includes(".."))).toBe(false);
 });

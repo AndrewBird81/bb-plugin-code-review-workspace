@@ -7,7 +7,7 @@ import { z } from "zod";
 import { rpcContract } from "./src/rpc-contract";
 import { createStore } from "./src/store";
 import { changedFiles, splitPatchByFile } from "./src/patch";
-import { describeReviewFiles, patchPage, stubSkippedFiles } from "./src/review-files";
+import { describeReviewFiles, offsetPastEnd, patchPage, stubSkippedFiles } from "./src/review-files";
 import { readPrContext } from "./src/pr-context";
 import { readFileContents, readGeneratedFiles } from "./src/file-contents";
 import { codeOwners, describeOwnership } from "./src/codeowners";
@@ -873,6 +873,8 @@ export default async function plugin(bb: BbPluginApi) {
         // A renamed file is keyed by its new path; its old one finds it too.
         const diff = files.find((f) => f.path === file) ?? files.find((f) => f.oldPath === file);
         if (!diff) return failed(`This review has no diff for ${file}.`);
+        const past = offsetPastEnd(`${file}'s diff`, offset ?? 0, diff.text.length);
+        if (past) return failed(past);
         recordAgentReads(store, threadId, targetKey, [diff.path]);
         const text = diff.text.slice(offset ?? 0, (offset ?? 0) + (limit ?? 200_000));
         const end = (offset ?? 0) + text.length;
@@ -881,6 +883,8 @@ export default async function plugin(bb: BbPluginApi) {
       const patch = store.patch(targetKey);
       const review = store.getReview(targetKey);
       const paged = stubSkippedFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [], { lockfileDigest: store.getPreferences().preferences.knobs.lockfileDigest });
+      const past = offsetPastEnd("the diff", offset ?? 0, paged.length);
+      if (past) return failed(past);
       const { text, end } = patchPage(paged, offset ?? 0, limit ?? 80_000);
       // Each file the page includes, if only in part.
       recordAgentReads(store, threadId, targetKey, splitPatchByFile(text).map((f) => f.path));
@@ -1056,9 +1060,10 @@ export default async function plugin(bb: BbPluginApi) {
       const review = targetKey ? store.getReview(targetKey) : null;
       if (!review) return failed("This conversation is no longer a review's assistant.");
       const read = await readFileAt(runGh, runGit, review, path, ref ?? "current", startLine, endLine);
+      if (!read.ok) return failed(read.error);
       // A changed file it got: what it read through Guided Review.
-      if (read.startsWith(`${path} at `) && changedFiles(store.patch(review.targetKey)).includes(path)) recordAgentReads(store, threadId, review.targetKey, [path]);
-      return read;
+      if (changedFiles(store.patch(review.targetKey)).includes(path)) recordAgentReads(store, threadId, review.targetKey, [path]);
+      return read.text;
     },
   });
   bb.agents.registerTool({
