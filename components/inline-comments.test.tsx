@@ -619,3 +619,30 @@ test("a comment's edit box keeps which comment it edits for a reload", async () 
   await waitFor(() => expect(JSON.parse(sessionStorage.getItem("guided-review:draft-recovery:rec-keep")!).composer).toMatchObject({ body: "Agent: this leaks the file handle.", editing: agents.body }));
   slot.lifecycle.unmount();
 });
+
+// bug bash DFT-7: an edit box whose comment a rebuild moved looked for it at its old line, said it "was removed", and
+// saving made a second comment.
+test("an edit box follows its comment when a rebuild moves it, and says “moved or removed” when it can't tell where", async () => {
+  const mine = { file: "src/a.ts", line: 2, side: "RIGHT", body: "Is this tested?" };
+  let stored = { ...empty("edit-moved"), comments: [mine] as any[] };
+  const saveDraftComment = vi.fn(async ({ comment }: any) => { stored = { ...stored, comments: [comment] }; return { draft: stored, stale: [] }; });
+  const { slot, diff, panel } = await renderReview("edit-moved", { getDraft: () => ({ draft: structuredClone(stored), stale: [] }), saveDraftComment });
+  fireEvent.click(within(await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" })).getByRole("button", { name: "Edit" }));
+  fireEvent.change(diff().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Please add a test." } });
+  // A rebuild moves the comment to line 1.
+  stored = { ...stored, comments: [{ ...mine, line: 1 }] };
+  await slot.emitRealtime("draft:edit-moved", {});
+  expect(await panel().findByText("Writing a comment on src/a.ts:1")).toBeTruthy();
+  expect(diff().queryByText(/while you were editing/)).toBeNull();
+  expect((diff().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Please add a test.");
+  fireEvent.click(diff().getByRole("button", { name: "Save comment" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ replaces: "Is this tested?", comment: expect.objectContaining({ line: 1, body: "Please add a test." }) })));
+  expect(stored.comments).toHaveLength(1);
+  // Removed, or one of two with its words: the box can't tell where it went.
+  fireEvent.click(within(await diff().findByRole("article", { name: "Draft comment on src/a.ts:1" })).getByRole("button", { name: "Edit" }));
+  fireEvent.change(diff().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Mine." } });
+  stored = { ...stored, comments: [] };
+  await slot.emitRealtime("draft:edit-moved", {});
+  expect(await diff().findByText("This line’s comment was moved or removed while you were editing. Saving yours puts it back.")).toBeTruthy();
+  slot.lifecycle.unmount();
+});

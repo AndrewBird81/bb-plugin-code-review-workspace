@@ -642,6 +642,16 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   // when it was removed.
   const editedNow = editing ? draft.comments.find((c) => sameLocation(c, editing)) ?? null : null;
   const changedWhileEditing = useMemo(() => editing && editedNow?.body !== editing.body ? { now: editedNow } : null, [editing, editedNow]);
+  // A rebuild moved the comment being edited: the box goes with it, when it's the only one with its words in its file and
+  // side. Its save still finds it written against an older diff.
+  useEffect(() => {
+    if (!editing || editedNow?.body === editing.body) return;
+    const moved = draft.comments.filter((c) => c.file === editing.file && c.side === editing.side && c.body === editing.body);
+    if (moved.length !== 1) return;
+    const [comment] = moved;
+    setLine(String(comment.line)); setStartLine(comment.startLine); setStartSide(comment.startSide);
+    setEditing(comment);
+  }, [draft.comments]); // eslint-disable-line react-hooks/exhaustive-deps
   const composerInDiff = editable && showComposer && inline;
   const chat = useMemo(() => onOpenPanel ? () => onOpenPanel("agent") : null, [onOpenPanel]);
   const editingLine = showComposer && !summaryBox && !asking;

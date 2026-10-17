@@ -353,7 +353,7 @@ export function ComposerFields({ mode, subject = "comment", divided = false, bus
       />
       {mode === "new" && composer.replacing && <p role="status" className="text-xs text-warning-text">This line already has a comment. Saving yours replaces it.</p>}
       {mode === "edit" && !summary && composer.changedWhileEditing && <div role="status" className="space-y-1.5 text-xs text-warning-text">
-        <p>{composer.changedWhileEditing.now ? "This line’s comment changed while you were editing. Saving yours replaces it:" : "This line’s comment was removed while you were editing. Saving yours puts it back."}</p>
+        <p>{composer.changedWhileEditing.now ? "This line’s comment changed while you were editing. Saving yours replaces it:" : "This line’s comment was moved or removed while you were editing. Saving yours puts it back."}</p>
         {composer.changedWhileEditing.now && <div className="rounded-md bg-muted/40 px-2.5 py-1.5 text-foreground"><CommentBody body={composer.changedWhileEditing.now.body} link={composer.changedWhileEditing.now.author === "agent"} /></div>}
       </div>}
       {mode !== "ask" && <ComposerNotes error={composer.error} rebuilding={composer.rebuilding} keepOnCurrentDiff={composer.keepOnCurrentDiff} />}
