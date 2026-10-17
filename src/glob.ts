@@ -5,20 +5,25 @@ type GlobToken =
   | { kind: "char"; test: (c: string) => boolean }
   | { kind: "star" } // any run inside one name
   | { kind: "globstar" } // anything, slashes included
-  | { kind: "dirs" }; // "**/": any number of directories, even none
+  | { kind: "dirs" }; // "**/": any number of directories, even none, so what follows starts a name
 
 export type Glob = GlobToken[];
 
 const MAX_GLOB_LENGTH = 256;
 
-// `*`, `?`, `**`, `**/`, `[a-z]`, `[!a]` and `\` escapes; null for a glob too long or malformed to use.
+// `*`, `?`, `**`, `**/`, `[a-z]`, `[!a]` and `\` escapes; null for a glob too long or malformed to use. As in git,
+// `**` is a globstar only as a whole name, at the start or after a slash and at the end or before one; else it's `*`.
 export function compileGlob(glob: string): Glob | null {
   if (glob.length > MAX_GLOB_LENGTH) return null;
   const tokens: Glob = [];
   for (let i = 0; i < glob.length; i++) {
     const c = glob[i];
     if (c === "*" && glob[i + 1] === "*") {
-      if (glob[i + 2] === "/") { tokens.push({ kind: "dirs" }); i += 2; } else { tokens.push({ kind: "globstar" }); i++; }
+      const whole = i === 0 || glob[i - 1] === "/";
+      while (glob[i + 1] === "*") i++;
+      if (whole && glob[i + 1] === "/") { tokens.push({ kind: "dirs" }); i++; }
+      else if (whole && i + 1 === glob.length) tokens.push({ kind: "globstar" });
+      else tokens.push({ kind: "star" });
     } else if (c === "*") tokens.push({ kind: "star" });
     else if (c === "?") tokens.push({ kind: "char", test: (ch) => ch !== "/" });
     else if (c === "[" && glob.indexOf("]", i + 2) > 0) {
@@ -48,11 +53,16 @@ function charClass(body: string): ((c: string) => boolean) | null {
   return (c) => c !== "/" && ranges.some(([from, to]) => c >= from && c <= to) !== negate;
 }
 
+// A position's flags: it may be passed by matching nothing there (FREE), or it's inside a "**/" that has begun a name
+// (INSIDE), which only a slash ends; otherwise "**/b" would match any name ending in "b".
+const FREE = 1;
+const INSIDE = 2;
+
 export function globMatches(glob: Glob, path: string): boolean {
   // Two arrays of positions, swapped per character rather than one per character: every path meets every rule.
   let on = new Uint8Array(glob.length + 1);
   let next = new Uint8Array(glob.length + 1);
-  on[0] = 1;
+  on[0] = FREE;
   reach(glob, on);
   for (let j = 0; j < path.length; j++) {
     const c = path[j];
@@ -60,21 +70,19 @@ export function globMatches(glob: Glob, path: string): boolean {
     for (let i = 0; i < glob.length; i++) {
       if (!on[i]) continue;
       const token = glob[i];
-      if (token.kind === "char") { if (token.test(c)) next[i + 1] = 1; }
-      else if (token.kind === "star") { if (c !== "/") next[i] = 1; }
-      else {
-        next[i] = 1;
-        if (token.kind === "dirs" && c === "/") next[i + 1] = 1;
-      }
+      if (token.kind === "char") { if (token.test(c)) next[i + 1] |= FREE; }
+      else if (token.kind === "star") { if (c !== "/") next[i] |= FREE; }
+      else if (token.kind === "globstar" || c === "/") next[i] |= FREE;
+      else next[i] |= INSIDE;
     }
-    if (!next.includes(1)) return false;
+    if (!next.some((flags) => flags !== 0)) return false;
     reach(glob, next);
     [on, next] = [next, on];
   }
-  return on[glob.length] === 1;
+  return on[glob.length] !== 0;
 }
 
-// Adds the positions reachable by matching nothing: past a star, a globstar or "**/".
+// Adds the positions reachable by matching nothing: past a star, a globstar or a "**/" where a name begins.
 function reach(glob: Glob, on: Uint8Array) {
-  for (let i = 0; i < glob.length; i++) if (on[i] && glob[i].kind !== "char") on[i + 1] = 1;
+  for (let i = 0; i < glob.length; i++) if (on[i] & FREE && glob[i].kind !== "char") on[i + 1] |= FREE;
 }
