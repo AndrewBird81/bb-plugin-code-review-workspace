@@ -871,6 +871,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   const toggleViewed = useCallback(
     (file: string, viewed: boolean) => {
+      // A views read already out left before this mark: it would undo it on screen.
+      viewsRequest.current++;
       setViews((prev) => {
         const next = new Map(prev);
         next.set(file, { viewed, stale: false });
@@ -890,6 +892,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const todo = files.filter((f) => !views.get(f)?.viewed);
     if (!todo.length) return;
     const before = new Map(todo.map((f) => [f, views.get(f)]));
+    viewsRequest.current++;
     setViews((prev) => {
       const next = new Map(prev);
       for (const f of todo) next.set(f, { viewed: true, stale: false });

@@ -165,3 +165,61 @@ test("on a phone the chapters sheet marks a chapter viewed and stays open, its c
   expect(slot.getByRole("dialog", { name: "Chapters" })).toBeTruthy();
   slot.lifecycle.unmount();
 }, 15_000);
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+// bug bash RDG-5: marking files viewed one after another reads the views back after each mark, and a read that left
+// before the next mark was made landed anyway: the next file showed unviewed again, and with Fold files you've viewed
+// on, unfolded, until its own read arrived.
+test("a views read that left before your next mark doesn't undo that mark on screen", async () => {
+  patchReviewState("pr-42", { activeId: "c1" });
+  const oneChapter = { ...guide, sections: [{ id: "c1", title: "Parsing", overview: "Reads rows.", diffs: [{ file: "src/a.ts" }, { file: "src/b.ts" }, { file: "src/c.ts" }] }] };
+  const server = new Set<string>();
+  const reads: Array<ReturnType<typeof deferred<{ views: unknown[] }>>> = [];
+  const marks: Array<ReturnType<typeof deferred<{ ok: true }>>> = [];
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: structuredClone(oneChapter), patch, revision: "r1" }),
+    getChecks: () => ({ bucket: "none", checks: [] }),
+    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    // The first read comes with the bundle; later ones wait until the test lets them answer, with the server's views then.
+    getFileViews: () => {
+      if (!reads.length) { reads.push(deferred()); return { views: [] }; }
+      const read = deferred<{ views: unknown[] }>();
+      reads.push(read);
+      return read.promise;
+    },
+    setFileViewed: ({ file, viewed }: { file: string; viewed: boolean }) => {
+      const mark = deferred<{ ok: true }>();
+      marks.push(mark);
+      return mark.promise.then((done) => { if (viewed) server.add(file); else server.delete(file); return done; });
+    },
+    checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
+    checkForUpdates: () => ({ hasNewCommits: false }),
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] } }),
+    getReviewerNotes: () => ({ body: "", revision: 0 }),
+    getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
+    markSeen: () => ({ ok: true }),
+  } as any });
+  await slot.findByText("aa");
+  const box = (path: string) => slot.getByRole("checkbox", { name: `Viewed ${path}` }) as HTMLInputElement;
+  const views = () => ({ views: [...server].map((file) => ({ file, viewed: true, stale: false, viewedAt: 1 })) });
+
+  // a.ts is marked, and its mark lands: its read goes out.
+  fireEvent.click(box("src/a.ts"));
+  marks[0].resolve({ ok: true });
+  await waitFor(() => expect(reads.length).toBe(2));
+  // b.ts is marked while that read is out; its own mark hasn't landed yet.
+  fireEvent.click(box("src/b.ts"));
+  expect(box("src/b.ts").checked).toBe(true);
+  // The read made before b.ts's mark answers, with what the server had then.
+  reads[1].resolve(views());
+  await new Promise((done) => setTimeout(done, 20));
+  expect(box("src/b.ts").checked).toBe(true);
+  slot.lifecycle.unmount();
+}, 15_000);
