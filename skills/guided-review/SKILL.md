@@ -31,8 +31,9 @@ bb review <pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>] [--contex
 - It prints the review's key (`pr-…` or `ref-…`) and where to open it. An agent writes the guide
   in the background; you needn't wait for it, but comments and the summary do: run
   `bb review list` until the review says guide ready.
-- Running it in this thread makes this thread the review's source: from Finish review, the
-  reviewer can send their comments back here. Reply to them as they ask.
+- Running it in this thread makes this thread the review's source. On a local review, or a PR the
+  reviewer opened, Finish review can send their comments back here, while **Send comments to the
+  thread that made the change** is on in Settings. Reply to them as they ask.
 
 ## List reviews
 

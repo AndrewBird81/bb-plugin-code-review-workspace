@@ -87,6 +87,8 @@ test("the comment usage BB shows agents, and the skill, name the options add and
     expect(usage, option).toContain(`[${option}`);
     expect(skill, option).toContain(`\`${option}`);
   }
+  // Finish review offers the send-back only where it does (components/comments/FinishView.tsx, FixHandoff.tsx; bug bash CLI-9).
+  expect(skill.replace(/\s+/g, " ")).toContain("On a local review, or a PR the reviewer opened, Finish review can send their comments back here, while **Send comments to the thread that made the change** is on in Settings.");
 });
 
 test("bb review comment changes an agent's comments but not the reviewer's", async () => {
