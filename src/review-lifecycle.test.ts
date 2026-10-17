@@ -6,6 +6,7 @@ import { createReviewSync, type GithubReads, type TurnActions } from "./review-l
 import { defaultPreferences } from "./preferences";
 import type { FeedbackThread, PrFacts, PrRef } from "./github/types";
 import { feedbackProgress } from "../lib/turn";
+import { completionNotifications } from "./completion-notifications";
 
 const HOUR = 3_600_000;
 const T0 = Date.parse("2026-10-10T12:00:00Z");
@@ -273,6 +274,31 @@ test("a review snoozed until a time alerts again when it wakes, once, but not wh
   await s.sync.all();
   expect(s.published).toHaveLength(2);
   expect(s.store.getReview("pr-1")).toMatchObject({ snoozedUntil: null, notifiedSignal: `re-requested:${T0 + 0.1 * HOUR}` });
+});
+
+// Opening a review (server.ts markSeen) sees its alert, and dismisses its Needs You item (bug bash SET-4).
+test("a review you open while its re-review is being prepared doesn't alert you once it's ready", async () => {
+  const s = setup({ reviewed: true });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 + 0.2 * HOUR, by: "alice", via: "user" }] });
+  s.at(0.3);
+  await s.sync.all(true);
+  // The re-review is being prepared; the list already shows it in Needs review, and the alert waits.
+  expect(s.store.getReview("pr-1")?.pendingAlert).toMatchObject({ signal: `re-requested:${T0 + 0.2 * HOUR}` });
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!).group).toBe("needs");
+  await s.sync.seen("pr-1");
+  s.at(0.35);
+  s.store.setLifecycle("pr-1", { preparedAt: T0 + 0.35 * HOUR });
+  await s.sync.evaluate("pr-1");
+  await completionNotifications(s.bb, s.store).flush();
+  expect(s.published).toEqual([]);
+  expect(s.store.getReview("pr-1")).toMatchObject({ notifiedSignal: `re-requested:${T0 + 0.2 * HOUR}`, pendingAlert: null });
+  // A later turn alerts as usual.
+  s.pr({ requests: [{ at: T0 + 0.4 * HOUR, by: "alice", via: "user" }] });
+  vi.mocked(s.actions.prepare).mockResolvedValue(false);
+  s.at(0.5);
+  await s.sync.all(true);
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
 });
 
 test("a newer request that wakes a timed snooze early alerts once, not again when the snooze ends", async () => {

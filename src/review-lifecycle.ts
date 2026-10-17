@@ -271,12 +271,25 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
 
   // One evaluation per review at a time: two could both see a new signal and prepare it twice.
   const evaluating = new Map<string, Promise<void>>();
-  function evaluate(key: string, firstRead = false): Promise<void> {
-    const next = (evaluating.get(key) ?? Promise.resolve()).catch(() => {}).then(() => evaluateNow(key, firstRead));
+  function serialized(key: string, work: () => Promise<void> | void): Promise<void> {
+    const next = (evaluating.get(key) ?? Promise.resolve()).catch(() => {}).then(work);
     evaluating.set(key, next);
     void next.catch(() => {}).finally(() => { if (evaluating.get(key) === next) evaluating.delete(key); });
     return next;
   }
+  const evaluate = (key: string, firstRead = false) => serialized(key, () => evaluateNow(key, firstRead));
+
+  /**
+   * You opened the review: an alert waiting for its re-review to be prepared is seen, so it doesn't come once
+   * that's done. Only the turn's current signal; after any evaluation in progress, which may be about to queue it.
+   */
+  const seen = (key: string) => serialized(key, () => {
+    const review = store.getReview(key);
+    const waiting = review?.pendingAlert;
+    if (!review || !waiting) return;
+    const turn = turnOf(review);
+    if (turn.group === "needs" && turn.signal === waiting.signal) store.setLifecycle(key, { notifiedSignal: waiting.signal, pendingAlert: null });
+  });
 
   /**
    * Act on the review's turn: alert once per signal (after its re-review is prepared, up to
@@ -466,5 +479,5 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     store.clearFeedbackFetches();
   }
 
-  return { one, all, evaluate, turnOf, resetViewer, health: (): SyncHealth => health, login: () => github.viewer.login(), teams: () => github.viewer.teams(), cachedLogin: () => github.viewer.cachedLogin?.() ?? null };
+  return { one, all, evaluate, seen, turnOf, resetViewer, health: (): SyncHealth => health, login: () => github.viewer.login(), teams: () => github.viewer.teams(), cachedLogin: () => github.viewer.cachedLogin?.() ?? null };
 }

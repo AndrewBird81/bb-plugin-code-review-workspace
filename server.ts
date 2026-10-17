@@ -276,6 +276,8 @@ export default async function plugin(bb: BbPluginApi) {
         return { ok: true };
       },
       async markSeen({ targetKey }: { targetKey: string }) {
+        // Settings says an alert clears when you open its review, so one still waiting for its re-review won't come.
+        await sync.seen(targetKey);
         await notifications.dismiss(targetKey);
         return { ok: true };
       },

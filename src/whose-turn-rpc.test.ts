@@ -87,6 +87,21 @@ test("Snooze until keeps a review in Waiting on author until its time, and snooz
   expect(await call("snoozeReview", { targetKey: "pr-1", snoozed: true, until: Date.now() - 1 })).toEqual({ ok: false, error: "Pick a time in the future." });
 });
 
+// Opening a review clears its alert, which Settings says; one waiting for its re-review is seen too (bug bash SET-4).
+test("opening a review whose alert waits for its re-review records that alert as seen", async () => {
+  const { call, store, published } = await setup();
+  const { signal } = (await call("getReviewBundle", { targetKey: "pr-1" })).review.turn;
+  expect(signal).toBe("re-requested:2000");
+  store.setLifecycle("pr-1", { notifiedSignal: null, pendingAlert: { signal, since: Date.now() } });
+  expect(await call("markSeen", { targetKey: "pr-1" })).toEqual({ ok: true });
+  expect(store.getReview("pr-1")).toMatchObject({ notifiedSignal: signal, pendingAlert: null });
+  expect(published.some((p) => p.method === "dismissActivity" && p.input.id === "activity:guided-review:pr-1")).toBe(true);
+  // An alert waiting for a signal that's no longer the turn's isn't marked seen in its place.
+  store.setLifecycle("pr-1", { notifiedSignal: "requested:1", pendingAlert: { signal: "re-requested:1500", since: Date.now() } });
+  await call("markSeen", { targetKey: "pr-1" });
+  expect(store.getReview("pr-1")).toMatchObject({ notifiedSignal: "requested:1" });
+});
+
 test("the assistant lists your feedback, reads what changed, and records its check", async () => {
   const { tool, call, store } = await setup();
   const listed = await tool("list_feedback", {});
