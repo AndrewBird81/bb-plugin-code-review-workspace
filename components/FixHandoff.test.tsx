@@ -80,8 +80,13 @@ test("a review started with bb review in a thread leads with Send to that thread
   expect(getSourceThread).toHaveBeenCalledWith({ targetKey: "k" });
   expect(region.getByRole("button", { name: "Fix in a new thread" })).toBeTruthy();
   const send = region.getByRole("button", { name: "Send 2 comments to Retry uploads" });
-  // One gap before the title, not a space and the gap (72-hands-on #4).
-  expect(Array.from(send.childNodes).some((node) => node.nodeType === Node.TEXT_NODE && !node.textContent!.trim())).toBe(false);
+  // A word space before the title, not the button's gap, which is twice as wide (72-hands-on #4, 95-recheck): the label
+  // and title share a span without a gap, and the label's trailing space is drawn.
+  const title = within(send).getByText("Retry uploads");
+  const label = title.previousElementSibling!;
+  expect(title.parentElement).not.toBe(send);
+  expect(title.parentElement!.className).not.toMatch(/\bgap-/);
+  expect([label.textContent, label.className]).toEqual(["Send 2 comments to ", expect.stringContaining("whitespace-pre")]);
   fireEvent.click(send);
   const picks = within(slot.getByRole("group", { name: "Comments to send" }));
   fireEvent.click(picks.getByRole("checkbox", { name: /src\/b\.ts:9/ }));

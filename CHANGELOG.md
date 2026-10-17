@@ -19,6 +19,7 @@ Fixes only. An agent in one of your threads can no longer start the review's age
 - **Next review that needs me** defaults to ⌘⇧U (Ctrl+Shift+U), since BB force-reloads on ⌘⇧R, and on the web takes it from the browser's hard reload. A key you set in BB stays yours.
 - **Review PR from clipboard** names the PR it started ("Started a review of acme/web#7: Fix cache keys"), with **Open**, rather than opening it unasked.
 - A comment edited after you sent it to a thread no longer says "Sent to ‹thread›", and one sent under a minute ago says "· 1m" from 45 seconds, not "· 0m".
+- **Send 2 comments to ‹thread›** spaces the thread's title by a word space, not twice that.
 - **Open in editor** shows only on a local review whose diff ends at the checkout (a ref, or a range ending at `HEAD`), so it no longer opens a file from another version.
 - A failed guide update says why under its notice, in up to 3 lines.
 - A guide waiting for its writer's machine to reconnect says so on its page, in its update notice, and in its status line, with Try again, rather than that it failed; once its 10 minutes are up, it reads as failed at once.
