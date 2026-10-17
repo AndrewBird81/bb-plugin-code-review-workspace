@@ -237,3 +237,15 @@ test("Esc closes the sheet wherever the focus is in the review, the dock include
   expect(slot.queryByRole("dialog")).toBeNull();
   slot.lifecycle.unmount();
 });
+
+test("in a pane under 400px, the dock's Comments shows the count alone, so the chapter keeps its title", async () => {
+  const { slot, dock } = await renderPhone();
+  const comments = await dock.findByRole("button", { name: "Comments, 2 to send" });
+  // The workspace is the container the dock's words query (jsdom can't apply it, so this checks the rule's place).
+  const words = within(comments).getByText(/to send/, { normalizer: (text) => text });
+  expect(words.textContent).toBe(" to send");
+  expect(words.className.split(" ")).toContain("@max-[400px]/review:hidden");
+  expect(comments.closest(".\\@container\\/review")).toBeTruthy();
+  expect(comments.textContent).toBe("2 to send");
+  slot.lifecycle.unmount();
+});

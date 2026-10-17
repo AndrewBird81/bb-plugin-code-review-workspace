@@ -106,8 +106,9 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
         onClick={() => comments ? panel.close() : panel.open("comments")}
       >
         <Icon name="MessageSquare" aria-hidden />
-        {/* What will be sent; the dot is what needs you, as the title bar's count is. */}
-        {unsent > 0 && <span aria-hidden className="text-xs font-medium tabular-nums">{unsent} to send</span>}
+        {/* What will be sent, the count alone in a narrow pane, so the chapter keeps its title; the dot is what needs
+            you, as the title bar's count is. */}
+        {unsent > 0 && <span aria-hidden className="text-xs font-medium tabular-nums">{unsent}<span className="@max-[400px]/review:hidden"> to send</span></span>}
         {needsYou > 0 && <span aria-hidden className="absolute right-1.5 top-2 size-2 rounded-full bg-primary ring-2 ring-background" />}
       </Button>
       <Button variant="ghost" aria-label="Ask agent" aria-pressed={panel.view === "agent"} aria-controls={sidePanelId(targetKey)} className={tab} onClick={() => panel.view === "agent" ? panel.close() : askAgent()}>
