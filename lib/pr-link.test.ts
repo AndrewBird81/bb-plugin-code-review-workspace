@@ -12,6 +12,10 @@ test("a link to any page of a PR, or owner/repo#n, names the PR", () => {
     "Acme/Web#42",
   ]) expect(parsePrLink(input)).toEqual(pr);
   expect(parsePrLink("acme/web.js#7")).toEqual({ repo: "acme/web.js", number: 7, url: "https://github.com/acme/web.js/pull/7", name: "acme/web.js#7" });
+  // An Enterprise Managed User's owner holds _ (bug bash FUZ-7).
+  for (const input of ["https://github.com/jdoe_acme/web/pull/7", "jdoe_acme/web#7"]) {
+    expect(parsePrLink(input)).toEqual({ repo: "jdoe_acme/web", number: 7, url: "https://github.com/jdoe_acme/web/pull/7", name: "jdoe_acme/web#7" });
+  }
 });
 
 test("words to find a review by, or anything else, aren't a PR", () => {

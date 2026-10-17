@@ -53,3 +53,7 @@ test.each([
 ])("accepts the PR URL form %s", (url) => {
   expect(parseTarget(url)).toEqual({ kind: "pr", number: 7, repo: "acme/web" });
 });
+
+test("parses a PR url whose owner holds _, as an Enterprise Managed User's does", () => {
+  expect(parseTarget("https://github.com/jdoe_acme/web/pull/7")).toEqual({ kind: "pr", number: 7, repo: "jdoe_acme/web" });
+});

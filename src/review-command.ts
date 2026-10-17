@@ -99,7 +99,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
         return { exitCode: 1, stderr: "Unexpected gh output (could not parse JSON)." };
       }
     }
-    if (!repo || !/^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return { exitCode: 1, stderr: "Couldn't resolve the GitHub repository." };
+    if (!repo || !/^[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return { exitCode: 1, stderr: "Couldn't resolve the GitHub repository." };
     key = targetKey({ ...target, repo });
     if (ownReview !== undefined && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
     meta.targetKey = key;

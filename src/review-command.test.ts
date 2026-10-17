@@ -160,6 +160,13 @@ test("a checkout whose GitHub repository gh can't name says Couldn't, and starts
   expect(store.listReviews()).toEqual([]);
 });
 
+test("a PR number in a checkout whose owner holds _, as an Enterprise Managed User's does, reviews that repository's PR", async () => {
+  const { bb, store } = host();
+  vi.mocked(gh.runGh).mockResolvedValueOnce({ stdout: JSON.stringify({ nameWithOwner: "jdoe_acme/web" }), stderr: "", code: 0 });
+  expect(await runReviewCommand({ bb, store, gh }, ["7"], { projectId: "p1", cwd: process.cwd() })).toMatchObject({ exitCode: 0 });
+  expect(store.getReview(targetKey({ kind: "pr", number: 7, repo: "jdoe_acme/web" }))).toMatchObject({ repo: "jdoe_acme/web", number: 7 });
+});
+
 test("bb review records the thread it ran in as the review's source thread, never this plugin's own agent", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
   await plugin(bb);
