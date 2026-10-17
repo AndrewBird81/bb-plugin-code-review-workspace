@@ -146,8 +146,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
 
   useEffect(() => {
     if (!loaded) return;
-    updateDraftRecovery(targetKey, { composer: body ? { file, line, side, body, revision: composerRevision.current, inline, ...(asking ? { asking } : {}), ...(startLine ? { startLine } : {}), ...(startSide ? { startSide } : {}), ...(summaryBox ? { summary: true } : {}), ...(severity ? { severity } : {}) } : undefined });
-  }, [loaded, targetKey, file, line, side, body, inline, asking, startLine, startSide, summaryBox, severity]);
+    updateDraftRecovery(targetKey, { composer: body ? { file, line, side, body, revision: composerRevision.current, inline, ...(asking ? { asking } : {}), ...(startLine ? { startLine } : {}), ...(startSide ? { startSide } : {}), ...(summaryBox ? { summary: true } : {}), ...(severity ? { severity } : {}), ...(editing && !asking && !summaryBox ? { editing: editing.body } : {}) } : undefined });
+  }, [loaded, targetKey, file, line, side, body, inline, asking, startLine, startSide, summaryBox, severity, editing]);
   useEffect(() => {
     const protect = (event: BeforeUnloadEvent) => { if (body.trim()) event.preventDefault(); };
     window.addEventListener("beforeunload", protect);
@@ -182,7 +182,9 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
         setAsking(comment.asking === true); setStartLine(comment.startLine); setStartSide(comment.startSide); setSummaryBox(comment.summary === true);
         setSeverity(SEVERITIES.find((choice) => choice === comment.severity));
         summaryBase.current = comment.summary ? (result.draft as Draft).body : null;
-        const edited = comment.asking || comment.summary ? null : (result.draft as Draft).comments.find((c) => sameLocation(c, { file: comment.file, line: Number(comment.line), side: comment.side })) ?? null;
+        // An edit stays one only while its comment reads as it did; otherwise a comment at the line is one to replace.
+        const atLine = comment.asking || comment.summary ? null : (result.draft as Draft).comments.find((c) => sameLocation(c, { file: comment.file, line: Number(comment.line), side: comment.side }));
+        const edited = atLine && comment.editing === atLine.body ? atLine : null;
         setEditing(edited);
         openedBody.current = comment.asking ? "" : summaryBase.current ?? edited?.body ?? "";
       }

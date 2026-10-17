@@ -572,3 +572,50 @@ test("Undo after a rebuild doesn't put the removed comment back on the new diff'
   expect(draft.comments).toEqual([]);
   slot.lifecycle.unmount();
 });
+
+// bug bash DFT-4: a box restored after a reload or a remount took any comment at its line as the one it edited, so a new
+// comment's box became an edit of the agent's comment added meanwhile, and Save replaced it unwarned.
+const agents = { file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", chapterId: "c1", body: "Agent: this leaks the handle." };
+function recovered(targetKey: string, composer: Record<string, unknown>) {
+  sessionStorage.setItem(`guided-review:draft-recovery:${targetKey}`, JSON.stringify({ composer: { file: "src/a.ts", line: "2", side: "RIGHT", body: "Mine: rename this.", revision: "r1", ...composer } }));
+  let stored: Record<string, any> = { ...empty(targetKey), comments: [agents] };
+  const saveDraftComment = vi.fn(async ({ comment }: any) => { stored = { ...stored, comments: [comment] }; return { draft: stored, stale: [] }; });
+  return { rpc: { getDraft: () => ({ draft: stored, stale: [] }), saveDraftComment }, saveDraftComment };
+}
+
+test("a new comment's box restored after a reload warns before replacing a comment its line got meanwhile", async () => {
+  const { rpc, saveDraftComment } = recovered("rec-new", {});
+  const { slot, panel } = await renderReview("rec-new", rpc);
+  expect((panel().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("Mine: rename this.");
+  expect(panel().getByText("This line already has a comment. Saving yours replaces it.")).toBeTruthy();
+  fireEvent.click(panel().getByRole("button", { name: "Replace comment" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ replaces: agents.body, comment: expect.objectContaining({ body: "Mine: rename this." }) })));
+  slot.lifecycle.unmount();
+});
+
+test("an edit's box restored after a reload stays an edit of its comment while that reads as it did, and becomes a new box once it doesn't", async () => {
+  const kept = recovered("rec-edit", { editing: agents.body });
+  const first = await renderReview("rec-edit", kept.rpc);
+  expect(first.panel().queryByText("This line already has a comment. Saving yours replaces it.")).toBeNull();
+  fireEvent.click(first.panel().getByRole("button", { name: "Save comment" }));
+  await waitFor(() => expect(kept.saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ replaces: agents.body })));
+  first.slot.lifecycle.unmount();
+  cleanup();
+  // The agent rewrote its comment meanwhile: the box no longer edits it.
+  const changed = recovered("rec-changed", { editing: "Agent: an earlier wording." });
+  const second = await renderReview("rec-changed", changed.rpc);
+  expect(second.panel().getByText("This line already has a comment. Saving yours replaces it.")).toBeTruthy();
+  expect(second.panel().getByRole("button", { name: "Replace comment" })).toBeTruthy();
+  second.slot.lifecycle.unmount();
+});
+
+test("a comment's edit box keeps which comment it edits for a reload", async () => {
+  const { rpc } = recovered("rec-keep", {});
+  sessionStorage.clear();
+  const { slot, panel } = await renderReview("rec-keep", rpc);
+  fireEvent.click(await panel().findByRole("button", { name: /^Expand .*src\/a\.ts:2/ }));
+  fireEvent.click(panel().getByRole("button", { name: "Edit comment on src/a.ts:2" }));
+  fireEvent.change(panel().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Agent: this leaks the file handle." } });
+  await waitFor(() => expect(JSON.parse(sessionStorage.getItem("guided-review:draft-recovery:rec-keep")!).composer).toMatchObject({ body: "Agent: this leaks the file handle.", editing: agents.body }));
+  slot.lifecycle.unmount();
+});

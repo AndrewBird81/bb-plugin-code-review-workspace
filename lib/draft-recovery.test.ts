@@ -7,7 +7,7 @@ const box = { file: "src/a.ts", line: "12", side: "RIGHT" as const, body: "Half 
 const stored = (value: unknown) => sessionStorage.setItem("guided-review:draft-recovery:pr-1", typeof value === "string" ? value : JSON.stringify(value));
 
 test("unsaved text reads back as it was kept, per review", () => {
-  const composer = { ...box, inline: true, asking: false, startLine: 10, startSide: "LEFT" as const, severity: "nit" as const };
+  const composer = { ...box, inline: true, asking: false, startLine: 10, startSide: "LEFT" as const, severity: "nit" as const, editing: "A thought" };
   updateDraftRecovery("pr-1", { composer });
   expect(readDraftRecovery("pr-1")).toEqual({ composer });
   expect(readDraftRecovery("pr-2")).toEqual({});
@@ -17,7 +17,7 @@ test("a kept box of the wrong shape is dropped, not opened", () => {
   for (const composer of [
     { ...box, file: 3 }, { ...box, line: 12 }, { ...box, body: null }, { ...box, side: "UP" }, { ...box, revision: 7 },
     { ...box, inline: "yes" }, { ...box, asking: 1 }, { ...box, summary: "no" }, { ...box, startLine: 1.5 }, { ...box, startLine: "10" },
-    { ...box, startSide: "BOTH" },
+    { ...box, startSide: "BOTH" }, { ...box, editing: true },
   ]) {
     stored({ composer });
     expect(readDraftRecovery("pr-1"), JSON.stringify(composer)).toEqual({});
