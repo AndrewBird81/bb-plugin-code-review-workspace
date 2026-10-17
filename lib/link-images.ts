@@ -24,26 +24,72 @@ export function linkImages(markdown: string): string {
  * `text` without its complete HTML comments: a PR template's or a bot's hidden notes. What's left is judged after, so
  * a tag the removal joins, as `<im<!-- -->g`, shows as text; an unclosed `<!--` shows too.
  */
-const withoutComments = (text: string) => text.replace(/<!--(?:-?>|[\s\S]*?-->)/g, "");
+function withoutComments(text: string): string {
+  let out = "";
+  let from = 0;
+  // Once no `-->` follows one `<!--`, none follows a later one: looking again from each was quadratic.
+  let unclosed = false;
+  for (let at = text.indexOf("<!--"); at >= 0; at = text.indexOf("<!--", at + 1)) {
+    let end = text[at + 4] === ">" ? at + 5 : text.startsWith("->", at + 4) ? at + 6 : -1;
+    if (end < 0 && !unclosed) {
+      const close = text.indexOf("-->", at + 4);
+      unclosed = close < 0;
+      if (close >= 0) end = close + 3;
+    }
+    if (end < 0) continue;
+    out += text.slice(from, at);
+    from = end;
+    at = end - 1;
+  }
+  return out + text.slice(from);
+}
 
 const normalLabel = (label: string) => label.trim().replace(/\s+/g, " ").toLowerCase();
 const imageLabel = (alt: string) => alt.trim() ? `Image: ${alt.trim()}` : "Image";
 
-/** `text` and then `link`: a `!` ending the text is escaped, so that with a link's `[` it isn't an image. */
-const thenLink = (text: string, link: string) => link.startsWith("[") && /(^|[^\\])(\\\\)*!$/.test(text) ? `${text.slice(0, -1)}\\!${link}` : text + link;
+/**
+ * `link` added to `parts`, the text before it: a `!` ending that text is escaped, so that with a link's `[` it isn't an
+ * image. Only the parts' ends are read: reading the end of one string built up piece by piece copies all of it.
+ */
+function pushLink(parts: string[], link: string): void {
+  if (link.startsWith("[") && endsInBang(parts)) parts[parts.length - 1] = `${parts[parts.length - 1].slice(0, -1)}\\!`;
+  if (link) parts.push(link);
+}
+
+/** Whether `parts`, none of them empty, end in a `!` that no `\` escapes. */
+function endsInBang(parts: string[]): boolean {
+  let part = parts.length - 1;
+  if (part < 0 || !parts[part].endsWith("!")) return false;
+  let at = parts[part].length - 1;
+  let escaped = false;
+  for (;;) {
+    while (--at < 0) {
+      if (--part < 0) return !escaped;
+      at = parts[part].length;
+    }
+    if (parts[part][at] !== "\\") return !escaped;
+    escaped = !escaped;
+  }
+}
 
 /**
  * Each `<img>`, `<video>` and `<source>` in `text` as links to what it would load, the media BB's HTML allows. A video
  * is replaced even without a url, so the links of its `<source>`s show rather than sit in a player as fallback.
  */
 function linkHtmlMedia(text: string): string {
-  let out = "";
+  const parts: string[] = [];
   let from = 0;
-  for (const { 0: tag, 1: name, index } of text.matchAll(/<(img|video|source)\b[^>]*>/gi)) {
-    out = thenLink(out + text.slice(from, index), htmlMediaLink(name.toLowerCase(), tag));
-    from = index + tag.length;
+  const head = /<(img|video|source)\b/gi;
+  for (let match; (match = head.exec(text));) {
+    // A tag runs to the first `>`; when none follows, no later tag closes either.
+    const close = text.indexOf(">", head.lastIndex);
+    if (close < 0) break;
+    if (match.index > from) parts.push(text.slice(from, match.index));
+    pushLink(parts, htmlMediaLink(match[1].toLowerCase(), text.slice(match.index, close + 1)));
+    from = head.lastIndex = close + 1;
   }
-  return out + text.slice(from);
+  parts.push(text.slice(from));
+  return parts.join("");
 }
 
 /**
@@ -71,24 +117,64 @@ function htmlMediaLink(name: string, tag: string): string {
 /** A url as a link's destination, in angle brackets when it has spaces or parentheses. */
 const destination = (url: string) => /[\s()<>]/.test(url) ? `<${url.replace(/[<>\n]/g, encodeURIComponent)}>` : url;
 
-/** The index just past the `]` that closes the `[` at `open`, or -1. */
-function closeBracket(text: string, open: number): number {
-  let depth = 0;
-  for (let i = open; i < text.length; i++) {
-    if (text[i] === "\\") { i++; continue; }
-    if (text[i] === "[") depth++;
-    else if (text[i] === "]" && --depth === 0) return i + 1;
-  }
-  return -1;
-}
-
 /**
  * `![alt](url)` and `![alt][ref]` as `[Image: alt](url)` and `[Image: alt][ref]`; `![alt][]` and `![alt]`, whose label
- * is the alt, keep it as the reference. Inside a link's text, where a link can't go, an image is its words. Any other
- * `![`, as one whose definition sits in a quote or a list, has its `!` escaped: at most a link, never an image.
+ * is the alt, keep it as the reference. Inside a link's text, or an image's alt, where a link can't go, an image is its
+ * words. Any other `![`, as one whose definition sits in a quote or a list, has its `!` escaped: at most a link, never an
+ * image. Each `![` is weighed once and each alt read once, so no nesting or run of openers stalls the page.
  */
 function linkMarkdownImages(text: string, labels: Set<string>): string {
-  let out = "";
+  if (!text.includes("![")) return text;
+  const { bracket, paren, holdsSquare } = pairing(text);
+
+  /** The image the `![` at `at` begins, its whole within `stop`: where its alt's `]` and the image end; or null. */
+  const imageAt = (at: number, stop: number) => {
+    const end = bracket(at + 1);
+    if (end < 0) return null;
+    const next = end < stop ? text[end] : "";
+    // A definition's label holds no `]`, so an alt with one is never its own reference.
+    const after = next === "(" ? paren(end) : next === "[" ? bracket(end)
+      : !holdsSquare(at + 2, end - 1) && labels.has(normalLabel(text.slice(at + 2, end - 1))) ? end : -1;
+    return after > 0 && after <= stop ? { end, after } : null;
+  };
+
+  /** The label of the image whose alt runs from `start` to `stop`, its brackets dropped and each image in it its words. */
+  const labelOf = (start: number, stop: number): string => {
+    // The alts being read, innermost last: each one's text before its first image, from there to the end of its last
+    // image, and after that.
+    const alts = [{ at: start, from: start, stop, before: "", images: "", after: "" }];
+    const own = (alt: typeof alts[number], piece: string) => {
+      if (alt.images) alt.after += piece.replace(/[[\]]/g, "");
+      else alt.before += piece.replace(/[[\]]/g, "");
+    };
+    for (;;) {
+      const alt = alts[alts.length - 1];
+      let image: { end: number; after: number } | null = null;
+      let at = alt.at;
+      for (; at < alt.stop; at++) {
+        if (text[at] === "\\") { at++; continue; }
+        if (text[at] !== "!" || text[at + 1] !== "[") continue;
+        if ((image = imageAt(at, alt.stop))) break;
+        own(alt, `${text.slice(alt.from, at)}\\!`);
+        alt.from = at + 1;
+      }
+      if (image) {
+        own(alt, text.slice(alt.from, at));
+        alt.at = alt.from = image.after;
+        alts.push({ at: at + 2, from: at + 2, stop: image.end - 1, before: "", images: "", after: "" });
+        continue;
+      }
+      own(alt, text.slice(alt.from, alt.stop));
+      const label = alt.images ? `Image: ${alt.before.trimStart()}${alt.images}${alt.after.trimEnd()}` : imageLabel(alt.before);
+      alts.pop();
+      const outer = alts[alts.length - 1];
+      if (!outer) return label;
+      outer.images += outer.after + label;
+      outer.after = "";
+    }
+  };
+
+  const parts: string[] = [];
   let from = 0;
   // `[`s still open: an image after one is inside what may be a link's text.
   let open = 0;
@@ -98,46 +184,81 @@ function linkMarkdownImages(text: string, labels: Set<string>): string {
     if (char === "]" && open) { open--; continue; }
     if (char === "[") { open++; continue; }
     if (char !== "!" || text[i + 1] !== "[") continue;
-    const end = closeBracket(text, i + 1);
-    if (end < 0) { out += text.slice(from, i) + "\\!"; from = i + 1; continue; }
+    const image = imageAt(i, text.length);
+    const before = text.slice(from, i) + (image ? "" : "\\!");
+    if (before) parts.push(before);
+    if (!image) { from = i + 1; continue; }
+    const { end, after } = image;
+    const label = labelOf(i + 2, end - 1);
     const alt = text.slice(i + 2, end - 1);
-    const label = imageLabel(linkMarkdownImages(alt, labels).replace(/[[\]]/g, ""));
-    const next = text[end];
-    let replaced: string | null = null;
-    let after = end;
-    if (next === "(") {
-      after = closeParen(text, end);
-      if (after > 0) replaced = open ? label : `[${label}]${text.slice(end, after)}`;
-    } else if (next === "[") {
-      after = closeBracket(text, end);
-      const ref = after > 0 ? text.slice(end + 1, after - 1) : "";
-      if (after > 0) replaced = open ? label : `[${label}][${ref.trim() ? ref : alt}]`;
-    } else if (labels.has(normalLabel(alt))) {
-      replaced = open ? label : `[${label}][${alt}]`;
-    }
-    if (replaced === null) { out += text.slice(from, i) + "\\!"; from = i + 1; continue; }
-    out = thenLink(out + text.slice(from, i), replaced);
+    const ref = text[end] === "[" ? text.slice(end + 1, after - 1) : "";
+    pushLink(parts, open ? label : text[end] === "(" ? `[${label}]${text.slice(end, after)}` : `[${label}][${ref.trim() ? ref : alt}]`);
     from = after;
     i = after - 1;
   }
-  return out + text.slice(from);
+  parts.push(text.slice(from));
+  return parts.join("");
 }
 
-/** The index just past the `)` that closes the `(` at `open`, skipping a `<…>` destination and quoted title; or -1. */
-function closeParen(text: string, open: number): number {
-  let depth = 0;
-  let quote: string | null = null;
-  for (let i = open; i < text.length; i++) {
+/**
+ * Where `text`'s brackets and parentheses close, each worked out once: looking anew from each opener read to the end
+ * for every one that never closed. `\` escapes the character after it.
+ */
+function pairing(text: string) {
+  const length = text.length;
+  // Each `[`'s close, the index just past its `]`, or -1; and each `(`'s inside a destination's parentheses, where
+  // nothing else counts and a blank line ends it.
+  const brackets = new Int32Array(length).fill(-1);
+  const parens = new Int32Array(length).fill(-1);
+  const squares: number[] = [];
+  const rounds: number[] = [];
+  for (let i = 0; i < length; i++) {
     const char = text[i];
-    if (char === "\\") { i++; continue; }
-    if (quote) { if (char === quote) quote = null; continue; }
-    if (char === "<" && depth === 1) { const close = text.indexOf(">", i); if (close > 0) { i = close; continue; } }
-    if ((char === '"' || char === "'") && depth === 1 && /\s/.test(text[i - 1])) { quote = char; continue; }
-    if (char === "(") depth++;
-    else if (char === ")" && --depth === 0) return i + 1;
-    else if (char === "\n" && text[i + 1] === "\n") return -1;
+    if (char === "\\") i++;
+    else if (char === "[") squares.push(i);
+    else if (char === "]") { if (squares.length) brackets[squares.pop()!] = i + 1; }
+    else if (char === "(") rounds.push(i);
+    else if (char === ")") { if (rounds.length) parens[rounds.pop()!] = i + 1; }
+    else if (char === "\n" && text[i + 1] === "\n") rounds.length = 0;
   }
-  return -1;
+  // The first `>`, and the first `]`, at or after each index.
+  const greater = new Int32Array(length + 1).fill(-1);
+  const square = new Int32Array(length + 1).fill(length);
+  for (let i = length - 1; i >= 0; i--) {
+    greater[i] = text[i] === ">" ? i : greater[i + 1];
+    square[i] = text[i] === "]" ? i : square[i + 1];
+  }
+  // `paren`'s answer from each index at the destination's own depth, outside a title (0), in a "…" one (1) or in a
+  // '…' one (2); -2 until known. Every opener's search that reaches the same place goes on alike, so each is read once.
+  const ends = new Int32Array(3 * length).fill(-2);
+
+  /**
+   * The index just past the `)` that closes the `(` at `open`, skipping a `<…>` destination and a quoted title; or -1
+   * at a blank line or the end.
+   */
+  const paren = (open: number): number => {
+    const seen: number[] = [];
+    let title = 0;
+    let end = -1;
+    for (let i = open + 1; i < length;) {
+      const key = 3 * i + title;
+      if (ends[key] !== -2) { end = ends[key]; break; }
+      seen.push(key);
+      const char = text[i];
+      if (char === "\\") i += 2;
+      else if (title) { if (char === (title === 1 ? '"' : "'")) title = 0; i++; }
+      else if (char === "<" && greater[i] >= 0) i = greater[i] + 1;
+      else if ((char === '"' || char === "'") && /\s/.test(text[i - 1])) { title = char === '"' ? 1 : 2; i++; }
+      else if (char === "(") { if (parens[i] < 0) break; i = parens[i]; }
+      else if (char === ")") { end = i + 1; break; }
+      else if (char === "\n" && text[i + 1] === "\n") break;
+      else i++;
+    }
+    for (const key of seen) ends[key] = end;
+    return end;
+  };
+
+  return { bracket: (open: number) => brackets[open], paren, holdsSquare: (from: number, to: number) => square[from] < to };
 }
 
 /**

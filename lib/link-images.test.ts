@@ -249,6 +249,32 @@ test("a link after a `!` doesn't make a new image", () => {
   expect(linkImages("\\!![x](a.png)")).toBe("\\![Image: x](a.png)");
 });
 
+// Each `![`'s label was worked out, by reading its alt again, before it was known to be an image, so nested ones cost
+// 2^depth; and each opener that never closed read on to the end (bug bash SEC-3).
+test("nested image openers that close nothing are read in linear time", () => {
+  const started = performance.now();
+  const out = linkImages(`${"![".repeat(24)}${"]".repeat(24)}`);
+  expect(performance.now() - started).toBeLessThan(100);
+  expect(out).not.toMatch(/(^|[^\\])!\[/);
+}, 60_000);
+
+test("long runs of openers that close nothing, and of images, are read in linear time", () => {
+  for (const unit of ["![", "![a](", "![a][b", "![[", "<img ", "<!--", "![a](x '", "![a](<", "![a](u)", "<img src=u>"]) {
+    const started = performance.now();
+    linkImages(unit.repeat(Math.ceil(64_000 / unit.length)));
+    expect(performance.now() - started, unit).toBeLessThan(250);
+  }
+}, 60_000);
+
+test("an image in an image's alt text is its words, however deep", () => {
+  expect(linkImages("![a ![b](u) c](v)")).toBe("[Image: a Image: b c](v)");
+  expect(linkImages("[![a ![b][] c](v)](w)")).toBe("[Image: a Image: b c](w)");
+  // Thousands deep, it neither runs out of stack nor grows its label with each level's text.
+  const out = linkImages(`${"![".repeat(10_000)}x${"][]".repeat(10_000)}`);
+  expect(out.length).toBeLessThan(200_000);
+  expect(out).toMatch(/^\[(Image: ){10000}x\]/);
+});
+
 test("text with no image or HTML, an escaped one, or a plain link is unchanged", () => {
   for (const text of ["Plain words.", "[a link](https://a.example)", "\\![not](an image)", "Ends with !", ""]) expect(linkImages(text)).toBe(text);
 });
