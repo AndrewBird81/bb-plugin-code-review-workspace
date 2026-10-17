@@ -586,6 +586,50 @@ test("discovery only fills the list the first time for an account", async () => 
   expect(s.published).toHaveLength(0);
 });
 
+// A look whose search widened finds what was already there: like a first look, it only fills the list (bug bash SRV-4).
+test("turning on Include team requests fills the list with your teams' old requests, without starting their guides", async () => {
+  const s = setup({ preferences: { autoStartRepos: ["acme/*"] } });
+  await s.sync.all(); // discovery's first look for this account
+  // Your team was asked for these reviews days ago.
+  const old = [5, 6, 7, 8].map((number) => ({ repo: "acme/api", number, title: `Team PR ${number}`, url: `https://github.com/acme/api/pull/${number}`, author: "bob", updatedAt: 1, isDraft: false, requested: true, reviewed: false }));
+  vi.mocked(s.github.discover).mockImplementation(async ({ teams }) => teams ? old : []);
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, ref.number === 1 ? facts(ref) : facts(ref, {
+    requestPending: { via: "team", team: "acme/api-core" }, requests: [{ at: T0 - 72 * HOUR, by: "bob", via: "team", team: "acme/api-core" }],
+  })])));
+  s.at(1);
+  s.store.savePreferences({ ...defaultPreferences, autoStartRepos: ["acme/*"], trackTeamRequests: true }, 1);
+  await s.sync.all(true);
+  expect(s.store.listReviews().filter((r) => r.status === "tracked")).toHaveLength(4);
+  // Like discovery's first look, requests from before you turned it on are history: no guide runs for each.
+  expect(s.actions.autoStart).not.toHaveBeenCalled();
+  await completionNotifications(s.bb, s.store).flush();
+  expect(s.published).toHaveLength(0);
+  // A team request after that look is new: it starts its guide.
+  vi.mocked(s.github.discover).mockImplementation(async ({ teams }) => teams ? [...old, { ...old[0], number: 9, title: "Team PR 9", url: "https://github.com/acme/api/pull/9" }] : []);
+  s.at(2);
+  await s.sync.all(true);
+  expect(s.actions.autoStart).toHaveBeenCalledTimes(1);
+});
+
+test("turning on Include PRs you've reviewed fills the list with what you reviewed, without starting guides or alerting", async () => {
+  const s = setup({ preferences: { autoStartRepos: ["acme/*"], knobs: { ...defaultPreferences.knobs, trackReviewedPrs: false } } });
+  await s.sync.all(); // discovery's first look for this account
+  // PRs you reviewed, re-requested days ago.
+  const old = [5, 6].map((number) => ({ repo: "acme/api", number, title: `Reviewed PR ${number}`, url: `https://github.com/acme/api/pull/${number}`, author: "bob", updatedAt: 1, isDraft: false, requested: number === 6, reviewed: true }));
+  vi.mocked(s.github.discover).mockImplementation(async ({ reviewed }) => reviewed ? old : []);
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, ref.number === 1 ? facts(ref) : facts(ref, {
+    myReviews: [review("CHANGES_REQUESTED", T0 - 96 * HOUR)], requestPending: ref.number === 6 ? { via: "user" } : null, requests: ref.number === 6 ? [{ at: T0 - 72 * HOUR, by: "bob", via: "user" }] : [],
+  })])));
+  s.at(1);
+  s.store.savePreferences({ ...defaultPreferences, autoStartRepos: ["acme/*"] }, 1);
+  await s.sync.all(true);
+  expect(s.store.listReviews().filter((r) => r.status === "tracked")).toHaveLength(2);
+  expect(s.actions.autoStart).not.toHaveBeenCalled();
+  expect(s.actions.prepare).not.toHaveBeenCalled();
+  await completionNotifications(s.bb, s.store).flush();
+  expect(s.published).toHaveLength(0);
+});
+
 test("re-reviews of PRs found on GitHub start guides only in auto-start repositories", async () => {
   const s = setup({ reviewed: true });
   s.store.setStatus("pr-1", "tracked");

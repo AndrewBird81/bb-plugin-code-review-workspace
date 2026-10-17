@@ -65,7 +65,7 @@ const ALERT_WAIT = 10 * MINUTE;
 /** How long pushes must settle before the assistant checks them. */
 const PUSH_QUIET = 15 * MINUTE;
 const DISCOVER_EVERY = 5 * MINUTE;
-/** The account discovery last ran for; its first run only fills the list. */
+/** The account discovery last ran for, and whether it looked for team requests; its first run only fills the list. */
 const DISCOVERED = "discovery:account";
 /** Raise when the turn rules change what counts as an event (0.5.0: non-blocking threads, mentions, CI that never reports). */
 const TURN_RULES = 5;
@@ -406,7 +406,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
 
   /**
    * Add PRs you're asked to review, or have reviewed, on GitHub. The first look for each account
-   * (and after tracking is turned back on) only fills the list; later requests alert. A failure
+   * (and after tracking is turned back on) only fills the list, as does a look whose search widened;
+   * later requests alert. A failure
    * recorded before `since` that a good look disproves is cleared.
    */
   async function discover(since: number): Promise<void> {
@@ -424,7 +425,11 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     if (error && error.at < since && (error.kind === "auth" || error.kind === "rate-limit" || error.kind === "gh-missing" || error.kind === "other")) health = { ...health, error: null };
     const projectId = await actions.projectId();
     if (!projectId || disposed) return;
-    const first = (await bb.storage.kv.get<{ login: string }>(DISCOVERED))?.login !== login;
+    const last = await bb.storage.kv.get<{ login: string; teams?: boolean }>(DISCOVERED);
+    const first = last?.login !== login;
+    // Team requests come from the same search as yours, so the look that first includes them adds no new request.
+    // PRs you've reviewed come from a search of their own, and never count as new requests.
+    const widened = trackTeamRequests && last?.teams === false;
     const added: string[] = [];
     // A renamed or transferred repository's PRs are already here under their old name, with their new URL.
     const urls = new Set(store.listReviews().map((r) => r.url?.toLowerCase()).filter(Boolean));
@@ -432,10 +437,10 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       const key = keyFor({ kind: "pr", number: pr.number, repo: pr.repo });
       if (store.getReview(key) || store.isDiscoveryIgnored(key) || urls.has(pr.url.toLowerCase())) continue;
       store.saveReview({ targetKey: key, kind: "pr", number: pr.number, repo: pr.repo, title: pr.title, author: pr.author ?? undefined, url: pr.url, status: "tracked", createdAt: clock(), projectId });
-      if (!first && pr.requested && !pr.reviewed) store.setLifecycle(key, { newRequest: true });
+      if (!first && !widened && pr.requested && !pr.reviewed) store.setLifecycle(key, { newRequest: true });
       added.push(key);
     }
-    await bb.storage.kv.set(DISCOVERED, { login, at: clock() });
+    await bb.storage.kv.set(DISCOVERED, { login, at: clock(), teams: trackTeamRequests });
     if (!added.length) return;
     await read(added);
     bb.realtime.publish("reviews", { ts: clock() });
