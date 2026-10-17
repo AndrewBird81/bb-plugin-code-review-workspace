@@ -258,6 +258,17 @@ test("bb review from one of your threads approves agents on a PR's head only whe
     expect(await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1", threadId: "coder" })).toMatchObject({ exitCode: 0 });
     expect(store.getReview(key)?.approvedHead).toBe("abc123");
     expect(vi.mocked(gh.runGh).mock.calls.some(([args]) => args[1] === "graphql")).toBe(false);
+    // A review already building, or up to date, just opens, so its author's trust isn't asked for either.
+    for (const status of ["generating", "ready"] as const) {
+      const { bb, store } = host();
+      store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status, createdAt: 1, projectId: "p1", headSha: "abc123" });
+      store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+n\n");
+      store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
+      answering({ authorAssociation: "CONTRIBUTOR" });
+      vi.mocked(gh.runGh).mockClear();
+      expect((await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1", threadId: "coder" })).stdout, status).toMatch(/already building|up to date/);
+      expect(vi.mocked(gh.runGh).mock.calls.some(([args]) => args[1] === "graphql"), status).toBe(false);
+    }
   } finally {
     vi.mocked(gh.runGh).mockImplementation(base);
   }
