@@ -1050,9 +1050,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [rootEl]);
   const outsideGuide = useCallback((file: string, url: string | null) => {
     if (sections.some((section: any) => section.diffs.some((diff: any) => diff.file === file))) return false;
-    toast.info(`${file} isn’t changed in this PR anymore.`, url ? { action: { label: "Open on GitHub", onClick: () => navigateRef.current.openUrl(url) } } : undefined);
+    toast.info(isPr ? `${file} isn’t changed in this PR anymore.` : `${file} isn’t in this diff anymore.`, url ? { action: { label: "Open on GitHub", onClick: () => navigateRef.current.openUrl(url) } } : undefined);
     return true;
-  }, [sections]);
+  }, [sections, isPr]);
   // A line from Comments, a thread, Find or Start here: the whole diff, so the line is there, unless it wasn't narrowed,
   // nor about to be. Without a line, the file.
   const showLocation = useCallback((file: string, line: number | null, side: "LEFT" | "RIGHT", url: string | null = null) => {

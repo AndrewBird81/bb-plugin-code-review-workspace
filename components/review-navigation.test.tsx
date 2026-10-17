@@ -817,6 +817,15 @@ test("a local review's Comments has no Feedback or Threads, and the agent goes b
   slot.lifecycle.unmount();
 }, 15_000);
 
+// bug bash RDG-7: a local review has no PR, so a place in a file it no longer changes isn't "changed in this PR".
+test("a local review says a file outside every chapter isn't in this diff anymore", async () => {
+  patchReviewState("pr-42", { activeId: "overview" });
+  const { slot } = await renderWorkspace({ review: { kind: "ref", targetKey: "pr-42" }, bundle: { guide: { ...guide, hotspots: [{ file: "src/gone.ts", line: 2, why: "Never closed." }] } } });
+  fireEvent.click(within(await slot.findByRole("region", { name: "Start here" })).getByRole("button", { name: "src/gone.ts:2" }));
+  expect(toast.info).toHaveBeenCalledWith("src/gone.ts isn’t in this diff anymore.", undefined);
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("t shows and hides the chapters, c Comments, and i folds comments in code, a choice kept for every review", async () => {
   const { slot } = await renderWorkspace();
   await slot.findByText("aa");
