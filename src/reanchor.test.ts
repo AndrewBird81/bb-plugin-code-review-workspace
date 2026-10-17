@@ -114,3 +114,38 @@ test("re-anchoring 50 comments with no stored code on a 2,000-file diff parses e
   expect(reanchorAll(store, "k", patch, patch)).toHaveLength(50);
   expect(parses.count).toBeLessThanOrEqual(2);
 });
+
+// bug bash DFT-2: a line whose code, with indentation dropped, matched another's at the same number counted as the
+// same, so a comment on a function's `}` landed on an inner block's `}` after a commit added a line above it.
+const added = (lines: string[]) => `diff --git a/a.ts b/a.ts\nnew file mode 100644\n--- /dev/null\n+++ b/a.ts\n@@ -0,0 +1,${lines.length} @@\n${lines.map((l) => `+${l}`).join("\n")}\n`;
+const fn = added(["function a() {", "  if (x) {", "    y();", "  }", "}"]);
+const fnGrown = added(["function a() {", "  if (x) {", "    y();", "    z();", "  }", "}"]);
+
+function rebuilt(comment: { line: number; startLine?: number; body: string }) {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-test", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, headSha: "sha1" });
+  store.savePatch("pr-test", fn);
+  store.upsertDraftComment("pr-test", { file: "a.ts", side: "RIGHT", ...comment });
+  // As rebuildReview does for a new commit.
+  store.savePatch("pr-test", fnGrown);
+  store.rebaseDraftComments("pr-test", reanchorAll(store, "pr-test", fn, fnGrown));
+  return { moved: store.getDraft("pr-test").comments[0], stale: store.staleDraftComments("pr-test").length > 0 };
+}
+
+test("a comment on a function's closing brace follows it, not an inner block's brace, after a rebuild", () => {
+  expect(rebuilt({ line: 5, body: "a() never returns a value." })).toMatchObject({ moved: { line: 6 }, stale: false });
+});
+
+test("a suggestion over a whole function keeps covering the function after a rebuild", () => {
+  expect(rebuilt({ startLine: 1, line: 5, body: "```suggestion\nconst a = () => x && y();\n```" })).toMatchObject({ moved: { startLine: 1, line: 6 }, stale: false });
+});
+
+test("code found more than once is the same line only where the lines around it are too", () => {
+  const blocks = added(["if (a) {", "  x();", "}", "if (b) {", "  y();", "}"]);
+  // y() became z(), so the `}` on line 6 has a new neighbour, and the file has another `}`.
+  const changed = blocks.replace("+  y();", "+  z();");
+  expect(reanchor({ file: "a.ts", line: 6, side: "RIGHT" }, blocks, blocks)).toEqual({ status: "same" });
+  expect(reanchor({ file: "a.ts", line: 6, side: "RIGHT" }, blocks, changed)).toEqual({ status: "lost" });
+  expect(reanchor({ file: "a.ts", line: 2, side: "RIGHT" }, blocks, changed)).toEqual({ status: "same" });
+});

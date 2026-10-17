@@ -29,16 +29,27 @@ export function reanchor(comment: AnchoredComment, previousPatch: string, curren
 
 /** reanchor, given both diffs' positions, for placing many comments with one parse of each diff. */
 export function reanchorIn(comment: AnchoredComment, previous: Map<string, FilePositions>, current: Map<string, FilePositions>): Reanchored {
-  const code = comment.code ?? sideLines(previous, comment.file, comment.side)?.get(comment.line);
+  const before = sideLines(previous, comment.file, comment.side);
+  const code = comment.code ?? before?.get(comment.line);
   if (code === undefined) return { status: "lost" };
   const lines = sideLines(current, comment.file, comment.side);
   if (!lines) return { status: "lost" };
-  const want = normalize(code);
-  const at = lines.get(comment.line);
-  if (at !== undefined && normalize(at) === want) return { status: "same" };
-  const distances = [...lines].filter(([, text]) => normalize(text) === want).map(([n]) => ({ n, d: Math.abs(n - comment.line) }));
-  if (!distances.length) return { status: "lost" };
+  const n = comment.line;
+  // A line whose code is common, such as `}` or a blank, is the same one only where the lines around it are too.
+  const sameAround = before !== undefined && (before.has(n - 1) || before.has(n + 1))
+    && before.get(n - 1) === lines.get(n - 1) && before.get(n + 1) === lines.get(n + 1);
+  if (lines.get(n) === code && sameAround) return { status: "same" };
+  // The exact code, indentation included; re-indented code only when that's nowhere.
+  let matches = [...lines].filter(([, text]) => text === code);
+  if (!matches.length) {
+    const want = normalize(code);
+    matches = [...lines].filter(([, text]) => normalize(text) === want);
+  }
+  if (!matches.length) return { status: "lost" };
+  const distances = matches.map(([line]) => ({ line, d: Math.abs(line - n) }));
   const best = distances.reduce((min, c) => Math.min(min, c.d), Infinity);
   const nearest = distances.filter((c) => c.d === best);
-  return nearest.length === 1 ? { status: "moved", line: nearest[0].n } : { status: "lost" };
+  if (nearest.length > 1) return { status: "lost" };
+  if (nearest[0].line !== n) return { status: "moved", line: nearest[0].line };
+  return matches.length === 1 ? { status: "same" } : { status: "lost" };
 }
