@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore } from "./store";
+import { createStore, reanchorAll } from "./store";
 import { createReviewSubmitter } from "./submit-review";
 import type { runGh } from "./gh";
 import { reviewRevision } from "./review-revision";
@@ -116,6 +116,47 @@ test("concurrent submit clicks send one write and retain edits made during the r
   expect(await first).toEqual({ ok: true });
   expect(run).toHaveBeenCalledTimes(2);
   expect(store.getDraft("pr-test")).toMatchObject({ body: "A new summary", comments: [{ body: "Edited while sending" }] });
+});
+
+// bug bash DFT-1: a rebuild during the POST moves the draft's comments; the ones sent mustn't stay to be posted again.
+const twoLines = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n";
+/** A submit of the draft's comment on line 2 whose POST waits for `finish`. */
+async function postingOnLine2(store: ReturnType<typeof createStore>) {
+  store.savePatch("pr-test", twoLines);
+  store.deleteDraftComment("pr-test", { file: "a.ts", line: 1, side: "RIGHT" });
+  store.upsertDraftComment("pr-test", { file: "a.ts", line: 2, side: "RIGHT", body: "Please explain this" });
+  let finish!: (value: Awaited<ReturnType<typeof runGh>>) => void;
+  const run = vi.fn<typeof runGh>(async (args) => args[0] === "pr"
+    ? { code: 0, stderr: "", stdout: '{"headRefOid":"sha1"}' }
+    : new Promise((resolve) => { finish = resolve; }));
+  const { comments, body, verdict } = store.getDraft("pr-test");
+  const sending = createReviewSubmitter(store, run)("pr-test", undefined, undefined, comments, { body, verdict });
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+  return { sending, finish: () => finish({ code: 0, stderr: "", stdout: '{"id":12,"node_id":"R_1"}' }) };
+}
+
+test("comments a rebuild moved while Submit posted them don't stay in the draft to be posted again", async () => {
+  const { store } = setup();
+  const post = await postingOnLine2(store);
+  // The sync's rebuild for a new commit that adds a line above, as rebuildReview does it, lands while GitHub answers.
+  const next = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,3 @@\n+top\n ctx\n-old\n+new\n";
+  const previous = store.patch("pr-test");
+  store.savePatch("pr-test", next);
+  store.saveReview({ ...store.getReview("pr-test")!, status: "generating", headSha: "sha2" });
+  store.rebaseDraftComments("pr-test", reanchorAll(store, "pr-test", previous, next));
+  expect(store.getDraft("pr-test").comments[0].line).toBe(3);
+  post.finish();
+  expect(await post.sending).toEqual({ ok: true });
+  expect(store.getDraft("pr-test").comments).toEqual([]);
+});
+
+test("a comment like a submitted one, added on another line while Submit posted, stays in the draft", async () => {
+  const { store } = setup();
+  const post = await postingOnLine2(store);
+  store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "RIGHT", body: "Please explain this" });
+  post.finish();
+  expect(await post.sending).toEqual({ ok: true });
+  expect(store.getDraft("pr-test").comments).toEqual([{ file: "a.ts", line: 1, side: "RIGHT", body: "Please explain this" }]);
 });
 
 test("re-review cannot silently reuse comments whose line still exists in a changed diff", async () => {

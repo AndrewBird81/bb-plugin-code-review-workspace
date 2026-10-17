@@ -693,7 +693,13 @@ export function createStore(bb: BbPluginApi): Store {
     },
     clearSubmittedDraft(submitted) {
       const current = this.getDraft(submitted.targetKey);
-      current.comments = current.comments.filter((c) => !submitted.comments.some((old) => JSON.stringify(old) === JSON.stringify(c)));
+      // A rebuild during the POST may have moved a submitted comment: one unchanged but for its lines is the same comment.
+      const placeless = (c: DraftComment) => JSON.stringify([c.file, c.side, c.startSide, c.body, c.severity, c.introduced, c.author]);
+      for (const old of submitted.comments) {
+        let index = current.comments.findIndex((c) => JSON.stringify(c) === JSON.stringify(old));
+        if (index < 0) index = current.comments.findIndex((c) => placeless(c) === placeless(old));
+        if (index >= 0) current.comments.splice(index, 1);
+      }
       if (current.body === submitted.body && current.verdict === submitted.verdict) {
         current.body = "";
         current.verdict = "COMMENT";
