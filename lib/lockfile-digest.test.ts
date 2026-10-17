@@ -124,6 +124,12 @@ test("Gemfile.lock, uv.lock, Package.resolved, Cargo.lock and bun.lock name an a
     '+      "location" : "https://git.evil.test/Alamofire/Alamofire.git",',
   ]))?.hosts).toEqual(["git.evil.test"]);
   expect(lockfileDigest("Package.resolved", diff(['-        "repositoryURL": "https:\\/\\/github.com\\/a\\/b",', '+        "repositoryURL": "git@evil.test:a/b.git",']))?.hosts).toEqual(["evil.test"]);
+  // A new pin on GitHub, as most Swift packages are, isn't a new host (70-review-correctness #4).
+  expect(lockfileDigest("Package.resolved", diff([
+    '+      "identity" : "swift-log",',
+    '+      "kind" : "remoteSourceControl",',
+    '+      "location" : "https://github.com/apple/swift-log.git",',
+  ]))).toBeNull();
   expect(lockfileDigest("Cargo.lock", diff([
     '+name = "serde"',
     '+source = "registry+https://github.com/rust-lang/crates.io-index"',

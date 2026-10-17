@@ -46,12 +46,14 @@ const FORMATS: Record<string, Format> = {
   gem: { registries: ["rubygems.org"] },
   python: { registries: PYPI },
   bun: { registries: ["registry.npmjs.org"] },
+  // Most Swift packages are pinned at their GitHub repository, so a new one there needs no word, as in composer.
+  swift: { registries: ["github.com"] },
   other: { registries: [] },
 };
 const FORMAT_OF: Record<string, keyof typeof FORMATS> = {
   "package-lock.json": "npm", "npm-shrinkwrap.json": "npm", "yarn.lock": "yarn", "pnpm-lock.yaml": "pnpm",
   "cargo.lock": "cargo", "poetry.lock": "poetry", "go.sum": "go", "composer.lock": "composer", "gemfile.lock": "gem",
-  "uv.lock": "python", "pipfile.lock": "python", "bun.lock": "bun", "flake.lock": "other", "package.resolved": "other",
+  "uv.lock": "python", "pipfile.lock": "python", "bun.lock": "bun", "flake.lock": "other", "package.resolved": "swift",
 };
 
 /** A URL's host and path, lowercase: "scheme://[user@]host[:port]/path", or git's "user@host:path". */
