@@ -14,14 +14,24 @@ const RESTART_WAIT = 10 * 60_000;
 
 /**
  * Start an interrupted guide's rebuild again, without alerting. When the guide writer's machine isn't
- * connected, the review records restartPending, `since` the first try, for retryInterruptedGuides.
+ * connected, the review records restartPending, `since` the first try, for retryInterruptedGuides; for any other
+ * reason, as GitHub not answering, it stays failed, saying why, until Try again.
  */
 export async function restartInterruptedGuide(deps: Deps, targetKey: string, since = Date.now()): Promise<void> {
   const restarted = await rerunReview(deps, targetKey, { notify: false, unattended: true });
   if (restarted.ok) return;
-  const waiting = !!deps.store.getReview(targetKey) && !!await guideWriterUnavailable(deps.bb, deps.store).catch(() => null);
+  const exists = !!deps.store.getReview(targetKey);
+  const waiting = exists && !!await guideWriterUnavailable(deps.bb, deps.store).catch(() => null);
   if (waiting) deps.store.setLifecycle(targetKey, { restartPending: { since } });
+  else if (exists) failed(deps, targetKey, restarted.error ?? "The guide couldn't restart.");
   deps.bb.log.warn(`The interrupted guide for ${targetKey} didn't restart${waiting ? " yet" : ""}: ${restarted.error}`);
+}
+
+/** The interrupted guide stays failed, its page saying `why`. */
+function failed(deps: Deps, targetKey: string, why: string, now = Date.now()) {
+  deps.store.setLifecycle(targetKey, { guideError: { at: now, text: why } });
+  deps.bb.realtime.publish(`review:${targetKey}`, { ts: now });
+  deps.bb.realtime.publish("reviews", { ts: now });
 }
 
 /** Restart the interrupted guides whose writer's machine is back, for up to RESTART_WAIT. */
@@ -34,9 +44,8 @@ export async function retryInterruptedGuides(deps: Deps, now = Date.now()): Prom
     const unavailable = await guideWriterUnavailable(deps.bb, deps.store).catch((error) => String(error));
     if (now - pending.since >= RESTART_WAIT) {
       deps.store.setLifecycle(review.targetKey, { restartPending: null });
-      // An open page stops saying the guide restarts on its own.
-      deps.bb.realtime.publish(`review:${review.targetKey}`, { ts: now });
-      deps.bb.realtime.publish("reviews", { ts: now });
+      // An open page stops saying the guide restarts on its own, and says why it failed.
+      failed(deps, review.targetKey, unavailable ?? "The guide writer's machine didn't reconnect in time.", now);
       deps.bb.log.warn(`The interrupted guide for ${review.targetKey} stays failed: ${unavailable ?? "its machine didn't reconnect in time"}`);
       continue;
     }

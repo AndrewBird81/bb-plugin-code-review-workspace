@@ -5,6 +5,7 @@ import { createStore } from "./store";
 import { generateGuide } from "./generate";
 import { defaultPreferences } from "./preferences";
 import { formerWorkerReview } from "./former-workers";
+import { runGh } from "./gh";
 
 vi.mock("./gh", async (original) => ({
   ...await original<typeof import("./gh")>(),
@@ -140,4 +141,44 @@ test("after a reload, a writer whose spawn it interrupted is found by its title,
   expect(order.slice(0, 3)).toEqual(["archive orphan", "stop orphan", "spawn"]);
   expect(await formerWorkerReview(next.bb, "orphan")).toBe("pr-1");
   expect(await formerWorkerReview(next.bb, "other")).toBeNull();
+});
+
+// bug bash SRV-5: the BB server restarts before its network is up. The interrupted guide's restart couldn't read the PR,
+// and the review stayed Failed with no What went wrong; nothing retries it, as Try again is a click away.
+test("a guide a reload interrupted while GitHub couldn't be read stays failed, saying why", async () => {
+  const reads = vi.mocked(runGh).getMockImplementation();
+  vi.mocked(runGh).mockImplementation(async () => ({ code: 1, stderr: "error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com", stdout: "" }));
+  try {
+    const { bb, harness, store } = await interrupted();
+    await plugin(bb);
+    await vi.waitFor(() => expect(store.getReview("pr-1")?.guideError?.text).toContain("error connecting to api.github.com"));
+    expect(store.getReview("pr-1")?.status).toBe("error");
+    expect(store.getReview("pr-1")?.restartPending ?? null).toBeNull();
+    expect(store.getGuide("pr-1")?.title).toBe("Kept");
+    expect(harness.inspection.realtimeSignals.some((signal) => signal.channel === "review:pr-1")).toBe(true);
+    // GitHub answers again; the review-state loop leaves it to Try again.
+    vi.mocked(runGh).mockImplementation(reads!);
+    const { controller, done } = harness.runService("review-state");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    controller.abort();
+    await done;
+    expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
+  } finally {
+    vi.mocked(runGh).mockImplementation(reads!);
+  }
+});
+
+test("an interrupted guide whose machine stays offline past 10 minutes says why it failed", async () => {
+  const host = { id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } };
+  const { bb, harness, store } = await interrupted({ "hosts.get": async () => host });
+  store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
+  await plugin(bb);
+  await vi.waitFor(() => expect(store.getReview("pr-1")?.restartPending).toBeTruthy());
+  expect(store.getReview("pr-1")?.guideError ?? null).toBeNull();
+  store.setLifecycle("pr-1", { restartPending: { since: Date.now() - 11 * 60_000 } });
+  const { controller, done } = harness.runService("review-state");
+  await vi.waitFor(() => expect(store.getReview("pr-1")?.restartPending).toBeNull());
+  controller.abort();
+  await done;
+  expect(store.getReview("pr-1")?.guideError?.text).toContain("FloMac is offline");
 });
