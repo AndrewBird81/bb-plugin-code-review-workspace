@@ -55,13 +55,27 @@ export async function switchGhAccount(
   return { ok: false, active: null, error: r.stderr || "switch failed" };
 }
 
+/** GitHub's rate limits, primary and secondary, and its abuse detection: a 403 or 429 that says nothing of access. */
+const RATE_LIMITED = /rate limit|abuse detection/i;
+
+/**
+ * Whether the active account can see the repo. No access is GitHub refusing it: not there for this account (404), bad
+ * credentials (401), or forbidden other than by a rate limit (403), such as by SSO. GitHub unreachable or rate-limited,
+ * a timeout or gh missing says nothing of access: then it's `error`, with accessible left true.
+ */
 export async function checkRepoAccess(
   runGh: RunGh,
   repo: string | null,
-): Promise<{ accessible: boolean; repo: string | null; account: string | null }> {
+): Promise<{ accessible: boolean; repo: string | null; account: string | null; badCredentials?: boolean; error?: string }> {
   const userRes = await runGh(["api", "user", "--jq", ".login"]);
   const account = userRes.code === 0 ? userRes.stdout.trim() : null;
   if (!repo) return { accessible: true, repo: null, account };
   const r = await runGh(["api", `repos/${repo}`, "--jq", ".full_name"]);
-  return { accessible: r.code === 0, repo, account };
+  if (r.code === 0) return { accessible: true, repo, account };
+  // gh says "Not Found (HTTP 404)", and older versions "HTTP 404: Not Found".
+  const status = Number(r.stderr.match(/\bHTTP (\d{3})\b/)?.[1]);
+  const limited = status === 429 || RATE_LIMITED.test(r.stderr + r.stdout);
+  if (status === 401) return { accessible: false, repo, account, badCredentials: true };
+  if (status === 404 || status === 403 && !limited) return { accessible: false, repo, account };
+  return { accessible: true, repo, account, error: r.stderr.trim() || `gh exited with code ${r.code}` };
 }

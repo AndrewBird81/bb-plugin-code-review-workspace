@@ -95,6 +95,38 @@ test("checkRepoAccess reports accessible:false on a 404 (gh api failure)", async
   expect(res).toEqual({ accessible: false, repo: "acme/private-repo", account: "monalisa" });
 });
 
+// bug bash PRF-2: any gh failure read as no access, so with GitHub unreachable, rate-limited or gh missing, the review
+// said your account couldn't access the repo, offering the account switcher.
+const repoFails = (failure: { stdout?: string; stderr: string; code: number }) => async (args: string[]) =>
+  args[1] === "user" ? { stdout: "monalisa\n", stderr: "", code: 0 } : { stdout: "", ...failure };
+
+test.each([
+  { stderr: "error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com\n", code: 1 },
+  { stdout: "{\"message\":\"API rate limit exceeded for user ID 1.\"}", stderr: "gh: API rate limit exceeded for user ID 1. (HTTP 403)\n", code: 1 },
+  { stderr: "gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. (HTTP 403)\n", code: 1 },
+  { stderr: "gh: You have triggered an abuse detection mechanism. (HTTP 403)\n", code: 1 },
+  { stderr: "gh: Too Many Requests (HTTP 429)\n", code: 1 },
+  { stderr: "gh: Server Error (HTTP 502)\n", code: 1 },
+  { stderr: "gh timed out after 120s", code: 124 },
+  { stderr: "gh could not start: spawn gh ENOENT", code: 1 },
+])("checkRepoAccess can't tell, and doesn't say no access, when GitHub doesn't answer for the repo ($stderr)", async (failure) => {
+  const res = await checkRepoAccess(repoFails(failure), "acme/web");
+  expect(res).toEqual({ accessible: true, repo: "acme/web", account: "monalisa", error: failure.stderr.trim() });
+});
+
+test.each([
+  "gh: Not Found (HTTP 404)\n",
+  "gh: Resource protected by organization SAML enforcement. You must grant your Personal Access token access to this organization. (HTTP 403)\n",
+  "gh: Although you appear to have the correct authorization credentials, the `acme` organization has enabled OAuth App access restrictions. (HTTP 403)\n",
+])("checkRepoAccess reports no access when GitHub refuses the account the repo (%s)", async (stderr) => {
+  expect(await checkRepoAccess(repoFails({ stderr, code: 1 }), "acme/web")).toEqual({ accessible: false, repo: "acme/web", account: "monalisa" });
+});
+
+test("checkRepoAccess reports no access for credentials GitHub refuses, saying so", async () => {
+  const run = async () => ({ stdout: "", stderr: "gh: Bad credentials (HTTP 401)\n", code: 1 });
+  expect(await checkRepoAccess(run, "acme/web")).toEqual({ accessible: false, repo: "acme/web", account: null, badCredentials: true });
+});
+
 test("checkRepoAccess reports accessible:true when the repo lookup succeeds", async () => {
   const runGh = vi.fn(async (args: string[]) => {
     if (args[0] === "api" && args[1] === "user") return { stdout: "monalisa\n", stderr: "", code: 0 };

@@ -303,9 +303,11 @@ export const rpcContract = defineRpcContract({
     input: z.object({ login: z.string().min(1) }).strict(),
     output: z.object({ ok: z.boolean(), active: z.string().nullable(), error: z.string().optional() }),
   },
+  // accessible is false only where GitHub refused the account; badCredentials, refused for its credentials. error: access
+  // couldn't be checked, such as with GitHub unreachable or rate-limited, and accessible is true.
   checkRepoAccess: {
     input: z.object({ targetKey: z.string() }).strict(),
-    output: z.object({ accessible: z.boolean(), repo: z.string().nullable(), account: z.string().nullable() }),
+    output: z.object({ accessible: z.boolean(), repo: z.string().nullable(), account: z.string().nullable(), badCredentials: z.boolean().optional(), error: z.string().optional() }),
   },
 
   // Whose turn. Reviews carry `turn` (lib/turn.ts Turn) and `progress` from the server.

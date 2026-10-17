@@ -177,7 +177,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const carriedTyping = useRef(carry?.focus?.typing);
   const carriedLines = useRef(carry?.lines ?? null);
   const [revision, setRevision] = useState("");
-  const [repoAccess, setRepoAccess] = useState<{ accessible: boolean; repo: string | null; account: string | null } | null>(null);
+  const [repoAccess, setRepoAccess] = useState<{ accessible: boolean; repo: string | null; account: string | null; badCredentials?: boolean; error?: string } | null>(null);
   const [views, setViews] = useState<Map<string, FileViewFlags>>(new Map());
   const [generated, setGenerated] = useState<Set<string>>(new Set());
   const [injection, setInjection] = useState<DockInjection | undefined>();
@@ -424,6 +424,19 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useEffect(() => { if (activeId) patchReviewState(targetKey, { activeId }); }, [targetKey, activeId]);
   const isPr = review?.kind === "pr";
 
+  // A check that couldn't reach GitHub, or found no account, is made again with the next load, as on a reconnect.
+  const accessRetry = useRef(false);
+  const checkAccess = useCallback(async () => {
+    try {
+      const r = await rpc.call("checkRepoAccess", { targetKey });
+      setRepoAccess(r);
+      accessRetry.current = !!r.repo && (!!r.error || !r.account);
+    } catch {
+      // Non-fatal: access banner just won't show.
+      accessRetry.current = true;
+    }
+  }, [rpc, targetKey]);
+
   // Only the latest refresh applies: marks made while an older one was out would come undone.
   const loadViews = useCallback(async () => {
     const id = ++viewsRequest.current;
@@ -452,6 +465,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         Promise.race([settledRef.current.finally(() => clearTimeout(settingsWait)), new Promise<ReviewPreferences>((resolve) => { settingsWait = setTimeout(() => resolve(settingsFallback), SETTINGS_WAIT_MS); })]),
       ]);
       if (id !== request.current) return;
+      if (accessRetry.current) {
+        accessRetry.current = false;
+        void checkAccess();
+      }
       // A deleted review shows "Review not found" rather than a pending regeneration.
       if (!review) hasDisplayedGuide.current = false;
       if (!guide && hasDisplayedGuide.current) {
@@ -507,7 +524,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       clearTimeout(settingsWait);
       if (id === request.current) setLoading(false);
     }
-  }, [rpc, targetKey]);
+  }, [rpc, targetKey, checkAccess]);
 
   useEffect(() => {
     void load();
@@ -659,18 +676,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const localDiffChanges = useKnob("localDiffChanges");
   const reviewLinks = useReviewLinks(review);
   const { newCommits, text: newCommitsText } = useNewCommits(targetKey, (isPr || review?.kind === "ref" && localDiffChanges) && !archived);
-
-  const checkAccess = useMemo(
-    () => async () => {
-      try {
-        const r = await rpc.call("checkRepoAccess", { targetKey });
-        setRepoAccess(r);
-      } catch {
-        // Non-fatal: access banner just won't show.
-      }
-    },
-    [rpc, targetKey],
-  );
 
   useEffect(() => {
     if (guide) void checkAccess();
@@ -1384,7 +1389,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       ? { id: "rebuild", tone: "warning", icon: "Clock", text: "The guide writer’s machine is offline. The update restarts on its own when it reconnects. Showing the previous guide.", action: retryGuide } as const
       // Why, as a first guide's page says it: the writer's words or the last rejection, as plain text cut to a few lines.
       : { id: "rebuild", tone: "danger", icon: "AlertTriangle", role: "alert", text: <>Couldn’t update the guide. Showing the previous one.{review.guideError?.text && <span className="mt-0.5 line-clamp-3 whitespace-pre-line break-words">{review.guideError.text}</span>}</>, action: retryGuide } as const] : []),
-    ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
+    ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: repoAccess.badCredentials ? "GitHub refused your account’s credentials. Switch account:" : `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
     ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),
     ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review, { unattendedAgents })}.`, action: <NotRunButton review={review} /> }] as const : []),
     ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: newCommitsText, action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),
