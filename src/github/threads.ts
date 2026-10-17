@@ -84,8 +84,9 @@ const THREAD_LABELS: Record<string, { label: string; nonBlocking: boolean }> = {
   blocking: { label: "Blocking", nonBlocking: false }, shouldfix: { label: "Should fix", nonBlocking: false }, question: { label: "Question", nonBlocking: false },
   nit: { label: "Nit", nonBlocking: true }, fyi: { label: "FYI", nonBlocking: true }, optional: { label: "Optional", nonBlocking: true }, nonblocking: { label: "Non-blocking", nonBlocking: true },
 };
-// "**Nit:**", "**Nit**:", or "Nit:", in any case, at the start of the first comment.
-const THREAD_LABEL = /^\s*(\*\*|__)?(blocking|should[ -]fix|question|nit|fyi|optional|non[ -]?blocking)(?:\1:|:\1)/i;
+// "**Nit:**", "**Nit**:", or "Nit:", in any case, at the start of the first comment, or after the
+// "**Pre-existing:**" a pre-existing problem posts with (src/draft.ts postedBody).
+const THREAD_LABEL = /^\s*(?:(\*\*|__)?pre-existing(?:\1:|:\1)\s*)?(\*\*|__)?(blocking|should[ -]fix|question|nit|fyi|optional|non[ -]?blocking)(?:\2:|:\2)/i;
 
 /**
  * The label a thread's first comment starts with: a severity's (src/draft.ts), or nit, FYI, optional, or
@@ -93,7 +94,7 @@ const THREAD_LABEL = /^\s*(\*\*|__)?(blocking|should[ -]fix|question|nit|fyi|opt
  */
 export function threadLabel(body: string): { label: string; nonBlocking: boolean } | null {
   const match = body.match(THREAD_LABEL);
-  return match ? THREAD_LABELS[match[2].toLowerCase().replace(/[ -]/g, "")] : null;
+  return match ? THREAD_LABELS[match[3].toLowerCase().replace(/[ -]/g, "")] : null;
 }
 
 /** A review thread anyone started on the PR, briefly. */

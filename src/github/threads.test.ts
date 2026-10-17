@@ -1,6 +1,8 @@
 import { expect, test, vi } from "vitest";
 import { fetchMyThreads, isQuestion, parseAllThreads, parseMyThreads, threadLabel } from "./threads";
 import cli9083 from "./fixtures/threads-cli-9083.json";
+import { toGithubReviewPayload, type Draft } from "../draft";
+import { threadSignals } from "../turn-signals";
 
 const user = (login: string) => ({ __typename: "User", login });
 const bot = (login: string) => ({ __typename: "Bot", login });
@@ -167,4 +169,23 @@ test("fetchMyThreads reads a thread you started after the first 300, and stops a
   const huge = pr(1200);
   await fetchMyThreads(huge, "acme/web", 1, "me", "alice");
   expect(huge).toHaveBeenCalledTimes(10);
+});
+
+// With Keep pre-existing problems apart on, a pre-existing comment posts "**Pre-existing:**" before its severity (bug bash DOC-1).
+test("a pre-existing comment's label is the severity after its Pre-existing mark", () => {
+  const posted = toGithubReviewPayload({
+    verdict: "COMMENT", body: "", comments: [{ file: "src/a.ts", line: 3, side: "RIGHT", severity: "nit", introduced: false, body: "Rename this to `count`." }],
+  } as unknown as Draft, true).comments[0].body;
+  expect(posted).toBe("**Pre-existing:** **Nit:** Rename this to `count`.");
+  expect(threadLabel(posted)).toEqual({ label: "Nit", nonBlocking: true });
+  expect(threadLabel("**Pre-existing:** **Blocking:** drops writes")).toEqual({ label: "Blocking", nonBlocking: false });
+  expect(threadLabel("Pre-existing: nit: spacing")).toEqual({ label: "Nit", nonBlocking: true });
+  expect(threadLabel("**Pre-existing:** this was already broken")).toBeNull();
+  expect(threadLabel("**Pre-existing:** **Pre-existing:** **Nit:** twice")).toBeNull();
+  // An open pre-existing nit counts apart, so it doesn't keep the review on the author.
+  const signals = threadSignals([{
+    id: "PRRT_1", commentId: 1, reviewId: null, path: "src/a.ts", line: 3, originalLine: 3, startLine: null, side: "RIGHT", subjectType: "LINE",
+    body: posted, createdAt: 0, isResolved: false, resolvedBy: null, isOutdated: false, replies: [], status: "open", replyAt: null,
+  }]);
+  expect(signals.threads).toMatchObject({ total: 0, open: 0, nonBlocking: 1 });
 });
