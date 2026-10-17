@@ -148,7 +148,9 @@ export function useDiffThreads(targetKey: string, enabled: boolean, account?: st
         toast.error("Your GitHub account isn’t verified yet. Try again in a moment, or reload this review.");
         return false;
       }
-      updateComments(targetKey, { busy: threadId });
+      // One at a time on a thread; a reply on another thread waits for neither.
+      if (commentsOf(targetKey).busy.includes(threadId)) return false;
+      updateComments(targetKey, { busy: [...commentsOf(targetKey).busy, threadId] });
       try {
         const result = await request(account);
         if (!result.ok) toast.error(result.error ?? failed);
@@ -157,7 +159,7 @@ export function useDiffThreads(targetKey: string, enabled: boolean, account?: st
         toast.error(error instanceof Error ? error.message : failed);
         return false;
       } finally {
-        updateComments(targetKey, { busy: null });
+        updateComments(targetKey, { busy: commentsOf(targetKey).busy.filter((id) => id !== threadId) });
       }
     }
     return {

@@ -148,7 +148,8 @@ export function ReplyBox({ targetKey, item, where, actions, busy, writing, onClo
             onKeyDown={(event) => composerKeys(event, text.trim() && !busy ? () => void send() : null, cancel)} />
         : <CommentBody body={text} link={agent} />}
       <div className="flex flex-wrap items-center gap-1">
-        <Button size="sm" data-reply-action="send" className={action} disabled={busy || !text.trim()} onClick={() => void send()}>
+        {/* While it posts, Send keeps the focus it was pressed with. */}
+        <Button size="sm" data-reply-action="send" className={cn(action, "aria-disabled:pointer-events-none aria-disabled:bg-muted/60 aria-disabled:text-subtle-foreground aria-disabled:shadow-none")} disabled={!busy && !text.trim()} aria-disabled={busy || undefined} onClick={() => { if (!busy) void send(); }}>
           {busy ? <Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-3.5" aria-hidden />}Send reply
         </Button>
         {!editing && <Button variant="ghost" size="sm" className={action} disabled={busy} onClick={() => { focusBox.current = true; setEditing(true); }}>Edit</Button>}

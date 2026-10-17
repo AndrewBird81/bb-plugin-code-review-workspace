@@ -30,8 +30,8 @@ export interface CommentsEntry {
   replyDrafts: Array<ReplyDraft & { threadId: string }> | null;
   /** Every source has answered once. */
   loaded: boolean;
-  /** The thread a reply or resolve is being sent on. */
-  busy: string | null;
+  /** The threads a reply or resolve is being sent on. */
+  busy: string[];
   /** Reading GitHub again, or starting the agent's check. */
   refreshing: boolean;
   checking: boolean;
@@ -49,7 +49,7 @@ export interface CommentsEntry {
 }
 
 const EMPTY: CommentsEntry = {
-  threads: [], threadsError: null, feedback: null, feedbackError: false, replyDrafts: null, loaded: false, busy: null,
+  threads: [], threadsError: null, feedback: null, feedbackError: false, replyDrafts: null, loaded: false, busy: [],
   refreshing: false, checking: false, actions: null, items: [], folded: false, filter: "all", expanded: null, finishTitle: null,
 };
 

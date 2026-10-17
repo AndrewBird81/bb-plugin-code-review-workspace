@@ -152,6 +152,38 @@ test("clicking another card's Send still saves this card's reply", async () => {
   slot.lifecycle.unmount();
 });
 
+// bug bash DFT-10: replies on two threads shared one busy flag, so the first to finish made the other's Send live again
+// while it still posted, and a second press posted it twice.
+test("replies sent on two threads at once each stay busy until their own post ends, and a second press posts nothing", async () => {
+  const posts: Record<string, () => void> = {};
+  const pending = (id: string, result: object) => () => new Promise((resolve) => { posts[id] = () => resolve(result); });
+  const { slot, rpc } = await renderWorkspace({
+    replyToFeedback: vi.fn(pending("t1", { ok: true, feedback })),
+    replyToThread: vi.fn(pending("t2", { ok: true })),
+  }, [{ threadId: "t1", body: "Thanks, will check.", author: "agent", updatedAt: now }, { threadId: "t2", body: "Yes, three.", author: "reviewer", updatedAt: now }]);
+  const yours = await card(slot, 2);
+  const bobs = await card(slot, 3);
+  const send = (thread: HTMLElement) => within(thread).getByRole("button", { name: "Send reply" });
+  fireEvent.click(send(yours));
+  await waitFor(() => expect(posts.t1).toBeTypeOf("function"));
+  const bobsSend = send(bobs);
+  bobsSend.focus();
+  fireEvent.click(bobsSend);
+  await waitFor(() => expect(posts.t2).toBeTypeOf("function"));
+  posts.t1();
+  await waitFor(() => expect(within(yours).queryByRole("group", { name: /reply draft/ })).toBeNull());
+  // Bob's is still posting: busy, and still holding the focus.
+  expect(bobsSend.getAttribute("aria-disabled")).toBe("true");
+  expect(bobsSend.hasAttribute("disabled")).toBe(false);
+  expect(document.activeElement).toBe(bobsSend);
+  fireEvent.click(bobsSend);
+  expect(rpc.replyToThread).toHaveBeenCalledTimes(1);
+  posts.t2();
+  await waitFor(() => expect(within(bobs).queryByRole("group", { name: /reply draft/ })).toBeNull());
+  expect(rpc.replyToThread).toHaveBeenCalledTimes(1);
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("Send reply hands the focus back to Reply", async () => {
   const { slot } = await renderWorkspace();
   const bobs = await card(slot, 3);

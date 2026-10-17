@@ -109,7 +109,7 @@ function Replies({ replies }: { replies: ThreadMessage[] }) {
 /** A thread on GitHub: who started it and when, its state and the agent's check, the messages, and its reply. A resolved one starts folded. */
 function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: ThreadItem; variant: "inline" | "row" }) {
   const actions = useComments(targetKey, "actions");
-  const busy = useComments(targetKey, "busy") === item.id;
+  const busy = useComments(targetKey, "busy").includes(item.id);
   const api = useWorkspaceFor(targetKey);
   const navigate = useBbNavigate();
   const inline = variant === "inline";
