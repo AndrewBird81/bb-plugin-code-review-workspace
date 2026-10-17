@@ -67,3 +67,8 @@ export const defaultPreferences: ReviewPreferences = {
   unattendedAuthors: "members", runRepoChecks: false, threadListReviews: true,
   knobs: defaultKnobs,
 };
+
+/** An auto-start repository: "*", "owner/*", or "owner/repo", as GitHub spells them, trimmed and lowercase. */
+export const REPO_PATTERN = /^(\*|[a-z0-9-]+\/(\*|[a-z0-9_.-]+))$/;
+/** How many auto-start repositories Settings saves. */
+export const AUTO_START_REPOS_LIMIT = 50;

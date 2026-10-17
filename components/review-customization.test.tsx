@@ -782,3 +782,37 @@ test("Settings calls the review assistant the Review agent, as the review's pane
   expect(text.match(/[^.]*\bassistant\b[^.]*/gi)).toBeNull();
   slot.lifecycle.unmount();
 });
+
+test("an auto-start repository Save can't take says which line and why, and holds Save, not the host's validation error", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  const { rpcContract } = await import("../src/rpc-contract");
+  const record = { preferences: { ...defaultPreferences }, revision: 1 };
+  // As BB answers a call its input schema refuses (bb-app server/dist/start-server.js: `rpc ${phase} validation failed`).
+  const savePreferences = vi.fn((input: unknown) => {
+    if (!rpcContract.savePreferences.input.safeParse(input).success) throw new Error("rpc input validation failed");
+    return { ...(input as typeof record), revision: 2 };
+  });
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record, savePreferences } });
+  const repos = await slot.findByRole("textbox", { name: "Start guides automatically" });
+  // A repository's address, pasted from the browser, under a good line and a blank one.
+  fireEvent.change(repos, { target: { value: "acme/app\n\nhttps://github.com/acme/app" } });
+  expect(repos.getAttribute("aria-invalid")).toBe("true");
+  expect(slot.getByText("Line 3: use owner/repo, owner/*, or *.").id).toBe("auto-start-error");
+  const save = slot.getByRole("button", { name: "Save settings" });
+  expect(save.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(save);
+  expect(savePreferences).not.toHaveBeenCalled();
+  expect(slot.queryByText(/rpc input validation failed/)).toBeNull();
+  // More than the server keeps.
+  fireEvent.change(repos, { target: { value: Array.from({ length: 51 }, (_, index) => `acme/app-${index}`).join("\n") } });
+  expect(slot.getByText("Use 50 lines or fewer.")).toBeTruthy();
+  expect(save.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.change(repos, { target: { value: "acme/app\n\nAcme/*" } });
+  expect(repos.getAttribute("aria-invalid")).toBe("false");
+  expect(slot.queryByText(/use owner\/repo/)).toBeNull();
+  fireEvent.click(save);
+  await slot.findByText("Settings saved");
+  expect(savePreferences.mock.calls[0]![0]).toMatchObject({ preferences: { autoStartRepos: ["acme/app", "acme/*"] } });
+  slot.lifecycle.unmount();
+});

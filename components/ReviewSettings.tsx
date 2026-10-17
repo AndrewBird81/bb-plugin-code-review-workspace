@@ -4,7 +4,7 @@ import type { PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import type { PreferencesRecord } from "../src/preferences";
 import type { Machine } from "../src/machines";
-import { ASSISTANT_INSTRUCTIONS_LIMIT, defaultPreferences, type AgentExecution } from "../lib/review-preferences";
+import { ASSISTANT_INSTRUCTIONS_LIMIT, AUTO_START_REPOS_LIMIT, REPO_PATTERN, defaultPreferences, type AgentExecution } from "../lib/review-preferences";
 import { defaultKnobs, type KnobId, type Knobs } from "../lib/knobs";
 import { REMOVAL_REASON_WORDS } from "../lib/removal-reasons";
 import { withDefaults } from "../lib/settings";
@@ -110,12 +110,28 @@ function parseRepoPatterns(text: string): string[] {
   return text.split("\n").map((line) => line.trim().toLowerCase()).filter(Boolean);
 }
 
-/** Keeps the typed text, blank lines included, while the saved list follows it. */
+/** Whether the server's schema (src/preferences.ts) takes these repository patterns. */
+function validRepoPatterns(patterns: readonly string[]): boolean {
+  return patterns.length <= AUTO_START_REPOS_LIMIT && patterns.every((pattern) => REPO_PATTERN.test(pattern));
+}
+
+/** Which line Save can't take, and why, counting the typed text's lines; none when it can. */
+function repoPatternsProblem(text: string): string | undefined {
+  const line = text.split("\n").findIndex((typed) => { const pattern = typed.trim().toLowerCase(); return pattern && !REPO_PATTERN.test(pattern); });
+  if (line >= 0) return `Line ${line + 1}: use owner/repo, owner/*, or *.`;
+  if (parseRepoPatterns(text).length > AUTO_START_REPOS_LIMIT) return `Use ${AUTO_START_REPOS_LIMIT} lines or fewer.`;
+}
+
+/** Keeps the typed text, blank lines included, while the saved list follows it. A line Save can't take is named under the box. */
 function RepoPatterns({ value, onChange }: { value: string[]; onChange(value: string[]): void }) {
   const [text, setText] = useState(value.join("\n"));
   // Follow loads, discards, and restored defaults.
   if (parseRepoPatterns(text).join("\n") !== value.join("\n")) setText(value.join("\n"));
-  return <Textarea aria-label="Start guides automatically" aria-describedby="auto-start-help" rows={3} value={text} placeholder={"acme/app\nacme/*"} className="font-mono text-xs" onChange={(event) => { setText(event.target.value); onChange(parseRepoPatterns(event.target.value)); }} />;
+  const problem = repoPatternsProblem(text);
+  return <>
+    <Textarea aria-label="Start guides automatically" aria-describedby="auto-start-error auto-start-help" aria-invalid={!!problem} rows={3} value={text} placeholder={"acme/app\nacme/*"} className="font-mono text-xs" onChange={(event) => { setText(event.target.value); onChange(parseRepoPatterns(event.target.value)); }} />
+    {problem && <span id="auto-start-error" className="block text-xs text-destructive-text">{problem}</span>}
+  </>;
 }
 
 type AgentLearning = PluginRpcResult<typeof rpcContract["getAgentLearning"]>;
@@ -251,9 +267,10 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
   useEffect(() => { if (record) setNumberText((current) => enabledNumberText(current, record.preferences)); }, [record]);
   // A number still being typed counts, so Discard edits can clear it.
   const dirty = record !== null && (baseline !== JSON.stringify(record.preferences) || Object.keys(numberText).length > 0);
-  // A custom selection is complete once the host pickers resolve a provider and model, and a number once it's in range.
+  // A custom selection is complete once the host pickers resolve a provider and model, a number once it's in range, and
+  // the auto-start repositories once the server's schema takes them.
   const incomplete = [record?.preferences.guideAgent, record?.preferences.assistantAgent].some((agent) => agent && (!agent.providerId || !agent.model))
-    || Object.keys(numberText).length > 0;
+    || Object.keys(numberText).length > 0 || (record !== null && !validRepoPatterns(record.preferences.autoStartRepos));
   const saveable = dirty && !incomplete && !busy && !updating;
   function setAgent(key: "guideAgent" | "assistantAgent", update: AgentUpdate) {
     setSaved(false);

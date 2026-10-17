@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { ASSISTANT_INSTRUCTIONS_LIMIT, defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
+import { ASSISTANT_INSTRUCTIONS_LIMIT, AUTO_START_REPOS_LIMIT, REPO_PATTERN, defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
 import { KNOB_RANGES, defaultKnobs, type KnobId, type Knobs } from "../lib/knobs";
 export { defaultPreferences, type AgentExecution, type ReviewPreferences } from "../lib/review-preferences";
 
@@ -33,8 +33,6 @@ export const agentExecutionSchema = z.object({
   permissionMode: z.enum(["accept-edits", "auto", "full"]),
   serviceTier: z.string().min(1).max(200).optional(),
 }).strict();
-/** "*", "owner/*", or "owner/repo", as GitHub spells them. */
-const REPO_PATTERN = /^(\*|[a-z0-9-]+\/(\*|[a-z0-9_.-]+))$/;
 
 export const agentChoiceSchema = agentExecutionSchema.omit({ permissionMode: true });
 
@@ -68,7 +66,7 @@ export const preferencesSchema = z.object({
   pushChecks: z.enum(["off", "progress", "ready"]),
   trackGithubReviews: z.boolean(),
   trackTeamRequests: z.boolean(),
-  autoStartRepos: z.array(z.string().trim().toLowerCase().regex(REPO_PATTERN, "Use owner/repo, owner/*, or *.")).max(50),
+  autoStartRepos: z.array(z.string().trim().toLowerCase().regex(REPO_PATTERN, "Use owner/repo, owner/*, or *.")).max(AUTO_START_REPOS_LIMIT),
   verificationPrompt: z.string().max(12000),
   unattendedAuthors: z.enum(["members", "anyone"]),
   runRepoChecks: z.boolean(),
