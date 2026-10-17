@@ -223,3 +223,43 @@ test("a views read that left before your next mark doesn't undo that mark on scr
   expect(box("src/b.ts").checked).toBe(true);
   slot.lifecycle.unmount();
 }, 15_000);
+
+// bug bash PRF-3: the BB connection drops, or the server refuses, as you tick Viewed: the box stayed ticked, nothing
+// said the mark wasn't saved, and the next load of the review showed it unticked.
+test("a Viewed mark the server didn't save goes back and says so, offline or refused", async () => {
+  const { slot, rpc } = await renderWorkspace({ ...defaultKnobs, foldViewedFiles: false });
+  const box = () => slot.getByRole("checkbox", { name: "Viewed src/a.ts" }) as HTMLInputElement;
+  rpc.getFileViews.mockImplementation(() => { throw new Error("Reconnecting"); });
+  rpc.setFileViewed.mockImplementation(() => { throw new Error("Reconnecting"); });
+  fireEvent.click(box());
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn’t save Viewed."));
+  expect(box().checked).toBe(false);
+  // Refused: the file isn't in the review's diff on the server.
+  rpc.getFileViews.mockImplementation(() => ({ views: [] }));
+  rpc.setFileViewed.mockImplementation(() => ({ ok: false }));
+  fireEvent.click(box());
+  await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(2));
+  expect(box().checked).toBe(false);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("Mark chapter viewed says Marked once the marks are saved, and that they weren't when they aren't", async () => {
+  const { slot, rpc } = await renderWorkspace();
+  let save!: (result: { ok: boolean; previous: View[] }) => void;
+  rpc.setFilesViewed.mockImplementationOnce(() => new Promise((resolve) => { save = resolve; }) as never);
+  fireEvent.click(chapters(slot).getByRole("button", { name: "Mark chapter 2 viewed" }));
+  await waitFor(() => expect(rpc.setFilesViewed).toHaveBeenCalled());
+  expect(chapters(slot).getByText("2/3 files viewed")).toBeTruthy();
+  expect(toast.success).not.toHaveBeenCalled();
+  save({ ok: true, previous: [] });
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Marked 2 files viewed", expect.anything()));
+  undoLast();
+  await waitFor(() => expect(chapters(slot).getByRole("button", { name: "Mark chapter 2 viewed" })).toBeTruthy());
+
+  rpc.setFilesViewed.mockImplementationOnce(() => { throw new Error("Reconnecting"); });
+  fireEvent.click(chapters(slot).getByRole("button", { name: "Mark chapter 2 viewed" }));
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn’t mark the chapter viewed."));
+  expect(toast.success).toHaveBeenCalledTimes(1);
+  expect(chapters(slot).getByText("0/3 files viewed")).toBeTruthy();
+  slot.lifecycle.unmount();
+}, 15_000);

@@ -873,17 +873,29 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     (file: string, viewed: boolean) => {
       // A views read already out left before this mark: it would undo it on screen.
       viewsRequest.current++;
+      const before = views.get(file);
+      const mark = { viewed, stale: false };
       setViews((prev) => {
         const next = new Map(prev);
-        next.set(file, { viewed, stale: false });
+        next.set(file, mark);
         return next;
       });
+      // Unsaved, the box goes back as it was, unless a read has shown the server's since.
+      const failed = () => {
+        setViews((prev) => {
+          if (prev.get(file) !== mark) return prev;
+          const next = new Map(prev);
+          if (before) next.set(file, before); else next.delete(file);
+          return next;
+        });
+        toast.error("Couldn’t save Viewed.");
+        void loadViews();
+      };
       rpc
         .call("setFileViewed", { targetKey, file, viewed })
-        .then(() => loadViews())
-        .catch(() => loadViews());
+        .then(({ ok }) => { if (ok) void loadViews(); else failed(); }, failed);
     },
-    [rpc, targetKey, loadViews],
+    [views, rpc, targetKey, loadViews],
   );
 
   // A chapter's files not viewed yet, marked at once. Undo puts each back as it was, changed since you viewed it too.
@@ -898,20 +910,30 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       for (const f of todo) next.set(f, { viewed: true, stale: false });
       return next;
     });
+    const putBack = () => setViews((prev) => {
+      const next = new Map(prev);
+      for (const [f, flags] of before) if (flags) next.set(f, flags); else next.delete(f);
+      return next;
+    });
     const marked = rpc.call("setFilesViewed", { targetKey, files: todo });
-    marked.then(() => loadViews()).catch(() => loadViews());
     const undo = () => {
-      setViews((prev) => {
-        const next = new Map(prev);
-        for (const [f, flags] of before) if (flags) next.set(f, flags); else next.delete(f);
-        return next;
-      });
+      putBack();
       // After the marking, with the views it replaced, so the server ends where the screen does.
       void marked
         .then(({ previous }) => rpc.call("setFilesViewed", { targetKey, files: todo, viewed: false, previous }))
         .then(() => loadViews()).catch(() => loadViews());
     };
-    toast.success(`Marked ${todo.length} file${todo.length === 1 ? "" : "s"} viewed`, { action: { label: "Undo", onClick: undo } });
+    // Said once it's saved; unsaved, the files go back as they were, and the server's read shows any it did save.
+    const failed = () => {
+      putBack();
+      toast.error("Couldn’t mark the chapter viewed.");
+      void loadViews();
+    };
+    marked.then(({ ok }) => {
+      if (!ok) return failed();
+      void loadViews();
+      toast.success(`Marked ${todo.length} file${todo.length === 1 ? "" : "s"} viewed`, { action: { label: "Undo", onClick: undo } });
+    }, failed);
   }, [sections, views, rpc, targetKey, loadViews]);
   const foldAllFiles = useCallback((folded: boolean) => setFoldAll({ folded, nonce: Date.now() }), []);
 
