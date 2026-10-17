@@ -67,7 +67,7 @@ import type { ReviewMeta } from "./src/store";
 import { threadSignals, turnOptions } from "./src/turn-signals";
 import { approve, mayRunChecks, trustedAuthor } from "./lib/trust";
 import { restartInterruptedGuide, retryInterruptedGuides } from "./src/interrupted-guides";
-import { reReviewCheckPrompt } from "./src/preferences";
+import { automaticReviewPrompt, reReviewCheckPrompt } from "./src/preferences";
 import { createInstructionSuggester, describeRemovals, learningStats, noteReviewerRemoval, noteReviewerSave, recordOutcomes, removalWarning } from "./src/learning";
 
 export { rpcContract } from "./src/rpc-contract";
@@ -293,6 +293,12 @@ export default async function plugin(bb: BbPluginApi) {
         const review = store.getReview(targetKey);
         const skipped = review?.skippedRun;
         if (!review || !skipped || review.status === "generating") return { ok: true };
+        // What can't run now is refused before agents are approved on the PR's head, and the notice stays.
+        const preferences = store.getPreferences().preferences;
+        const state = review.startedPrState ?? review.prState;
+        if (skipped.run === "review" && !automaticReviewPrompt(preferences)) return { ok: false, error: "The automatic review is off. Turn it on in Review settings." };
+        if (skipped.run === "check" && !reReviewCheckPrompt(preferences)) return { ok: false, error: "The re-review check is off. Turn it on in Review settings." };
+        if (skipped.run === "review" && (state === "MERGED" || state === "CLOSED")) return { ok: false, error: `This PR is ${state === "MERGED" ? "merged" : "closed"}, so its review doesn't run.` };
         let result: { ok: boolean; error?: string };
         // A guide that's missing or behind the PR is built first. Starting it approves its head, so the review or check follows.
         if (skipped.run === "guide" || review.status === "tracked" || skipped.run === "check" && guideBehind(review)) {
@@ -300,12 +306,15 @@ export default async function plugin(bb: BbPluginApi) {
         } else {
           store.setLifecycle(targetKey, { ...approve(skipped.run === "check" ? headOf(review) : review.headSha ?? null, Date.now()), skippedRun: null });
           try {
-            if (skipped.run === "review") await startAutomaticReview(bb, store, targetKey);
-            result = skipped.run === "review" || await startVerification(bb, store, targetKey, "the reviewer asked for a check") ? { ok: true } : { ok: false, error: "The assistant couldn't start. Open Ask agent to choose its agent." };
+            // A conversation under way gets the review, as a message you send it.
+            const ran = skipped.run === "review" ? ["started", "sent"].includes(await startAutomaticReview(bb, store, targetKey, undefined, { clicked: true }))
+              : await startVerification(bb, store, targetKey, "the reviewer asked for a check");
+            result = ran ? { ok: true } : { ok: false, error: skipped.run === "review" ? "The review didn't start. Try again." : "The assistant couldn't start. Open Ask agent to choose its agent." };
           } catch (error) {
             result = { ok: false, error: error instanceof Error ? error.message : "The assistant couldn't start." };
           }
-          if (!result.ok) store.setLifecycle(targetKey, { skippedRun: skipped });
+          // Nothing started, so nothing is approved.
+          if (!result.ok) store.setLifecycle(targetKey, { approvedHead: review.approvedHead ?? null, approvedAt: review.approvedAt ?? null, skippedRun: skipped });
         }
         changed(targetKey);
         return result;

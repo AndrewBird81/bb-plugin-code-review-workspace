@@ -187,43 +187,69 @@ async function spawnConversation(bb: BbPluginApi, store: Store, args: { targetKe
 }
 
 /**
+ * What startAutomaticReview did: started a conversation with the review, sent the review to the conversation, or told
+ * the conversation of new commits; or why the review didn't run: turned off, the PR merged or closed, waiting for your
+ * click (skipRun), a conversation the reviewer is starting, or a conversation already under way.
+ */
+export type AutomaticReview = "started" | "sent" | "new-commits" | "off" | "ended" | "waiting" | "starting" | "conversation";
+
+/**
  * Once a guide is ready, a review without a conversation starts one with the
  * reviewer's automatic review prompt, and, for the agent only, any context `bb review --context`
  * gave it, on the agent a new conversation defaults to. A review whose
  * conversation left comments in the draft hears of `newCommits` instead, even
  * with the automatic review off. Its knob or a blank prompt turns the automatic review off.
+ * `clicked`, for your Run review, sends the review to a conversation already under way, or being started.
  */
-export async function startAutomaticReview(bb: BbPluginApi, store: Store, targetKey: string, newCommits?: { from: string; to: string }): Promise<void> {
+export async function startAutomaticReview(bb: BbPluginApi, store: Store, targetKey: string, newCommits?: { from: string; to: string }, { clicked = false } = {}): Promise<AutomaticReview> {
   const preferences = store.getPreferences().preferences;
   const prompt = automaticReviewPrompt(preferences);
-  if (!prompt && !newCommits) return;
+  if (!prompt && !newCommits) return "off";
   // A merged or closed PR's drafts can't be submitted, as the review shows: there's nothing to review for.
   const { startedPrState, prState } = store.getReview(targetKey) ?? {};
   const state = startedPrState ?? prState;
-  if (state === "MERGED" || state === "CLOSED") return;
+  if (state === "MERGED" || state === "CLOSED") return "ended";
   const { threadId, defaults } = await getConversation(bb, store, targetKey);
-  if (threadId) {
+  if (threadId && !clicked) {
     // An untrusted author's new commits reach the conversation once you start agents on them.
     const review = store.getReview(targetKey);
-    if (newCommits && review && preferences.knobs.recheckOnNewCommits && mayRunUnattended(review, preferences, review.headSha) && store.getDraft(targetKey).comments.some((comment) => comment.author === "agent")) await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{
+    if (!newCommits || !review || !preferences.knobs.recheckOnNewCommits || !mayRunUnattended(review, preferences, review.headSha) || !store.getDraft(targetKey).comments.some((comment) => comment.author === "agent")) return "conversation";
+    await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{
       type: "text", mentions: [], visibility: "agent-only",
       text: `New commits: ${newCommits.from.slice(0, 7)}→${newCommits.to.slice(0, 7)}. Re-check your draft comments against the new diff, delete the ones the commits fixed, and review only what changed.`,
     }] });
-    return;
+    return "new-commits";
   }
-  if (!prompt) return;
-  if (!defaults) throw new Error("bb has no default agent for the review's project.");
+  if (!prompt) return "off";
+  if (!threadId && !defaults) throw new Error("bb has no default agent for the review's project.");
   const review = store.getReview(targetKey);
   // The sync knows once it has read the PR; before that, ask gh who you are.
   const login = review?.kind === "pr" && review.author && typeof review.ownPr !== "boolean" ? await runGh(["api", "user", "--jq", ".login"]).then((r) => r.code === 0 ? r.stdout.trim() : "", () => "") : "";
   const own = review?.ownPr === true || (!!login && login.toLowerCase() === review?.author?.toLowerCase());
   // An untrusted author's PR waits for your click, as does your own whose branch is in someone else's fork.
-  if (review && !(own && typeof review.foreignHeadOwner !== "string") && !mayRunUnattended(review, preferences, review.headSha)) return skipRun(bb, store, targetKey, "review", review.headSha ?? null);
-  // A conversation the reviewer is starting comes first.
-  if (starting(bb, targetKey)) return;
+  if (review && !(own && typeof review.foreignHeadOwner !== "string") && !mayRunUnattended(review, preferences, review.headSha)) {
+    skipRun(bb, store, targetKey, "review", review.headSha ?? null);
+    return "waiting";
+  }
   // The instructions describe the checks from the stored review, so asking for them goes by it too.
   const notes = [own && SELF_REVIEW, review && mayRunChecks(review, preferences) && RUN_CHECKS, reviewContextNote(store, targetKey)].filter(Boolean).join("\n");
-  await startConversation(bb, store, { targetKey, text: prompt, agent: defaults, ...(notes ? { context: notes } : {}) });
+  if (threadId) {
+    // After its current work, as a message you send it.
+    await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [
+      { type: "text", text: prompt, mentions: [] },
+      ...(notes ? [{ type: "text" as const, text: notes, mentions: [], visibility: "agent-only" as const }] : []),
+    ] });
+    return "sent";
+  }
+  // A conversation the reviewer is starting comes first; your click sends the review to it once it's up.
+  const pending = starting(bb, targetKey);
+  if (pending && !clicked) return "starting";
+  if (pending) {
+    await pending.catch(() => {});
+    return startAutomaticReview(bb, store, targetKey, newCommits, { clicked });
+  }
+  await startConversation(bb, store, { targetKey, text: prompt, agent: defaults!, ...(notes ? { context: notes } : {}) });
+  return "started";
 }
 
 /** The context `bb review --context` kept with the review, for the agent only: fenced, as the thread that ran it may have been steered. */

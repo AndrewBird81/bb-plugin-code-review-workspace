@@ -13,6 +13,8 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
 import type { ReviewLifecycle } from "./store";
+import { defaultPreferences } from "./preferences";
+import { defaultKnobs } from "../lib/knobs";
 
 const PATCH = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
 
@@ -63,11 +65,51 @@ test("Run rebuilds the guide first for a check on a PR retargeted to a new base"
   await vi.waitFor(() => expect(store.getReview("pr-1")).toMatchObject({ status: "generating", base: "main" }));
 });
 
-test("a run that can't start keeps its Run button", async () => {
+test("a run that can't start keeps its Run button, and approves nothing", async () => {
   const { harness, store } = await setup({ skippedRun: { run: "review", head: "sha1", at: 1 } });
   harness.inspection.sdk.stub("projects.defaultExecutionOptions", async () => null);
   expect(await harness.behavior.callRpc("runSkipped", { targetKey: "pr-1" })).toEqual({ ok: false, error: "bb has no default agent for the review's project." });
+  expect(store.getReview("pr-1")).toMatchObject({ skippedRun: { run: "review", head: "sha1", at: 1 }, approvedHead: null, approvedAt: null });
+});
+
+// bug bash AGT-3: you asked Ask agent something while the automatic review waited for your click, which started the
+// review's conversation; Run review sent nothing to it, and said "Review started".
+test("Run review on a review that has a conversation sends the review to it", async () => {
+  const { harness, store, titles } = await setup({ skippedRun: { run: "review", head: "sha1", at: 1 } });
+  store.setAssistantThread("pr-1", "assistant");
+  store.setReviewContext("pr-1", "Implements LIN-42.");
+  expect(await harness.behavior.callRpc("runSkipped", { targetKey: "pr-1" })).toEqual({ ok: true });
+  expect(titles()).toEqual([]);
+  const [[sent]] = harness.inspection.sdk.callsTo("threads.send") as any;
+  expect(sent).toMatchObject({ threadId: "assistant", mode: "queue-if-active", input: [
+    { type: "text", text: defaultPreferences.automaticReview },
+    { type: "text", visibility: "agent-only", text: expect.stringContaining('<untrusted source="review context">\nImplements LIN-42.\n</untrusted>') },
+  ] });
+  expect(store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", skippedRun: null });
+});
+
+// bug bash SET-3: with the run's own switch turned off since, Run review said "Review started" with nothing run, and Run
+// check sent the reviewer to Ask agent's picker.
+test("Run review or Run check, after its switch was turned off, says it's off and approves nothing", async () => {
+  for (const [lifecycle, knobs, error] of [
+    [{ skippedRun: { run: "review", head: "sha1", at: 1 } }, { runAutomaticReview: false }, "The automatic review is off. Turn it on in Review settings."],
+    [{ skippedRun: { run: "check", head: "sha1", at: 1 }, submittedVerdict: "REQUEST_CHANGES", submittedAt: 5, submittedHeadSha: "sha0" }, { runReReviewCheck: false }, "The re-review check is off. Turn it on in Review settings."],
+  ] as const) {
+    const { harness, store, titles } = await setup(lifecycle as ReviewLifecycle);
+    store.savePreferences({ ...defaultPreferences, knobs: { ...defaultKnobs, ...knobs } }, 0);
+    expect(await harness.behavior.callRpc("runSkipped", { targetKey: "pr-1" })).toEqual({ ok: false, error });
+    expect(titles()).toEqual([]);
+    expect(store.getReview("pr-1")?.skippedRun).toEqual(lifecycle.skippedRun);
+    expect(store.getReview("pr-1")?.approvedHead).toBeUndefined();
+  }
+});
+
+test("Run review on a PR merged since refuses, saying so", async () => {
+  const { harness, store, titles } = await setup({ skippedRun: { run: "review", head: "sha1", at: 1 }, prState: "MERGED" });
+  expect(await harness.behavior.callRpc("runSkipped", { targetKey: "pr-1" })).toEqual({ ok: false, error: "This PR is merged, so its review doesn't run." });
+  expect(titles()).toEqual([]);
   expect(store.getReview("pr-1")?.skippedRun).toEqual({ run: "review", head: "sha1", at: 1 });
+  expect(store.getReview("pr-1")?.approvedHead).toBeUndefined();
 });
 
 test("checking your feedback yourself clears a check that didn't run", async () => {
