@@ -240,6 +240,14 @@ test("describeInterdiff: truncates with a note on asking for one file", () => {
   expect(note).toContain("Ask for one file");
 });
 
+// With file, the cut told the agent to ask for that same file to see it in full, which shows the same (bug bash AGT-8).
+test("describeInterdiff: one file's changes cut at the cap point to read_file for the rest", () => {
+  const big = ["diff --git a/src/big.ts b/src/big.ts", "--- a/src/big.ts", "+++ b/src/big.ts", "@@ -1,0 +1,3000 @@", ...Array.from({ length: 3000 }, (_, i) => `+const line${i} = "${"x".repeat(20)}";`)].join("\n");
+  const text = describeInterdiff([{ file: "src/big.ts", status: "changed", newLines: [], newDeletions: [], patch: big, dropped: "" }], { file: "src/big.ts" });
+  expect(text).toContain('[Truncated at 60000 characters. Use read_file with ref "current" to read the rest of src/big.ts as it is now.]');
+  expect(text).not.toContain("Ask for one file's changes since your review by its path to see it in full.");
+});
+
 test("a blank context line written as an empty line still counts", () => {
   const headers = ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts"];
   const reviewed = diff(...headers, "@@ -1,3 +1,3 @@", " a", "", "-b", "+c");

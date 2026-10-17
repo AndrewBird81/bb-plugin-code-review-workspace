@@ -163,7 +163,7 @@ export function interdiff(reviewedPatch: string, currentPatch: string): FileInte
   return out;
 }
 
-/** A plain-text report for an AI assistant: a summary line (counts of changed/added/removed/unchanged files), then for each changed/added/removed file (or only `file`): a header, its `patch`, and "Gone since your review:" + `dropped` when present. Truncated at maxChars (default 60_000) with a note saying how to ask for one file. "No changes since your review." when nothing changed. */
+/** A plain-text report for an AI assistant: a summary line (counts of changed/added/removed/unchanged files), then for each changed/added/removed file (or only `file`): a header, its `patch`, and "Gone since your review:" + `dropped` when present. Truncated at maxChars (default 60_000) with a note saying how to ask for one file, or, when that's what was asked for, to read the rest with read_file. "No changes since your review." when nothing changed. */
 export function describeInterdiff(files: FileInterdiff[], options: { file?: string; maxChars?: number } = {}): string {
   const count = (s: FileInterdiff["status"]) => files.filter((f) => f.status === s).length;
   if (files.every((f) => f.status === "unchanged")) return "No changes since your review.";
@@ -182,5 +182,7 @@ export function describeInterdiff(files: FileInterdiff[], options: { file?: stri
   if (text.length <= maxChars) return text;
   const cut = text.slice(0, maxChars);
   const nl = cut.lastIndexOf("\n");
-  return `${nl > 0 ? cut.slice(0, nl) : cut}\n\n[Truncated at ${maxChars} characters. Ask for one file's changes since your review by its path to see it in full.]`;
+  // The tool reads no further into one file's changes, so asking for that file again would show the same.
+  const rest = options.file != null ? `Use read_file with ref "current" to read the rest of ${shownPath(options.file)} as it is now.` : "Ask for one file's changes since your review by its path to see it in full.";
+  return `${nl > 0 ? cut.slice(0, nl) : cut}\n\n[Truncated at ${maxChars} characters. ${rest}]`;
 }
