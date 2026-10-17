@@ -208,7 +208,8 @@ test("opening a review whose diff was pruned reads the diff again", async () => 
   store.dropPatch("pr-1");
   const diff = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
   const original = vi.mocked(gh.runGh).getMockImplementation()!;
-  vi.mocked(gh.runGh).mockImplementation(async (args, options) => args[0] === "pr" && args[1] === "diff" ? { stdout: diff, stderr: "", code: 0 } : original(args, options));
+  vi.mocked(gh.runGh).mockImplementation(async (args, options) => args[0] === "pr" && args[1] === "diff" ? { stdout: diff, stderr: "", code: 0 }
+    : args[0] === "pr" && args[1] === "view" ? { stdout: '{"headRefOid":"oldsha"}', stderr: "", code: 0 } : original(args, options));
   try {
     const bundle: any = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" });
     expect(bundle.patch).toBe(diff);

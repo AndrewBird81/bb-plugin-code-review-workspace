@@ -85,10 +85,13 @@ export function describeFeedback(store: Store, review: ReviewMeta): string {
   return out.join("\n");
 }
 
+/** The commit a running check is about, as assess_feedback records it; otherwise the PR's head. */
+const checkedHead = (review: ReviewMeta) => review.verifyingSince && review.verifyingHead ? review.verifyingHead : headOf(review);
+
 /** read_changes_since_review: the diff of diffs since your review, with the commits made since. */
 export async function changesSinceReview(store: Store, run: Run, review: ReviewMeta, file?: string): Promise<string> {
   const baseline = baselineOf(review);
-  const head = headOf(review);
+  const head = checkedHead(review);
   if (!baseline.sha || !head) return "The reviewer hasn't reviewed this PR yet, so there's nothing to compare.";
   if (baseline.sha === head) return `No commits since the reviewer's last review (${short(head)}).`;
   const [before, now] = await Promise.all([diffAt(store, run, review, baseline.sha), diffAt(store, run, review, head)]);
@@ -112,7 +115,7 @@ async function commitsSince(run: Run, review: ReviewMeta, sha: string): Promise<
 
 /** A PR's file at a commit: its head now, your reviewed commit, or the commit its diff starts from. */
 async function prFile(run: Run, review: ReviewMeta, path: string, ref: FileRef): Promise<{ at: string; text: string } | string> {
-  let sha = ref === "reviewed" ? baselineOf(review).sha : headOf(review);
+  let sha = ref === "reviewed" ? baselineOf(review).sha : checkedHead(review);
   if (ref === "base") {
     const head = review.headSha ?? headOf(review);
     if (!head || !review.base || !review.repo) return "There's no such commit for this review.";

@@ -18,9 +18,10 @@ function setup() {
 
 test("the PR's head diff, too big for GitHub's diff, is rebuilt from the PR's files", async () => {
   const { store, review } = setup();
-  const run = vi.fn(async (args: string[]) => (args[1] === "diff" ? tooLarge : { code: 0, stdout: file("now.ts") + "\n", stderr: "" }));
+  const run = vi.fn(async (args: string[]) => (args[1] === "diff" ? tooLarge : args[1] === "view" ? { code: 0, stdout: '{"headRefOid":"sha2"}', stderr: "" }
+    : { code: 0, stdout: file("now.ts") + "\n", stderr: "" }));
   expect(changedFiles(await diffAt(store, run, review, "sha2"))).toEqual(["now.ts"]);
-  expect(run.mock.calls[1][0]).toEqual(["api", "--paginate", "repos/acme/web/pulls/1/files?per_page=100", "--jq", ".[] | @json"]);
+  expect(run.mock.calls[2][0]).toEqual(["api", "--paginate", "repos/acme/web/pulls/1/files?per_page=100", "--jq", ".[] | @json"]);
 });
 
 test("an earlier commit's diff, too big for GitHub's diff, is rebuilt from the comparison's files", async () => {
@@ -38,9 +39,63 @@ test("an earlier commit's diff that hits the comparison's 300-file limit fails, 
   expect(store.getSnapshot("pr-1", "sha0")).toBeNull();
 });
 
+const one = (path: string, line: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+${line}\n`;
+// The guide is at sha1; the sync last read the PR at sha2 (which you reviewed on GitHub); the author has since pushed sha3.
+const AT = { sha1: one("a.ts", "guide"), sha2: one("a.ts", "reviewed"), sha3: one("a.ts", "pushed-later") };
+
+/** GitHub: the PR's diff is the newest push's; a comparison gives the diff at the commit asked for. */
+function pushedLater() {
+  const { store } = setup();
+  const signals = { lastReviewAt: 10, lastReviewSha: "sha2" } as ReviewMeta["signals"];
+  store.setLifecycle("pr-1", { latestHeadSha: "sha2", signals, submittedVerdict: "REQUEST_CHANGES" });
+  store.savePatch("pr-1", AT.sha1);
+  const run = vi.fn(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "diff") return { code: 0, stdout: AT.sha3, stderr: "" };
+    if (args[0] === "pr" && args[1] === "view") return { code: 0, stdout: JSON.stringify({ headRefOid: "sha3", baseRefName: "main" }), stderr: "" };
+    const sha = args.find((a) => a.includes("/compare/"))?.split("...")[1] as keyof typeof AT | undefined;
+    if (sha && AT[sha]) return { code: 0, stdout: AT[sha], stderr: "" };
+    return { code: 1, stdout: "", stderr: "unexpected" };
+  });
+  return { store, review: store.getReview("pr-1")!, run };
+}
+
+test("the diff at the head the sync last read is that commit's, not a later push's", async () => {
+  const { store, review, run } = pushedLater();
+  expect(await diffAt(store, run, review, "sha2")).toBe(AT.sha2);
+  expect(store.getSnapshot("pr-1", "sha2")).toBe(AT.sha2);
+  expect(run.mock.calls.map(([args]) => args.join(" "))).not.toContain("pr diff 1 --color never -R acme/web");
+});
+
+test("the PR's diff read while the author pushes isn't kept as the head's", async () => {
+  const { store, review, run } = pushedLater();
+  let views = 0;
+  run.mockImplementation(async (args: string[]) => args[1] === "view" ? { code: 0, stdout: JSON.stringify({ headRefOid: views++ ? "sha3" : "sha2" }), stderr: "" }
+    : args[1] === "diff" ? { code: 0, stdout: AT.sha3, stderr: "" } : { code: 0, stdout: AT.sha2, stderr: "" });
+  expect(await diffAt(store, run, review, "sha2")).toBe(AT.sha2);
+  expect(run.mock.calls.at(-1)![0]).toEqual(["api", "-H", "Accept: application/vnd.github.diff", "repos/acme/web/compare/main...sha2"]);
+});
+
+test("the head of a retargeted PR is compared with the base it targets now", async () => {
+  const { store, review, run } = pushedLater();
+  await diffAt(store, run, { ...review, latestBase: "release/2" }, "sha2");
+  expect(run.mock.calls.at(-1)![0]).toEqual(["api", "-H", "Accept: application/vnd.github.diff", "repos/acme/web/compare/release%2F2...sha2"]);
+});
+
+test("Since your review, once the guide catches up, still shows what changed after the commit you reviewed", async () => {
+  const { store, review, run } = pushedLater();
+  // Opening Comments' Since your review while the sync is a push behind used to keep the later push's diff as sha2's.
+  await sinceReview(store, run, review).catch(() => null);
+  // The guide is rebuilt at sha3, as Update guide does.
+  store.savePatch("pr-1", AT.sha3);
+  store.saveReview({ ...review, headSha: "sha3" });
+  store.setLifecycle("pr-1", { latestHeadSha: "sha3" });
+  const since = await sinceReview(store, run, store.getReview("pr-1")!);
+  // sha2 → sha3 changed a.ts; with the wrong snapshot it compares sha3 with itself and shows nothing.
+  expect(since?.files.map((f) => [f.file, f.status])).toEqual([["a.ts", "changed"]]);
+});
+
 test("Since your review is compared once per baseline and diff, and leaves out added files' diffs the page has", async () => {
   const { store, review } = setup();
-  const one = (path: string, line: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+${line}\n`;
   store.saveSnapshot("pr-1", "sha0", one("a.ts", "b"));
   store.savePatch("pr-1", one("a.ts", "c") + one("added.ts", "n"));
   const reviewed = { ...review, submittedAt: 5, submittedHeadSha: "sha0" };

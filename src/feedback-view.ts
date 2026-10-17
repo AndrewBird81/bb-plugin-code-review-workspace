@@ -2,7 +2,7 @@
 // check, assembled for Comments and the assistant's tools.
 import type { Store, ReviewMeta } from "./store";
 import type { runGh } from "./gh";
-import { ghErrorMessage } from "./gh";
+import { ghErrorMessage, ghPrHeadArgs } from "./gh";
 import { diffTooLarge, readFilesPatch, readPrDiff } from "./pr-snapshot";
 import { ensureGitHeaders, splitPatchByFile } from "./patch";
 import { interdiff, type FileInterdiff } from "./interdiff";
@@ -22,8 +22,8 @@ export const guideBehind = (review: ReviewMeta) =>
   review.headSha !== headOf(review) || !!review.base && !!review.latestBase && review.latestBase !== review.base;
 
 /**
- * The PR's diff at a commit: saved, the review's own diff, the PR's current
- * diff, or reconstructed by comparing the base branch with that commit.
+ * The PR's diff at a commit: saved, the review's own diff, the PR's diff while its head is that commit, or
+ * reconstructed by comparing the base branch with that commit.
  */
 export async function diffAt(store: Store, run: Run, review: ReviewMeta, sha: string): Promise<string> {
   const saved = store.getSnapshot(review.targetKey, sha);
@@ -33,27 +33,39 @@ export async function diffAt(store: Store, run: Run, review: ReviewMeta, sha: st
     if (patch) { store.saveSnapshot(review.targetKey, sha, patch); return patch; }
   }
   if (!review.repo || !review.number) throw new Error("This review has no GitHub PR.");
-  let patch: string;
-  if (sha === headOf(review)) {
-    patch = await readPrDiff(run, review.number, review.repo);
-  } else {
-    // GitHub diffs the base branch with that commit from their merge base, as the PR did then.
-    const compare = `repos/${review.repo}/compare/${encodeURIComponent(review.base ?? "HEAD")}...${sha}`;
-    const diff = await run(["api", "-H", "Accept: application/vnd.github.diff", compare]);
-    if (diff.code === 0) patch = diff.stdout;
-    else if (!diffTooLarge(diff)) throw new Error(`Couldn't read the PR as of ${sha.slice(0, 7)}: ${ghErrorMessage(diff)}`);
-    else {
-      // Too large for a diff: rebuild it from the comparison's files.
-      patch = await readFilesPatch(run, ["api", compare, "--jq", ".files[] | @json"])
-        .catch((error: Error) => { throw new Error(`Couldn't read the PR as of ${sha.slice(0, 7)}: ${error.message}`); });
-      // The comparison lists at most 300 files; a diff missing the rest would show them as added since.
-      if (splitPatchByFile(patch).length >= COMPARE_FILES) {
-        throw new Error(`Couldn't read the PR as of ${sha.slice(0, 7)}: GitHub's comparison lists at most ${COMPARE_FILES} files, and the PR may have had more than ${COMPARE_FILES} files then.`);
-      }
-    }
+  const { repo, number } = review;
+  let patch: string | null = null;
+  // The PR's diff is that commit's only while the PR's head is that commit before and after the read: the author may push.
+  if (sha === headOf(review) && await prHeadIs(run, number, repo, sha)) {
+    const read = await readPrDiff(run, number, repo);
+    if (await prHeadIs(run, number, repo, sha)) patch = read;
   }
+  // The head is compared with the base the PR targets now, a retargeted one included.
+  patch ??= await compareDiff(run, repo, (sha === headOf(review) ? review.latestBase : null) ?? review.base ?? "HEAD", sha);
   patch = ensureGitHeaders(patch);
   store.saveSnapshot(review.targetKey, sha, patch);
+  return patch;
+}
+
+async function prHeadIs(run: Run, number: number, repo: string, sha: string): Promise<boolean> {
+  const out = await run(ghPrHeadArgs(number, repo));
+  if (out.code !== 0) throw new Error(ghErrorMessage(out));
+  try { return JSON.parse(out.stdout)?.headRefOid === sha; } catch { return false; }
+}
+
+/** The diff of the base branch with a commit from their merge base, as GitHub showed the PR at that commit. */
+async function compareDiff(run: Run, repo: string, base: string, sha: string): Promise<string> {
+  const compare = `repos/${repo}/compare/${encodeURIComponent(base)}...${sha}`;
+  const diff = await run(["api", "-H", "Accept: application/vnd.github.diff", compare]);
+  if (diff.code === 0) return diff.stdout;
+  if (!diffTooLarge(diff)) throw new Error(`Couldn't read the PR as of ${sha.slice(0, 7)}: ${ghErrorMessage(diff)}`);
+  // Too large for a diff: rebuild it from the comparison's files.
+  const patch = await readFilesPatch(run, ["api", compare, "--jq", ".files[] | @json"])
+    .catch((error: Error) => { throw new Error(`Couldn't read the PR as of ${sha.slice(0, 7)}: ${error.message}`); });
+  // The comparison lists at most 300 files; a diff missing the rest would show them as added since.
+  if (splitPatchByFile(patch).length >= COMPARE_FILES) {
+    throw new Error(`Couldn't read the PR as of ${sha.slice(0, 7)}: GitHub's comparison lists at most ${COMPARE_FILES} files, and the PR may have had more than ${COMPARE_FILES} files then.`);
+  }
   return patch;
 }
 
