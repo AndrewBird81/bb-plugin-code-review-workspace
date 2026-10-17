@@ -898,11 +898,24 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     [views, rpc, targetKey, loadViews],
   );
 
-  // A chapter's files not viewed yet, marked at once. Undo puts each back as it was, changed since you viewed it too.
+  // A chapter's files not viewed yet, marked at once. Undo puts each back as it was, changed since you viewed it too. A
+  // file split across chapters is marked by the last chapter holding its hunks: Viewed is kept per file, so marked
+  // sooner, the hunks in the chapters after would fold away unread.
   const markChapterViewed = useCallback((id: string) => {
-    const files: string[] = sections.find((section: any) => section.id === id)?.diffs.map((d: any) => d.file) ?? [];
-    const todo = files.filter((f) => !views.get(f)?.viewed);
-    if (!todo.length) return;
+    const index = sections.findIndex((section: any) => section.id === id);
+    const diffs: { file: string; hunks?: number[] }[] = sections[index]?.diffs ?? [];
+    const later = (file: string) => sections.slice(index + 1).find((section: any) => section.diffs.some((d: any) => d.file === file));
+    const unviewed = diffs.filter((d) => !views.get(d.file)?.viewed);
+    const continuing = unviewed.filter((d) => d.hunks && later(d.file)).map((d) => d.file);
+    const todo = unviewed.map((d) => d.file).filter((f) => !continuing.includes(f));
+    // The chapter title is the agent's, shortened as the chapters list does.
+    const leftOut = continuing.length === 1
+      ? <>{continuing[0].slice(continuing[0].lastIndexOf("/") + 1)} continues in <span className="inline-block max-w-full truncate align-bottom">{later(continuing[0]).title}</span>.</>
+      : `${continuing.length} split files continue in later chapters.`;
+    if (!todo.length) {
+      if (continuing.length) toast.info(leftOut);
+      return;
+    }
     const before = new Map(todo.map((f) => [f, views.get(f)]));
     viewsRequest.current++;
     setViews((prev) => {
@@ -932,7 +945,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     marked.then(({ ok }) => {
       if (!ok) return failed();
       void loadViews();
-      toast.success(`Marked ${todo.length} file${todo.length === 1 ? "" : "s"} viewed`, { action: { label: "Undo", onClick: undo } });
+      const message = `Marked ${todo.length} file${todo.length === 1 ? "" : "s"} viewed`;
+      toast.success(continuing.length ? <>{message}. {leftOut}</> : message, { action: { label: "Undo", onClick: undo } });
     }, failed);
   }, [sections, views, rpc, targetKey, loadViews]);
   const foldAllFiles = useCallback((folded: boolean) => setFoldAll({ folded, nonce: Date.now() }), []);

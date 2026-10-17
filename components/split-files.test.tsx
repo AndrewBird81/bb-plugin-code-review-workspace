@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { toast } from "sonner";
+import type { ReactNode } from "react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { defaultPreferences } from "../src/preferences";
 import { render } from "@testing-library/react";
@@ -233,3 +235,90 @@ test("a split file shows Changed since your review in the chapter nearest a chan
   expect(card(slot).getByTitle("Changed since your review")).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+/** The views as the server keeps them: per file, as marks save them. */
+function storedViews() {
+  const viewed = new Set<string>();
+  return {
+    viewed,
+    getFileViews: vi.fn(() => ({ views: [...viewed].map((file) => ({ file, viewed: true, stale: false, viewedAt: 1 })) })),
+    setFilesViewed: vi.fn(({ files, viewed: on = true }: { files: string[]; viewed?: boolean }) => { for (const file of files) if (on) viewed.add(file); else viewed.delete(file); return { ok: true, previous: [] }; }),
+  };
+}
+const toastText = (message: unknown) => { const shown = render(<>{message as ReactNode}</>); const text = shown.container.textContent; shown.unmount(); return text; };
+const lastToast = (kind: "success" | "info") => vi.mocked(toast[kind]).mock.calls.at(-1)!;
+
+// bug bash RDG-4: Viewed is kept per file, so marking the first chapter viewed (its end's "Mark viewed and continue")
+// marked a split file's hunks in the next chapter viewed too: that chapter opened with them folded and read as done,
+// though they were never shown. The last chapter holding its hunks marks it.
+test("Mark viewed and continue leaves a split file for the next chapter's hunks, and that chapter's end marks it", async () => {
+  const { viewed, getFileViews, setFilesViewed } = storedViews();
+  const slot = await renderWorkspace({ rpc: { getFileViews, setFilesViewed } });
+  await slot.findByText(/PARSE/);
+  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Mark viewed and continue" }));
+  expect(setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts"] });
+  const main = within(slot.getByRole("main"));
+  await main.findByRole("heading", { name: "Caching" });
+  // Caching's own hunk of src/a.ts, which no chapter had shown yet, is open.
+  expect(main.queryByRole("button", { name: "Collapse src/a.ts" })).not.toBeNull();
+  expect(main.queryByText(/CACHE/)).not.toBeNull();
+  await waitFor(() => expect(toast.success).toHaveBeenCalled());
+  const [message, options] = lastToast("success");
+  expect(toastText(message)).toBe("Marked 1 file viewed. a.ts continues in Caching.");
+  expect((options as { action: { label: string } }).action.label).toBe("Undo");
+
+  fireEvent.click(main.getByRole("button", { name: "Mark viewed and finish" }));
+  expect(setFilesViewed).toHaveBeenLastCalledWith({ targetKey: "pr-42", files: ["src/a.ts"] });
+  await waitFor(() => expect(viewed.has("src/a.ts")).toBe(true));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(2));
+  expect(lastToast("success")[0]).toBe("Marked 1 file viewed");
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("Undo after a chapter mark that left a split file out unmarks only what it marked", async () => {
+  const { viewed, getFileViews, setFilesViewed } = storedViews();
+  const slot = await renderWorkspace({ rpc: { getFileViews, setFilesViewed } });
+  await slot.findByText(/PARSE/);
+  fireEvent.click(within(slot.getByRole("navigation", { name: "Chapters" })).getByRole("button", { name: "Mark chapter viewed" }));
+  await waitFor(() => expect(toast.success).toHaveBeenCalled());
+  act(() => (lastToast("success")[1] as unknown as { action: { onClick: () => void } }).action.onClick());
+  await waitFor(() => expect(setFilesViewed).toHaveBeenLastCalledWith({ targetKey: "pr-42", files: ["src/b.ts"], viewed: false, previous: [] }));
+  await waitFor(() => expect(viewed.size).toBe(0));
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a chapter whose only unviewed file continues later marks nothing and says where it continues", async () => {
+  const { getFileViews, setFilesViewed } = storedViews();
+  const onlySplit = { ...guide, sections: [
+    { id: "c1", title: "Parsing", overview: "Reads rows.", diffs: [{ file: "src/a.ts", summary: "Parses a row.", hunks: [1] }] },
+    { id: "c2", title: "Caching rows for the parser between requests and across restarts", overview: "Keeps rows.", diffs: [{ file: "src/a.ts", summary: "Caches a row.", hunks: [2] }, { file: "src/b.ts", summary: "Uses it." }] },
+  ] };
+  const slot = await renderWorkspace({ bundle: { guide: onlySplit }, rpc: { getFileViews, setFilesViewed } });
+  await slot.findByText(/PARSE/);
+  fireEvent.click(within(slot.getByRole("navigation", { name: "Chapters" })).getByRole("button", { name: "Mark chapter viewed" }));
+  expect(setFilesViewed).not.toHaveBeenCalled();
+  expect(toast.success).not.toHaveBeenCalled();
+  const [message] = lastToast("info");
+  expect(toastText(message)).toBe("a.ts continues in Caching rows for the parser between requests and across restarts.");
+  // The agent's title, as plain text, shortened to the toast's width.
+  const shown = render(<>{message as ReactNode}</>);
+  expect(within(shown.container).getByText("Caching rows for the parser between requests and across restarts").className).toContain("truncate");
+  shown.unmount();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a chapter mark that leaves out several split files counts them", async () => {
+  const { getFileViews, setFilesViewed } = storedViews();
+  const twoSplit = patch + "diff --git a/src/c.ts b/src/c.ts\n--- a/src/c.ts\n+++ b/src/c.ts\n@@ -1,2 +1,2 @@\n-c\n+C1\n keep\n@@ -20,2 +20,2 @@\n-c\n+C2\n keep\n";
+  const guided = { ...guide, sections: [
+    { ...guide.sections[0], diffs: [...guide.sections[0].diffs, { file: "src/c.ts", summary: "Parses c.", hunks: [1] }] },
+    { ...guide.sections[1], diffs: [...guide.sections[1].diffs, { file: "src/c.ts", summary: "Caches c.", hunks: [2] }] },
+  ] };
+  const slot = await renderWorkspace({ bundle: { guide: guided, patch: twoSplit }, rpc: { getFileViews, setFilesViewed } });
+  await slot.findByText(/PARSE/);
+  fireEvent.click(within(slot.getByRole("navigation", { name: "Chapters" })).getByRole("button", { name: "Mark chapter viewed" }));
+  expect(setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts"] });
+  await waitFor(() => expect(toast.success).toHaveBeenCalled());
+  expect(toastText(lastToast("success")[0])).toBe("Marked 1 file viewed. 2 split files continue in later chapters.");
+  slot.lifecycle.unmount();
+}, 15_000);
