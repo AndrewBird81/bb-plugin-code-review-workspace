@@ -83,8 +83,8 @@ function AskAboutCheck({ name, runId }: { name: string; runId: number }) {
     try {
       const result = await rpc.call("getCheckLog", { targetKey, runId });
       if (!result.ok || !result.log) toast.error(result.error ?? "Couldn’t read the check’s log.");
-      // The log is the PR's CI output, to read as data.
-      else askAgent({}, `The check **${name}** fails. The end of its log:\n${codeFence(untrusted("CI log", result.log))}`);
+      // The log is the PR's CI output, and the check's name the PR's workflow chooses: both to read as data.
+      else askAgent({}, `A check fails. Its name, then the end of its log:\n${codeFence(untrusted("CI log", `${name}\n\n${result.log}`))}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn’t read the check’s log.");
     } finally { setReading(false); }
