@@ -521,7 +521,7 @@ test("a setting that depends on another is disabled while that one is off, and T
   // A disabled dependent's label and description dim with its control, still readable.
   const texts = ["Automatic review", /^Sent to the review agent when a guide is ready/, "Re-review check", /^Sent to the review agent when a review comes back/,
     "After the author pushes", /^The review agent checks once the author’s pushes settle/, "Include team requests", /^Also show PRs that ask a team/,
-    "Include PRs you’ve reviewed", /^Open PRs you reviewed on GitHub/, "Flag chapters read faster than", "lines an hour", /^Medium- and high-risk chapters of 50 lines/];
+    "Include PRs you’ve reviewed", /^Open PRs you’ve reviewed on GitHub/, "Flag chapters read faster than", "lines an hour", /^Medium- and high-risk chapters of 50 lines/];
   const dimmed = () => texts.map((text) => slot.getByText(text).closest(".opacity-80") !== null);
   expect(dimmed()).toEqual(texts.map(() => false));
   for (const label of ["Run the automatic review", "Run the re-review check", "Track reviews from GitHub", "Check before you approve", "Start agents on their own"]) fireEvent.click(toggle(label));
@@ -833,5 +833,13 @@ test("Settings shows another window's save while it has no edits, and keeps your
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(instructions.value).toBe("Mine");
   expect(slot.getByText("Unsaved changes")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("Include PRs you've reviewed says it's the PRs that changed in the last 60 days, as its search finds them", async () => {
+  const { slot } = await renderSettings();
+  // src/github/discovery.ts: `reviewed-by:@me … updated:>=` 60 days ago, however long ago you reviewed.
+  const label = slot.getByText("Include PRs you’ve reviewed");
+  expect(label.nextElementSibling?.textContent).toBe("Open PRs you’ve reviewed on GitHub that changed in the last 60 days, not only requests for you.");
   slot.lifecycle.unmount();
 });
