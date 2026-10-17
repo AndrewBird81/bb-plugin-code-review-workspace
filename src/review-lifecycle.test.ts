@@ -7,6 +7,7 @@ import { defaultPreferences } from "./preferences";
 import type { FeedbackThread, PrFacts, PrRef } from "./github/types";
 import { feedbackProgress } from "../lib/turn";
 import { completionNotifications } from "./completion-notifications";
+import { BATCH_SIZE } from "./github/pr-facts";
 
 const HOUR = 3_600_000;
 const T0 = Date.parse("2026-10-10T12:00:00Z");
@@ -1222,3 +1223,39 @@ test("once the turn rules are current, an event from before a pass still acts", 
   await s.sync.all();
   expect(s.actions.prepare).toHaveBeenCalledTimes(1);
 });
+
+// Update guide and the page's check for new commits read their one PR with sync.one; with 200 reviews, a pass reads
+// GitHub in 20 batches, and a read of one review that joined it waited for every batch (bug bash PRF-1).
+test("a forced read of one review doesn't wait for the rest of a 200-review sync pass", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { update: async () => ({}), stop: async () => ({}), archive: async () => ({}) } } as any });
+  const store = createStore(bb);
+  for (let i = 0; i < 200; i++) store.saveReview({ targetKey: `pr-${i}`, kind: "pr", repo: "acme/web", number: i + 1, headSha: "sha1", createdAt: 1000 - i, status: "ready", projectId: "p1" });
+  let batches = 0;
+  const github: GithubReads = {
+    viewer: { login: async () => "me", teams: async () => new Set<string>(), reset() {} },
+    gate: { poll: async () => ({ kind: "unchanged" }) },
+    // As fetchPrFacts does: one GraphQL call per batch of BATCH_SIZE, in order, each taking GitHub a while.
+    facts: vi.fn(async (refs: PrRef[]) => {
+      const out = new Map<string, PrFacts>();
+      for (let i = 0; i < refs.length; i += BATCH_SIZE) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        batches++;
+        for (const ref of refs.slice(i, i + BATCH_SIZE)) out.set(ref.targetKey, facts(ref));
+      }
+      return out;
+    }),
+    threads: async () => [],
+    discover: async () => [],
+  };
+  const sync = createReviewSync(bb, store, vi.fn() as any, { github });
+  const pass = sync.all(true);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  // The newest review, in the pass's first batch.
+  await sync.one("pr-0", true);
+  const batchesWaited = batches;
+  await pass;
+  expect(batches).toBe(20);
+  expect(batchesWaited).toBeLessThanOrEqual(2);
+  // Two reads of one review still share one GitHub read.
+  expect(vi.mocked(github.facts).mock.calls.flatMap(([refs]) => refs).filter((ref) => ref.targetKey === "pr-0")).toHaveLength(1);
+}, 30_000);

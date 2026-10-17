@@ -8,7 +8,7 @@ import { completionNotifications } from "./completion-notifications";
 import { matchesRepo, reReviewCheckPrompt } from "./preferences";
 import { mayRunUnattended, skipWhy } from "../lib/trust";
 import { targetKey as keyFor } from "./targets";
-import { fetchPrFacts } from "./github/pr-facts";
+import { BATCH_SIZE, fetchPrFacts } from "./github/pr-facts";
 import { guideBehind } from "./feedback-view";
 import { fetchMyThreads } from "./github/threads";
 import { createNotificationGate, type NotificationGate } from "./github/notifications";
@@ -91,6 +91,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
   const actions = options.actions;
   const clock = options.now ?? Date.now;
   const notifications = completionNotifications(bb, store);
+  /** Each review being read, until its read is applied. */
   const inflight = new Map<string, Promise<void>>();
   const checked = new Map<string, number>();
   const hidden = new Set<string>();
@@ -167,11 +168,21 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
   const readable = (review: ReviewMeta | null): review is ReviewMeta & { repo: string; number: number } =>
     !!review && review.kind === "pr" && !!review.repo && !!review.number && review.prState !== "MERGED";
 
-  /** Read these reviews' PRs in batches and apply what changed. `pass`: a sync pass, whose read speaks for every review. */
+  /**
+   * Read these reviews' PRs in batches and apply what changed. `pass`: a sync pass, whose read speaks for every review.
+   * Each review's read settles once its own batch is applied, so a read of one that joins a pass doesn't wait for the rest.
+   */
   async function read(keys: string[], pass = false): Promise<void> {
     const waiting = keys.filter((key) => inflight.has(key)).map((key) => inflight.get(key)!);
     const fresh = keys.filter((key) => !inflight.has(key));
     if (!fresh.length) { await Promise.allSettled(waiting); return; }
+    const settle = new Map<string, () => void>();
+    const mine = new Map(fresh.map((key) => [key, new Promise<void>((resolve) => settle.set(key, resolve))]));
+    const settled = (key: string) => {
+      settle.get(key)?.();
+      if (inflight.get(key) === mine.get(key)) inflight.delete(key);
+    };
+    for (const [key, promise] of mine) inflight.set(key, promise);
     const task = (async () => {
       await upgradeRules();
       if (limited()) return;
@@ -179,37 +190,56 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       if (!login || disposed) return;
       const teams = await github.viewer.teams();
       const reviews = fresh.map((key) => store.getReview(key)).filter(readable);
-      const startedAt = clock();
-      let facts: Map<string, PrRead>;
-      try {
-        facts = await github.facts(reviews.map((r) => ({ targetKey: r.targetKey, repo: r.repo, number: r.number })), login, teams);
-      } catch (error) {
-        // A failed read preserves saved state.
-        if (!disposed) { readFailed(error); bb.log.warn(`Could not refresh reviews: ${String(error)}`); }
+      // The list hears once per pass, however many reviews changed.
+      let changed = false;
+      let missing = 0;
+      let read = 0;
+      let failure: unknown = null;
+      const unread: string[] = [];
+      for (let i = 0; i < reviews.length; i += BATCH_SIZE) {
+        if (disposed) return;
+        const batch = reviews.slice(i, i + BATCH_SIZE);
+        const startedAt = clock();
+        let facts: Map<string, PrRead>;
+        try {
+          facts = await github.facts(batch.map((r) => ({ targetKey: r.targetKey, repo: r.repo, number: r.number })), login, teams);
+          read++;
+        } catch (error) {
+          // A failed read preserves saved state.
+          failure = error;
+          missing += batch.length;
+          for (const review of batch) { unread.push(review.targetKey); settled(review.targetKey); }
+          continue;
+        }
+        for (const review of batch) {
+          if (disposed) return;
+          checked.set(review.targetKey, clock());
+          const fact = facts.get(review.targetKey);
+          if (fact === undefined) missing++;
+          // Missing: GitHub couldn't be read for it; keep what's saved. Null or "forbidden": the PR is gone or out of reach.
+          const done = fact === null || fact === "forbidden" ? unreachable(review.targetKey, fact ? "forbidden" : "not-found")
+            : fact ? apply(review.targetKey, fact, login, startedAt) : null;
+          if (await done?.catch((error) => { bb.log.warn(`Could not refresh ${review.targetKey}: ${String(error)}`); })) changed = true;
+          await maintainThread(review.targetKey);
+          settled(review.targetKey);
+        }
+      }
+      if (disposed) return;
+      if (failure && !read) {
+        readFailed(failure);
+        bb.log.warn(`Could not refresh reviews: ${String(failure)}`);
         return;
       }
-      const missing = reviews.filter((r) => !facts.has(r.targetKey)).length;
+      // Once GitHub answers, a batch it failed waits for its next turn like the rest.
+      for (const key of unread) checked.set(key, clock());
       const teamsFailed = store.getPreferences().preferences.trackTeamRequests && !!github.viewer.errors?.().teams;
       // Any good read shows gh runs and GitHub answers again; only a pass says whether every PR and your teams could be read.
       const kept = pass ? null : health.error?.kind === "partial" || health.error?.kind === "teams" ? health.error : null;
       health = { lastReadAt: clock(), error: kept };
       if (!kept && missing) failed("partial", { count: missing });
       else if (!kept && teamsFailed) failed("teams");
-      // The list hears once per pass, however many reviews changed.
-      let changed = false;
-      for (const review of reviews) {
-        if (disposed) return;
-        checked.set(review.targetKey, clock());
-        const fact = facts.get(review.targetKey);
-        // Missing: GitHub couldn't be read for it; keep what's saved. Null or "forbidden": the PR is gone or out of reach.
-        const done = fact === null || fact === "forbidden" ? unreachable(review.targetKey, fact ? "forbidden" : "not-found")
-          : fact ? apply(review.targetKey, fact, login, startedAt) : null;
-        if (await done?.catch((error) => { bb.log.warn(`Could not refresh ${review.targetKey}: ${String(error)}`); })) changed = true;
-        await maintainThread(review.targetKey);
-      }
-      if (changed && !disposed) bb.realtime.publish("reviews", { ts: clock() });
-    })().finally(() => { for (const key of fresh) if (inflight.get(key) === task) inflight.delete(key); });
-    for (const key of fresh) inflight.set(key, task);
+      if (changed) bb.realtime.publish("reviews", { ts: clock() });
+    })().finally(() => { for (const key of fresh) settled(key); });
     await Promise.allSettled([task, ...waiting]);
   }
 
