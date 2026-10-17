@@ -18,6 +18,7 @@ import { classifyFile, isChosenPath } from "../src/classify";
 import { useKnob } from "../lib/settings";
 import { testWeakening, weakeningChip, WEAKENING_COUNTED } from "../lib/test-weakening";
 import { lockfileDigest, packagesChange } from "../lib/lockfile-digest";
+import { hasHiddenBidi } from "../lib/hidden-bidi";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { Badge } from "./ui/badge";
@@ -493,6 +494,8 @@ export const DiffViewer = memo(function DiffViewer({
         digest: digestLockfiles ? lockfileDigest(f.path, f.text) : null,
         // A diff with no hunks, such as a binary or a mode change, says what it does instead; the row names a rename.
         bare: text === f.text && fileDiff && !fileDiff.hunks.length ? unplacedSummary({ path: f.path, text: f.text }) : null,
+        // Bidirectional controls in its path or added lines, which can make its code read differently than it runs.
+        bidi: hasHiddenBidi(f.path, f.text),
       }];
     });
     // How many files changed since, as the filtered diff shows them: the switch counts them unfiltered too.
@@ -738,7 +741,7 @@ export const DiffViewer = memo(function DiffViewer({
     <div ref={root} className="space-y-4">
       {narrowedStatus}
       {compareSwitch}
-      {perFile.map(({ path, oldPath, stats, chosen, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, noisy: noise, weakening, digest, bare }) => {
+      {perFile.map(({ path, oldPath, stats, chosen, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, noisy: noise, weakening, digest, bare, bidi }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
@@ -759,7 +762,8 @@ export const DiffViewer = memo(function DiffViewer({
         const tagged = classifyFile(path, generated.has(path), chosen).category !== "code";
         // A local review's file that's still in its checkout opens in an editor.
         const inEditor = !!editor && fileDiff?.type !== "deleted";
-        const details = detailed && (summary || bare || oldPath || split || owned || stale || tagged || showDiff || readContents && source && !folded || inEditor);
+        // Hidden bidirectional Unicode is said on a folded file too.
+        const details = detailed && (summary || bare || oldPath || split || owned || stale || tagged || showDiff || readContents && source && !folded || inEditor) || bidi;
         return (
           <div
             key={path}
@@ -820,24 +824,27 @@ export const DiffViewer = memo(function DiffViewer({
             {details && (
               <div className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] px-3 py-1.5", !folded && "border-b border-border")}>
                 <div className="min-w-0 flex-1 basis-60 space-y-0.5 empty:hidden">
-                  {summary && <p className="text-xs leading-snug text-muted-foreground"><InlineCode text={summary} /></p>}
-                  {bare && <p className="text-[11px] text-muted-foreground">{bare}</p>}
-                  {oldPath && <p className="truncate text-[11px] text-muted-foreground">Renamed from <span className="font-mono">{oldPath}</span></p>}
-                  {split && <p className="truncate text-[11px] text-muted-foreground">Also in <InlineCode text={split.alsoIn.join(", ")} /></p>}
-                  {owned && (
-                    <p className={cn("flex items-center gap-1 text-[11px]", owned.mine ? "text-primary" : "text-muted-foreground")} title="From the repo's CODEOWNERS">
-                      <Icon name="UserRound" className="size-3 shrink-0" aria-hidden />
-                      <span className="min-w-0 truncate">Owned by <span className="font-mono">{owned.owners.join(" ")}</span>{owned.mine && <span className="font-medium"> · yours</span>}</span>
-                    </p>
-                  )}
-                  {(weakening || digest) && <p className="flex flex-wrap items-center gap-1.5">
-                    {weakening && <Badge tone="warning" size="sm" title={WEAKENING_COUNTED}>{weakeningChip(weakening)}</Badge>}
-                    {digest && packagesChange(digest) && <Badge size="sm" title="Packages the lockfile adds and removes; a version change counts in neither">{packagesChange(digest)}</Badge>}
-                    {digest?.hosts.map((host) => <Badge key={host} tone="warning" size="sm" title="An added package downloads from this host, which isn’t its registry or already in the lockfile">Downloads from {host}</Badge>)}
-                  </p>}
-                  {stale && <p className="flex items-center gap-1 text-[11px] font-medium text-warning-text"><Icon name="AlertTriangle" className="size-3 shrink-0" aria-hidden />Changed since you viewed it</p>}
+                  {bidi && <p className="flex items-center gap-1 text-[11px] font-medium text-warning-text"><Icon name="AlertTriangle" className="size-3 shrink-0" aria-hidden />Hidden bidirectional Unicode in this file can make code read differently than it runs.</p>}
+                  {detailed && <>
+                    {summary && <p className="text-xs leading-snug text-muted-foreground"><InlineCode text={summary} /></p>}
+                    {bare && <p className="text-[11px] text-muted-foreground">{bare}</p>}
+                    {oldPath && <p className="truncate text-[11px] text-muted-foreground">Renamed from <span className="font-mono">{oldPath}</span></p>}
+                    {split && <p className="truncate text-[11px] text-muted-foreground">Also in <InlineCode text={split.alsoIn.join(", ")} /></p>}
+                    {owned && (
+                      <p className={cn("flex items-center gap-1 text-[11px]", owned.mine ? "text-primary" : "text-muted-foreground")} title="From the repo's CODEOWNERS">
+                        <Icon name="UserRound" className="size-3 shrink-0" aria-hidden />
+                        <span className="min-w-0 truncate">Owned by <span className="font-mono">{owned.owners.join(" ")}</span>{owned.mine && <span className="font-medium"> · yours</span>}</span>
+                      </p>
+                    )}
+                    {(weakening || digest) && <p className="flex flex-wrap items-center gap-1.5">
+                      {weakening && <Badge tone="warning" size="sm" title={WEAKENING_COUNTED}>{weakeningChip(weakening)}</Badge>}
+                      {digest && packagesChange(digest) && <Badge size="sm" title="Packages the lockfile adds and removes; a version change counts in neither">{packagesChange(digest)}</Badge>}
+                      {digest?.hosts.map((host) => <Badge key={host} tone="warning" size="sm" title="An added package downloads from this host, which isn’t its registry or already in the lockfile">Downloads from {host}</Badge>)}
+                    </p>}
+                    {stale && <p className="flex items-center gap-1 text-[11px] font-medium text-warning-text"><Icon name="AlertTriangle" className="size-3 shrink-0" aria-hidden />Changed since you viewed it</p>}
+                  </>}
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5">
+                {detailed && <div className="flex flex-wrap items-center gap-1.5">
                   <FileTag file={path} generated={generated.has(path)} chosen={chosen} className="text-[11px]" />
                   {/* Why a file of code folded: its tag says why a lockfile or generated file did. */}
                   {showDiff && stats.add + stats.del > LARGE_DIFF && <span className="text-[11px] tabular-nums text-muted-foreground">Large diff · {(stats.add + stats.del).toLocaleString()} lines</span>}
@@ -854,7 +861,7 @@ export const DiffViewer = memo(function DiffViewer({
                     </Button>
                   ))}
                   {inEditor && <FileEditorLink file={path} line={fileDiff?.hunks[0]?.additionStart ?? null} />}
-                </div>
+                </div>}
               </div>
             )}
             {!folded && first && <OutdatedThreads threads={fromGitHub.get(path)?.outdated ?? []} />}

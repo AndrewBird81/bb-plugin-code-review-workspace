@@ -217,3 +217,28 @@ test("a file with no hunks says what its diff does instead: binary, mode change,
   // A file with hunks shows them, not words.
   expect(card("src/a.ts").queryByText(/Binary file|No content changes|empty file/)).toBeNull();
 });
+
+// bug bash RDG-1 (Trojan Source, CVE-2021-42574): an added line holding bidirectional controls draws in an order other
+// than the one it compiles in. This one shows as `if (role != "user") { // Check if admin`, but the comment is inside
+// the string, so every role is granted. GitHub warns on such a file; the diff here drew it with no sign.
+const bidiWarning = "Hidden bidirectional Unicode in this file can make code read differently than it runs.";
+const trojan = 'if (role != "user\u202E \u2066// Check if admin\u2069 \u2066") { grant(); }';
+const trojanPatch = `diff --git a/src/auth.ts b/src/auth.ts\n--- a/src/auth.ts\n+++ b/src/auth.ts\n@@ -1 +1 @@\n-if (role === "admin") { grant(); }\n+${trojan}\n`;
+const fileCard = (container: HTMLElement, path: string) => within(Array.from(container.querySelectorAll<HTMLElement>("[data-file]")).find((el) => el.dataset.file === path)!);
+
+test("a file whose diff adds bidirectional controls warns, in its details row, folded too", () => {
+  const { container } = render(<DiffViewer patch={trojanPatch + patch} files={["src/auth.ts", "src/a.ts"]} views={new Map<string, FileViewFlags>()} onToggleViewed={() => {}} />);
+  const warning = fileCard(container, "src/auth.ts").getByText(bidiWarning);
+  expect(warning.className).toContain("text-warning-text");
+  expect(warning.querySelector("svg")).not.toBeNull();
+  expect(fileCard(container, "src/a.ts").queryByText(bidiWarning)).toBeNull();
+  // Folded, the row stays, with the warning alone.
+  fireEvent.click(screen.getByRole("button", { name: "Collapse src/auth.ts" }));
+  expect(fileCard(container, "src/auth.ts").getByText(bidiWarning)).toBeTruthy();
+});
+
+test("a file whose path holds a bidirectional control warns", () => {
+  const path = "src/\u202Ests.ts";
+  const { container } = render(<DiffViewer patch={`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+b\n`} files={[path]} views={new Map<string, FileViewFlags>()} onToggleViewed={() => {}} />);
+  expect(fileCard(container, path).getByText(bidiWarning)).toBeTruthy();
+});
