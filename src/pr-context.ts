@@ -77,10 +77,22 @@ function expandBraces(glob: string): string[] {
   return globs.map((head) => head + glob.slice(i));
 }
 
+/**
+ * The front matter's applyTo value: from the first non-space after "applyTo:" to the end of that line, without its
+ * trailing spaces and one quote at each end. Read in code: a regular expression's lazy match rescanned a long run of
+ * spaces from each of its characters.
+ */
+function applyToValue(front: string): string | null {
+  const key = /^applyTo:/m.exec(front);
+  if (!key) return null;
+  const rest = front.slice(key.index + key[0].length).trimStart();
+  return /^.*/.exec(rest)![0].trimEnd().replace(/^["']/, "").replace(/["']$/, "");
+}
+
 /** An .instructions.md file's text without its front matter, when its applyTo globs match a changed file. */
 export function scopedInstructions(text: string, files: readonly string[]): string | null {
   const front = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-  const applyTo = front?.[1].match(/^applyTo:\s*["']?(.*?)["']?\s*$/m)?.[1];
+  const applyTo = front && applyToValue(front[1]);
   if (!front || !applyTo || applyTo.length > MAX_APPLY_TO_LENGTH) return null;
   // Commas inside {a,b} don't separate globs.
   let budget = MAX_APPLY_TO_LENGTH;

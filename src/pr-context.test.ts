@@ -153,6 +153,16 @@ test("an applyTo glob can't stall the server or break read_pr_context", () => {
   expect(scopedInstructions("---\napplyTo: 'src/{*.ts,lib/**}'\n---\nRule.", ["src/lib/deep/a.go"])).toBe("Rule.");
 });
 
+// The applyTo line was read by a regular expression whose lazy match rescanned a run of spaces from each of them:
+// 40,000 took 1.6 s, on the server's one thread (bug bash SEC-7).
+test("a long applyTo line is read in linear time, and its value as before", () => {
+  const start = performance.now();
+  expect(scopedInstructions(`---\napplyTo: a${" ".repeat(40_000)}b\n---\nRule.`, ["a.ts"])).toBeNull();
+  expect(performance.now() - start).toBeLessThan(250);
+  expect(scopedInstructions("---\napplyTo:   \"*.ts\"  \r\n---\nRule.", ["a.ts"])).toBe("Rule.");
+  expect(scopedInstructions("---\napplyTo:\n  '*.ts'\n---\nRule.", ["a.ts"])).toBe("Rule.");
+});
+
 test("read_pr_context reads REVIEW.md at the base, at the root and in the changed files' directories, as the repo's review rules", async () => {
   const rules = graphql();
   Object.assign((rules.data.repository.pullRequest as any).baseRef.target, {
