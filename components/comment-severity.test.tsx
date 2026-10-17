@@ -243,6 +243,8 @@ test("Mark as pre-existing and Mark as from this PR save the comment with the ma
   const rpc = stored([{ ...at(3), author: "agent", severity: "should-fix", body: "Unchecked.", evidence: "Read a.ts:3." }]);
   const { slot, diff, panel } = await renderReview("mark", rpc);
   const card = await diff().findByRole("article", { name: "Draft comment on src/a.ts:3" });
+  // The four actions wrap inside the card, where at 390 px Remove ran past it (72-hands-on, 95-recheck).
+  expect(within(card).getByRole("button", { name: "Remove" }).parentElement!.className).toMatch(/\bflex-wrap\b/);
   fireEvent.click(within(card).getByRole("button", { name: "Mark as pre-existing" }));
   await waitFor(() => expect(rpc.saveDraftComment).toHaveBeenLastCalledWith(expect.objectContaining({ replaces: "Unchecked.", comment: { ...at(3), author: "agent", severity: "should-fix", body: "Unchecked.", evidence: "Read a.ts:3.", introduced: false } })));
   expect(await within(card).findByText("Pre-existing")).toBeTruthy();

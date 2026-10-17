@@ -25,6 +25,7 @@ Fixes only. An agent in one of your threads can no longer start the review's age
 - A guide waiting for its writer's machine to reconnect says so on its page, in its update notice, and in its status line, with Try again, rather than that it failed; once its 10 minutes are up, it reads as failed at once.
 - `r` on a GitHub thread opens its reply box even when its card in the code shows after the key, as when `]` turns GitHub threads in code back on.
 - **Suggest change** fences its lines with more backticks than they hold, and a Suggested change opened with four or more backticks shows in its box, a fence among its lines included.
+- A draft comment's actions in the code wrap on a phone, rather than running past its card.
 - The Comments chips' focus ring shows whole, and the Overview's chapter summaries keep to 2 lines.
 - Finish review's "Read 6 of 8 files" counts only a local review's reads of its current diff.
 - Refreshing your threads from a review tells your other open review pages only when they changed.

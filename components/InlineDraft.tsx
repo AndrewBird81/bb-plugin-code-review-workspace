@@ -164,7 +164,8 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
         {comment.severity && <SeverityBadge severity={comment.severity} />}
         {preExisting && comment.introduced === false && <PreExistingBadge />}
         {(draft.editable || onFold) && (
-          <span className="-mr-1.5 ml-auto flex">
+          // Up to five actions: they wrap, or on a phone they'd run past the card.
+          <span className="-mr-1.5 ml-auto flex flex-wrap justify-end">
             {draft.editable && <>
               <Button variant="ghost" size="sm" className={action} disabled={draft.busy || draft.writing} onClick={() => draft.open(comment)}>Edit</Button>
               <Button variant="ghost" size="sm" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={draft.busy || draft.writing} onClick={() => draft.ask(comment)}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
