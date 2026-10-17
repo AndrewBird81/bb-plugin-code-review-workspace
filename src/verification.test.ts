@@ -87,3 +87,18 @@ test("the assistant's changes since your review are read at the commit its check
   expect(checking).toContain("now (sha2)");
   expect(checking).not.toContain("pushed-later");
 });
+
+test("on a PR with more commits than GitHub lists, a reviewed commit missing from the list isn't said to be force-pushed away", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const store = createStore(bb);
+  const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
+  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "bbbbbbb2", status: "ready", createdAt: 1 });
+  store.setLifecycle("pr-1", { submittedHeadSha: "aaaaaaa1", submittedAt: 10, submittedVerdict: "REQUEST_CHANGES" });
+  store.saveSnapshot("pr-1", "aaaaaaa1", patch);
+  store.saveSnapshot("pr-1", "bbbbbbb2", patch.replace("+b", "+c"));
+  const listing = (count: number) => vi.fn(async () => ({ code: 0, stderr: "", stdout: Array.from({ length: count }, (_, i) => `${String(i).padStart(7, "c")}\tcommit ${i}\n`).join("") }));
+  const capped = await changesSinceReview(store, listing(250) as any, store.getReview("pr-1")!);
+  expect(capped).toContain("isn't among the first 250 commits, the most GitHub lists, so this list may be cut short");
+  expect(capped).not.toContain("is no longer on the branch");
+  expect(await changesSinceReview(store, listing(12) as any, store.getReview("pr-1")!)).toContain("The reviewed commit is no longer on the branch; it was rebased or force-pushed.");
+});

@@ -103,14 +103,20 @@ export async function changesSinceReview(store: Store, run: Run, review: ReviewM
   ].filter(Boolean).join("\n\n");
 }
 
+/** GitHub lists at most 250 of a PR's commits. */
+const LISTED_COMMITS = 250;
+
 async function commitsSince(run: Run, review: ReviewMeta, sha: string): Promise<string> {
   const out = await run(["api", "--paginate", `repos/${review.repo}/pulls/${review.number}/commits?per_page=100`, "--jq", ".[] | [.sha, (.commit.message | split(\"\\n\")[0])] | @tsv"]);
   if (out.code !== 0) throw new Error(out.stderr);
   const rows = out.stdout.trim().split("\n").filter(Boolean).map((row) => row.split("\t"));
   const index = rows.findIndex(([oid]) => oid === sha);
-  // After a force-push the reviewed commit may be gone from the PR; show them all.
+  // After a force-push the reviewed commit may be gone from the PR, or past the commits GitHub lists; show them all.
   const after = index >= 0 ? rows.slice(index + 1) : rows;
-  return after.length ? untrusted("commit messages", after.map(([oid, message]) => `- ${short(oid)} ${message}`).join("\n")) + (index < 0 ? "\n(The reviewed commit is no longer on the branch; it was rebased or force-pushed.)" : "") : "None.";
+  const missing = rows.length >= LISTED_COMMITS
+    ? `\n(The reviewed commit isn't among the first ${LISTED_COMMITS} commits, the most GitHub lists, so this list may be cut short; it may also have been rebased or force-pushed away.)`
+    : "\n(The reviewed commit is no longer on the branch; it was rebased or force-pushed.)";
+  return after.length ? untrusted("commit messages", after.map(([oid, message]) => `- ${short(oid)} ${message}`).join("\n")) + (index < 0 ? missing : "") : "None.";
 }
 
 /** A PR's file at a commit: its head now, your reviewed commit, or the commit its diff starts from. */
