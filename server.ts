@@ -49,7 +49,7 @@ import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
 import { GUIDE_WORKER_TITLE, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideRejected, guideWorkerFailed, guideWriterMode } from "./src/generate";
 import { pluginThreadsTitled, threadReview, threadRole, toolThreadReview } from "./src/thread-review";
-import { formerWorkerReview } from "./src/former-workers";
+import { formerWorkerReview, recordFormerWorker } from "./src/former-workers";
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { localDiffChanged, rerunReview } from "./src/rereview";
 import { getGhAccounts, switchGhAccount, checkRepoAccess } from "./src/gh-accounts";
@@ -110,7 +110,9 @@ export default async function plugin(bb: BbPluginApi) {
   } });
   onPrepared(bb, (targetKey) => { void sync.evaluate(targetKey); });
   onAssistantWaitsEnded(bb, (targetKey) => { void sync.evaluate(targetKey); });
-  // Guides a reload interrupted: their workers stop, and the rebuilds start again without alerting.
+  // Guides a reload interrupted: their workers stop, and the rebuilds start again without alerting. Their rows are gone,
+  // so each writer is recorded now: as a former writer, it can still run commands only on its own review.
+  for (const { targetKey, workerId } of interrupted) if (workerId) void recordFormerWorker(bb, workerId, targetKey, "writer");
   void (async () => {
     for (const { targetKey, workerId } of interrupted) {
       if (workerId) {

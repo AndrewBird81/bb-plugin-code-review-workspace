@@ -6,6 +6,7 @@ import { assistantInstructions, getConversation, messageAssistant, newConversati
 import { defaultPreferences } from "./preferences";
 import { generateGuide } from "./generate";
 import plugin from "../server";
+import { formerWorkerReview } from "./former-workers";
 import { runGh } from "./gh";
 
 vi.mock("./gh", async (original) => {
@@ -70,6 +71,8 @@ test("a legacy conversation stays visible, reaches the agent as hidden history, 
   expect(spawn.input[1]).toEqual({ type: "text", visibility: "agent-only", mentions: [], text: "Previous review conversation:\nuser: Earlier question\n\nassistant: Earlier answer" });
   expect(harness.inspection.sdk.callsTo("threads.archive")).toEqual([[{ threadId: "legacy-worker" }]]);
   expect(store.getAgentThread("pr-1")).toBeNull();
+  // Archived, it can still run commands: as a former assistant, only on its own review (71-review-security F4).
+  expect(await formerWorkerReview(bb, "legacy-worker")).toBe("pr-1");
   expect((await getConversation(bb, store, "pr-1")).legacy.map((message) => message.text)).toEqual(["Earlier question", "Earlier answer"]);
 });
 

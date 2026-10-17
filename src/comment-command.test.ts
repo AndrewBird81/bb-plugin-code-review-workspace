@@ -5,7 +5,7 @@ import { createStore } from "./store";
 import { targetKey } from "./targets";
 import { runGh } from "./gh";
 import { getConversation, newConversation } from "./agent";
-import { FORMER_WORKERS_KEPT, recordFormerWorker } from "./former-workers";
+import { FORMER_WORKERS_KEPT, formerWorkerReview, recordFormerWorker } from "./former-workers";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -195,6 +195,26 @@ test("an assistant found archived, or a guide writer a new generation replaced, 
   await vi.waitFor(() => expect(store.isCurrentGeneration(key, generation)).toBe(false));
   expect(await refusedOn(harness, "writer-7", other, 8)).toEqual([true, true, true, true]);
   expect(await harness.behavior.runCli(["comment", "add", url, "a.ts:2", "--code", "later();", "--body", "Mine"], { threadId: "writer-7", projectId: "p1" })).toMatchObject({ exitCode: 0 });
+});
+
+// A reload deleted an interrupted generation's row before its writer was stopped, and a writer spawned for a generation
+// replaced meanwhile had no row at all, so neither was recorded (70-review-correctness #2, 71-review-security F4).
+test("a guide writer a reload interrupted, or one whose generation was replaced while it spawned, can change only its own review", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "generating", createdAt: 1, headSha: "sha1" });
+  store.savePatch(key, patch);
+  store.setGenerationWorker(key, store.beginGeneration(key), "writer-9");
+  await plugin(bb);
+  const other = otherReview(store);
+  expect(await refusedOn(harness, "writer-9", other, 8)).toEqual([true, true, true, true]);
+
+  await vi.waitFor(() => expect(store.getReview(key)?.status).not.toBe("generating"));
+  store.saveReview({ ...store.getReview(key)!, status: "ready" });
+  harness.inspection.sdk.stub("threads.spawn", async () => { store.beginGeneration(key); return { id: "writer-raced" }; });
+  expect(await harness.behavior.runCli([url], { threadId: "ordinary", projectId: "p1" })).toMatchObject({ exitCode: 0 });
+  await vi.waitFor(async () => expect(await formerWorkerReview(bb, "writer-raced")).toBe(key));
+  expect(await refusedOn(harness, "writer-raced", other, 8)).toEqual([true, true, true, true]);
 });
 
 test("the Suggest instructions worker can't change or list any review through bb review", async () => {

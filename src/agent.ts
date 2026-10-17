@@ -178,6 +178,7 @@ async function spawnConversation(bb: BbPluginApi, store: Store, args: { targetKe
   // The legacy worker is superseded; its transcript stays visible above the chat.
   const legacyWorker = store.getAgentThread(args.targetKey);
   if (legacyWorker) {
+    await recordFormerWorker(bb, legacyWorker, args.targetKey, "assistant");
     store.clearAgentThread(args.targetKey);
     await bb.sdk.threads.archive({ threadId: legacyWorker }).catch(() => {});
   }

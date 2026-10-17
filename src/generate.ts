@@ -158,6 +158,8 @@ export async function generateGuide(
         ...execution,
       });
       store.setGenerationWorker(targetKey, id, worker.id);
+      // A generation replaced while this writer spawned has no row to hold it, and its successor never saw it.
+      if (store.generationOf(worker.id) !== targetKey) void recordFormerWorker(bb, worker.id, targetKey, "writer");
       return worker;
     });
     workerId = worker.id;
