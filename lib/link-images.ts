@@ -6,9 +6,9 @@
  * `markdown` as it's safe to show from others and agents. Each image becomes a link to it, `[Image: alt](url)` or
  * `[Image](url)`, so nothing loads until it's clicked: inline and reference images, and HTML `<img>`, `<video>` and
  * `<source>`. An image inside a link's text becomes its words, the link kept. HTML comments are hidden, as GitHub hides
- * them. Then every `<` that doesn't begin one of the FORMATTING tags, or an autolink, shows as text. Code spans,
- * fenced code and indented code outside any quote or list item stay as written where the Markdown around them leaves
- * no doubt they're code (`structure`); elsewhere code is changed too.
+ * them. Then every `<` that doesn't begin one of the FORMATTING tags, or an autolink, shows as text. Code spans and
+ * fenced code stay as written where the Markdown around them leaves no doubt they're code (`structure`); elsewhere
+ * code is changed too.
  */
 export function linkImages(markdown: string): string {
   if (!/<|!\[/.test(markdown)) return markdown;
@@ -201,7 +201,7 @@ function escapeHtml(text: string): string {
   let out = "";
   let span = 0;
   for (const { start, end, kind } of lines) {
-    if (kind === "code") out += text.slice(start, end);
+    if (kind === "fence") out += text.slice(start, end);
     else for (let i = start; i < end;) {
       const char = text[i];
       if (span < spans.length && spans[span][0] === i) {
@@ -227,10 +227,10 @@ function escapeHtml(text: string): string {
   return out;
 }
 
-/** Where `markdown`'s code is, as linkImages reads it: the lines of its code blocks, and its code spans, in order. */
+/** Where `markdown`'s code is, as linkImages reads it: the lines of its fenced code, and its code spans, in order. */
 export function codeRanges(markdown: string): Array<readonly [number, number]> {
   const { lines, spans } = structure(markdown);
-  return [...lines.filter((line) => line.kind === "code").map(({ start, end }) => [start, end] as const), ...spans].sort((a, b) => a[0] - b[0]);
+  return [...lines.filter((line) => line.kind === "fence").map(({ start, end }) => [start, end] as const), ...spans].sort((a, b) => a[0] - b[0]);
 }
 
 /** `text` with `change` made to each stretch between its code. */
@@ -244,13 +244,12 @@ function outsideCode(text: string, change: (prose: string) => string): string {
   return out + change(text.slice(from));
 }
 
-type LineKind = "code" | "inline" | "row" | "raw";
+type LineKind = "fence" | "inline" | "row" | "raw";
 interface Line { start: number; end: number; kind: LineKind }
 
 /**
  * Each line of `text` as CommonMark with GFM reads it once `escapeHtml` has run, so only FORMATTING tags can begin an
- * HTML block: a code block's (fenced, or indented outside any quote or list item), inline text (a paragraph's or a
- * heading's), a GFM table's row, or anything else;
+ * HTML block: a fenced code block's, inline text (a paragraph's or a heading's), a GFM table's row, or anything else;
  * and the code spans in inline text and rows. See `lineKinds` and `codeSpans`.
  */
 function structure(text: string): { lines: Line[]; spans: Array<[number, number]> } {
@@ -287,8 +286,6 @@ function lineKinds(rows: string[]): LineKind[] {
   const kinds = rows.map((): LineKind => "raw");
   const stack: Container[] = [];
   let leaf: Leaf | null = null;
-  // An HTML comment open before this row: withoutComments hides it whole only if its rows stay prose.
-  let comment = false;
   const fill = () => { for (const container of stack) if (!container.quote) container.filled = true; };
 
   const read = (row: string, index: number): LineKind | null => {
@@ -317,7 +314,7 @@ function lineKinds(rows: string[]): LineKind[] {
       if (stack.length && /^ {0,3}\t/.test(rest)) return null;
       const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(rest);
       if (close && close[1][0] === leaf.char && close[1].length >= leaf.length) leaf = null;
-      return "code";
+      return "fence";
     }
     if (all && leaf?.kind === "html") {
       if (leaf.pre ? /<\/pre>/i.test(row.slice(pos)) : blank(row.slice(pos))) leaf = null;
@@ -326,9 +323,7 @@ function lineKinds(rows: string[]): LineKind[] {
     const afterIndented = all && leaf?.kind === "indented";
     if (afterIndented) {
       const rest = row.slice(pos);
-      // Blank rows inside the block are its own, but the same either way: they hold nothing to change.
-      if (blank(rest)) return "raw";
-      if (spaces(rest) >= 4 || (!stack.length && rest[spaces(rest)] === "\t")) return stack.length || comment ? "raw" : "code";
+      if (blank(rest) || spaces(rest) >= 4 || (!stack.length && rest[spaces(rest)] === "\t")) return "raw";
       if (rest[spaces(rest)] === "\t") return null;
       leaf = null;
     }
@@ -367,8 +362,7 @@ function lineKinds(rows: string[]): LineKind[] {
         if (continues) break;
         if (!close()) return null;
         leaf = { kind: "indented" };
-        // In a quote or list item, it's still changed like prose.
-        return stack.length || comment ? "raw" : "code";
+        return "raw";
       }
       if (/^(?:\$\$|:::|\[\^)/.test(tail)) return null;
       if (tail[0] === ">") {
@@ -389,7 +383,7 @@ function lineKinds(rows: string[]): LineKind[] {
         if (!close()) return null;
         leaf = { kind: "fence", char: fence[0][0], length: fence[0].length };
         fill();
-        return "code";
+        return "fence";
       }
       const html = htmlBlock(tail);
       // CommonMark goes on with the paragraph; marked, and maybe others, starts an HTML block.
@@ -448,28 +442,8 @@ function lineKinds(rows: string[]): LineKind[] {
     const kind = read(rows[index], index);
     if (!kind) return kinds.fill("raw", index);
     kinds[index] = kind;
-    // Code isn't prose, so no comment begins or ends in it; a code span's is counted, which only keeps more rows prose.
-    if (kind !== "code") comment = commentOpen(comment, rows[index]);
   }
   return kinds;
-}
-
-/** Whether an HTML comment is open after `row`, as withoutComments finds them, given whether one was before it. */
-function commentOpen(open: boolean, row: string): boolean {
-  for (let at = 0; ;) {
-    if (open) {
-      const end = row.indexOf("-->", at);
-      if (end < 0) return true;
-      open = false;
-      at = end + 3;
-    } else {
-      const start = row.indexOf("<!--", at);
-      if (start < 0) return false;
-      const closed = /^-?>/.exec(row.slice(start + 4));
-      if (closed) at = start + 4 + closed[0].length;
-      else { open = true; at = start + 4; }
-    }
-  }
 }
 
 /** Whether a paragraph beginning `text` can be a link definition: `[label]:`, or a label going on past its line. */
@@ -499,7 +473,7 @@ function codeSpans(text: string, lines: Line[]): Array<[number, number]> {
   let paired = true;
   for (const { start, end, kind } of lines) {
     const line = text.slice(start, end);
-    if (kind === "code" || blank(line)) {
+    if (kind === "fence" || blank(line)) {
       paired = true;
       continue;
     }

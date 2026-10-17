@@ -190,24 +190,25 @@ test("a tab at the margin indents the line 4 columns", () => {
   for (const text of ["Example:\n\n\tindented();\n\nthen `Array<string>`.", "Text\n\tgoes on `Map<K, V>`", "\t```\nx\n```\n<img src={logo} />\n```"]) {
     expect(linkImages(text)).toBe(text);
   }
-  // Indented code in a quote is still changed.
-  expect(linkImages('> \t<img src="https://evil.test/ti.png">')).toBe("> \t[Image](https://evil.test/ti.png)");
+  // Indented code is still changed.
+  expect(linkImages('  \t<img src="https://evil.test/ti.png">')).toBe("  \t[Image](https://evil.test/ti.png)");
 });
 
-// Indented code showed < as &lt; and ![ as \![, and its images as links, though BB shows it as written (SUMMARY S15).
-test("indented code outside any quote or list item stays as written", () => {
-  const code = "    const names: Array<string> = [];\n\n\treturn <img src={logo} />;\n  \t![x](y)";
-  for (const text of [code, `Example:\n\n${code}\n\nThen \`Map<K, V>\`.`, `# Title\n${code}`, `\`\`\`\nx\n\`\`\`\n${code}`, `> # Quote\n${code}`]) {
-    expect(linkImages(text)).toBe(text);
-  }
-  // A comment holding indented lines, as PR templates' do, is still hidden whole.
-  expect(linkImages("<!--\nDescribe it:\n\n    - example\n\n-->\nText `Array<T>`")).toBe("\nText `Array<T>`");
+// Keeping top-level indented code as written let BB load an image the reader took for code, after a list item that
+// began empty or a list start the reader refused, which BB reads as a list item's paragraph (71-review-security F1).
+test("an image after an empty list item or a refused list start stays a link", () => {
   const img = '<img src="https://evil.test/x.png">';
-  const media = [img, '<video poster="https://evil.test/p.png">', '<source srcset="https://evil.test/s.png">', "![x](https://evil.test/m.png)", `<im<!-- -->g src="https://evil.test/c.png">`];
-  // Where BB reads the indented row as a list item's, a paragraph's, an HTML block's, a footnote's, or in doubt, it's changed.
-  const places = (payload: string) => [`- a\n\n    ${payload}`, `1. a\n\n    ${payload}`, `a\n    ${payload}`, `> a\n    ${payload}`, `<div>\n    ${payload}`, `[^1]: x\n\n    ${payload}`, `>\t    ${payload}`, `> \t${payload}`];
-  for (const text of media.flatMap(places)) expect(linkImages(text), text).not.toMatch(/<(?:img|video|source)\b|(?<!\\)!\[/i);
-  for (const text of media.map((html) => `\`${html}\``).flatMap(places)) expect([text, loads(linkImages(text))]).toEqual([text, []]);
+  const docs = [
+    `-\n      x\n\n    ${img}`, `*\n        x\n\n    ${img}`, `1.\n       x\n\n    ${img}`, `-\n      x\n\n\n    ${img}`, `a\n\n-\n      x\n\n    ${img}`,
+    '-\n      x\n\n    <video poster="https://evil.test/x.png">', "-\n      x\n\n    ![a](https://evil.test/x.png)", `-\n      code\n    ${img}`,
+    `-\n  ***\n\n    ${img}`, `-\n  ---\n\n    ${img}`, `-\n  -\n\n    ${img}`, `-\n  1.\n\n    ${img}`, `-\n  >\n\n    ${img}`, `- -\n\n    ${img}`,
+    `-\n  * * *\n\n    ${img}`, `1.\n   ___\n\n    ${img}`, `-\n  \`\`\`\n  \`\`\`\n\n    ${img}`, `-\n  <div>\n\n    ${img}`, `-\n  # h\n\n    ${img}`,
+    `-\n  -\n    x\n\n    ${img}`, `| a | b |\n---\n10. a\n\n\t ${img}`, `| a |\n|---|\n10. a\n\n    ${img}`, `| a |\n|---|\n2) a\n\n    ${img}`,
+    `| a |\n|---|\n-\n\n    ${img}`, `| a |\n|---|\n- a\n\n    ${img}`, `    x\n10. a\n\n    ${img}`, `    x\n2. a\n\n     ${img}`,
+    `    x\n-\n      y\n\n    ${img}`, `    x\n-\n\n    ${img}`, `>\n        y\n10. a\n\n    ${img}`, "| a |\n|---|\n10. a\n\n    ![a](https://evil.test/x.png)",
+    `    ${img}`,
+  ];
+  for (const text of docs) expect(linkImages(text), text).not.toMatch(/<(?:img|video|source)\b|(?<!\\)!\[/i);
 });
 
 test("a link after a `!` doesn't make a new image", () => {
