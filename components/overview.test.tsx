@@ -170,6 +170,10 @@ test("the Overview's sections come in order, then its chapters, each opening its
   expect(refresh.textContent).not.toContain("risk");
   expect(retry.textContent).toContain("High risk");
   expect(retry.textContent).toContain("1 skippable");
+  // Cut to 2 lines: .block, after .line-clamp-2 in the built CSS, would undo it (72-hands-on #1).
+  const summary = within(retry).getByText("Retries once.").closest("span")!;
+  expect(summary.className.split(" ")).toContain("line-clamp-2");
+  expect(summary.className.split(" ")).not.toContain("block");
   fireEvent.click(retry);
   await waitFor(() => expect(main(slot).getByRole("region", { name: "Retry" })).toBeTruthy());
   slot.lifecycle.unmount();

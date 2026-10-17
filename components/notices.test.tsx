@@ -113,6 +113,8 @@ test("a failed update says why under its text, as plain text cut to a few lines,
   const reason = within(alert).getByText(/^Its last guide wasn't accepted:/);
   expect(reason.textContent).toBe(text);
   expect(reason.className).toContain("line-clamp-3");
+  // .block comes after .line-clamp-3 in the built CSS and undoes its display, so the reason showed whole (72-hands-on #1).
+  expect(reason.className.split(" ")).not.toContain("block");
   expect(reason.className).toContain("whitespace-pre-line");
   expect(within(alert).getByRole("button", { name: "Try again" })).toBeTruthy();
   slot.lifecycle.unmount();

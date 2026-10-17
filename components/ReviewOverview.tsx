@@ -219,7 +219,7 @@ export const ReviewOverview = memo(function ReviewOverview({ checks, readLines, 
                         changedFiles > 0 && <span className="text-primary">{changedFiles} changed</span>,
                         skippable > 0 && `${skippable} skippable`,
                       ]} />
-                      {section.overview && <span className="mt-1 line-clamp-2 block text-xs leading-snug text-muted-foreground"><InlineCode text={section.overview} /></span>}
+                      {section.overview && <span className="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground"><InlineCode text={section.overview} /></span>}
                     </span>
                   </button>
                 </li>
