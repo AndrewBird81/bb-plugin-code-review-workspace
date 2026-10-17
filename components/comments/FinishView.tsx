@@ -37,6 +37,8 @@ const VERDICTS = [
   ["REQUEST_CHANGES", "aria-pressed:bg-warning/15 aria-pressed:text-warning-text aria-pressed:ring-warning/30 aria-pressed:hover:bg-warning/20"],
 ] as const;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** A primary button that's busy: aria-disabled, so it keeps the focus, and drawn as a disabled one (ui/button). */
+const BUSY = "aria-disabled:pointer-events-none aria-disabled:bg-muted/60 aria-disabled:text-subtle-foreground aria-disabled:shadow-none";
 
 /**
  * Finish review, the side panel's view for it: the summary, the verdict (with the agent's suggestion, Use as draft and
@@ -275,6 +277,8 @@ function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean) => void }) {
   const { review } = useWorkspace();
   const d = useDraft();
   const blocked = d.busy || d.rebuilding || !d.hasReview || d.writing || d.needsSummary || d.staleComments.length > 0;
+  // While it posts, Submit keeps the focus it was clicked with.
+  const unavailable = { disabled: blocked && !d.busy, "aria-disabled": d.busy || undefined };
   const where = review.repo && review.number ? `${review.repo}#${review.number}` : null;
   const ready = d.hint === "Drafts stay in BB until you submit.";
   return (
@@ -282,11 +286,11 @@ function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean) => void }) {
       {d.confirming ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
         <p>{d.approvingBlocked ? `Approve with ${plural(d.blockingCount, "blocking comment")}?` : `Submit ${VERDICT_LABEL[d.draft.verdict]}${d.commentCount ? ` with ${plural(d.commentCount, "comment")}` : ""}?`} {d.doubts.join(" ")}</p>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" className={TOUCH_CONTROL} disabled={blocked} onClick={() => onSubmit(true)}>Submit anyway</Button>
+          <Button size="sm" className={cn(TOUCH_CONTROL, BUSY)} {...unavailable} onClick={() => { if (!blocked) onSubmit(true); }}>Submit anyway</Button>
           <Button ref={d.confirmCancelRef} size="sm" variant="ghost" className={TOUCH_CONTROL} onClick={() => { d.setConfirming(false); requestAnimationFrame(() => d.submitRef.current?.focus()); }}>Cancel</Button>
         </div>
       </div>
-      : <Button ref={d.submitRef} className={cn("w-full gap-2", TOUCH_CONTROL)} disabled={blocked} onClick={() => onSubmit()}>
+      : <Button ref={d.submitRef} className={cn("w-full gap-2", TOUCH_CONTROL, BUSY)} {...unavailable} onClick={() => { if (!blocked) onSubmit(); }}>
           {d.busy ? <Icon name="Loading" className="size-4 animate-spin motion-reduce:animate-none" aria-hidden /> : <Icon name="Github" className="size-4" aria-hidden />}
           {d.busy ? d.submitting ? "Submitting…" : "Saving…" : `Submit to GitHub · ${VERDICT_LABEL[d.draft.verdict]}${d.approvingBlocked ? ` · ${d.blockingCount} blocking` : ""}`}
         </Button>}
@@ -344,8 +348,13 @@ function Receipt({ sent }: { sent: { comments: number; at: number } | null }) {
   const where = review.repo && review.number ? `${review.repo}#${review.number}` : null;
   const when = sent?.at ?? review.submittedAt ?? null;
   const url = d.receiptUrl ?? review.url;
+  // It replaces the Submit that had the focus: take it, unless it went somewhere else meanwhile.
+  const receipt = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!document.activeElement || document.activeElement === document.body) receipt.current?.focus();
+  }, []);
   return <>
-    <section aria-label="Submitted review" className="space-y-3 rounded-lg border border-success/25 bg-success/10 p-3">
+    <section ref={receipt} tabIndex={-1} aria-label="Submitted review" className="space-y-3 rounded-lg border border-success/25 bg-success/10 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background">
       <p className="flex items-center gap-2 text-sm font-medium text-diff-added"><Icon name="BadgeCheck" className="size-5" aria-hidden />{RECEIPT_LABEL[verdict]}</p>
       <div className="space-y-0.5 text-xs text-muted-foreground">
         <p>{where ? <>Posted to {where}{d.account ? <> as @{d.account}</> : null}</> : "Review submitted to GitHub"}{age(when) && ` · ${age(when)}`}</p>

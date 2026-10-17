@@ -404,6 +404,33 @@ test("Submit says Submitting… while it posts to GitHub, and the draft's status
   slot.lifecycle.unmount();
 });
 
+// bug bash UX-1: Submit was disabled while it posted and the receipt took no focus, so the focus dropped to the page.
+test("Submit keeps the focus while it posts, ignoring clicks, and the receipt takes it once the review is sent", async () => {
+  let post!: () => void;
+  let draft = draftOf({ body: "Two asks." });
+  const { slot, rpc } = await renderWorkspace({ rpc: {
+    getDraft: vi.fn(() => ({ draft, stale: [] })),
+    submitReview: vi.fn(() => new Promise((resolve) => { post = () => { draft = draftOf({ comments: [] }); resolve({ ok: true }); }; })),
+  } });
+  const view = await finish(slot);
+  // Finish review opens on the summary, which takes the focus first.
+  await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Review summary"));
+  const button = submit(view);
+  button.focus();
+  fireEvent.click(button);
+  const busy = await view.findByRole("button", { name: "Submitting…" });
+  expect(busy).toBe(button);
+  expect(busy.getAttribute("aria-disabled")).toBe("true");
+  expect(busy.hasAttribute("disabled")).toBe(false);
+  expect(document.activeElement).toBe(busy);
+  fireEvent.click(busy);
+  expect(rpc.submitReview).toHaveBeenCalledTimes(1);
+  post();
+  const receipt = await slot.findByRole("region", { name: "Submitted review" });
+  await waitFor(() => expect(document.activeElement).toBe(receipt));
+  slot.lifecycle.unmount();
+}, 15_000);
+
 test("after Submit, the receipt says what went where, and offers the next review that needs you", async () => {
   let draft = draftOf({ body: "Two asks." });
   const { slot, rpc } = await renderWorkspace({ rpc: {
