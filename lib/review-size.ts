@@ -32,7 +32,9 @@ export function chapterReadingLines(sections: ReadonlyArray<{ id: string; diffs:
 export function readingTime(lines: number): string {
   const minutes = lines / LINES_PER_HOUR * 60;
   if (minutes < 5) return "a few minutes to read";
-  if (minutes < 60) return `about ${Math.ceil(minutes / 5) * 5} min to read`;
+  // To the next 5 minutes, which from 55 minutes on is the hour: not "about 60 min".
+  const rounded = Math.ceil(minutes / 5) * 5;
+  if (rounded < 60) return `about ${rounded} min to read`;
   const hours = Math.round(minutes / 30) / 2;
   if (hours < 24) return `about ${hours} h to read`;
   // Past a day, to the half day: "about 60.5 h" is more precise than an estimate.

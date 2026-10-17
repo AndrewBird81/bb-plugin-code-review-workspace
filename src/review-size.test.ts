@@ -39,3 +39,9 @@ test("reading time is a rough estimate at LINES_PER_HOUR, said as one, and in da
   // Not "about 60.5 h".
   expect(readingTime(LINES_PER_HOUR * 60.4)).toBe("about 2.5 days to read");
 });
+
+test("reading time that rounds up to the hour says an hour, not 60 min", () => {
+  expect(readingTime(366)).toBe("about 55 min to read");
+  expect(readingTime(367)).toBe("about 1 h to read");
+  expect(readingTime(399)).toBe("about 1 h to read");
+});
