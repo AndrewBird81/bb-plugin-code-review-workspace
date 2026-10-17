@@ -157,6 +157,22 @@ test("Follow up on a file outside every chapter says so and offers GitHub, witho
   slot.lifecycle.unmount();
 });
 
+// The Overview's status line and the chapter list's Overview row said "Guide failed" beside a notice saying the update
+// restarts on its own (72-hands-on #2).
+test("while a guide waits for its writer's machine, the Overview's status line and the chapter list say so, and failed once it's done", async () => {
+  patchReviewState("pr-42", { activeId: "overview" });
+  const failed = turn({ group: "needs", reason: "re-requested", label: "Failed", failed: true });
+  for (const [restartPending, said, unsaid] of [[{ since: now }, "Waiting for the guide writer’s machine", "Guide failed"], [null, "Guide failed", "Waiting for the guide writer’s machine"]] as const) {
+    const { slot } = await renderWorkspace(() => ({ status: "error", restartPending, turn: failed }));
+    const overview = await slot.findByRole("button", { name: `Overview · ${said}` });
+    const main = within(slot.getByRole("main"));
+    expect(main.getByText(said)).toBeTruthy();
+    expect(main.queryByText(unsaid)).toBeNull();
+    expect(overview.textContent).not.toContain(unsaid);
+    slot.lifecycle.unmount();
+  }
+});
+
 test("a failed review offers no Snooze, in the Overview or the menu", async () => {
   patchReviewState("pr-42", { activeId: "overview" });
   const { slot } = await renderWorkspace(() => ({ status: "error", submittedVerdict: "REQUEST_CHANGES", submittedAt: now - DAY, turn: turn({ group: "needs", reason: "re-requested", label: "Failed", failed: true }) }));

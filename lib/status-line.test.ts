@@ -51,6 +51,9 @@ test("agent work and a failed guide take the place of why, in the agent's tone a
   const requested = turn("needs", "requested");
   expect(statusWhy(review(requested, { status: "generating" }), now)).toEqual({ kind: "why", text: "Building guide…", tone: "agent", icon: "Loading", busy: true });
   expect(said(review({ ...requested, failed: true, label: "Failed" }, { status: "error" }))).toEqual(["Guide failed", "danger", "AlertTriangle"]);
+  // One waiting for its writer's machine to restart it says so, as its page does, until the wait ends (72-hands-on #2).
+  expect(said(review({ ...requested, failed: true, label: "Failed" }, { status: "error", restartPending: { since: now } }))).toEqual(["Waiting for the guide writer’s machine", "warning", "Clock"]);
+  expect(said(review({ ...requested, failed: true, label: "Failed" }, { status: "error", restartPending: null }))).toEqual(["Guide failed", "danger", "AlertTriangle"]);
   expect(statusWhy(review(turn("needs", "re-requested"), { verifyingSince: now - 60_000 }), now)).toMatchObject({ text: "Checking your feedback…", tone: "agent", busy: true });
   // Over by the time it's archived.
   expect(said(review(turn("archive", "merged"), { verifyingSince: now - 60_000 }))).toEqual(["Merged", "merged", "GitMerge"]);

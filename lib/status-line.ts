@@ -34,6 +34,8 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
   const by = (prefix: string, login: string | null | undefined, otherwise: string) => login ? `${prefix} @${login}` : otherwise;
   const ago = (at: number | null | undefined) => { const elapsed = timeAgo(at, now); return elapsed ? ` ${elapsed}` : ""; };
   if (review.status === "generating") return why("Building guide…", "agent", "Loading", { busy: true });
+  // A reload interrupted it while its writer's machine was offline: it restarts on its own once that reconnects.
+  if (turn.failed && review.restartPending) return why("Waiting for the guide writer’s machine", "warning", "Clock", { detail: "The guide writer’s machine is offline. The guide restarts on its own when it reconnects." });
   if (turn.failed) return why("Guide failed", "danger", "AlertTriangle");
   if (review.verifyingSince && turn.group !== "archive") return why("Checking your feedback…", "agent", "Loading", { busy: true });
   switch (turn.reason) {

@@ -140,6 +140,25 @@ test("a row's status line says what changes whether to open it: checks GitHub ex
   slot.lifecycle.unmount();
 });
 
+// A guide waiting for its writer's machine read "Guide failed" here while its page said it restarts on its own (72-hands-on #2).
+test("a row says a guide waits for its writer's machine while it does, in the status line's own truncating line, and failed after", async () => {
+  const failed = turn("needs", "requested", "Failed", { failed: true });
+  const { slot } = await inbox([
+    { targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/app", title: "Change waiting", status: "error", restartPending: { since: now }, turn: failed },
+    { targetKey: "pr-8", kind: "pr", number: 8, repo: "acme/app", title: "Change failed", status: "error", restartPending: null, turn: failed },
+  ]);
+  const waiting = (await slot.findByText("Change waiting")).closest("button")!;
+  const status = within(waiting).getByText("Waiting for the guide writer’s machine");
+  expect(status.className).toContain("text-warning");
+  expect(status.getAttribute("title")).toBe("The guide writer’s machine is offline. The guide restarts on its own when it reconnects.");
+  expect(status.parentElement!.className).toContain("truncate");
+  expect(waiting.textContent).not.toContain("Guide failed");
+  const gone = slot.getByText("Change failed").closest("button")!;
+  expect(within(gone).getByText("Guide failed")).toBeTruthy();
+  expect(gone.textContent).not.toContain("Waiting for");
+  slot.lifecycle.unmount();
+});
+
 test("an author's turn shows its last activity; a request how long it's been yours", async () => {
   const { slot, header } = await inbox([
     { targetKey: "a", title: "Old request", status: "tracked", signals: { requestedAt: now - 800 * DAY }, turn: turn("needs", "requested", "Review requested", { at: now - 800 * DAY }) },
