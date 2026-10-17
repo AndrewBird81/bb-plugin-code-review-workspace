@@ -196,7 +196,8 @@ export async function startAutomaticReview(bb: BbPluginApi, store: Store, target
   const prompt = automaticReviewPrompt(preferences);
   if (!prompt && !newCommits) return;
   // A merged or closed PR's drafts can't be submitted, as the review shows: there's nothing to review for.
-  const state = store.getReview(targetKey)?.prState;
+  const { startedPrState, prState } = store.getReview(targetKey) ?? {};
+  const state = startedPrState ?? prState;
   if (state === "MERGED" || state === "CLOSED") return;
   const { threadId, defaults } = await getConversation(bb, store, targetKey);
   if (threadId) {

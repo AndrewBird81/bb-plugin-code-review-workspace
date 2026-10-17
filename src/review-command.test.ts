@@ -264,7 +264,7 @@ test("bb review records whether gh says the PR is merged or closed", async () =>
   try {
     const { bb, store } = host();
     expect(await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1" })).toMatchObject({ exitCode: 0 });
-    expect(store.getReview(key)?.prState).toBe("MERGED");
+    expect([store.getReview(key)?.startedPrState, store.getReview(key)?.prState]).toEqual(["MERGED", undefined]);
   } finally {
     vi.mocked(gh.runGh).mockImplementation(base);
   }

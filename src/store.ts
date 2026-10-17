@@ -14,6 +14,8 @@ import { agentCommentStore, type AgentCommentStore } from "./learning";
 
 export interface ReviewLifecycle {
   prState?: "OPEN" | "CLOSED" | "MERGED";
+  /** The PR's state as gh read it when the review last started or rebuilt, until the sync reads the PR. Only the sync writes prState. */
+  startedPrState?: "OPEN" | "CLOSED" | "MERGED" | null;
   archivedAt?: number | null;
   /** Archived by the reviewer. GitHub sync owns archivedAt and never changes this. */
   userArchivedAt?: number | null;

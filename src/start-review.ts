@@ -14,10 +14,10 @@ interface Deps {
 
 /**
  * The PR's state as gh read it at the start, so the automatic review knows a merged or closed PR before the sync reads
- * it. The sync's later read replaces it.
+ * it. The sync's later read replaces it. It isn't prState, which the sync stops reading once it's MERGED.
  */
 export function recordPrState(store: Store, targetKey: string, state: string | undefined): void {
-  if (state === "OPEN" || state === "CLOSED" || state === "MERGED") store.setLifecycle(targetKey, { prState: state });
+  if (state === "OPEN" || state === "CLOSED" || state === "MERGED") store.setLifecycle(targetKey, { startedPrState: state });
 }
 
 // Panel-driven counterpart to review-command.ts's PR branch: a user pastes a

@@ -379,16 +379,20 @@ test("a guide rebuilt for new commits asks the assistant to re-check its draft c
 });
 
 test("a guide ready on a merged or closed PR starts no automatic review and records no skipped run; on an open PR it starts one", async () => {
-  for (const prState of ["MERGED", "CLOSED", "OPEN"] as const) {
+  // The start's read of the PR, until the sync reads it, then the sync's; a PR reopened since the sync's read is open.
+  for (const [lifecycle, open] of [
+    [{ prState: "MERGED" }, false], [{ prState: "CLOSED" }, false], [{ prState: "OPEN" }, true],
+    [{ startedPrState: "MERGED" }, false], [{ startedPrState: "CLOSED" }, false], [{ startedPrState: "OPEN", prState: "CLOSED" }, true],
+  ] as const) {
     const { bb, harness, store } = host(
       { wait: async () => { store.saveGuide("pr-1", guide("Retry") as any); } },
       { defaultExecutionOptions: async () => opus },
     );
-    store.setLifecycle("pr-1", { prState });
+    store.setLifecycle("pr-1", lifecycle);
     await generateGuide(bb, store, "pr-1", "p1");
     expect(store.getReview("pr-1")?.status).toBe("ready");
     const titles = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title);
-    expect(titles).toEqual(prState === "OPEN" ? ["Generate guide: pr-1", "Review agent: pr-1"] : ["Generate guide: pr-1"]);
+    expect(titles, JSON.stringify(lifecycle)).toEqual(open ? ["Generate guide: pr-1", "Review agent: pr-1"] : ["Generate guide: pr-1"]);
     expect(store.getReview("pr-1")?.skippedRun).toBeUndefined();
   }
 });

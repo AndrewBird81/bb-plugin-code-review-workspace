@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "./store";
+import { recordPrState } from "./start-review";
 import { createReviewSync, type GithubReads, type TurnActions } from "./review-lifecycle";
 import { defaultPreferences } from "./preferences";
 import type { FeedbackThread, PrFacts, PrRef } from "./github/types";
@@ -74,6 +75,18 @@ test("sync archives merged reviews and their legacy worker, but keeps the assist
   expect(harness.inspection.sdk.callsTo("threads.update")[0][0]).toEqual({ threadId: "agent-1", visibility: "hidden" });
   expect(harness.inspection.sdk.callsTo("threads.archive")).toEqual([[{ threadId: "agent-1" }]]);
   expect(store.getAssistantThread("pr-1")).toBe("assistant-1");
+});
+
+// A start on a merged PR recorded it as the review's prState, which the sync then never read (70-review-correctness #1).
+test("a review started on a merged PR is still read by the sync once, which takes over the start's state", async () => {
+  const { sync, store, github } = setup({ pr: { state: "MERGED" }, reviewed: true });
+  recordPrState(store, "pr-1", "MERGED");
+  await sync.all();
+  expect(github.facts).toHaveBeenCalledTimes(1);
+  expect(store.getReview("pr-1")).toMatchObject({
+    prState: "MERGED", startedPrState: null, archivedAt: expect.any(Number), watchingSince: expect.any(Number), ownPr: false, reviewer: "me",
+    signals: expect.objectContaining({ lastReviewSha: "sha1" }),
+  });
 });
 
 test("sync restores the viewer's approval and keeps a changes-requested verdict through later comments", async () => {

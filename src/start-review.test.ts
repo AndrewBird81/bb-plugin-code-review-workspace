@@ -165,16 +165,16 @@ test("starting a PR's review records whether gh says it's merged or closed, new 
     const store = createStore(bb);
     stated("MERGED");
     expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
-    expect(store.getReview(key)?.prState).toBe("MERGED");
+    expect([store.getReview(key)?.startedPrState, store.getReview(key)?.prState]).toEqual(["MERGED", undefined]);
     // A rebuild, at a new head, reads it again; a state gh doesn't name is left.
     seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
     stated("CLOSED");
     expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
-    expect(store.getReview(key)?.prState).toBe("CLOSED");
+    expect(store.getReview(key)?.startedPrState).toBe("CLOSED");
     seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
     stated("DRAFTY");
     await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" });
-    expect(store.getReview(key)?.prState).toBe("CLOSED");
+    expect(store.getReview(key)?.startedPrState).toBe("CLOSED");
   } finally {
     vi.mocked(gh.runGh).mockImplementation(base);
   }
