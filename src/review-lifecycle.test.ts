@@ -784,6 +784,25 @@ test("an approval dismissed after a later comment review leaves no verdict, date
   expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs", reason: "dismissed", eventAt: T0 + 0.1 * HOUR });
 });
 
+// A row that hasn't learned its new URL yet is read before discovery adds its PR again (bug bash SRV-2).
+test("discovery doesn't add a second row for a renamed repository's PR when its review wasn't read in the same pass", async () => {
+  // You approved acme/web#1; the sync reads it every 10 minutes.
+  const s = setup({ pr: { myReviews: [review("APPROVED", T0 - HOUR)] } });
+  s.store.saveReview({ ...s.store.getReview("pr-1")!, url: "https://github.com/acme/web/pull/1" });
+  await s.sync.all();
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!).group).toBe("reviewed");
+  // The repository is renamed to acme/site. GitHub follows the rename, so reading the old name reports the new URL,
+  // and search reports the PR under its new name.
+  s.pr({ url: "https://github.com/acme/site/pull/1" });
+  vi.mocked(s.github.discover).mockResolvedValue([
+    { repo: "acme/site", number: 1, title: "Expire cache entries", url: "https://github.com/acme/site/pull/1", author: "alice", updatedAt: 1, isDraft: false, requested: false, reviewed: true },
+  ]);
+  // Six minutes on, discovery is due (every 5 minutes) but the review isn't (every 10).
+  s.at(6 / 60);
+  await s.sync.all();
+  expect(s.store.listReviews().map((r) => r.targetKey)).toEqual(["pr-1"]);
+});
+
 test("with push checks on, checks that stay pending an hour after the push don't hold up the check", async () => {
   const s = setup({ reviewed: true, preferences: { pushChecks: "progress" } });
   await s.sync.all();

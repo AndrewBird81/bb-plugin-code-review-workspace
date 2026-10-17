@@ -432,10 +432,24 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     const widened = trackTeamRequests && last?.teams === false;
     const added: string[] = [];
     // A renamed or transferred repository's PRs are already here under their old name, with their new URL.
-    const urls = new Set(store.listReviews().map((r) => r.url?.toLowerCase()).filter(Boolean));
+    const urlsNow = () => new Set(store.listReviews().map((r) => r.url?.toLowerCase()).filter(Boolean));
+    let urls = urlsNow();
+    const known = (pr: DiscoveredPr) => {
+      const key = keyFor({ kind: "pr", number: pr.number, repo: pr.repo });
+      return !!store.getReview(key) || store.isDiscoveryIgnored(key) || urls.has(pr.url.toLowerCase());
+    };
+    // One that no read has told its new URL yet is read first: a review of the same number in another repository.
+    const unknown = found.filter((pr) => !known(pr));
+    const namesakes = store.listReviews().filter(readable)
+      .filter((r) => unknown.some((pr) => pr.number === r.number && pr.repo.toLowerCase() !== r.repo.toLowerCase()));
+    if (namesakes.length) {
+      await read(namesakes.map((r) => r.targetKey));
+      if (disposed) return;
+      urls = urlsNow();
+    }
     for (const pr of found) {
       const key = keyFor({ kind: "pr", number: pr.number, repo: pr.repo });
-      if (store.getReview(key) || store.isDiscoveryIgnored(key) || urls.has(pr.url.toLowerCase())) continue;
+      if (known(pr)) continue;
       store.saveReview({ targetKey: key, kind: "pr", number: pr.number, repo: pr.repo, title: pr.title, author: pr.author ?? undefined, url: pr.url, status: "tracked", createdAt: clock(), projectId });
       if (!first && !widened && pr.requested && !pr.reviewed) store.setLifecycle(key, { newRequest: true });
       added.push(key);
