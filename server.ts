@@ -74,7 +74,7 @@ export { rpcContract } from "./src/rpc-contract";
 
 
 // Raise when the review assistant's tools change.
-const ASSISTANT_TOOLS = 8;
+const ASSISTANT_TOOLS = 9;
 
 export default async function plugin(bb: BbPluginApi) {
   const store = createStore(bb);
@@ -894,15 +894,21 @@ export default async function plugin(bb: BbPluginApi) {
   });
   bb.agents.registerTool({
     name: "list_review_files",
-    description: "List your own review's changed files, by the targetKey you were given: path, status (added, deleted, modified, renamed), lines added and removed, diff size, and kind (code, test, docs, config, lockfile, generated).",
-    parameters: z.object({ targetKey: z.string() }),
-    execute: async ({ targetKey }, { threadId }) => {
+    description: "List your own review's changed files, by the targetKey you were given: path, status (added, deleted, modified, \"renamed from ‹path›\" or \"copied from ‹path›\", naming the source), lines added and removed, diff size, and kind (code, test, docs, config, lockfile, generated). A large review's list comes in pages of about 40 KB that end on a file: call again with the offset it gives. offset counts files from 0; limit caps a page's files.",
+    parameters: z.object({
+      targetKey: z.string(),
+      offset: z.number().int().min(0).optional(),
+      limit: z.number().int().min(1).optional(),
+    }),
+    execute: async ({ targetKey, offset, limit }, { threadId }) => {
       const refused = await notOwnReview(threadId, targetKey);
       if (refused) return failed(refused);
       const patch = store.patch(targetKey);
+      const count = splitPatchByFile(patch).length;
+      if (offset && offset >= count) return failed(`offset ${offset} is past the end of the list (${count} file${count === 1 ? "" : "s"}).`);
       const review = store.getReview(targetKey);
       const { knobs } = store.getPreferences().preferences;
-      return describeReviewFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [], { testWeakening: knobs.testWeakening, lockfileDigest: knobs.lockfileDigest });
+      return describeReviewFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [], { testWeakening: knobs.testWeakening, lockfileDigest: knobs.lockfileDigest }, { offset, limit });
     },
   });
 

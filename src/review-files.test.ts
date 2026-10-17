@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { describeReviewFiles, offsetPastEnd, patchPage, stubSkippedFiles } from "./review-files";
+import { describeReviewFiles, FILES_PAGE_CHARS, offsetPastEnd, patchPage, stubSkippedFiles } from "./review-files";
 import { readFilesPatch } from "./pr-snapshot";
 
 const file = (path: string, body: string) => `diff --git a/${path} b/${path}\nindex 1..2 100644\n--- a/${path}\n+++ b/${path}\n${body}`;
@@ -124,4 +124,28 @@ test("a read from an offset past the end says so, while an empty diff's first pa
   expect(offsetPastEnd("the diff", 85_123, 85_123)).toBe("offset 85123 is past the end of the diff (85123 bytes).");
   expect(offsetPastEnd("the diff", 85_122, 85_123)).toBeNull();
   expect(offsetPastEnd("the diff", 0, 0)).toBeNull();
+});
+
+test("list_review_files pages a huge review's list at a file, well under a diff page, with where to go on", () => {
+  const huge = Array.from({ length: 3_000 }, (_, i) => file(`packages/app/src/components/feature-${i}/index.ts`, "@@ -1 +1 @@\n-a\n+b\n")).join("");
+  const pages: string[] = [];
+  for (let offset: number | null = 0; offset !== null;) {
+    const page = describeReviewFiles(huge, [], {}, { offset });
+    expect(page.length).toBeLessThan(FILES_PAGE_CHARS + 200);
+    pages.push(page);
+    const next = page.match(/call again with offset=(\d+)\]$/);
+    offset = next ? Number(next[1]) : null;
+  }
+  expect(pages.length).toBeGreaterThan(3);
+  expect(pages[0]).toMatch(/^3000 files \(path · status/);
+  expect(pages[0]).toMatch(/\n\[Files 1–\d+ of 3000 — call again with offset=\d+\]$/);
+  // Every file once, in order, and the last page says nothing more.
+  const rows = pages.flatMap((page) => page.split("\n").slice(1).filter((row) => !row.startsWith("[")));
+  expect(rows.map((row) => row.split(" · ")[0])).toEqual(Array.from({ length: 3_000 }, (_, i) => `packages/app/src/components/feature-${i}/index.ts`));
+  expect(pages.at(-1)).not.toContain("call again");
+  expect(describeReviewFiles(huge, [], {}, { offset: 10, limit: 2 }).split("\n").slice(1)).toEqual([
+    expect.stringMatching(/^packages\/app\/src\/components\/feature-10\/index\.ts · /), expect.stringMatching(/feature-11\//), "[Files 11–12 of 3000 — call again with offset=12]",
+  ]);
+  // A small review's list is one page, as before.
+  expect(describeReviewFiles(patch)).not.toContain("call again");
 });

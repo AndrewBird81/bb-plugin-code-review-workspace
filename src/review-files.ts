@@ -8,15 +8,19 @@ import { digestText, lockfileDigest } from "../lib/lockfile-digest";
 /** Settings' marks on a file: a test the diff weakens (Flag weakened tests), and a lockfile's digest (Summarize lockfile changes). */
 export interface FileMarks { testWeakening?: boolean; lockfileDigest?: boolean }
 
+/** The most of list_review_files one call returns, cut at a row: well under read_review_patch's 80 KB pages. */
+export const FILES_PAGE_CHARS = 40_000;
+
 /**
- * list_review_files: one line per changed file, so an agent can plan what to read. `generated`: the files the repo's
- * .gitattributes marks generated; `marks`: what Settings adds.
+ * list_review_files: one line per changed file, so an agent can plan what to read, in pages of rows from file `offset`
+ * up to FILES_PAGE_CHARS, or `limit` files. `generated`: the files the repo's .gitattributes marks generated; `marks`:
+ * what Settings adds.
  */
-export function describeReviewFiles(patch: string, generated: string[] = [], marks: FileMarks = {}): string {
+export function describeReviewFiles(patch: string, generated: string[] = [], marks: FileMarks = {}, page: { offset?: number; limit?: number } = {}): string {
   const files = splitPatchByFile(patch);
   // A PR names its files: a newline in one would start a row of its own, so a path holding a control character is quoted.
   const shown = (path: string) => /[\u0000-\u001f\u007f]/.test(path) ? JSON.stringify(path) : path;
-  const rows = files.map((file) => {
+  const row = (file: PatchFile) => {
     const { path, oldPath, text } = file;
     const chosen = isChosenPath(file);
     // Read from the header only: a changed line can't fake it.
@@ -32,9 +36,21 @@ export function describeReviewFiles(patch: string, generated: string[] = [], mar
     const weakened = marks.testWeakening ? testWeakening(path, text, generated.includes(path), chosen) : null;
     const digest = marks.lockfileDigest ? lockfileDigest(path, text) : null;
     return `${shown(path)} · ${status} · +${added} −${removed} · ${text.length} chars · ${classifyFile(path, generated.includes(path), chosen).category}${unsent ? " · diff unavailable: read it on GitHub" : ""}${weakened ? ` · ${weakeningMark(weakened)}` : ""}${digest ? ` · ${digestText(digest)}` : ""}`;
-  });
+  };
+  const offset = page.offset ?? 0;
+  const rows: string[] = [];
+  let size = 0;
+  for (let i = offset; i < files.length && rows.length < (page.limit ?? Infinity); i++) {
+    const text = row(files[i]);
+    // A page holds at least one row, however long.
+    if (rows.length && size + text.length + 1 > FILES_PAGE_CHARS) break;
+    rows.push(text);
+    size += text.length + 1;
+  }
+  const end = offset + rows.length;
+  const more = end < files.length ? [`[Files ${offset + 1}–${end} of ${files.length} — call again with offset=${end}]`] : [];
   const capped = patch.startsWith(FILES_CAPPED_NOTE) ? [FILES_CAPPED_NOTE] : [];
-  return [...capped, `${files.length} file${files.length === 1 ? "" : "s"} (path · status · lines added and removed · diff size · kind):`, ...rows].join("\n");
+  return [...capped, `${files.length} file${files.length === 1 ? "" : "s"} (path · status · lines added and removed · diff size · kind):`, ...rows, ...more].join("\n");
 }
 
 /**

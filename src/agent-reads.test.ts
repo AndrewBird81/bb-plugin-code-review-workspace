@@ -131,3 +131,22 @@ test("read_file counts a changed file read as the change leaves it, not at its b
   await call("read_file", { path: "c.ts", ref: "current" });
   expect(store.getReview("pr-1")?.agentReads?.files).toEqual(["c.ts"]);
 });
+
+test("list_review_files reads on from an offset, and says when the offset is past the end", async () => {
+  const { call } = await host();
+  expect(await call("list_review_files", { targetKey: "pr-1", offset: 1, limit: 1 })).toMatch(/^3 files .*\nb\.ts · modified .*\n\[Files 2–2 of 3 — call again with offset=2\]$/);
+  expect(await call("list_review_files", { targetKey: "pr-1", offset: 3 })).toMatchObject({ isError: true, content: [{ text: "offset 3 is past the end of the list (3 files)." }] });
+});
+
+test("list_review_files' description names every status, the sources renames and copies name, and its pages", async () => {
+  const { harness } = await host();
+  const { tools } = await harness.behavior.resolveAgentConfiguration({
+    pluginMetadata: {}, thread: { id: "assistant", title: "Review agent: pr-1", parentThreadId: null, sourceThreadId: null },
+    project: { id: "p1", kind: "personal", name: "Personal", gitRemoteUrl: null },
+    environment: { id: "env-1", name: null, path: null, workspaceProvisionType: "unmanaged", branchName: null },
+    host: { id: "host-1", name: "h" }, provider: { id: "claude-code", model: "opus", capabilities: { supportsNativeUserQuestion: false } },
+    origin: { kind: null, pluginId: "guided-review" },
+  } as any);
+  const description = tools.find((tool) => tool.name === "list_review_files")?.description;
+  for (const said of ["added, deleted, modified, \"renamed from ‹path›\" or \"copied from ‹path›\", naming the source", "call again with the offset it gives"]) expect(description).toContain(said);
+});
