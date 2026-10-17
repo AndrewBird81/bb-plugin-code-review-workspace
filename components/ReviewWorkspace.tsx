@@ -1162,7 +1162,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     setShowThreads(true);
     showLocation(file, line, side, url);
   }, [setShowThreads, showLocation]);
-  const checkFailures = useCheckFailures(targetKey, isPr ? review?.headSha ?? null : null);
+  const checkFailures = useCheckFailures(targetKey, isPr ? review?.headSha ?? null : null, review?.signals?.ci);
   // While the realtime connection is down, nothing the server publishes reaches the review: once it's back, the review,
   // its views, its draft and its threads are read again.
   const connection = useRealtimeConnectionState();

@@ -22,8 +22,11 @@ export const CheckFailuresContext = createContext<CheckFailure[]>([]);
 
 export const failureLocation = (failure: CheckFailure): CommentLocation => ({ file: failure.file, line: failure.line, side: "RIGHT" });
 
-/** Reads a PR's CI failures once per reviewed head, while Settings shows them in the code. */
-export function useCheckFailures(targetKey: string, headSha: string | null): CheckFailure[] {
+/**
+ * Reads a PR's CI failures at the reviewed head, while Settings shows them in the code: again when the PR's CI state
+ * changes, since a check that fails after the review opened has its failures only then.
+ */
+export function useCheckFailures(targetKey: string, headSha: string | null, ci?: string): CheckFailure[] {
   const rpc = useRpc<typeof rpcContract>();
   const on = useKnob("ciInCode");
   const [failures, setFailures] = useState<CheckFailure[]>([]);
@@ -33,7 +36,7 @@ export function useCheckFailures(targetKey: string, headSha: string | null): Che
     let cancelled = false;
     rpc.call("getCheckFailures", { targetKey }).then(({ failures }) => { if (!cancelled) setFailures(failures); }).catch(() => {});
     return () => { cancelled = true; };
-  }, [rpc, targetKey, headSha, on]);
+  }, [rpc, targetKey, headSha, ci, on]);
   return failures;
 }
 

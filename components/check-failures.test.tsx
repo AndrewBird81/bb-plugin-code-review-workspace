@@ -51,6 +51,41 @@ test("CI failures show on their lines in the diff, with a link to the check", as
   slot.lifecycle.unmount();
 }, 15_000);
 
+// bug bash RDG-3: the code read CI failures once per head, so a review opened while CI still ran never showed the
+// failures CI reported later on their lines, though the review is told (review:<key>) and the Overview's checks are
+// read again as the PR's CI state changes.
+test("a check that fails after the review opened shows its failure on its line once the review hears CI failed", async () => {
+  patchReviewState("pr-42", { activeId: "c1" });
+  let ci: "pending" | "fail" = "pending";
+  const failure = { file: "src/a.ts", line: 2, check: "lint", title: "no-shout", message: "Lower-case it.", url: "https://github.com/acme/web/runs/1" };
+  const app = await loadPluginApp(() => import("../app"));
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
+    setReviewPresence: () => ({ ok: true }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new", signals: { ci } }, guide: structuredClone(guide), patch, revision: "r1" }),
+    getChecks: () => ({ bucket: ci, checks: ci === "fail" ? [{ name: "lint", bucket: "fail", state: "FAILURE", link: failure.url }] : [] }),
+    getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getFileViews: () => ({ views: [] }),
+    checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
+    checkForUpdates: () => ({ hasNewCommits: false }),
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }),
+    getReviewerNotes: () => ({ body: "", revision: 0 }),
+    getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
+    markSeen: () => ({ ok: true }),
+    // GitHub has no failure annotations while the check runs.
+    getCheckFailures: () => ({ failures: ci === "fail" ? [failure] : [] }),
+  } as any });
+  await slot.findByTestId("filediff");
+  await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "getCheckFailures").length).toBe(1));
+  // CI fails at the same head; the sync publishes the review's change.
+  ci = "fail";
+  await slot.emitRealtime("review:pr-42", {});
+  // The Overview's checks are read again for the new CI state...
+  await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "getChecks").length).toBe(2));
+  // ...and so are its failures, which reach their line.
+  await waitFor(() => expect(slot.queryByRole("note", { name: "CI failure on src/a.ts:2" })).not.toBeNull(), { timeout: 2000 });
+  slot.lifecycle.unmount();
+}, 15_000);
+
 /** The review, opened on its Overview or on `activeId`, with the knobs `getPreferences` returns at each load. */
 async function renderReview(knobs: () => Knobs, activeId?: string) {
   if (activeId) patchReviewState("pr-42", { activeId });
