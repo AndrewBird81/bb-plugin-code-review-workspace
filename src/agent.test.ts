@@ -272,6 +272,14 @@ test("idle assistants restart for new instructions after Re-review or a preferen
   await expect.poll(() => harness.inspection.sdk.callsTo("threads.stop")).toHaveLength(3);
   await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, diffLayout: "unified", assistantInstructions: "Be brief", runRepoChecks: true, unattendedAuthors: "anyone" }, revision: revision + 3 });
   await expect.poll(() => harness.inspection.sdk.callsTo("threads.stop")).toHaveLength(4);
+  // So are the agent checks Settings turns on (bug bash SET-8).
+  const preferences = { ...defaultPreferences, diffLayout: "unified", assistantInstructions: "Be brief", runRepoChecks: true, unattendedAuthors: "anyone" } as const;
+  let saved = revision + 4;
+  for (const knob of ["preExistingFindings", "agentCoverage", "testWeakening"] as const) {
+    const stops = harness.inspection.sdk.callsTo("threads.stop").length;
+    await harness.behavior.callRpc("savePreferences", { preferences: { ...preferences, knobs: { [knob]: !defaultPreferences.knobs[knob] } }, revision: saved++ });
+    await expect.poll(() => harness.inspection.sdk.callsTo("threads.stop")).toHaveLength(stops + 1);
+  }
 });
 
 test("a ready guide starts the automatic review when the review has no conversation", async () => {

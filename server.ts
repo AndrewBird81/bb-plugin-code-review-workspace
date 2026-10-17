@@ -445,8 +445,10 @@ export default async function plugin(bb: BbPluginApi) {
       const before = store.getPreferences().preferences;
       const result = store.savePreferences({ ...preferences, threadListReviews: preferences.threadListReviews ?? before.threadListReviews, rereviewShows: preferences.rereviewShows ?? before.rereviewShows, knobs: { ...before.knobs, ...preferences.knobs } }, revision);
       bb.realtime.publish("preferences", {});
-      // These are in the assistants' instructions; whether they may run the repo's checks depends on the last two.
-      if ((["assistantInstructions", "runRepoChecks", "unattendedAuthors"] as const).some((key) => result.preferences[key] !== before[key])) void refreshAssistants(bb, store);
+      // These are in the assistants' instructions; whether they may run the repo's checks depends on the last two. So
+      // are the agent checks the knobs turn on.
+      if ((["assistantInstructions", "runRepoChecks", "unattendedAuthors"] as const).some((key) => result.preferences[key] !== before[key])
+        || (["preExistingFindings", "agentCoverage", "testWeakening"] as const).some((knob) => result.preferences.knobs[knob] !== before.knobs[knob])) void refreshAssistants(bb, store);
       return result;
     },
     async getAgentDefaults() {
