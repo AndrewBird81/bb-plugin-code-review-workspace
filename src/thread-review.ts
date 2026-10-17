@@ -25,7 +25,8 @@ export async function spawningFor<T>(bb: BbPluginApi, title: string, targetKey: 
 
 /**
  * The review a thread of this plugin belongs to: the one it's recorded as the assistant or guide writer of, or,
- * while a spawn with its exact title is in flight, that spawn's. Never its title or metadata alone, which it can write.
+ * while a spawn with its exact title is in flight, that spawn's: NO_REVIEW for the Suggest instructions worker's. Never
+ * its title or metadata alone, which it can write.
  */
 export function threadReview(bb: BbPluginApi, store: Store, thread: { id: string; title: string | null }): string | null {
   const recorded = assistantReview(store, thread.id) ?? store.generationOf(thread.id);

@@ -8,7 +8,8 @@ import { diffPositions } from "./review-positions";
 import { agentPlacement, machineUnavailable, personalProjectId } from "./machines";
 import { spawnExecution } from "./preferences";
 import { untrusted } from "./untrusted";
-import { recordFormerWorker } from "./former-workers";
+import { NO_REVIEW, recordFormerWorker } from "./former-workers";
+import { spawningFor } from "./thread-review";
 import { REMOVAL_NOTE_LIMIT, REMOVAL_REASON_WORDS, REMOVAL_REASONS, type RemovalReason, type RemovalReasonId } from "../lib/removal-reasons";
 
 // Words are kept as GitHub would get them, severity label and all, so a changed severity is an edit.
@@ -275,6 +276,7 @@ export type Suggestion =
   | { state: "failed"; at: number; error: string };
 
 const WAIT_MS = 10 * 60_000;
+const SUGGESTER_TITLE = "Suggest assistant instructions";
 
 /**
  * Proposals for the assistant's instructions, from a short-lived hidden worker on the review assistant's
@@ -294,14 +296,15 @@ export function createInstructionSuggester(bb: BbPluginApi, store: Store, change
       if (unavailable) return settle({ state: "failed", at: Date.now(), error: unavailable });
       const projectId = await personalProjectId(bb);
       if (!projectId) return settle({ state: "failed", at: Date.now(), error: "bb has no project to run the agent in." });
-      const worker = await bb.sdk.threads.spawn({
-        ...(await agentPlacement(bb, assistantAgent, projectId)),
-        prompt, title: "Suggest assistant instructions", visibility: "hidden",
-        ...spawnExecution(assistantAgent),
+      const placement = await agentPlacement(bb, assistantAgent, projectId);
+      // It runs at the review agent's permissions with no review of its own: to bb review, every review is another's,
+      // from its first command, which may come before its spawn returns.
+      const worker = await spawningFor(bb, SUGGESTER_TITLE, NO_REVIEW, async () => {
+        const worker = await bb.sdk.threads.spawn({ ...placement, prompt, title: SUGGESTER_TITLE, visibility: "hidden", ...spawnExecution(assistantAgent) });
+        await recordFormerWorker(bb, worker.id, null, "suggester");
+        return worker;
       });
       workerId = worker.id;
-      // It runs at the review agent's permissions with no review of its own: to bb review, every review is another's.
-      await recordFormerWorker(bb, worker.id, null, "suggester");
       await bb.sdk.threads.wait({ threadId: worker.id, status: "idle", timeoutMs: WAIT_MS, signal: stopped.signal });
       const { output } = await bb.sdk.threads.output({ threadId: worker.id });
       settle({ state: "ready", at: Date.now(), text: suggestionLines(output ?? "") });

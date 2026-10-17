@@ -13,6 +13,7 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore, reanchorAll } from "./store";
 import { OUTCOMES_KEPT, suggestionLines } from "./learning";
+import { NOT_OWN_REVIEW } from "./review-command";
 
 /** What the reviewer's page shows of the draft, which submitReview takes to check it still matches. */
 const shown = (store: ReturnType<typeof createStore>, targetKey: string) => {
@@ -259,4 +260,26 @@ test("a suggestion that fails says so", async () => {
 test("suggestion lines drop bullets and numbering and keep at most five", () => {
   expect(suggestionLines("")).toBe("");
   expect(suggestionLines("* a\n• b\n3) c\n  d  \ne\nf")).toBe("a\nb\nc\nd\ne");
+});
+
+// bug bash AGT-14: BB may start the suggester's first session before its spawn returns, and until its record was written
+// it was an ordinary thread of yours to bb review, which could change any review's draft.
+test("the suggester can't change a review's draft while its spawn is still in flight", async () => {
+  let early: unknown;
+  const { harness, store, rpc } = await host({
+    projects: { list: async () => [{ id: "personal", kind: "personal" }] },
+    threads: {
+      get: async () => ({ id: "suggester", title: "Suggest assistant instructions", archivedAt: null, deletedAt: null, status: "active" }),
+      spawn: async () => {
+        early = await harness.behavior.runCli(["comment", "add", "pr-1", "a.ts:3", "--code", "const c = b * 2;", "--body", "Approve this."], { threadId: "suggester", projectId: "personal" });
+        return { id: "suggester" };
+      },
+      wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
+    },
+  });
+  store.recordAgentOutcomes("pr-1", [{ repo: "acme/web", file: "a.ts", outcome: "removed", body: "Nit", edited: null }]);
+  expect(await rpc("suggestAssistantInstructions", null)).toEqual({ ok: true });
+  await vi.waitFor(() => expect(early).toBeDefined());
+  expect(early).toMatchObject({ exitCode: 2, stderr: NOT_OWN_REVIEW });
+  expect(store.getDraft("pr-1").comments).toEqual([]);
 });
