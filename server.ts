@@ -360,6 +360,8 @@ export default async function plugin(bb: BbPluginApi) {
         return { ok: true, feedback: view(targetKey) };
       },
       saveReplyDraft({ targetKey, threadId, body }: { targetKey: string; threadId: string; body: string }) {
+        // A page saving after another window deleted the review would write what Delete can no longer remove.
+        if (!store.getReview(targetKey)) return { ok: false };
         if (body.trim()) store.setReplyDraft(targetKey, threadId, body, "reviewer");
         else store.deleteReplyDraft(targetKey, threadId);
         return { ok: true };
@@ -708,11 +710,13 @@ export default async function plugin(bb: BbPluginApi) {
     },
     // The summary and verdict don't depend on the diff, so they save while it changes; submit checks everything.
     setVerdict({ targetKey, verdict }) {
+      if (!store.getReview(targetKey)) throw new Error("This review no longer exists.");
       const draft = store.setVerdict(targetKey, verdict);
       bb.realtime.publish(`draft:${targetKey}`, {});
       return { draft };
     },
     saveSummary({ targetKey, body }) {
+      if (!store.getReview(targetKey)) throw new Error("This review no longer exists.");
       // Your words now, whoever wrote them before, and an ask on the summary is over.
       store.setLifecycle(targetKey, { summaryAsk: null });
       const draft = store.updateSummary(targetKey, { body, bodyAuthor: undefined, written: undefined });
@@ -769,6 +773,7 @@ export default async function plugin(bb: BbPluginApi) {
       return { views: computeFileViewState(store.getFileViews(targetKey), store.fileHashes(targetKey)) };
     },
     setFileViewed({ targetKey, file, viewed }) {
+      if (!store.getReview(targetKey)) return { ok: false };
       if (!viewed) {
         store.unsetFileViewed(targetKey, file);
         return { ok: true };
@@ -779,6 +784,7 @@ export default async function plugin(bb: BbPluginApi) {
       return { ok: true };
     },
     setFilesViewed({ targetKey, files, viewed = true, previous = [] }) {
+      if (!store.getReview(targetKey)) return { ok: false };
       if (!viewed) {
         const before = new Map(previous.map((view) => [view.file, view]));
         for (const file of files) {

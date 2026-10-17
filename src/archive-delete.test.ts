@@ -76,6 +76,25 @@ test("deleting a review removes its data, queued notification, and hidden worker
   expect(harness.inspection.sdk.callsTo("threads.delete")).toHaveLength(2);
 });
 
+// bug bash LIV-4: a page saving after another window deleted the review wrote rows Delete could no longer remove, and
+// they came back when the PR was reviewed again.
+test("a summary, verdict, viewed mark or reply draft saved after the review was deleted writes nothing", async () => {
+  const { bb, harness, store } = await setup();
+  expect(await harness.behavior.callRpc("deleteReview", { targetKey: "pr-1" })).toEqual({ ok: true });
+  const rows = (table: string) => (bb.storage.database().prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE target_key='pr-1'`).get() as { n: number }).n;
+  await expect(harness.behavior.callRpc("saveSummary", { targetKey: "pr-1", body: "Old summary from the deleted review." })).rejects.toThrow("This review no longer exists.");
+  await expect(harness.behavior.callRpc("setVerdict", { targetKey: "pr-1", verdict: "REQUEST_CHANGES" })).rejects.toThrow("This review no longer exists.");
+  expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts"], viewed: false, previous: [{ file: "a.ts", hash: "h", viewedAt: 1 }] })).toEqual({ ok: false });
+  expect(await harness.behavior.callRpc("setFileViewed", { targetKey: "pr-1", file: "a.ts", viewed: false })).toEqual({ ok: false });
+  expect(await harness.behavior.callRpc("saveReplyDraft", { targetKey: "pr-1", threadId: "t1", body: "Thanks." })).toEqual({ ok: false });
+  for (const table of ["drafts", "review_lifecycle", "file_views", "reply_drafts"]) expect(rows(table), table).toBe(0);
+  // Started again, the review doesn't show the deleted one's summary and verdict.
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 2 });
+  expect(store.getDraft("pr-1")).toMatchObject({ body: "", verdict: "COMMENT" });
+  // The other review still saves.
+  expect(await harness.behavior.callRpc("saveReplyDraft", { targetKey: "pr-2", threadId: "t1", body: "Thanks." })).toEqual({ ok: true });
+});
+
 test("a missing worker thread doesn't block deleting the review", async () => {
   const { harness, store } = await setup();
   harness.inspection.sdk.stub("threads.delete", async () => { throw new Error("HTTP 404: Thread not found"); });
