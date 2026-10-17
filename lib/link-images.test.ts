@@ -277,9 +277,31 @@ test("an image in an image's alt text is its words, however deep", () => {
   expect(linkImages("![a ![b](u) c](v)")).toBe("[Image: a Image: b c](v)");
   expect(linkImages("[![a ![b][] c](v)](w)")).toBe("[Image: a Image: b c](w)");
   // Thousands deep, it neither runs out of stack nor grows its label with each level's text.
-  const out = linkImages(`${"![".repeat(10_000)}x${"][]".repeat(10_000)}`);
+  const out = linkImages(`${"![".repeat(10_000)}x${"](u)".repeat(10_000)}`);
   expect(out.length).toBeLessThan(200_000);
-  expect(out).toMatch(/^\[(Image: ){10000}x\]/);
+  expect(out).toMatch(/^\[(Image: ){10000}x\]\(u\)$/);
+  expect(linkImages(`${"![".repeat(10_000)}x${"][]".repeat(10_000)}`)).not.toMatch(/(^|[^\\])!\[/);
+});
+
+// A kept <scheme: …> that holds a space isn't an autolink to BB, which read an image in it; and a reference image's
+// [ref] was copied out unread, an image in it too (bug bash S15, found by the untrusted-parsers harness).
+test("an image inside a kept <scheme: …> that BB can't read as an autolink stays text", () => {
+  const url = "https://evil.test/x.png";
+  expect(linkImages(`<https: !<!-- -->[b](${url}) >`)).toBe(`<https: \\![b](${url}) >`);
+  expect(linkImages(`x <https: a !<!-- -->[b](${url}) >`)).toBe(`x <https: a \\![b](${url}) >`);
+  expect(linkImages(`<https:!<!-- -->[b](${url})[\t'>>`)).toBe(`<https:\\![b](${url})[\t'>>`);
+  // An autolink, without a space, is a link to BB, and stays as written.
+  expect(linkImages(`<https:a!<!-- -->[b](${url})>`)).toBe(`<https:a![b](${url})>`);
+});
+
+test("a reference image's reference is kept only where it's a label, and read like the rest where it isn't", () => {
+  const url = "https://evil.test/x.png";
+  expect(linkImages(`![x][ <https: ![b](${url}) >]`)).toBe("\\![x][ <https: Image: b >]");
+  expect(linkImages(`![x][a ![b](${url}) c]`)).toBe("\\![x][a Image: b c]");
+  expect(linkImages(`![a ![b](${url})][]`)).toBe("\\![a Image: b][]");
+  expect(linkImages(`![x][${"a".repeat(1000)}]`)).toBe(`\\![x][${"a".repeat(1000)}]`);
+  expect(linkImages(`![x][a\\[b]`)).toBe("[Image: x][a\\[b]");
+  expect(linkImages(`![x][r]\n\n[r]: ${url}`)).toBe(`[Image: x][r]\n\n[r]: ${url}`);
 });
 
 test("text with no image or HTML, an escaped one, or a plain link is unchanged", () => {

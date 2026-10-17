@@ -119,23 +119,36 @@ const destination = (url: string) => /[\s()<>]/.test(url) ? `<${url.replace(/[<>
 
 /**
  * `![alt](url)` and `![alt][ref]` as `[Image: alt](url)` and `[Image: alt][ref]`; `![alt][]` and `![alt]`, whose label
- * is the alt, keep it as the reference. Inside a link's text, or an image's alt, where a link can't go, an image is its
- * words. Any other `![`, as one whose definition sits in a quote or a list, has its `!` escaped: at most a link, never an
- * image. Each `![` is weighed once and each alt read once, so no nesting or run of openers stalls the page.
+ * is the alt, keep it as the reference, where it's a label (`isLabel`). Inside a link's text, or an image's alt, where a
+ * link can't go, an image is its words. Any other `![`, as one whose definition sits in a quote or a list, has its `!`
+ * escaped: at most a link, never an image. Each `![` is weighed once and each alt read once, so no nesting or run of
+ * openers stalls the page.
  */
 function linkMarkdownImages(text: string, labels: Set<string>): string {
   if (!text.includes("![")) return text;
   const { bracket, paren, holdsSquare } = pairing(text);
 
-  /** The image the `![` at `at` begins, its whole within `stop`: where its alt's `]` and the image end; or null. */
-  const imageAt = (at: number, stop: number) => {
+  /**
+   * The image the `![` at `at` begins, its whole within `stop`: where its alt's `]` and the image end, and the label
+   * it refers to (null for a destination); or null.
+   */
+  const imageAt = (at: number, stop: number): { end: number; after: number; ref: string | null } | null => {
     const end = bracket(at + 1);
     if (end < 0) return null;
     const next = end < stop ? text[end] : "";
+    if (next === "(") {
+      const after = paren(end);
+      return after > 0 && after <= stop ? { end, after, ref: null } : null;
+    }
+    const alt = () => text.slice(at + 2, end - 1);
+    if (next === "[") {
+      const after = bracket(end);
+      const ref = after > 0 ? text.slice(end + 1, after - 1) : "";
+      const label = ref.trim() ? ref : alt();
+      return after > 0 && after <= stop && isLabel(label) ? { end, after, ref: label } : null;
+    }
     // A definition's label holds no `]`, so an alt with one is never its own reference.
-    const after = next === "(" ? paren(end) : next === "[" ? bracket(end)
-      : !holdsSquare(at + 2, end - 1) && labels.has(normalLabel(text.slice(at + 2, end - 1))) ? end : -1;
-    return after > 0 && after <= stop ? { end, after } : null;
+    return !holdsSquare(at + 2, end - 1) && labels.has(normalLabel(alt())) && isLabel(alt()) ? { end, after: end, ref: alt() } : null;
   };
 
   /** The label of the image whose alt runs from `start` to `stop`, its brackets dropped and each image in it its words. */
@@ -188,17 +201,21 @@ function linkMarkdownImages(text: string, labels: Set<string>): string {
     const before = text.slice(from, i) + (image ? "" : "\\!");
     if (before) parts.push(before);
     if (!image) { from = i + 1; continue; }
-    const { end, after } = image;
+    const { end, after, ref } = image;
     const label = labelOf(i + 2, end - 1);
-    const alt = text.slice(i + 2, end - 1);
-    const ref = text[end] === "[" ? text.slice(end + 1, after - 1) : "";
-    pushLink(parts, open ? label : text[end] === "(" ? `[${label}]${text.slice(end, after)}` : `[${label}][${ref.trim() ? ref : alt}]`);
+    pushLink(parts, open ? label : ref === null ? `[${label}]${text.slice(end, after)}` : `[${label}][${ref}]`);
     from = after;
     i = after - 1;
   }
   parts.push(text.slice(from));
   return parts.join("");
 }
+
+/**
+ * Whether `text` is a link label as CommonMark reads one: no bracket that a `\\` doesn't escape, and at most 999
+ * characters. Kept as a reference, anything else would be copied out unread, an image in it too.
+ */
+const isLabel = (text: string) => text.length <= 999 && /^(?:[^\\[\]]|\\[\s\S])*$/.test(text);
 
 /**
  * Where `text`'s brackets and parentheses close, each worked out once: looking anew from each opener read to the end
@@ -339,7 +356,7 @@ function escapeHtml(text: string): string {
         i += 2;
       } else if (char === "<") {
         const kept = keptEnd(text, i, kind === "inline");
-        out += kept > 0 ? text.slice(i, kept) : "&lt;";
+        out += kept > 0 ? keptText(text, i, kept) : "&lt;";
         i = kept > 0 ? kept : i + 1;
       } else {
         out += char === "!" && text[i + 1] === "[" ? "\\!" : char;
@@ -349,6 +366,16 @@ function escapeHtml(text: string): string {
     if (end < text.length) out += "\n";
   }
   return out;
+}
+
+/**
+ * The kept `<…>` from `start` to `end` in `text`, as written but where BB can't read it as an autolink, which holds no
+ * space or control character: then its `![`s, which BB reads as images, show as text too.
+ */
+function keptText(text: string, start: number, end: number): string {
+  const kept = text.slice(start, end);
+  if (!/[\x00-\x20\x7f]/.test(kept) || formattingTag(text, start)) return kept;
+  return kept.replace(/\\[!-/:-@[-`{-~]|!(?=\[)/g, (match) => match === "!" ? "\\!" : match);
 }
 
 /** Where `markdown`'s code is, as linkImages reads it: the lines of its fenced code, and its code spans, in order. */
