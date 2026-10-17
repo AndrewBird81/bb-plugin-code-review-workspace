@@ -5,6 +5,7 @@ import { areSelectionsEqual, parsePatchFiles, processFile } from "@pierre/diffs"
 import { FileDiff } from "@pierre/diffs/react";
 import type { AnnotationSide, DiffLineAnnotation, FileDiffMetadata, FileDiffOptions, SelectedLineRange } from "@pierre/diffs";
 import { patchRows, splitPatchByFile } from "../src/patch";
+import { unplacedSummary } from "../src/guide";
 import { droppedNear, filePart, hunksIn } from "../src/hunks";
 import { hideWhitespaceChanges } from "../src/whitespace";
 import type { FileInterdiff } from "../src/interdiff";
@@ -490,6 +491,8 @@ export const DiffViewer = memo(function DiffViewer({
         weakening: flagWeakTests ? testWeakening(f.path, f.text, generated.has(f.path), chosen) : null,
         // What the PR's diff of a lockfile adds and removes.
         digest: digestLockfiles ? lockfileDigest(f.path, f.text) : null,
+        // A diff with no hunks, such as a binary or a mode change, says what it does instead; the row names a rename.
+        bare: text === f.text && fileDiff && !fileDiff.hunks.length ? unplacedSummary({ path: f.path, text: f.text }) : null,
       }];
     });
     // How many files changed since, as the filtered diff shows them: the switch counts them unfiltered too.
@@ -735,7 +738,7 @@ export const DiffViewer = memo(function DiffViewer({
     <div ref={root} className="space-y-4">
       {narrowedStatus}
       {compareSwitch}
-      {perFile.map(({ path, oldPath, stats, chosen, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, noisy: noise, weakening, digest }) => {
+      {perFile.map(({ path, oldPath, stats, chosen, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, noisy: noise, weakening, digest, bare }) => {
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
@@ -756,7 +759,7 @@ export const DiffViewer = memo(function DiffViewer({
         const tagged = classifyFile(path, generated.has(path), chosen).category !== "code";
         // A local review's file that's still in its checkout opens in an editor.
         const inEditor = !!editor && fileDiff?.type !== "deleted";
-        const details = detailed && (summary || oldPath || split || owned || stale || tagged || showDiff || readContents && source && !folded || inEditor);
+        const details = detailed && (summary || bare || oldPath || split || owned || stale || tagged || showDiff || readContents && source && !folded || inEditor);
         return (
           <div
             key={path}
@@ -818,6 +821,7 @@ export const DiffViewer = memo(function DiffViewer({
               <div className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-[color-mix(in_oklab,var(--muted)_30%,var(--background))] px-3 py-1.5", !folded && "border-b border-border")}>
                 <div className="min-w-0 flex-1 basis-60 space-y-0.5 empty:hidden">
                   {summary && <p className="text-xs leading-snug text-muted-foreground"><InlineCode text={summary} /></p>}
+                  {bare && <p className="text-[11px] text-muted-foreground">{bare}</p>}
                   {oldPath && <p className="truncate text-[11px] text-muted-foreground">Renamed from <span className="font-mono">{oldPath}</span></p>}
                   {split && <p className="truncate text-[11px] text-muted-foreground">Also in <InlineCode text={split.alsoIn.join(", ")} /></p>}
                   {owned && (

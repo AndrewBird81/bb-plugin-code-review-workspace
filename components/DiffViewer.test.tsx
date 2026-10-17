@@ -195,3 +195,25 @@ test("a viewed file, folded, dims its path alone, not its row's other text", () 
   expect(screen.getByTitle("src/a.ts").className.split(" ")).toEqual(expect.arrayContaining(["opacity-60", "group-hover/file:opacity-100", "group-focus-within/file:opacity-100"]));
   expect(within(card).getByText("Viewed").className).not.toMatch(/opacity/);
 });
+
+// bug bash RDG-6: a binary, mode-only or empty file has no hunks, and its card showed nothing under its row.
+test("a file with no hunks says what its diff does instead: binary, mode change, empty, or not sent by GitHub", () => {
+  const bare = [
+    "diff --git a/logo.png b/logo.png\nindex 1..2 100644\nBinary files a/logo.png and b/logo.png differ\n",
+    "diff --git a/bin/run b/bin/run\nold mode 100644\nnew mode 100755\n",
+    "diff --git a/.keep b/.keep\nnew file mode 100644\nindex 0000000..e69de29\n",
+    "diff --git a/db/seed.sql b/db/seed.sql\nGitHub didn't send this file's diff: it's too large or binary. (blob abcdef1)\n",
+    "diff --git a/src/old.ts b/src/new.ts\nsimilarity index 100%\nrename from src/old.ts\nrename to src/new.ts\n",
+  ].join("");
+  const { container } = render(<DiffViewer patch={bare + patch} files={["logo.png", "bin/run", ".keep", "db/seed.sql", "src/new.ts", "src/a.ts"]} views={new Map<string, FileViewFlags>()} onToggleViewed={() => {}} />);
+  const card = (path: string) => within(Array.from(container.querySelectorAll<HTMLElement>("[data-file]")).find((el) => el.dataset.file === path)!);
+  expect(card("logo.png").getByText("Binary file.")).toBeTruthy();
+  expect(card("bin/run").getByText("Made executable.")).toBeTruthy();
+  expect(card(".keep").getByText("New empty file.")).toBeTruthy();
+  expect(card("db/seed.sql").getByText("GitHub didn't send this file's diff; read it on GitHub.")).toBeTruthy();
+  // A pure rename's row names the old path once.
+  expect(card("src/new.ts").getByText("No content changes.")).toBeTruthy();
+  expect(card("src/new.ts").getAllByText(/Renamed from/)).toHaveLength(1);
+  // A file with hunks shows them, not words.
+  expect(card("src/a.ts").queryByText(/Binary file|No content changes|empty file/)).toBeNull();
+});
