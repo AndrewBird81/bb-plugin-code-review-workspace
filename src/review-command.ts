@@ -7,6 +7,7 @@ import { readPrSnapshot } from "./pr-snapshot";
 import { rebuildReview, upToDate } from "./rereview";
 import { recordPrState } from "./start-review";
 import { automaticReviewPrompt } from "./preferences";
+import { baselineOf } from "../lib/turn";
 import { readAuthorTrust } from "./author-trust";
 import { mayRunUnattended } from "../lib/trust";
 import { resolve } from "node:path";
@@ -165,13 +166,22 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
   // A link to the review where BB has an address for its app.
   const appUrl = inThreads ? deps.bb.server.experimental_appUrl : null;
   const open = appUrl ? `Open ${appUrl.replace(/\/+$/, "")}/plugins/${deps.bb.pluginId}/review/${key}` : "Open the Guided Review panel";
+  // What the automatic review goes by (src/agent.ts startAutomaticReview, src/generate.ts): no review runs on a merged
+  // or closed PR, nor once you've reviewed it, and one skipped for your click runs when you click Run review.
+  const review = deps.store.getReview(key);
+  const state = review?.startedPrState ?? review?.prState;
+  const ended = state === "MERGED" || state === "CLOSED" ? state.toLowerCase() : null;
+  const watch = ended ? "to watch it build" : "to watch it build and review";
   const lines = [current ? `Guided Review for ${key} is up to date. ${open} to review it.`
-    : building ? `Guided Review for ${key} is already building. ${open} to watch it build and review.`
-    : `Guided Review started for ${key}. ${open} to watch it build and review.`];
+    : building ? `Guided Review for ${key} is already building. ${open} ${watch}.`
+    : `Guided Review started for ${key}. ${open} ${watch}.`];
   if (context !== undefined && !context.trim()) lines.push("Removed the review's context.");
   else if (context !== undefined) lines.push(
     !automaticReviewPrompt(deps.store.getPreferences().preferences) ? "Automatic review is off in Review settings, so no assistant gets this context."
+    : ended ? `This PR is ${ended}, so the automatic review won't run. Paste the context into Ask agent instead.`
     : deps.store.getAssistantThread(key) ? "This review already has an assistant conversation, so the automatic review won't run and won't see this context. Paste it into Ask agent instead."
+    : review && baselineOf(review).at ? "You've already reviewed this PR, so the automatic review won't run. Paste the context into Ask agent instead."
+    : current && review?.skippedRun?.run === "review" ? "The automatic review is waiting for you to click Run review, and will include this context."
     : current ? "The guide is current, so the automatic review won't run again. Paste the context into Ask agent instead."
     : "The assistant's automatic review will include this context.");
   return { exitCode: 0, stdout: lines.join("\n") };

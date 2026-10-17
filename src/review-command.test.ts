@@ -113,6 +113,48 @@ test("--context says the automatic review is off when its switch is off, with th
   expect(stdout).toContain("Automatic review is off in Review settings, so no assistant gets this context.");
 });
 
+test("--context says the automatic review won't run on a merged or closed PR, or one you've reviewed, and will on a review waiting for Run review (bug bash CLI-3, DOC-4, LIV-3)", async () => {
+  const base = vi.mocked(gh.runGh).getMockImplementation()!;
+  const reading = (state: string) => vi.mocked(gh.runGh).mockImplementation(async (args, opts) => {
+    const out = await base(args, opts);
+    return args[1] === "view" ? { ...out, stdout: JSON.stringify({ ...JSON.parse(out.stdout), state }) } : out;
+  });
+  const saved = (store: ReturnType<typeof createStore>, headSha: string) => {
+    store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha });
+    store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+n\n");
+    store.saveGuide(key, { title: "G", intent: "I", sections: [], unplacedFiles: [] });
+  };
+  const withContext = (bb: ReturnType<typeof host>["bb"], store: ReturnType<typeof createStore>) => runReviewCommand({ bb, store, gh }, [url, "--context", "Implements LIN-42"], { projectId: "p1" });
+  try {
+    // startAutomaticReview doesn't run on a merged or closed PR (98-b), and there's no review to watch.
+    for (const state of ["MERGED", "CLOSED"]) {
+      reading(state);
+      const { bb, store } = host();
+      expect((await withContext(bb, store)).stdout, state).toBe([
+        `Guided Review started for ${key}. Open the Guided Review panel to watch it build.`,
+        `This PR is ${state.toLowerCase()}, so the automatic review won't run. Paste the context into Ask agent instead.`,
+      ].join("\n"));
+    }
+    reading("OPEN");
+    // A guide rebuilt after your review gets the feedback check, not the automatic review.
+    {
+      const { bb, store } = host();
+      saved(store, "old");
+      store.setLifecycle(key, { submittedAt: 5, submittedHeadSha: "old", submittedVerdict: "COMMENT" });
+      expect((await withContext(bb, store)).stdout).toBe(`Guided Review started for ${key}. Open the Guided Review panel to watch it build and review.\nYou've already reviewed this PR, so the automatic review won't run. Paste the context into Ask agent instead.`);
+    }
+    // An automatic review skipped for your click runs, with the context, when you click Run review.
+    {
+      const { bb, store } = host();
+      saved(store, "abc123");
+      store.setLifecycle(key, { skippedRun: { run: "review", head: "abc123", at: 2 } });
+      expect((await withContext(bb, store)).stdout).toBe(`Guided Review for ${key} is up to date. Open the Guided Review panel to review it.\nThe automatic review is waiting for you to click Run review, and will include this context.`);
+    }
+  } finally {
+    vi.mocked(gh.runGh).mockImplementation(base);
+  }
+});
+
 test("bb review of a review that hasn't changed opens it without rebuilding, and still keeps --context", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
   const store = createStore(bb);
