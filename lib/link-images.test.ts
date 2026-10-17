@@ -227,6 +227,22 @@ test("an image after an empty list item or a refused list start stays a link", (
   for (const text of docs) expect(linkImages(text), text).not.toMatch(/<(?:img|video|source)\b|(?<!\\)!\[/i);
 });
 
+// BB's Markdown drops a leading BOM and reads an HTML block after it, where backticks are text, but linkImages read
+// the BOM as a paragraph's and kept the <img> between them as a code span (bug bash SEC-2).
+test("an image in backticks after a BOM and an HTML block's tag stays a link", () => {
+  const url = "https://evil.test/x.png";
+  for (const tag of ["<b>", "<div>", "<details>", "</div>", "<pre>", "<p align=center>", "<table>"]) {
+    expect(linkImages(`\uFEFF${tag}\n\`<img src="${url}">\``)).not.toContain("<img");
+    expect(linkImages(`\uFEFF${tag}\nx \`\`<video poster="${url}">\`\` y`)).not.toContain("<video");
+  }
+  // Without the BOM the same text was already safe.
+  expect(linkImages(`<div>\n\`<img src="${url}">\``)).not.toContain("<img");
+  // BB drops only one: the BOM is kept, so that it doesn't drop a second, before a tag read as a paragraph's text.
+  const twice = `\uFEFF\uFEFF</details>\n\t\`<img src="${url}">\``;
+  expect(linkImages(twice)).toBe(twice);
+  expect(linkImages(`\uFEFF<b>\n\`<img src="${url}">\``).startsWith("\uFEFF<b>")).toBe(true);
+});
+
 test("a link after a `!` doesn't make a new image", () => {
   expect(linkImages("!![x](https://evil.test/a.png)")).toBe("\\![Image: x](https://evil.test/a.png)");
   expect(linkImages("!<img src=https://evil.test/b.png>")).toBe("\\![Image](https://evil.test/b.png)");

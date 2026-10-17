@@ -12,9 +12,12 @@
  */
 export function linkImages(markdown: string): string {
   if (!/<|!\[/.test(markdown)) return markdown;
-  const text = markdown.replace(/\r\n?/g, "\n");
+  // BB's Markdown drops one leading byte order mark, so what follows it may begin an HTML block. The text is read
+  // without it, and it's kept, so that BB drops it and not a second one.
+  const mark = markdown.startsWith("\uFEFF") ? "\uFEFF" : "";
+  const text = markdown.slice(mark.length).replace(/\r\n?/g, "\n");
   const labels = new Set([...text.matchAll(/^ {0,3}\[([^\]\n]+)\]:/gm)].map((match) => normalLabel(match[1])));
-  return escapeHtml(outsideCode(text, (prose) => withoutComments(linkMarkdownImages(linkHtmlMedia(prose), labels))));
+  return mark + escapeHtml(outsideCode(text, (prose) => withoutComments(linkMarkdownImages(linkHtmlMedia(prose), labels))));
 }
 
 /**
