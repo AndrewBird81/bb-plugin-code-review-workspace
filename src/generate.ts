@@ -25,8 +25,8 @@ const active = new WeakMap<BbPluginApi, Set<AbortController>>();
 const failures = new WeakMap<BbPluginApi, Map<string, AbortController>>();
 /** thread.failed: a guide worker that failed ends its generation now, instead of at the wait's timeout. */
 export function guideWorkerFailed(bb: BbPluginApi, threadId: string) { failures.get(bb)?.get(threadId)?.abort(); }
-/** Each running generation, by its id: told when generate_review_guide accepts its guide, and why it last refused one. */
-const generations = new WeakMap<BbPluginApi, Map<string, { accepted: AbortController; rejection?: string }>>();
+/** Each running generation, by its id: told when generate_review_guide accepts its guide, why it last refused one, and whether the reviewer stopped it. */
+const generations = new WeakMap<BbPluginApi, Map<string, { accepted: AbortController; rejection?: string; stopped?: boolean }>>();
 /** generate_review_guide accepted generation `generationId`'s guide: its run finishes now, not when the worker's turn ends. */
 export function guideAccepted(bb: BbPluginApi, generationId: string) { generations.get(bb)?.get(generationId)?.accepted.abort(); }
 /** generate_review_guide refused generation `generationId`'s guide, saying `text`: the worker is reminded of it, and the reviewer told. */
@@ -34,6 +34,8 @@ export function guideRejected(bb: BbPluginApi, generationId: string, text: strin
   const generation = generations.get(bb)?.get(generationId);
   if (generation) generation.rejection = text;
 }
+/** The reviewer stopped generation `generationId`: until it's finalized, generate_review_guide refuses its guide. */
+export function guideStopped(bb: BbPluginApi, generationId: string): boolean { return !!generations.get(bb)?.get(generationId)?.stopped; }
 
 // Each wait lasts up to WAIT_STEP; a worker still working is waited for again, up to a cap that grows with the diff.
 const WAIT_STEP = 600_000;
@@ -109,7 +111,7 @@ export async function generateGuide(
   let workerId: string | undefined;
   let threads: BbPluginApi["sdk"]["threads"] | undefined;
   const controller = new AbortController();
-  const generation: { accepted: AbortController; rejection?: string } = { accepted: new AbortController() };
+  const generation: { accepted: AbortController; rejection?: string; stopped?: boolean } = { accepted: new AbortController() };
   const accepted = generation.accepted;
   /** Why the guide failed, for the reviewer. */
   let failure: string | undefined;
@@ -121,7 +123,7 @@ export async function generateGuide(
   let finished = () => {};
   const run = {
     // An accepted guide stands: it's finalizing already.
-    stop: () => { if (accepted.signal.aborted || controller.signal.aborted) return false; stopped = true; controller.abort(); return true; },
+    stop: () => { if (accepted.signal.aborted || controller.signal.aborted) return false; stopped = generation.stopped = true; controller.abort(); return true; },
     done: new Promise<void>((resolve) => { finished = resolve; }),
   };
   const byReview = stoppable.get(bb) ?? new Map<string, typeof run>();
@@ -217,9 +219,9 @@ export async function generateGuide(
     const before = ok ? store.guideBackupHead(targetKey) : null;
     // A failed rebuild keeps the guide you had; a guide this run already submitted stands.
     if (ok) store.dropGuideBackup(targetKey);
-    else store.restoreGuide(targetKey);
+    const putBack = !ok && store.restoreGuide(targetKey);
     // A rebuild you stopped is the guide you had, ready; a first guide you stopped waits for Build the guide.
-    const restored = stopped && store.getGuide(targetKey) !== null;
+    const restored = stopped && putBack;
     store.setStatus(targetKey, ok || restored ? "ready" : "error");
     store.setLifecycle(targetKey, { guideError: ok || restored ? null : stopped ? { at: Date.now(), text: GUIDE_STOPPED } : failure ? { at: Date.now(), text: failure } : null });
     // The review's assistant reads the new guide when its runtime restarts.

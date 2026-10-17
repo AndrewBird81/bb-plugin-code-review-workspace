@@ -234,3 +234,32 @@ test("Stop on a review with no guide building, or an unknown one, does nothing",
   expect(await harness.behavior.callRpc("stopGuide", { targetKey: "nope" })).toEqual({ ok: true });
   expect(store.getReview("target")?.status).toBe("ready");
 });
+
+// bug bash AGT-6: you press Stop on a first guide, and the writer, not stopped yet, submits its guide while the plugin
+// archives it. The guide stood, ready, and Stop said the previous guide was put back.
+test("a guide submitted after Stop is refused, and Stop doesn't say a guide was put back", async () => {
+  let prompt = "";
+  let waiting = false;
+  let submit: () => Promise<unknown> = async () => {};
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: async (args: { prompt: string }) => { prompt = args.prompt; return { id: "worker" }; },
+    wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => { waiting = true; signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }); }),
+    // BB takes a moment to archive the hidden writer, which is still running.
+    archive: async () => { await submit(); return {}; },
+    stop: async () => ({}),
+    queuedMessages: { list: async () => [] },
+  } } as any });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "target", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
+  const run = generateGuide(bb, store, "target", "p1");
+  await vi.waitFor(() => expect(waiting).toBe(true));
+  const generationId = prompt.match(/generationId "([^"]+)"/)![1];
+  let answer: any;
+  submit = async () => { answer = await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "target", generationId, guide }); };
+  expect(await harness.behavior.callRpc("stopGuide", { targetKey: "target" })).toEqual({ ok: true });
+  await run;
+  expect(toolFailed(answer)).toBeTruthy();
+  expect(store.getGuide("target")).toBeNull();
+  expect(store.getReview("target")).toMatchObject({ status: "error", guideError: { text: "Stopped" } });
+});

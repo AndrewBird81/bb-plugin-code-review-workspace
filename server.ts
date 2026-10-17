@@ -47,7 +47,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
-import { GUIDE_WORKER_TITLE, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideRejected, guideWorkerFailed, guideWriterMode } from "./src/generate";
+import { GUIDE_WORKER_TITLE, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideRejected, guideStopped, guideWorkerFailed, guideWriterMode } from "./src/generate";
 import { pluginThreadsTitled, threadReview, threadRole, toolThreadReview } from "./src/thread-review";
 import { formerWorkerReview, recordFormerWorker } from "./src/former-workers";
 import { parseChecks, parseReviewThreads } from "./src/threads";
@@ -1177,6 +1177,8 @@ export default async function plugin(bb: BbPluginApi) {
       if (!store.isCurrentGeneration(targetKey, generationId) || store.getReview(targetKey)?.status !== "generating") {
         return failed("This generation was superseded or interrupted. Do not overwrite the current review.");
       }
+      // Stopped, it's finalizing: a guide now would stand in for the one you stopped.
+      if (guideStopped(bb, generationId)) return failed("The reviewer stopped this guide. Don't submit it again.");
       // The run remembers why, to remind its worker and tell the reviewer if the guide fails.
       const reject = (text: string) => { guideRejected(bb, generationId, text); return failed(text); };
       const guide = (raw as { guide?: unknown }).guide;
