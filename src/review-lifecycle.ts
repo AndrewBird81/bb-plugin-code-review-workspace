@@ -162,8 +162,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
   const readable = (review: ReviewMeta | null): review is ReviewMeta & { repo: string; number: number } =>
     !!review && review.kind === "pr" && !!review.repo && !!review.number && review.prState !== "MERGED";
 
-  /** Read these reviews' PRs in batches and apply what changed. */
-  async function read(keys: string[]): Promise<void> {
+  /** Read these reviews' PRs in batches and apply what changed. `pass`: a sync pass, whose read speaks for every review. */
+  async function read(keys: string[], pass = false): Promise<void> {
     const waiting = keys.filter((key) => inflight.has(key)).map((key) => inflight.get(key)!);
     const fresh = keys.filter((key) => !inflight.has(key));
     if (!fresh.length) { await Promise.allSettled(waiting); return; }
@@ -185,9 +185,11 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       }
       const missing = reviews.filter((r) => !facts.has(r.targetKey)).length;
       const teamsFailed = store.getPreferences().preferences.trackTeamRequests && !!github.viewer.errors?.().teams;
-      health = { lastReadAt: clock(), error: null };
-      if (missing) failed("partial", { count: missing });
-      else if (teamsFailed) failed("teams");
+      // Any good read shows GitHub answers again; only a pass says whether every PR and your teams could be read.
+      const kept = pass ? null : health.error?.kind === "partial" || health.error?.kind === "teams" ? health.error : null;
+      health = { lastReadAt: clock(), error: kept };
+      if (!kept && missing) failed("partial", { count: missing });
+      else if (!kept && teamsFailed) failed("teams");
       // The list hears once per pass, however many reviews changed.
       let changed = false;
       for (const review of reviews) {
@@ -459,7 +461,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     const fromUrl = (url?: string) => /\/([^/]+\/[^/]+)\/pull\/(\d+)$/.exec(url ?? "")?.slice(1).join("#").toLowerCase();
     const due = reviews.filter(readable).filter((r) => force || changed.has(`${r.repo.toLowerCase()}#${r.number}`) || changed.has(fromUrl(r.url) ?? "")
       || now - (checked.get(r.targetKey) ?? 0) >= interval(turnOf(r, now).group));
-    await read(due.map((r) => r.targetKey));
+    await read(due.map((r) => r.targetKey), true);
     for (const review of reviews) if (!disposed) await maintainThread(review.targetKey);
     if (!limited() && (force || now - lastDiscovery >= DISCOVER_EVERY)) {
       lastDiscovery = now;

@@ -889,6 +889,26 @@ test("sync health: PRs left out of a read, and teams it couldn't read", async ()
   expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.1 * HOUR, error: { kind: "teams", at: T0 + 0.1 * HOUR } });
 });
 
+// Update guide and the page's check for new commits read one review; that says nothing of the others (bug bash SRV-9).
+test("sync health: a read of one review keeps the pass's warning about the others, but clears a failure it disproves", async () => {
+  const s = setup();
+  s.store.saveReview({ targetKey: "pr-2", kind: "pr", repo: "acme/web", number: 2, createdAt: 2, status: "ready" });
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.filter((ref) => ref.number === 1).map((ref) => [ref.targetKey, facts(ref)])));
+  await s.sync.all();
+  expect(s.sync.health().error).toMatchObject({ kind: "partial", count: 1 });
+  s.at(0.1);
+  await s.sync.one("pr-1", true);
+  expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.1 * HOUR, error: { kind: "partial", at: T0, count: 1 } });
+  // A failed pass, then a good read of one review: GitHub answers again.
+  vi.mocked(s.github.facts).mockRejectedValueOnce(new Error("error connecting to api.github.com"));
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.sync.health().error).toMatchObject({ kind: "other" });
+  s.at(0.3);
+  await s.sync.one("pr-1", true);
+  expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.3 * HOUR, error: null });
+});
+
 test("a pass that changes several reviews tells the list once", async () => {
   const s = setup();
   s.store.saveReview({ targetKey: "pr-2", kind: "pr", repo: "acme/web", number: 2, createdAt: 2, status: "ready" });
