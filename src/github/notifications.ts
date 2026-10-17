@@ -40,7 +40,7 @@ function changedPrs(body: string): Extract<GateResult, { kind: "changed" }>["prs
 /**
  * GETs the viewer's participating notifications, conditionally after the first call. Honors
  * X-Poll-Interval; a token that can't read notifications reports unsupported for an hour.
- * Any other failure rejects.
+ * Any other failure, a rate limit's 403 included, rejects.
  */
 export function createNotificationGate(run: RunGh, now: () => number = Date.now): NotificationGate {
   let lastModified: string | null = null;
@@ -57,6 +57,8 @@ export function createNotificationGate(run: RunGh, now: () => number = Date.now)
       const out = await run(args);
       const response = parseIncludeOutput(out.stdout);
       const ok = response?.status === 200 || response?.status === 304;
+      // GitHub answers a rate limit, a secondary one too, with a 403: the token can read notifications, just not now.
+      if (response?.status === 403 && /rate limit/i.test(`${out.stderr}\n${response.body}`)) throw new Error(`Could not read notifications: ${out.stderr.trim() || "rate limit"}`);
       if (!ok && ([401, 403, 404].includes(response?.status ?? 0) || /scope/i.test(`${out.stderr}\n${response?.body ?? ""}`))) {
         unsupportedUntil = t + UNSUPPORTED_MS;
         return { kind: "unsupported" };

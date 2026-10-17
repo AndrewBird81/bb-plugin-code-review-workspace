@@ -82,6 +82,20 @@ test("401 and 404 are unsupported too", async () => {
   }
 });
 
+// A rate limit isn't a token that can't read notifications: reporting unsupported read reviews every minute for an hour (bug bash SRV-6).
+test("a 403 for a rate limit rejects, and the next poll asks again", async () => {
+  const time = clock();
+  const limited = { code: 1, stderr: "gh: You have exceeded a secondary rate limit. (HTTP 403)", stdout: headers("403 Forbidden") + `{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}` };
+  const run = vi.fn(async (_args: string[]) => limited);
+  const gate = createNotificationGate(run, time.now);
+  await expect(gate.poll()).rejects.toThrow(/rate limit/);
+  run.mockResolvedValueOnce({ code: 1, stderr: "", stdout: headers("403 Forbidden") + `{"message":"API rate limit exceeded for user ID 1."}` });
+  await expect(gate.poll()).rejects.toThrow(/rate limit/);
+  run.mockResolvedValueOnce(ok([]));
+  expect(await gate.poll()).toEqual({ kind: "changed", prs: [] });
+  expect(run).toHaveBeenCalledTimes(3);
+});
+
 test("a transport failure or server error rejects", async () => {
   await expect(createNotificationGate(vi.fn(async () => ({ code: 1, stdout: "", stderr: "error connecting to api.github.com" }))).poll()).rejects.toThrow(/connecting/);
   await expect(createNotificationGate(vi.fn(async () => ({ code: 1, stdout: headers("502 Bad Gateway"), stderr: "gh: HTTP 502" }))).poll()).rejects.toThrow(/502/);
