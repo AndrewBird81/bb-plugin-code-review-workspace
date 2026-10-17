@@ -96,12 +96,18 @@ test("while the guide is updated, the notice says the view and unsaved edits sta
   await slot.emitRealtime("review:pr-42", {});
   await waitFor(() => expect(slot.queryByText(/Updating the guide/)).toBeNull());
   slot.lifecycle.unmount();
-  const broken = await renderWorkspace({}, () => ({ review: { targetKey: "pr-42", kind: "pr", status: "error", createdAt: 1, title: "Parse rows", headSha: "new" } }));
+  let retried = false;
+  const broken = await renderWorkspace({ rereview: vi.fn(() => { retried = true; return { ok: true }; }) }, () => retried
+    ? { guide: null, review: { targetKey: "pr-42", kind: "pr", status: "generating", createdAt: 1, title: "Parse rows", headSha: "new" } }
+    : { review: { targetKey: "pr-42", kind: "pr", status: "error", createdAt: 1, title: "Parse rows", headSha: "new" } });
   const alert = notice(broken.slot, "Couldn’t update the guide. Showing the previous one.");
   expect(alert.getAttribute("role")).toBe("alert");
   fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(broken.rpc.rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   expect(rpc.rereview).not.toHaveBeenCalled();
+  // The update starts over, so its notice replaces the failed one, which stayed beside it (72-hands-on, 95-recheck).
+  await broken.slot.findByText("Updating the guide for the new commits. Your current view and unsaved edits stay here.");
+  expect(broken.slot.queryByText("Couldn’t update the guide. Showing the previous one.")).toBeNull();
   broken.slot.lifecycle.unmount();
 });
 

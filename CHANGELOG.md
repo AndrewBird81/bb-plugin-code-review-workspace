@@ -21,7 +21,7 @@ Fixes only. An agent in one of your threads can no longer start the review's age
 - A comment edited after you sent it to a thread no longer says "Sent to ‹thread›", and one sent under a minute ago says "· 1m" from 45 seconds, not "· 0m".
 - **Send 2 comments to ‹thread›** spaces the thread's title by a word space, not twice that.
 - **Open in editor** shows only on a local review whose diff ends at the checkout (a ref, or a range ending at `HEAD`), so it no longer opens a file from another version.
-- A failed guide update says why under its notice, in up to 3 lines.
+- A failed guide update says why under its notice, in up to 3 lines. Try again on it brings up the update's notice, rather than keeping the failed one beside it.
 - A guide waiting for its writer's machine to reconnect says so on its page, in its update notice, and in its status line, with Try again, rather than that it failed; once its 10 minutes are up, it reads as failed at once.
 - `r` on a GitHub thread opens its reply box even when its card in the code shows after the key, as when `]` turns GitHub threads in code back on.
 - **Suggest change** fences its lines with more backticks than they hold, and a Suggested change opened with four or more backticks shows in its box, a fence among its lines included.

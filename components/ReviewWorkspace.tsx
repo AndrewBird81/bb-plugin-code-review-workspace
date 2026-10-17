@@ -1335,7 +1335,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const notices: Notice[] = [
     ...(connection === "reconnecting" ? [{ id: "reconnecting", tone: "warning", icon: "Loading", busy: true, text: "Reconnecting… The review reloads once it’s back." }] as const : []),
     ...(loadError ? [{ id: "load", tone: "danger", icon: "AlertCircle", role: "alert", text: loadError, action: <Button variant="outline" size="sm" className={noticeButton} onClick={() => void load()}>Try again</Button> }] as const : []),
-    ...(review?.status === "error" ? [review.restartPending
+    // Once Try again starts the update over, the page keeps the review it last read: the update's notice replaces this one.
+    ...(review?.status === "error" && !generatingReplacement ? [review.restartPending
       // A reload interrupted the update while its writer's machine was offline: it restarts on its own once that reconnects.
       ? { id: "rebuild", tone: "warning", icon: "Clock", text: "The guide writer’s machine is offline. The update restarts on its own when it reconnects. Showing the previous guide.", action: retryGuide } as const
       // Why, as a first guide's page says it: the writer's words or the last rejection, as plain text cut to a few lines.
