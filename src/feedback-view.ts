@@ -43,7 +43,8 @@ export async function diffAt(store: Store, run: Run, review: ReviewMeta, sha: st
   // The head is compared with the base the PR targets now, a retargeted one included.
   patch ??= await compareDiff(run, repo, (sha === headOf(review) ? review.latestBase : null) ?? review.base ?? "HEAD", sha);
   patch = ensureGitHeaders(patch);
-  store.saveSnapshot(review.targetKey, sha, patch);
+  // A commit picked to compare with lives in the comparisons cache; storing its diff would keep it until a rebuild or submit.
+  if (keptDiffs(review).includes(sha)) store.saveSnapshot(review.targetKey, sha, patch);
   return patch;
 }
 
@@ -69,9 +70,12 @@ async function compareDiff(run: Run, repo: string, base: string, sha: string): P
   return patch;
 }
 
-/** Keep the diffs this review still needs: its guide's, your review's, and the PR's head. */
+/** The diffs this review still needs: its guide's, your review's, and the PR's head. */
+const keptDiffs = (review: ReviewMeta) => [review.headSha, baselineOf(review).sha, headOf(review)].filter((sha): sha is string => !!sha);
+
+/** Keep the diffs this review still needs. */
 export function pruneDiffs(store: Store, review: ReviewMeta) {
-  store.pruneSnapshots(review.targetKey, [review.headSha, baselineOf(review).sha, headOf(review)].filter((sha): sha is string => !!sha));
+  store.pruneSnapshots(review.targetKey, keptDiffs(review));
 }
 
 /** How long a review stays out of play (merged, closed, or archived) before its stored diffs are dropped. */

@@ -151,3 +151,16 @@ test("diffs of reviews out of play for a month are dropped, keeping the guide, t
   expect(store.getReviewerNotes("merged").body).toBe("note");
   for (const kept of ["recent", "open", "archived", "commented", "rebuilding", "local", "merged-later", "closed-later"]) expect(store.hasPatch(kept)).toBe(true);
 });
+
+test("picking commits to compare with doesn't keep a stored diff for each, only the diffs the review needs", async () => {
+  const { store, review } = setup();
+  store.savePatch("pr-1", one("a.ts", "head"));
+  const reviewed = { ...review, submittedAt: 5, submittedHeadSha: "sha0" };
+  const run = vi.fn(async (args: string[]) => ({ code: 0, stdout: one("a.ts", args.at(-1)!.split("...")[1]), stderr: "" }));
+  const commits = Array.from({ length: 30 }, (_, i) => `c${i}`);
+  for (const from of commits) await sinceReview(store, run, reviewed, from);
+  expect(commits.filter((sha) => store.getSnapshot("pr-1", sha) !== null)).toEqual([]);
+  // Your review's diff is kept, as pruneDiffs keeps it.
+  await sinceReview(store, run, reviewed);
+  expect(store.getSnapshot("pr-1", "sha0")).toBe(one("a.ts", "sha0"));
+});
