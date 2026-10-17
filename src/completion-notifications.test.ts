@@ -149,3 +149,27 @@ test("queued events expire after a day even if Needs You is never installed", as
     expect(f.delivered).toHaveLength(0);
   } finally { vi.restoreAllMocks(); await f.harness.lifecycle.dispose(); }
 });
+
+// An alert queued while Needs You couldn't take it waits in the outbox; turned off meanwhile, it isn't sent (bug bash SET-5).
+test("an alert waiting in the outbox isn't sent once its switch is turned off", async () => {
+  const f = fixture();
+  f.offline(true);
+  const notifications = completionNotifications(f.bb, f.store);
+  notifications.useTurns(() => "re-requested:1");
+  await notifications.queueTurn({ targetKey: "target", signal: "re-requested:1", projectId: "p1", body: "@alice re-requested your review" });
+  expect(await f.bb.storage.kv.get("needs-you:pending:target")).toBeTruthy();
+  f.store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, alertTurns: false } }, 0);
+  f.offline(false);
+  await notifications.flush();
+  expect(f.delivered).toEqual([]);
+  expect(await f.bb.storage.kv.get("needs-you:pending:target")).toBeFalsy();
+  // A guide's outcome waits on A guide is ready or failed.
+  f.offline(true);
+  await generateGuide(f.bb, f.store, "target", "p1");
+  expect(await f.bb.storage.kv.get("needs-you:pending:target")).toBeTruthy();
+  f.store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, alertGuides: false } }, 1);
+  f.offline(false);
+  await notifications.flush();
+  expect(f.delivered).toEqual([]);
+  await f.harness.lifecycle.dispose();
+});

@@ -38,9 +38,12 @@ function createNotifications(bb: BbPluginApi, store: Store) {
   }
   bb.onDispose(() => { disposed = true; });
 
-  /** Whether an outcome still describes the review: a newer generation or turn replaces it. */
+  /** Whether an outcome still describes the review and its alert is on: a newer generation or turn replaces it. */
   function current(record: Pending, checkStatus = true): boolean {
     if (Date.now() - record.occurredAt > MAX_AGE) return false;
+    // Turned off in Settings while it waited, it isn't sent.
+    const { knobs } = store.getPreferences().preferences;
+    if (!(record.kind === "turn" ? knobs.alertTurns : knobs.alertGuides)) return false;
     if (record.kind === "turn") return turnSignal(record.targetKey) === record.generationId;
     return store.isCurrentGeneration(record.targetKey, record.generationId) && (!checkStatus || store.getReview(record.targetKey)?.status === record.status);
   }
