@@ -250,6 +250,14 @@ test("bb review from one of your threads approves agents on a PR's head only whe
     vi.mocked(gh.runGh).mockClear();
     expect(await approved({ authorAssociation: "CONTRIBUTOR" })).toBe("abc123");
     expect(vi.mocked(gh.runGh).mock.calls.some(([args]) => args[1] === "graphql")).toBe(false);
+    // With Unattended authors set to Anyone, every author is trusted, so GitHub isn't asked either (70-review-correctness #7).
+    const { bb, store } = host();
+    store.savePreferences({ ...defaultPreferences, unattendedAuthors: "anyone" }, 0);
+    answering({ authorAssociation: "CONTRIBUTOR" });
+    vi.mocked(gh.runGh).mockClear();
+    expect(await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1", threadId: "coder" })).toMatchObject({ exitCode: 0 });
+    expect(store.getReview(key)?.approvedHead).toBe("abc123");
+    expect(vi.mocked(gh.runGh).mock.calls.some(([args]) => args[1] === "graphql")).toBe(false);
   } finally {
     vi.mocked(gh.runGh).mockImplementation(base);
   }
