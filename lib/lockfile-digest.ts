@@ -12,8 +12,8 @@ export interface LockfileDigest {
 
 type Format = {
   name?: (code: string) => string | null;
-  /** The URL a line's entry downloads from; without it, every URL on the line. */
-  url?: (code: string) => string | null;
+  /** The URLs a line's entry downloads from; without it, every URL on the line. */
+  url?: (code: string) => string[];
   /** Only a "url" inside these objects downloads: composer.lock's other URLs are homepages, support and funding. */
   urlIn?: string[];
   /** Public registries, which never need a word: a host, or a host and path a URL is at or under. */
@@ -25,18 +25,76 @@ const nameOf = (spec: string) => spec.replace(/^["']|["']$/g, "").match(/^(@?[^@
 const NPM = ["registry.npmjs.org", "registry.yarnpkg.com", "registry.npmmirror.com"];
 const PYPI = ["pypi.org", "files.pythonhosted.org"];
 const tomlName = first(/^name = "([^"]+)"/);
+
+/**
+ * `text` with the backslash escapes of JSON, YAML's double quotes and TOML's basic strings decoded, as the package
+ * manager reads it before it parses a URL; a tab or line break, which a URL parser drops, is dropped.
+ */
+const unescaped = (text: string) => text.replace(/\\(?:x([0-9a-fA-F]{2})|u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8})|([\s\S]))/g, (escape, x, u, U, char: string | undefined) => {
+  const code = parseInt(x ?? u ?? U ?? "", 16);
+  if (char === undefined) return code <= 0x10ffff ? String.fromCodePoint(code).replace(/[\t\n\r]/g, "") : escape;
+  return ({ t: "", n: "", r: "", b: "\b", f: "\f", "0": "\0", a: "\x07", v: "\v", e: "\x1b", N: "\x85", _: "\xa0", L: "\u2028", P: "\u2029" } as Record<string, string>)[char] ?? char;
+});
+/** A string as written and as its escapes decode, either of which a reader may take: a host in either is named. */
+const readings = (text: string) => text.includes("\\") ? [...new Set([text, unescaped(text)])] : [text];
+/** A value's readings: '…' doubles its quotes; "…" may have escapes. Unquoted, as it is. */
+const unquoted = (value: string) => value[0] === "'" ? [value.replace(/^'|'$/g, "").replace(/''/g, "'")] : value[0] === '"' ? readings(value.replace(/^"|"$/g, "")) : [value];
+
+/**
+ * The `"key": value` pairs of a line of JSON, keys decoded, string values as written, and an object or array as `{` or
+ * `[`, in order: a compact lockfile writes an entry, and its URL, on one line. One pass over the line.
+ */
+function jsonPairs(code: string): Array<[key: string, value: string]> {
+  const pairs: Array<[string, string]> = [];
+  // Where the string opened at `at` closes: at the first quote after it that an odd run of backslashes doesn't escape.
+  const string = (at: number) => {
+    for (let end = code.indexOf('"', at + 1); end >= 0; end = code.indexOf('"', end + 1)) {
+      let slashes = 0;
+      while (code[end - 1 - slashes] === "\\") slashes++;
+      if (slashes % 2 === 0) return end;
+    }
+    return code.length;
+  };
+  for (let at = code.indexOf('"'); at >= 0; at = code.indexOf('"', at)) {
+    const keyEnd = string(at);
+    const colon = /^\s*:\s*/.exec(code.slice(keyEnd + 1, keyEnd + 64));
+    if (!colon) { at = keyEnd + 1; continue; }
+    const valueAt = keyEnd + 1 + colon[0].length;
+    const key = unescaped(code.slice(at + 1, keyEnd));
+    if (code[valueAt] === '"') {
+      const valueEnd = string(valueAt);
+      pairs.push([key, code.slice(valueAt + 1, valueEnd)]);
+      at = valueEnd + 1;
+    } else {
+      if (code[valueAt] === "{" || code[valueAt] === "[") pairs.push([key, code[valueAt]]);
+      at = valueAt;
+    }
+  }
+  return pairs;
+}
+// A line without the key, written plainly or escaped, has no such pair, and isn't read for one.
+const jsonValues = (key: string) => (code: string) =>
+  code.includes(key) || code.includes("\\") ? jsonPairs(code).filter((pair) => pair[0] === key).flatMap((pair) => readings(pair[1])) : [];
+
 const FORMATS: Record<string, Format> = {
-  npm: { name: first(/^\s*"((?:[^"]*\/)?node_modules\/(?:@[^/"]+\/)?[^/"]+)"\s*:\s*\{/), url: first(/^\s*"resolved"\s*:\s*"([^"]+)"/), registries: NPM },
+  npm: { name: first(/^\s*"((?:[^"]*\/)?node_modules\/(?:@[^/"]+\/)?[^/"]+)"\s*:\s*\{/), url: jsonValues("resolved"), registries: NPM },
   yarn: {
     name: (code) => /^[^\s#].*:\s*$/.test(code) && !code.startsWith("__metadata") ? nameOf(code.split(",")[0].trim().replace(/:$/, "")) : null,
-    // v1's `resolved "<url>"`, or Yarn 2+'s `resolution: "name@<url>"`, whose npm: and patch: values place nowhere.
-    url: (code) => code.match(/^\s+resolved\s+"?([^"\s]+)"?/)?.[1] ?? code.match(/^\s+resolution:\s+"?(?:@[^/@"\s]+\/)?[^@"\s]+@([^"\s]+)"?/)?.[1] ?? null,
+    // v1's `resolved "<url>"`, whose quotes it reads as JSON's, or Yarn 2+'s `resolution: "name@<url>"`, whose npm:
+    // and patch: values place nowhere.
+    url: (code) => {
+      const resolved = code.match(/^\s+resolved\s+("(?:[^"\\]|\\.)*"?|[^"\s]+)/)?.[1];
+      if (resolved) return unquoted(resolved);
+      const resolution = code.match(/^\s+resolution:\s+("(?:[^"\\]|\\.)*"?|[^"\s]+)/)?.[1];
+      return resolution ? unquoted(resolution).flatMap((value) => value.match(/^(?:@[^/@"\s]+\/)?[^@"\s]+@([^"\s]+)/)?.[1] ?? []) : [];
+    },
     registries: NPM,
   },
   // "  /name@1.0.0:", "  name@1.0.0:", or "  /name/1.0.0:", under packages (and snapshots).
   pnpm: {
     name: (code) => { const key = code.match(/^ {2}['"]?([^\s'"]+?)['"]?:\s*$/)?.[1]; return key ? nameOf(key.replace(/^\//, "")) ?? key.match(/^\/((?:@[^/]+\/)?[^/]+)\/[^/]+$/)?.[1] ?? null : null; },
-    url: first(/\btarball:\s*['"]?([^'",}\s]+)/),
+    // tarball, its key quoted or not, and its value plain or quoted as YAML quotes.
+    url: (code) => !code.includes("tarball") ? [] : [...code.matchAll(/(?:^|[\s{,])(["']?)tarball\1\s*:\s*("(?:[^"\\]|\\.)*"?|'(?:[^']|'')*'?|[^'",}\s]+)/g)].flatMap((match) => unquoted(match[2])),
     registries: NPM,
   },
   cargo: { name: tomlName, registries: ["index.crates.io", "static.crates.io", "github.com/rust-lang/crates.io-index"] },
@@ -59,18 +117,20 @@ const FORMAT_OF: Record<string, keyof typeof FORMATS> = {
 
 /**
  * A URL's host and path, lowercase: "scheme://[user@]host[:port]/path", or git's "user@host:path". A \ ends the host
- * and separates the path, as npm's, yarn's and uv's URL parsers read it, so "https://evil.test\@registry/" is evil.test's.
+ * and separates the path, as npm's, yarn's and uv's URL parsers read it, so "https://evil.test\@registry/" is evil.test's;
+ * so do ? and #, which end the userinfo too.
  */
 function placeOf(url: string): { host: string; path: string } | null {
-  const m = url.match(/^[a-z][a-z0-9+.-]*:\/\/(?:[^@/\\]+@)?([^/\\:?#]+)(?::\d*)?([^?#]*)/i) ?? url.match(/^[\w.-]+@([a-z0-9.-]+):(?!\/\/)([^?#]*)/i);
+  const m = url.match(/^[a-z][a-z0-9+.-]*:\/\/(?:[^@/\\?#]+@)?([^/\\:?#]+)(?::\d*)?([^?#]*)/i) ?? url.match(/^[\w.-]+@([a-z0-9.-]+):(?!\/\/)([^?#]*)/i);
   return m ? { host: m[1].toLowerCase(), path: m[2].replace(/\\/g, "/").replace(/^\/*/, "/").toLowerCase() } : null;
 }
 
-// Every URL on a line, and git's scp-style "git@host:owner/repo", which isn't one; JSON may write / as \/. A scan
-// starts only where a run of a scheme's characters does, or a long run like "a.a.a…" is scanned again from each "a",
-// and the URL is from the run's first letter, so "-https://" still holds one.
+// Every URL on a line, and git's scp-style "git@host:owner/repo", which isn't one. A scan starts only where a run of a
+// scheme's characters does, or a long run like "a.a.a…" is scanned again from each "a", and the URL is from the run's
+// first letter, so "-https://" still holds one. The line is read as written and with its escapes decoded (JSON writes
+// / as \/, and any character as \u…), as which applies depends on its quotes.
 const URLS = /(?<![a-z0-9+.-])[0-9+.-]*([a-z][a-z0-9+.-]*:\/\/[^\s"'<>()[\]{},]+)|(?<![^\s"'=([,])[\w.-]+@[a-z0-9.-]+:(?!\/\/)[\w~./-][^\s"'<>()[\]{},]*/gi;
-const urlsIn = (code: string) => [...code.replace(/\\\//g, "/").matchAll(URLS)].map((match) => match[1] ?? match[0]);
+const urlsIn = (code: string) => readings(code).flatMap((text) => [...text.matchAll(URLS)].map((match) => match[1] ?? match[0]));
 
 // A registry given by its path is at it only by a path without . or .. segments, which could climb out of it.
 const atRegistry = ({ host, path }: { host: string; path: string }, registries: string[]) =>
@@ -89,12 +149,13 @@ export function lockfileDigest(path: string, diff: string): LockfileDigest | nul
     const code = row.text.slice(1);
     const name = format.name?.(code);
     if (name && row.kind !== " ") (row.kind === "+" ? added : removed).add(name);
-    let urls: string[];
-    if (format.url) urls = [format.url(code) ?? ""];
+    let urls: string[] = [];
+    if (format.url) urls = format.url(code);
     else if (format.urlIn) {
-      inside = code.match(/^\s*"([^"]+)"\s*:\s*[{[]/)?.[1] ?? inside;
-      const url = code.match(/^\s*"url"\s*:\s*"([^"]*)"/)?.[1];
-      urls = url && (inside === null || format.urlIn.includes(inside)) ? urlsIn(url) : [];
+      for (const [key, value] of /[{[\\]|url/.test(code) ? jsonPairs(code) : []) {
+        if (value === "{" || value === "[") inside = key;
+        else if (key === "url" && (inside === null || format.urlIn.includes(inside))) urls.push(...urlsIn(value));
+      }
     } else urls = urlsIn(code);
     for (const url of urls) {
       const place = placeOf(url);

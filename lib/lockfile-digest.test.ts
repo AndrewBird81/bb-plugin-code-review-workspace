@@ -190,3 +190,53 @@ test("a host written before \\@, or a registry path that climbs out with .., is 
   expect(lockfileDigest("package-lock.json", diff(['+      "resolved": "https://token@registry.npmjs.org/x/-/x-1.0.0.tgz",']))).toBeNull();
   expect(lockfileDigest("Cargo.lock", diff(['+source = "registry+https://github.com/rust-lang/crates.io-index"']))).toBeNull();
 });
+
+// The digest read a URL as written, where the package manager reads it decoded (JSON's \/ and \u0040, YAML's and
+// TOML's escapes, a tab its URL parser drops); a resolved or url had to start its line; a tarball key couldn't be
+// quoted; and a ? or # before an @ left the host after it for userinfo (bug bash FUZ-2, SEC-5).
+test("an added entry names the host its package manager reads once its escapes are decoded", () => {
+  const registry = '-      "resolved": "https://registry.npmjs.org/tiny/-/tiny-1.0.0.tgz",';
+  for (const url of ['"https:\\/\\/evil.test\\/tiny-1.0.0.tgz"', '"https://registry.npmjs.org\\u0040evil.test/tiny-1.0.0.tgz"', '"https://registry.npmjs.org\\t@evil.test/tiny-1.0.0.tgz"']) {
+    expect(new URL(JSON.parse(url)).hostname).toBe("evil.test");
+    expect(lockfileDigest("package-lock.json", diff([registry, `+      "resolved": ${url},`]))?.hosts, url).toEqual(["evil.test"]);
+  }
+  expect(lockfileDigest("yarn.lock", diff([
+    '-  resolved "https://registry.yarnpkg.com/tiny/-/tiny-1.0.0.tgz#abc"',
+    '+  resolved "https:\\/\\/evil.test\\/tiny-1.0.0.tgz#abc"',
+  ]))?.hosts).toEqual(["evil.test"]);
+  expect(lockfileDigest("yarn.lock", diff(['+  resolution: "tiny@https://registry.yarnpkg.com\\u0040evil.test/tiny-1.0.0.tgz"']))?.hosts).toEqual(["evil.test"]);
+  expect(lockfileDigest("composer.lock", diff([
+    '             "dist": {',
+    '-                "url": "https://api.github.com/repos/acme/tool/zipball/abc",',
+    '+                "url": "https://github.com\\u0040evil.test/acme/tool.zip",',
+  ]))?.hosts).toEqual(["evil.test"]);
+  expect(lockfileDigest("pnpm-lock.yaml", diff(['+    resolution: {integrity: sha512-x, tarball: "https://registry.npmjs.org\\x40evil.test/tiny.tgz"}']))?.hosts).toEqual(["evil.test"]);
+  // Which of a TOML line's strings escape isn't known from the line, so it's read as written too: either host is named.
+  expect(lockfileDigest("Cargo.lock", diff(['+source = "registry+https://github.com\\u0040evil.test/rust-lang/crates.io-index"']))?.hosts).toContain("evil.test");
+  expect(lockfileDigest("uv.lock", diff(['+source = { registry = "https://pypi.org\\U00000040evil.test/simple" }']))?.hosts).toContain("evil.test");
+  // A TOML literal string has no escapes: what it says, the host before \u0040, is named too.
+  expect(lockfileDigest("Cargo.lock", diff(["+source = 'registry+https://evil.test\\u0040github.com/rust-lang/crates.io-index'"]))?.hosts).toEqual(["evil.test"]);
+});
+
+test("a compact entry, a quoted tarball key, and a host before ?@ or #@ are named", () => {
+  expect(lockfileDigest("package-lock.json", diff([
+    '+    "node_modules/tiny": { "version": "1.0.0", "resolved": "https://evil.test/tiny-1.0.0.tgz" },',
+  ]))).toEqual({ added: 1, removed: 0, hosts: ["evil.test"] });
+  expect(lockfileDigest("composer.lock", diff([
+    '-            "dist": { "type": "zip", "url": "https://api.github.com/repos/acme/tool/zipball/abc" },',
+    '+            "dist": { "type": "zip", "url": "https://evil.test/tool.zip" },',
+  ]))?.hosts).toEqual(["evil.test"]);
+  // A homepage on the same line as the dist still isn't a download.
+  expect(lockfileDigest("composer.lock", diff(['+            "support": { "url": "https://docs.test/" }, "dist": { "url": "https://api.github.com/x" },']))).toBeNull();
+  for (const key of ['"tarball"', "'tarball'"]) {
+    expect(lockfileDigest("pnpm-lock.yaml", diff([
+      "-    resolution: {integrity: sha512-x, tarball: https://registry.npmjs.org/tiny/-/tiny-1.0.0.tgz}",
+      `+    resolution: {integrity: sha512-x, ${key}: https://evil.test/tiny-1.0.0.tgz}`,
+    ]))?.hosts, key).toEqual(["evil.test"]);
+  }
+  for (const mark of ["?", "#"]) {
+    expect(new URL(`https://evil.test${mark}@registry.npmjs.org/x/-/x-1.0.0.tgz`).host).toBe("evil.test");
+    expect(lockfileDigest("package-lock.json", diff([`+      "resolved": "https://evil.test${mark}@registry.npmjs.org/x/-/x-1.0.0.tgz",`]))?.hosts, mark).toEqual(["evil.test"]);
+    expect(lockfileDigest("Gemfile.lock", diff([`+  remote: https://evil.test${mark}@rubygems.org/`]))?.hosts, mark).toEqual(["evil.test"]);
+  }
+});
