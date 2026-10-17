@@ -816,3 +816,22 @@ test("an auto-start repository Save can't take says which line and why, and hold
   expect(savePreferences.mock.calls[0]![0]).toMatchObject({ preferences: { autoStartRepos: ["acme/app", "acme/*"] } });
   slot.lifecycle.unmount();
 });
+
+test("Settings shows another window's save while it has no edits, and keeps yours when it has", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  let record = { preferences: { ...defaultPreferences }, revision: 1 };
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getPreferences: () => record } });
+  const instructions = await slot.findByRole("textbox", { name: "Guide instructions" }) as HTMLTextAreaElement;
+  record = { preferences: { ...defaultPreferences, guideInstructions: "Saved in another window" }, revision: 2 };
+  await slot.emitRealtime("preferences", {});
+  await waitFor(() => expect(instructions.value).toBe("Saved in another window"));
+  expect(slot.queryByText("Unsaved changes")).toBeNull();
+  fireEvent.change(instructions, { target: { value: "Mine" } });
+  record = { preferences: { ...defaultPreferences, guideInstructions: "Saved again elsewhere" }, revision: 3 };
+  await slot.emitRealtime("preferences", {});
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(instructions.value).toBe("Mine");
+  expect(slot.getByText("Unsaved changes")).toBeTruthy();
+  slot.lifecycle.unmount();
+});

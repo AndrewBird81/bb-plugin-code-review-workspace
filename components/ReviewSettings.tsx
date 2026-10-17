@@ -263,6 +263,12 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
   function show(next: PreferencesRecord) {
     setRecord(next); setBaseline(JSON.stringify(next.preferences)); setNumberText({});
   }
+  // Another window's save shows here while there's nothing to lose; with edits, Save's revision check says so.
+  const editing = useRef(false);
+  useRealtime("preferences", () => {
+    if (editing.current) return;
+    rpc.call("getPreferences", null).then((result) => { if (!editing.current) show({ ...result, preferences: withDefaults(result.preferences) }); }, () => {});
+  });
   // A number being typed goes once its parent is off, so Save doesn't wait on a box you can't fix.
   useEffect(() => { if (record) setNumberText((current) => enabledNumberText(current, record.preferences)); }, [record]);
   // A number still being typed counts, so Discard edits can clear it.
@@ -272,6 +278,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
   const incomplete = [record?.preferences.guideAgent, record?.preferences.assistantAgent].some((agent) => agent && (!agent.providerId || !agent.model))
     || Object.keys(numberText).length > 0 || (record !== null && !validRepoPatterns(record.preferences.autoStartRepos));
   const saveable = dirty && !incomplete && !busy && !updating;
+  editing.current = dirty || busy;
   function setAgent(key: "guideAgent" | "assistantAgent", update: AgentUpdate) {
     setSaved(false);
     // Functional: both pickers can report reconciled values in the same render.
