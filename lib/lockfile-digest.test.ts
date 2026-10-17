@@ -34,6 +34,25 @@ test("yarn.lock: entries by name, a range bump nets zero, and a host already in 
   expect(digest).toEqual({ added: 2, removed: 0, hosts: [] });
 });
 
+// Yarn 2+ writes an entry's source as `resolution: "name@<url>"`, not v1's resolved line, so its hosts went unnamed.
+test("yarn.lock from Yarn 2+: an added entry's resolution URL names its host, and a registry version or patch names none", () => {
+  expect(lockfileDigest("yarn.lock", diff([
+    ' __metadata:',
+    '+"tiny@https://evil.test/tiny-1.0.0.tgz":',
+    '+  version: 1.0.0',
+    '+  resolution: "tiny@https://evil.test/tiny-1.0.0.tgz"',
+    '+"@acme/tool@git@git.evil.test:acme/tool.git":',
+    '+  resolution: "@acme/tool@git@git.evil.test:acme/tool.git#commit=abc"',
+  ]))).toEqual({ added: 2, removed: 0, hosts: ["evil.test", "git.evil.test"] });
+  expect(lockfileDigest("yarn.lock", diff([
+    '+"@babel/core@npm:^7.1.0":',
+    '+  version: 7.1.0',
+    '+  resolution: "@babel/core@npm:7.1.0"',
+    '+"resolve@patch:resolve@npm%3A^1.22.1#~builtin<compat/resolve>":',
+    '+  resolution: "resolve@patch:resolve@npm%3A1.22.1#~builtin<compat/resolve>::version=1.22.1&hash=c3c19d"',
+  ]))).toEqual({ added: 2, removed: 0, hosts: [] });
+});
+
 test("pnpm-lock.yaml: package keys of each version's form, and tarball hosts", () => {
   const digest = lockfileDigest("pnpm-lock.yaml", diff([
     "+  /left-pad@1.3.0:",

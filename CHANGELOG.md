@@ -2,7 +2,7 @@
 
 ## 0.8.1 — 2026-10-16
 
-Fixes only. An agent in one of your threads can no longer start the review's agents on an untrusted author's PR, and the agents a review has replaced can no longer touch another review; the palette's next-review key no longer reloads BB; a guide waiting for its writer's machine says so rather than that it failed; and a lockfile in any format names a new download host. Nothing new to turn on or off, and every switch means what it did. Guided Review still needs **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+, and installs at `^0.8.0`, which updates to 0.8.1.
+Fixes only. An agent in one of your threads can no longer start the review's agents on an untrusted author's PR, and the agents a review has replaced can no longer touch another review; the palette's next-review key no longer reloads BB; a guide waiting for its writer's machine says so rather than that it failed; and a lockfile in any format that holds URLs names a new download host. Nothing new to turn on or off, and every switch means what it did. Guided Review still needs **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+, and installs at `^0.8.0`, which updates to 0.8.1.
 
 ### Agents and trust
 
@@ -10,7 +10,7 @@ Fixes only. An agent in one of your threads can no longer start the review's age
 - `bb review` on a PR from one of your BB threads counts as your click only for an author agents run for on their own. For anyone else, or when GitHub can't say, it builds the guide and leaves the run to your click. With **Run agents on their own for PRs from** set to anyone, GitHub isn't asked.
 - A new PR's guide writer judges its author from the PR it just read, so the first guide of a member's or your own PR is no longer told its author isn't trusted, and reads its linked tickets.
 - The automatic review no longer starts on a PR already merged or closed, where it couldn't add a draft. Such a review is still read from GitHub once, so it archives and knows your earlier review.
-- Lockfile stubs on the agents' pages, and a lockfile's Downloads from chip, name a new download host in every lockfile format, not only npm's, yarn's, and pnpm's, apart from each format's public registries; github.com counts as one for composer and Swift packages. A host written before `\@`, or a registry path that climbs out with `..`, is named too. A lockfile with a very long line no longer holds up the plugin's server for seconds.
+- Lockfile stubs on the agents' pages, and a lockfile's Downloads from chip, name a new download host in every lockfile format but go.sum, which holds no URLs, not only npm's, Yarn 1's, and pnpm's, apart from each format's public registries; github.com counts as one for composer and Swift packages. A host written before `\@`, or a registry path that climbs out with `..`, is named too. A lockfile with a very long line no longer holds up the plugin's server for seconds.
 - The agents' file list says a copied file is "copied from" its source, and quotes a path holding a newline, so a PR's file names can't add rows to it.
 - read_pr_context tells the agents that a local review's instructions are read where its diff starts.
 

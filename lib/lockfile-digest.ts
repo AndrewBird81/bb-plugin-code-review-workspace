@@ -29,7 +29,8 @@ const FORMATS: Record<string, Format> = {
   npm: { name: first(/^\s*"((?:[^"]*\/)?node_modules\/(?:@[^/"]+\/)?[^/"]+)"\s*:\s*\{/), url: first(/^\s*"resolved"\s*:\s*"([^"]+)"/), registries: NPM },
   yarn: {
     name: (code) => /^[^\s#].*:\s*$/.test(code) && !code.startsWith("__metadata") ? nameOf(code.split(",")[0].trim().replace(/:$/, "")) : null,
-    url: first(/^\s+resolved\s+"?([^"\s]+)"?/),
+    // v1's `resolved "<url>"`, or Yarn 2+'s `resolution: "name@<url>"`, whose npm: and patch: values place nowhere.
+    url: (code) => code.match(/^\s+resolved\s+"?([^"\s]+)"?/)?.[1] ?? code.match(/^\s+resolution:\s+"?(?:@[^/@"\s]+\/)?[^@"\s]+@([^"\s]+)"?/)?.[1] ?? null,
     registries: NPM,
   },
   // "  /name@1.0.0:", "  name@1.0.0:", or "  /name/1.0.0:", under packages (and snapshots).
