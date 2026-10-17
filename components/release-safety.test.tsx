@@ -120,3 +120,16 @@ test("a pinned installation says installs from a Git range follow releases, not 
   expect(slot.queryByText(/Marketplace/)).toBeNull();
   slot.lifecycle.unmount();
 });
+
+test("updates that couldn't be resolved say Couldn't, as every error does (bug bash DOC-8)", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { ReviewSettings } = await import("./ReviewSettings");
+  const status = { installedVersion: "0.6.0", automatic: false, updating: false, outcome: "unavailable", latestVersion: null, candidateVersion: null, checkedAt: 1, error: null };
+  const slot = renderSlot({ component: ReviewSettings }, {}, { rpc: {
+    setReviewPresence: () => ({ ok: true }), getPreferences: () => ({ preferences: defaultPreferences, revision: 0 }),
+    getReleaseStatus: () => status,
+    getSetupStatus: () => ({ account: "casey", githubCli: true, agentAvailable: true, projectAvailable: true }),
+  } });
+  await slot.findByText("Couldn’t resolve updates. Check your connection and try again.");
+  slot.lifecycle.unmount();
+});

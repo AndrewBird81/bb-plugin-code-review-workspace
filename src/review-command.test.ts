@@ -283,6 +283,13 @@ test("a PR number in a checkout whose owner holds _, as an Enterprise Managed Us
   expect(store.getReview(targetKey({ kind: "pr", number: 7, repo: "jdoe_acme/web" }))).toMatchObject({ repo: "jdoe_acme/web", number: 7 });
 });
 
+test("gh output that isn't JSON says it couldn't parse it, and starts nothing (bug bash DOC-8)", async () => {
+  const { bb, store } = host();
+  vi.mocked(gh.runGh).mockResolvedValueOnce({ stdout: "not json", stderr: "", code: 0 });
+  expect(await runReviewCommand({ bb, store, gh }, ["7"], { projectId: "p1", cwd: process.cwd() })).toEqual({ exitCode: 1, stderr: "Unexpected gh output (couldn't parse JSON)." });
+  expect(store.listReviews()).toEqual([]);
+});
+
 test("bb review records the thread it ran in as the review's source thread, never this plugin's own agent", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
   await plugin(bb);

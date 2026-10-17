@@ -135,6 +135,13 @@ test("submission refuses draft comments the reviewer's page hasn't shown", async
   expect(await submit("pr-test", undefined, undefined, ...page())).toEqual({ ok: true });
 });
 
+test("a blank draft comment holds the submission, and says it can't be blank (bug bash DOC-8)", async () => {
+  const { store, run, submit, page } = setup();
+  store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "RIGHT", body: " " });
+  expect(await submit("pr-test", undefined, undefined, ...page())).toEqual({ ok: false, error: "Draft comments can't be blank." });
+  expect(run).not.toHaveBeenCalled();
+});
+
 test("local refs never submit to GitHub", async () => {
   const { store, run, submit, page } = setup();
   store.saveReview({ targetKey: "local", kind: "ref", gitRef: "HEAD", status: "ready", createdAt: 1 });

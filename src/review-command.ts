@@ -98,7 +98,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
       try {
         repo = JSON.parse(r.stdout).nameWithOwner as string;
       } catch {
-        return { exitCode: 1, stderr: "Unexpected gh output (could not parse JSON)." };
+        return { exitCode: 1, stderr: "Unexpected gh output (couldn't parse JSON)." };
       }
     }
     if (!repo || !/^[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return { exitCode: 1, stderr: "Couldn't resolve the GitHub repository." };
