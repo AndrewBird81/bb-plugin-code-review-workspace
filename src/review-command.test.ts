@@ -171,6 +171,16 @@ test("owner/repo#n reviews the PR from a thread on any machine, and from a check
   }
 });
 
+test("a target of only spaces gets the usage, and one with a leading space is checked as given trimmed (bug bash CLI-7)", async () => {
+  const { bb, store } = host();
+  vi.mocked(gh.runGit).mockClear();
+  expect(await runReviewCommand({ bb, store, gh }, [" "], { projectId: "p1", cwd: process.cwd() })).toMatchObject({ exitCode: 2, stderr: expect.stringContaining("usage: bb review") });
+  expect(await runReviewCommand({ bb, store, gh }, [" ", "main"], { projectId: "p1", cwd: process.cwd() })).toEqual({ exitCode: 2, stderr: "Unexpected argument: main" });
+  expect(await runReviewCommand({ bb, store, gh }, [" -p"], { projectId: "p1", cwd: process.cwd() })).toEqual({ exitCode: 2, stderr: "Unexpected argument:  -p" });
+  expect(store.listReviews()).toEqual([]);
+  expect(gh.runGit).not.toHaveBeenCalled();
+});
+
 test("a PR number in a checkout whose owner holds _, as an Enterprise Managed User's does, reviews that repository's PR", async () => {
   const { bb, store } = host();
   vi.mocked(gh.runGh).mockResolvedValueOnce({ stdout: JSON.stringify({ nameWithOwner: "jdoe_acme/web" }), stderr: "", code: 0 });

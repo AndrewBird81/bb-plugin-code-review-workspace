@@ -57,9 +57,9 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
       if (context !== undefined || i + 1 >= argv.length) return { exitCode: 2, stderr: "--context requires text, given once. Pass '' to remove a review's context." };
       context = argv[++i];
       if (context.length > CONTEXT_LIMIT) return { exitCode: 2, stderr: "--context is limited to 12,000 characters." };
-    } else if (value.startsWith("-") || input) {
+    } else if (value.trim().startsWith("-") || input !== undefined) {
       return { exitCode: 2, stderr: `Unexpected argument: ${value}` };
-    } else input = value;
+    } else input = value.trim();
   }
   if (!input) return { exitCode: 2, stderr: USAGE };
   if (!ctx.projectId) return { exitCode: 2, stderr: "Run `bb review` inside a project thread." };
