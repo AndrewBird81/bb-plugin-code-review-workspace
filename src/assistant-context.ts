@@ -1,5 +1,6 @@
 import type { AgentMessageContext } from "./store";
 import { patchRows, splitPatchByFile } from "./patch";
+import { codeFence } from "./untrusted";
 
 const MAX_QUOTE = 40_000;
 
@@ -45,10 +46,10 @@ export function contextQuote(context: AgentMessageContext, patch: string): strin
   if (!context.file) return "";
   const range = context.startLine == null ? ""
     : context.endLine != null && context.endLine !== context.startLine ? ` lines ${context.startLine}-${context.endLine}` : ` line ${context.startLine}`;
-  if (context.code?.trim()) return `In \`${context.file}\`${range}:\n\`\`\`\n${context.code}\n\`\`\``;
+  if (context.code?.trim()) return `In \`${context.file}\`${range}:\n${codeFence(context.code, "")}`;
   if (context.startLine != null) {
     const lines = extractSelectedLines(patch, context.file, context.startLine, context.endLine ?? context.startLine, context.side).slice(0, MAX_QUOTE);
-    if (lines.trim()) return `In \`${context.file}\`${range}:\n\`\`\`diff\n${lines}\n\`\`\``;
+    if (lines.trim()) return `In \`${context.file}\`${range}:\n${codeFence(lines, "diff")}`;
   }
   return `About \`${context.file}\`${range}.`;
 }

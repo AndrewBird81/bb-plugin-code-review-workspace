@@ -8,6 +8,7 @@ import { messageAssistant } from "./agent";
 import { assistantReview, describeComments, unchangeable } from "./draft-comments";
 import { describeSummary } from "./draft-summary";
 import { askAt, setAsk } from "./asks";
+import { codeFence } from "./untrusted";
 
 const MAX_HISTORY = 20_000;
 
@@ -49,7 +50,7 @@ export function discussionMessage(store: Store, targetKey: string, input: AskInp
       ? "If they ask you to change or drop the draft comment there, do it with edit_draft_comment or delete_draft_comment."
       : "If they ask for a draft comment there, add it with add_draft_comment."} Keep your reply in this chat to one short line.`,
     comment ? `The draft comment there, ${comment.author === "agent" ? "added by an agent" : "written by the reviewer"}:\n${postedBody(comment)}` : "There is no draft comment there.",
-    code ? `The lines:\n\`\`\`diff\n${code}\n\`\`\`` : "",
+    code ? `The lines:\n${codeFence(code, "diff")}` : "",
     history ? `Earlier in this discussion:\n${history}` : "",
   ].filter(Boolean).join("\n\n");
   return { text: `On \`${at.file}:${lines}\`: ${input.body}`, context };
