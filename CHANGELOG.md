@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.8.1 — 2026-10-16
+
+Fixes only. An agent in one of your threads can no longer start the review's agents on an untrusted author's PR, and the agents a review has replaced can no longer touch another review; the palette's next-review key no longer reloads BB; a guide waiting for its writer's machine says so rather than that it failed; and a lockfile in any format names a new download host. Nothing new to turn on or off, and every switch means what it did. Guided Review still needs **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+, and installs at `^0.8.0`, which updates to 0.8.1.
+
+### Agents and trust
+
+- An assistant that New conversation replaced or found archived, an earlier guide writer (one a reload interrupted, or replaced while it started, included), and the agent thread a chat replaced are kept to their own review in `bb review`, `bb review comment`, and `bb review summary`, and can't list reviews; the Suggest instruction changes worker can't use them on any review. Before, each could write any review's draft and start a review that counted as your click.
+- `bb review` on a PR from one of your BB threads counts as your click only for an author agents run for on their own. For anyone else, or when GitHub can't say, it builds the guide and leaves the run to your click. With **Run agents on their own for PRs from** set to anyone, GitHub isn't asked.
+- A new PR's guide writer judges its author from the PR it just read, so the first guide of a member's or your own PR is no longer told its author isn't trusted, and reads its linked tickets.
+- The automatic review no longer starts on a PR already merged or closed, where it couldn't add a draft. Such a review is still read from GitHub once, so it archives and knows your earlier review.
+- Lockfile stubs on the agents' pages, and a lockfile's Downloads from chip, name a new download host in every lockfile format, not only npm's, yarn's, and pnpm's, apart from each format's public registries; github.com counts as one for composer and Swift packages. A host written before `\@`, or a registry path that climbs out with `..`, is named too. A lockfile with a very long line no longer holds up the plugin's server for seconds.
+- The agents' file list says a copied file is "copied from" its source, and quotes a path holding a newline, so a PR's file names can't add rows to it.
+- read_pr_context tells the agents that a local review's instructions are read where its diff starts.
+
+### Fixes
+
+- **Next review that needs me** defaults to ⌘⇧U (Ctrl+Shift+U), since BB force-reloads on ⌘⇧R, and on the web takes it from the browser's hard reload. A key you set in BB stays yours.
+- **Review PR from clipboard** names the PR it started ("Started a review of acme/web#7: Fix cache keys"), with **Open**, rather than opening it unasked.
+- A comment edited after you sent it to a thread no longer says "Sent to ‹thread›", and one sent under a minute ago says "· 1m" from 45 seconds, not "· 0m".
+- **Open in editor** shows only on a local review whose diff ends at the checkout (a ref, or a range ending at `HEAD`), so it no longer opens a file from another version.
+- A failed guide update says why under its notice, in up to 3 lines.
+- A guide waiting for its writer's machine to reconnect says so on its page, in its update notice, and in its status line, with Try again, rather than that it failed; once its 10 minutes are up, it reads as failed at once.
+- `r` on a GitHub thread opens its reply box even when its card in the code shows after the key, as when `]` turns GitHub threads in code back on.
+- **Suggest change** fences its lines with more backticks than they hold, and a Suggested change opened with four or more backticks shows in its box, a fence among its lines included.
+- The Comments chips' focus ring shows whole, and the Overview's chapter summaries keep to 2 lines.
+- Finish review's "Read 6 of 8 files" counts only a local review's reads of its current diff.
+- Refreshing your threads from a review tells your other open review pages only when they changed.
+- All reviews says "Couldn't", not "Could not", when bb can't name a project to start a review in.
+
+### Installing
+
+- Install and update at `^0.8.0`. No new settings, and nothing stored that 0.8.0 or 0.7.0 can't read.
+- After a rollback to 0.8.0, a replaced review agent is an ordinary thread to `bb review` again, a comment edited since you sent it says it was sent, and ⌘⇧R is the default again.
+
 ## 0.8.0 — 2026-10-16
 
 Comments go back to the thread that made the change, the agent says which problems the PR didn't introduce and what it didn't read, and comments can be triaged from the keyboard. Agents read the repo's rules from the PR's base, never its head, and are held to their own review; the keyboard, screen readers, and a busy or flaky connection work better throughout. Every new feature has a switch that starts on, 16 in all, and turning one off puts back what 0.7.0 did. Guided Review still needs **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+, and installs at `^0.8.0`. Rolling back to 0.7.0 keeps your reviews, drafts, and settings, these switches included, which come back with the next update; a custom agent at a reasoning level 0.7.0 doesn't know reverts to Project defaults if 0.7.0 saves settings.
