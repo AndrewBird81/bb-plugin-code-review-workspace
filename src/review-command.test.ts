@@ -160,6 +160,17 @@ test("a checkout whose GitHub repository gh can't name says Couldn't, and starts
   expect(store.listReviews()).toEqual([]);
 });
 
+test("owner/repo#n reviews the PR from a thread on any machine, and from a checkout isn't handed to git diff (bug bash CLI-5)", async () => {
+  for (const cwd of [undefined, process.cwd()]) {
+    const { bb, store } = host();
+    vi.mocked(gh.runGit).mockClear();
+    expect(await runReviewCommand({ bb, store, gh }, ["acme/web#7"], { projectId: "p1", threadId: "coder", ...(cwd ? { cwd } : {}) }))
+      .toMatchObject({ exitCode: 0, stdout: expect.stringContaining(`Guided Review started for ${key}.`) });
+    expect(store.getReview(key)).toMatchObject({ kind: "pr", repo: "acme/web", number: 7 });
+    expect(gh.runGit).not.toHaveBeenCalled();
+  }
+});
+
 test("a PR number in a checkout whose owner holds _, as an Enterprise Managed User's does, reviews that repository's PR", async () => {
   const { bb, store } = host();
   vi.mocked(gh.runGh).mockResolvedValueOnce({ stdout: JSON.stringify({ nameWithOwner: "jdoe_acme/web" }), stderr: "", code: 0 });

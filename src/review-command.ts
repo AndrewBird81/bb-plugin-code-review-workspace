@@ -24,7 +24,7 @@ interface Ctx { projectId?: string; threadId?: string; cwd?: string }
 
 /** The usage, with `bb review list` while Help agents in your threads use bb review is on. */
 const usage = (list: boolean) => [
-  "usage: bb review <pr-url | pr-number | git-ref> [--base <ref>] [--context <text>]",
+  "usage: bb review <pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>] [--context <text>]",
   "       bb review comment <list | add | edit | delete> …   (see bb review comment --help)",
   "       bb review summary <review> [--body <text>] …        (see bb review summary --help)",
   ...list ? ["       bb review list [--json]                             (see bb review list --help)"] : [],

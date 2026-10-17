@@ -22,7 +22,7 @@ export function recordPrState(store: Store, targetKey: string, state: string | u
 
 // Panel-driven counterpart to review-command.ts's PR branch: a user pastes a
 // full GitHub PR URL into the panel instead of running `bb review` in a
-// terminal. Only full PR URLs are accepted here — a bare PR number or local
+// terminal. Only a PR's URL or owner/repo#n is accepted here — a bare PR number or local
 // git ref needs a project-scoped cwd/branch that the nav panel doesn't have,
 // so those still route through the CLI.
 export async function createPrReview(

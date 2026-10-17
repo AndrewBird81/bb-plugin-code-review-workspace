@@ -1269,7 +1269,7 @@ export default async function plugin(bb: BbPluginApi) {
     summary: "Open a Guided Review of a GitHub PR or local git ref, or change its local draft",
     rendersHelp: true,
     commands: [
-      { name: "review", summary: "Review a PR or ref", usage: "bb review <pr-url | pr-number | git-ref> [--base <ref>] [--context <text>]" },
+      { name: "review", summary: "Review a PR or ref", usage: "bb review <pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>] [--context <text>]" },
       { name: "comment", summary: "List, add, edit, or delete a review's local draft comments; never posts to GitHub", usage: "bb review comment <list | add | edit | delete> <review> [<file>:<line>] [--side LEFT|RIGHT] [--code <text>] [--body <text>] [--severity <severity>] [--pre-existing] [--json]" },
       { name: "summary", summary: "Show or write a review's local review summary and suggested verdict; never posts to GitHub", usage: "bb review summary <review> [--json] | [--body <text> [--suggest APPROVE|COMMENT|REQUEST_CHANGES]]" },
       { name: "list", summary: "List your reviews, in Needs review's order, with whose turn it is", usage: "bb review list [--json]" },

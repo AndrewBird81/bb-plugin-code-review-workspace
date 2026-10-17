@@ -7,6 +7,11 @@ test("parses a PR url", () => {
   });
 });
 
+test("parses owner/repo#n, as the panel takes it", () => {
+  expect(parseTarget("Acme/Web#7")).toEqual({ kind: "pr", number: 7, repo: "acme/web" });
+  expect(parseTarget("acme/web#0").kind).toBe("ref");
+});
+
 test("parses a bare PR number", () => {
   expect(parseTarget("1234")).toEqual({ kind: "pr", number: 1234 });
 });
