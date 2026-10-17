@@ -30,3 +30,20 @@ test("reviews leave the server with their place in a stack, in the list and alon
   expect(review.stack).toMatchObject({ index: 0, children: [{ number: 2, targetKey: "pr-2", status: "tracked" }] });
   expect(review.stack.members).toHaveLength(2);
 });
+
+test("bb review list keeps a stack's reviews together, bottom first, where its first one is, as All reviews does", async () => {
+  const { runListCommand } = await import("./list-command");
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", base: "main", head: "feat-a", status: "ready", createdAt: 1 });
+  store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, repo: "acme/web", base: "main", head: "other", status: "ready", createdAt: 2 });
+  store.saveReview({ targetKey: "pr-3", kind: "pr", number: 3, repo: "acme/web", base: "feat-a", head: "feat-b", status: "ready", createdAt: 3 });
+  const { reviews } = await harness.behavior.callRpc("listReviews", null) as any;
+  const keys = (stdout: string) => (JSON.parse(stdout) as { reviews: { key: string }[] }).reviews.map((review) => review.key);
+  const listed = keys(runListCommand(reviews, ["--json"]).stdout!);
+  // Wherever the section puts the stack's first review, its bottom comes right before its top.
+  expect(listed).toHaveLength(3);
+  expect(listed.indexOf("pr-3") - listed.indexOf("pr-1")).toBe(1);
+  expect(runListCommand(reviews, []).stdout!.split("\n").map((line) => line.split(" ")[0])).toEqual(listed);
+});

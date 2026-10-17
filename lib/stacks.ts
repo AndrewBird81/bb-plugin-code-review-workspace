@@ -76,3 +76,17 @@ export function findStacks(reviews: StackInput[]): Map<string, StackPlace> {
   }
   return places;
 }
+
+/** The rows in order, with each stack's rows together where its first one was, bottom first. */
+export function withStacks<T extends { targetKey: string; stack?: { members: { targetKey: string | null }[] } | null }>(rows: T[]): T[][] {
+  const placed = new Set<string>();
+  const groups: T[][] = [];
+  for (const row of rows) {
+    if (placed.has(row.targetKey)) continue;
+    const order = row.stack?.members.map((member) => member.targetKey) ?? [];
+    const group = row.stack ? rows.filter((r) => order.includes(r.targetKey)).sort((a, b) => order.indexOf(a.targetKey) - order.indexOf(b.targetKey)) : [row];
+    for (const r of group) placed.add(r.targetKey);
+    groups.push(group);
+  }
+  return groups;
+}

@@ -7,6 +7,7 @@ import { forgetReviews } from "../../lib/panel-state";
 import { parsePrLink } from "../../lib/pr-link";
 import { needsGroup, needsOrder, reviewState, type NeedsGroup, type ReviewItem } from "../../lib/review-state";
 import { useKnob } from "../../lib/settings";
+import { withStacks } from "../../lib/stacks";
 import { lastActivity } from "../../lib/status-line";
 import { TITLE_BAR_WAIT_MS } from "../../lib/title-bar";
 import type { TurnGroup } from "../../lib/turn";
@@ -68,20 +69,6 @@ function savedSections(): Collapsed {
 function matchesFilter(review: ReviewItem, query: string): boolean {
   const text = [review.title, review.repo, review.gitRef, review.author && `@${review.author}`, review.number && `#${review.number}`].filter(Boolean).join(" ").toLowerCase();
   return query.toLowerCase().split(/\s+/).filter(Boolean).every((word) => text.includes(word));
-}
-
-/** The rows in order, with each stack's rows together where its first one was, bottom first. */
-function withStacks(rows: ReviewItem[]): ReviewItem[][] {
-  const placed = new Set<string>();
-  const groups: ReviewItem[][] = [];
-  for (const row of rows) {
-    if (placed.has(row.targetKey)) continue;
-    const order = row.stack?.members.map((member) => member.targetKey) ?? [];
-    const group = row.stack ? rows.filter((r) => order.includes(r.targetKey)).sort((a, b) => order.indexOf(a.targetKey) - order.indexOf(b.targetKey)) : [row];
-    for (const r of group) placed.add(r.targetKey);
-    groups.push(group);
-  }
-  return groups;
 }
 
 /** Why GitHub can't be read now, and when it last was. Null when reading is fine. */

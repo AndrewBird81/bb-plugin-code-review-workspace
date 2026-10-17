@@ -1,5 +1,6 @@
 import { lastActivity } from "../lib/status-line";
 import { GUIDE_STOPPED, needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
+import { withStacks } from "../lib/stacks";
 import type { TurnGroup } from "../lib/turn";
 
 export const LIST_USAGE = [
@@ -29,7 +30,8 @@ export function runListCommand(reviews: ReviewItem[], argv: string[]): CliResult
   for (const review of reviews) groups[reviewState(review).group].push(review);
   groups.needs.sort(needsOrder);
   for (const group of ["waiting", "reviewed", "archive"] as const) groups[group].sort((a, b) => (lastActivity(b) ?? 0) - (lastActivity(a) ?? 0));
-  const rows = (Object.keys(groups) as TurnGroup[]).flatMap((group) => groups[group].map((review) => ({
+  // Each stack's reviews together, bottom first, where its first one is in the section.
+  const rows = (Object.keys(groups) as TurnGroup[]).flatMap((group) => withStacks(groups[group]).flat().map((review) => ({
     key: review.targetKey,
     title: review.title ?? review.gitRef ?? review.targetKey,
     whoseTurn: SECTION[group],
