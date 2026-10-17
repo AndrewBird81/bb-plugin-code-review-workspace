@@ -324,6 +324,23 @@ test("a newer request that wakes a timed snooze early alerts once, not again whe
   expect(s.published).toHaveLength(2);
 });
 
+// GitHub reads your last 30 reviews, and each thread reply is one (bug bash SRV-3).
+test("once your replies push your last real review out of GitHub's last 30, your threads are still read", async () => {
+  // You requested changes, and your thread is open.
+  const s = setup({ reviewed: true, threads: [thread("t1", "open")] });
+  await s.sync.all();
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "waiting" });
+  // Each reply you post on a thread is a COMMENTED review of its own; after 30 of them `reviews(last:30,author:$viewer)`
+  // holds only replies, which aren't real reviews, so the facts list none of yours.
+  s.pr({ myReviews: [], updatedAt: 2 });
+  // Then the author asks you something on your thread.
+  s.threads([thread("t1", "question", T0 + 0.1 * HOUR)]);
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.github.threads).toHaveBeenCalledTimes(2);
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs", reason: "question" });
+});
+
 test("feedback handled: every thread resolved or answered alerts once the author has been quiet", async () => {
   const s = setup({ reviewed: true, threads: [thread("t1", "open"), thread("t2", "open")] });
   await s.sync.all();

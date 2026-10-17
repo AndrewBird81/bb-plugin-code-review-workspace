@@ -232,6 +232,24 @@ test("submitting records the review's GitHub id, and the sync recognizes it", as
   expect(factsUpdate(meta, { ...base, myReviews: mine.slice(0, 1) }, "me", 20_000, 20_000)).not.toHaveProperty("submittedVerdict");
 });
 
+// GitHub reads your last 30 reviews, and each thread reply is one: past 30 replies, none is a real review (bug bash SRV-3).
+test("a read whose last 30 reviews of yours hold no real review keeps your last review, unless another account reads", async () => {
+  const { factsUpdate } = await import("./turn-signals");
+  const meta = {
+    targetKey: "pr-1", kind: "pr" as const, status: "ready" as const, createdAt: 1, reviewer: "me", submittedVerdict: "REQUEST_CHANGES" as const, submittedAt: 1_000, submittedHeadSha: "sha1",
+    signals: { lastReviewAt: 1_000, lastReviewSha: "sha1", rounds: [{ state: "CHANGES_REQUESTED" as const, at: 1_000, sha: "sha1" }] },
+    reviewBodies: [{ state: "CHANGES_REQUESTED", at: 1_000, body: "Fix it" }],
+  };
+  const base = { targetKey: "pr-1", repo: "acme/web", number: 1, state: "OPEN" as const, isDraft: false, title: "T", url: "u", author: "alice", baseRefName: "main", headRefName: "h",
+    headSha: "sha2", updatedAt: 1, ci: "pass" as const, otherOpinions: [], requests: [], size: null, requestPending: null, mention: null, commits: ["sha1", "sha2"], myReviews: [] };
+  const update = factsUpdate(meta, base, "me", 20_000, 20_000);
+  expect(update).not.toHaveProperty("submittedVerdict");
+  expect(update.signals).toMatchObject({ lastReviewAt: 1_000, lastReviewSha: "sha1", rounds: meta.signals.rounds, commitsSince: 1 });
+  expect(update.reviewBodies).toEqual(meta.reviewBodies);
+  // Another account's reviews aren't yours.
+  expect(factsUpdate(meta, base, "you", 20_000, 20_000).signals).toMatchObject({ lastReviewAt: null, lastReviewSha: null, rounds: [], commitsSince: null });
+});
+
 test("a check queued behind another message isn't over when the assistant's current turn ends", async () => {
   const { bb, harness, store } = await setup();
   const { makeThreadResponse } = await import("@get-bb/plugin-sdk/testing");

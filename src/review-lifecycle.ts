@@ -2,7 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store, ReviewMeta } from "./store";
 import { isMissingThread } from "./thread-errors";
 import type { runGh } from "./gh";
-import { ciSettled, computeTurn, type Turn, type TurnReason } from "../lib/turn";
+import { baselineOf, ciSettled, computeTurn, type Turn, type TurnReason } from "../lib/turn";
 import { alertBody, factsUpdate, threadSignals, turnOptions } from "./turn-signals";
 import { completionNotifications } from "./completion-notifications";
 import { matchesRepo, reReviewCheckPrompt } from "./preferences";
@@ -227,7 +227,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     }
     store.setLifecycle(key, factsUpdate(before, facts, login, startedAt, clock()));
     const updated = store.getReview(key)!;
-    if (updated.signals?.lastReviewAt) {
+    // Once you've reviewed, here or as GitHub last said, as refreshThreads reads them.
+    if (baselineOf(updated).at) {
       const fetched = store.feedbackFetched(key);
       const active = turnOf(updated).group === "needs" || turnOf(updated).group === "waiting";
       const unresolved = active && store.listFeedbackThreads(key).some((t) => !t.isResolved);

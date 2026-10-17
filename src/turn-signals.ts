@@ -49,18 +49,22 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
   const request = facts.requests.filter((r) => r.via === "user").at(-1) ?? facts.requests.at(-1)
     ?? (facts.requestPending && s.requestedAt ? { at: s.requestedAt, by: s.requestedBy ?? null, via: s.requestedVia ?? facts.requestPending.via } : undefined);
   const others = facts.otherOpinions;
-  const reviewedAt = own?.sha ? facts.commits.lastIndexOf(own.sha) : -1;
+  // GitHub reads your last 30 reviews, and each thread reply is one, so past 30 replies none may be a real review.
+  // Your reviews don't go away: the last one this account read stands.
+  const kept = !own && (!previous.reviewer || previous.reviewer === viewer) && s.lastReviewAt != null;
+  const lastSha = own ? own.sha : kept ? s.lastReviewSha ?? null : null;
+  const reviewedAt = lastSha ? facts.commits.lastIndexOf(lastSha) : -1;
   // When the timeline no longer says when GitHub dismissed your review, the first read that saw it stands in.
   const dismissedAt = facts.myReviews.filter((r) => r.state === "DISMISSED").at(-1)?.dismissedAt;
-  const dismissed = own?.verdict === null ? (dismissedAt ?? s.dismissedAt ?? (previous.submittedVerdict ? now : own.at)) : null;
+  const dismissed = own?.verdict === null ? (dismissedAt ?? s.dismissedAt ?? (previous.submittedVerdict ? now : own.at)) : kept ? s.dismissedAt ?? null : null;
   // A new review of yours ends a turn that was holding for you.
   if (own && own.at > (s.lastReviewAt ?? 0) && previous.heldTurn) update.heldTurn = null;
   update.signals = {
     ...s,
     dismissedAt: dismissed,
-    lastReviewAt: own?.at ?? null,
-    lastReviewSha: own?.sha ?? null,
-    rounds: facts.myReviews.slice(-10).map((r) => ({ state: r.state, at: r.submittedAt, sha: r.sha })),
+    lastReviewAt: own ? own.at : kept ? s.lastReviewAt : null,
+    lastReviewSha: lastSha,
+    rounds: kept ? s.rounds ?? [] : facts.myReviews.slice(-10).map((r) => ({ state: r.state, at: r.submittedAt, sha: r.sha })),
     requestedAt: request?.at ?? null,
     requestedBy: request?.by ?? null,
     // What's pending says how you're asked now: a direct request's event can scroll out while a team one's stays.
@@ -75,7 +79,7 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
     commitsSince: reviewedAt >= 0 ? facts.commits.length - 1 - reviewedAt : null,
     author: facts.author,
   };
-  update.reviewBodies = facts.myReviews.filter((r) => r.body.trim()).slice(-3)
+  update.reviewBodies = kept ? previous.reviewBodies ?? [] : facts.myReviews.filter((r) => r.body.trim()).slice(-3)
     .map((r) => ({ state: r.state, at: r.submittedAt, body: r.body.slice(0, 4000) }));
   return update;
 }
