@@ -58,9 +58,10 @@ export function mayRunChecks(review: Trust, preferences: Pick<ReviewPreferences,
 
 /**
  * Why a run didn't start on its own, with `knobs` the current settings. A member's run skipped before the sync read the
- * association was skipped for that.
+ * association was skipped for that. A run that couldn't start says why, as plain text.
  */
 export function notRunReason(review: Pick<ReviewMeta, "author" | "repo" | "authorAssociation" | "foreignHeadOwner" | "skippedRun">, knobs: Pick<Knobs, "unattendedAgents">): string {
+  if (review.skippedRun?.why === "failed") return `Not run automatically: it couldn’t start${review.skippedRun.error ? ` (${review.skippedRun.error.replace(/\.$/, "")})` : ""}`;
   if (review.skippedRun?.why === "settings") {
     return knobs.unattendedAgents ? "Not run automatically: Start agents on their own was off in Settings when this came in" : "Not run automatically: Start agents on their own is off in Settings";
   }

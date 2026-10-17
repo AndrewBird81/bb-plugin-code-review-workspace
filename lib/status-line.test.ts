@@ -98,3 +98,11 @@ test("a run skipped while Start agents on their own was off says whether it stil
   expect(notRun(false)).toBe("Not run automatically: Start agents on their own is off in Settings");
   expect(notRun(true)).toBe("Not run automatically: Start agents on their own was off in Settings when this came in");
 });
+
+// bug bash AGT-5: an automatic review that couldn't start says why, as the text it is.
+test("a run that couldn't start says why", () => {
+  const failed = review(turn("needs", "new"), { kind: "ref", skippedRun: { run: "review", head: null, at: 1, why: "failed", error: "Laptop is <b>offline</b>." } });
+  expect(statusLine(failed, { now }).find((part) => part.kind === "not-run")?.text).toBe("Not run automatically: it couldn’t start (Laptop is <b>offline</b>)");
+  const unsaid = review(turn("needs", "new"), { kind: "ref", skippedRun: { run: "review", head: null, at: 1, why: "failed" } });
+  expect(statusLine(unsaid, { now }).find((part) => part.kind === "not-run")?.text).toBe("Not run automatically: it couldn’t start");
+});

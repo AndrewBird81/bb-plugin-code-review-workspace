@@ -4,6 +4,9 @@ import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
 import { createStore } from "./store";
 import plugin from "../server";
 import { spawnPrompt, toolFailed, toolText } from "./fake-host.test-support";
+import { generateGuide } from "./generate";
+import { skipRun } from "./agent";
+import { defaultPreferences } from "./preferences";
 
 const patch = `diff --git a/a.ts b/a.ts
 --- a/a.ts
@@ -490,4 +493,44 @@ test("a guide writer told why its guide wasn't accepted can fix it, and the guid
   expect(send).toHaveBeenCalledTimes(1);
   expect(store.getReview("pr-1")?.status).toBe("ready");
   expect(store.getReview("pr-1")?.guideError).toBeNull();
+});
+
+// bug bash AGT-5: the review agent in Settings runs on a laptop that's asleep, the guide writer on the project's default
+// machine. The automatic review couldn't start, and only the log said so.
+test("an automatic review that can't start waits for Run review, saying why", async () => {
+  let prompt = "";
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+    threads: {
+      spawn: async (args: { prompt?: string; title: string }) => { if (args.prompt) prompt = args.prompt; return { id: args.title.startsWith("Review agent") ? "assistant" : "writer" }; },
+      wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })),
+      archive: async () => ({}), stop: async () => ({}), get: async () => ({ status: "idle", archivedAt: null, deletedAt: null }),
+      queuedMessages: { list: async () => [] },
+    },
+    hosts: { get: async () => ({ id: "host_laptop", name: "Laptop", status: "disconnected", lifecycle: { phase: "active" } }) },
+  } as any });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.savePreferences({ ...defaultPreferences, assistantAgent: { hostId: "host_laptop", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
+  store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
+  store.savePatch("ref-1", patch);
+  const run = generateGuide(bb, store, "ref-1", "p1", { notify: false });
+  await vi.waitFor(() => expect(prompt).toContain("generationId"));
+  const generationId = prompt.match(/generationId "([^"]+)"/)![1];
+  const guide = { title: "T", intent: "I", sections: [{ id: "c1", title: "A", overview: "O", risk: "low", diffs: [{ file: "a.ts", summary: "S" }] }], unplacedFiles: [] };
+  expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "ref-1", generationId, guide }))).toBeFalsy();
+  await run;
+  expect(store.getReview("ref-1")?.status).toBe("ready");
+  expect(store.getAssistantThread("ref-1")).toBeNull();
+  expect(store.getReview("ref-1")?.skippedRun).toEqual({ run: "review", head: null, at: expect.any(Number), why: "failed", error: "Laptop is offline. Wake it, or choose another machine for the review assistant in Review settings." });
+  expect(harness.inspection.logEntries.map((entry) => entry.message)).toContainEqual(expect.stringContaining("The automatic review of ref-1 didn't start: Error: Laptop is offline."));
+});
+
+test("a run that couldn't start keeps its reason as one line, capped", () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "ready", createdAt: 1, projectId: "p1" });
+  skipRun(bb, store, "ref-1", "review", null, `spawn failed:\n${"x".repeat(300)}`);
+  const { error } = store.getReview("ref-1")!.skippedRun!;
+  expect(error).toHaveLength(200);
+  expect(error).toMatch(/^spawn failed: x+…$/);
 });

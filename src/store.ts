@@ -104,8 +104,11 @@ export interface ReviewLifecycle {
   approvedAt?: number | null;
   /** When the PR's title or description was last edited, as GitHub last said; null for never. */
   prEditedAt?: number | null;
-  /** A run that didn't start on its own because the author isn't trusted, or (why "settings") Start agents on their own is off, for the reviewer to start with one click. */
-  skippedRun?: { run: "guide" | "review" | "check"; head: string | null; at: number; why?: "settings" } | null;
+  /**
+   * A run that didn't start on its own because the author isn't trusted, or (why "settings") Start agents on their own
+   * is off, or (why "failed") it couldn't start, saying `error`, for the reviewer to start with one click.
+   */
+  skippedRun?: { run: "guide" | "review" | "check"; head: string | null; at: number; why?: "settings" | "failed"; error?: string } | null;
   /** Lines added and deleted, and files changed, as GitHub last said. */
   prSize?: { additions: number; deletions: number; files: number } | null;
   /** GitHub can't find the PR, or refuses access, since this time. */
