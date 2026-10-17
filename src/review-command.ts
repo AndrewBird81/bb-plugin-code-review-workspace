@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store } from "./store";
-import { parseTarget, targetKey } from "./targets";
+import { parseTarget, prReviewKey, targetKey } from "./targets";
 import { ensureGitHeaders } from "./patch";
 import { generateGuide, guideWriterUnavailable } from "./generate";
 import { readPrSnapshot } from "./pr-snapshot";
@@ -101,7 +101,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
       }
     }
     if (!repo || !/^[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return { exitCode: 1, stderr: "Couldn't resolve the GitHub repository." };
-    key = targetKey({ ...target, repo });
+    key = prReviewKey(deps.store, { repo, number: target.number });
     if (ownReview !== undefined && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
     meta.targetKey = key;
     let snapshot: Awaited<ReturnType<typeof readPrSnapshot>>;

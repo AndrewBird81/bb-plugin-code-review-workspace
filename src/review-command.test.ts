@@ -16,7 +16,7 @@ vi.mock("./gh", async (orig) => {
 
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "./store";
-import { runReviewCommand } from "./review-command";
+import { NOT_OWN_REVIEW, runReviewCommand } from "./review-command";
 import { defaultPreferences } from "./preferences";
 import * as gh from "./gh";
 import { targetKey } from "./targets";
@@ -190,6 +190,25 @@ test("--base with a range is refused, not ignored (bug bash CLI-8)", async () =>
   }
   expect(store.listReviews()).toEqual([]);
   expect(gh.runGit).not.toHaveBeenCalled();
+});
+
+test("bb review with a renamed repository's PR URL opens the review the sync keeps under the old name, and counts it as its own agent's (bug bash CLI-2)", async () => {
+  // As the sync leaves it: the old name and key, the PR's new URL.
+  const renamed = () => {
+    const { bb, store } = host();
+    store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", url: "https://github.com/Acme/Site/pull/7", status: "ready", createdAt: 1, projectId: "p1", headSha: "abc123" });
+    store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+n\n");
+    store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
+    return { bb, store };
+  };
+  for (const input of ["https://github.com/acme/site/pull/7", "acme/site#7"]) {
+    const { bb, store } = renamed();
+    expect(await runReviewCommand({ bb, store, gh }, [input], { projectId: "p1" }), input).toEqual({ exitCode: 0, stdout: `Guided Review for ${key} is up to date. Open the Guided Review panel to review it.` });
+    expect(store.listReviews().map((review) => review.targetKey)).toEqual([key]);
+  }
+  const { bb, store } = renamed();
+  expect(await runReviewCommand({ bb, store, gh }, ["https://github.com/acme/site/pull/7"], { projectId: "p1", threadId: "assistant-7" }, key)).toMatchObject({ exitCode: 0 });
+  expect(await runReviewCommand({ bb, store, gh }, ["https://github.com/acme/site/pull/8"], { projectId: "p1", threadId: "assistant-7" }, key)).toEqual({ exitCode: 2, stderr: NOT_OWN_REVIEW });
 });
 
 test("a PR number in a checkout whose owner holds _, as an Enterprise Managed User's does, reviews that repository's PR", async () => {

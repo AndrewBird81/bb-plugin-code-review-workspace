@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { parsePrLink } from "../lib/pr-link";
+import type { Store } from "./store";
 
 export type ReviewTarget =
   | { kind: "pr"; number: number; repo?: string }
@@ -23,4 +24,15 @@ export function targetKey(t: ReviewTarget, scope?: { projectId: string; cwd: str
     .digest("hex")
     .slice(0, 12);
   return `ref-${hash}`;
+}
+
+/**
+ * The key of the saved review of a PR: its own, else, for a renamed or transferred repository, the one the sync keeps
+ * under the old name with the PR's new link. The PR's own key when neither is saved.
+ */
+export function prReviewKey(store: Pick<Store, "getReview" | "listReviews">, pr: { repo: string; number: number }): string {
+  const key = targetKey({ kind: "pr", ...pr });
+  if (store.getReview(key)) return key;
+  const url = `https://github.com/${pr.repo.toLowerCase()}/pull/${pr.number}`;
+  return store.listReviews().find((review) => review.kind === "pr" && review.url && parsePrLink(review.url)?.url === url)?.targetKey ?? key;
 }

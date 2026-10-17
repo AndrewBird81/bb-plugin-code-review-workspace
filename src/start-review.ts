@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { ReviewMeta, Store } from "./store";
-import { parseTarget, targetKey } from "./targets";
+import { parseTarget, prReviewKey } from "./targets";
 import { ensureGitHeaders } from "./patch";
 import { generateGuide, guideWriterUnavailable } from "./generate";
 import { readPrSnapshot } from "./pr-snapshot";
@@ -49,7 +49,7 @@ export async function createPrReview(
   }
   const { pr, patch } = snapshot;
 
-  const key = targetKey(target);
+  const key = prReviewKey(deps.store, { repo: target.repo, number: target.number });
   const now = Date.now();
 
   const existing = deps.store.getReview(key);

@@ -47,6 +47,17 @@ test("bb review comment adds, lists, edits, and deletes local draft comments, an
   expect(runGh).not.toHaveBeenCalled();
 });
 
+test("bb review comment and summary find a renamed repository's review by the URL bb review list prints for it (bug bash CLI-2)", async () => {
+  const { harness, store, cli } = await host();
+  // As the sync leaves it: the old name and key, the PR's new URL.
+  store.saveReview({ ...store.getReview(key)!, url: "https://github.com/acme/site/pull/7" });
+  for (const review of ["https://github.com/Acme/Site/pull/7/files", "acme/site#7"]) {
+    expect(JSON.parse((await cli("list", review, "--json")).stdout).review, review).toBe(key);
+    expect(await harness.behavior.runCli(["summary", review]), review).toMatchObject({ exitCode: 0 });
+  }
+  expect(await cli("list", "https://github.com/acme/site/pull/8")).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("No saved review for") });
+});
+
 test("bb review comment changes an agent's comments but not the reviewer's", async () => {
   const { store, cli } = await host();
   store.upsertDraftComment(key, { file: "a.ts", line: 1, side: "RIGHT", body: "Reviewer's own" });

@@ -118,6 +118,15 @@ test("pasting the link of a review that hasn't changed opens it without rebuildi
   expect(store.staleDraftComments(key)).toEqual([]);
 });
 
+test("pasting a renamed repository's PR link opens the review the sync keeps under the old name (bug bash CLI-2)", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const store = createStore(bb);
+  seedReady(store, "abc123", reviewed);
+  store.saveReview({ ...store.getReview(key)!, url: "https://github.com/acme/site/pull/7" });
+  expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/site/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
+  expect(store.listReviews().map((review) => review.targetKey)).toEqual([key]);
+});
+
 test("pasting the link of a review with new commits rebuilds it like Re-review, keeping the guide and comments if it fails", async () => {
   const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
     spawn: async () => ({ id: "w" }), wait: async () => { throw new Error("worker failed"); }, archive: async () => ({}), stop: async () => ({}),

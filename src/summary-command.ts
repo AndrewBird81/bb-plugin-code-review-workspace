@@ -2,7 +2,7 @@ import type { Store } from "./store";
 import { NOT_OWN_REVIEW } from "./review-command";
 import { BODY_LIMIT } from "./comment-command";
 import { verdictPicked, type Verdict } from "./draft";
-import { parseTarget, targetKey } from "./targets";
+import { parseTarget, prReviewKey } from "./targets";
 import { describeSummary, writeSummary } from "./draft-summary";
 
 export const SUMMARY_USAGE = [
@@ -46,7 +46,7 @@ export function runSummaryCommand(store: Store, argv: string[], changed: (target
   if (suggest !== undefined && !VERDICTS.includes(suggest)) return usage("--suggest is APPROVE, COMMENT, or REQUEST_CHANGES.");
 
   const target = parseTarget(positional[0]);
-  const key = target.kind === "pr" && target.repo ? targetKey(target) : positional[0].trim();
+  const key = target.kind === "pr" && target.repo ? prReviewKey(store, { repo: target.repo, number: target.number }) : positional[0].trim();
   if (ownReview !== undefined && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
   if (!store.getReview(key)) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass the PR's URL or the review's key.` };
   if (values.body === undefined) {

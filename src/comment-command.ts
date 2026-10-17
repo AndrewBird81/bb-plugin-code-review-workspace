@@ -1,6 +1,6 @@
 import type { Store } from "./store";
 import { NOT_OWN_REVIEW } from "./review-command";
-import { parseTarget, targetKey } from "./targets";
+import { parseTarget, prReviewKey } from "./targets";
 import { addComment, deleteComment, describeComments, editComment, listComments, type DraftResult } from "./draft-comments";
 import { SEVERITIES, type Severity } from "./draft";
 
@@ -59,7 +59,7 @@ export function runCommentCommand(store: Store, argv: string[], changed: (target
   if (positional.length !== (spec.location ? 2 : 1)) return usage(spec.location ? "Give the review and the comment's <file>:<line>." : "Give the review.");
 
   const target = parseTarget(positional[0]);
-  const key = target.kind === "pr" && target.repo ? targetKey(target) : positional[0].trim();
+  const key = target.kind === "pr" && target.repo ? prReviewKey(store, { repo: target.repo, number: target.number }) : positional[0].trim();
   if (ownReview !== undefined && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
   if (!store.getReview(key)) return { exitCode: 1, stderr: `No saved review for ${positional[0]}. Pass the PR's URL or the review's key.` };
   if (action === "list") {
