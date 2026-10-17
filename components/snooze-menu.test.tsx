@@ -137,3 +137,26 @@ test("a tracked review builds its guide from the menu", async () => {
   fireEvent.click(await slot.findByRole("button", { name: "Build the guide" }));
   await waitFor(() => expect(calls("startTrackedReview")).toEqual([{ targetKey: "fresh" }]));
 });
+
+test("after midnight and before 9 AM, Pick a date… can pick this morning", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["Date"] });
+  // 00:30 on a Tuesday, still up from Monday: Tomorrow is Wednesday's 9 AM.
+  vi.setSystemTime(new Date(2026, 9, 20, 0, 30));
+  const { slot, calls } = await menu(fresh);
+  fireEvent.click(await slot.findByRole("button", { name: "Snooze" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Pick a date…" }));
+  const box = await slot.findByLabelText("Snooze until a date");
+  expect(box.getAttribute("min")).toBe("2026-10-20");
+  fireEvent.change(box, { target: { value: "2026-10-20" } });
+  fireEvent.click(slot.getByRole("button", { name: "Snooze" }));
+  await waitFor(() => expect(calls("snoozeReview")).toEqual([{ targetKey: "fresh", snoozed: true, until: new Date(2026, 9, 20, 9).getTime() }]));
+});
+
+test("from 9 AM, Pick a date… starts tomorrow", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 9, 20, 9, 0));
+  const { slot } = await menu(fresh);
+  fireEvent.click(await slot.findByRole("button", { name: "Snooze" }));
+  fireEvent.click(await slot.findByRole("button", { name: "Pick a date…" }));
+  expect((await slot.findByLabelText("Snooze until a date")).getAttribute("min")).toBe("2026-10-21");
+});

@@ -33,8 +33,10 @@ export function SnoozeChoices({ onUntilAuthor, onPick, disabled, className }: { 
     const until = y && m && d ? new Date(y, m - 1, d, 9).getTime() : NaN;
     return until > Date.now() ? until : null;
   })();
-  const tomorrow = new Date(times.tomorrow);
-  const min = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+  // The first day whose 9 AM is ahead: today, for a reviewer still up past midnight, or else tomorrow.
+  const thisMorning = new Date().setHours(9, 0, 0, 0);
+  const first = new Date(thisMorning > Date.now() ? thisMorning : times.tomorrow);
+  const min = `${first.getFullYear()}-${String(first.getMonth() + 1).padStart(2, "0")}-${String(first.getDate()).padStart(2, "0")}`;
   useEffect(() => {
     if (!picking) return;
     dateBox.current?.focus();
