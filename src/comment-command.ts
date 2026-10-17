@@ -36,6 +36,13 @@ type CliResult = { exitCode: number; stdout?: string; stderr?: string };
 export const BODY_LIMIT = 65_000;
 const usage = (problem: string): CliResult => ({ exitCode: 2, stderr: `${problem}\n${COMMENT_USAGE}` });
 
+/** Why the draft can't change yet while the review's first guide is written, where unchangeable speaks of a rebuild. */
+export function firstGuideRefusal(store: Store, targetKey: string): CliResult | null {
+  if (store.getReview(targetKey)?.status !== "generating" || store.getGuide(targetKey)) return null;
+  const list = store.getPreferences().preferences.knobs.reviewCommandInThreads;
+  return { exitCode: 1, stderr: `The guide is still being written, and the draft waits for it. ${list ? "Run `bb review list` until it says guide ready" : "Wait until it's ready"}, then try again.` };
+}
+
 /** `bb review comment …`: list and change a review's draft comments. `changed` runs after a successful change.
  * `ownReview`, set when a review's own agent runs it, refuses every other review. */
 export function runCommentCommand(store: Store, argv: string[], changed: (targetKey: string) => void, ownReview?: string): CliResult {
@@ -81,6 +88,8 @@ export function runCommentCommand(store: Store, argv: string[], changed: (target
   const evidence = values.evidence?.trim();
   if (evidence && evidence.length > 600) return usage("--evidence is limited to 600 characters.");
   const introduced = values["pre-existing"] === undefined ? {} : { introduced: false };
+  const building = firstGuideRefusal(store, key);
+  if (building) return building;
   const result: DraftResult = action === "add" ? addComment(store, key, { ...location, ...range, code: values.code!, severity, body: values.body!, evidence, ...introduced })
     : action === "edit" ? editComment(store, key, { ...location, ...range, ...(values.code !== undefined ? { code: values.code } : {}), severity, body: values.body!, evidence, ...introduced })
     : deleteComment(store, key, location);

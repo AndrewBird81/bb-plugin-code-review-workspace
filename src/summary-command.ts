@@ -1,6 +1,6 @@
 import type { Store } from "./store";
 import { NOT_OWN_REVIEW } from "./review-command";
-import { BODY_LIMIT } from "./comment-command";
+import { BODY_LIMIT, firstGuideRefusal } from "./comment-command";
 import { verdictPicked, type Verdict } from "./draft";
 import { parseTarget, prReviewKey } from "./targets";
 import { describeSummary, writeSummary } from "./draft-summary";
@@ -57,6 +57,8 @@ export function runSummaryCommand(store: Store, argv: string[], changed: (target
       verdict: draft.verdict, verdictChosen: verdictPicked(draft), suggestedVerdict: draft.suggestedVerdict ?? null,
     }, null, 2) };
   }
+  const building = firstGuideRefusal(store, key);
+  if (building) return building;
   const result = writeSummary(store, key, { body: values.body, ...(suggest ? { verdict: suggest as Verdict } : {}) });
   if (!result.ok) return { exitCode: 1, stderr: result.error };
   changed(key);

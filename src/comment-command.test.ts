@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
@@ -56,6 +57,26 @@ test("bb review comment and summary find a renamed repository's review by the UR
     expect(await harness.behavior.runCli(["summary", review]), review).toMatchObject({ exitCode: 0 });
   }
   expect(await cli("list", "https://github.com/acme/site/pull/8")).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("No saved review for") });
+});
+
+test("while a review's first guide is written, comment and summary say the draft waits for it, not that it's being regenerated (bug bash CLI-1)", async () => {
+  const { harness, store, cli } = await host();
+  store.saveReview({ ...store.getReview(key)!, status: "generating" });
+  const building = "The guide is still being written, and the draft waits for it. Run `bb review list` until it says guide ready, then try again.";
+  expect(await cli("add", url, "a.ts:2", "--code", "next();", "--body", "Callers still use old().")).toMatchObject({ exitCode: 1, stderr: building });
+  expect(await harness.behavior.runCli(["summary", url, "--body", "One question."])).toMatchObject({ exitCode: 1, stderr: building });
+  // Usage mistakes still say what's wrong, and listing works.
+  expect(await cli("add", url, "a.ts:2", "--body", "x")).toMatchObject({ exitCode: 2, stderr: expect.stringContaining("add needs --code") });
+  expect(await cli("list", url)).toMatchObject({ exitCode: 0 });
+  store.savePreferences({ ...store.getPreferences().preferences, knobs: { ...store.getPreferences().preferences.knobs, reviewCommandInThreads: false } }, store.getPreferences().revision);
+  expect(await cli("delete", url, "a.ts:2")).toMatchObject({ exitCode: 1, stderr: "The guide is still being written, and the draft waits for it. Wait until it's ready, then try again." });
+  // A rebuild, with the guide kept, is still one.
+  store.saveGuide(key, { title: "G", intent: "I", sections: [], unplacedFiles: [] });
+  expect(await cli("add", url, "a.ts:2", "--code", "next();", "--body", "x")).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("being regenerated") });
+  expect(store.getDraft(key)).toMatchObject({ body: "", comments: [] });
+  // The skill says so, rather than that nothing waits for the guide.
+  const skill = readFileSync(new URL("../skills/guided-review/SKILL.md", import.meta.url), "utf8").replace(/\s+/g, " ");
+  expect(skill).toContain("you needn't wait for it, but comments and the summary do: run `bb review list` until the review says guide ready.");
 });
 
 test("bb review comment changes an agent's comments but not the reviewer's", async () => {
