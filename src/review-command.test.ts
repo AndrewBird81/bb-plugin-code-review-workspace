@@ -181,6 +181,17 @@ test("a target of only spaces gets the usage, and one with a leading space is ch
   expect(gh.runGit).not.toHaveBeenCalled();
 });
 
+test("--base with a range is refused, not ignored (bug bash CLI-8)", async () => {
+  const { bb, store } = host();
+  vi.mocked(gh.runGit).mockClear();
+  for (const range of ["feature..HEAD", "main...feature"]) {
+    expect(await runReviewCommand({ bb, store, gh }, [range, "--base", "develop"], { projectId: "p1", cwd: process.cwd() }))
+      .toEqual({ exitCode: 2, stderr: "--base goes with a single ref, not a range." });
+  }
+  expect(store.listReviews()).toEqual([]);
+  expect(gh.runGit).not.toHaveBeenCalled();
+});
+
 test("a PR number in a checkout whose owner holds _, as an Enterprise Managed User's does, reviews that repository's PR", async () => {
   const { bb, store } = host();
   vi.mocked(gh.runGh).mockResolvedValueOnce({ stdout: JSON.stringify({ nameWithOwner: "jdoe_acme/web" }), stderr: "", code: 0 });

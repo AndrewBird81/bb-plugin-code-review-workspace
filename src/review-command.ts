@@ -65,6 +65,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
   if (!ctx.projectId) return { exitCode: 2, stderr: "Run `bb review` inside a project thread." };
   const target = parseTarget(input, base);
   if (target.kind === "pr" && base) return { exitCode: 2, stderr: "--base is only supported for local git refs." };
+  if (target.kind === "ref" && base && target.gitRef.includes("..")) return { exitCode: 2, stderr: "--base goes with a single ref, not a range." };
   if (target.kind === "ref" || !target.repo) {
     if (!ctx.cwd) return { exitCode: 2, stderr: "A local ref or PR number needs a working directory. Run `bb review` in the repository." };
     // The caller's directory may be on another machine; git and gh run on the bb server.
@@ -131,7 +132,7 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
     const diff = await deps.gh.runGit(gitDiffArgs(target.gitRef, target.base), { cwd });
     if (diff.code !== 0) return { exitCode: 1, stderr: diff.stderr || "git diff failed" };
     patch = diff.stdout;
-    meta.gitRef = target.base && !target.gitRef.includes("..") ? `${target.base}...${target.gitRef}` : target.gitRef;
+    meta.gitRef = target.base ? `${target.base}...${target.gitRef}` : target.gitRef;
     meta.base = target.base;
   }
 
