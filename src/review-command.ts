@@ -75,6 +75,8 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
   const cwd = ctx.cwd ? resolve(ctx.cwd) : undefined;
   let key = targetKey(target, cwd ? { projectId: ctx.projectId, cwd } : undefined);
   if (ownReview !== undefined && target.kind === "ref" && key !== ownReview) return { exitCode: 2, stderr: NOT_OWN_REVIEW };
+  // The context reaches its agents as from the thread that started the review: a review's own agent read the PR's text.
+  if (ownReview !== undefined && context !== undefined) return { exitCode: 2, stderr: "A review's own agent can't set the review's context." };
   const now = Date.now();
   let unattended = ownReview !== undefined;
 

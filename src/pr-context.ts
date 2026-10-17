@@ -132,7 +132,7 @@ export async function readPrContext(deps: { runGh: Run; runGit: typeof runGit },
   const { sections, author } = review.kind === "pr" && review.repo && review.number
     ? await pullRequestContext(deps.runGh, review, files, reviewMd)
     : { sections: await localContext(deps.runGit, review, files, reviewMd), author: null };
-  if (context) sections.push(`Context from the thread that started this review:\n${context}`);
+  if (context) sections.push(`Context from the thread that started this review:\n${untrusted("review context", context)}`);
   return { text: sections.join("\n\n"), author };
 }
 

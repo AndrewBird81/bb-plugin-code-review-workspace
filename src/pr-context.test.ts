@@ -69,7 +69,7 @@ test("read_pr_context gives the PR's story, CI, others' threads, and the repo's 
   expect(text).toMatch(/<untrusted source="repo instructions">\n## AGENTS\.md\nAlways check token expiry\.\n\n## \.github\/instructions\/ts\.instructions\.md\nNo default exports\.\n<\/untrusted>/);
   expect(text).not.toContain("Use type hints");
   expect(text).not.toContain("This PR changes");
-  expect(text).toContain("Context from the thread that started this review:\nFocus on LIN-42.");
+  expect(text).toContain('Context from the thread that started this review:\n<untrusted source="review context">\nFocus on LIN-42.\n</untrusted>');
 });
 
 test("read_pr_context reads the repo's instructions at the base, not the PR's head", async () => {
