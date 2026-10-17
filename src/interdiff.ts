@@ -1,4 +1,4 @@
-import { splitPatchByFile } from "./patch";
+import { shownPath, splitPatchByFile } from "./patch";
 import { withoutBaseBlob } from "./diff-hash";
 
 export interface FileInterdiff {
@@ -173,7 +173,7 @@ export function describeInterdiff(files: FileInterdiff[], options: { file?: stri
     `Since your review: ${count("changed")} changed, ${count("added")} added, ${count("removed")} removed, ${count("unchanged")} unchanged files.`,
   ];
   for (const f of shown) {
-    parts.push(`=== ${f.file} (${f.status}) ===`);
+    parts.push(`=== ${shownPath(f.file)} (${f.status}) ===`);
     if (f.patch) parts.push(f.patch.trimEnd());
     if (f.dropped) parts.push("Gone since your review:\n" + f.dropped.trimEnd());
   }

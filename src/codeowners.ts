@@ -3,6 +3,7 @@ import type { ReviewMeta } from "./store";
 import { ghErrorMessage, type runGh, type runGit } from "./gh";
 import { gitFile, localRevs, workingTreeFile, type Read } from "./file-contents";
 import { globMatches, type Glob } from "./glob";
+import { shownPath } from "./patch";
 
 /** Where GitHub looks for CODEOWNERS, in order; the first one found is the one used. */
 export const CODEOWNERS_PATHS = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"] as const;
@@ -143,6 +144,6 @@ export function describeOwnership(files: readonly FileOwners[]): string | null {
   if (!files.length) return null;
   const mine = files.filter((entry) => entry.mine).map((entry) => entry.file);
   if (!mine.length) return `CODEOWNERS: the reviewer owns none of the changed files, directly or through a team.`;
-  const listed = mine.slice(0, 50).join(", ");
+  const listed = mine.slice(0, 50).map(shownPath).join(", ");
   return `CODEOWNERS: the reviewer owns ${mine.length} of the changed files, directly or through a team: ${listed}${mine.length > 50 ? ", …" : ""}. Look hardest at those.`;
 }
