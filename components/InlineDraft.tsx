@@ -95,7 +95,9 @@ export const locationKey = (at: CommentLocation) => `${at.file}:${at.line}:${at.
 const card = "mx-2 my-2 max-w-3xl overflow-hidden rounded-lg bg-card [contain:inline-size] font-sans text-sm leading-normal whitespace-normal text-foreground shadow-md";
 /** A card's title row, and the small actions in it. */
 export const bar = "flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-xs text-muted-foreground";
-export const action = cn("h-7 px-2 text-xs", TOUCH_CONTROL);
+export const action = cn("h-7 px-2 text-xs aria-disabled:pointer-events-none aria-disabled:opacity-50", TOUCH_CONTROL);
+/** A card's action while the draft saves: aria-disabled, so a button pressed from the keyboard keeps the focus; `idle` disables it otherwise. */
+const whileBusy = (busy: boolean, idle = false) => ({ disabled: idle && !busy, "aria-disabled": busy || undefined });
 
 /** Who wrote it: the agent, in its own color, or you. */
 function Speaker({ agent, children }: { agent: boolean; children: ReactNode }) {
@@ -167,10 +169,10 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
           // Up to five actions: they wrap, or on a phone they'd run past the card.
           <span className="-mr-1.5 ml-auto flex flex-wrap justify-end">
             {draft.editable && <>
-              <Button variant="ghost" size="sm" className={action} disabled={draft.busy || draft.writing} onClick={() => draft.open(comment)}>Edit</Button>
-              <Button variant="ghost" size="sm" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} disabled={draft.busy || draft.writing} onClick={() => draft.ask(comment)}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
-              {preExisting && state !== "older-diff" && draft.markPreExisting && <Button variant="ghost" size="sm" className={action} disabled={draft.busy} onClick={() => draft.markPreExisting!(comment, comment.introduced !== false)}>{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}</Button>}
-              <Button variant="ghost" size="sm" className={cn(action, "hover:text-destructive-text")} disabled={draft.busy} onClick={() => draft.remove(comment)}>Remove</Button>
+              <Button variant="ghost" size="sm" className={action} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.open(comment); }}>Edit</Button>
+              <Button variant="ghost" size="sm" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.ask(comment); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
+              {preExisting && state !== "older-diff" && draft.markPreExisting && <Button variant="ghost" size="sm" className={action} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) draft.markPreExisting!(comment, comment.introduced !== false); }}>{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}</Button>}
+              <Button variant="ghost" size="sm" className={cn(action, "hover:text-destructive-text")} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) draft.remove(comment); }}>Remove</Button>
               <CommentEditorMenu comment={comment} />
             </>}
             {onFold && <FoldButton onFold={onFold} />}

@@ -31,7 +31,9 @@ import { useComments } from "./store";
 const INLINE_CARD = "mx-2 my-2 max-w-3xl overflow-hidden rounded-lg bg-card [contain:inline-size] font-sans text-sm leading-normal whitespace-normal text-foreground shadow-md";
 /** A card's head, and the small actions in it. */
 export const HEAD = "flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-xs text-muted-foreground";
-const ACTION = cn("h-7 px-2 text-xs text-muted-foreground", TOUCH_CONTROL);
+const ACTION = cn("h-7 px-2 text-xs text-muted-foreground aria-disabled:pointer-events-none aria-disabled:opacity-50", TOUCH_CONTROL);
+/** A card's action while the draft saves: aria-disabled, so a button pressed from the keyboard keeps the focus; `idle` disables it otherwise. */
+const whileBusy = (busy: boolean, idle = false) => ({ disabled: idle && !busy, "aria-disabled": busy || undefined });
 
 /** "src/a.ts:2", "src/a.ts:2 (old line)", the file alone, or the PR: a card's name says where it is. */
 export function whereOf(item: CommentItem): string {
@@ -247,12 +249,12 @@ function DraftCard({ item }: { item: DraftItem }) {
         {comment.evidence && <AgentEvidence evidence={comment.evidence} />}
         {item.state === "older-diff" && <p className="text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
         {draft.editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">
-          <Button variant="ghost" size="sm" aria-label={`Edit comment on ${where}`} className={ACTION} disabled={draft.busy || draft.writing} onClick={() => draft.openComposer(comment, false)}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
-          <Button variant="ghost" size="sm" aria-label={`Ask agent about the comment on ${where}`} className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} disabled={draft.busy || draft.writing} onClick={() => draft.openComposer(comment, false, true)}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
-          {preExisting && item.state !== "older-diff" && <Button variant="ghost" size="sm" className={ACTION} disabled={draft.busy} onClick={() => void draft.markPreExisting(comment, comment.introduced !== false)}>
+          <Button variant="ghost" size="sm" aria-label={`Edit comment on ${where}`} className={ACTION} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false); }}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
+          <Button variant="ghost" size="sm" aria-label={`Ask agent about the comment on ${where}`} className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false, true); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
+          {preExisting && item.state !== "older-diff" && <Button variant="ghost" size="sm" className={ACTION} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) void draft.markPreExisting(comment, comment.introduced !== false); }}>
             <Icon name="History" className="size-3.5" aria-hidden />{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}
           </Button>}
-          <Button variant="ghost" size="sm" aria-label={`Remove comment on ${where}`} className={cn(ACTION, "hover:text-destructive-text")} disabled={draft.busy} onClick={() => void draft.removeComment(comment)}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove</Button>
+          <Button variant="ghost" size="sm" aria-label={`Remove comment on ${where}`} className={cn(ACTION, "hover:text-destructive-text")} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) void draft.removeComment(comment); }}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove</Button>
           {item.state === "older-diff" && <MoveToSummary comments={[comment]} className={ACTION} />}
           <CommentEditorMenu comment={comment} />
         </div>}

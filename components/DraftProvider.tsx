@@ -294,6 +294,43 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       else if (frames > 1) focusComment(at, inDiff, frames - 1);
     });
   }
+  /**
+   * Before a comment is removed: where the focus goes once its card, which has it, is gone. In the code, to the next
+   * comment's card in its file, else the file's row; in the list, to the next row, else the one before, else the filter.
+   */
+  function focusAfterRemoval(): () => void {
+    const held = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const card = held?.closest<HTMLElement>("[data-draft-at]");
+    const row = card ? null : held?.closest<HTMLElement>("[data-comment-row]");
+    let targets: Array<() => HTMLElement | null | undefined> = [];
+    if (card) {
+      const path = card.closest<HTMLElement>("[data-file]")?.dataset.file;
+      const fileEl = () => Array.from(document.querySelectorAll<HTMLElement>("[data-file]")).find((el) => el.dataset.file === path);
+      const cards = Array.from(fileEl()?.querySelectorAll<HTMLElement>("[data-draft-at]") ?? []);
+      const after = cards.slice(cards.indexOf(card) + 1).map((el) => el.dataset.draftAt);
+      targets = [
+        ...after.map((key) => () => Array.from(fileEl()?.querySelectorAll<HTMLElement>("[data-draft-at]") ?? []).find((el) => el.dataset.draftAt === key)?.querySelector<HTMLElement>("article[tabindex], button")),
+        () => fileEl()?.querySelector<HTMLElement>("[data-file-header] button"),
+      ];
+    } else if (row) {
+      const rows = Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-comment-row]") ?? []);
+      const index = rows.indexOf(row);
+      const rowButton = (id: string | undefined) => () => Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-comment-row]") ?? []).find((el) => el.dataset.commentRow === id)?.querySelector("button");
+      targets = [
+        ...rows.slice(index + 1).map((el) => rowButton(el.dataset.commentRow)),
+        ...rows.slice(0, index).reverse().map((el) => rowButton(el.dataset.commentRow)),
+        () => listRef.current?.querySelector<HTMLElement>("[role=radio][aria-checked=true]"),
+      ];
+    }
+    return () => requestAnimationFrame(() => {
+      // Only when the focus went with the card, or stayed on its button, which may now draw another comment.
+      if (document.activeElement && document.activeElement !== document.body && document.activeElement !== held) return;
+      for (const target of targets) {
+        const el = target();
+        if (el) return void el.focus({ preventScroll: true });
+      }
+    });
+  }
   /** Close a line's box unsaved, and return focus to where it was opened, or else to the comment it edited. */
   function cancelComposer() {
     const at = { file, line: Number(line), side };
@@ -414,8 +451,10 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       const box = event.currentTarget instanceof Element ? event.currentTarget.getBoundingClientRect() : null;
       setWhy({ at: { file, line, side }, rect: box ? { left: box.left, top: box.top, width: box.width, height: box.height } : { left: window.innerWidth - 16, top: window.innerHeight - 16, width: 0, height: 0 } });
     } } } : null;
+    const refocus = focusAfterRemoval();
     await mutate(async () => {
       apply(await enqueue(() => rpc.call("removeDraftComment", { targetKey, file, line, side })) as { draft: Draft });
+      refocus();
       if (older) { if (reason) toast.info("Comment removed", reason); else toast.info("Comment removed"); }
       else toast.info("Comment removed", { ...reason, action: { label: "Undo", onClick: () => { void latest.current.restoreComments([comment]); } } });
     });

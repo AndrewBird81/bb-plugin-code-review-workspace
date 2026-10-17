@@ -241,6 +241,72 @@ test("] focuses the card of the comment it lands on, where a line has a draft an
   } finally { Element.prototype.getClientRects = rects; }
 }, 15_000);
 
+// bug bash UX-3: a card's actions were disabled while the draft saved, and a removed card took the focus with it, so
+// the focus dropped to the page.
+test("Mark as pre-existing stays focusable while it saves, rather than turning disabled under the focus", async () => {
+  let finish!: () => void;
+  const { slot, rpc } = await renderReview();
+  const saved = rpc.saveDraftComment.getMockImplementation()!;
+  rpc.saveDraftComment.mockImplementation((input: any) => new Promise((resolve) => { finish = () => resolve(saved(input)); }) as any);
+  const card = slot.getByRole("article", { name: "Draft comment on src/a.ts:2" });
+  const mark = within(card).getByRole("button", { name: "Mark as pre-existing" });
+  mark.focus();
+  fireEvent.click(mark);
+  await waitFor(() => expect(rpc.saveDraftComment).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(mark.getAttribute("aria-disabled")).toBe("true"));
+  expect(mark.hasAttribute("disabled")).toBe(false);
+  expect(document.activeElement).toBe(mark);
+  // Busy, it ignores another press.
+  fireEvent.click(mark);
+  expect(rpc.saveDraftComment).toHaveBeenCalledTimes(1);
+  await act(async () => finish());
+  await waitFor(() => expect(within(card).getByRole("button", { name: "Mark as from this PR" }).hasAttribute("aria-disabled")).toBe(false));
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("Remove in the code hands the focus to the next comment's card in its file", async () => {
+  const { slot } = await renderReview({ drafts: [{ file: "src/a.ts", line: 1, side: "RIGHT", body: "One.", chapterId: "c1" }, ...comments] });
+  const card = await slot.findByRole("article", { name: "Draft comment on src/a.ts:1" });
+  const remove = within(card).getByRole("button", { name: "Remove" });
+  remove.focus();
+  fireEvent.click(remove);
+  await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Draft comment on src/a.ts:2"));
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("Remove in the Comments list hands the focus to the next row", async () => {
+  const { slot } = await renderReview();
+  // Finish review, then ‹ Comments.
+  press("s");
+  fireEvent.click(await slot.findByRole("button", { name: "Comments" }));
+  const list = within(await slot.findByRole("region", { name: "Comments" }));
+  // ‹ Comments hands the focus to the chosen filter.
+  await waitFor(() => expect(document.activeElement).toBe(list.getByRole("radio", { checked: true })));
+  fireEvent.click(await list.findByRole("button", { name: /^Expand Draft comment on src\/a\.ts:2/ }));
+  const remove = list.getByRole("button", { name: "Remove comment on src/a.ts:2" });
+  remove.focus();
+  fireEvent.click(remove);
+  await waitFor(() => expect(list.queryByRole("button", { name: "Remove comment on src/a.ts:2" })).toBeNull());
+  await waitFor(() => expect(document.activeElement?.closest("[data-comment-row]")).toBeTruthy());
+  expect(document.activeElement?.getAttribute("aria-label")).toMatch(/src\/b\.ts:1/);
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("x on the last comment in a file hands the focus to the file's row", async () => {
+  const rects = Element.prototype.getClientRects;
+  // Drawn, as in a browser: the step lands on its card rather than on the file.
+  Element.prototype.getClientRects = function () { return [{}] as unknown as DOMRectList; };
+  try {
+    const { slot, rpc } = await renderReview();
+    press("]");
+    await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Draft comment on src/a.ts:2"));
+    press("x");
+    await waitFor(() => expect(rpc.removeDraftComment).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Collapse src/a.ts"));
+    slot.lifecycle.unmount();
+  } finally { Element.prototype.getClientRects = rects; }
+}, 15_000);
+
 test("with Comment keys off, or Single-key shortcuts off, the keys do nothing", async () => {
   for (const knobs of [{ ...defaultKnobs, commentKeys: false }, { ...defaultKnobs, singleKeyShortcuts: false }]) {
     const { slot, rpc } = await renderReview({ knobs });
