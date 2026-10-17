@@ -60,8 +60,9 @@ function placeOf(url: string): { host: string; path: string } | null {
   return m ? { host: m[1].toLowerCase(), path: m[2].replace(/^\/*/, "/").toLowerCase() } : null;
 }
 
-// Every URL on a line, and git's scp-style "git@host:owner/repo", which isn't one; JSON may write / as \/.
-const URLS = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>()[\]{},]+|(?<![^\s"'=([,])[\w.-]+@[a-z0-9.-]+:(?!\/\/)[\w~./-][^\s"'<>()[\]{},]*/gi;
+// Every URL on a line, and git's scp-style "git@host:owner/repo", which isn't one; JSON may write / as \/. A scheme
+// starts only where a run of its characters does, or a long run like "a.a.a…" is scanned again from each "a".
+const URLS = /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/[^\s"'<>()[\]{},]+|(?<![^\s"'=([,])[\w.-]+@[a-z0-9.-]+:(?!\/\/)[\w~./-][^\s"'<>()[\]{},]*/gi;
 const urlsIn = (code: string) => code.replace(/\\\//g, "/").match(URLS) ?? [];
 
 const atRegistry = ({ host, path }: { host: string; path: string }, registries: string[]) =>

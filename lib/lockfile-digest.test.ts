@@ -134,3 +134,14 @@ test("Gemfile.lock, uv.lock, Package.resolved, Cargo.lock and bun.lock name an a
   ]))).toEqual({ added: 3, removed: 0, hosts: ["github.com"] });
   expect(lockfileDigest("bun.lock", diff(['+    "tiny": ["tiny@1.0.0", "https://npm.evil.test/tiny/-/tiny-1.0.0.tgz", {}, "sha512-x"],', '+    "pad": ["pad@1.0.0", "", {}, "sha512-y"],']))?.hosts).toEqual(["npm.evil.test"]);
 });
+
+// Each word boundary in a long run of a scheme's characters began a scan to the run's end, so one long row in any
+// lockfile but npm's, yarn's and pnpm's blocked the server for seconds (71-review-security F2).
+test("a long row of a scheme's characters digests at once, and a URL after one still counts", () => {
+  for (const [path, row] of [["flake.lock", `+${"a.".repeat(100_000)}`], ["Gemfile.lock", `+${"a+".repeat(100_000)}`], ["composer.lock", `+    "url": "${"a-".repeat(100_000)}",`]]) {
+    const start = performance.now();
+    expect(lockfileDigest(path, diff([row]))).toBeNull();
+    expect(performance.now() - start).toBeLessThan(500);
+  }
+  expect(lockfileDigest("flake.lock", diff([`+  "url": "git+https://evil.test/a.git", ${"a.".repeat(50)} https://b.evil.test/c`]))?.hosts).toEqual(["evil.test", "b.evil.test"]);
+});
