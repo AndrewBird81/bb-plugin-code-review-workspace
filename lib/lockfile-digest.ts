@@ -56,10 +56,13 @@ const FORMAT_OF: Record<string, keyof typeof FORMATS> = {
   "uv.lock": "python", "pipfile.lock": "python", "bun.lock": "bun", "flake.lock": "other", "package.resolved": "swift",
 };
 
-/** A URL's host and path, lowercase: "scheme://[user@]host[:port]/path", or git's "user@host:path". */
+/**
+ * A URL's host and path, lowercase: "scheme://[user@]host[:port]/path", or git's "user@host:path". A \ ends the host
+ * and separates the path, as npm's, yarn's and uv's URL parsers read it, so "https://evil.test\@registry/" is evil.test's.
+ */
 function placeOf(url: string): { host: string; path: string } | null {
-  const m = url.match(/^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?([^/:?#]+)(?::\d*)?([^?#]*)/i) ?? url.match(/^[\w.-]+@([a-z0-9.-]+):(?!\/\/)([^?#]*)/i);
-  return m ? { host: m[1].toLowerCase(), path: m[2].replace(/^\/*/, "/").toLowerCase() } : null;
+  const m = url.match(/^[a-z][a-z0-9+.-]*:\/\/(?:[^@/\\]+@)?([^/\\:?#]+)(?::\d*)?([^?#]*)/i) ?? url.match(/^[\w.-]+@([a-z0-9.-]+):(?!\/\/)([^?#]*)/i);
+  return m ? { host: m[1].toLowerCase(), path: m[2].replace(/\\/g, "/").replace(/^\/*/, "/").toLowerCase() } : null;
 }
 
 // Every URL on a line, and git's scp-style "git@host:owner/repo", which isn't one; JSON may write / as \/. A scheme
@@ -67,8 +70,9 @@ function placeOf(url: string): { host: string; path: string } | null {
 const URLS = /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/[^\s"'<>()[\]{},]+|(?<![^\s"'=([,])[\w.-]+@[a-z0-9.-]+:(?!\/\/)[\w~./-][^\s"'<>()[\]{},]*/gi;
 const urlsIn = (code: string) => code.replace(/\\\//g, "/").match(URLS) ?? [];
 
+// A registry given by its path is at it only by a path without . or .. segments, which could climb out of it.
 const atRegistry = ({ host, path }: { host: string; path: string }, registries: string[]) =>
-  registries.some((entry) => { const slash = entry.indexOf("/"); return slash < 0 ? host === entry : `${host}${path}`.replace(/\/$/, "") === entry || `${host}${path}`.startsWith(`${entry}/`); });
+  registries.some((entry) => { const slash = entry.indexOf("/"); return slash < 0 ? host === entry : !/(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/i.test(path) && (`${host}${path}`.replace(/\/$/, "") === entry || `${host}${path}`.startsWith(`${entry}/`)); });
 
 /** A lockfile's digest, or null for another file, or a lockfile whose diff adds and removes no package and no host. */
 export function lockfileDigest(path: string, diff: string): LockfileDigest | null {

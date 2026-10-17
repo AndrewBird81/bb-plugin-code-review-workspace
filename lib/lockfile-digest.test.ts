@@ -151,3 +151,21 @@ test("a long row of a scheme's characters digests at once, and a URL after one s
   }
   expect(lockfileDigest("flake.lock", diff([`+  "url": "git+https://evil.test/a.git", ${"a.".repeat(50)} https://b.evil.test/c`]))?.hosts).toEqual(["evil.test", "b.evil.test"]);
 });
+
+// "\@" ended the userinfo here but not in npm's, yarn's or uv's URL parser, which download from the host before it, and a
+// registry's path could climb out of itself with .. (71-review-security F3).
+test("a host written before \\@, or a registry path that climbs out with .., is named", () => {
+  for (const [path, row] of [
+    ["package-lock.json", String.raw`+      "resolved": "https://evil.test\\@registry.npmjs.org/x/-/x-1.0.0.tgz",`],
+    ["yarn.lock", String.raw`+  resolved "https://evil.test\@registry.yarnpkg.com/x/-/x-1.0.0.tgz"`],
+    ["Gemfile.lock", String.raw`+  remote: https://evil.test\@rubygems.org/`],
+    ["uv.lock", String.raw`+source = { registry = "https://evil.test\\@pypi.org/simple" }`],
+    ["composer.lock", String.raw`+            "url": "https:\/\/evil.test\\@github.com\/x\/y.git",`],
+  ]) expect(lockfileDigest(path, diff([row]))?.hosts, path).toEqual(["evil.test"]);
+  for (const source of ["git+https://github.com/rust-lang/crates.io-index/../../evil/repo#abc", "git+https://github.com/rust-lang/crates.io-index/%2E%2E/x", String.raw`git+https://github.com/rust-lang/crates.io-index\..\..\evil`]) {
+    expect(lockfileDigest("Cargo.lock", diff([`+source = "${source}"`]))?.hosts, source).toEqual(["github.com"]);
+  }
+  // Userinfo before the registry, and the registry's own paths, are still the registry's.
+  expect(lockfileDigest("package-lock.json", diff(['+      "resolved": "https://token@registry.npmjs.org/x/-/x-1.0.0.tgz",']))).toBeNull();
+  expect(lockfileDigest("Cargo.lock", diff(['+source = "registry+https://github.com/rust-lang/crates.io-index"']))).toBeNull();
+});
