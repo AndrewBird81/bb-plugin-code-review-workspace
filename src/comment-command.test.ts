@@ -79,6 +79,16 @@ test("while a review's first guide is written, comment and summary say the draft
   expect(skill).toContain("you needn't wait for it, but comments and the summary do: run `bb review list` until the review says guide ready.");
 });
 
+test("the comment usage BB shows agents, and the skill, name the options add and edit take (bug bash CLI-10, DOC-7)", async () => {
+  const { harness } = await host();
+  const usage = harness.inspection.registrations.cli!.commands!.find((command) => command.name === "comment")!.usage;
+  const skill = readFileSync(new URL("../skills/guided-review/SKILL.md", import.meta.url), "utf8");
+  for (const option of ["--side", "--code", "--body", "--severity", "--evidence", "--pre-existing"]) {
+    expect(usage, option).toContain(`[${option}`);
+    expect(skill, option).toContain(`\`${option}`);
+  }
+});
+
 test("bb review comment changes an agent's comments but not the reviewer's", async () => {
   const { store, cli } = await host();
   store.upsertDraftComment(key, { file: "a.ts", line: 1, side: "RIGHT", body: "Reviewer's own" });

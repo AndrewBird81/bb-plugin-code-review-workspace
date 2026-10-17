@@ -61,6 +61,7 @@ bb review comment delete <review> <file>:<line>
 - `--severity` is `blocking`, `should-fix`, `question`, `nit`, or `none`.
 - `--evidence` says how you confirmed it: what you read or ran, with `file:line`. The reviewer sees
   it under the comment; it's never posted.
+- `--pre-existing` marks a problem in code this PR didn't change.
 - Quote `--body` for your shell. Comments stay in the draft until the reviewer submits.
 
 ## The summary
