@@ -2,39 +2,46 @@
 import type { ReviewMeta } from "./store";
 import { ghErrorMessage, type runGh, type runGit } from "./gh";
 import { gitFile, localRevs, workingTreeFile, type Read } from "./file-contents";
+import { globMatches, type Glob } from "./glob";
 
 /** Where GitHub looks for CODEOWNERS, in order; the first one found is the one used. */
 export const CODEOWNERS_PATHS = [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"] as const;
 
-export interface OwnerRule { pattern: RegExp; owners: string[] }
+export interface OwnerRule { pattern: Glob[]; owners: string[] }
 export interface FileOwners { file: string; owners: string[]; mine: boolean }
 
 /**
- * A CODEOWNERS pattern as a regular expression over repo-relative paths: gitignore's rules as GitHub
- * documents them. A leading or inner "/" anchors it at the root; a trailing "/" matches what's under
- * a directory; otherwise it matches a file, or a directory and what's under it, at any depth. "docs/*"
- * matches only docs' own files. Null for what GitHub doesn't support: "!" and "[ ]".
+ * A CODEOWNERS pattern as globs over repo-relative paths, one of which a path matches: gitignore's rules as GitHub
+ * documents them. A leading or inner "/" anchors it at the root; a trailing "/" matches what's under a directory;
+ * otherwise it matches a file, or a directory and what's under it, at any depth. "docs/*" matches only docs' own files.
+ * Null for what GitHub doesn't support: "!" and "[ ]". Globs, as src/glob.ts matches them, can't backtrack: the
+ * regular expression this was stalled the server for minutes on a rule of many stars and a long name.
  */
-export function ownerPattern(pattern: string): RegExp | null {
+export function ownerPattern(pattern: string): Glob[] | null {
   if (!pattern || pattern.startsWith("!") || /[[\]]/.test(pattern)) return null;
   const directory = pattern.endsWith("/");
   const trimmed = pattern.replace(/^\/+/, "").replace(/\/+$/, "");
   if (!trimmed) return null;
   const anchored = pattern.startsWith("/") || trimmed.includes("/");
   const segments = trimmed.split("/");
-  let source = "";
+  const literal = (char: string): Glob[number] => ({ kind: "char", test: (c) => c === char });
+  // Unanchored, any number of directories first.
+  const glob: Glob = anchored ? [] : [{ kind: "dirs" }];
   segments.forEach((segment, index) => {
     const last = index === segments.length - 1;
     if (segment === "**") {
       // Any number of directories: leading, inner, or (last) everything below.
-      source += last ? ".*" : "(?:[^/]+/)*";
+      glob.push({ kind: last ? "globstar" : "dirs" });
       return;
     }
-    source += segment.replace(/[.+^$(){}|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]") + (last ? "" : "/");
+    for (let i = 0; i < segment.length; i++) {
+      glob.push(segment[i] === "*" ? { kind: "star" } : segment[i] === "?" ? { kind: "char", test: (c) => c !== "/" } : literal(segment[i]));
+    }
+    if (!last) glob.push(literal("/"));
   });
-  const prefix = anchored ? "^" : "^(?:[^/]+/)*";
-  const suffix = directory ? "/.*$" : segments.at(-1) === "*" || segments.at(-1) === "**" ? "$" : "(?:/.*)?$";
-  return new RegExp(prefix + source + suffix);
+  const below: Glob = [...glob, literal("/"), { kind: "globstar" }];
+  if (directory) return [below];
+  return segments.at(-1) === "*" || segments.at(-1) === "**" ? [glob] : [glob, below];
 }
 
 /** The rules of a CODEOWNERS file, in order. Comments, blank lines, and patterns GitHub skips are left out. */
@@ -60,7 +67,7 @@ export function parseCodeowners(text: string): OwnerRule[] {
 
 /** A file's owners: the last rule that matches wins, and one without owners leaves the file unowned. */
 export function ownersOf(rules: readonly OwnerRule[], path: string): string[] {
-  for (let i = rules.length - 1; i >= 0; i--) if (rules[i].pattern.test(path)) return rules[i].owners;
+  for (let i = rules.length - 1; i >= 0; i--) if (rules[i].pattern.some((glob) => globMatches(glob, path))) return rules[i].owners;
   return [];
 }
 

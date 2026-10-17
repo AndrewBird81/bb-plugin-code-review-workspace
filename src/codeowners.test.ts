@@ -160,3 +160,18 @@ test("a local review reads CODEOWNERS from its checkout: the working tree for a 
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+// Each "*" was a backtracking [^/]* in a regular expression, so a rule of many stars against a long name stalled the
+// plugin server for minutes, at the start of every guide; a local review's branch writes both (bug bash SEC-4).
+test("a hostile CODEOWNERS rule and file name are matched in linear time", async () => {
+  const rule = `${"*a".repeat(14)}zz @someone`;
+  const runGit = vi.fn(async (args: string[]) => args[0] === "merge-base"
+    ? ok(`${"0".repeat(40)}\n`)
+    : args[0] === "show" && args.at(-1)!.endsWith(":.github/CODEOWNERS") ? ok(rule) : { stdout: "", stderr: "not found", code: 128 });
+  const review: ReviewMeta = { targetKey: "ref-1", kind: "ref", gitRef: "main...feature", cwd: "/tmp", status: "ready", createdAt: 0 };
+  const started = performance.now();
+  const owned = await codeOwners({ runGh: vi.fn(), runGit }, review, ["a".repeat(40)], async () => ({ login: null, teams: new Set<string>() }));
+  expect(performance.now() - started).toBeLessThan(250);
+  expect(owned).toEqual([]);
+  expect(ownersOf(parseCodeowners(rule), `${"a".repeat(30)}zz`)).toEqual(["@someone"]);
+}, 60_000);
