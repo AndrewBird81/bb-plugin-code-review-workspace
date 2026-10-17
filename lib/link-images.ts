@@ -616,6 +616,7 @@ function lineSpans(line: string, inline: boolean): { spans: Array<[number, numbe
   const spans: Array<[number, number]> = [];
   // Where the word at `i` begins: an autolink literal runs to a space.
   let word = 0;
+  let ticks: Uint8Array | null = null;
   for (let i = 0; i < line.length;) {
     const char = line[i];
     const next = line[i + 1] ?? "";
@@ -631,11 +632,27 @@ function lineSpans(line: string, inline: boolean): { spans: Array<[number, numbe
       spans.push([i, close + length]);
       i = word = close + length;
     } else if ((char === "$" && next === "$") || (char === ":" && /[A-Za-z]/.test(next))) return { spans, paired: false };
-    else if (char === "[" && next === "^" && /^(?:\\.|[^\s\]\\])*`/.test(line.slice(i + 2))) return { spans, paired: false };
+    else if (char === "[" && next === "^" && (ticks ??= labelTicks(line))[i + 2]) return { spans, paired: false };
     else if (char === "]" && (next === ":" || (next === "(" && !simpleResource(line, i + 1)) || (next === "[" && !/^\[[^[\]\\`\n]*\]/.test(line.slice(i + 1))))) return { spans, paired: false };
     else i++;
   }
   return { spans, paired: true };
+}
+
+/**
+ * For each index of `line`, 1 where a footnote label's characters from there reach a backtick: escapes, and anything
+ * but a space or `]`. Worked out once for the line, from its end: testing the rest of the line at each `[^` was
+ * quadratic.
+ */
+function labelTicks(line: string): Uint8Array {
+  const ticks = new Uint8Array(line.length + 2);
+  for (let i = line.length - 1; i >= 0; i--) {
+    const char = line[i];
+    if (char === "`") ticks[i] = 1;
+    else if (char === "\\") ticks[i] = i + 1 < line.length && !/[\n\r\u2028\u2029]/.test(line[i + 1]) ? ticks[i + 2] : 0;
+    else ticks[i] = /[\s\]]/.test(char) ? 0 : ticks[i + 1];
+  }
+  return ticks;
 }
 
 /** A table row's cells, as GFM splits it before it reads their code: at each pipe but `\|`, with `\\` an escape too. */

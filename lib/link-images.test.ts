@@ -161,6 +161,13 @@ test("a backtick in a footnote reference's label pairs with nothing", () => {
   expect(linkImages("See [^1] and `<img src={logo} />`.\n\n[^1]: n")).toBe("See [^1] and `<img src={logo} />`.\n\n[^1]: n");
 });
 
+// Each `[^` tested the rest of its line for a backtick, so a line of them was quadratic: 60 KB took 5 s (bug bash SEC-3).
+test("a long line of footnote openers is read in linear time", () => {
+  const started = performance.now();
+  linkImages("<b>[^".repeat(12_000));
+  expect(performance.now() - started).toBeLessThan(250);
+}, 60_000);
+
 // An ordered item can interrupt a paragraph only from 1, and an empty one none, so after "a" an "01." line goes on
 // with it, and BB read the "fence" in it as text with raw HTML (96-fixes-4).
 test("a list item that can't interrupt a paragraph, or indented code, begins no fence", () => {
