@@ -88,3 +88,12 @@ test("review work done while the update is checked cancels the automatic update"
   await tick;
   expect(apply).not.toHaveBeenCalled();
 });
+
+test("during an update, work is refused with words that fit a terminal or an agent as well as the panel", async () => {
+  const { updates, check } = setup(); let finish!: (result: any) => void;
+  check.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const applying = updates.apply("settings", "new");
+  await expect(updates.run(async () => 1)).rejects.toThrow(/^Guided Review is updating\. Try again in a moment\.$/);
+  finish([{ id: "guided-review", outcome: "current", installed: { display: "0.2.0", version: "old" } }]);
+  await applying.catch(() => {});
+});

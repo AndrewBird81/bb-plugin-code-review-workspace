@@ -33,7 +33,7 @@ export function createPluginUpdates(bb: BbPluginApi, backgroundBusy: () => boole
   // text. A lost close signal delays automatic updates until the plugin restarts.
   const views = new Set<string>();
   const status = (): ReleaseStatus => ({ ...current, automatic: !!read().automatic });
-  function assertAvailable() { if (current.updating) throw new Error("Guided Review is updating. Reopen the panel in a moment."); }
+  function assertAvailable() { if (current.updating) throw new Error("Guided Review is updating. Try again in a moment."); }
   function idleReason(clientId?: string) {
     if (work || backgroundBusy()) return "Wait for review work to finish before updating.";
     if ([...views].some(id => id !== clientId)) return "Close other Guided Review pages before updating. Their unsaved edits are protected.";
