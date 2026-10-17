@@ -570,7 +570,8 @@ export default async function plugin(bb: BbPluginApi) {
     },
     async rereview({ targetKey }) {
       await sync.one(targetKey, true);
-      if (store.getReview(targetKey)?.archivedAt) return { ok: false, error: "This PR is archived. Its guide and conversation are still available." };
+      // An archived PR keeps the guide it has; one whose first guide stopped or failed can still build it.
+      if (store.getReview(targetKey)?.archivedAt && store.getGuide(targetKey)) return { ok: false, error: "This PR is archived. Its guide and conversation are still available." };
       // Reading the PR may have started an automatic rebuild already.
       if (store.getReview(targetKey)?.status === "generating") return { ok: true };
       return rerunReview(deps, targetKey);

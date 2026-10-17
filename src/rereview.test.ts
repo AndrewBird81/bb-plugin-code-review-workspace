@@ -18,6 +18,8 @@ import { createStore } from "./store";
 import { rerunReview } from "./rereview";
 import { defaultPreferences } from "./preferences";
 import * as gh from "./gh";
+import plugin from "../server";
+import { GUIDE_STOPPED } from "../lib/review-state";
 
 function host() {
   return createFakePluginHost({
@@ -145,4 +147,33 @@ test("a PR that can't be read says Couldn't, keeping the review as it was", asyn
   vi.mocked(gh.runGh).mockRejectedValueOnce("gh vanished");
   expect(await rerunReview({ bb, store, gh }, "pr-7")).toEqual({ ok: false, error: "Couldn't load the PR." });
   expect(store.getReview("pr-7")).toMatchObject({ status: "ready", headSha: "oldsha" });
+});
+
+// bug bash LIV-1: a merged PR is archived seconds after it starts, and Rebuild refused every archived review, so a first
+// guide that stopped or failed could never be built: its Build the guide and Try again always said the PR is archived.
+test.each([
+  ["stopped", GUIDE_STOPPED],
+  ["failed", "The guide writer stopped before it submitted a guide."],
+])("Build the guide or Try again on a merged PR whose first guide %s builds it; one with a guide stays as it is", async (_how, text) => {
+  const pr = { title: "Launch it", author: { login: "octo" }, baseRefName: "main", headRefName: "feat", url: "https://github.com/acme/web/pull/1", headRefOid: "abc123", state: "MERGED" };
+  const diff = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
+  // The PR's view and diff read; the sync's reads fail, so the review keeps the state it was seeded with.
+  vi.mocked(gh.runGh).mockImplementation(async (args: string[]) => args[0] === "pr" && args[1] === "view" ? { stdout: JSON.stringify(pr), stderr: "", code: 0 }
+    : args[0] === "pr" && args[1] === "diff" ? { stdout: diff, stderr: "", code: 0 } : { stdout: "", stderr: "offline", code: 1 });
+  try {
+    const { bb, harness } = host();
+    await plugin(bb);
+    const store = createStore(bb);
+    store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", title: "Launch it", status: "error", createdAt: 1, projectId: "proj", headSha: "abc123", gitRef: "main...feat", base: "main", head: "feat" });
+    store.savePatch("pr-1", diff);
+    store.setLifecycle("pr-1", { prState: "MERGED", archivedAt: Date.now(), guideError: { at: Date.now(), text } });
+    expect(await harness.behavior.callRpc("rereview", { targetKey: "pr-1" })).toEqual({ ok: true });
+    expect(harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title)).toEqual(["Generate guide: pr-1"]);
+
+    await vi.waitFor(() => expect(store.getReview("pr-1")?.status).not.toBe("generating"));
+    store.saveGuide("pr-1", { title: "Launch it", intent: "Launch", sections: [], unplacedFiles: [] } as any);
+    expect(await harness.behavior.callRpc("rereview", { targetKey: "pr-1" })).toEqual({ ok: false, error: "This PR is archived. Its guide and conversation are still available." });
+  } finally {
+    vi.mocked(gh.runGh).mockReset();
+  }
 });
