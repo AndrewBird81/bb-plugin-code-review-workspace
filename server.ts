@@ -592,7 +592,8 @@ export default async function plugin(bb: BbPluginApi) {
         bb.log.warn(`Could not list the guide writers of ${targetKey}: ${String(error)}`);
         return [];
       });
-      const threadIds = new Set([store.getAssistantThread(targetKey), store.getAgentThread(targetKey), store.generationWorker(targetKey), ...writers]);
+      const writerIds = new Set([store.generationWorker(targetKey), ...writers]);
+      const threadIds = new Set([store.getAssistantThread(targetKey), store.getAgentThread(targetKey), ...writerIds]);
       store.deleteReview(targetKey);
       // Discovery won't add a PR you deleted back to the list; starting it again does.
       if (review.kind === "pr") store.ignoreDiscovery(targetKey);
@@ -601,10 +602,15 @@ export default async function plugin(bb: BbPluginApi) {
       await notifications.forget(targetKey).catch(() => {});
       for (const threadId of threadIds) {
         if (!threadId) continue;
-        await bb.sdk.threads.stop({ threadId }).catch(() => {});
+        // A thread a failed stop or delete may leave running is kept to this review, as a replaced agent is.
+        let left = false;
+        await bb.sdk.threads.stop({ threadId }).catch((error) => { left ||= !isMissingThread(error); });
         await bb.sdk.threads.delete({ threadId, childThreadsConfirmed: false }).catch((error) => {
-          if (!isMissingThread(error)) bb.log.warn(`Could not delete review thread ${threadId}: ${String(error)}`);
+          if (isMissingThread(error)) return;
+          left = true;
+          bb.log.warn(`Could not delete review thread ${threadId}: ${String(error)}`);
         });
+        if (left) await recordFormerWorker(bb, threadId, targetKey, writerIds.has(threadId) ? "writer" : "assistant");
       }
       return { ok: true };
     },

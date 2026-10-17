@@ -2,6 +2,7 @@ import { test, expect } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
+import { formerWorkerReview } from "./former-workers";
 
 interface ListedThread { id: string; title: string; originPluginId: string; archivedAt: number | null }
 type ListArgs = { archived?: boolean; originPluginId?: string; limit?: number; offset?: number };
@@ -81,6 +82,22 @@ test("a missing worker thread doesn't block deleting the review", async () => {
   expect(await harness.behavior.callRpc("deleteReview", { targetKey: "pr-1" })).toEqual({ ok: true });
   expect(store.getReview("pr-1")).toBeNull();
   expect(harness.inspection.logEntries.filter((entry) => entry.level === "warn")).toEqual([]);
+});
+
+// A thread whose delete failed for another reason survived unrecorded, so it ran as an ordinary thread on any review
+// (80-fixes, 70-review-correctness #2's second half).
+test("a review thread that a delete leaves behind is kept to the deleted review; a missing or deleted one isn't recorded", async () => {
+  const { bb, harness } = await setup();
+  harness.inspection.sdk.stub("threads.delete", async ({ threadId }: { threadId: string }) => {
+    if (threadId === "assistant-pr-1") throw new Error("HTTP 500: Internal error");
+    if (threadId === "worker-pr-1") throw new Error("HTTP 404: Thread not found");
+    return { ok: true };
+  });
+  expect(await harness.behavior.callRpc("deleteReview", { targetKey: "pr-1" })).toEqual({ ok: true });
+  expect([await formerWorkerReview(bb, "assistant-pr-1"), await formerWorkerReview(bb, "worker-pr-1")]).toEqual(["pr-1", null]);
+  expect(await harness.behavior.runCli(["summary", "pr-2", "--body", "injected"], { threadId: "assistant-pr-1", projectId: "p1" })).toMatchObject({ exitCode: 2, stderr: expect.stringContaining("only its own review") });
+  expect(await harness.behavior.callRpc("deleteReview", { targetKey: "pr-2" })).toEqual({ ok: true });
+  expect([await formerWorkerReview(bb, "assistant-pr-2"), await formerWorkerReview(bb, "worker-pr-2")]).toEqual([null, null]);
 });
 
 test("a review can't be deleted while its guide is generating or an answer is in progress", async () => {
