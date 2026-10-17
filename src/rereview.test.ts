@@ -16,6 +16,8 @@ vi.mock("./gh", async (orig) => {
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "./store";
 import { rerunReview } from "./rereview";
+import { runReviewCommand } from "./review-command";
+import { targetKey } from "./targets";
 import { defaultPreferences } from "./preferences";
 import * as gh from "./gh";
 import plugin from "../server";
@@ -173,6 +175,42 @@ test.each([
     await vi.waitFor(() => expect(store.getReview("pr-1")?.status).not.toBe("generating"));
     store.saveGuide("pr-1", { title: "Launch it", intent: "Launch", sections: [], unplacedFiles: [] } as any);
     expect(await harness.behavior.callRpc("rereview", { targetKey: "pr-1" })).toEqual({ ok: false, error: "This PR is archived. Its guide and conversation are still available." });
+  } finally {
+    vi.mocked(gh.runGh).mockReset();
+  }
+});
+
+// bug bash CLI-4: bb review on a PR while its Update guide still read GitHub started a writer, and the update then
+// started a second one for the same review, whose guide was refused.
+test("bb review during an update's PR read leaves one guide writer building the review", async () => {
+  let release: (() => void) | null = null;
+  let hold = true;
+  const view = { number: 7, headRefOid: "sha2", title: "Fix", body: "", author: { login: "a" }, baseRefName: "main", headRefName: "f", url: "https://github.com/acme/web/pull/7", state: "OPEN" };
+  vi.mocked(gh.runGh).mockImplementation(async (args: string[]) => {
+    if (args[1] === "view") {
+      // The first read, Update guide's, waits on GitHub.
+      if (hold) { hold = false; await new Promise<void>((resolve) => { release = resolve; }); }
+      return { code: 0, stderr: "", stdout: JSON.stringify(view) };
+    }
+    return args[1] === "diff" ? { code: 0, stderr: "", stdout: "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+m\n" } : { code: 0, stderr: "", stdout: "" };
+  });
+  try {
+    const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
+    let spawned = 0;
+    const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: `writer-${++spawned}` }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}) } } as any });
+    const store = createStore(bb);
+    store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+    store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+n\n");
+    store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
+    const update = rerunReview({ bb, store, gh }, key);
+    await vi.waitFor(() => expect(release).not.toBeNull());
+    // Meanwhile an agent runs bb review on the same PR: it reads GitHub, sees a ready guide behind the PR, and rebuilds.
+    expect((await runReviewCommand({ bb, store, gh }, ["https://github.com/acme/web/pull/7"], { projectId: "p1" })).stdout).toContain("Guided Review started for");
+    await vi.waitFor(() => expect(spawned).toBe(1));
+    release!();
+    expect(await update).toEqual({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(spawned).toBe(1);
   } finally {
     vi.mocked(gh.runGh).mockReset();
   }

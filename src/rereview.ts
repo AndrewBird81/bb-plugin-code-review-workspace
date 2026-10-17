@@ -64,6 +64,8 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
   if (!patch.trim()) return { ok: false, error: "No changes found." };
   // The review may have been deleted while GitHub answered; don't bring it back.
   if (!deps.store.getReview(targetKey)) return { ok: false, error: "This review was deleted." };
+  // A guide started while GitHub or git answered, as by bb review, is building this review already: one writer, not two.
+  if (deps.store.getReview(targetKey)?.status === "generating") return { ok: true };
   rebuildReview(deps, { ...m, projectId: m.projectId }, patch, options);
   return { ok: true };
 }
