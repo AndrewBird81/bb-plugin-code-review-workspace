@@ -336,6 +336,22 @@ test("a failed POST keeps the draft when GitHub has no review from it: not an ea
   expect(store.getDraft("pr-test")).toEqual(draft);
 });
 
+// bug bash DFT-5: a review with the same verdict and summary, submitted from here a moment before, matched a failed POST.
+test("a failed POST isn't taken for the review submitted from here a moment before, and keeps the draft", async () => {
+  const { store, page } = setup();
+  const draft = store.getDraft("pr-test");
+  store.setLifecycle("pr-test", { submittedVerdict: "COMMENT", submittedAt: Date.now() - 20_000, submittedHeadSha: "sha1", submittedReviewId: "R_0" });
+  const first = { id: 0, node_id: "R_0", user: { login: "me" }, commit_id: "sha1", body: "My summary", state: "COMMENTED", submitted_at: new Date(Date.now() - 20_000).toISOString() };
+  const refused = github(store, { create: false, result: badGateway }, [first]);
+  expect(await refused.submit("pr-test", undefined, "me", ...page())).toEqual({ ok: false, error: "HTTP 502: Bad Gateway (https://api.github.com/repos/acme/web/pulls/7/reviews)" });
+  expect(store.getDraft("pr-test")).toEqual(draft);
+  // One GitHub did create is still found, past the earlier one.
+  const created = github(store, { create: true, result: badGateway }, [first]);
+  expect(await created.submit("pr-test", undefined, "me", ...page())).toEqual({ ok: true, url: "https://github.com/acme/web/pull/7#pullrequestreview-1" });
+  expect(store.getReview("pr-test")).toMatchObject({ submittedReviewId: "R_1" });
+  expect(store.getDraft("pr-test").comments).toEqual([]);
+});
+
 test("when GitHub can't say whether a failed POST landed, Submit says to look at the PR first", async () => {
   const { store, page } = setup();
   const gh = github(store, { create: false, result: timedOut });
