@@ -40,8 +40,9 @@ export interface SyncHealth {
   /**
    * auth: gh isn't signed in or its token was refused. rate-limit: reading waits until retryAt.
    * partial: `count` PRs couldn't be read. teams: your teams couldn't be read, so team requests may be missing.
+   * gh-missing: gh couldn't start on the BB server.
    */
-  error: { kind: "auth" | "rate-limit" | "partial" | "teams" | "other"; at: number; count?: number; retryAt?: number } | null;
+  error: { kind: "auth" | "rate-limit" | "partial" | "teams" | "gh-missing" | "other"; at: number; count?: number; retryAt?: number } | null;
 }
 
 /** What the plugin does when a review's turn changes. Each returns whether work started. */
@@ -79,6 +80,8 @@ const RETRY_PREPARE = 10 * MINUTE;
 const RATE_LIMIT_WAIT = 15 * MINUTE;
 /** What gh or GitHub says when gh isn't signed in or its token was refused. */
 const AUTH_FAILED = /gh auth login|HTTP 401|Bad credentials/i;
+/** What runGh says when gh can't be spawned, as when it isn't installed (src/gh.ts). */
+const GH_MISSING = /\bgh could not start\b/;
 /** Turns that prepare their re-review ahead of time. */
 const PREPARE = new Set<TurnReason>(["re-requested", "handled", "looks-ready", "dismissed"]);
 
@@ -104,6 +107,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
   const readFailed = (error: unknown) => {
     // The login stays cached for an hour, so a revoked token shows first in the reads.
     if (AUTH_FAILED.test(String(error))) return failed("auth");
+    if (GH_MISSING.test(String(error))) return failed("gh-missing");
     if (!/rate.?limit/i.test(String(error))) return failed("other");
     waitUntil = clock() + RATE_LIMIT_WAIT;
     failed("rate-limit", { retryAt: waitUntil });
@@ -112,7 +116,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
   /** Who you are on GitHub; null, recording why, when gh can't say. */
   async function viewerLogin(): Promise<string | null> {
     const login = await github.viewer.login();
-    if (!login) failed(AUTH_FAILED.test(github.viewer.errors?.().login ?? "") ? "auth" : "other");
+    const why = github.viewer.errors?.().login ?? "";
+    if (!login) failed(AUTH_FAILED.test(why) ? "auth" : GH_MISSING.test(why) ? "gh-missing" : "other");
     return login;
   }
   bb.onDispose(() => { disposed = true; });
@@ -185,7 +190,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       }
       const missing = reviews.filter((r) => !facts.has(r.targetKey)).length;
       const teamsFailed = store.getPreferences().preferences.trackTeamRequests && !!github.viewer.errors?.().teams;
-      // Any good read shows GitHub answers again; only a pass says whether every PR and your teams could be read.
+      // Any good read shows gh runs and GitHub answers again; only a pass says whether every PR and your teams could be read.
       const kept = pass ? null : health.error?.kind === "partial" || health.error?.kind === "teams" ? health.error : null;
       health = { lastReadAt: clock(), error: kept };
       if (!kept && missing) failed("partial", { count: missing });
@@ -415,7 +420,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     const found = await github.discover({ reviewed: knobs.trackReviewedPrs, teams: trackTeamRequests });
     // With nothing to read, as in an empty list, only this look shows GitHub answers again. It says nothing of PRs or teams.
     const error = health.error;
-    if (error && error.at < since && (error.kind === "auth" || error.kind === "rate-limit" || error.kind === "other")) health = { ...health, error: null };
+    if (error && error.at < since && (error.kind === "auth" || error.kind === "rate-limit" || error.kind === "gh-missing" || error.kind === "other")) health = { ...health, error: null };
     const projectId = await actions.projectId();
     if (!projectId || disposed) return;
     const first = (await bb.storage.kv.get<{ login: string }>(DISCOVERED))?.login !== login;

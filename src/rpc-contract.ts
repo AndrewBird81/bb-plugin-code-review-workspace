@@ -33,7 +33,7 @@ const commentShape = z
 const location = { file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]) };
 const syncHealth = z.object({
   lastReadAt: z.number().nullable(),
-  error: z.object({ kind: z.enum(["auth", "rate-limit", "partial", "teams", "other"]), at: z.number(), count: z.number().optional(), retryAt: z.number().optional() }).nullable(),
+  error: z.object({ kind: z.enum(["auth", "rate-limit", "partial", "teams", "gh-missing", "other"]), at: z.number(), count: z.number().optional(), retryAt: z.number().optional() }).nullable(),
 });
 const discussion = z.object({
   ...location,

@@ -92,6 +92,7 @@ function syncProblem(health: SyncHealth | undefined): string | null {
     : error.kind === "rate-limit" ? `GitHub’s rate limit was reached. Reading again ${error.retryAt && error.retryAt > Date.now() ? `in ${Math.ceil((error.retryAt - Date.now()) / 60_000)}m` : "soon"}.`
     : error.kind === "partial" ? `Couldn’t read ${error.count === 1 ? "1 pull request" : `${error.count} pull requests`}.`
     : error.kind === "teams" ? "Couldn’t read your teams, so team requests may be missing. Run gh auth refresh -s read:org on the BB server."
+    : error.kind === "gh-missing" ? "GitHub CLI isn’t on the BB server."
     : "Couldn’t reach GitHub.";
   const read = timeAgo(health?.lastReadAt);
   return `${read ? `GitHub last read ${read}` : "GitHub hasn’t been read yet"}: ${detail}`;

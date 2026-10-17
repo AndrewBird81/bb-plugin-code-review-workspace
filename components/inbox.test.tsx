@@ -180,6 +180,13 @@ test("the sync's problems show above the list, saying when GitHub was last read"
   slot.lifecycle.unmount();
 });
 
+// gh missing on the BB server isn't GitHub being unreachable (bug bash PRF-4).
+test("the sync says when GitHub CLI isn't on the BB server", async () => {
+  const { slot } = await inbox([], { listReviews: () => ({ reviews: [], sync: { lastReadAt: null, error: { kind: "gh-missing", at: now } } }) });
+  expect((await slot.findByText(/^GitHub hasn’t been read/)).textContent).toBe("GitHub hasn’t been read yet: GitHub CLI isn’t on the BB server.");
+  slot.lifecycle.unmount();
+});
+
 test("focusing the window runs a normal pass; only Refresh forces a full read", async () => {
   const { slot } = await inbox([{ targetKey: "a", title: "A change", status: "ready" }], { refreshReviews: () => ({ reviews: [{ targetKey: "a", title: "A change", status: "ready" }] }) });
   const refreshes = () => slot.inspection.rpcCalls.filter((call) => call.method === "refreshReviews").map((call) => call.input);

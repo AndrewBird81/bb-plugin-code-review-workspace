@@ -826,6 +826,23 @@ test("sync health: an expired gh login, then a good read", async () => {
   expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.1 * HOUR, error: null });
 });
 
+// runGh's answer when the gh binary can't be spawned (bug bash PRF-4).
+test("sync health: gh missing on the BB server reads as such, not as GitHub unreachable", async () => {
+  const s = setup();
+  s.github.viewer.login = async () => null;
+  s.github.viewer.errors = () => ({ login: "gh could not start: spawn gh ENOENT", teams: null });
+  await s.sync.all();
+  expect(s.sync.health()).toEqual({ lastReadAt: null, error: { kind: "gh-missing", at: T0 } });
+  s.github.viewer.login = async () => "me";
+  vi.mocked(s.github.facts).mockRejectedValueOnce(new Error("Could not read PR facts: gh could not start: spawn gh ENOENT"));
+  s.at(0.1);
+  await s.sync.all(true);
+  expect(s.sync.health().error).toMatchObject({ kind: "gh-missing" });
+  s.at(0.2);
+  await s.sync.all(true);
+  expect(s.sync.health()).toEqual({ lastReadAt: T0 + 0.2 * HOUR, error: null });
+});
+
 test("sync health: a token GitHub refuses reads as signed out, while the login is still cached", async () => {
   const s = setup();
   vi.mocked(s.github.facts).mockRejectedValueOnce(new Error("Bad credentials: gh: Bad credentials (HTTP 401)"));
