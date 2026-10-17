@@ -115,9 +115,16 @@ export default async function plugin(bb: BbPluginApi) {
   for (const { targetKey, workerId } of interrupted) if (workerId) void recordFormerWorker(bb, workerId, targetKey, "writer");
   void (async () => {
     for (const { targetKey, workerId } of interrupted) {
-      if (workerId) {
-        await bb.sdk.threads.archive({ threadId: workerId }).catch(() => {});
-        await bb.sdk.threads.stop({ threadId: workerId }).catch(() => {});
+      // A writer whose spawn the reload interrupted has no recorded id, so it's found by its exact title, before the
+      // restart spawns another, and kept to its review too. One a generation since records is that generation's.
+      const unrecorded = (await pluginThreadsTitled(bb, `${GUIDE_WORKER_TITLE}${targetKey}`).catch((error) => {
+        bb.log.warn(`Could not list the guide writers of ${targetKey}: ${String(error)}`);
+        return [];
+      })).filter((threadId) => threadId !== workerId && !store.generationOf(threadId));
+      for (const threadId of unrecorded) await recordFormerWorker(bb, threadId, targetKey, "writer");
+      for (const threadId of [...(workerId ? [workerId] : []), ...unrecorded]) {
+        await bb.sdk.threads.archive({ threadId }).catch(() => {});
+        await bb.sdk.threads.stop({ threadId }).catch(() => {});
       }
       await restartInterruptedGuide(deps, targetKey);
     }

@@ -4,6 +4,7 @@ import plugin from "../server";
 import { createStore } from "./store";
 import { generateGuide } from "./generate";
 import { defaultPreferences } from "./preferences";
+import { formerWorkerReview } from "./former-workers";
 
 vi.mock("./gh", async (original) => ({
   ...await original<typeof import("./gh")>(),
@@ -111,4 +112,32 @@ test("an interrupted guide whose machine stays offline past 10 minutes isn't tri
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
   expect(store.getReview("pr-1")).toMatchObject({ status: "error", headSha: "sha1" });
   expect(harness.inspection.logEntries.some((entry: any) => String(entry.message).includes("stays failed"))).toBe(true);
+});
+
+// bug bash AGT-13: a writer whose spawn was still in flight at the reload has no recorded id, so it ran on, hidden, and to
+// bb review it was an ordinary thread of yours.
+test("after a reload, a writer whose spawn it interrupted is found by its title, kept to its review, and stopped", async () => {
+  const first = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: () => new Promise(() => {}), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
+  } } as any });
+  const before = createStore(first.bb);
+  before.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  before.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
+  before.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+a2\n");
+  void generateGuide(first.bb, before, "pr-1", "p1");
+  await vi.waitFor(() => expect(first.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
+  const next = await first.harness.lifecycle.reload(async () => {});
+  const order: string[] = [];
+  const thread = (id: string, title: string) => ({ id, title, originPluginId: "guided-review" });
+  next.harness.inspection.sdk.stub("threads.list", (async ({ archived }: { archived?: boolean }) => archived ? []
+    : [thread("orphan", "Generate guide: pr-1"), thread("other", "Generate guide: pr-2"), thread("assistant", "Review agent: pr-1")]) as any);
+  next.harness.inspection.sdk.stub("threads.spawn", async () => { order.push("spawn"); return { id: "new-worker" }; });
+  next.harness.inspection.sdk.stub("threads.wait", () => new Promise(() => {}));
+  next.harness.inspection.sdk.stub("threads.archive", async ({ threadId }: { threadId: string }) => { order.push(`archive ${threadId}`); return {}; });
+  next.harness.inspection.sdk.stub("threads.stop", async ({ threadId }: { threadId: string }) => { order.push(`stop ${threadId}`); return {}; });
+  await plugin(next.bb);
+  await vi.waitFor(() => expect(order).toContain("spawn"));
+  expect(order.slice(0, 3)).toEqual(["archive orphan", "stop orphan", "spawn"]);
+  expect(await formerWorkerReview(next.bb, "orphan")).toBe("pr-1");
+  expect(await formerWorkerReview(next.bb, "other")).toBeNull();
 });
