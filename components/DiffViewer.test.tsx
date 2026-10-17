@@ -5,10 +5,10 @@ import { render, screen, fireEvent, cleanup, within } from "@testing-library/rea
 // Render only our chrome and annotations, not @pierre/diffs' internals. Like
 // pierre, the gutter "+" reports a line selection right after its own click.
 vi.mock("@pierre/diffs/react", () => ({
-  FileDiff: ({ options, lineAnnotations, renderAnnotation }: any) => {
+  FileDiff: ({ fileDiff, options, lineAnnotations, renderAnnotation }: any) => {
     const range = { start: 2, end: 2, side: "additions" };
     return (
-      <div data-testid="filediff">
+      <div data-testid="filediff" data-new-lines={fileDiff.additionLines.length}>
         {lineAnnotations?.map((annotation: any, index: number) => <div key={index}>{renderAnnotation?.(annotation)}</div>)}
         <button onClick={() => { options.onGutterUtilityClick(range); options.onLineSelected(range); }}>Gutter +</button>
         <button onClick={() => options.onLineSelected(range)}>Line number</button>
@@ -241,4 +241,13 @@ test("a file whose path holds a bidirectional control warns", () => {
   const path = "src/\u202Ests.ts";
   const { container } = render(<DiffViewer patch={`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+b\n`} files={[path]} views={new Map<string, FileViewFlags>()} onToggleViewed={() => {}} />);
   expect(fileCard(container, path).getByText(bidiWarning)).toBeTruthy();
+});
+
+// bug bash FUZ-3: with git's diff.suppressBlankEmpty a blank context line comes as "", which pierre skipped, so the
+// lines after it drew one number short of where comments are saved.
+test("a blank context line git wrote as \"\" is drawn, so the lines after it keep their numbers", () => {
+  const blank = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,4 +1,4 @@\n a\n\n-b\n+B\n c\n";
+  render(<DiffViewer patch={blank} files={["f"]} views={new Map<string, FileViewFlags>()} onToggleViewed={() => {}} />);
+  // a, the blank line, B and c.
+  expect(screen.getByTestId("filediff").dataset.newLines).toBe("4");
 });

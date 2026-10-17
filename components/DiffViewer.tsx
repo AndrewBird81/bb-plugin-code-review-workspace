@@ -19,6 +19,7 @@ import { useKnob } from "../lib/settings";
 import { testWeakening, weakeningChip, WEAKENING_COUNTED } from "../lib/test-weakening";
 import { lockfileDigest, packagesChange } from "../lib/lockfile-digest";
 import { hasHiddenBidi } from "../lib/hidden-bidi";
+import { withBlankContext } from "../lib/blank-context";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { Badge } from "./ui/badge";
@@ -165,7 +166,7 @@ export function sinceReviewCSS(newLines: number[], newDeletions: number[]): stri
 }
 
 function parseFileDiff(text: string): FileDiffMetadata | null {
-  return parsePatchFiles(text).flatMap((p) => p.files)[0] ?? null;
+  return parsePatchFiles(withBlankContext(text)).flatMap((p) => p.files)[0] ?? null;
 }
 
 /** Whether GitHub takes a comment at a line: only lines the diff shows. */
@@ -521,7 +522,7 @@ export const DiffViewer = memo(function DiffViewer({
       if (!source || typeof loaded !== "object" || !loaded.ok) continue;
       const cached = fullDiffs.current.get(path);
       if (cached?.text === shown && cached.loaded === loaded) { next.set(path, cached); continue; }
-      const fileDiff = processFile(shown, { oldFile: { name: source.oldPath ?? path, contents: loaded.old ?? "" }, newFile: { name: path, contents: loaded.new ?? "" } });
+      const fileDiff = processFile(withBlankContext(shown), { oldFile: { name: source.oldPath ?? path, contents: loaded.old ?? "" }, newFile: { name: path, contents: loaded.new ?? "" } });
       if (fileDiff) next.set(path, { text: shown, loaded, fileDiff, commentable: diffLines(source.text) });
     }
     fullDiffs.current = next;
