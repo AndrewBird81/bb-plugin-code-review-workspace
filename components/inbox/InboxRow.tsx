@@ -35,17 +35,21 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   const rowRef = useRef<HTMLDivElement>(null);
   /**
    * Once an action moves the review to another section, the focus that was on the row goes to the next row in its
-   * section, or the previous one if it was the last, or else the section's header, rather than to the page.
+   * section, or the previous one if it was the last, or else the section's header, rather than to the page. `from` is
+   * where the action was pressed: a choice in the row's Snooze or ⋯ menu is portaled out of the row, and keeps the focus
+   * while the menu closes, or drops it to the page once the menu is gone.
    */
-  function keepFocus() {
+  function keepFocus(from: Element | null) {
     const row = rowRef.current;
-    if (!row?.contains(document.activeElement)) return;
+    const active = document.activeElement;
+    const dropped = !active || active === document.body;
+    if (!row || !(row.contains(active) || (from && (active === from || (dropped && !from.isConnected))))) return;
     const section = row.closest("section");
     const rows = Array.from(section?.querySelectorAll<HTMLElement>("[data-row]") ?? []);
     const at = rows.findIndex((candidate) => row.contains(candidate));
     (rows[at + 1] ?? rows[at - 1] ?? section?.querySelector<HTMLElement>("h2 button"))?.focus();
   }
-  const moving = async (action: Promise<boolean>) => { if (await action) keepFocus(); };
+  const moving = async (action: Promise<boolean>) => { const from = document.activeElement; if (await action) keepFocus(from); };
   const title = review.title ?? review.gitRef ?? review.targetKey;
   const where = review.repo ? `${review.repo}${review.number ? ` #${review.number}` : ""}` : review.gitRef && review.title ? review.gitRef : null;
   const when = age(turn.group === "needs" ? turn.at ?? review.createdAt : lastActivity(review));

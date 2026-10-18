@@ -70,8 +70,8 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   /** Listed after Open on GitHub, such as Keyboard shortcuts. */
   trailing?: ReviewMenuItem[];
   onChanged?: () => void;
-  /** After Snooze, Back to Needs review, Archive or Unarchive, which move the review to another section. */
-  onMoved?: () => void;
+  /** After Snooze, Back to Needs review, Archive or Unarchive, which move the review to another section; `from` had the focus. */
+  onMoved?: (from: Element | null) => void;
   onDeleted?: () => void;
   /** Id of the element naming this review, for screen readers. */
   describedBy?: string;
@@ -106,7 +106,7 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
     open(false);
     void action();
   };
-  const moving = async (action: Promise<boolean>) => { if (await action) onMoved?.(); };
+  const moving = async (action: Promise<boolean>) => { const from = document.activeElement; if (await action) onMoved?.(from); };
   // Switching between the menu and its Snooze choices keeps the focus in the menu: on the first choice, or back on Snooze.
   const switched = useRef(false);
   useEffect(() => {

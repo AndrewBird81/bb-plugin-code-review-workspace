@@ -478,3 +478,33 @@ test("archiving a row from the keyboard moves the focus to the next row, or the 
   expect(document.activeElement).toBe(first);
   slot.lifecycle.unmount();
 });
+
+// bug bash verification 72-2: a choice in a row's ⋯ menu or Snooze is portaled out of the row, and once the menu closed the
+// focus was on the page, or still on the closing menu's choice, not in the row, so it stayed there when the row moved.
+test("archiving or snoozing a row from its ⋯ menu or Snooze choices moves the focus to the next row", async () => {
+  let reviews = ["A", "B", "C"].map((name) => ({ targetKey: name, kind: "pr", repo: "acme/app", number: 1, title: `Change ${name}`, status: "ready", prState: "OPEN",
+    userArchivedAt: null as number | null, turn: turn("needs", "requested", "Review requested") as Turn }));
+  const { slot, header } = await inbox(reviews, {
+    listReviews: () => ({ reviews }),
+    archiveReview: ({ targetKey, archived }: any) => { reviews = reviews.map((r) => r.targetKey === targetKey ? { ...r, userArchivedAt: archived ? 5 : null, turn: turn("archive", "archived", "Archived") } : r); return { ok: true }; },
+    snoozeReview: ({ targetKey }: any) => { reviews = reviews.map((r) => r.targetKey === targetKey ? { ...r, turn: turn("waiting", "snoozed", "Snoozed") } : r); return { ok: true }; },
+  });
+  await slot.findByText("Change C");
+  const section = header("Needs review").closest("section")!;
+  const rowButtons = () => Array.from(section.querySelectorAll<HTMLElement>("[data-row]"));
+  const pickFrom = async (row: HTMLElement, trigger: string, choice: RegExp) => {
+    const opener = within(row.closest(".group\\/row") as HTMLElement).getByRole("button", { name: trigger });
+    fireEvent.click(opener);
+    const menu = await waitFor(() => document.getElementById(opener.getAttribute("aria-controls")!)!);
+    const item = within(menu).getByRole("button", { name: choice });
+    item.focus();
+    fireEvent.click(item);
+    await waitFor(() => expect(rowButtons()).not.toContain(row));
+  };
+  const [first, middle, last] = rowButtons();
+  await pickFrom(middle!, "Review actions", /^Archive$/);
+  expect(document.activeElement).toBe(last);
+  await pickFrom(last!, "Snooze", /^Tomorrow/);
+  expect(document.activeElement).toBe(first);
+  slot.lifecycle.unmount();
+});
