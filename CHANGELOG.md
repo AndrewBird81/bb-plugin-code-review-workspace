@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.8.2 — 2026-10-17
+
+Fixes only, from a bug bash of 0.8.1. Text someone else wrote can no longer load an image, freeze the page, or stall the plugin's server; draft comments stay on their own code through a guide update, and leave the draft once they're submitted; an automatic review that couldn't start, or that waits for your click, says why; and the keyboard focus stays put through Submit, a comment's actions, and All reviews' quick actions. Nothing new to turn on or off, and every switch means what it did. Guided Review still needs **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+, and installs at `^0.8.0`, which updates to 0.8.2.
+
+### Untrusted text
+
+- Images in other people's comments and the agents' words show as links after a fence line holding U+2028 and a backtick, after a byte order mark, inside a `<scheme: …>` BB can't read as a link, and in a reference image's label.
+- A comment of nested or unclosed `![` openers, or a long line of footnote openers, opens at once rather than freezing the tab. An image inside an image's alt shows as its words.
+- A CODEOWNERS rule of many stars, or a long `applyTo` line in the base's instructions, no longer stalls the plugin's server.
+- A lockfile names a new download host written with JSON, YAML, or TOML escapes, in a one-line entry, or before `?@` or `#@`.
+- A `**/` rule in `.gitattributes` or an `applyTo` matches as git does: `types.ts linguist-generated` no longer folds `src/user-types.ts`.
+- A changed path holding a line break, U+2028, U+2029, DEL, or a C1 control is quoted wherever the agents read it, and a pure copy is listed under the path it was copied to.
+- Diff lines quoted to the agent, from a discussion or your selection, and a failing check's name in Ask agent sit inside fences their text can't close.
+- A local review refuses a range whose right side reads as an option, as it did its left.
+
+### Agents and trust
+
+- `bb review --context` reaches the agents fenced as untrusted context from the thread that started the review, not in your voice, and a review's own agent can't set or remove it. The command says when the automatic review won't run, on a merged or closed PR and after your review too, that the context goes with **Run review** on a guide waiting for it, and that the assistant can still read it.
+- With **Start agents on their own** off, `bb review` from one of your threads counts as your click only on your own PR.
+- An automatic review that couldn't start, as with its agent's machine offline, says so and why ("Not run automatically: it couldn’t start (…)"), with **Run review** to try again; one that would have waited for your click anyway says that instead.
+- **Run review** on a review whose conversation is under way sends the automatic review there. With the automatic review off or the PR merged or closed, Run review, and with the re-review check off, Run check, say why nothing ran and keep the notice.
+- A guide the writer submits after **Stop** is refused, so a stopped guide stays stopped, and its status line says "Guide stopped" in neutral, not "Guide failed" in red. **Build the guide** and **Try again** work on a merged or closed PR whose first guide stopped or failed.
+- A guide a reload interrupted says why it failed, when GitHub couldn't be read or its writer's machine never came back. A writer whose start a reload interrupted is stopped and kept to its review, without taking in a thread retitled to look like it; the Suggest instruction changes worker is kept off every review from its first command; and `bb review` during an Update guide's PR read leaves one writer.
+- Since your review and the assistant's feedback check read the diff at the commit they name, not a later push the sync hadn't seen, and a commit picked in Since your review no longer stores its whole diff. On a PR of more than 250 commits, the assistant isn't told your reviewed commit was force-pushed away when GitHub just didn't list it.
+- A first guide no longer shows "Since your review".
+- Finish review's "Read 6 of 8 files" counts only reads of a file as the change leaves it. A read past the end of a diff or a file fails, saying its length.
+- A chapter can no longer take the id `overview` and hide the Overview; a guide stored with one reads back with it renamed. A guide's intent, since-review note, and requirements are capped as its other text is, and `list_review_files` pages a huge PR's list.
+- Turning **Keep pre-existing problems apart**, **Show what the agent checked**, or **Flag weakened tests** on or off reaches an idle conversation's next message.
+
+### Commands
+
+- `bb review`, `bb review comment`, and `bb review summary` take `owner/repo#n`, and a PR link whose owner holds `_`, as an Enterprise Managed User's does.
+- After a repository is renamed, the PR link `bb review list` prints finds its review, and `bb review` or a pasted link no longer starts a second one.
+- `bb review` refuses `--base` with a range, rather than review the range under the base's name, and gives its usage for a target of only spaces rather than an error.
+- While a first guide is written, `bb review comment` and `bb review summary` say the draft waits for it, not that the review is being regenerated.
+- `bb review` and a pasted link that start, rebuild, or unarchive a review tell open pages at once, and `bb review list` keeps a stack's reviews together, as All reviews does.
+- The usage BB shows agents names `--evidence`; the skill names `--pre-existing`, and says Finish review sends comments back only on a local review or your own PR.
+- While Guided Review updates, its refusals say "Try again in a moment.", not to reopen the panel.
+
+### Comments and Submit
+
+- Comments Submit posted leave the draft even when a guide update moved them while it posted, so the next Submit doesn't post them again. A failed Submit is no longer taken for a review with the same verdict and summary submitted from here a moment before.
+- A draft comment follows its exact code through a guide update: a comment on code as common as `}`, whose neighbouring lines changed, shows as on an older diff rather than landing on another `}`.
+- **Undo** of a removed comment puts it back only on the diff it was removed from.
+- A comment box restored after a reload warns before it replaces a comment its line got meanwhile. An edit box follows its comment when a guide update moves it; when the comment was removed, it stays on its line and says so, and no longer becomes an edit of another comment with the same words.
+- **Move to summary** on a comment that's only a suggestion keeps the summary's fences paired.
+- `1`–`4` or `0` on a comment whose box is open sets the box's severity too, so Save keeps it.
+- Replies sent on two threads at once can't post one of them twice.
+- A summary, verdict, viewed mark, or reply draft saved from a page after its review was deleted is refused.
+- Errors say "Couldn't" and "can't" in the last three places that didn't.
+
+### Reading
+
+- Marking a chapter viewed, or Mark viewed and continue or finish, leaves a file split across chapters for the last chapter holding its hunks, and the toast says where it continues, with Undo.
+- A Viewed mark that didn't save is put back and says so, and Mark chapter viewed says Marked once its marks save. A file you just marked stays ticked while an older read comes back.
+- A file whose path or added lines hold hidden bidirectional Unicode says so. A binary, mode-only, or empty file's card says what its diff does, and a file GitHub sent no diff for says to read it on GitHub, not "New empty file.".
+- With git's `diff.suppressBlankEmpty`, a local review's lines keep their numbers, and comments their lines.
+- The review no longer says your account can't access the repository when GitHub just couldn't be reached, and a 401 says GitHub refused your account's credentials.
+- CI failures reported after you open the review show on their lines, and stay there while a new CI state is read.
+- **Next unviewed** from a chapter's intro opens its first file. A local review says a file "isn't in this diff anymore", not "in this PR". A review just under an hour reads "about 1 h to read".
+
+### Whose turn, alerts, and All reviews
+
+- Turning on **Include team requests** fills the list with your teams' requests without starting guides or alerting.
+- A pre-existing nit you submit counts as non-blocking, as a plain nit does.
+- Your threads on a PR are still read after about 30 replies of yours.
+- Opening a review dismisses its Needs You item at once, and an alert waiting for its re-review no longer comes after you've opened it. An alert waiting in the outbox isn't sent once its switch is off, and a snooze's wake alert is a new event rather than the first alert's again.
+- A renamed repository's PR gets no second row. Reading one review keeps All reviews' sync warning, and Update guide and the new-commits check no longer wait for the whole sync pass. A rate-limited notifications check no longer doubles how often reviews are read.
+- All reviews says GitHub CLI isn't on the BB server when `gh` is missing, not that GitHub couldn't be reached.
+- A review already in Archive offers no Archive.
+- Between midnight and 9 AM, **Pick a date** can choose this morning.
+- A narrow phone dock's Comments shows only its count, so the chapter keeps its title.
+
+### Keyboard and screen readers
+
+- Submit keeps the focus while it posts, then hands it to the receipt. A comment card's actions and Send reply keep it while they save, and a removed comment hands it to the next comment.
+- All reviews' quick actions and Snooze choices keep the focus while they run, and once a review leaves its section, from its row or its ⋯ menu, it moves to the next row.
+
+### Settings
+
+- Settings says which **Start guides automatically** line it can't take and holds Save, rather than "rpc input validation failed".
+- Settings shows another window's save while it has no unsaved edits.
+- **Include PRs you've reviewed** says it brings in PRs that changed in the last 60 days.
+
+### Installing
+
+- Install and update at `^0.8.0`. No new settings; what's stored only gains optional fields that 0.8.1 ignores. Idle review agents restart once, to take the agents' new tool options.
+- After a rollback to 0.8.1, an automatic review that couldn't start shows 0.8.1's general not-run words, and a comment box restored after a reload no longer tells an edit from a new comment.
+
 ## 0.8.1 — 2026-10-16
 
 Fixes only. An agent in one of your threads can no longer start the review's agents on an untrusted author's PR, and the agents a review has replaced can no longer touch another review; the palette's next-review key no longer reloads BB; a guide waiting for its writer's machine says so rather than that it failed; and a lockfile in any format that holds URLs names a new download host. Nothing new to turn on or off, and every switch means what it did. Guided Review still needs **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+, and installs at `^0.8.0`, which updates to 0.8.1.

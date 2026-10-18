@@ -20,7 +20,7 @@ Version 0.8.0 closes the loop with the thread that made the change and says more
 
 ## Distribution and operating limits
 
-The current release is version **0.8.1**, for BB **0.45.0+**, Node **24+**, and plugin SDK **0.6.14+**. Reviewers need their own BB installation and GitHub authentication. It does not provide shared review workspaces or separate user accounts within one server.
+The current release is version **0.8.2**, for BB **0.45.0+**, Node **24+**, and plugin SDK **0.6.14+**. Reviewers need their own BB installation and GitHub authentication. It does not provide shared review workspaces or separate user accounts within one server.
 
 Git and `gh` run on the BB server. Local review checkouts must exist there; a checkout only on another enrolled machine is unsupported. GitHub features currently support `github.com`. Account switching affects that server’s `gh` credentials, including other consumers; environment-token overrides must be cleared before switching saved accounts.
 
