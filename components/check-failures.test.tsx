@@ -57,6 +57,7 @@ test("CI failures show on their lines in the diff, with a link to the check", as
 test("a check that fails after the review opened shows its failure on its line once the review hears CI failed", async () => {
   patchReviewState("pr-42", { activeId: "c1" });
   let ci: "pending" | "fail" = "pending";
+  let held: Promise<{ failures: unknown[] }> | null = null;
   const failure = { file: "src/a.ts", line: 2, check: "lint", title: "no-shout", message: "Lower-case it.", url: "https://github.com/acme/web/runs/1" };
   const app = await loadPluginApp(() => import("../app"));
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: {
@@ -72,7 +73,7 @@ test("a check that fails after the review opened shows its failure on its line o
     getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
     markSeen: () => ({ ok: true }),
     // GitHub has no failure annotations while the check runs.
-    getCheckFailures: () => ({ failures: ci === "fail" ? [failure] : [] }),
+    getCheckFailures: () => held ?? ({ failures: ci === "fail" ? [failure] : [] }),
   } as any });
   await slot.findByTestId("filediff");
   await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "getCheckFailures").length).toBe(1));
@@ -83,6 +84,16 @@ test("a check that fails after the review opened shows its failure on its line o
   await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "getChecks").length).toBe(2));
   // ...and so are its failures, which reach their line.
   await waitFor(() => expect(slot.queryByRole("note", { name: "CI failure on src/a.ts:2" })).not.toBeNull(), { timeout: 2000 });
+  // bug bash verification 70-6: a re-run takes CI back to pending, and the notes blanked until the read came back,
+  // moving the code under the reader. They stay until it does.
+  let read!: (answer: { failures: unknown[] }) => void;
+  held = new Promise((resolve) => { read = resolve; });
+  ci = "pending";
+  await slot.emitRealtime("review:pr-42", {});
+  await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "getCheckFailures").length).toBe(3));
+  expect(slot.queryByRole("note", { name: "CI failure on src/a.ts:2" })).not.toBeNull();
+  read({ failures: [] });
+  await waitFor(() => expect(slot.queryByRole("note", { name: "CI failure on src/a.ts:2" })).toBeNull());
   slot.lifecycle.unmount();
 }, 15_000);
 

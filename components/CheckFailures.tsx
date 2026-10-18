@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useEffect, useState } from "react";
+import { createContext, memo, useContext, useEffect, useRef, useState } from "react";
 import { UrlLink, useRpc } from "@get-bb/plugin-sdk/app";
 import type { z } from "zod";
 import type { rpcContract } from "../src/rpc-contract";
@@ -30,8 +30,14 @@ export function useCheckFailures(targetKey: string, headSha: string | null, ci?:
   const rpc = useRpc<typeof rpcContract>();
   const on = useKnob("ciInCode");
   const [failures, setFailures] = useState<CheckFailure[]>([]);
+  // A new CI state is read over the failures shown, so the code doesn't move meanwhile; another review or head starts clean.
+  const shownFor = useRef<string | null>(null);
   useEffect(() => {
-    setFailures([]);
+    const reading = JSON.stringify([targetKey, headSha, on]);
+    if (shownFor.current !== reading) {
+      shownFor.current = reading;
+      setFailures([]);
+    }
     if (!headSha || !on) return;
     let cancelled = false;
     rpc.call("getCheckFailures", { targetKey }).then(({ failures }) => { if (!cancelled) setFailures(failures); }).catch(() => {});
