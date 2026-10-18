@@ -352,6 +352,23 @@ test("a failed POST isn't taken for the review submitted from here a moment befo
   expect(store.getDraft("pr-test").comments).toEqual([]);
 });
 
+// bug bash verification 70-2: once the sync has read that earlier review back, it drops its id, and the failed POST
+// matched it again.
+test("a failed POST isn't taken for the review submitted from here once the sync has read it back", async () => {
+  const { store, page } = setup();
+  const draft = store.getDraft("pr-test");
+  const at = Date.parse(new Date(Date.now() - 20_000).toISOString());
+  // As the sync leaves it: GitHub's time for the review, and no id.
+  store.setLifecycle("pr-test", { submittedVerdict: "COMMENT", submittedAt: at, submittedHeadSha: "sha1", submittedReviewId: null, reviewer: "me" });
+  const first = { id: 0, node_id: "R_0", user: { login: "me" }, commit_id: "sha1", body: "My summary", state: "COMMENTED", submitted_at: new Date(at).toISOString() };
+  const refused = github(store, { create: false, result: badGateway }, [first]);
+  expect(await refused.submit("pr-test", undefined, "me", ...page())).toEqual({ ok: false, error: "HTTP 502: Bad Gateway (https://api.github.com/repos/acme/web/pulls/7/reviews)" });
+  expect(store.getDraft("pr-test")).toEqual(draft);
+  const created = github(store, { create: true, result: badGateway }, [first]);
+  expect(await created.submit("pr-test", undefined, "me", ...page())).toEqual({ ok: true, url: "https://github.com/acme/web/pull/7#pullrequestreview-1" });
+  expect(store.getDraft("pr-test").comments).toEqual([]);
+});
+
 test("when GitHub can't say whether a failed POST landed, Submit says to look at the PR first", async () => {
   const { store, page } = setup();
   const gh = github(store, { create: false, result: timedOut });

@@ -13,16 +13,17 @@ const STATES: Record<Verdict, string> = { APPROVE: "APPROVED", REQUEST_CHANGES: 
 
 /**
  * After a POST that failed or timed out: the review GitHub created from it anyway, as `viewer`, on this commit, with
- * this summary and verdict, submitted since the attempt began, and not `earlier`, the review last submitted from here.
+ * this summary and verdict, submitted since the attempt began, and not `earlier`, the review last submitted from here:
+ * by its id, or once the sync has read it back, which drops the id, by GitHub's time for it, which the sync records.
  * Its JSON, null when there's none, or undefined when GitHub couldn't be asked.
  */
-async function postedAnyway(run: typeof runGh, repo: string, number: number, viewer: string, payload: { event: Verdict; body: string; commit_id: string }, since: number, earlier: string | null | undefined): Promise<string | null | undefined> {
+async function postedAnyway(run: typeof runGh, repo: string, number: number, viewer: string, payload: { event: Verdict; body: string; commit_id: string }, since: number, earlier: { id?: string | null; at?: number | null }): Promise<string | null | undefined> {
   const listed = await run(ghPrReviewsArgs(repo, number));
   if (listed.code !== 0) return undefined;
   for (const line of listed.stdout.split("\n").reverse()) {
     let review: any;
     try { review = JSON.parse(line); } catch { continue; }
-    if (earlier && review?.node_id === earlier) continue;
+    if (earlier.id ? review?.node_id === earlier.id : earlier.at && Date.parse(review?.submitted_at) <= earlier.at) continue;
     if (typeof review?.user?.login === "string" && review.user.login.toLowerCase() === viewer.toLowerCase()
       && review.commit_id === payload.commit_id && review.state === STATES[payload.event] && (review.body ?? "") === payload.body
       && Date.parse(review.submitted_at) >= since - CLOCK_SKEW_MS) return line;
@@ -87,7 +88,7 @@ export function createReviewSubmitter(store: Store, run: typeof runGh) {
       if (result.code !== 0) {
         // gh can fail, or time out, after GitHub created the review: finish with that one, so Submit never posts twice.
         const viewer = account ?? (await authenticatedRun(["api", "user", "--jq", ".login"])).stdout.trim();
-        const found = viewer ? await postedAnyway(authenticatedRun, m.repo, m.number, viewer, payload, attempted, m.submittedReviewId) : undefined;
+        const found = viewer ? await postedAnyway(authenticatedRun, m.repo, m.number, viewer, payload, attempted, { id: m.submittedReviewId, at: m.submittedAt }) : undefined;
         if (found === undefined) return { ok: false, error: `${refusal(result)} Couldn't check whether GitHub got your review anyway: look at the PR before you submit again. Your draft has been kept.` };
         if (found === null) return { ok: false, error: refusal(result) };
         posted = found;
