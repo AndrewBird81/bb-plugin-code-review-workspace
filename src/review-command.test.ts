@@ -93,10 +93,11 @@ test("--context is kept with the review for the automatic review, until replaced
   expect(store.getReviewContext(key)).toBe(context);
 
   store.setAssistantThread(key, "assistant");
-  expect((await review("--context", "Newer")).stdout).toContain("already has an assistant conversation, so the automatic review won't run and won't see this context.");
+  // bug bash verification 70-5: its agents read it with the PR's (read_pr_context), so it's not unseen.
+  expect((await review("--context", "Newer")).stdout).toContain("already has an assistant conversation, so the automatic review won't run. The assistant can read this context with the PR's; paste it into Ask agent to have it act on it.");
   expect(store.getReviewContext(key)).toBe("Newer");
   store.savePreferences({ ...defaultPreferences, automaticReview: " " }, 0);
-  expect((await review("--context", "Newest")).stdout).toContain("Automatic review is off in Review settings");
+  expect((await review("--context", "Newest")).stdout).toContain("Automatic review is off in Review settings, so no review starts with this context. The assistant can still read it with the PR's.");
   expect((await review("--context", "")).stdout).toContain("Removed the review's context.");
   expect(store.getReviewContext(key)).toBeNull();
 
@@ -110,7 +111,7 @@ test("--context says the automatic review is off when its switch is off, with th
   const { bb, store } = host();
   store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, runAutomaticReview: false } }, 0);
   const { stdout } = await runReviewCommand({ bb, store, gh }, [url, "--context", "Implements LIN-42"], { projectId: "p1", cwd: laptop });
-  expect(stdout).toContain("Automatic review is off in Review settings, so no assistant gets this context.");
+  expect(stdout).toContain("Automatic review is off in Review settings, so no review starts with this context. The assistant can still read it with the PR's.");
 });
 
 test("--context says the automatic review won't run on a merged or closed PR, or one you've reviewed, and will on a review waiting for Run review (bug bash CLI-3, DOC-4, LIV-3)", async () => {

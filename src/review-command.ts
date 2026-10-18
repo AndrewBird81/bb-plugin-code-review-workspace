@@ -182,9 +182,9 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
     : `Guided Review started for ${key}. ${open} ${watch}.`];
   if (context !== undefined && !context.trim()) lines.push("Removed the review's context.");
   else if (context !== undefined) lines.push(
-    !automaticReviewPrompt(deps.store.getPreferences().preferences) ? "Automatic review is off in Review settings, so no assistant gets this context."
+    !automaticReviewPrompt(deps.store.getPreferences().preferences) ? "Automatic review is off in Review settings, so no review starts with this context. The assistant can still read it with the PR's."
     : ended ? `This PR is ${ended}, so the automatic review won't run. Paste the context into Ask agent instead.`
-    : deps.store.getAssistantThread(key) ? "This review already has an assistant conversation, so the automatic review won't run and won't see this context. Paste it into Ask agent instead."
+    : deps.store.getAssistantThread(key) ? "This review already has an assistant conversation, so the automatic review won't run. The assistant can read this context with the PR's; paste it into Ask agent to have it act on it."
     : review && baselineOf(review).at ? "You've already reviewed this PR, so the automatic review won't run. Paste the context into Ask agent instead."
     : current && review?.skippedRun?.run === "review" ? "The automatic review is waiting for you to click Run review, and will include this context."
     : current ? "The guide is current, so the automatic review won't run again. Paste the context into Ask agent instead."
