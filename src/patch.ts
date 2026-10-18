@@ -119,10 +119,13 @@ export function unplacedSummary(file: PatchFile | undefined): string {
 }
 
 /**
- * A changed file's path as text for the agents shows it: quoted when it holds a control character, as a PR names its
- * files and a newline in one would start a line that reads as the plugin's own.
+ * A changed file's path as text for the agents shows it: quoted when it holds a control character or a Unicode line or
+ * paragraph separator, as a PR names its files and a line break in one would start a line that reads as the plugin's
+ * own. JSON leaves DEL, the C1 controls and the separators as they are, so the quotes escape them too.
  */
-export const shownPath = (path: string) => /[\u0000-\u001f\u007f]/.test(path) ? JSON.stringify(path) : path;
+export const shownPath = (path: string) => /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(path)
+  ? JSON.stringify(path).replace(/[\u007f-\u009f\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`)
+  : path;
 
 const ESCAPES: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };
 
