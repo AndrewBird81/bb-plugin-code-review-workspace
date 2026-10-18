@@ -102,6 +102,25 @@ test("opening a review whose alert waits for its re-review records that alert as
   expect(store.getReview("pr-1")).toMatchObject({ notifiedSignal: "requested:1" });
 });
 
+// bug bash verification 70-4: markSeen dismissed the Needs You item only after any evaluation of the review in progress,
+// which may be preparing its re-review, behind reads and spawns that can take minutes.
+test("opening a review dismisses its Needs You item at once, while an evaluation of it is still running", async () => {
+  const { call, store, harness, published } = await setup();
+  // Once the sync is under way; then a request since it began watching, whose re-review check is starting, its message
+  // to the assistant not gone yet.
+  await call("snoozeReview", { targetKey: "pr-1", snoozed: false });
+  store.setLifecycle("pr-1", { watchingSince: 1, approvedHead: "sha2", notifiedSignal: null, preparedSignal: null });
+  let sent!: () => void;
+  harness.inspection.sdk.stub("threads.send", (() => new Promise((resolve) => { sent = () => resolve({}); })) as any);
+  const evaluating = call("snoozeReview", { targetKey: "pr-1", snoozed: false });
+  await vi.waitFor(() => expect(sent).toBeDefined());
+  const seen = call("markSeen", { targetKey: "pr-1" });
+  await vi.waitFor(() => expect(published.some((p) => p.method === "dismissActivity" && p.input.id === "activity:guided-review:pr-1")).toBe(true));
+  sent();
+  expect(await seen).toEqual({ ok: true });
+  await evaluating;
+});
+
 test("the assistant lists your feedback, reads what changed, and records its check", async () => {
   const { tool, call, store } = await setup();
   const listed = await tool("list_feedback", {});
