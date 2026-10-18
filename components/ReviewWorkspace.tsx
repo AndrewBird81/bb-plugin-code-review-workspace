@@ -913,9 +913,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     const unviewed = diffs.filter((d) => !views.get(d.file)?.viewed);
     const continuing = unviewed.filter((d) => d.hunks && later(d.file)).map((d) => d.file);
     const todo = unviewed.map((d) => d.file).filter((f) => !continuing.includes(f));
-    // The chapter title is the agent's, shortened as the chapters list does.
+    // Text, not an element: sonner draws an element title bare, without the toast's icon or its Undo.
     const leftOut = continuing.length === 1
-      ? <>{continuing[0].slice(continuing[0].lastIndexOf("/") + 1)} continues in <span className="inline-block max-w-full truncate align-bottom">{later(continuing[0]).title}</span>.</>
+      ? `${continuing[0].slice(continuing[0].lastIndexOf("/") + 1)} continues in ${later(continuing[0]).title}.`
       : `${continuing.length} split files continue in later chapters.`;
     if (!todo.length) {
       if (continuing.length) toast.info(leftOut);
@@ -951,7 +951,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       if (!ok) return failed();
       void loadViews();
       const message = `Marked ${todo.length} file${todo.length === 1 ? "" : "s"} viewed`;
-      toast.success(continuing.length ? <>{message}. {leftOut}</> : message, { action: { label: "Undo", onClick: undo } });
+      toast.success(message, { description: continuing.length ? leftOut : undefined, action: { label: "Undo", onClick: undo } });
     }, failed);
   }, [sections, views, rpc, targetKey, loadViews]);
   const foldAllFiles = useCallback((folded: boolean) => setFoldAll({ folded, nonce: Date.now() }), []);

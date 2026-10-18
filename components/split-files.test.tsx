@@ -245,8 +245,24 @@ function storedViews() {
     setFilesViewed: vi.fn(({ files, viewed: on = true }: { files: string[]; viewed?: boolean }) => { for (const file of files) if (on) viewed.add(file); else viewed.delete(file); return { ok: true, previous: [] }; }),
   };
 }
-const toastText = (message: unknown) => { const shown = render(<>{message as ReactNode}</>); const text = shown.container.textContent; shown.unmount(); return text; };
 const lastToast = (kind: "success" | "info") => vi.mocked(toast[kind]).mock.calls.at(-1)!;
+// The toast as sonner draws it: an element for a title, it would draw bare, with no icon and no Undo.
+async function drawnToast(kind: "success" | "info") {
+  const sonner = await vi.importActual<typeof import("sonner")>("sonner");
+  const shown = render(<sonner.Toaster />);
+  const [message, options] = lastToast(kind);
+  act(() => { sonner.toast[kind](message as ReactNode, options as Parameters<typeof sonner.toast.success>[1]); });
+  const drawn = await waitFor(() => { const li = shown.container.querySelector("[data-sonner-toast]"); expect(li).not.toBeNull(); return li!; });
+  const result = {
+    title: drawn.querySelector("[data-title]")?.textContent ?? null,
+    description: drawn.querySelector("[data-description]")?.textContent ?? null,
+    icon: !!drawn.querySelector("[data-icon]"),
+    undo: !!within(drawn as HTMLElement).queryByRole("button", { name: "Undo" }),
+  };
+  act(() => sonner.toast.dismiss());
+  shown.unmount();
+  return result;
+}
 
 // bug bash RDG-4: Viewed is kept per file, so marking the first chapter viewed (its end's "Mark viewed and continue")
 // marked a split file's hunks in the next chapter viewed too: that chapter opened with them folded and read as done,
@@ -263,9 +279,8 @@ test("Mark viewed and continue leaves a split file for the next chapter's hunks,
   expect(main.queryByRole("button", { name: "Collapse src/a.ts" })).not.toBeNull();
   expect(main.queryByText(/CACHE/)).not.toBeNull();
   await waitFor(() => expect(toast.success).toHaveBeenCalled());
-  const [message, options] = lastToast("success");
-  expect(toastText(message)).toBe("Marked 1 file viewed. a.ts continues in Caching.");
-  expect((options as { action: { label: string } }).action.label).toBe("Undo");
+  // bug bash verification: with the chapter's name in an element title, sonner drew the toast with no icon and no Undo.
+  expect(await drawnToast("success")).toEqual({ title: "Marked 1 file viewed", description: "a.ts continues in Caching.", icon: true, undo: true });
 
   fireEvent.click(main.getByRole("button", { name: "Mark viewed and finish" }));
   expect(setFilesViewed).toHaveBeenLastCalledWith({ targetKey: "pr-42", files: ["src/a.ts"] });
@@ -298,12 +313,8 @@ test("a chapter whose only unviewed file continues later marks nothing and says 
   fireEvent.click(within(slot.getByRole("navigation", { name: "Chapters" })).getByRole("button", { name: "Mark chapter viewed" }));
   expect(setFilesViewed).not.toHaveBeenCalled();
   expect(toast.success).not.toHaveBeenCalled();
-  const [message] = lastToast("info");
-  expect(toastText(message)).toBe("a.ts continues in Caching rows for the parser between requests and across restarts.");
-  // The agent's title, as plain text, shortened to the toast's width.
-  const shown = render(<>{message as ReactNode}</>);
-  expect(within(shown.container).getByText("Caching rows for the parser between requests and across restarts").className).toContain("truncate");
-  shown.unmount();
+  // The agent's title, as plain text.
+  expect(await drawnToast("info")).toEqual({ title: "a.ts continues in Caching rows for the parser between requests and across restarts.", description: null, icon: true, undo: false });
   slot.lifecycle.unmount();
 }, 15_000);
 
@@ -319,6 +330,6 @@ test("a chapter mark that leaves out several split files counts them", async () 
   fireEvent.click(within(slot.getByRole("navigation", { name: "Chapters" })).getByRole("button", { name: "Mark chapter viewed" }));
   expect(setFilesViewed).toHaveBeenCalledWith({ targetKey: "pr-42", files: ["src/b.ts"] });
   await waitFor(() => expect(toast.success).toHaveBeenCalled());
-  expect(toastText(lastToast("success")[0])).toBe("Marked 1 file viewed. 2 split files continue in later chapters.");
+  expect(await drawnToast("success")).toEqual({ title: "Marked 1 file viewed", description: "2 split files continue in later chapters.", icon: true, undo: true });
   slot.lifecycle.unmount();
 }, 15_000);
