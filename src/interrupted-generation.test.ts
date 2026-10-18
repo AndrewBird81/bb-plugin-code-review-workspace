@@ -4,7 +4,7 @@ import plugin from "../server";
 import { createStore } from "./store";
 import { generateGuide } from "./generate";
 import { defaultPreferences } from "./preferences";
-import { formerWorkerReview } from "./former-workers";
+import { formerWorkerReview, NO_REVIEW, recordFormerWorker } from "./former-workers";
 import { runGh } from "./gh";
 
 vi.mock("./gh", async (original) => ({
@@ -141,6 +141,39 @@ test("after a reload, a writer whose spawn it interrupted is found by its title,
   expect(order.slice(0, 3)).toEqual(["archive orphan", "stop orphan", "spawn"]);
   expect(await formerWorkerReview(next.bb, "orphan")).toBe("pr-1");
   expect(await formerWorkerReview(next.bb, "other")).toBeNull();
+});
+
+// bug bash verification 71-F1: a thread's title is its own agent's to write, and the reload took the title alone: a former
+// agent of pr-2, or the Suggest instructions worker, retitled "Generate guide: pr-1" became pr-1's, free to change its
+// draft through bb review, and another review's assistant so titled was archived and stopped.
+test("after a reload, a thread titled as the interrupted review's writer stays kept to its own review", async () => {
+  const first = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    spawn: () => new Promise(() => {}), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
+  } } as any });
+  const before = createStore(first.bb);
+  for (const key of ["pr-1", "pr-2"]) before.saveReview({ targetKey: key, kind: "pr", number: Number(key.slice(3)), repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  before.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
+  before.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+a2\n");
+  before.setAssistantThread("pr-2", "pr2-assistant");
+  await recordFormerWorker(first.bb, "old-pr2-writer", "pr-2", "writer");
+  await recordFormerWorker(first.bb, "suggester", null, "suggester");
+  void generateGuide(first.bb, before, "pr-1", "p1");
+  await vi.waitFor(() => expect(first.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
+  const next = await first.harness.lifecycle.reload(async () => {});
+  const stopped: string[] = [];
+  const thread = (id: string) => ({ id, title: "Generate guide: pr-1", originPluginId: "guided-review" });
+  next.harness.inspection.sdk.stub("threads.list", (async ({ archived }: { archived?: boolean }) => archived ? []
+    : [thread("orphan"), thread("old-pr2-writer"), thread("suggester"), thread("pr2-assistant")]) as any);
+  next.harness.inspection.sdk.stub("threads.spawn", async () => ({ id: "new-worker" }));
+  next.harness.inspection.sdk.stub("threads.wait", () => new Promise(() => {}));
+  next.harness.inspection.sdk.stub("threads.stop", async ({ threadId }: { threadId: string }) => { stopped.push(threadId); return {}; });
+  await plugin(next.bb);
+  await vi.waitFor(() => expect(next.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
+  expect(await formerWorkerReview(next.bb, "orphan")).toBe("pr-1");
+  expect(await formerWorkerReview(next.bb, "old-pr2-writer")).toBe("pr-2");
+  expect(await formerWorkerReview(next.bb, "suggester")).toBe(NO_REVIEW);
+  expect(await formerWorkerReview(next.bb, "pr2-assistant")).toBeNull();
+  expect(stopped).toEqual(["orphan"]);
 });
 
 // bug bash SRV-5: the BB server restarts before its network is up. The interrupted guide's restart couldn't read the PR,

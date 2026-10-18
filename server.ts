@@ -116,11 +116,17 @@ export default async function plugin(bb: BbPluginApi) {
   void (async () => {
     for (const { targetKey, workerId } of interrupted) {
       // A writer whose spawn the reload interrupted has no recorded id, so it's found by its exact title, before the
-      // restart spawns another, and kept to its review too. One a generation since records is that generation's.
-      const unrecorded = (await pluginThreadsTitled(bb, `${GUIDE_WORKER_TITLE}${targetKey}`).catch((error) => {
+      // restart spawns another, and kept to its review too. One a generation since records is that generation's. A title
+      // is the thread's own to write, so an assistant, or a former worker kept to another review or to none, stays as it is.
+      const titled = (await pluginThreadsTitled(bb, `${GUIDE_WORKER_TITLE}${targetKey}`).catch((error) => {
         bb.log.warn(`Could not list the guide writers of ${targetKey}: ${String(error)}`);
         return [];
-      })).filter((threadId) => threadId !== workerId && !store.generationOf(threadId));
+      })).filter((threadId) => threadId !== workerId && !store.generationOf(threadId) && !assistantReview(store, threadId));
+      const unrecorded: string[] = [];
+      for (const threadId of titled) {
+        const kept = await formerWorkerReview(bb, threadId);
+        if (kept === null || kept === targetKey) unrecorded.push(threadId);
+      }
       for (const threadId of unrecorded) await recordFormerWorker(bb, threadId, targetKey, "writer");
       for (const threadId of [...(workerId ? [workerId] : []), ...unrecorded]) {
         await bb.sdk.threads.archive({ threadId }).catch(() => {});
