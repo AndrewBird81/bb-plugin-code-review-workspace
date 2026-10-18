@@ -646,3 +646,23 @@ test("an edit box follows its comment when a rebuild moves it, and says “moved
   expect(await diff().findByText("This line’s comment was moved or removed while you were editing. Saving yours puts it back.")).toBeTruthy();
   slot.lifecycle.unmount();
 });
+
+// bug bash verification 70-1: with the edited comment removed, not moved, the box followed another comment that already
+// had its words, and Save overwrote that comment with yours.
+test("an edit box whose comment is removed stays on its line, not on another comment with the same words", async () => {
+  const one = { file: "src/a.ts", line: 1, side: "RIGHT", author: "agent", body: "Unused import." };
+  const two = { file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", body: "Unused import." };
+  let stored = { ...empty("edit-dup"), comments: [one, two] as any[] };
+  const saveDraftComment = vi.fn(async () => ({ draft: stored, stale: [] }));
+  const { slot, diff, panel } = await renderReview("edit-dup", { getDraft: () => ({ draft: structuredClone(stored), stale: [] }), saveDraftComment });
+  fireEvent.click(within(await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" })).getByRole("button", { name: "Edit" }));
+  fireEvent.change(diff().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Not unused: it's re-exported." } });
+  // The agent deletes line 2's comment; line 1's, with the same words, stays.
+  stored = { ...stored, comments: [one] };
+  await slot.emitRealtime("draft:edit-dup", {});
+  expect(await diff().findByText("This line’s comment was moved or removed while you were editing. Saving yours puts it back.")).toBeTruthy();
+  expect(panel().getByText("Writing a comment on src/a.ts:2")).toBeTruthy();
+  fireEvent.click(diff().getByRole("button", { name: "Save comment" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ replaces: null, comment: expect.objectContaining({ line: 2, body: "Not unused: it's re-exported." }) })));
+  slot.lifecycle.unmount();
+});

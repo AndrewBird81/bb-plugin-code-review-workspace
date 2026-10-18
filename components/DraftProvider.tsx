@@ -645,10 +645,15 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const editedNow = editing ? draft.comments.find((c) => sameLocation(c, editing)) ?? null : null;
   const changedWhileEditing = useMemo(() => editing && editedNow?.body !== editing.body ? { now: editedNow } : null, [editing, editedNow]);
   // A rebuild moved the comment being edited: the box goes with it, when it's the only one with its words in its file and
-  // side. Its save still finds it written against an older diff.
+  // side that wasn't already there before. A comment that was there is another one, and the edited one was removed. Its
+  // save still finds it written against an older diff.
+  const previousComments = useRef(draft.comments);
   useEffect(() => {
+    const before = previousComments.current;
+    previousComments.current = draft.comments;
     if (!editing || editedNow?.body === editing.body) return;
-    const moved = draft.comments.filter((c) => c.file === editing.file && c.side === editing.side && c.body === editing.body);
+    const moved = draft.comments.filter((c) => c.file === editing.file && c.side === editing.side && c.body === editing.body
+      && !before.some((b) => sameLocation(b, c) && b.body === c.body));
     if (moved.length !== 1) return;
     const [comment] = moved;
     setLine(String(comment.line)); setStartLine(comment.startLine); setStartSide(comment.startSide);
