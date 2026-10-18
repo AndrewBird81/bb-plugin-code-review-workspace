@@ -245,8 +245,11 @@ export async function generateGuide(
     const newCommits = before && review?.headSha && before !== review.headSha ? { from: before, to: review.headSha } : undefined;
     if (ok && !checking && !(review && baselineOf(review).at)) await startAutomaticReview(bb, store, targetKey, newCommits).catch((error) => {
       bb.log.warn(`The automatic review of ${targetKey} didn't start: ${String(error)}`);
-      // One that couldn't start a conversation waits for Run review, saying why; Run review is the retry.
-      if (!store.getAssistantThread(targetKey)) skipRun(bb, store, targetKey, "review", review?.headSha ?? null, error instanceof Error ? error.message : String(error));
+      // One that couldn't start a conversation waits for Run review, saying why; Run review is the retry. One that would
+      // have waited for your click anyway, as startAutomaticReview decides after the conversation, says that instead.
+      const own = review?.ownPr === true && typeof review.foreignHeadOwner !== "string";
+      const held = !!review && !own && !trusted;
+      if (!store.getAssistantThread(targetKey)) skipRun(bb, store, targetKey, "review", review?.headSha ?? null, held ? undefined : error instanceof Error ? error.message : String(error));
     });
     if (!checking) store.setLifecycle(targetKey, { preparedAt: Date.now() });
     preparedListeners.get(bb)?.(targetKey);

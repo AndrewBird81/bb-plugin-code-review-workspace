@@ -525,6 +525,45 @@ test("an automatic review that can't start waits for Run review, saying why", as
   expect(harness.inspection.logEntries.map((entry) => entry.message)).toContainEqual(expect.stringContaining("The automatic review of ref-1 didn't start: Error: Laptop is offline."));
 });
 
+// bug bash verification 71-F3: the automatic review finds its agent before its trust check, so for a PR whose review
+// would have waited for your click anyway, "no default agent" stood in for why it waited.
+test("an untrusted author's automatic review that couldn't start says it waits for your click, not that it failed", async () => {
+  let prompt = "";
+  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+    threads: {
+      spawn: async (args: { prompt?: string; title: string }) => { if (args.prompt) prompt = args.prompt; return { id: "writer" }; },
+      wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })),
+      archive: async () => ({}), stop: async () => ({}), get: async () => ({ status: "idle", archivedAt: null, deletedAt: null }),
+      queuedMessages: { list: async () => [] },
+    },
+  } as any });
+  await plugin(bb);
+  const store = createStore(bb);
+  const review = { targetKey: "pr-1", kind: "pr" as const, repo: "acme/web", number: 1, author: "stranger", headSha: "sha1", status: "generating" as const, createdAt: 1, projectId: "p1" };
+  const build = async (key: string, lifecycle: Parameters<typeof store.setLifecycle>[1]) => {
+    harness.inspection.sdk.stub("projects.defaultExecutionOptions", async () => ({ providerId: "codex", hostId: "host_1" }) as any);
+    store.saveReview({ ...review, targetKey: key });
+    store.setLifecycle(key, { authorAssociation: "CONTRIBUTOR", ownPr: false, prState: "OPEN", ...lifecycle });
+    store.savePatch(key, patch);
+    prompt = "";
+    // Rebuilt without a click, as for new commits.
+    const run = generateGuide(bb, store, key, "p1", { notify: false, unattended: true });
+    await vi.waitFor(() => expect(prompt).toContain("generationId"));
+    const generationId = prompt.match(/generationId "([^"]+)"/)![1];
+    // Then the project loses its default agent, so the review's assistant can't start.
+    harness.inspection.sdk.stub("projects.defaultExecutionOptions", async () => null);
+    const guide = { title: "T", intent: "I", sections: [{ id: "c1", title: "A", overview: "O", risk: "low", diffs: [{ file: "a.ts", summary: "S" }] }], unplacedFiles: [] };
+    expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: key, generationId, guide }))).toBeFalsy();
+    await run;
+    expect(store.getAssistantThread(key)).toBeNull();
+    return store.getReview(key)?.skippedRun;
+  };
+  // You started agents at an earlier head: this one waits for your click.
+  expect(await build("pr-1", { approvedHead: "sha0", approvedAt: 5 })).toEqual({ run: "review", head: "sha1", at: expect.any(Number) });
+  // At the head you started agents on, it would have run, so it says why it didn't.
+  expect(await build("pr-2", { approvedHead: "sha1", approvedAt: 5 })).toEqual({ run: "review", head: "sha1", at: expect.any(Number), why: "failed", error: "bb has no default agent for the review's project." });
+});
+
 test("a run that couldn't start keeps its reason as one line, capped", () => {
   const { bb } = createFakePluginHost({ pluginId: "guided-review" });
   const store = createStore(bb);
