@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.2 — 2026-10-17
+## 0.8.2 — 2026-10-19
 
 Fixes only, from a bug bash of 0.8.1. Text someone else wrote can no longer load an image, freeze the page, or stall the plugin's server; draft comments stay on their own code through a guide update, and leave the draft once they're submitted; an automatic review that couldn't start, or that waits for your click, says why; and the keyboard focus stays put through Submit, a comment's actions, and All reviews' quick actions. Nothing new to turn on or off, and every switch means what it did. Guided Review still needs **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+, and installs at `^0.8.0`, which updates to 0.8.2.
 
