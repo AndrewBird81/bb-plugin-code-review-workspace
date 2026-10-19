@@ -1,4 +1,4 @@
-// Which changed files a review's assistant read through Guided Review, for Finish review's "Read 14 of 16 files".
+// Which changed files a review's assistant read through Code Review Workspace, for Finish review's "Read 14 of 16 files".
 import type { Store } from "./store";
 import { assistantReview } from "./draft-comments";
 

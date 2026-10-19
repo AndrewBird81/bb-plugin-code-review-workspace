@@ -12,7 +12,7 @@ const patch = [
 ].join("\n");
 
 async function host() {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
@@ -150,7 +150,7 @@ test("the agent is told evidence's 600-character cap, on adding and on editing",
     project: { id: "p1", kind: "personal", name: "Personal", gitRemoteUrl: null },
     environment: { id: "env-1", name: null, path: null, workspaceProvisionType: "unmanaged", branchName: null },
     host: { id: "host-1", name: "h" }, provider: { id: "claude-code", model: "opus", capabilities: { supportsNativeUserQuestion: false } },
-    origin: { kind: null, pluginId: "guided-review" },
+    origin: { kind: null, pluginId: "code-review-workspace" },
   } as any);
   for (const name of ["add_draft_comment", "edit_draft_comment"]) {
     const schema = tools.find((tool) => tool.name === name)?.inputSchema as { properties: { evidence: { description: string; maxLength: number } } };
@@ -165,7 +165,7 @@ test("what an agent writes for GitHub is capped under GitHub's 65,536 characters
     project: { id: "p1", kind: "personal", name: "Personal", gitRemoteUrl: null },
     environment: { id: "env-1", name: null, path: null, workspaceProvisionType: "unmanaged", branchName: null },
     host: { id: "host-1", name: "h" }, provider: { id: "claude-code", model: "opus", capabilities: { supportsNativeUserQuestion: false } },
-    origin: { kind: null, pluginId: "guided-review" },
+    origin: { kind: null, pluginId: "code-review-workspace" },
   } as any);
   const cap = (tool: string, field: string) => (tools.find((t) => t.name === tool)?.inputSchema as { properties: Record<string, { maxLength?: number }> }).properties[field].maxLength;
   expect([["add_draft_comment", "body"], ["edit_draft_comment", "body"], ["set_review_summary", "body"], ["reply_in_discussion", "body"], ["draft_thread_reply", "body"], ["assess_feedback", "suggestedBody"]]

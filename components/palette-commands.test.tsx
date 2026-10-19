@@ -39,9 +39,9 @@ async function load(rpc: Record<string, (input: any) => unknown> = {}, paletteCo
 test("the three commands are in BB's palette with their ids and titles, and Next review that needs me has ⌘⇧U", async () => {
   const { commands } = await load();
   expect(commands.map(({ target, id, title, defaultShortcut }) => ({ target, id, title, defaultShortcut }))).toEqual([
-    { target: "app", id: "next-review", title: "Guided Review: Next review that needs me", defaultShortcut: { key: "u", mod: true, shift: true, meta: false, control: false, alt: false } },
-    { target: "app", id: "review-from-clipboard", title: "Guided Review: Review PR from clipboard", defaultShortcut: null },
-    { target: "app", id: "all-reviews", title: "Guided Review: All reviews", defaultShortcut: null },
+    { target: "app", id: "next-review", title: "Code Review Workspace: Next review that needs me", defaultShortcut: { key: "u", mod: true, shift: true, meta: false, control: false, alt: false } },
+    { target: "app", id: "review-from-clipboard", title: "Code Review Workspace: Review PR from clipboard", defaultShortcut: null },
+    { target: "app", id: "all-reviews", title: "Code Review Workspace: All reviews", defaultShortcut: null },
   ]);
 });
 

@@ -84,7 +84,7 @@ const shiftedFile = (i: number, shift: number) => [
 const shiftedPatch = (shift: number) => Array.from({ length: 300 }, (_, i) => shiftedFile(i, shift)).join("\n") + "\n";
 
 test("re-anchoring 100 stored comments on a 60k-line diff parses each diff once", () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
   const before = shiftedPatch(0);
@@ -122,7 +122,7 @@ const fn = added(["function a() {", "  if (x) {", "    y();", "  }", "}"]);
 const fnGrown = added(["function a() {", "  if (x) {", "    y();", "    z();", "  }", "}"]);
 
 function rebuilt(comment: { line: number; startLine?: number; body: string }) {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-test", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, headSha: "sha1" });
   store.savePatch("pr-test", fn);

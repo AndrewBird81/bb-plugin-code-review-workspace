@@ -122,15 +122,15 @@ test("settings that won't load keep the switches this browser last loaded, and a
 test("the stored switches are read as saved settings are: each invalid or missing one at its default", async () => {
   await loadPluginApp(() => import("../app"));
   const { storedKnobs } = await import("../lib/settings");
-  expect(storedKnobs("guided-review")).toBeNull();
-  localStorage.setItem("gr:knobs:guided-review", JSON.stringify({ singleKeyShortcuts: false, codeOwners: "no", approveGuardPace: 50.5 }));
-  expect(storedKnobs("guided-review")).toEqual({ ...defaultKnobs, singleKeyShortcuts: false });
-  localStorage.setItem("gr:knobs:guided-review", JSON.stringify({ approveGuardPace: 100 }));
-  expect(storedKnobs("guided-review")?.approveGuardPace).toBe(100);
+  expect(storedKnobs("code-review-workspace")).toBeNull();
+  localStorage.setItem("gr:knobs:code-review-workspace", JSON.stringify({ singleKeyShortcuts: false, codeOwners: "no", approveGuardPace: 50.5 }));
+  expect(storedKnobs("code-review-workspace")).toEqual({ ...defaultKnobs, singleKeyShortcuts: false });
+  localStorage.setItem("gr:knobs:code-review-workspace", JSON.stringify({ approveGuardPace: 100 }));
+  expect(storedKnobs("code-review-workspace")?.approveGuardPace).toBe(100);
   // Another install's are its own.
-  expect(storedKnobs("guided-review-dev")).toBeNull();
-  localStorage.setItem("gr:knobs:guided-review", "{");
-  expect(storedKnobs("guided-review")).toBeNull();
+  expect(storedKnobs("code-review-workspace-dev")).toBeNull();
+  localStorage.setItem("gr:knobs:code-review-workspace", "{");
+  expect(storedKnobs("code-review-workspace")).toBeNull();
 });
 
 /** The review's page alone, whose settings load however `getPreferences` answers. */

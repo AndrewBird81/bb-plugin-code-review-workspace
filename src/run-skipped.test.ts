@@ -20,7 +20,7 @@ const PATCH = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a
 
 /** A ready review of a PR from someone outside acme, at sha1, with what didn't run on its own. */
 async function setup(lifecycle: ReviewLifecycle) {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: { spawn: async ({ title }: { title: string }) => ({ id: title.startsWith("Review agent") ? "assistant" : "writer" }), get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), wait: async () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}), send: async () => ({ delivery: "sent" }) },
     projects: { defaultExecutionOptions: async () => ({ providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" }), list: async () => [] },
   } as any });

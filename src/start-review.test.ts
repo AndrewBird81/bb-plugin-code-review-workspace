@@ -41,7 +41,7 @@ const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
 
 test("createPrReview stores the review + patch and returns ok with a targetKey", async () => {
   const { bb } = createFakePluginHost({
-    pluginId: "guided-review",
+    pluginId: "code-review-workspace",
     sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } },
   });
   const store = createStore(bb);
@@ -64,7 +64,7 @@ test("createPrReview stores the review + patch and returns ok with a targetKey",
 
 test("starting an archived PR's review again returns it to the queue", async () => {
   const { bb } = createFakePluginHost({
-    pluginId: "guided-review",
+    pluginId: "code-review-workspace",
     sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } },
   });
   const store = createStore(bb);
@@ -77,7 +77,7 @@ test("starting an archived PR's review again returns it to the queue", async () 
 });
 
 test("createPrReview rejects a non-PR-URL input", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
 
   const res = await createPrReview({ bb, store, gh }, { input: "42", projectId: "p1" });
@@ -87,7 +87,7 @@ test("createPrReview rejects a non-PR-URL input", async () => {
 });
 
 test("an offline guide writer machine stops the review before the PR is fetched", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { hosts: { get: async () => ({ id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } }) } } });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { hosts: { get: async () => ({ id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } }) } } });
   const store = createStore(bb);
   store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
   vi.mocked(gh.runGh).mockClear();
@@ -107,7 +107,7 @@ function seedReady(store: ReturnType<typeof createStore>, headSha: string, patch
 }
 
 test("pasting the link of a review that hasn't changed opens it without rebuilding", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   seedReady(store, "abc123", reviewed);
   store.setLifecycle(key, { userArchivedAt: 1 });
@@ -119,7 +119,7 @@ test("pasting the link of a review that hasn't changed opens it without rebuildi
 });
 
 test("pasting a renamed repository's PR link opens the review the sync keeps under the old name (bug bash CLI-2)", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   seedReady(store, "abc123", reviewed);
   store.saveReview({ ...store.getReview(key)!, url: "https://github.com/acme/site/pull/7" });
@@ -128,7 +128,7 @@ test("pasting a renamed repository's PR link opens the review the sync keeps und
 });
 
 test("pasting a PR link tells open pages of the review it starts, rebuilds, or brings back from Archive, at once (bug bash LIV-5)", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: () => new Promise(() => {}), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: () => new Promise(() => {}), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
   const store = createStore(bb);
   const channels = async () => {
     harness.inspection.realtimeSignals.length = 0;
@@ -146,7 +146,7 @@ test("pasting a PR link tells open pages of the review it starts, rebuilds, or b
 });
 
 test("pasting the link of a review with new commits rebuilds it like Re-review, keeping the guide and comments if it fails", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "w" }), wait: async () => { throw new Error("worker failed"); }, archive: async () => ({}), stop: async () => ({}),
   } } as any });
   const store = createStore(bb);
@@ -160,7 +160,7 @@ test("pasting the link of a review with new commits rebuilds it like Re-review, 
 });
 
 // A host whose guide writer never finishes, so the rebuild stays generating.
-const building = () => createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+const building = () => createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
   spawn: async () => ({ id: "w" }), wait: async () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
 } } as any });
 
@@ -208,7 +208,7 @@ test("starting a PR's review records whether gh says it's merged or closed, new 
 });
 
 test("starting a review from All reviews says so when bb can't name a project to run it in", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { projects: { list: async () => { throw new Error("Connection unavailable"); } } } as any });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { projects: { list: async () => { throw new Error("Connection unavailable"); } } } as any });
   await plugin(bb);
   expect(await harness.behavior.callRpc("startReview", { input: "https://github.com/acme/web/pull/7" })).toEqual({ ok: false, error: "Couldn't resolve a project to run generation." });
 });

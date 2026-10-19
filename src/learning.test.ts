@@ -28,7 +28,7 @@ const patch = [
 const at = { file: "a.ts", line: 3, side: "RIGHT" } as const;
 
 async function host(sdk: Record<string, unknown> = {}) {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: sdk as any });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: sdk as any });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });

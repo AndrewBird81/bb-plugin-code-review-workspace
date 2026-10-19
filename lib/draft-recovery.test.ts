@@ -4,7 +4,7 @@ import { readDraftRecovery, updateDraftRecovery } from "./draft-recovery";
 afterEach(() => { sessionStorage.clear(); vi.restoreAllMocks(); });
 
 const box = { file: "src/a.ts", line: "12", side: "RIGHT" as const, body: "Half a thought", revision: "r1" };
-const stored = (value: unknown) => sessionStorage.setItem("guided-review:draft-recovery:pr-1", typeof value === "string" ? value : JSON.stringify(value));
+const stored = (value: unknown) => sessionStorage.setItem("code-review-workspace:draft-recovery:pr-1", typeof value === "string" ? value : JSON.stringify(value));
 
 test("unsaved text reads back as it was kept, per review", () => {
   const composer = { ...box, inline: true, asking: false, startLine: 10, startSide: "LEFT" as const, severity: "nit" as const, editing: "A thought" };
@@ -52,7 +52,7 @@ test("storage that won't parse reads as nothing kept", () => {
 test("clearing the box forgets the review's kept text, and full storage doesn't throw", () => {
   updateDraftRecovery("pr-1", { composer: box });
   updateDraftRecovery("pr-1", { composer: undefined });
-  expect(sessionStorage.getItem("guided-review:draft-recovery:pr-1")).toBeNull();
+  expect(sessionStorage.getItem("code-review-workspace:draft-recovery:pr-1")).toBeNull();
   vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("full", "QuotaExceededError"); });
   expect(() => updateDraftRecovery("pr-1", { composer: box })).not.toThrow();
 });

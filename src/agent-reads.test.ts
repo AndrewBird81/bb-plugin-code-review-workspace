@@ -1,4 +1,4 @@
-// What the review's assistant read through Guided Review, which Finish review counts beside its verdict.
+// What the review's assistant read through Code Review Workspace, which Finish review counts beside its verdict.
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
@@ -12,7 +12,7 @@ const file = (path: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+
 const patch = file("a.ts") + file("b.ts") + file("c.ts");
 
 async function host() {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
@@ -73,7 +73,7 @@ test("what the agent says it didn't check is kept with its summary, stays withou
 });
 
 test("after the upgrade that adds unchecked and introduced, idle review assistants restart once to pick up the tools", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { get: async () => ({ status: "idle", archivedAt: null, deletedAt: null }), stop: async () => ({}) } } as any });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { get: async () => ({ status: "idle", archivedAt: null, deletedAt: null }), stop: async () => ({}) } } as any });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   store.setAssistantThread("pr-1", "assistant");
@@ -145,7 +145,7 @@ test("list_review_files' description names every status, the sources renames and
     project: { id: "p1", kind: "personal", name: "Personal", gitRemoteUrl: null },
     environment: { id: "env-1", name: null, path: null, workspaceProvisionType: "unmanaged", branchName: null },
     host: { id: "host-1", name: "h" }, provider: { id: "claude-code", model: "opus", capabilities: { supportsNativeUserQuestion: false } },
-    origin: { kind: null, pluginId: "guided-review" },
+    origin: { kind: null, pluginId: "code-review-workspace" },
   } as any);
   const description = tools.find((tool) => tool.name === "list_review_files")?.description;
   for (const said of ["added, deleted, modified, \"renamed from ‹path›\" or \"copied from ‹path›\", naming the source", "call again with the offset it gives"]) expect(description).toContain(said);

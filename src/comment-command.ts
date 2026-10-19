@@ -10,7 +10,7 @@ export const COMMENT_USAGE = [
   "       bb review comment edit   <review> <file>:<line> --body <text> [--code <text>] [--severity <severity>] [--evidence <text>] [--pre-existing] [--side LEFT|RIGHT]",
   "       bb review comment delete <review> <file>:<line> [--side LEFT|RIGHT]",
   "",
-  "Changes a review's local draft in this bb. Nothing is posted to GitHub; the reviewer submits the draft from Guided Review.",
+  "Changes a review's local draft in this bb. Nothing is posted to GitHub; the reviewer submits the draft from Code Review Workspace.",
   "  <review>       a GitHub PR URL, or a review key (pr-…, ref-…)",
   "  <file>:<line>  the line's number in the new file, or with --side LEFT, in the old file;",
   "                 <file>:<start>-<end> for lines in one hunk, where edit sets the comment's first line",

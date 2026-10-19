@@ -31,7 +31,7 @@ afterEach(() => { vi.useRealTimers(); });
 function setup(options: { pr?: Partial<PrFacts>; threads?: FeedbackThread[]; reviewed?: boolean; preferences?: Partial<typeof defaultPreferences> } = {}) {
   const published: any[] = [];
   const dismissed: any[] = [];
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: { update: async () => ({}), stop: async () => ({}), archive: async () => ({}) },
     plugins: { callRpc: async ({ method, input }: any) => {
       if (method === "activityCapabilities") return { version: 1 };
@@ -1227,7 +1227,7 @@ test("once the turn rules are current, an event from before a pass still acts", 
 // Update guide and the page's check for new commits read their one PR with sync.one; with 200 reviews, a pass reads
 // GitHub in 20 batches, and a read of one review that joined it waited for every batch (bug bash PRF-1).
 test("a forced read of one review doesn't wait for the rest of a 200-review sync pass", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { update: async () => ({}), stop: async () => ({}), archive: async () => ({}) } } as any });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { update: async () => ({}), stop: async () => ({}), archive: async () => ({}) } } as any });
   const store = createStore(bb);
   for (let i = 0; i < 200; i++) store.saveReview({ targetKey: `pr-${i}`, kind: "pr", repo: "acme/web", number: i + 1, headSha: "sha1", createdAt: 1000 - i, status: "ready", projectId: "p1" });
   let batches = 0;

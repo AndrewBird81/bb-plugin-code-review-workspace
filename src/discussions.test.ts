@@ -13,7 +13,7 @@ const patch = [
 const at = { file: "a.ts", line: 3, side: "RIGHT" } as const;
 
 async function host({ conversation = true } = {}) {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: {
       get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }),
       send: async () => ({ delivery: "sent" }),

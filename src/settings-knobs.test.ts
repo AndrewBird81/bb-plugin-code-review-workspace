@@ -6,7 +6,7 @@ import { AUTOMATIC_REVIEW_BEFORE_PRECISION, VERIFICATION_PROMPT_BEFORE_OPEN_THRE
 import { defaultKnobs } from "../lib/knobs";
 
 async function host() {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const db = bb.storage.database();
   const row = () => db.prepare(`SELECT value,revision,knobs FROM review_preferences WHERE id=1`).get() as { value: string; revision: number; knobs: string | null };

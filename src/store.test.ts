@@ -12,7 +12,7 @@ vi.mock("./patch", async (original) => {
 });
 
 function store() {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   return createStore(bb);
 }
 
@@ -65,7 +65,7 @@ test("assistant thread ids round-trip and list", () => {
 });
 
 test("legacy agent messages list oldest-first with context, and clear", () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const s = createStore(bb);
   const insert = bb.storage.database().prepare(`INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES ('pr-1',?,?,?,1)`);
   insert.run("user", "why flagged?", JSON.stringify({ file: "a.ts", startLine: 3, endLine: 5 }));
@@ -79,7 +79,7 @@ test("legacy agent messages list oldest-first with context, and clear", () => {
 });
 
 test("deleteReview clears every per-review table and leaves other reviews intact", () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const s = createStore(bb);
   for (const key of ["pr-1", "pr-2"]) {
     s.saveReview({ targetKey: key, kind: "pr", number: 1, status: "ready", createdAt: 1 });
@@ -142,7 +142,7 @@ test("draft comments upsert and delete", () => {
 });
 
 test("the summary keeps who wrote it and the verdicts around it, and a change clears the fields it leaves undefined", () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const s = createStore(bb);
   s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
   const written = { verdict: null, comments: "0:811c9dc5" };
@@ -374,7 +374,7 @@ test("a thread known to be open and resolved since dates from now, even after an
 });
 
 test("the patch's hash is kept when it's saved, and its positions are parsed once per patch", () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const s = createStore(bb);
   const one = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
   const two = one.replace("+b", "+c");
@@ -395,7 +395,7 @@ test("the patch's hash is kept when it's saved, and its positions are parsed onc
 });
 
 test("a comment's severity round-trips, a draft saved before severities loads with none, and an edit changes or keeps it", () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const s = createStore(bb);
   s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
   bb.storage.database().prepare(`INSERT INTO drafts (target_key,verdict,body,comments) VALUES ('pr-1','COMMENT','',?)`)

@@ -63,7 +63,7 @@ test("coverage errors say which hunks are missing, doubled, or don't exist", () 
 });
 
 test("generate_review_guide checks a split file's hunks against the diff", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
@@ -117,7 +117,7 @@ test("the guide writer's earlier chapters name their hunks, or whole files when 
   expect(prompt).toContain("- s1: s1 (a.ts hunks 1, 3, b.ts)");
   expect(prompt).toContain("- s2: s2 (a.ts hunks 2)");
 
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), archive: async () => {}, stop: async () => {},
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), send: async () => ({}),
   } } as any });

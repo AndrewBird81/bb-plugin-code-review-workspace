@@ -8,7 +8,7 @@ import { toolFailed } from "./fake-host.test-support";
 const guide = { title: "T", intent: "I", sections: [], unplacedFiles: [] };
 
 test("failed regeneration does not mark an old guide ready", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => { throw new Error("offline"); } } } });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => { throw new Error("offline"); } } } });
   const store = createStore(bb);
   store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
   store.saveGuide("target", guide);
@@ -18,7 +18,7 @@ test("failed regeneration does not mark an old guide ready", async () => {
 });
 
 test("a superseded generation cannot replace a newer guide", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "target", kind: "ref", status: "generating", createdAt: 1 });
@@ -32,7 +32,7 @@ test("a superseded generation cannot replace a newer guide", async () => {
 test("hidden workers are archived and stopped when waiting fails", async () => {
   const archive = vi.fn(async () => {});
   const stop = vi.fn(async () => {});
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), wait: async () => { throw new Error("timeout"); }, archive, stop,
   } } });
   const store = createStore(bb);
@@ -44,7 +44,7 @@ test("hidden workers are archived and stopped when waiting fails", async () => {
 });
 
 test("restart marks persisted in-progress reviews as interrupted without discarding drafts", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveReview({ targetKey: "target", kind: "ref", status: "generating", createdAt: 1 });
   const old = store.beginGeneration("target");
@@ -58,7 +58,7 @@ test("restart marks persisted in-progress reviews as interrupted without discard
 test("disposal aborts a pending worker wait and releases the worker", async () => {
   const stop = vi.fn(async () => {});
   let waiting = false;
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }),
     wait: ({ signal }: { signal?: AbortSignal }) => new Promise((resolve, reject) => {
       waiting = true;
@@ -80,7 +80,7 @@ test("disposal aborts a pending worker wait and releases the worker", async () =
 test("a guide worker that fails ends its generation at once", async () => {
   const { makeThreadResponse } = await import("@get-bb/plugin-sdk/testing");
   let waiting = false;
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}),
     wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
       waiting = true;
@@ -104,7 +104,7 @@ test("a guide worker still working when the wait times out is waited for longer"
   vi.useFakeTimers({ toFake: ["Date"] });
   const waits: number[] = [];
   let store!: ReturnType<typeof createStore>;
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}),
     get: async () => ({ id: "worker", status: "active", archivedAt: null, deletedAt: null }),
     wait: async ({ timeoutMs }: { timeoutMs: number }) => {
@@ -132,7 +132,7 @@ test("a guide worker still working when the wait times out is waited for longer"
 
 test("a wait that fails before its time ends the generation, even while the worker looks active", async () => {
   const wait = vi.fn(async () => { throw new Error("bb unreachable"); });
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}), wait,
     get: async () => ({ id: "worker", status: "active", archivedAt: null, deletedAt: null }),
   } } as any });
@@ -147,7 +147,7 @@ test("an accepted guide is ready at once, though its worker's turn goes on", asy
   const archive = vi.fn(async () => ({}));
   const stop = vi.fn(async () => ({}));
   let prompt = "";
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async (args: { prompt: string }) => { prompt = args.prompt; return { id: "worker" }; },
     // The worker never goes idle: it goes on to write a recap.
     wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })),
@@ -172,7 +172,7 @@ function stoppableHost() {
   const stop = vi.fn(async () => ({}));
   const delivered: unknown[] = [];
   let waiting = false;
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), archive, stop,
     wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
       waiting = true;
@@ -241,7 +241,7 @@ test("a guide submitted after Stop is refused, and Stop doesn't say a guide was 
   let prompt = "";
   let waiting = false;
   let submit: () => Promise<unknown> = async () => {};
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async (args: { prompt: string }) => { prompt = args.prompt; return { id: "worker" }; },
     wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => { waiting = true; signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }); }),
     // BB takes a moment to archive the hidden writer, which is still running.

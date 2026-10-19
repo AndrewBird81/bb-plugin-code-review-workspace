@@ -20,11 +20,11 @@ test("closing a document releases its lease at the install's own id, while a cac
   const original = navigator.sendBeacon;
   Object.defineProperty(navigator, "sendBeacon", { configurable: true, value: beacon });
   try {
-    const slot = renderSlot({ component: () => { const session = useReviewSession(); return <p>{session.ready ? "Ready" : "Opening"}</p>; } }, {}, { rpc: { setReviewPresence: presence }, pluginId: "guided-review-dev" });
+    const slot = renderSlot({ component: () => { const session = useReviewSession(); return <p>{session.ready ? "Ready" : "Opening"}</p>; } }, {}, { rpc: { setReviewPresence: presence }, pluginId: "code-review-workspace-dev" });
     await slot.findByText("Ready");
     window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })); expect(beacon).not.toHaveBeenCalled();
     window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false }));
-    expect(beacon).toHaveBeenCalledWith("/api/v1/plugins/guided-review-dev/rpc/setReviewPresence", expect.any(Blob));
+    expect(beacon).toHaveBeenCalledWith("/api/v1/plugins/code-review-workspace-dev/rpc/setReviewPresence", expect.any(Blob));
     slot.lifecycle.unmount();
   } finally { Object.defineProperty(navigator, "sendBeacon", { configurable: true, value: original }); }
 });
@@ -70,7 +70,7 @@ test("recovered summary text saves with the revision it was written against", as
 test("summary text saved for recovery before the summary had its own box reopens in it", async () => {
   await loadPluginApp(() => import("../app"));
   const DraftTray = await draftTray();
-  sessionStorage.setItem("guided-review:draft-recovery:legacy", JSON.stringify({ summary: { verdict: "REQUEST_CHANGES", body: "Older unsaved words", revision: "old" } }));
+  sessionStorage.setItem("code-review-workspace:draft-recovery:legacy", JSON.stringify({ summary: { verdict: "REQUEST_CHANGES", body: "Older unsaved words", revision: "old" } }));
   const rpc = { getDraft: () => ({ draft: { targetKey: "legacy", verdict: "COMMENT", body: "", comments: [] } }) };
   const slot = renderSlot({ component: () => <DraftTray targetKey="legacy" activeChapterId="chapter" activeFiles={[]} reviewRevision="new" /> }, {}, { rpc });
   expect(((await slot.findByRole("textbox", { name: "Review summary" })) as HTMLTextAreaElement).value).toBe("Older unsaved words");
@@ -103,7 +103,7 @@ test("release notes open this fork's releases on GitHub", async () => {
     getReleaseStatus: () => status,
     getSetupStatus: () => ({ account: "casey", githubCli: true, agentAvailable: true, projectAvailable: true }),
   } });
-  expect((await slot.findByRole("link", { name: "Release notes" })).getAttribute("href")).toBe("https://github.com/AndrewBird81/bb-plugin-guided-review/releases");
+  expect((await slot.findByRole("link", { name: "Release notes" })).getAttribute("href")).toBe("https://github.com/AndrewBird81/bb-plugin-code-review-workspace/releases");
   slot.lifecycle.unmount();
 });
 

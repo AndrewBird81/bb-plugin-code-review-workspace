@@ -13,7 +13,7 @@ import { Icon } from "./ui/icon";
 import { kindLook } from "./ReviewStatus";
 import { age } from "./time-ago";
 
-// BB's thread list has no slot for more rows, so Guided Review puts its own in by hand: the reviews you pinned at the end of
+// BB's thread list has no slot for more rows, so Code Review Workspace puts its own in by hand: the reviews you pinned at the end of
 // BB's Pinned group, and the rest of Needs review in a group of its own, last. It finds the list by BB's own data attributes
 // and goes back in whenever the list redraws; without the list it shows nowhere.
 

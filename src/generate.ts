@@ -91,8 +91,8 @@ export function buildGenerationPrompt(targetKey: string, generationId?: string, 
   // The "Other files" chapter is the plugin's, made from unplaced files; kept, it would come back as a second one.
   const chapters = earlier?.guide?.sections.filter((s) => !s.id.startsWith("other-files")).map((s) => `- ${s.id}: ${s.title} (${s.diffs.map((d) => d.hunks ? `${d.file} hunks ${d.hunks.join(", ")}` : d.file).join(", ")})`) ?? [];
   return [
-    "Author a Guided Review for this change.",
-    "Follow the guided-review-generate skill exactly.",
+    "Author a review guide for this change.",
+    "Follow the code-review-workspace-generate skill exactly.",
     `The target key is: ${targetKey}`,
     ...(generationId ? [`Pass generationId "${generationId}" to generate_review_guide. It identifies this exact generation run.`] : []),
     "Start with read_pr_context, then list_review_files, read the diff with read_review_patch, and submit with generate_review_guide.",

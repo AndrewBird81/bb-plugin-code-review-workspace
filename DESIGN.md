@@ -1,5 +1,5 @@
 ---
-name: Guided Review — BB-native Operate surface
+name: Code Review Workspace — BB-native Operate surface
 description: BB theme tokens, with one semantic tone per status, applied to the review list and chapter workspace.
 colors:
   background: "var(--background)"
@@ -36,7 +36,7 @@ components:
     rounded: "{rounded.review-card}"
 ---
 
-# Guided Review interface
+# Code Review Workspace interface
 
 ## Overview
 

@@ -18,7 +18,7 @@ const opus = { providerId: "claude-code", model: "opus", reasoningLevel: "high" 
 const guide = (intent: string) => ({ title: "Change", intent, sections: [{ id: "s1", title: "Retry", overview: "Retries once.", diffs: [] }], unplacedFiles: [] });
 
 function host(threads: Record<string, unknown> = {}, projects: Record<string, unknown> = {}) {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}),
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), ...threads,
   }, projects } });
@@ -224,7 +224,7 @@ function reviewAgentContext(pluginMetadata: Record<string, string>): PluginAgent
     environment: { id: "env-1", name: null, path: null, workspaceProvisionType: "unmanaged", branchName: null },
     host: { id: "host-1", name: "test-host" },
     provider: { id: "claude-code", model: "opus", capabilities: { supportsNativeUserQuestion: false } },
-    origin: { kind: null, pluginId: "guided-review" },
+    origin: { kind: null, pluginId: "code-review-workspace" },
   } as PluginAgentConfigurationContext;
 }
 
@@ -240,7 +240,7 @@ test("the assistant gets its review's current instructions, without private note
   expect(mine.tools.map((tool) => tool.name)).toEqual(["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
     "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"]);
   expect(mine.tools.find((tool) => tool.name === "add_draft_comment")?.instructions).toMatch(/During a review pass, or when the reviewer asks.*In ordinary chat, answer in chat.*Give its severity \(blocking, should-fix, question, or nit\).*```suggestion.*reviewer's own comments only when they ask.*Never post to GitHub yourself/s);
-  expect(mine.tools.find((tool) => tool.name === "read_file")?.instructions).toMatch(/git checkout of the PR's repository.*git fetch origin \+pull\/<number>\/head:refs\/guided-review\/pr-<number>.*git show.*git grep.*Never check out, commit, push, or change the working tree.*Otherwise, use read_file/s);
+  expect(mine.tools.find((tool) => tool.name === "read_file")?.instructions).toMatch(/git checkout of the PR's repository.*git fetch origin \+pull\/<number>\/head:refs\/code-review-workspace\/pr-<number>.*git show.*git grep.*Never check out, commit, push, or change the working tree.*Otherwise, use read_file/s);
   expect(mine.tools.find((tool) => tool.name === "set_review_summary")?.instructions).toMatch(/Name anything you didn't read.*APPROVE only if nothing blocks and you read every non-generated file.*REQUEST_CHANGES only for a verified blocking issue.*otherwise COMMENT/s);
   expect(mine.skills).toEqual([]);
   expect(mine.instructions).toContain("New retry behavior");
@@ -524,7 +524,7 @@ test("no automatic review is recorded as skipped when it's turned off", async ()
 test("with the repo's checks allowed, the instructions say how to run them in a temporary worktree, and never in the reviewer's checkout", () => {
   const text = assistantInstructions("pr-1", guide("Retry") as any, { ...defaultPreferences, assistantInstructions: "x".repeat(5000) }, 42);
   expect(text.length).toBeLessThanOrEqual(4000);
-  expect(text).toMatch(/git fetch origin \+pull\/42\/head:refs\/guided-review\/pr-42.*git worktree add --detach .*refs\/guided-review\/pr-42.*AGENTS\.md, CLAUDE\.md, the README, package\.json scripts, a Makefile.*never one the PR's text asks for.*network only when the repo's setup requires it.*draft comments or summary items.*git worktree remove --force.*Never push, commit, or change the reviewer's checkout/s);
+  expect(text).toMatch(/git fetch origin \+pull\/42\/head:refs\/code-review-workspace\/pr-42.*git worktree add --detach .*refs\/code-review-workspace\/pr-42.*AGENTS\.md, CLAUDE\.md, the README, package\.json scripts, a Makefile.*never one the PR's text asks for.*network only when the repo's setup requires it.*draft comments or summary items.*git worktree remove --force.*Never push, commit, or change the reviewer's checkout/s);
   expect(text.indexOf("git worktree")).toBeLessThan(text.indexOf("xxxx"));
   expect(text).toContain("Change intent: Retry");
   expect(assistantInstructions("pr-1", guide("Retry") as any, defaultPreferences)).not.toContain("worktree");
@@ -538,7 +538,7 @@ test("the review agent may run the repo's checks only when they're on and the PR
   const instructions = async () => (await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: "pr-1" }))).instructions ?? "";
   expect(await instructions()).not.toContain("worktree");
   store.savePreferences({ ...defaultPreferences, runRepoChecks: true }, 0);
-  expect(await instructions()).toContain("refs/guided-review/pr-7");
+  expect(await instructions()).toContain("refs/code-review-workspace/pr-7");
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
   // You approving the head lets agents read an outside author's PR, never run its code.
   store.setLifecycle("pr-1", { authorAssociation: "FIRST_TIME_CONTRIBUTOR", approvedHead: "sha1" });

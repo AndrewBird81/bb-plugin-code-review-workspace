@@ -7,7 +7,7 @@ import { SUMMARY_AT } from "./draft";
 afterEach(() => { vi.useRealTimers(); });
 
 function review() {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
   return store;

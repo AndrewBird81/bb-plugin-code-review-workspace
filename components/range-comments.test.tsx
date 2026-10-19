@@ -180,9 +180,9 @@ test("in the review, Comment on lines dragged upward comments on them first to l
 
 test("an unsaved box from before range comments, with a start after its line, comes back on its line alone", () => {
   const box = { file: "src/a.ts", line: "2", side: "RIGHT", body: "Unsaved words" };
-  sessionStorage.setItem("guided-review:draft-recovery:k", JSON.stringify({ composer: { ...box, startLine: 4 } }));
+  sessionStorage.setItem("code-review-workspace:draft-recovery:k", JSON.stringify({ composer: { ...box, startLine: 4 } }));
   expect(readDraftRecovery("k").composer).toEqual(box);
   // Across sides, a first line's number can be higher than the last's.
-  sessionStorage.setItem("guided-review:draft-recovery:k", JSON.stringify({ composer: { ...box, startLine: 4, startSide: "LEFT" } }));
+  sessionStorage.setItem("code-review-workspace:draft-recovery:k", JSON.stringify({ composer: { ...box, startLine: 4, startSide: "LEFT" } }));
   expect(readDraftRecovery("k").composer).toEqual({ ...box, startLine: 4, startSide: "LEFT" });
 });

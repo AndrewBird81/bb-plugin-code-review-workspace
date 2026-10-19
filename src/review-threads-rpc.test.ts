@@ -13,7 +13,7 @@ const page = (ids: string[], endCursor: string | null) =>
 
 async function setup() {
   runGh.mockReset();
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   createStore(bb).saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
   return (input: unknown) => harness.behavior.callRpc("getReviewThreads", input) as Promise<any>;
@@ -81,7 +81,7 @@ test("getReviewThreads still reads a response without those fields, as before", 
 
 test("re-reading your threads writes nothing for a review deleted while GitHub answered", async () => {
   runGh.mockReset();
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
@@ -101,7 +101,7 @@ test("re-reading your threads writes nothing for a review deleted while GitHub a
 
 test("re-reading your threads tells open review pages only when they changed", async () => {
   runGh.mockReset();
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });

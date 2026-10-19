@@ -24,7 +24,7 @@ export function completionNotifications(bb: BbPluginApi, store: Store) {
 }
 
 /** The inbox item Needs You keeps for a review. */
-const activityId = (targetKey: string) => `activity:guided-review:${encodeURIComponent(targetKey)}`;
+const activityId = (targetKey: string) => `activity:code-review-workspace:${encodeURIComponent(targetKey)}`;
 
 function createNotifications(bb: BbPluginApi, store: Store) {
   let disposed = false;
@@ -92,7 +92,7 @@ function createNotifications(bb: BbPluginApi, store: Store) {
       const body = record.kind === "turn" ? (record.body ?? "It’s your turn to review.")
         : record.status === "ready" ? "Your guide is ready. Open it to start reviewing." : "The guide couldn’t be generated. Open the review to try again.";
       const result = await bb.sdk.plugins.callRpc({ pluginId: "inbox", method: "publishActivity", input: {
-        sourceId: "guided-review", sourceName: "Guided Review", entityId: record.targetKey,
+        sourceId: "code-review-workspace", sourceName: "Code Review Workspace", entityId: record.targetKey,
         eventId: (record.kind === "turn" ? record.eventId ?? `turn:${record.generationId}` : record.generationId).slice(0, 128),
         occurredAt: record.occurredAt, projectId: record.projectId,
         title, status: record.status, body: body.slice(0, 600),

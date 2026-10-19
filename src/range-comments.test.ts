@@ -55,7 +55,7 @@ test("the GitHub payload sends a range's start line and side; single-line commen
 });
 
 function storeWith(text = patch) {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, headSha: "sha1" });
   store.savePatch("pr-1", text);
@@ -99,7 +99,7 @@ test("a re-review moves both ends of a range; one whose either end is gone is on
 });
 
 async function host() {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });

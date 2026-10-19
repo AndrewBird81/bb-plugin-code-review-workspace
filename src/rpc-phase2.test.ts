@@ -67,7 +67,7 @@ import { createStore } from "./store";
 import * as gh from "./gh";
 
 function host() {
-  return createFakePluginHost({ pluginId: "guided-review" });
+  return createFakePluginHost({ pluginId: "code-review-workspace" });
 }
 
 async function seeded() {

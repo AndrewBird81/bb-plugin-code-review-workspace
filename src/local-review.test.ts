@@ -13,11 +13,11 @@ import plugin from "../server";
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 function setup() {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => { throw new Error("fixture worker"); } } } });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => { throw new Error("fixture worker"); } } } });
   return { bb, store: createStore(bb), gh: { runGit, runGh: vi.fn() } };
 }
 async function repository() {
-  const cwd = await mkdtemp(join(tmpdir(), "guided-review-"));
+  const cwd = await mkdtemp(join(tmpdir(), "code-review-workspace-"));
   dirs.push(cwd);
   for (const args of [["init", "-b", "main"], ["config", "user.name", "Review Fixture"], ["config", "user.email", "fixture@example.invalid"]]) {
     expect((await runGit(args, { cwd })).code).toBe(0);
@@ -65,7 +65,7 @@ test("missing cwd cannot accidentally review the BB server working directory", a
 });
 
 test("checkForUpdates says when a local review's code changed since its guide, unless its switch is off or its checkout is gone", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   const cwd = await repository();

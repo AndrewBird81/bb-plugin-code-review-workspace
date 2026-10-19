@@ -85,7 +85,7 @@ export function useCurrentFile(targetKey: string): string | undefined {
   return useSyncExternalStore(subscribe, () => currentFiles.get(targetKey));
 }
 
-/** What a Guided Review subPath shows, as ReviewPanel routes it: the list, Review settings, or a review. */
+/** What a Code Review Workspace subPath shows, as ReviewPanel routes it: the list, Review settings, or a review. */
 export type PanelPage = { kind: "list" } | { kind: "settings"; returnTo: string } | { kind: "review"; targetKey: string };
 
 export function panelPage(subPath: string): PanelPage {

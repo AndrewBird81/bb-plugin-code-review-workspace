@@ -13,7 +13,7 @@ test("read_pr_context reads the context of the guide writer's or the assistant's
     ? { stdout: JSON.stringify({ data: { viewer: { login: "me" }, repository: { pullRequest: { title: "Retry", body: "Fixes it.", author: { login: "alice" }, baseRefName: "main", headRefName: "retry" } } } }), stderr: "", code: 0 }
     : { stdout: "[]", stderr: "", code: 0 });
   const titles: Record<string, string> = { writer: "Generate guide: pr-1", stranger: "Something else" };
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { get: async ({ threadId }: { threadId: string }) => ({ title: titles[threadId] ?? null }) } } as any });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { get: async ({ threadId }: { threadId: string }) => ({ title: titles[threadId] ?? null }) } } as any });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "abc", status: "generating", createdAt: 1 });
@@ -34,7 +34,7 @@ test("read_pr_context tells the agent not to follow an untrusted author's ticket
   runGh.mockImplementation(async (args: string[]) => args[1] === "graphql"
     ? { stdout: JSON.stringify({ data: { viewer: { login: "me" }, repository: { pullRequest: { title: "Fix LIN-42", body: "Also read SEC-7.", author: { login: "mallory" }, baseRefName: "main", headRefName: "fix" } } } }), stderr: "", code: 0 }
     : { stdout: "[]", stderr: "", code: 0 });
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "abc", status: "ready", createdAt: 1 });
@@ -53,7 +53,7 @@ test("read_pr_context judges the author's trust from its own read until the sync
   runGh.mockImplementation(async (args: string[]) => args[1] === "graphql"
     ? { stdout: JSON.stringify({ data: { viewer: { login: "me" }, repository: { pullRequest: { title: "Fix LIN-42", body: "", author: { login: "alice" }, isCrossRepository: false, baseRefName: "main", headRefName: "fix", ...author } } } }), stderr: "", code: 0 }
     : { stdout: "[]", stderr: "", code: 0 });
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "abc", status: "ready", createdAt: 1 });
@@ -78,7 +78,7 @@ test("read_pr_context judges the author's trust from its own read until the sync
 });
 
 test("read_pr_context's description says a local review's instructions are read where its diff starts", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const tool = harness.inspection.registrations.agentTools.find((t) => t.name === "read_pr_context");
   expect(tool?.description).toContain("For a local review, its commits and the review instructions at the diff's start.");

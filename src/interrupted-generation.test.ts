@@ -18,7 +18,7 @@ const guide = { title: "Kept", intent: "I", sections: [], unplacedFiles: [] };
 
 /** A plugin that stopped while a guide worker was writing a rebuild of pr-1's guide. */
 async function interrupted(sdk: Record<string, unknown> = {}, lifecycle: Record<string, unknown> = {}) {
-  const first = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const first = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "old-worker" }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
   const store = createStore(first.bb);
@@ -118,7 +118,7 @@ test("an interrupted guide whose machine stays offline past 10 minutes isn't tri
 // bug bash AGT-13: a writer whose spawn was still in flight at the reload has no recorded id, so it ran on, hidden, and to
 // bb review it was an ordinary thread of yours.
 test("after a reload, a writer whose spawn it interrupted is found by its title, kept to its review, and stopped", async () => {
-  const first = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const first = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: () => new Promise(() => {}), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
   const before = createStore(first.bb);
@@ -129,7 +129,7 @@ test("after a reload, a writer whose spawn it interrupted is found by its title,
   await vi.waitFor(() => expect(first.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
   const next = await first.harness.lifecycle.reload(async () => {});
   const order: string[] = [];
-  const thread = (id: string, title: string) => ({ id, title, originPluginId: "guided-review" });
+  const thread = (id: string, title: string) => ({ id, title, originPluginId: "code-review-workspace" });
   next.harness.inspection.sdk.stub("threads.list", (async ({ archived }: { archived?: boolean }) => archived ? []
     : [thread("orphan", "Generate guide: pr-1"), thread("other", "Generate guide: pr-2"), thread("assistant", "Review agent: pr-1")]) as any);
   next.harness.inspection.sdk.stub("threads.spawn", async () => { order.push("spawn"); return { id: "new-worker" }; });
@@ -147,7 +147,7 @@ test("after a reload, a writer whose spawn it interrupted is found by its title,
 // agent of pr-2, or the Suggest instructions worker, retitled "Generate guide: pr-1" became pr-1's, free to change its
 // draft through bb review, and another review's assistant so titled was archived and stopped.
 test("after a reload, a thread titled as the interrupted review's writer stays kept to its own review", async () => {
-  const first = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const first = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: () => new Promise(() => {}), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
   const before = createStore(first.bb);
@@ -161,7 +161,7 @@ test("after a reload, a thread titled as the interrupted review's writer stays k
   await vi.waitFor(() => expect(first.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
   const next = await first.harness.lifecycle.reload(async () => {});
   const stopped: string[] = [];
-  const thread = (id: string) => ({ id, title: "Generate guide: pr-1", originPluginId: "guided-review" });
+  const thread = (id: string) => ({ id, title: "Generate guide: pr-1", originPluginId: "code-review-workspace" });
   next.harness.inspection.sdk.stub("threads.list", (async ({ archived }: { archived?: boolean }) => archived ? []
     : [thread("orphan"), thread("old-pr2-writer"), thread("suggester"), thread("pr2-assistant")]) as any);
   next.harness.inspection.sdk.stub("threads.spawn", async () => ({ id: "new-worker" }));

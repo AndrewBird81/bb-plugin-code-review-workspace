@@ -10,12 +10,12 @@ const guide = { title: "Improve sign-in", intent: "I", sections: [], unplacedFil
 function fixture() {
   const delivered: any[] = [];
   let offline = false;
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { plugins: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { plugins: {
     callRpc: async ({ method, input }: any) => {
       if (offline) throw new Error("Needs You is disabled");
       if (method === "activityCapabilities") return { version: 1 };
       delivered.push(input);
-      return { accepted: true, id: "activity:guided-review:target", duplicate: false };
+      return { accepted: true, id: "activity:code-review-workspace:target", duplicate: false };
     },
   }, threads: { spawn: async () => ({ id: "worker" }), archive: async () => {}, stop: async () => {} } } });
   const store = createStore(bb);
@@ -29,7 +29,7 @@ test("a completed guide notifies through Needs You with its review destination a
   await generateGuide(f.bb, f.store, "target", "p1");
   expect(f.store.getReview("target")?.status).toBe("ready");
   expect(f.delivered).toHaveLength(1);
-  expect(f.delivered[0]).toMatchObject({ sourceId: "guided-review", entityId: "target", status: "ready", projectId: "p1", target: { panel: "review", segments: ["target"] } });
+  expect(f.delivered[0]).toMatchObject({ sourceId: "code-review-workspace", entityId: "target", status: "ready", projectId: "p1", target: { panel: "review", segments: ["target"] } });
   expect(JSON.stringify(f.delivered)).not.toContain("worker");
   await completionNotifications(f.bb, f.store).flush();
   expect(f.delivered).toHaveLength(1);

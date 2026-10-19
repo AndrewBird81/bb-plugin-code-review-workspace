@@ -11,6 +11,7 @@ import { reanchorIn } from "./reanchor";
 import { renamedPaths } from "./patch";
 import { fileHashCache, type FileHashes } from "./file-views";
 import { agentCommentStore, type AgentCommentStore } from "./learning";
+import { importFormerInstall } from "./former-install";
 
 export interface ReviewLifecycle {
   prState?: "OPEN" | "CLOSED" | "MERGED";
@@ -43,7 +44,7 @@ export interface ReviewLifecycle {
   snoozedUntil?: number | null;
   /** The assistant's latest check of your feedback. */
   assessment?: AssessmentSummary | null;
-  /** The changed files the review's assistant read through Guided Review, at `head`: a PR's head commit, or "diff:" and a local review's diff hash (src/agent-reads.ts). */
+  /** The changed files the review's assistant read through Code Review Workspace, at `head`: a PR's head commit, or "diff:" and a local review's diff hash (src/agent-reads.ts). */
   agentReads?: { head: string; files: string[] } | null;
   /** The signal that last alerted Needs You, so one event alerts once. */
   notifiedSignal?: string | null;
@@ -307,6 +308,7 @@ export type PreviousState = { body: string; author?: "agent"; severity?: Severit
 
 export function createStore(bb: BbPluginApi): Store {
   const db = bb.storage.database();
+  importFormerInstall(bb, db);
   bb.storage.migrate(db, [
     `CREATE TABLE IF NOT EXISTS reviews (
       target_key TEXT PRIMARY KEY, kind TEXT NOT NULL, number INTEGER, repo TEXT,

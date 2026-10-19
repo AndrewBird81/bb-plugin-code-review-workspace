@@ -1,4 +1,4 @@
-// How much of the change the review agent read through Guided Review, for Finish review beside its verdict.
+// How much of the change the review agent read through Code Review Workspace, for Finish review beside its verdict.
 import { classifyFile } from "../src/classify";
 
 export interface AgentCoverage {

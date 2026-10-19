@@ -23,7 +23,7 @@ const url = "https://github.com/acme/web/pull/7";
 const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
 
 test("a review's own agent can't set the context its automatic review sends", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => new Promise(() => {}), archive: async () => {}, stop: async () => {} } } });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => new Promise(() => {}), archive: async () => {}, stop: async () => {} } } });
   const store = createStore(bb);
   expect(await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1", cwd: process.cwd() })).toMatchObject({ exitCode: 0 });
   expect(store.getReview(key)?.status).toBe("generating");
@@ -33,7 +33,7 @@ test("a review's own agent can't set the context its automatic review sends", as
 });
 
 test("a review's own assistant can't rewrite or remove the context your thread gave the review", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: "w" }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}) } } as any });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "w" }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}) } } as any });
   await plugin(bb);
   const store = createStore(bb);
   expect(await harness.behavior.runCli([url, "--context", "Implements LIN-42: retry once."], { threadId: "coder", projectId: "p1" })).toMatchObject({ exitCode: 0 });

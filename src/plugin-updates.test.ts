@@ -6,9 +6,9 @@ import { createPluginUpdates } from "./plugin-updates";
 function setup() {
   let now = 1_000_000;
   const background = { busy: false };
-  const check = vi.fn(async () => [{ id: "guided-review", outcome: "update-available", installed: { display: "0.2.0", version: "old" }, candidate: { display: "0.2.1", version: "new" } }]);
+  const check = vi.fn(async () => [{ id: "code-review-workspace", outcome: "update-available", installed: { display: "0.2.0", version: "old" }, candidate: { display: "0.2.1", version: "new" } }]);
   const apply = vi.fn(async () => ({ outcome: "updated", applied: true, from: { display: "0.2.0", version: "old" }, to: { display: "0.2.1", version: "new" } }));
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { plugins: { checkUpdates: check, applyUpdate: apply } } });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { plugins: { checkUpdates: check, applyUpdate: apply } } });
   const updates = createPluginUpdates(bb, () => background.busy, () => now);
   return { bb, updates, check, apply, background, advance: (ms = 3_600_001) => { now += ms; } };
 }
@@ -40,7 +40,7 @@ test("an update reserves the runtime before checking and rejects new mutations",
   const applying = updates.apply("settings", "new");
   await expect(updates.run(async () => 1)).rejects.toThrow(/updat/i);
   expect(() => updates.presence("new-review", true)).toThrow(/updat/i);
-  finish([{ id: "guided-review", outcome: "current", installed: { display: "0.2.0", version: "old" } }]);
+  finish([{ id: "code-review-workspace", outcome: "current", installed: { display: "0.2.0", version: "old" } }]);
   await expect(applying).rejects.toThrow(/changed|available/i);
 });
 
@@ -51,7 +51,7 @@ test("errors stay visible and retries are delayed; a disabled opt-in cancels pen
   advance(); let finish!: (result: any) => void;
   check.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   const tick = updates.tick(); updates.setAutomatic(false);
-  finish([{ id: "guided-review", outcome: "update-available", installed: { display: "0.2.0", version: "old" }, candidate: { display: "0.2.1", version: "new" } }]);
+  finish([{ id: "code-review-workspace", outcome: "update-available", installed: { display: "0.2.0", version: "old" }, candidate: { display: "0.2.1", version: "new" } }]);
   await tick; expect(apply).not.toHaveBeenCalled();
 });
 
@@ -84,7 +84,7 @@ test("review work done while the update is checked cancels the automatic update"
   const tick = updates.tick();
   // A comment saved during the network wait, finished before GitHub answers.
   await updates.run(() => {});
-  finish([{ id: "guided-review", outcome: "update-available", installed: { display: "0.2.0", version: "old" }, candidate: { display: "0.2.1", version: "new" } }]);
+  finish([{ id: "code-review-workspace", outcome: "update-available", installed: { display: "0.2.0", version: "old" }, candidate: { display: "0.2.1", version: "new" } }]);
   await tick;
   expect(apply).not.toHaveBeenCalled();
 });
@@ -93,7 +93,7 @@ test("during an update, work is refused with words that fit a terminal or an age
   const { updates, check } = setup(); let finish!: (result: any) => void;
   check.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   const applying = updates.apply("settings", "new");
-  await expect(updates.run(async () => 1)).rejects.toThrow(/^Guided Review is updating\. Try again in a moment\.$/);
-  finish([{ id: "guided-review", outcome: "current", installed: { display: "0.2.0", version: "old" } }]);
+  await expect(updates.run(async () => 1)).rejects.toThrow(/^Code Review Workspace is updating\. Try again in a moment\.$/);
+  finish([{ id: "code-review-workspace", outcome: "current", installed: { display: "0.2.0", version: "old" } }]);
   await applying.catch(() => {});
 });

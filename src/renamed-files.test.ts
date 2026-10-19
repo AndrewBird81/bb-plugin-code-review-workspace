@@ -14,7 +14,7 @@ const patch = [
 ].join("\n");
 
 async function host() {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
@@ -55,7 +55,7 @@ test("a discussion without a comment, and a Viewed mark, saved under a renamed f
 });
 
 test("renames move saved rows once per diff, not on every read", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   store.savePatch("pr-1", patch);
@@ -73,7 +73,7 @@ test("renames move saved rows once per diff, not on every read", async () => {
 });
 
 test("moving a renamed file's discussions finds them by an index", () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   createStore(bb);
   const plan = bb.storage.database().prepare(`EXPLAIN QUERY PLAN UPDATE OR IGNORE discussion_entries SET file=? WHERE target_key=? AND file=?`).all("b", "k", "a") as Array<{ detail: string }>;
   expect(plan.map((row) => row.detail).join("\n")).toMatch(/USING INDEX/);

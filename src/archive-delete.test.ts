@@ -11,7 +11,7 @@ async function setup() {
   const answering = new Set<string>();
   // BB's thread list: unarchived threads unless archived is asked for, one page at a time.
   const listed: ListedThread[] = [];
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     stop: async () => ({}), delete: async () => ({ ok: true }),
     list: async ({ archived = false, originPluginId, limit = 50, offset = 0 }: ListArgs = {}) => listed
       .filter((thread) => (thread.archivedAt !== null) === archived && (!originPluginId || thread.originPluginId === originPluginId))
@@ -137,7 +137,7 @@ test("deleting a review deletes its guide writers, the current one and older arc
   const { harness, store, listed } = await setup();
   store.setGenerationWorker("pr-1", store.beginGeneration("pr-1"), "writer-now");
   store.saveReview({ ...store.getReview("pr-1")!, status: "ready" });
-  const writer = (id: string, title: string, archivedAt: number | null = null, originPluginId = "guided-review") => ({ id, title, originPluginId, archivedAt });
+  const writer = (id: string, title: string, archivedAt: number | null = null, originPluginId = "code-review-workspace") => ({ id, title, originPluginId, archivedAt });
   // More of this plugin's threads than fit on one page.
   for (let i = 0; i < 450; i++) listed.push(writer(`other-${i}`, `Generate guide: pr-other-${i}`, i % 2 ? 1 : null));
   listed.push(writer("writer-now", "Generate guide: pr-1"), writer("writer-old", "Generate guide: pr-1", 5),

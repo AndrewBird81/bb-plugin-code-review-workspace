@@ -36,7 +36,7 @@ async function setup() {
     return { stdout: "", stderr: "", code: 0 };
   });
   const published: any[] = [];
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: { get: async () => ({ archivedAt: null, deletedAt: null, status: "idle", title: "Review agent: pr-1" }), send: async () => ({}), stop: async () => ({}), update: async () => ({}), archive: async () => ({}) },
     plugins: { callRpc: async ({ method, input }: any) => (method === "activityCapabilities" ? { version: 1 } : (published.push({ method, input }), { accepted: true, id: "a", duplicate: false, ok: true })) },
   } as any });
@@ -68,7 +68,7 @@ test("snoozing until the author responds moves a review to Waiting on author and
   const { call, published } = await setup();
   expect(await call("snoozeReview", { targetKey: "pr-1", snoozed: true })).toEqual({ ok: true });
   expect((await call("getReviewBundle", { targetKey: "pr-1" })).review.turn).toMatchObject({ group: "waiting", reason: "snoozed" });
-  expect(published.some((p) => p.method === "dismissActivity" && p.input.id === "activity:guided-review:pr-1")).toBe(true);
+  expect(published.some((p) => p.method === "dismissActivity" && p.input.id === "activity:code-review-workspace:pr-1")).toBe(true);
   await call("snoozeReview", { targetKey: "pr-1", snoozed: false });
   expect((await call("getReviewBundle", { targetKey: "pr-1" })).review.turn.group).toBe("needs");
 });
@@ -95,7 +95,7 @@ test("opening a review whose alert waits for its re-review records that alert as
   store.setLifecycle("pr-1", { notifiedSignal: null, pendingAlert: { signal, since: Date.now() } });
   expect(await call("markSeen", { targetKey: "pr-1" })).toEqual({ ok: true });
   expect(store.getReview("pr-1")).toMatchObject({ notifiedSignal: signal, pendingAlert: null });
-  expect(published.some((p) => p.method === "dismissActivity" && p.input.id === "activity:guided-review:pr-1")).toBe(true);
+  expect(published.some((p) => p.method === "dismissActivity" && p.input.id === "activity:code-review-workspace:pr-1")).toBe(true);
   // An alert waiting for a signal that's no longer the turn's isn't marked seen in its place.
   store.setLifecycle("pr-1", { notifiedSignal: "requested:1", pendingAlert: { signal: "re-requested:1500", since: Date.now() } });
   await call("markSeen", { targetKey: "pr-1" });
@@ -115,7 +115,7 @@ test("opening a review dismisses its Needs You item at once, while an evaluation
   const evaluating = call("snoozeReview", { targetKey: "pr-1", snoozed: false });
   await vi.waitFor(() => expect(sent).toBeDefined());
   const seen = call("markSeen", { targetKey: "pr-1" });
-  await vi.waitFor(() => expect(published.some((p) => p.method === "dismissActivity" && p.input.id === "activity:guided-review:pr-1")).toBe(true));
+  await vi.waitFor(() => expect(published.some((p) => p.method === "dismissActivity" && p.input.id === "activity:code-review-workspace:pr-1")).toBe(true));
   sent();
   expect(await seen).toEqual({ ok: true });
   await evaluating;

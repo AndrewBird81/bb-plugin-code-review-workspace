@@ -9,7 +9,7 @@ const DAY = 86_400_000;
 const file = (filename: string) => JSON.stringify({ filename, status: "modified", patch: "@@ -1 +1 @@\n-a\n+b" });
 
 function setup() {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   const review: ReviewMeta = { targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "sha1", latestHeadSha: "sha2", status: "ready", createdAt: 1 };
   store.saveReview(review);
@@ -109,7 +109,7 @@ test("Since your review is compared once per baseline and diff, and leaves out a
 });
 
 test("diffs of reviews out of play for a month are dropped, keeping the guide, the draft, notes, and what Since your review needs", () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   const now = 100 * DAY;
   const old = now - 31 * DAY;

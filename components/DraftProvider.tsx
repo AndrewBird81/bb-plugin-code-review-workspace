@@ -37,7 +37,7 @@ export interface DraftProviderProps {
   ownPr?: boolean;
   /** What an approval leaves unread or read too fast (lib/approve-guard.ts); without it, approving asks nothing more. */
   approveGuard?: ApproveGuard;
-  /** What the agent read through Guided Review (lib/agent-coverage.ts); without it, Finish review doesn't say. */
+  /** What the agent read through Code Review Workspace (lib/agent-coverage.ts); without it, Finish review doesn't say. */
   agentCoverage?: AgentCoverage;
   /** A new value focuses the summary, which Finish review shows. `replaced`: you agreed the assistant's suggestion replaces your summary. */
   showDraft?: { at: number; replaced?: boolean };

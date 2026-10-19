@@ -27,7 +27,7 @@ async function setup() {
     if (args[0] === "api" && args[1] === "graphql" && args.some((a) => a.includes("reviewThreads"))) return { code: 0, stderr: "", stdout: prThreads };
     return { code: 0, stderr: "", stdout: "{}" };
   });
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready", headSha: "sha1" });

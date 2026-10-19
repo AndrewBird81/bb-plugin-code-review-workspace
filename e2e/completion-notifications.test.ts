@@ -19,7 +19,7 @@ test.skipIf(!process.env.BB_ACTIVITY_E2E_URL)("guide completion → Needs You po
   };
   await rpc("setupFinish", null);
   const key = `notification-e2e-${Date.now()}`;
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     plugins: { callRpc: ({ method, input }: any) => rpc(method, input) },
     threads: { spawn: async () => ({ id: "synthetic-hidden-worker" }), archive: async () => {}, stop: async () => {} },
   } });
@@ -36,7 +36,7 @@ test.skipIf(!process.env.BB_ACTIVITY_E2E_URL)("guide completion → Needs You po
   page.setDefaultTimeout(10_000);
   const errors: string[] = [];
   page.on("pageerror", e => errors.push(e.message));
-  await page.route("**/api/v1/plugins/guided-review/rpc/*", async route => {
+  await page.route("**/api/v1/plugins/code-review-workspace/rpc/*", async route => {
     const method = new URL(route.request().url()).pathname.split("/").pop()!;
     try { await route.fulfill({ json: { ok: true, result: await harness.behavior.callRpc(method, route.request().postDataJSON()) } }); }
     catch (e) { await route.fulfill({ status: 500, json: { ok: false, error: { message: String(e) } } }); }
@@ -52,7 +52,7 @@ test.skipIf(!process.env.BB_ACTIVITY_E2E_URL)("guide completion → Needs You po
     await page.waitForTimeout(350); // Let the native toast entrance settle for the artifact.
     await page.screenshot({ path: "docs/verification/needs-you-guide-ready.png" });
     await open.click();
-    await page.waitForURL(`${base}/plugins/guided-review/review/${key}`);
+    await page.waitForURL(`${base}/plugins/code-review-workspace/review/${key}`);
     await page.getByText("Read the completed guide.", { exact: true }).waitFor();
     await generateGuide(bb, store, key, "test-project");
     // A server RPC barrier plus an event-loop round trip lets realtime arrive.

@@ -15,7 +15,7 @@ const guide = {
 };
 
 async function host({ conversation = true, level = "medium", levels = ["low", "medium", "high", "xhigh"], provider = "codex" } = {}) {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: {
       get: async () => ({ archivedAt: null, deletedAt: null, status: "idle", providerId: provider }),
       send: async () => ({ delivery: "sent" }),

@@ -10,7 +10,7 @@ const at = { file: "a.ts", line: 3, side: "RIGHT" } as const;
 
 /** A review waiting for its assistant: a discussion and a feedback check. */
 function waiting(thread: Parameters<typeof makeThreadResponse>[0] | Error) {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     get: async () => { if (thread instanceof Error) throw thread; return makeThreadResponse({ id: "assistant", ...thread }); },
     archive: async () => ({}),
     queuedMessages: { list: async () => [] },

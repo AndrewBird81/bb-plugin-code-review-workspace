@@ -5,7 +5,7 @@ import type { rpcContract } from "../src/rpc-contract";
 /** Register before mounting editors; release only after the open request settles. */
 export function useReviewSession() {
   const rpc = useRpc<typeof rpcContract>();
-  // The install's own id, which isn't guided-review when installed under another.
+  // The install's own id, which isn't code-review-workspace when installed under another.
   const pluginId = experimental_usePluginId();
   const [clientId, setClientId] = useState("");
   const [ready, setReady] = useState(false);

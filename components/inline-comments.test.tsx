@@ -230,7 +230,7 @@ test("an unfinished comment in the diff is recovered there after the page reload
 });
 
 test("a recovered comment box on a line the diff no longer shows opens in the panel, and doesn't hold Submit unseen", async () => {
-  sessionStorage.setItem("guided-review:draft-recovery:stranded", JSON.stringify({ composer: { file: "src/a.ts", line: "40", side: "RIGHT", body: "Stranded text", inline: true, revision: "r1" } }));
+  sessionStorage.setItem("code-review-workspace:draft-recovery:stranded", JSON.stringify({ composer: { file: "src/a.ts", line: "40", side: "RIGHT", body: "Stranded text", inline: true, revision: "r1" } }));
   const comments = [{ file: "src/a.ts", line: 2, side: "RIGHT", body: "Existing" }];
   const { slot, diff, panel } = await renderReview("stranded", { getDraft: () => ({ draft: { ...empty("stranded"), comments }, stale: [] }) });
   const box = await panel().findByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement;
@@ -243,7 +243,7 @@ test("a recovered comment box on a line the diff no longer shows opens in the pa
 });
 
 test("a recovered box on a hunk the diff hides, narrowed to what changed since, opens in the panel; Show in diff shows all and moves it under its line", async () => {
-  sessionStorage.setItem("guided-review:draft-recovery:narrowed", JSON.stringify({ composer: { file: "src/a.ts", line: "2", side: "RIGHT", body: "Hidden text", inline: true, revision: "r1" } }));
+  sessionStorage.setItem("code-review-workspace:draft-recovery:narrowed", JSON.stringify({ composer: { file: "src/a.ts", line: "2", side: "RIGHT", body: "Hidden text", inline: true, revision: "r1" } }));
   await loadPluginApp(() => import("../app"));
   const DraftTray = await draftTray();
   const { DiffViewer } = await import("./DiffViewer");
@@ -309,7 +309,7 @@ test("editing a comment whose line Since your review doesn't draw shows Show in 
 });
 
 test("a comment box in the panel of a draft with no comments doesn't sit above No comments yet", async () => {
-  sessionStorage.setItem("guided-review:draft-recovery:alone", JSON.stringify({ composer: { file: "src/a.ts", line: "40", side: "RIGHT", body: "Stranded text", inline: true, revision: "r1" } }));
+  sessionStorage.setItem("code-review-workspace:draft-recovery:alone", JSON.stringify({ composer: { file: "src/a.ts", line: "40", side: "RIGHT", body: "Stranded text", inline: true, revision: "r1" } }));
   const { slot, panel } = await renderReview("alone", { getDraft: () => ({ draft: empty("alone"), stale: [] }) });
   await panel().findByRole("textbox", { name: "Draft comment" });
   expect(panel().queryByText(/^No comments yet/)).toBeNull();
@@ -356,10 +356,10 @@ test("Esc in a comment box with text leaves the box, keeping the text; Cancel di
   fireEvent.keyDown(box, { key: "Escape" });
   expect((diff().getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("A long careful comment");
   expect(document.activeElement).not.toBe(box);
-  expect(sessionStorage.getItem("guided-review:draft-recovery:esc")).toContain("A long careful comment");
+  expect(sessionStorage.getItem("code-review-workspace:draft-recovery:esc")).toContain("A long careful comment");
   fireEvent.click(diff().getByRole("button", { name: "Cancel" }));
   expect(diff().queryByRole("textbox")).toBeNull();
-  await waitFor(() => expect(sessionStorage.getItem("guided-review:draft-recovery:esc") ?? "").not.toContain("A long careful comment"));
+  await waitFor(() => expect(sessionStorage.getItem("code-review-workspace:draft-recovery:esc") ?? "").not.toContain("A long careful comment"));
   slot.lifecycle.unmount();
 });
 
@@ -577,7 +577,7 @@ test("Undo after a rebuild doesn't put the removed comment back on the new diff'
 // comment's box became an edit of the agent's comment added meanwhile, and Save replaced it unwarned.
 const agents = { file: "src/a.ts", line: 2, side: "RIGHT", author: "agent", chapterId: "c1", body: "Agent: this leaks the handle." };
 function recovered(targetKey: string, composer: Record<string, unknown>) {
-  sessionStorage.setItem(`guided-review:draft-recovery:${targetKey}`, JSON.stringify({ composer: { file: "src/a.ts", line: "2", side: "RIGHT", body: "Mine: rename this.", revision: "r1", ...composer } }));
+  sessionStorage.setItem(`code-review-workspace:draft-recovery:${targetKey}`, JSON.stringify({ composer: { file: "src/a.ts", line: "2", side: "RIGHT", body: "Mine: rename this.", revision: "r1", ...composer } }));
   let stored: Record<string, any> = { ...empty(targetKey), comments: [agents] };
   const saveDraftComment = vi.fn(async ({ comment }: any) => { stored = { ...stored, comments: [comment] }; return { draft: stored, stale: [] }; });
   return { rpc: { getDraft: () => ({ draft: stored, stale: [] }), saveDraftComment }, saveDraftComment };
@@ -616,7 +616,7 @@ test("a comment's edit box keeps which comment it edits for a reload", async () 
   fireEvent.click(await panel().findByRole("button", { name: /^Expand .*src\/a\.ts:2/ }));
   fireEvent.click(panel().getByRole("button", { name: "Edit comment on src/a.ts:2" }));
   fireEvent.change(panel().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Agent: this leaks the file handle." } });
-  await waitFor(() => expect(JSON.parse(sessionStorage.getItem("guided-review:draft-recovery:rec-keep")!).composer).toMatchObject({ body: "Agent: this leaks the file handle.", editing: agents.body }));
+  await waitFor(() => expect(JSON.parse(sessionStorage.getItem("code-review-workspace:draft-recovery:rec-keep")!).composer).toMatchObject({ body: "Agent: this leaks the file handle.", editing: agents.body }));
   slot.lifecycle.unmount();
 });
 

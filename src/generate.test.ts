@@ -18,7 +18,7 @@ const patch = `diff --git a/a.ts b/a.ts
 
 // The tools are called as review pr-1's guide writer, the worker recorded for its generation.
 async function host() {
-  const h = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { get: async () => ({ title: "Generate guide: pr-1" }) } } as any });
+  const h = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { get: async () => ({ title: "Generate guide: pr-1" }) } } as any });
   await plugin(h.bb);
   const store = createStore(h.bb); // same pluginId → same DB the factory's tools read
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
@@ -73,13 +73,13 @@ test("read_review_patch and list_review_files read only the calling thread's own
 });
 
 test("read_review_patch and list_review_files say they read your own review, not any target", async () => {
-  const writer = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate"] });
+  const writer = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate"] });
   await plugin(writer.bb);
   recordWriter(writer.bb, "thread-1");
-  const { tools } = await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("guided-review", "Generate guide: pr-1"));
+  const { tools } = await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("code-review-workspace", "Generate guide: pr-1"));
   for (const name of ["read_review_patch", "list_review_files"]) {
     const description = tools.find((tool) => tool.name === name)!.description;
-    expect({ name, own: description.includes("your own review"), any: description.includes("a Guided Review target") }).toEqual({ name, own: true, any: false });
+    expect({ name, own: description.includes("your own review"), any: description.includes("a Code Review Workspace target") }).toEqual({ name, own: true, any: false });
   }
 });
 
@@ -188,16 +188,16 @@ function recordWriter(bb: Parameters<typeof plugin>[0], threadId: string) {
 }
 
 test("agents.configure exposes tools/skill only to this plugin's own generation thread", async () => {
-  const h = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate"] });
+  const h = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate"] });
   await plugin(h.bb);
   recordWriter(h.bb, "thread-1");
   createStore(h.bb).setAssistantThread("pr-1", "assistant-1");
 
   const mine = await h.harness.behavior.resolveAgentConfiguration(
-    baseConfigContext("guided-review", "Generate guide: pr-1"),
+    baseConfigContext("code-review-workspace", "Generate guide: pr-1"),
   );
   expect(mine.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"]);
-  expect(mine.skills).toEqual(["guided-review-generate"]);
+  expect(mine.skills).toEqual(["code-review-workspace-generate"]);
 
   const foreign = await h.harness.behavior.resolveAgentConfiguration(
     baseConfigContext("someone-else", "Generate guide: pr-1"),
@@ -215,7 +215,7 @@ test("agents.configure exposes tools/skill only to this plugin's own generation 
   // its chat works across the review, and the draft-comment tools, but never the
   // guide-writing tool/skill. The guide writer never drafts comments.
   const agentThread = await h.harness.behavior.resolveAgentConfiguration(
-    baseConfigContext("guided-review", "Review agent: pr-1", "assistant-1"),
+    baseConfigContext("code-review-workspace", "Review agent: pr-1", "assistant-1"),
   );
   expect(agentThread.tools.map((t) => t.name)).toEqual(["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
     "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"]);
@@ -223,7 +223,7 @@ test("agents.configure exposes tools/skill only to this plugin's own generation 
 
   // An unrelated same-plugin thread still gets nothing.
   const other = await h.harness.behavior.resolveAgentConfiguration(
-    baseConfigContext("guided-review", "Something else: pr-1", "other-1"),
+    baseConfigContext("code-review-workspace", "Something else: pr-1", "other-1"),
   );
   expect(other.tools).toEqual([]);
   expect(other.skills).toEqual([]);
@@ -232,7 +232,7 @@ test("agents.configure exposes tools/skill only to this plugin's own generation 
 test("a rebuilt guide for a PR you reviewed checks your feedback instead of reviewing from scratch", async () => {
   const { generateGuide, buildGenerationPrompt } = await import("./generate");
   const { defaultPreferences } = await import("./preferences");
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), archive: async () => {}, stop: async () => {},
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), send: async () => ({}),
   } } as any });
@@ -258,7 +258,7 @@ test("a rebuilt guide for a PR you reviewed checks your feedback instead of revi
 
 test("a failed rebuild keeps the guide you had", async () => {
   const { generateGuide } = await import("./generate");
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: "worker" }), archive: async () => {}, stop: async () => {} } } as any });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "worker" }), archive: async () => {}, stop: async () => {} } } as any });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, headSha: "sha1", status: "ready", createdAt: 1, projectId: "p1" });
   store.savePatch("pr-1", patch);
@@ -273,10 +273,10 @@ test("a failed rebuild keeps the guide you had", async () => {
 });
 
 test("generate_review_guide advertises the guide's schema and accepts a guide without unplacedFiles", async () => {
-  const writer = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate"] });
+  const writer = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate"] });
   await plugin(writer.bb);
   recordWriter(writer.bb, "thread-1");
-  const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("guided-review", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
+  const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("code-review-workspace", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
   const schema = JSON.stringify(tool?.inputSchema);
   for (const field of ["intent", "overview", "risk", "focus", "summary", "unplacedFiles", "requirements"]) expect(schema).toContain(`"${field}"`);
   expect(schema).toContain("1–2 sentences");
@@ -343,7 +343,7 @@ test("the guide writer lists the files first, and patch pages end on file bounda
 
 test("the guide-writing skill lets the writer read a linked ticket, as its first step asks, and nothing else beyond the plugin's tools", async () => {
   const { readFile } = await import("node:fs/promises");
-  const skill = await readFile(new URL("../skills/guided-review-generate/SKILL.md", import.meta.url), "utf8");
+  const skill = await readFile(new URL("../skills/code-review-workspace-generate/SKILL.md", import.meta.url), "utf8");
   expect(skill).toMatch(/ticket \(like ABC-123\) and you have a tool that reads it, read it/);
   expect(skill).toContain("Use only this plugin's tools, and a tool that reads a linked ticket (step 1); never run shell commands or edit files.");
 });
@@ -357,7 +357,7 @@ test("the earlier guide's chapter titles reach the guide writer fenced as untrus
 /** The guide-writing skill, its line breaks read as spaces. */
 async function skillText() {
   const { readFile } = await import("node:fs/promises");
-  return (await readFile(new URL("../skills/guided-review-generate/SKILL.md", import.meta.url), "utf8")).replace(/\s+/g, " ");
+  return (await readFile(new URL("../skills/code-review-workspace-generate/SKILL.md", import.meta.url), "utf8")).replace(/\s+/g, " ");
 }
 
 test("the guide-writing skill lets a hotspot or requirement point at a removed line with side LEFT", async () => {
@@ -429,10 +429,10 @@ test("the guide-writing skill follows ticket references only from a trusted auth
 });
 
 test("generate_review_guide's description names every rule it enforces, and its instructions say to stop once accepted", async () => {
-  const writer = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate"] });
+  const writer = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate"] });
   await plugin(writer.bb);
   recordWriter(writer.bb, "thread-1");
-  const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("guided-review", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
+  const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("code-review-workspace", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
   for (const rule of [
     "every problem listed", "each changed file (or each hunk of a split file) is in exactly one chapter", "chapter ids are unique", "unplaced files have no changed lines",
     "every chapter has a risk", "medium- and high-risk chapters a focus", "no hotspot is listed twice", "each hotspot and covered requirement points at a line the diff shows",
@@ -450,7 +450,7 @@ async function writerRun(turns: Array<(submit: (guide: unknown) => Promise<unkno
   const { generateGuide } = await import("./generate");
   let prompt = "";
   const send = vi.fn(async () => ({ ok: true, delivery: "sent" }));
-  const h = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const h = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async (args: { prompt: string }) => { prompt = args.prompt; return { id: "worker" }; },
     archive: async () => ({}), stop: async () => ({}), send,
     get: async () => ({ id: "worker", title: "Generate guide: pr-1", status: "idle", archivedAt: null, deletedAt: null }),
@@ -499,7 +499,7 @@ test("a guide writer told why its guide wasn't accepted can fix it, and the guid
 // machine. The automatic review couldn't start, and only the log said so.
 test("an automatic review that can't start waits for Run review, saying why", async () => {
   let prompt = "";
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: {
       spawn: async (args: { prompt?: string; title: string }) => { if (args.prompt) prompt = args.prompt; return { id: args.title.startsWith("Review agent") ? "assistant" : "writer" }; },
       wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })),
@@ -529,7 +529,7 @@ test("an automatic review that can't start waits for Run review, saying why", as
 // would have waited for your click anyway, "no default agent" stood in for why it waited.
 test("an untrusted author's automatic review that couldn't start says it waits for your click, not that it failed", async () => {
   let prompt = "";
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: {
       spawn: async (args: { prompt?: string; title: string }) => { if (args.prompt) prompt = args.prompt; return { id: "writer" }; },
       wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })),
@@ -565,7 +565,7 @@ test("an untrusted author's automatic review that couldn't start says it waits f
 });
 
 test("a run that couldn't start keeps its reason as one line, capped", () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "ready", createdAt: 1, projectId: "p1" });
   skipRun(bb, store, "ref-1", "review", null, `spawn failed:\n${"x".repeat(300)}`);
@@ -579,7 +579,7 @@ test("a run that couldn't start keeps its reason as one line, capped", () => {
 test("a first guide's sinceReview is dropped; a re-review's is kept", async () => {
   for (const reviewed of [false, true]) {
     let prompt = "";
-    const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+    const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
       spawn: async (args: { prompt?: string; title: string }) => { if (args.prompt) prompt = args.prompt; return { id: "writer" }; },
       wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })),
       archive: async () => ({}), stop: async () => ({}),

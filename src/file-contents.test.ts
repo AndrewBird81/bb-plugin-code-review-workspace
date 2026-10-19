@@ -95,7 +95,7 @@ test("a local review's file is read with git on either side of its range, or fro
 });
 
 test("getFileContents reads a file of the review's diff", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ ...pr, headSha: "head6" });
@@ -150,7 +150,7 @@ test("a local review reads .gitattributes at the start of its range", async () =
 });
 
 test("getGeneratedFiles lists the review's changed files its repo declares generated", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ ...pr, headSha: "head9" });
@@ -160,7 +160,7 @@ test("getGeneratedFiles lists the review's changed files its repo declares gener
 });
 
 test("list_review_files calls the files the repo declares generated what they are", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ ...pr, headSha: "head10" });

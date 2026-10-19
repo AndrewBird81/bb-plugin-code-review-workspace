@@ -15,7 +15,7 @@ const machines = [
 const codex = { providerId: "codex", model: "gpt-6", reasoningLevel: "low" } as const;
 
 function host() {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: { spawn: async () => ({ id: "worker" }), wait: async () => {}, archive: async () => {}, stop: async () => {}, get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }) },
     projects: { list: async () => [{ id: "proj_work", kind: "standard" }, { id: "proj_personal", kind: "personal" }] },
     hosts: {

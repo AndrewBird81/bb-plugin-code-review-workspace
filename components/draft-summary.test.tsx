@@ -283,7 +283,7 @@ test("the agent's suggestion is in the verdict's name for screen readers", async
 });
 
 test("summary text kept from before this update waits for the box, then opens in it", async () => {
-  sessionStorage.setItem("guided-review:draft-recovery:kept", JSON.stringify({
+  sessionStorage.setItem("code-review-workspace:draft-recovery:kept", JSON.stringify({
     composer: { file: "src/a.ts", line: "1", side: "RIGHT", body: "An unfinished comment" },
     summary: { verdict: "COMMENT", body: "An unsaved summary", revision: "r1" },
   }));
@@ -291,6 +291,6 @@ test("summary text kept from before this update waits for the box, then opens in
   expect((slot.getByRole("textbox", { name: "Draft comment" }) as HTMLTextAreaElement).value).toBe("An unfinished comment");
   fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
   expect((summary(slot).getByRole("textbox", { name: "Review summary" }) as HTMLTextAreaElement).value).toBe("An unsaved summary");
-  expect(JSON.parse(sessionStorage.getItem("guided-review:draft-recovery:kept")!)).toEqual({ composer: expect.objectContaining({ body: "An unsaved summary", summary: true }) });
+  expect(JSON.parse(sessionStorage.getItem("code-review-workspace:draft-recovery:kept")!)).toEqual({ composer: expect.objectContaining({ body: "An unsaved summary", summary: true }) });
   slot.lifecycle.unmount();
 });

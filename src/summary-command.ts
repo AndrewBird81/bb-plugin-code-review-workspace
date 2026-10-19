@@ -9,7 +9,7 @@ export const SUMMARY_USAGE = [
   "usage: bb review summary <review> [--json]",
   "       bb review summary <review> --body <text> [--suggest APPROVE|COMMENT|REQUEST_CHANGES]",
   "",
-  "Shows or writes the review summary in a review's local draft in this bb. Nothing is posted to GitHub; the reviewer picks the verdict and submits the draft from Guided Review.",
+  "Shows or writes the review summary in a review's local draft in this bb. Nothing is posted to GitHub; the reviewer picks the verdict and submits the draft from Code Review Workspace.",
   "  <review>   a GitHub PR URL, or a review key (pr-…, ref-…)",
   "  --body     the summary, in GitHub Markdown, up to 65,000 characters; quote it for your shell. A summary the reviewer wrote stays theirs",
   "  --suggest  the verdict you'd suggest; the reviewer picks",

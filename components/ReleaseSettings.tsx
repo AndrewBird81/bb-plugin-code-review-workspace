@@ -44,7 +44,7 @@ export function ReleaseSettings({ clientId, disabled, onUpdatingChange }: { clie
       else if (status?.candidateVersion) {
         const result = await rpc.call("applyPluginUpdate", { clientId, candidateVersion: status.candidateVersion });
         if (result.outcome === "rolled-back") setError("The update failed and BB restored the previous version. Check for updates before retrying.");
-        else { setMessage(result.outcome === "updated" ? `Updated${result.version ? ` to ${result.version}` : ""}. Reopen Guided Review to load it.` : "Already on the latest compatible release."); await rpc.call("getReleaseStatus", null).then(setStatus).catch(() => {}); }
+        else { setMessage(result.outcome === "updated" ? `Updated${result.version ? ` to ${result.version}` : ""}. Reopen Code Review Workspace to load it.` : "Already on the latest compatible release."); await rpc.call("getReleaseStatus", null).then(setStatus).catch(() => {}); }
       }
     } catch (error) { setError(error instanceof Error ? error.message : "Couldn’t complete the update. Your reviews stay saved in BB."); }
     finally { setBusy(""); if (action === "update") onUpdatingChange?.(false); }
@@ -55,7 +55,7 @@ export function ReleaseSettings({ clientId, disabled, onUpdatingChange }: { clie
     <div className="flex flex-wrap gap-2">
       <Button variant="outline" size="sm" className={TOUCH_CONTROL} disabled={!!busy} onClick={() => void perform("check")}>{busy === "check" ? "Checking…" : "Check for updates"}</Button>
       {status?.outcome === "update-available" && <Button size="sm" className={TOUCH_CONTROL} disabled={!!busy || disabled} onClick={() => void perform("update")}>{busy === "update" ? "Updating…" : "Update now"}</Button>}
-      <a className={cn("relative self-center text-xs text-muted-foreground underline underline-offset-4", TOUCH_TARGET)} href="https://github.com/AndrewBird81/bb-plugin-guided-review/releases" target="_blank" rel="noreferrer">Release notes</a>
+      <a className={cn("relative self-center text-xs text-muted-foreground underline underline-offset-4", TOUCH_TARGET)} href="https://github.com/AndrewBird81/bb-plugin-code-review-workspace/releases" target="_blank" rel="noreferrer">Release notes</a>
     </div>
     {disabled && <p className="text-xs text-muted-foreground">Save or discard your settings edits before updating.</p>}
     <label className="flex items-start gap-3 text-sm"><input type="checkbox" className="mt-1 size-4 shrink-0 accent-(--primary)" checked={status?.automatic ?? false} disabled={!status || !!busy || (status.outcome === "pinned" && !status.automatic)} onChange={() => void perform("toggle")} /><span><span className="font-medium">Update automatically when idle</span><span className="mt-1 block text-xs leading-relaxed text-muted-foreground">Off by default. Checks hourly after five idle minutes, once all review and Settings pages are closed. Installs the latest compatible release through BB; saved reviews, drafts, notes, and preferences stay in place.</span></span></label>

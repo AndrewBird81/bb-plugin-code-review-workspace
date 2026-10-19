@@ -25,7 +25,7 @@ import { GUIDE_STOPPED } from "../lib/review-state";
 
 function host() {
   return createFakePluginHost({
-    pluginId: "guided-review",
+    pluginId: "code-review-workspace",
     sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } },
   });
 }
@@ -85,7 +85,7 @@ test("rerunReview fails for an unknown target", async () => {
 });
 
 test("rerunReview leaves the review as it was when the guide writer's machine is offline", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { hosts: { get: async () => ({ id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } }) } } });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { hosts: { get: async () => ({ id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } }) } } });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "oldsha", gitRef: "main...feature" });
   store.savePatch("pr-7", "stale patch");
@@ -97,7 +97,7 @@ test("rerunReview leaves the review as it was when the guide writer's machine is
 
 test("a review deleted while its PR loads isn't brought back", async () => {
   const { rerunReview } = await import("./rereview");
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: "w" }), wait: async () => ({}), archive: async () => ({}), stop: async () => ({}) } } as any });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "w" }), wait: async () => ({}), archive: async () => ({}), stop: async () => ({}) } } as any });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-9", kind: "pr", number: 9, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
   const runGh = vi.fn(async (args: string[]) => {
@@ -197,7 +197,7 @@ test("bb review during an update's PR read leaves one guide writer building the 
   try {
     const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
     let spawned = 0;
-    const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: `writer-${++spawned}` }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}) } } as any });
+    const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: `writer-${++spawned}` }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}) } } as any });
     const store = createStore(bb);
     store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
     store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+n\n");
@@ -205,7 +205,7 @@ test("bb review during an update's PR read leaves one guide writer building the 
     const update = rerunReview({ bb, store, gh }, key);
     await vi.waitFor(() => expect(release).not.toBeNull());
     // Meanwhile an agent runs bb review on the same PR: it reads GitHub, sees a ready guide behind the PR, and rebuilds.
-    expect((await runReviewCommand({ bb, store, gh }, ["https://github.com/acme/web/pull/7"], { projectId: "p1" })).stdout).toContain("Guided Review started for");
+    expect((await runReviewCommand({ bb, store, gh }, ["https://github.com/acme/web/pull/7"], { projectId: "p1" })).stdout).toContain("Review started for");
     await vi.waitFor(() => expect(spawned).toBe(1));
     release!();
     expect(await update).toEqual({ ok: true });

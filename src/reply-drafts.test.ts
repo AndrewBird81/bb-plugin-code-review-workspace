@@ -12,7 +12,7 @@ async function setup() {
   // Replies post as the account the page verified, casey, signed in on the server.
   const signedIn = (args: string[]) => args[0] === "auth" ? { code: 0, stdout: "tok\n", stderr: "" } : args[1] === "user" ? { code: 0, stdout: "casey\n", stderr: "" } : null;
   runGh.mockImplementation(async (args: string[]) => signedIn(args) ?? { code: 0, stdout: "{}", stderr: "" });
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });

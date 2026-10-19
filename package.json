@@ -1,6 +1,6 @@
 {
-  "name": "bb-plugin-guided-review",
-  "version": "0.8.2",
+  "name": "bb-plugin-code-review-workspace",
+  "version": "0.9.0",
   "type": "module",
   "engines": {
     "bb": ">=0.45.0",
@@ -8,8 +8,8 @@
     "node": ">=24"
   },
   "bb": {
-    "name": "Guided Review",
-    "description": "Turn a GitHub PR or local git ref into an agent-authored chaptered review, and submit it back to GitHub.",
+    "name": "Code Review Workspace",
+    "description": "Read, discuss, and approve a pull request or local diff in one place: a chapter-by-chapter walkthrough, AI-drafted comments and verdict you edit, whose-turn tracking and re-review, then one complete review submitted to GitHub.",
     "branding": {
       "icon": "./assets/icon.svg"
     },
@@ -52,12 +52,15 @@
     "build": "bb plugin build",
     "check": "npm test && npm run typecheck && bb plugin types --check && npm run build"
   },
-  "description": "Chaptered pull-request reviews inside BB, with a review assistant.",
-  "author": "Pritam Sharma",
-  "homepage": "https://github.com/AndrewBird81/bb-plugin-guided-review#readme",
+  "description": "A code review workspace for BB: guided walkthroughs of pull requests and local diffs, an AI review assistant, and GitHub submission.",
+  "author": "Andrew Bird",
+  "contributors": [
+    "Pritam Sharma (https://github.com/notpritam)"
+  ],
+  "homepage": "https://github.com/AndrewBird81/bb-plugin-code-review-workspace#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AndrewBird81/bb-plugin-guided-review.git"
+    "url": "https://github.com/AndrewBird81/bb-plugin-code-review-workspace.git"
   },
   "license": "MIT"
 }

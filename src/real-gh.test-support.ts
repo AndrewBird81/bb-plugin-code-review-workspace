@@ -5,7 +5,7 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
-const dir = join(tmpdir(), "guided-review-stand-in-gh");
+const dir = join(tmpdir(), "code-review-workspace-stand-in-gh");
 // Each test process logs its own calls.
 const log = process.env.GR_REAL_GH_LOG = join(dir, `calls-${process.pid}`);
 mkdirSync(dir, { recursive: true });

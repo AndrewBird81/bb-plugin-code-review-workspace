@@ -8,7 +8,7 @@ import type { ReviewMeta } from "./store";
 const pr = (extra: Partial<ReviewMeta> = {}): ReviewMeta => ({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, author: "mallory", headSha: "sha1", status: "ready", createdAt: 1, ...extra });
 
 test("settings saved before trust existed keep agents to members and collaborators, and the repo's checks off", () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   const { unattendedAuthors: _authors, runRepoChecks: _checks, ...older } = defaultPreferences;
   bb.storage.database().prepare(`INSERT INTO review_preferences (id,value,revision) VALUES (1,?,1)`).run(JSON.stringify({ ...older, diffLayout: "unified" }));

@@ -30,7 +30,7 @@ const shown = (store: ReturnType<typeof createStore>, targetKey: string) => {
 };
 
 test("draft comment then submit builds a batched review", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
@@ -52,7 +52,7 @@ test("draft comment then submit builds a batched review", async () => {
 });
 
 test("submitting a review clears what didn't run on its own", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
@@ -66,7 +66,7 @@ test("submitting a review clears what didn't run on its own", async () => {
 });
 
 test("draft reads and writes report comments drafted against an older diff", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
@@ -87,7 +87,7 @@ test("draft reads and writes report comments drafted against an older diff", asy
 });
 
 test("saveDraftComment refuses a line outside the current diff, naming it", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-3", kind: "pr", number: 3, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
@@ -101,7 +101,7 @@ test("saveDraftComment refuses a line outside the current diff, naming it", asyn
 });
 
 test("while the guide rebuilds, the summary and verdict save, and a comment's save says why it waits", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-4", kind: "pr", number: 4, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
@@ -117,7 +117,7 @@ test("while the guide rebuilds, the summary and verdict save, and a comment's sa
 });
 
 test("the review bundle says whether the signed-in account wrote the PR", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "mine", kind: "pr", number: 5, repo: "acme/web", author: "Casey", headSha: "sha123", status: "ready", createdAt: 1 });
@@ -127,7 +127,7 @@ test("the review bundle says whether the signed-in account wrote the PR", async 
 });
 
 test("the list says Your PR for a PR the signed-in account wrote before the sync has read it", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "mine", kind: "pr", number: 5, repo: "acme/web", author: "Casey", headSha: "sha123", status: "ready", createdAt: 1 });
@@ -141,7 +141,7 @@ test("the list says Your PR for a PR the signed-in account wrote before the sync
 });
 
 test("saveDraftComment with replaces refuses to replace a comment the box didn't show, and replaces the one it did", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
@@ -163,7 +163,7 @@ test("saveDraftComment with replaces refuses to replace a comment the box didn't
 });
 
 test("saveDraftComment keeps an agent's comment the agent's when Undo puts it back", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-6", kind: "pr", number: 6, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
@@ -174,7 +174,7 @@ test("saveDraftComment keeps an agent's comment the agent's when Undo puts it ba
 });
 
 test("saving a draft comment tells the review's other windows, so one with its box open reads it again", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-3", kind: "pr", number: 3, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
@@ -190,7 +190,7 @@ test("saving a draft comment tells the review's other windows, so one with its b
 });
 
 test("removing a draft comment tells the review's other windows, so none keeps showing it (70-review #8)", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-4", kind: "pr", number: 4, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
@@ -202,7 +202,7 @@ test("removing a draft comment tells the review's other windows, so none keeps s
 });
 
 test("moveToSummary makes a comment on an older diff a line of the summary, which is then yours, and only such a comment", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-8", kind: "pr", number: 8, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
@@ -235,7 +235,7 @@ test("moveToSummary makes a comment on an older diff a line of the summary, whic
 });
 
 test("moveToSummary marks a pre-existing comment's line as it would post", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-9", kind: "pr", number: 9, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });

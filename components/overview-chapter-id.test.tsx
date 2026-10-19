@@ -61,7 +61,7 @@ const currentChapter = (slot: Slot) => chapters(slot).getAllByRole("button").fin
 test("a stored chapter whose id was overview leaves the Overview reachable, and a submitted one is refused", async () => {
   expect(checkGuideInput({ ...guide, sections: guide.sections.map((s) => ({ ...s, risk: "low" })) }).ok).toBe(false);
   // The guide as the store reads it back for the review's bundle.
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveGuide("pr-42", guide);
   // A first open shows the Overview: the guide's intent, and no chapter's code.

@@ -12,7 +12,7 @@ export type DraftRecovery = {
   /** Unsaved summary text from before the summary had a box of its own, kept while the box holds something else. */
   summary?: { body: string; revision?: string };
 };
-const key = (targetKey: string) => `guided-review:draft-recovery:${targetKey}`;
+const key = (targetKey: string) => `code-review-workspace:draft-recovery:${targetKey}`;
 const flag = (value: unknown) => [undefined, true, false].includes(value as boolean | undefined);
 
 /** Per-tab storage avoids mixing unsaved text from two review windows. */

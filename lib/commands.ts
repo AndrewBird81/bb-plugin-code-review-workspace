@@ -1,4 +1,4 @@
-// Guided Review's commands in BB's command palette. A command's run gets no RPC and no navigation, so it posts here, and
+// Code Review Workspace's commands in BB's command palette. A command's run gets no RPC and no navigation, so it posts here, and
 // the handler that BB's always-mounted app overlay runs (components/NeedsReviewSidebar.tsx) does the work.
 import { useEffect } from "react";
 import { toast } from "sonner";
@@ -56,7 +56,7 @@ export function usePaletteCommands() {
       toast.success(`Started a review of ${link.name}${title ? `: ${title}` : ""}`, { action: { label: "Open", onClick: () => open(targetKey) } });
     }
     const handle = (command: PaletteCommand) => {
-      run(command).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Couldn’t reach Guided Review. Try again."));
+      run(command).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Couldn’t reach Code Review Workspace. Try again."));
     };
     handler = handle;
     return () => { if (handler === handle) handler = null; };

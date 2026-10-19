@@ -40,7 +40,7 @@ const T0 = Date.parse("2026-10-10T12:00:00Z");
 
 function host() {
   const delivered: unknown[] = [];
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: { spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}), update: async () => ({}), send: async () => ({}),
       get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }) },
     projects: { defaultExecutionOptions: async () => ({ providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" }) },
@@ -241,7 +241,7 @@ test("with Comment on or ask about a failing check off, a check's log isn't read
 test("with every toggle off, a local review whose code changed says nothing new", async () => {
   const { bb, harness, store } = host();
   await plugin(bb);
-  const cwd = await mkdtemp(join(tmpdir(), "guided-review-"));
+  const cwd = await mkdtemp(join(tmpdir(), "code-review-workspace-"));
   try {
     for (const args of [["init", "-b", "main"], ["-c", "user.name=R", "-c", "user.email=r@example.invalid", "commit", "--allow-empty", "-m", "start"]]) expect((await runGit(args, { cwd })).code).toBe(0);
     await writeFile(join(cwd, "a.ts"), "edited\n");
@@ -265,7 +265,7 @@ test("with every toggle off, a review a thread started offers no thread to send 
 });
 
 test("with every toggle off, agents in your threads get no bb review skill, and bb review lists nothing", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", agentSkillIds: ["guided-review-generate", "guided-review"] });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate", "code-review-workspace"] });
   await plugin(bb);
   const store = createStore(bb);
   store.savePreferences({ ...defaultPreferences, knobs: allKnobsOff }, 0);

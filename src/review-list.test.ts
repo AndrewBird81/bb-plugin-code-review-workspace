@@ -4,7 +4,7 @@ import plugin from "../server";
 import { createStore } from "./store";
 
 test("the list carries each review's lifecycle and turn, without its review summaries, and the sync's health", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1 });
@@ -19,7 +19,7 @@ test("the list carries each review's lifecycle and turn, without its review summ
 });
 
 test("reviews leave the server with their place in a stack, in the list and alone", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", base: "main", head: "feat-a", status: "ready", createdAt: 1 });
@@ -33,7 +33,7 @@ test("reviews leave the server with their place in a stack, in the list and alon
 
 test("bb review list keeps a stack's reviews together, bottom first, where its first one is, as All reviews does", async () => {
   const { runListCommand } = await import("./list-command");
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", base: "main", head: "feat-a", status: "ready", createdAt: 1 });

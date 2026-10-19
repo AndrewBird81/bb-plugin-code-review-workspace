@@ -16,7 +16,7 @@ const patch = [
 const at = { file: "a.ts", line: 3, side: "RIGHT" } as const;
 
 async function host() {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
@@ -224,7 +224,7 @@ test("a removed comment drafted before bb kept its line's code doesn't go back",
 });
 
 test("an ask on the summary left from before the plugin started gives way", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   store.setLifecycle("pr-1", { summaryAsk: { threadId: "assistant", state: "running", at: Date.now() } });

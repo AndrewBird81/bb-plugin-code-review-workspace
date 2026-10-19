@@ -15,7 +15,7 @@ const PATCH = [
 ].join("\n");
 
 function host(spawn: (args: any) => Promise<unknown> = async () => ({ id: "fixer" }), projectDefaults: unknown = { providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" }) {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: { spawn },
     projects: { defaultExecutionOptions: async () => projectDefaults },
   } as any });
@@ -141,7 +141,7 @@ test("Fix in a new thread and Send to thread mark a pre-existing problem while S
 
 /** A host whose BB has the threads in `threads`, by id, and whose send answers `delivery`. */
 function sendHost(threads: Record<string, { title: string | null; archivedAt?: number | null; deletedAt?: number | null }>, delivery: "sent" | "queued" = "sent") {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     get: async ({ threadId }: { threadId: string }) => {
       const thread = threads[threadId];
       if (!thread) throw Object.assign(new Error("HTTP 404: Thread not found"), { status: 404 });

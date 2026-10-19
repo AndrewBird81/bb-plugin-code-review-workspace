@@ -86,7 +86,7 @@ test("the assistant of a local review can read files", async () => {
     await writeFile(join(cwd, "a.ts"), "one\n");
     await runGit(["add", "."], { cwd });
     await runGit(["commit", "-qm", "base"], { cwd });
-    const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+    const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
     await plugin(bb);
     const store = createStore(bb);
     store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "HEAD", cwd, status: "ready", createdAt: 1 });

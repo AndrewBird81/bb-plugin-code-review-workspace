@@ -26,7 +26,7 @@ test("hotspots must be on new-file lines the diff shows", () => {
 });
 
 test("generate_review_guide refuses a hotspot off the diff, and keeps valid ones", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });

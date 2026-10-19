@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0 — unreleased
+
+Guided Review is now **Code Review Workspace**, maintained by Andrew Bird, and installs from `github.com/AndrewBird81/bb-plugin-code-review-workspace`. It began as a fork of Pritam Sharma's [bb-plugin-guided-review](https://github.com/notpritam/bb-plugin-guided-review), credited in the README, LICENSE, and `package.json`. The new name takes a new plugin id, `code-review-workspace`, so it's a new install, not an update: see [Moving from Guided Review](README.md#moving-from-guided-review). Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; install at `^0.9.0`.
+
+- The first start copies in a Guided Review install's reviews, guides, drafts, private notes, and settings, when it has none of its own, and Guided Review's review assistants keep their tools.
+- The panel, settings section, palette commands, Needs You alerts, and `bb review`'s words say Code Review Workspace. `bb review` and everything it takes are unchanged.
+- The skills for agents are `code-review-workspace` and `code-review-workspace-generate`; agents fetch a PR's head into `refs/code-review-workspace/`.
+
 ## 0.8.2 — 2026-10-19
 
 Fixes only, from a bug bash of 0.8.1. Text someone else wrote can no longer load an image, freeze the page, or stall the plugin's server; draft comments stay on their own code through a guide update, and leave the draft once they're submitted; an automatic review that couldn't start, or that waits for your click, says why; and the keyboard focus stays put through Submit, a comment's actions, and All reviews' quick actions. Nothing new to turn on or off, and every switch means what it did. Guided Review still needs **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+, and installs at `^0.8.0`, which updates to 0.8.2.

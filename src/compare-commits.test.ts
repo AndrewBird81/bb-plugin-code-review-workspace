@@ -23,7 +23,7 @@ async function setUp() {
     if (compare?.endsWith("...c2bbbbb")) return ok(one("second"));
     return { stdout: "", stderr: "HTTP 404", code: 1 };
   });
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "c3ccccc", latestHeadSha: "c4ddddd", status: "ready", createdAt: 1 });

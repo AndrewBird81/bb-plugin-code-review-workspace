@@ -173,7 +173,7 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
       <DialogContent onCloseAutoFocus={(event) => { event.preventDefault(); trigger.current?.focus(); }}>
         <DialogHeader>
           <DialogTitle>Delete this review?</DialogTitle>
-          <DialogDescription>“{title}” will be permanently removed from Guided Review, with its guide, draft comments, private notes, and assistant conversation. Nothing changes on GitHub.</DialogDescription>
+          <DialogDescription>“{title}” will be permanently removed from Code Review Workspace, with its guide, draft comments, private notes, and assistant conversation. Nothing changes on GitHub.</DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-2 sm:space-x-0">
           <Button variant="outline" className={TOUCH_CONTROL} disabled={actions.busy} onClick={() => setConfirming(false)}>Cancel</Button>

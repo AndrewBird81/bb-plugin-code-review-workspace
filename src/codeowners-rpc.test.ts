@@ -27,7 +27,7 @@ function github(codeowners: string | null) {
 }
 
 async function setUp(headSha: string) {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha, status: "ready", createdAt: 1 });

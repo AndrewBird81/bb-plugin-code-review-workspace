@@ -8,7 +8,7 @@ import { generateGuide } from "./generate";
 import { startConversation } from "./agent";
 
 test("settings persist across stores, reject stale edits, and validate input", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const initial = await harness.behavior.callRpc("getPreferences", null) as any;
   expect(initial.preferences).toEqual(defaultPreferences);
@@ -24,7 +24,7 @@ test("settings persist across stores, reject stale edits, and validate input", a
 });
 
 test("a page from before 0.5.1 saves settings without the thread-list setting, which keeps its saved value", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const off = await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, threadListReviews: false }, revision: 0 }) as any;
   const { threadListReviews: _omitted, ...older } = { ...defaultPreferences, guideDetail: "detailed" as const };
@@ -34,7 +34,7 @@ test("a page from before 0.5.1 saves settings without the thread-list setting, w
 });
 
 test("a re-review shows what changed since your review unless Settings says All changes, which a page from before 0.6.0 keeps", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const { rereviewShows: _omitted, ...older } = { ...defaultPreferences, guideDetail: "detailed" as const };
   // Saved before 0.6.0, without it.
@@ -46,7 +46,7 @@ test("a re-review shows what changed since your review unless Settings says All 
 });
 
 test("an automatic review saved with the default from before the review summary reads as the current default; a custom one stays", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_SUMMARY, diffLayout: "unified" }, 0);
@@ -59,7 +59,7 @@ test("an automatic review saved with the default from before the review summary 
 });
 
 test("private notes persist independently of drafts, with conflict protection", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1 });
@@ -74,7 +74,7 @@ test("private notes persist independently of drafts, with conflict protection", 
 });
 
 test("workers receive current customization without private notes", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), wait: async () => {}, stop: async () => {}, archive: async () => {},
   } } });
   const store = createStore(bb);
@@ -93,7 +93,7 @@ const claude = { providerId: "claude-code", model: "opus", reasoningLevel: "max"
 const explicit = { providerId: "explicit", model: "explicit", reasoningLevel: "explicit", permissionMode: "explicit" };
 
 test("agent selections default to project defaults, persist, and validate", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   // Settings saved before agent selections existed load as project defaults.
   bb.storage.database().prepare(`INSERT INTO review_preferences (id,value,revision) VALUES (1,?,1)`)
@@ -110,7 +110,7 @@ test("agent selections default to project defaults, persist, and validate", asyn
 });
 
 test("an agent saves with any reasoning level its provider offers, not only those the SDK's types list", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const preferences = { ...defaultPreferences, guideAgent: { ...codex, reasoningLevel: "turbo" }, assistantAgent: { ...claude, reasoningLevel: "turbo" } };
   const saved = await harness.behavior.callRpc("savePreferences", { preferences, revision: 0 }) as any;
@@ -122,7 +122,7 @@ test("an agent saves with any reasoning level its provider offers, not only thos
 const provider = (id: string, modes: string[]) => ({ id, available: true, capabilities: { permissionModes: modes } });
 
 test("each agent starts with its own selection, sourced as the user's choice; on the defaults, the hidden guide writer at bb's lowest permission mode", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), wait: async () => {}, output: async () => "Answer", stop: async () => {}, archive: async () => {},
   }, projects: { defaultExecutionOptions: async () => ({ providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "full" }) },
   providers: { list: async () => [provider("claude-code", ["accept-edits", "auto", "full"])] } } as any });
@@ -147,7 +147,7 @@ test("each agent starts with its own selection, sourced as the user's choice; on
 test("on the defaults, the guide writer runs at accept-edits, else auto, where the project's provider runs in it, else at the project's mode", async () => {
   let defaults: unknown = { providerId: "other", model: "m", reasoningLevel: "high", permissionMode: "full" };
   let providers: () => Promise<unknown[]> = async () => [provider("claude-code", ["accept-edits", "auto", "full"]), provider("other", ["auto", "full"])];
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), wait: async () => {}, stop: async () => {}, archive: async () => {},
   }, projects: { defaultExecutionOptions: async ({ projectId }: { projectId: string }) => projectId === "project" ? defaults : null },
   providers: { list: () => providers() } } as any });
@@ -176,7 +176,7 @@ test("on the defaults, the guide writer runs at accept-edits, else auto, where t
 test("custom selections start from the personal project's remembered defaults, with the guide writer's mode as on the defaults", async () => {
   const defaults = { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", permissionMode: "full", serviceTier: "default" };
   let providers = [provider("codex", ["accept-edits", "auto", "full"])];
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { projects: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { projects: {
     list: async () => [{ id: "proj_work", kind: "standard" }, { id: "proj_personal", kind: "personal" }],
     defaultExecutionOptions: async ({ projectId }: { projectId: string }) => projectId === "proj_personal" ? defaults : null,
   }, providers: { list: async () => providers } } as any });
@@ -196,7 +196,7 @@ test("custom selections start from the personal project's remembered defaults, w
 test("getProviderModes lists a machine's providers with the permission modes each runs in, and none when they can't be read", async () => {
   const lists: unknown[] = [];
   let fail = false;
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { providers: { list: async (args?: unknown) => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { providers: { list: async (args?: unknown) => {
     lists.push(args);
     if (fail) throw new Error("Connection unavailable");
     return [{ ...provider("pi", ["full"]), displayName: "Pi" }, { ...provider("codex", ["accept-edits", "auto", "full"]), displayName: "Codex" }];
@@ -212,7 +212,7 @@ test("getProviderModes lists a machine's providers with the permission modes eac
 });
 
 test("assistant instructions are capped at 2,000 characters; a longer saved text loads cut to fit", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   expect(() => store.savePreferences({ ...defaultPreferences, assistantInstructions: "x".repeat(2001) }, 0)).toThrow();
@@ -222,7 +222,7 @@ test("assistant instructions are capped at 2,000 characters; a longer saved text
 });
 
 test("a feedback check saved with the default that replied on every thread reads as the current default; a custom one stays", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   expect(VERIFICATION_PROMPT_BEFORE_OPEN_THREADS).toContain("Draft a short reply for each of my threads");
@@ -235,7 +235,7 @@ test("a feedback check saved with the default that replied on every thread reads
 });
 
 test("an automatic review saved with the default from before precision-first reviews reads as the current default; a custom one stays", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   // The default as Settings saved it before.
@@ -249,7 +249,7 @@ test("an automatic review saved with the default from before precision-first rev
 });
 
 test("an automatic review saved with the default from before it asked for evidence reads as the current default", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   expect(defaultPreferences.automaticReview).toBe(AUTOMATIC_REVIEW_BEFORE_EVIDENCE.replace("add a ```suggestion block.", "add a ```suggestion block. Put how you confirmed it in evidence, with file:line: only what you read or ran."));

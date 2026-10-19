@@ -38,7 +38,7 @@ test("hashForFile hashes only the file asked for", () => {
 });
 
 test("setFilesViewed marks a chapter's files in one call, hashing just those", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
@@ -56,7 +56,7 @@ test("setFilesViewed marks a chapter's files in one call, hashing just those", a
 });
 
 test("setFilesViewed with viewed false unmarks a chapter's files at once, for Undo", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
@@ -67,7 +67,7 @@ test("setFilesViewed with viewed false unmarks a chapter's files at once, for Un
 });
 
 test("setFilesViewed returns the views it replaced, and Undo with them puts a file viewed at an older version back as changed since", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
@@ -136,7 +136,7 @@ const manyFiles = (files: number, changed = -1) => Array.from({ length: files },
   [`diff --git a/src/f${f}.ts b/src/f${f}.ts`, `--- a/src/f${f}.ts`, `+++ b/src/f${f}.ts`, "@@ -1,2 +1,2 @@", `-old${f}`, f === changed ? "+changed" : `+new${f}`, " same", ""].join("\n")).join("");
 
 test("reading Viewed marks on a 2,000-file review hashes only the marked files, once per patch", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1 });

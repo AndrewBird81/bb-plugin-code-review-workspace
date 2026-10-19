@@ -56,7 +56,7 @@ test("a requirement's line is a new-file line the diff shows, and a covered one 
 });
 
 test("generate_review_guide refuses a requirement off the diff, and keeps requirements and focus", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });

@@ -761,7 +761,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     return () => cancelAnimationFrame(frame);
   }, [opening, rootEl]);
   const reviewFiles: string[] = useMemo(() => [...new Set<string>(sections.flatMap((s: any) => s.diffs.map((d: any) => d.file)))], [sections]);
-  // What the agent read through Guided Review, beside its verdict in Finish review.
+  // What the agent read through Code Review Workspace, beside its verdict in Finish review.
   const coverageOn = useKnob("agentCoverage");
   const coverage = useMemo(() => coverageOn ? agentCoverage(reviewFiles, review?.agentReads, review?.headSha, generated, chosenFiles) : undefined,
     [coverageOn, reviewFiles, review?.agentReads, review?.headSha, generated, chosenFiles]);

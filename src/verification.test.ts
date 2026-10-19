@@ -18,7 +18,7 @@ test("a check on a stale diff says where draft comments can go, and where new pr
 });
 
 test("with Run the re-review check off, the check doesn't start, though the default prompt is saved", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), send: async () => ({}),
   } } as any });
   const store = createStore(bb);
@@ -32,7 +32,7 @@ test("with Run the re-review check off, the check doesn't start, though the defa
 });
 
 test("assess_feedback keeps where its evidence is only as a line the current diff shows on its new side", () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, headSha: "sha1", status: "ready", createdAt: 1 });
   store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,3 +1,2 @@\n keep();\n-if (!isAdmin(user)) throw denied();\n next();\n");
@@ -53,7 +53,7 @@ test("assess_feedback keeps where its evidence is only as a line the current dif
 });
 
 test("commit headlines since your review are fenced as untrusted", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n keep();\n-old();\n+next();\n";
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "bbbbbbb2", status: "ready", createdAt: 1 });
@@ -66,7 +66,7 @@ test("commit headlines since your review are fenced as untrusted", async () => {
 });
 
 test("the assistant's changes since your review are read at the commit its check records, not a later push", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   const one = (line: string) => `diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+${line}\n`;
   const at: Record<string, string> = { sha1: one("guide"), sha2: one("checked"), sha3: one("pushed-later") };
@@ -89,7 +89,7 @@ test("the assistant's changes since your review are read at the commit its check
 });
 
 test("on a PR with more commits than GitHub lists, a reviewed commit missing from the list isn't said to be force-pushed away", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "bbbbbbb2", status: "ready", createdAt: 1 });

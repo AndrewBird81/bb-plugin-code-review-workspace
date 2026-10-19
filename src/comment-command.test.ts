@@ -15,7 +15,7 @@ const url = "https://github.com/acme/web/pull/7";
 const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n keep();\n-old();\n+next();\n";
 
 async function host() {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
@@ -75,14 +75,14 @@ test("while a review's first guide is written, comment and summary say the draft
   expect(await cli("add", url, "a.ts:2", "--code", "next();", "--body", "x")).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("being regenerated") });
   expect(store.getDraft(key)).toMatchObject({ body: "", comments: [] });
   // The skill says so, rather than that nothing waits for the guide.
-  const skill = readFileSync(new URL("../skills/guided-review/SKILL.md", import.meta.url), "utf8").replace(/\s+/g, " ");
+  const skill = readFileSync(new URL("../skills/code-review-workspace/SKILL.md", import.meta.url), "utf8").replace(/\s+/g, " ");
   expect(skill).toContain("you needn't wait for it, but comments and the summary do: run `bb review list` until the review says guide ready.");
 });
 
 test("the comment usage BB shows agents, and the skill, name the options add and edit take (bug bash CLI-10, DOC-7)", async () => {
   const { harness } = await host();
   const usage = harness.inspection.registrations.cli!.commands!.find((command) => command.name === "comment")!.usage;
-  const skill = readFileSync(new URL("../skills/guided-review/SKILL.md", import.meta.url), "utf8");
+  const skill = readFileSync(new URL("../skills/code-review-workspace/SKILL.md", import.meta.url), "utf8");
   for (const option of ["--side", "--code", "--body", "--severity", "--evidence", "--pre-existing"]) {
     expect(usage, option).toContain(`[${option}`);
     expect(skill, option).toContain(`\`${option}`);
@@ -244,7 +244,7 @@ test("an assistant found archived, or a guide writer a new generation replaced, 
 // A reload deleted an interrupted generation's row before its writer was stopped, and a writer spawned for a generation
 // replaced meanwhile had no row at all, so neither was recorded (70-review-correctness #2, 71-review-security F4).
 test("a guide writer a reload interrupted, or one whose generation was replaced while it spawned, can change only its own review", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "generating", createdAt: 1, headSha: "sha1" });
   store.savePatch(key, patch);

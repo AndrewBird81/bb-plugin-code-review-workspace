@@ -41,7 +41,7 @@ export interface ReviewPreferences {
   unattendedAuthors: "members" | "anyone";
   /** The review agent may run the repo's documented tests and linters on a trusted author's PR, in a temporary worktree. */
   runRepoChecks: boolean;
-  /** Needs review and pinned reviews in BB's thread list, which Guided Review adds to by hand. */
+  /** Needs review and pinned reviews in BB's thread list, which Code Review Workspace adds to by hand. */
   threadListReviews: boolean;
   /** Feature switches and tuning (lib/knobs.ts), saved apart from the rest. */
   knobs: Knobs;

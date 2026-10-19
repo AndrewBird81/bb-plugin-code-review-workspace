@@ -1,4 +1,4 @@
-// bb-plugin-guided-review — backend entry.
+// bb-plugin-code-review-workspace — backend entry.
 //
 // Turns a GitHub PR (or local git ref) into an agent-authored chaptered
 // walkthrough, rendered and reviewed in a bb panel, submitted back to GitHub.
@@ -69,6 +69,7 @@ import { approve, mayRunChecks, trustedAuthor } from "./lib/trust";
 import { restartInterruptedGuide, retryInterruptedGuides } from "./src/interrupted-guides";
 import { automaticReviewPrompt, reReviewCheckPrompt } from "./src/preferences";
 import { createInstructionSuggester, describeRemovals, learningStats, noteReviewerRemoval, noteReviewerSave, recordOutcomes, removalWarning } from "./src/learning";
+import { FORMER_PLUGIN_ID } from "./src/former-install";
 
 export { rpcContract } from "./src/rpc-contract";
 
@@ -170,7 +171,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.background.schedule("prune-old-diffs", "17 4 * * *", () => { pruneOldDiffs(store, Date.now()); });
   bb.onDispose(() => { stopGuideGenerations(bb); });
 
-  bb.log.info("guided-review loaded");
+  bb.log.info("code-review-workspace loaded");
 
   // Reviews leave the server with whose turn they are, how far your feedback got, and their place in a stack.
   // JSON round-trips drop the literal `undefined` fields rowToMeta leaves, which strict rpc output rejects.
@@ -1067,7 +1068,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "read_file",
     description: "Read a file of this review with line numbers, up to 400 lines from startLine. ref \"current\" (the default) is the PR's head now, or a local review's changed side; \"base\" is the commit the diff starts from, before the change; \"reviewed\" is the commit the reviewer last reviewed (PRs only).",
-    instructions: "To read code beyond the diff at the PR's head without changing anything: if your working directory is a git checkout of the PR's repository, run `git fetch origin +pull/<number>/head:refs/guided-review/pr-<number>`, then `git show refs/guided-review/pr-<number>:<path>` or `git grep <pattern> refs/guided-review/pr-<number>`. Never check out, commit, push, or change the working tree, except as your instructions allow for the repo's checks. Otherwise, use read_file.",
+    instructions: "To read code beyond the diff at the PR's head without changing anything: if your working directory is a git checkout of the PR's repository, run `git fetch origin +pull/<number>/head:refs/code-review-workspace/pr-<number>`, then `git show refs/code-review-workspace/pr-<number>:<path>` or `git grep <pattern> refs/code-review-workspace/pr-<number>`. Never check out, commit, push, or change the working tree, except as your instructions allow for the repo's checks. Otherwise, use read_file.",
     parameters: z.object({
       path: z.string().min(1).describe("Repo-relative path."),
       ref: z.enum(["current", "base", "reviewed"]).optional(),
@@ -1081,7 +1082,7 @@ export default async function plugin(bb: BbPluginApi) {
       if (!review) return failed("This conversation is no longer a review's assistant.");
       const read = await readFileAt(runGh, runGit, review, path, ref ?? "current", startLine, endLine);
       if (!read.ok) return failed(read.error);
-      // A changed file it got as the change leaves it: what it read through Guided Review. Its base or reviewed commit isn't the change.
+      // A changed file it got as the change leaves it: what it read through Code Review Workspace. Its base or reviewed commit isn't the change.
       if ((ref ?? "current") === "current" && changedFiles(store.patch(review.targetKey)).includes(path)) recordAgentReads(store, threadId, review.targetKey, [path]);
       return read.text;
     },
@@ -1249,10 +1250,11 @@ export default async function plugin(bb: BbPluginApi) {
   // itself, so its title chooses only while its spawn is in flight, before its id is recorded.
   bb.agents.configure((context) => {
     // Agents in your own threads get the skill for bb review; this plugin's threads get only what their role needs.
-    if (context.origin?.pluginId !== bb.pluginId) return { tools: [], skills: store.getPreferences().preferences.knobs.reviewCommandInThreads ? ["guided-review"] : [] };
+    // A guided-review install's threads came over with its reviews; they still get tools only by their recorded role.
+    if (context.origin?.pluginId !== bb.pluginId && context.origin?.pluginId !== FORMER_PLUGIN_ID) return { tools: [], skills: store.getPreferences().preferences.knobs.reviewCommandInThreads ? ["code-review-workspace"] : [] };
     const role = context.thread ? threadRole(bb, store, context.thread) : null;
     if (role === "writer") {
-      return { tools: ["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"], skills: ["guided-review-generate"] };
+      return { tools: ["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"], skills: ["code-review-workspace-generate"] };
     }
     // The review assistant can read any file's diff on demand, so the chat
     // works across the whole review, and change its own review's local draft
@@ -1280,7 +1282,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.cli.register({
     name: "review",
-    summary: "Open a Guided Review of a GitHub PR or local git ref, or change its local draft",
+    summary: "Open a review of a GitHub PR or local git ref in Code Review Workspace, or change its local draft",
     rendersHelp: true,
     commands: [
       { name: "review", summary: "Review a PR or ref", usage: "bb review <pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>] [--context <text>]" },

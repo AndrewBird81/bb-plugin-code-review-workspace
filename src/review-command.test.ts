@@ -25,7 +25,7 @@ const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
 
 test("bb review <number> fetches, stores patch+meta, and kicks generation", async () => {
   const { bb, harness } = createFakePluginHost({
-    pluginId: "guided-review",
+    pluginId: "code-review-workspace",
     sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } },
   });
   const store = createStore(bb);
@@ -37,7 +37,7 @@ test("bb review <number> fetches, stores patch+meta, and kicks generation", asyn
 });
 
 test("bb review reports an offline guide writer machine without starting a review", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { hosts: { get: async () => ({ id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } }) } } });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { hosts: { get: async () => ({ id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } }) } } });
   const store = createStore(bb);
   store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
   expect(await runReviewCommand({ bb, store, gh }, ["7"], { projectId: "p1", cwd: process.cwd() }))
@@ -46,7 +46,7 @@ test("bb review reports an offline guide writer machine without starting a revie
 });
 
 test("bb review --help names both forms without starting a review", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   for (const argv of [["--help"], ["-h"], ["main", "--help"]]) {
     expect(await runReviewCommand({ bb, store, gh }, argv, { projectId: "p1", cwd: "/repo" })).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("bb review comment") });
@@ -57,7 +57,7 @@ test("bb review --help names both forms without starting a review", async () => 
 const url = "https://github.com/acme/web/pull/7";
 const laptop = "/Users/someone/only-on-a-laptop";
 function host() {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
   return { bb, store: createStore(bb) };
 }
 
@@ -87,7 +87,7 @@ test("--context is kept with the review for the automatic review, until replaced
   const { bb, store } = host();
   const review = (...argv: string[]) => runReviewCommand({ bb, store, gh }, [url, ...argv], { projectId: "p1", cwd: laptop });
   const context = "- Implements LIN-42\n- Must not retry twice";
-  expect((await review("--context", `  ${context}\n`)).stdout).toBe(`Guided Review started for ${key}. Open the Guided Review panel to watch it build and review.\nThe assistant's automatic review will include this context.`);
+  expect((await review("--context", `  ${context}\n`)).stdout).toBe(`Review started for ${key}. Open the Code Review Workspace panel to watch it build and review.\nThe assistant's automatic review will include this context.`);
   expect(store.getReviewContext(key)).toBe(context);
   expect((await review()).stdout).not.toContain("context");
   expect(store.getReviewContext(key)).toBe(context);
@@ -132,7 +132,7 @@ test("--context says the automatic review won't run on a merged or closed PR, or
       reading(state);
       const { bb, store } = host();
       expect((await withContext(bb, store)).stdout, state).toBe([
-        `Guided Review started for ${key}. Open the Guided Review panel to watch it build.`,
+        `Review started for ${key}. Open the Code Review Workspace panel to watch it build.`,
         `This PR is ${state.toLowerCase()}, so the automatic review won't run. Paste the context into Ask agent instead.`,
       ].join("\n"));
     }
@@ -142,14 +142,14 @@ test("--context says the automatic review won't run on a merged or closed PR, or
       const { bb, store } = host();
       saved(store, "old");
       store.setLifecycle(key, { submittedAt: 5, submittedHeadSha: "old", submittedVerdict: "COMMENT" });
-      expect((await withContext(bb, store)).stdout).toBe(`Guided Review started for ${key}. Open the Guided Review panel to watch it build and review.\nYou've already reviewed this PR, so the automatic review won't run. Paste the context into Ask agent instead.`);
+      expect((await withContext(bb, store)).stdout).toBe(`Review started for ${key}. Open the Code Review Workspace panel to watch it build and review.\nYou've already reviewed this PR, so the automatic review won't run. Paste the context into Ask agent instead.`);
     }
     // An automatic review skipped for your click runs, with the context, when you click Run review.
     {
       const { bb, store } = host();
       saved(store, "abc123");
       store.setLifecycle(key, { skippedRun: { run: "review", head: "abc123", at: 2 } });
-      expect((await withContext(bb, store)).stdout).toBe(`Guided Review for ${key} is up to date. Open the Guided Review panel to review it.\nThe automatic review is waiting for you to click Run review, and will include this context.`);
+      expect((await withContext(bb, store)).stdout).toBe(`The review of ${key} is up to date. Open the Code Review Workspace panel to review it.\nThe automatic review is waiting for you to click Run review, and will include this context.`);
     }
   } finally {
     vi.mocked(gh.runGh).mockImplementation(base);
@@ -157,20 +157,20 @@ test("--context says the automatic review won't run on a merged or closed PR, or
 });
 
 test("bb review of a review that hasn't changed opens it without rebuilding, and still keeps --context", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "abc123" });
   store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+n\n");
   store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
   const res = await runReviewCommand({ bb, store, gh }, [url, "--context", "LIN-42"], { projectId: "p1", cwd: laptop });
-  expect(res).toEqual({ exitCode: 0, stdout: `Guided Review for ${key} is up to date. Open the Guided Review panel to review it.\nThe guide is current, so the automatic review won't run again. Paste the context into Ask agent instead.` });
+  expect(res).toEqual({ exitCode: 0, stdout: `The review of ${key} is up to date. Open the Code Review Workspace panel to review it.\nThe guide is current, so the automatic review won't run again. Paste the context into Ask agent instead.` });
   expect(store.getReviewContext(key)).toBe("LIN-42");
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
   expect(store.getGuide(key)?.title).toBe("Kept");
 });
 
 test("bb review of a review with new commits backs up its guide and moves its comments", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "w" }), wait: async () => { throw new Error("worker failed"); }, archive: async () => ({}), stop: async () => ({}),
   } } as any });
   const store = createStore(bb);
@@ -185,7 +185,7 @@ test("bb review of a review with new commits backs up its guide and moves its co
 });
 
 test("bb review of a review with new commits keeps when it was created", async () => {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "w" }), wait: async () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
   const store = createStore(bb);
@@ -208,7 +208,7 @@ test("owner/repo#n reviews the PR from a thread on any machine, and from a check
     const { bb, store } = host();
     vi.mocked(gh.runGit).mockClear();
     expect(await runReviewCommand({ bb, store, gh }, ["acme/web#7"], { projectId: "p1", threadId: "coder", ...(cwd ? { cwd } : {}) }))
-      .toMatchObject({ exitCode: 0, stdout: expect.stringContaining(`Guided Review started for ${key}.`) });
+      .toMatchObject({ exitCode: 0, stdout: expect.stringContaining(`Review started for ${key}.`) });
     expect(store.getReview(key)).toMatchObject({ kind: "pr", repo: "acme/web", number: 7 });
     expect(gh.runGit).not.toHaveBeenCalled();
   }
@@ -246,7 +246,7 @@ test("bb review with a renamed repository's PR URL opens the review the sync kee
   };
   for (const input of ["https://github.com/acme/site/pull/7", "acme/site#7"]) {
     const { bb, store } = renamed();
-    expect(await runReviewCommand({ bb, store, gh }, [input], { projectId: "p1" }), input).toEqual({ exitCode: 0, stdout: `Guided Review for ${key} is up to date. Open the Guided Review panel to review it.` });
+    expect(await runReviewCommand({ bb, store, gh }, [input], { projectId: "p1" }), input).toEqual({ exitCode: 0, stdout: `The review of ${key} is up to date. Open the Code Review Workspace panel to review it.` });
     expect(store.listReviews().map((review) => review.targetKey)).toEqual([key]);
   }
   const { bb, store } = renamed();
@@ -256,7 +256,7 @@ test("bb review with a renamed repository's PR URL opens the review the sync kee
 
 test("bb review tells open pages of the review it starts, rebuilds, or brings back from Archive, at once (bug bash LIV-5)", async () => {
   // The writer's spawn never settles, so only the command itself can have published.
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: () => new Promise(() => {}), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: () => new Promise(() => {}), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
   const store = createStore(bb);
   const channels = async () => {
     harness.inspection.realtimeSignals.length = 0;
@@ -292,7 +292,7 @@ test("gh output that isn't JSON says it couldn't parse it, and starts nothing (b
 });
 
 test("bb review records the thread it ran in as the review's source thread, never this plugin's own agent", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
   await plugin(bb);
   const store = createStore(bb);
   const run = (threadId?: string) => harness.behavior.runCli([url], { ...(threadId ? { threadId } : {}), projectId: "p1", cwd: process.cwd() });
@@ -309,20 +309,20 @@ test("bb review records the thread it ran in as the review's source thread, neve
 });
 
 test("bb review links to the review where BB has an app URL, and says to open the panel where it hasn't, or with its switch off", async () => {
-  const linked = createFakePluginHost({ pluginId: "guided-review", appUrl: "https://bb.example/", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  const linked = createFakePluginHost({ pluginId: "code-review-workspace", appUrl: "https://bb.example/", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
   const store = createStore(linked.bb);
   expect((await runReviewCommand({ bb: linked.bb, store, gh }, [url], { projectId: "p1", cwd: process.cwd() })).stdout)
-    .toBe(`Guided Review started for ${key}. Open https://bb.example/plugins/guided-review/review/${key} to watch it build and review.`);
+    .toBe(`Review started for ${key}. Open https://bb.example/plugins/code-review-workspace/review/${key} to watch it build and review.`);
   store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, reviewCommandInThreads: false } }, store.getPreferences().revision);
   expect((await runReviewCommand({ bb: linked.bb, store, gh }, [url], { projectId: "p1", cwd: process.cwd() })).stdout)
-    .toBe(`Guided Review for ${key} is already building. Open the Guided Review panel to watch it build and review.`);
+    .toBe(`The review of ${key} is already building. Open the Code Review Workspace panel to watch it build and review.`);
   const { bb, store: other } = host();
   expect((await runReviewCommand({ bb, store: other, gh }, [url], { projectId: "p1", cwd: process.cwd() })).stdout)
-    .toBe(`Guided Review started for ${key}. Open the Guided Review panel to watch it build and review.`);
+    .toBe(`Review started for ${key}. Open the Code Review Workspace panel to watch it build and review.`);
 });
 
 test("bb review list lists your reviews in All reviews' order, as text or JSON; a review's own agent can't, and with its switch off there's no list", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
   await plugin(bb);
   const store = createStore(bb);
   const list = (...argv: string[]) => harness.behavior.runCli(["list", ...argv], { threadId: "coder", projectId: "p1", cwd: process.cwd() });

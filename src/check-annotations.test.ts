@@ -39,7 +39,7 @@ test("CI failures come from the reviewed head's failed check runs, failure annot
 });
 
 test("getCheckFailures says nothing when GitHub can't be read", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   createStore(bb).saveReview(pr);
   runGh.mockResolvedValue({ stdout: "", stderr: "HTTP 502", code: 1 });
@@ -71,7 +71,7 @@ test("a log gh can't read says why, an empty one says so, and a local review has
 });
 
 test("getCheckLog reads a PR's run, and refuses a local review", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview(pr);

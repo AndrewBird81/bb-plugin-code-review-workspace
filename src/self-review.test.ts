@@ -8,7 +8,7 @@ import { createStore } from "./store";
 import { startAutomaticReview } from "./agent";
 
 function host() {
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: { spawn: async () => ({ id: "worker" }), get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }) },
     projects: { defaultExecutionOptions: async () => ({ providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" }) },
   } as any });

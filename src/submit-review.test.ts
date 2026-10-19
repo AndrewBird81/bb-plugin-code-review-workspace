@@ -12,7 +12,7 @@ vi.mock("./gh", async (orig) => ({ ...(await orig<typeof import("./gh")>()), run
 
 const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n";
 function setup() {
-  const { bb } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-test", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, headSha: "sha1" });
   store.savePatch("pr-test", patch);
@@ -264,7 +264,7 @@ test("submitReview without the comments, summary, and verdict the page shows is 
     : args.includes(".login") ? { code: 0, stderr: "", stdout: "me\n" }
     : args[0] === "pr" ? { code: 0, stderr: "", stdout: JSON.stringify({ headRefOid: "sha1", state: "OPEN" }) }
     : { code: 0, stderr: "", stdout: JSON.stringify({ id: 1, node_id: "R_1", html_url: "https://github.com/acme/web/pull/1#r1", user: { login: "me" } }) });
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review" });
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
   const store = createStore(bb);
   store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha1" });

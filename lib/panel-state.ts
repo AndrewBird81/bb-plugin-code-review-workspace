@@ -1,4 +1,4 @@
-// Per-review UI state persisted to localStorage so the Guided Review panel
+// Per-review UI state persisted to localStorage so the Code Review Workspace panel
 // survives tab switches / remounts: the chapter or Overview, the scroll
 // position, the side panel, and the turn it last opened in; and the layout's
 // widths and toggles, in every review. The floating agent dock persists its own

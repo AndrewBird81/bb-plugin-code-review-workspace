@@ -24,7 +24,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     return { code: 0, stderr: "", stdout: JSON.stringify({ headRefOid: "sha1", state: prState }) };
   });
   let workerCount = 0;
-  const { bb, harness } = createFakePluginHost({ pluginId: "guided-review", sdk: { threads: {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }),
     spawn: async () => ({ id: `e2e-hidden-agent-${++workerCount}` }),
     stop: async () => ({}), update: async () => ({}), archive: async () => ({}),
@@ -44,7 +44,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
   page.on("pageerror", (error) => errors.push(error.message));
   const dir = "docs/verification/2026-09-09";
   await mkdir(dir, { recursive: true });
-  await page.route("**/api/v1/plugins/guided-review/rpc/*", async (route) => {
+  await page.route("**/api/v1/plugins/code-review-workspace/rpc/*", async (route) => {
     const method = new URL(route.request().url()).pathname.split("/").pop()!;
     const input = route.request().postDataJSON();
     const helpers: Record<string, unknown> = {
@@ -60,7 +60,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
   // The review's commands: in BB's title bar, at the band's end in full screen, and in a phone's dock.
   const commands = page.getByRole("group", { name: "Review commands" });
   try {
-    await page.goto(`${base}/plugins/guided-review/review/settings/${key}`);
+    await page.goto(`${base}/plugins/code-review-workspace/review/settings/${key}`);
     // Collapse the unrelated Office overlay through its normal, browser-local control.
     // Otherwise it can cover the plugin's editors in the shared BB test shell.
     const collapseOffice = page.getByRole("button", { name: "Collapse office to current worker", exact: true });
