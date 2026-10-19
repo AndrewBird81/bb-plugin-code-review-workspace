@@ -6,16 +6,16 @@ It's built for understanding a change well enough to approve it, often one an ag
 
 Formerly **Guided Review**: coming from it? See [Moving from Guided Review](#moving-from-guided-review).
 
-**v0.9.0.** Each reviewer uses their own BB installation and GitHub identity. On a shared BB server, credentials, settings, and saved reviews are shared.
+**v1.0.0.** Each reviewer uses their own BB installation and GitHub identity. On a shared BB server, credentials, settings, and saved reviews are shared.
 
 ## Install and first run
 
 You need **BB 0.45+ (plugin SDK 0.6.14+) with Node 24+**, a configured BB agent provider, and `git` and GitHub CLI (`gh`) on the **machine running BB**. GitHub features support github.com. No npm or build step is needed.
 
-Install Code Review Workspace from its Git repository; the range follows compatible 0.9.x releases:
+Install Code Review Workspace from its Git repository; the range follows compatible 1.x releases:
 
 ```sh
-bb plugin install git:github.com/AndrewBird81/bb-plugin-code-review-workspace@^0.9.0
+bb plugin install git:github.com/AndrewBird81/bb-plugin-code-review-workspace@^1.0.0
 ```
 
 1. Open **Code Review Workspace**. With no reviews yet, **All reviews** checks your setup and says how to start; you can revisit it in **Settings → Ready to review**.
@@ -32,17 +32,17 @@ Open **Settings → Plugin updates** to check for a compatible release, read its
 
 **Automatic updates are off by default.** If enabled, the plugin checks hourly after five idle minutes and waits until all Code Review Workspace and Settings pages are closed, with no generation, save, or submission in progress. Assistant conversations run in BB and continue across plugin updates. Reviews, drafts, private notes, conversations, and preferences remain in BB. Failed checks are visible and retried later; BB handles failed-install rollback.
 
-Installs from a Git range, such as `^0.9.0`, follow its compatible releases (0.9.x). You can also update with `bb plugin update code-review-workspace`; close the plugin’s pages first, since BB’s external update command does not use the in-plugin activity guard. Local directories and exact tags are pinned and do not receive automatic updates. Changing a local installation to a Git source is a separate migration: this BB version requires removing the old source first, which can clear plugin data. Do not remove an existing installation just to obtain updates; keep its data and arrange a backup/migration with the BB operator. Fresh installs from a Git range are ready for normal updates.
+Installs from a Git range, such as `^1.0.0`, follow its compatible releases (1.x). You can also update with `bb plugin update code-review-workspace`; close the plugin’s pages first, since BB’s external update command does not use the in-plugin activity guard. Local directories and exact tags are pinned and do not receive automatic updates. Changing a local installation to a Git source is a separate migration: this BB version requires removing the old source first, which can clear plugin data. Do not remove an existing installation just to obtain updates; keep its data and arrange a backup/migration with the BB operator. Fresh installs from a Git range are ready for normal updates.
 
 An interrupted browser connection can leave an editing session protected. If the updater still asks you to close pages after they are all closed, save any work elsewhere and reload the plugin through BB. Editing sessions intentionally never expire while a laptop might still hold unsaved text.
 
 ## Moving from Guided Review
 
-Until 0.9.0 this plugin was Guided Review, with the id `guided-review`. BB keeps a plugin's data under its id, so Code Review Workspace is a new install beside it, not an update. The first time it starts, it copies in Guided Review's reviews, guides, drafts, private notes, and settings, as long as it has none of its own yet, and the review assistant's conversations carry on with Code Review Workspace's tools. Don't update Guided Review to 0.9.0: install Code Review Workspace beside it.
+Until 1.0.0 this plugin was Guided Review, with the id `guided-review`. BB keeps a plugin's data under its id, so Code Review Workspace is a new install beside it, not an update. The first time it starts, it copies in Guided Review's reviews, guides, drafts, private notes, and settings, as long as it has none of its own yet, and the review assistant's conversations carry on with Code Review Workspace's tools. Don't update Guided Review to 1.0.0: install Code Review Workspace beside it.
 
 1. Submit or save any comment you're typing, and close Guided Review's pages.
 2. `bb plugin disable guided-review`. It keeps its data; disabling it stops both plugins following your PRs and starting agents at once, and both registering `bb review`.
-3. `bb plugin install git:github.com/AndrewBird81/bb-plugin-code-review-workspace@^0.9.0`
+3. `bb plugin install git:github.com/AndrewBird81/bb-plugin-code-review-workspace@^1.0.0`
 4. Open **Code Review Workspace** and check your reviews are there. `bb plugin logs code-review-workspace` says "Brought in the reviews from guided-review" when it copied them.
 5. Then `bb plugin remove guided-review`, which can delete its data. Until then, you can go back by removing Code Review Workspace and enabling Guided Review.
 

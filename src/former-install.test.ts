@@ -1,4 +1,4 @@
-// Until 0.9.0 the plugin was guided-review, and BB keeps a plugin's database under its id: the first start under the
+// Until 1.0.0 the plugin was guided-review, and BB keeps a plugin's database under its id: the first start under the
 // new id copies the former install's reviews in, and the former install's agent threads keep their tools.
 import { test, expect } from "vitest";
 import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";

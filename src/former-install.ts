@@ -1,4 +1,4 @@
-// Until 0.9.0 this plugin was guided-review, and BB keeps a plugin's database under its id. The first start under
+// Until 1.0.0 this plugin was guided-review, and BB keeps a plugin's database under its id. The first start under
 // the new id copies the former install's database in, so its reviews, drafts, and settings carry over.
 import { existsSync } from "node:fs";
 import { join } from "node:path";

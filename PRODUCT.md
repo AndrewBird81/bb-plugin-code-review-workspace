@@ -18,11 +18,11 @@ Version 0.7.0 lets the reviewer turn off what they don't use and checks an appro
 
 Version 0.8.0 closes the loop with the thread that made the change and says more about what the agent did. A review started with `bb review` in a thread remembers it: Finish review sends the reviewer's comments back there on a click, the cards say what was sent, and a local review notices when its code changed since its guide. The agent marks problems the PR didn't introduce as pre-existing, which don't hold an approval, and Finish review says how many files it read and what it didn't check; test files that lose assertions and lockfiles that add packages or download hosts are flagged. Comments can be triaged from the keyboard, removed with a reason the agent learns from, or moved into the summary when their lines are gone. Agents read the repository's AGENTS.md, CLAUDE.md, REVIEW.md, and `.gitattributes` from the PR's base, never its head, and the Overview says when a PR changes them; a review's agents can't touch another review, and replies and resolves post as the verified account. BB's command palette offers the next review that needs the reviewer and a review of a copied PR link. Each new feature has a switch in Settings, on by default.
 
-Version 0.9.0 renames the plugin from Guided Review to Code Review Workspace, with the id `code-review-workspace`, to say what it is: the place to read, discuss, and approve a code change, PR or local. Its first start copies in a Guided Review install's reviews, drafts, and settings. Nothing else changes.
+Version 1.0.0 renames the plugin from Guided Review to Code Review Workspace, with the id `code-review-workspace`, to say what it is: the place to read, discuss, and approve a code change, PR or local. Its first start copies in a Guided Review install's reviews, drafts, and settings. Nothing else changes.
 
 ## Distribution and operating limits
 
-The current release is version **0.9.0**, for BB **0.45.0+**, Node **24+**, and plugin SDK **0.6.14+**. Reviewers need their own BB installation and GitHub authentication. It does not provide shared review workspaces or separate user accounts within one server.
+The current release is version **1.0.0**, for BB **0.45.0+**, Node **24+**, and plugin SDK **0.6.14+**. Reviewers need their own BB installation and GitHub authentication. It does not provide shared review workspaces or separate user accounts within one server.
 
 Git and `gh` run on the BB server. Local review checkouts must exist there; a checkout only on another enrolled machine is unsupported. GitHub features currently support `github.com`. Account switching affects that server’s `gh` credentials, including other consumers; environment-token overrides must be cleared before switching saved accounts.
 

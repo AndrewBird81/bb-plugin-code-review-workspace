@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.9.0 — unreleased
+## 1.0.0 — 2026-10-19
 
-Guided Review is now **Code Review Workspace**, maintained by Andrew Bird, and installs from `github.com/AndrewBird81/bb-plugin-code-review-workspace`. It began as a fork of Pritam Sharma's [bb-plugin-guided-review](https://github.com/notpritam/bb-plugin-guided-review), credited in the README, LICENSE, and `package.json`. The new name takes a new plugin id, `code-review-workspace`, so it's a new install, not an update: see [Moving from Guided Review](README.md#moving-from-guided-review). Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; install at `^0.9.0`.
+Guided Review is now **Code Review Workspace**, maintained by Andrew Bird, and installs from `github.com/AndrewBird81/bb-plugin-code-review-workspace`. It began as a fork of Pritam Sharma's [bb-plugin-guided-review](https://github.com/notpritam/bb-plugin-guided-review), credited in the README, LICENSE, and `package.json`. The new name takes a new plugin id, `code-review-workspace`, so it's a new install, not an update: see [Moving from Guided Review](README.md#moving-from-guided-review). Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; install at `^1.0.0`.
 
 - The first start copies in a Guided Review install's reviews, guides, drafts, private notes, and settings, when it has none of its own, and Guided Review's review assistants keep their tools.
 - The panel, settings section, palette commands, Needs You alerts, and `bb review`'s words say Code Review Workspace. `bb review` and everything it takes are unchanged.
