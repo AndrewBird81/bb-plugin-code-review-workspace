@@ -1,13 +1,17 @@
 // Until 1.0.0 the plugin was guided-review, and BB keeps a plugin's database under its id: the first start under the
 // new id copies the former install's reviews in, and the former install's agent threads keep their tools.
-import { test, expect } from "vitest";
-import { copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { afterEach, test, expect } from "vitest";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
 import { createStore } from "./store";
 import plugin from "../server";
+
+const dataDirs: string[] = [];
+const newDataDir = () => { const dir = mkdtempSync(join(tmpdir(), "crw-data-")); dataDirs.push(dir); return dir; };
+afterEach(() => { for (const dir of dataDirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 /** A data directory holding a former guided-review install's database, with one review, its draft and assistant. */
 function formerDataDir() {
@@ -19,7 +23,7 @@ function formerDataDir() {
   const db = former.bb.storage.database();
   const file = db.name;
   db.close();
-  const dataDir = mkdtempSync(join(tmpdir(), "crw-data-"));
+  const dataDir = newDataDir();
   mkdirSync(join(dataDir, "plugins", "guided-review"), { recursive: true });
   copyFileSync(file, join(dataDir, "plugins", "guided-review", "data.db"));
   return dataDir;
@@ -49,7 +53,7 @@ test("an install that already has its own data, or is itself guided-review, impo
 });
 
 test("with no former install, the store starts empty", () => {
-  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", dataDir: mkdtempSync(join(tmpdir(), "crw-data-")) });
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", dataDir: newDataDir() });
   expect(createStore(bb).listReviews()).toEqual([]);
 });
 
