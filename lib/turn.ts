@@ -280,9 +280,9 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   }
 }
 
-/** Whether the head's checks have finished, passing or failing, for a snooze until they do. */
+/** Whether the head's checks have finished, passing or failing, for a snooze until they do. A required check that hasn't reported hasn't finished. */
 export function checksFinished(s: TurnSignals | null | undefined): boolean {
-  return s?.ci !== "pending";
+  return s?.ci !== "pending" && s?.ci !== "expected";
 }
 
 /** Whether the head's checks are done, or have been pending or expected so long they never will be. */
