@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.3 — 2026-10-20
 
 **All reviews** is easier to scan: each review stands on its own, and the sections and their parts read as headings.
 
