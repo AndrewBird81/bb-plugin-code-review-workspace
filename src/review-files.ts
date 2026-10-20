@@ -4,6 +4,7 @@ import { classifyFile, isChosenPath } from "./classify";
 import { FILES_CAPPED_NOTE } from "./pr-snapshot";
 import { testWeakening, weakeningMark } from "../lib/test-weakening";
 import { digestText, lockfileDigest } from "../lib/lockfile-digest";
+import { plural } from "../lib/plural";
 
 /** Settings' marks on a file: a test the diff weakens (Flag weakened tests), and a lockfile's digest (Summarize lockfile changes). */
 export interface FileMarks { testWeakening?: boolean; lockfileDigest?: boolean }
@@ -48,7 +49,7 @@ export function describeReviewFiles(patch: string, generated: string[] = [], mar
   const end = offset + rows.length;
   const more = end < files.length ? [`[Files ${offset + 1}–${end} of ${files.length} — call again with offset=${end}]`] : [];
   const capped = patch.startsWith(FILES_CAPPED_NOTE) ? [FILES_CAPPED_NOTE] : [];
-  return [...capped, `${files.length} file${files.length === 1 ? "" : "s"} (path · status · lines added and removed · diff size · kind):`, ...rows, ...more].join("\n");
+  return [...capped, `${plural(files.length, "file")} (path · status · lines added and removed · diff size · kind):`, ...rows, ...more].join("\n");
 }
 
 /**

@@ -11,6 +11,7 @@ import type { AssessmentItem, AssessmentVerdict } from "../lib/feedback";
 import type { Verdict } from "./draft";
 import { untrusted } from "./untrusted";
 import { threadLabel } from "./github/threads";
+import { plural } from "../lib/plural";
 
 type Run = typeof runGh;
 const short = (sha: string | null | undefined) => sha ? sha.slice(0, 7) : "unknown";
@@ -76,7 +77,7 @@ export function describeFeedback(store: Store, review: ReviewMeta): string {
     for (const reply of thread.replies.slice(-5)) lines.push(`  @${reply.author}${reply.mine ? " (reviewer)" : ""}${reply.bot ? " (bot)" : ""}: ${reply.body.replace(/\s+/g, " ").slice(0, 1500)}`);
     if (assessment) lines.push(`  Earlier check: ${assessment.verdict} — ${assessment.evidence}`);
   }
-  const out = [threads.length ? `${threads.length} review thread${threads.length === 1 ? "" : "s"} the reviewer started:\n${untrusted("review threads", lines.join("\n").trim())}` : "The reviewer started no review threads."];
+  const out = [threads.length ? `${plural(threads.length, "review thread")} the reviewer started:\n${untrusted("review threads", lines.join("\n").trim())}` : "The reviewer started no review threads."];
   const bodies = review.reviewBodies ?? [];
   if (bodies.length) {
     const summaries = bodies.flatMap((body) => ["", `(${body.state}, ${date(body.at)})`, ...body.body.split("\n").map((l) => `  > ${l}`)]);
@@ -172,7 +173,7 @@ export async function readFileAt(run: Run, git: typeof runGit, review: ReviewMet
   const file = review.kind === "pr" ? await prFile(run, review, path, ref) : await localFile(git, review, path, ref);
   if (typeof file === "string") return { ok: false, error: file };
   const lines = file.text.replace(/\n$/, "").split("\n");
-  if (from > lines.length) return { ok: false, error: `startLine ${from} is past the end: ${path} at ${file.at} has ${lines.length} line${lines.length === 1 ? "" : "s"}.` };
+  if (from > lines.length) return { ok: false, error: `startLine ${from} is past the end: ${path} at ${file.at} has ${plural(lines.length, "line")}.` };
   const to = Math.min(lines.length, from + MAX_FILE_LINES - 1, endLine ?? Infinity);
   const body = lines.slice(from - 1, to).map((line, i) => `${String(from + i).padStart(5)}  ${line}`).join("\n");
   return { ok: true, text: `${path} at ${file.at}, lines ${from}–${to} of ${lines.length}:\n${body}${to < lines.length ? `\n[Call again with startLine=${to + 1} for more.]` : ""}` };
@@ -217,5 +218,5 @@ export function assess(store: Store, review: ReviewMeta, input: AssessInput): { 
   const summary = summarize(head, store.getAssessment(review.targetKey, head).items, threads.filter((t) => !threadLabel(t.body)?.nonBlocking).map((t) => t.id));
   store.setLifecycle(review.targetKey, { assessment: summary });
   const missing = summary.total - summary.addressed - summary.partial - summary.notAddressed - summary.disputed - summary.unclear;
-  return { ok: true, text: `Recorded ${items.length} item${items.length === 1 ? "" : "s"} for ${short(head)}: ${summary.addressed} of ${summary.total} addressed.${missing ? ` ${missing} item${missing === 1 ? " has" : "s have"} no verdict yet.` : ""} The reviewer sees them in Comments.` };
+  return { ok: true, text: `Recorded ${plural(items.length, "item")} for ${short(head)}: ${summary.addressed} of ${summary.total} addressed.${missing ? ` ${missing} item${missing === 1 ? " has" : "s have"} no verdict yet.` : ""} The reviewer sees them in Comments.` };
 }

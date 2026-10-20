@@ -4,6 +4,7 @@ import type { PreviousState, ReviewMeta, Store } from "./store";
 import { isSummary, linesOf, postedBody, rangeOf, sameLocation, severityOf, type CommentLocation, type DraftComment, type Severity } from "./draft";
 import { diffPositions, rangeProblem } from "./review-positions";
 import { asked } from "./asks";
+import { plural } from "../lib/plural";
 
 /** A comment's location as callers give it; side defaults to RIGHT. */
 export interface LocationInput { file: string; line: number; side?: "LEFT" | "RIGHT" }
@@ -51,7 +52,7 @@ export function describeComments(store: Store, targetKey: string): string {
   const comments = listComments(store, targetKey);
   if (!comments.length) return "The draft has no comments.";
   return [
-    `${comments.length} draft comment${comments.length === 1 ? "" : "s"}:`,
+    `${plural(comments.length, "draft comment")}:`,
     ...comments.map((c) => [
       `${c.file}:${linesOf(c)} ${c.startSide ? `${c.startSide}–` : ""}${c.side} · added by ${c.author === "agent" ? "an agent" : "the reviewer"}${c.severity === "none" ? "" : ` · ${c.severity}`}${c.introduced === false ? " · pre-existing" : ""}${c.stale ? " · drafted against an older diff, so submitting refuses it" : ""}`,
       ...c.body.split("\n").map((line) => `  ${line}`),
