@@ -1,36 +1,23 @@
-# Code Review Workspace
-
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/icon-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="docs/images/icon-light.svg">
   <img src="docs/images/icon-light.svg" width="64" height="64" alt="Code Review Workspace icon">
 </picture>
 
-Read a pull request or local change as a guided walkthrough, draft your review with an agent, and submit it to GitHub from [BB](https://getbb.app).
+# Code Review Workspace
 
-Code Review Workspace is a BB plugin for reviewing a GitHub pull request or a local Git change in one place: read the change chapter by chapter, inspect the diff, ask an agent about it, and prepare and submit your review.
+A [BB](https://getbb.app) plugin for reviewing a GitHub pull request or a local Git change: read it as a guided walkthrough, edit the review an agent drafts, and submit it to GitHub.
 
 - **Who it's for:** reviewers who need to understand a change well enough to approve it, often one an agent wrote.
 - **A guide to every file:** an agent writes a walkthrough of the change in chapters, and points to the lines most likely to hide a defect.
 - **A draft you own:** the review agent drafts comments, a summary, and a verdict. You edit them, and nothing posts until you submit.
-- **Whose turn:** All reviews says which reviews need you and which wait on their author.
+- **Whose turn:** the **All reviews** list shows which reviews need you and which wait on their author.
 - **Re-review:** after new commits, you see what changed since your review, and the agent checks your earlier feedback against it.
 - **Not for:** posting an agent's findings one by one. The [Code Review](https://github.com/robennals/bb-plugins/tree/HEAD/plugins/code-review) plugin does that.
 
-Formerly **Guided Review**: coming from it? See [Moving from Guided Review](#moving-from-guided-review).
+Formerly **Guided Review**. Coming from it? See [Moving from Guided Review](#moving-from-guided-review).
 
 ## Screenshots
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.webp">
-  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/overview-light.webp">
-  <img src="docs/screenshots/overview-light.webp" alt="A review Overview lists what the PR does and why, three Start here hotspots, requirements scored 2 of 4 covered, a failing CI check, and chapters with High risk badges.">
-</picture>
-
-**Chaptered guide:** the Overview shows what changed, where to start, requirement coverage and checks.
-
-<details>
-<summary>More screenshots: agent drafts, Ask agent, Finish review, whose turn, re-review, lockfile flags, and the phone layout</summary>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/chapter-drafts-dark.webp">
@@ -40,27 +27,26 @@ Formerly **Guided Review**: coming from it? See [Moving from Guided Review](#mov
 
 **Agent-drafted comments:** severity-tagged drafts with suggested changes, which you edit or remove.
 
+<details>
+<summary>More screenshots: the Overview, Ask agent, Finish review, All reviews, re-review, lockfile flags, and the phone layout</summary>
+
+<img src="docs/screenshots/overview-dark.webp" alt="A review Overview lists what the PR does and why, three Start here hotspots, requirements scored 2 of 4 covered, a failing CI check, and chapters with High risk badges.">
+
+**Chaptered guide:** the Overview shows what changed, where to start, requirement coverage and checks.
+
 <img src="docs/screenshots/ask-agent-dark.webp" alt="Two selected lines in a diff have a private thread below them, where the reviewer asks a question and the agent answers with file and line references and a test it ran.">
 
 **Ask agent:** a private question about selected lines, answered with file:line evidence.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/finish-review-dark.webp">
-  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/finish-review-light.webp">
-  <img src="docs/screenshots/finish-review-light.webp" alt="The Finish review panel shows the verdict set to Comment, the agent's suggested verdict, a count of 4 comments going to GitHub by severity, and a Submit to GitHub button.">
-</picture>
+<img src="docs/screenshots/finish-review-dark.webp" alt="The Finish review panel opens on the agent's summary, followed by the verdict set to Comment and a Submit to GitHub button. Behind it, the diff of lib/file-tree.ts shows an agent draft marked Should fix, with a suggested change.">
 
-**Finish review:** you submit one review, with the verdict, summary and comment counts in view.
+**Finish review:** you submit one review, with the summary and verdict in view.
 
 <img src="docs/screenshots/all-reviews-dark.webp" alt="The All reviews list shows four PRs under Needs review, with status lines for Your PR, Checks failing, and Stack 1 of 2 and 2 of 2.">
 
-**Whose turn:** All reviews groups PRs by whose turn it is.
+**All reviews:** every review in one list, with its checks and stack, under Needs review, Waiting on author, Reviewed, and Archive.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/since-your-review-dark.webp">
-  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/since-your-review-light.webp">
-  <img src="docs/screenshots/since-your-review-light.webp" alt="A review Overview after a follow-up commit shows a Since your review summary, 5/9 addressed, checks passing, a Review changes button, and chapters marked 1 changed and 2 changed.">
-</picture>
+<img src="docs/screenshots/since-your-review-dark.webp" alt="A review Overview after a follow-up commit shows a Since your review summary, 5/9 addressed, checks passing, a Review changes button, and chapters marked 1 changed and 2 changed.">
 
 **Since your review:** what changed since you reviewed, and where to look first.
 
@@ -70,7 +56,7 @@ Formerly **Guided Review**: coming from it? See [Moving from Guided Review](#mov
 
 <img src="docs/screenshots/since-your-review-diff-dark.webp" alt="A chapter in Since your review mode shows 2 of 5 files, a file marked Changed since your review, and an agent draft about a debug console.log left in the new commit.">
 
-**Since-your-review diff:** only the lines that changed since your review, with new drafts on them.
+**Changes since your review:** only the lines that changed since your review, with new drafts on them.
 
 <img src="docs/screenshots/lockfile-flags-dark.webp" alt="A chapter shows an agent draft about a hidden right-to-left override character, and a collapsed package-lock.json flagged +1 package and Downloads from downloads.example.com.">
 

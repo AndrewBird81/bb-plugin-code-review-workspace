@@ -1,3 +1,5 @@
+For reviewers who need to understand a change before they approve it, often one an agent wrote. The agents read, draft, and explain; you decide what posts.
+
 ## What you get
 
 - **A guide to the change.** An agent writes the PR's intent and its chapters in reading order, each with a risk level. Risky chapters list what to verify, and **Start here** points to the one to three lines most likely to hide a defect.
@@ -18,7 +20,6 @@
 - Lockfiles, generated files, and huge diffs start folded. New files show as files, and long runs of deleted lines fold.
 - File chips show code owners, tests that lose assertions or get skipped, lockfiles that add packages or download from another host, and hidden bidirectional Unicode.
 - CI failure annotations show under their lines.
-- Keyboard shortcuts, and layouts for iPad and phone.
 
 ## Local changes and agent threads
 
