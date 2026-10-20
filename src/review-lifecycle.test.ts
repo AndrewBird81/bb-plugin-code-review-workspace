@@ -277,6 +277,30 @@ test("a review snoozed until a time alerts again when it wakes, once, but not wh
   expect(s.store.getReview("pr-1")).toMatchObject({ snoozedUntil: null, notifiedSignal: `re-requested:${T0 + 0.1 * HOUR}` });
 });
 
+test("a review snoozed until checks finish alerts again when they do, before its deadline", async () => {
+  const s = setup({ reviewed: true, pr: { ci: "pending" } });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  vi.mocked(s.actions.prepare).mockResolvedValue(false);
+  s.at(0.2);
+  await s.sync.all(true);
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+
+  // What snoozeReview does for "Until checks finish": an hour at most.
+  s.store.setLifecycle("pr-1", { snoozedAt: T0 + 0.3 * HOUR, snoozedUntil: T0 + 1.3 * HOUR, snoozedUntilChecks: true });
+  s.at(0.3);
+  await s.sync.evaluate("pr-1");
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "waiting", reason: "snoozed" });
+
+  s.pr({ ci: "fail" });
+  s.at(0.5);
+  await s.sync.all(true);
+  expect(s.sync.turnOf(s.store.getReview("pr-1")!)).toMatchObject({ group: "needs" });
+  await vi.waitFor(() => expect(s.published).toHaveLength(2));
+  expect(s.published[1].eventId).toBe(`turn:re-requested:${T0 + 0.1 * HOUR}:woke:${T0 + 0.5 * HOUR}`);
+  expect(s.store.getReview("pr-1")).toMatchObject({ snoozedAt: null, snoozedUntil: null, snoozedUntilChecks: null });
+});
+
 // Opening a review (server.ts markSeen) sees its alert, and dismisses its Needs You item (bug bash SET-4).
 test("a review you open while its re-review is being prepared doesn't alert you once it's ready", async () => {
   const s = setup({ reviewed: true });

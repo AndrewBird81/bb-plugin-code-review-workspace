@@ -349,7 +349,9 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     }
     // A snooze until checks finish ends once they do, before its deadline. Like a timed snooze, the turn it set aside alerts again.
     if (review.snoozedUntilChecks && review.snoozedAt != null && checksFinished(review.signals)) {
-      const held = turnOf(review, now).reason === "snoozed";
+      // The turn already counts the finished checks as a wake, so ask what it was without them.
+      const held = turnOf({ ...review, snoozedUntilChecks: null }, now).reason === "snoozed";
+      console.log("checks snooze ended", key, { held, review });
       if (held) woke = now;
       store.setLifecycle(key, { snoozedAt: null, snoozedUntil: null, snoozedUntilChecks: null, ...(held ? { notifiedSignal: null, pendingAlert: null } : {}) });
       review = store.getReview(key)!;
