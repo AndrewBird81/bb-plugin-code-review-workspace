@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1 — 2026-10-20
+
+- Replace the clipboard icon with a magnifying glass and code brackets.
+- Use the same SVG in the sidebar menu and the homepage’s **Needs review** heading.
+
 ## 1.1.0 — 2026-10-20
 
 The diff reads more like the code it shows. A file the PR adds is drawn as a file, not a wall of green; long runs of deleted lines fold after their first three; a split's empty side, the bands between hunks, and line numbers say less and show more; and ⇧J and ⇧K step through the changes. One new preference, **New and deleted files** in Diff options, saved for every review; no new switches, and every switch means what it did. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.1.0. Rolling back to 1.0.0 keeps your reviews, drafts, and settings: 1.0.0 drops the new preference when it reads them.
