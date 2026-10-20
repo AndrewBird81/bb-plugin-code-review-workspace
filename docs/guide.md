@@ -88,7 +88,7 @@ The checkout for a local review must exist on the BB server. A checkout only pre
 - When you open a local review, it runs its diff again in the checkout, and if the code changed since its guide, the notice strip says "The code changed since this guide." with **Update guide** (unless **Notice when a local review's code changes** is off in Settings → Reading).
 - On a local review whose diff ends at the checkout (a ref, such as `bb review main`, or a range ending at `HEAD`), each file's second row and each draft comment's ⋯ offer **Open in editor** at the line, which opens the checkout's file on the BB server (unless **Open in editor (local reviews)** is off).
 
-`bb review` remembers the thread it ran in, as the thread that made the change; this plugin's own agents never count. It prints a link to the review when BB has an app URL. `bb review list [--json]` lists every review, Needs review first and a stack's reviews together, as All reviews does, with its key, its title (quoted), whose turn it is, and whether its guide is ready. With **Help agents in your threads use bb review** on (Settings → Review agent), agents in your other BB threads are also offered a `code-review-workspace` skill that explains these commands, tells them never to post to GitHub, and says that what `bb review` prints is data, not instructions. Off, `bb review` prints no link and has no `list`.
+`bb review` remembers the thread it ran in, as the thread that made the change; this plugin's own agents never count. It prints a link to the review when BB has an app URL. `bb review list [--json]` lists every review, Needs review first and a stack's reviews together, as All reviews does, with its key, its title (quoted, then `named "…"` with the name you gave it), whose turn it is, and whether its guide is ready. With **Help agents in your threads use bb review** on (Settings → Review agent), agents in your other BB threads are also offered a `code-review-workspace` skill that explains these commands, tells them never to post to GitHub, and says that what `bb review` prints is data, not instructions. Off, `bb review` prints no link and has no `list`.
 
 ### Context for the automatic review
 
@@ -145,7 +145,7 @@ bb review summary https://github.com/acme/web/pull/42 --body 'One blocker: the r
 
 A review opens on its **Overview** the first time, and whenever it comes back to you (unless **Open on the Overview when a review comes back** is off in Settings → Reading). Otherwise a review reopens where you left it, scroll position included. The Overview holds:
 
-- The title, which opens the PR; the author, repository, and branches; the changed lines to read with a rough reading time ("about 4 h to read", in days past 24 hours; about 400 lines an hour, without lockfiles and generated files).
+- The title, which opens the PR (your name for the review, once you've [renamed](#rename) it, with the PR's title under it); the author, repository, and branches; the changed lines to read with a rough reading time ("about 4 h to read", in days past 24 hours; about 400 lines an hour, without lockfiles and generated files).
 - A status line in All reviews' words (whose turn, **Blocks merge**, your feedback's progress, checks); your earlier reviews and the stack.
 - **Start reading**, **Continue** where you were, or **Review changes** at the first chapter that changed since your review, with **Snooze** while it's your turn.
 - **Since your review**.
@@ -235,7 +235,7 @@ Where the band has no room for them, it also holds **Fold comments in code** and
 ### Notices and Review actions
 
 - One notice strip under the band says what to know: "New commits since this guide was written." with **Update guide** (or, when a stacked PR is retargeted, "The PR's base changed from parent to main since this guide was written."), "The code changed since this guide." on a local review, a guide update that failed and why, or one waiting for its writer's machine to reconnect, what didn't run on its own and why, a GitHub account that GitHub refuses for the repository (not when GitHub just can't be reached), or "Reconnecting…" while the connection to BB is down; the review reloads once it's back. While a guide updates, its notice offers **Stop**, which keeps the guide you had. **+N** shows the rest.
-- **Review actions** (⋯) lists, in the same order everywhere: **Update guide** or **Rebuild guide**, **Snooze**, **Pin**, **Archive**, **Open on GitHub**, **Keyboard shortcuts** (not on a phone), **Review settings…**, and **Delete…**.
+- **Review actions** (⋯) lists, in the same order everywhere: **Update guide** or **Rebuild guide**, **Snooze**, **Pin**, **Rename…**, **Archive**, **Open on GitHub**, **Keyboard shortcuts** (not on a phone), **Review settings…**, and **Delete…**.
 
 ### When the PR changes
 
@@ -317,9 +317,9 @@ Every layout detail, held either way and on foldables such as the iPhone Duo, is
 
 Rows and the box:
 
-- Each row is two lines: the title, repository and number, and age (in Needs review, how long it's been your turn), then why it's yours and only the facts that change whether to open it, such as the PR's size (`+120 −30 · 8 files`).
+- Each row is two lines: the title (your name for it, once you've [renamed](#rename) it, with the PR's title on hover), repository and number, and age (in Needs review, how long it's been your turn), then why it's yours and only the facts that change whether to open it, such as the PR's size (`+120 −30 · 8 files`).
 - With a mouse, hovering a row shows **Snooze**, **Pin**, and **Archive**; on touch, every row has its **Review actions** (⋯).
-- The box at the top finds a review, filtering the list by repository, @author, title, or #number, or takes a pasted PR link or `owner/repo#n`: **Open** the review if it's listed, or **Review** it to start one. `/` puts the cursor in the box; on a phone, ⌕ in BB's title bar opens it. The list keeps the box's filter when you come back from a review.
+- The box at the top finds a review, filtering the list by repository, @author, title (yours or the PR's), or #number, or takes a pasted PR link or `owner/repo#n`: **Open** the review if it's listed, or **Review** it to start one. `/` puts the cursor in the box; on a phone, ⌕ in BB's title bar opens it. The list keeps the box's filter when you come back from a review.
 - **Refresh** and **Settings** sit in BB's title bar. Refresh's tooltip says when GitHub was last read, and the list says why it can't be read now: GitHub CLI not on the BB server, `gh` not signed in, a rate limit (reading then pauses for 15 minutes), or PRs or teams it can't see.
 - Stacked PRs sit together, bottom first, labeled `Stack · 2 of 3`; a review's Overview links **Stacked on #N** and **#N builds on this**, and says when you haven't reviewed the PR below.
 
@@ -358,7 +358,13 @@ Code Review Workspace alerts only about what happens after it starts following a
 - If a review came back too early, choose **Snooze → Until the author responds** in its **Review actions** menu, its row, or its Overview. It waits on the author until a newer reason; pushes alone don't wake it.
 - Snooze's other choices, **Later today**, **Tomorrow**, **Monday** (**Next Monday** on a Monday), and **Pick a date…**, set aside a review or a new request until then (between midnight and 9 AM, Pick a date can choose this morning). It waits as "Snoozed until Mon 9:00 AM" and comes back at that time, with a Needs You alert, or sooner for a newer reason, which alerts then and not again at the snooze's time.
 - **Back to Needs review** ends a snooze.
-- Snooze, Pin, and Archive can be undone from their toast.
+- Snooze, Pin, Rename, and Archive can be undone from their toast.
+
+### Rename
+
+- **Rename…** in a review's **Review actions** menu (⋯) gives it a name of your own. All reviews, BB's thread list, the review's band, Needs You alerts, and the title of a **Fix in a new thread** thread use it in place of the PR's title. It stays in BB: the PR keeps its title on GitHub, and the agents read that one.
+- The PR's title is under your name on the review's Overview, shows when you hover its row in All reviews or BB's thread list, and is in the Rename dialog with **Use PR title**. The find box matches either.
+- Your name stays when the author retitles the PR or pushes, and when the guide is rebuilt. **Use PR title**, or an empty name, puts the PR's title back, and Delete forgets it. A local review's name stands in for its ref the same way, with **Use ref**.
 
 ### Non-blocking threads
 

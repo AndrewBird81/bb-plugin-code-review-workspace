@@ -9,6 +9,7 @@ import { readOf } from "../../lib/agent-coverage";
 import { readDraftRecovery } from "../../lib/draft-recovery";
 import { useKnob } from "../../lib/settings";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
+import { reviewName } from "../../lib/review-name";
 import { statusWhy } from "../../lib/status-line";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
@@ -370,7 +371,7 @@ function Receipt({ sent }: { sent: { comments: number; at: number } | null }) {
         <h3 className="px-0.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">Next in Needs review</h3>
         <div className="flex min-h-11 items-center gap-2 rounded-lg border border-border bg-card py-1.5 pl-3 pr-1.5">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium"><InlineCode text={next.title ?? next.gitRef ?? next.targetKey} /></p>
+            <p className="truncate text-sm font-medium"><InlineCode text={reviewName(next)} /></p>
             <p className="truncate text-xs text-muted-foreground">{[statusWhy(next)?.text, next.number ? `#${next.number}` : null, age(reviewState(next).at ?? next.createdAt)].filter(Boolean).join(" · ")}</p>
           </div>
           <Button size="sm" className={cn("shrink-0", TOUCH_CONTROL)} onClick={() => void api.leave(next.targetKey)}>Open</Button>

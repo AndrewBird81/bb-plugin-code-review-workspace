@@ -37,6 +37,14 @@ test("a tracked review says its size once, beside where it is and who wrote it",
   slot.lifecycle.unmount();
 });
 
+test("a renamed tracked review's bar says your name, and the PR's title shows above where it is", async () => {
+  const slot = await reviewPage({ status: "tracked", name: "Row parsing", repo: "acme/web", number: 42 });
+  expect(await slot.findByRole("heading", { level: 1, name: "Row parsing" })).toBeTruthy();
+  const section = await slot.findByRole("region", { name: "Tracked pull request" });
+  expect(within(section).getByText("PR title:").parentElement!.textContent).toBe("PR title: Parse rows");
+  slot.lifecycle.unmount();
+});
+
 test("a tracked review says what reaches GitHub before you submit: a reply and a resolve", async () => {
   const slot = await reviewPage({ status: "tracked" });
   const section = await slot.findByRole("region", { name: "Tracked pull request" });
@@ -51,7 +59,7 @@ test("a tracked review's page bar goes back to All reviews and has the review's 
   fireEvent.click(bar.getByRole("button", { name: "Review actions" }));
   const menu = within(await slot.findByRole("dialog"));
   // Pin once Settings say reviews show in BB's thread list.
-  await waitFor(() => expect(menu.getAllByRole("button").map((button) => button.textContent).filter(Boolean)).toEqual(["Build the guide", "Snooze", "Pin", "Archive", "Open on GitHub", "Review settings…", "Delete…"]));
+  await waitFor(() => expect(menu.getAllByRole("button").map((button) => button.textContent).filter(Boolean)).toEqual(["Build the guide", "Snooze", "Pin", "Rename…", "Archive", "Open on GitHub", "Review settings…", "Delete…"]));
   fireEvent.click(menu.getByRole("button", { name: "Review settings…" }));
   expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "review", options: { subPath: "settings/pr-42" } }]);
   fireEvent.click(bar.getByRole("button", { name: "All reviews" }));

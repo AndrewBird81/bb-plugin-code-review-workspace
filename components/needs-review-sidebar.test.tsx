@@ -85,6 +85,16 @@ test("a row's tooltip says where the PR is, why it's yours and for how long, as 
   slot.lifecycle.unmount();
 });
 
+test("a renamed review's row says your name, with the PR's title first in its tooltip and description", async () => {
+  threadList();
+  const slot = await renderSidebar([{ ...reviews[2], name: "Requests rework", signals: { requestedBy: "alice" } }]);
+  const row = await within(document.body).findByRole("link", { name: /Requests rework/ });
+  expect(row.getAttribute("title")).toBe("Direct request · acme/web #1 · Requested by @alice · 2h");
+  expect(within(document.body).getByRole("link", { name: /Requests rework/, description: "Direct request, acme/web #1, Requested by @alice" })).toBe(row);
+  expect(within(document.body).getByRole("button", { name: "Pin Requests rework" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("it collapses like Pinned and Threads, and stays collapsed", async () => {
   threadList();
   const slot = await renderSidebar();

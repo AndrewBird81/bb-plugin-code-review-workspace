@@ -3,6 +3,7 @@ import { UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
+import { reviewName } from "../lib/review-name";
 import { statusLine } from "../lib/status-line";
 import { notRunReason } from "../lib/trust";
 import { useKnob } from "../lib/settings";
@@ -13,7 +14,7 @@ import { IconTile } from "./ui/icon-tile";
 import { InlineCode } from "./ui/inline-code";
 import { PageBar, reviewSettingsItem } from "./PageBar";
 import { ReviewActions } from "./ReviewActions";
-import { StackLinks, UnreviewedParent } from "./ReviewHeader";
+import { PrTitle, StackLinks, UnreviewedParent } from "./ReviewHeader";
 import { kindLook, StatusLine } from "./ReviewStatus";
 import { useThreadListReviews } from "./NeedsReviewSidebar";
 import { TOUCH_CONTROL } from "./touch";
@@ -45,13 +46,14 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: { r
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <PageBar onBack={onBack} title={<InlineCode text={review.title ?? review.targetKey} />}>
+      <PageBar onBack={onBack} title={<InlineCode text={reviewName(review)} />}>
         <ReviewActions review={review} pinnable={pinnable} trailing={[reviewSettingsItem(navigate, review.targetKey)]} onDeleted={onBack} className={TOUCH_CONTROL} />
       </PageBar>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <section aria-label="Tracked pull request" className="mx-auto flex w-full max-w-xl flex-col items-center gap-4 px-5 py-8 text-center">
           <IconTile tone={kind.tone} icon={kind.icon} className="size-10 rounded-xl" iconClassName="size-5" />
           <div className="w-full space-y-1.5">
+            <PrTitle review={review} />
             <p className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
               {review.repo && <span className="font-mono text-[11px]">{review.repo}{review.number ? <span className="text-subtle-foreground"> #{review.number}</span> : null}</span>}
               {review.author && <span className="inline-flex items-center gap-1.5"><Avatar login={review.author} size={16} /><span className="text-foreground/90">@{review.author}</span></span>}

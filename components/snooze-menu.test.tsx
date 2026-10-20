@@ -27,7 +27,7 @@ async function menu(review: ReviewItem, props: Record<string, unknown> = {}) {
   return { slot, calls };
 }
 
-test("Review actions has the order of the design: guide, Snooze, Pin, Archive, then GitHub and the page's own, then Delete", async () => {
+test("Review actions has the order of the design: guide, Snooze, Pin, Rename, Archive, then GitHub and the page's own, then Delete", async () => {
   const rebuild = vi.fn(), shortcuts = vi.fn();
   const { slot } = await menu(given, {
     pinnable: true,
@@ -37,7 +37,7 @@ test("Review actions has the order of the design: guide, Snooze, Pin, Archive, t
   await slot.findByRole("button", { name: "Snooze" });
   // The menu's, after its trigger, which shows only ⋯.
   const buttons = slot.getAllByRole("button").map((button) => button.textContent).filter((text) => text);
-  expect(buttons).toEqual(["Rebuild guide", "Snooze", "Pin", "Archive", "Open on GitHub", "Keyboard shortcuts?", "Review settings…", "Delete…"]);
+  expect(buttons).toEqual(["Rebuild guide", "Snooze", "Pin", "Rename…", "Archive", "Open on GitHub", "Keyboard shortcuts?", "Review settings…", "Delete…"]);
   expect(slot.queryByRole("button", { name: "Not yet" })).toBeNull();
   expect(slot.getByRole("button", { name: "Keyboard shortcuts" }).getAttribute("aria-keyshortcuts")).toBe("?");
   fireEvent.click(slot.getByRole("button", { name: "Keyboard shortcuts" }));
@@ -113,7 +113,7 @@ test("a merged or closed review's menu starts with its first item, not a divider
     const { slot } = await menu({ ...given, prState: reason === "merged" ? "MERGED" : "CLOSED", archivedAt: 1, turn: turn("archive", reason) });
     const entries = Array.from((await slot.findByRole("button", { name: "Delete…" })).parentElement!.children)
       .map((entry) => entry.getAttribute("role") === "separator" ? "─" : entry.textContent);
-    expect(entries).toEqual(["Open on GitHub", "─", "Delete…"]);
+    expect(entries).toEqual(["Rename…", "─", "Open on GitHub", "─", "Delete…"]);
     slot.lifecycle.unmount();
   }
 });

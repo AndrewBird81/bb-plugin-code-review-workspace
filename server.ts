@@ -60,6 +60,7 @@ import { createPluginUpdates } from "./src/plugin-updates";
 import { onPrepared } from "./src/generate";
 import { feedbackProgress, type TurnOptions } from "./lib/turn";
 import { findStacks } from "./lib/stacks";
+import { defaultName } from "./lib/review-name";
 import { baselineOf, diffAt, feedbackView, guideBehind, headOf, prCommits, pruneDiffs, pruneOldDiffs, remainingBody, sinceReview } from "./src/feedback-view";
 import { assess, changesSinceReview, describeFeedback, noteLeftQueue, readFileAt, startVerification } from "./src/verification";
 import { fetchMyThreads } from "./src/github/threads";
@@ -610,6 +611,14 @@ export default async function plugin(bb: BbPluginApi) {
     pinReview({ targetKey, pinned }) {
       if (!store.getReview(targetKey)) return { ok: false, error: "This review no longer exists." };
       store.setLifecycle(targetKey, { pinnedAt: pinned ? Date.now() : null });
+      changed(targetKey);
+      return { ok: true };
+    },
+    renameReview({ targetKey, name }) {
+      const review = store.getReview(targetKey);
+      if (!review) return { ok: false, error: "This review no longer exists." };
+      // No name, or the one it has anyway, goes back to the PR's title or ref.
+      store.setLifecycle(targetKey, { name: name && name !== defaultName(review) ? name : null });
       changed(targetKey);
       return { ok: true };
     },

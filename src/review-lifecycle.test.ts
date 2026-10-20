@@ -1062,6 +1062,16 @@ test("a new title on the PR after your click is an edit too, so the click needs 
   expect(s.store.getReview("pr-1")?.prEditedAt).toBe(T0 + 0.1 * HOUR);
 });
 
+test("a new title on the PR keeps the name you gave the review", async () => {
+  const s = setup();
+  await s.sync.all();
+  s.store.setLifecycle("pr-1", { name: "Cache expiry" });
+  s.at(0.1);
+  s.pr({ title: "Expire stale cache entries" });
+  await s.sync.all(true);
+  expect(s.store.getReview("pr-1")).toMatchObject({ title: "Expire stale cache entries", name: "Cache expiry" });
+});
+
 test("the sync keeps the author's association with the repository", async () => {
   const s = setup({ pr: { authorAssociation: "CONTRIBUTOR" } });
   await s.sync.all();

@@ -36,6 +36,14 @@ test("a completed guide notifies through Needs You with its review destination a
   await f.harness.lifecycle.dispose();
 });
 
+test("a renamed review's alert says the name you gave it", async () => {
+  const f = fixture();
+  f.store.setLifecycle("target", { name: "Sign-in rework" });
+  await generateGuide(f.bb, f.store, "target", "p1");
+  expect(f.delivered[0]).toMatchObject({ title: "Sign-in rework", status: "ready" });
+  await f.harness.lifecycle.dispose();
+});
+
 test("with A guide is ready or failed off, a finished guide queues and sends nothing", async () => {
   const f = fixture();
   f.store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, alertGuides: false } }, 0);

@@ -13,7 +13,7 @@ For reviewers who need to understand a change before they approve it, often one 
 - **All reviews** sorts your reviews into Needs review, Waiting on author, Reviewed, and Archive. A push alone never makes a review your turn; a re-request, a question for you, or your feedback being handled does.
 - PRs that request your review join the list from GitHub.
 - After new commits, **Since your review** shows only what changed since the commit you reviewed. The review agent checks each of your earlier threads and drafts replies for you to send.
-- Snooze, pin, and archive reviews. Alerts go to the separate Needs You plugin, if you install it.
+- Snooze, pin, rename, and archive reviews. Alerts go to the separate Needs You plugin, if you install it.
 
 ## Reading the diff
 

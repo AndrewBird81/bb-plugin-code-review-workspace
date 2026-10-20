@@ -3,6 +3,7 @@ import { z } from "zod";
 import { releaseRpc } from "./plugin-updates";
 import { SEVERITIES } from "./draft";
 import { REMOVAL_NOTE_LIMIT, REMOVAL_REASONS } from "../lib/removal-reasons";
+import { NAME_LIMIT } from "../lib/review-name";
 import { agentChoiceSchema, agentExecutionSchema, knobsSchema, preferencesSchema } from "./preferences";
 
 // The RPC data plane between the panel (app.tsx) and the backend (server.ts).
@@ -175,13 +176,18 @@ export const rpcContract = defineRpcContract({
     output: z.object({ ok: z.boolean(), error: z.string().optional(), restored: z.boolean().optional() }),
   },
 
-  // Reviewer-managed archive and pin, and permanent deletion of a review's saved data
+  // Reviewer-managed archive, pin, and name, and permanent deletion of a review's saved data
   archiveReview: {
     input: z.object({ targetKey: z.string(), archived: z.boolean() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   pinReview: {
     input: z.object({ targetKey: z.string(), pinned: z.boolean() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /** An empty name, or the PR's title, puts the PR's title back. */
+  renameReview: {
+    input: z.object({ targetKey: z.string(), name: z.string().trim().max(NAME_LIMIT) }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   deleteReview: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },

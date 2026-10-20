@@ -81,6 +81,7 @@ When the guide is ready, the review agent reviews the change and drafts line com
 - PRs that request your review join the list from GitHub.
 - Rows show checks, size, and your feedback's progress, such as `2/5 addressed`. Stacked PRs sit together, bottom first.
 - **Snooze**, **Pin**, and **Archive** set reviews aside, each with Undo. BB's thread list shows Needs review too.
+- **Rename…** gives a review a name of your own in your lists; its Overview keeps the PR's title under it, and nothing changes on GitHub.
 - With the separate Needs You plugin, you get an alert when a guide is ready or a review becomes your turn.
 
 <img src="docs/screenshots/all-reviews-dark.webp" alt="The All reviews list shows four PRs under Needs review, with status lines for Your PR, Checks failing, and Stack 1 of 2 and 2 of 2.">
@@ -213,7 +214,7 @@ What it copies, and what it doesn't: [What carries over from Guided Review](docs
   - [Install and first run](docs/guide.md#install-and-first-run), [Updates](docs/guide.md#updates), and [Upgrading from older versions](docs/guide.md#upgrading-from-older-versions).
   - [Local changes and the command line](docs/guide.md#local-changes-and-the-command-line): every form of `bb review`.
   - [The review workspace](docs/guide.md#the-review-workspace), [Keyboard shortcuts](docs/guide.md#keyboard-shortcuts), and [Phone and iPad](docs/guide.md#phone-and-ipad).
-  - [Whose turn](docs/guide.md#whose-turn): what brings a review back, Snooze, and notifications.
+  - [Whose turn](docs/guide.md#whose-turn): what brings a review back, Snooze, Rename, and notifications.
   - [Comments and Finish review](docs/guide.md#comments-and-finish-review).
   - [Customize your reviews](docs/guide.md#customize-your-reviews): every setting and its default.
   - [Data and access](docs/guide.md#data-and-access): what the agents can and can't do, and what they read.

@@ -1,25 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import { reviewState, type ReviewItem } from "../lib/review-state";
+import { defaultName, NAME_LIMIT, reviewName } from "../lib/review-name";
 import { canSnooze, canSnoozeUntil, snoozeLabel } from "../lib/turn";
 import { updateDraftRecovery } from "../lib/draft-recovery";
 import { forgetReview } from "../lib/panel-state";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Icon, type IconName } from "./ui/icon";
+import { InlineCode } from "./ui/inline-code";
+import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { MENU_ITEM, SnoozeChoices } from "./SnoozeChoices";
-import { TOUCH_CONTROL } from "./touch";
+import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
 /** An item a page adds to a review's menu. `keys`: its key, shown at its right where there's a keyboard. */
 export type ReviewMenuItem = { label: string; icon: IconName; onSelect: () => void; keys?: string };
 
 /**
- * What can be done to a review from its menu or its row in the list, each said in a toast. Snooze, Pin and Archive can
- * be undone from theirs, since a row's quick actions take one click. `onChanged` follows each change.
+ * What can be done to a review from its menu or its row in the list, each said in a toast. Snooze, Pin, Rename and
+ * Archive can be undone from theirs, since a row's quick actions take one click. `onChanged` follows each change.
  */
 export function useReviewActions(review: ReviewItem, onChanged?: () => void) {
   const rpc = useRpc<typeof rpcContract>();
@@ -46,6 +49,12 @@ export function useReviewActions(review: ReviewItem, onChanged?: () => void) {
     archived ? "Review archived" : "Review unarchived", { undo: archived && undoable ? () => void setArchived(false, false) : undefined }), [rpc, run, targetKey]);
   const setPinned = useCallback((pinned: boolean, undoable = true): Promise<boolean> => run(() => rpc.call("pinReview", { targetKey, pinned }),
     pinned ? "Pinned with your pinned threads" : "Unpinned", { undo: pinned && undoable ? () => void setPinned(false, false) : undefined }), [rpc, run, targetKey]);
+  /** Your name for the review; "" puts its PR's title or ref back. Undo puts back the name it had. */
+  const rename = useCallback((name: string, undoable = true): Promise<boolean> => {
+    const previous = review.name ?? "";
+    return run(() => rpc.call("renameReview", { targetKey, name }), name ? `Renamed to “${name}”` : review.kind === "pr" ? "Back to the PR’s title" : "Back to the ref",
+      { undo: undoable ? () => void rename(previous, false) : undefined });
+  }, [rpc, run, targetKey, review.name, review.kind]);
   const unsnooze = useCallback(() => run(() => rpc.call("snoozeReview", { targetKey, snoozed: false }), "Moved to Needs review"), [rpc, run, targetKey]);
   /** Until the author responds, or with `until`, until then too. */
   const snooze = useCallback((until?: number) => run(() => rpc.call("snoozeReview", { targetKey, snoozed: true, ...(until ? { until } : {}) }),
@@ -53,13 +62,13 @@ export function useReviewActions(review: ReviewItem, onChanged?: () => void) {
   const buildGuide = useCallback(() => run(() => rpc.call("startTrackedReview", { targetKey }), "Building the guide"), [rpc, run, targetKey]);
   // The page that showed it goes, rather than reading it again.
   const remove = useCallback(() => run(() => rpc.call("deleteReview", { targetKey }), "Review deleted", { changed: false }), [rpc, run, targetKey]);
-  return { busy, setArchived, setPinned, snooze, unsnooze, buildGuide, remove };
+  return { busy, setArchived, setPinned, rename, snooze, unsnooze, buildGuide, remove };
 }
 
 /**
- * Review actions (⋯): the page's own first (`items`, such as Update guide), then Build the guide, Snooze ›, Pin and
- * Archive, then Open on GitHub and the page's `trailing` items, then Delete…, which asks first. A tracked review builds
- * its guide; a review you gave can wait until its author responds, and any request until a time you pick.
+ * Review actions (⋯): the page's own first (`items`, such as Update guide), then Build the guide, Snooze ›, Pin, Rename…
+ * and Archive, then Open on GitHub and the page's `trailing` items, then Delete…, which asks first. A tracked review
+ * builds its guide; a review you gave can wait until its author responds, and any request until a time you pick.
  */
 export function ReviewActions({ review, items, trailing, pinnable = false, onChanged, onMoved, onDeleted, describedBy, className }: {
   review: ReviewItem;
@@ -85,7 +94,13 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   // The menu, or its Snooze choices in its place.
   const [view, setView] = useState<"actions" | "snooze">("actions");
   const [confirming, setConfirming] = useState(false);
-  const title = review.title ?? review.gitRef ?? review.targetKey;
+  // Rename…'s dialog, and the name in its box.
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState("");
+  const nameInput = useRef<HTMLInputElement>(null);
+  const originalId = useId();
+  const title = reviewName(review);
+  const original = defaultName(review);
   const turn = reviewState(review);
   // GitHub state archives merged and closed PRs, and those you can no longer read or are no longer asked to review: only
   // the reviewer's own archive can be undone, and a review already in Archive can't be archived.
@@ -96,8 +111,6 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   const snoozed = turn.reason === "snoozed";
   // Archive takes a review out of Pinned, so it offers only Unpin there.
   const pin = pinnable && (!!review.pinnedAt || turn.group !== "archive");
-  // The menu's first part (the page's items, guide, Snooze, Pin, Archive): a merged or closed review may have none of it.
-  const top = !!items?.length || review.status === "tracked" || snoozed || untilAuthor || untilTime || pin || archivable;
   const open = (next: boolean) => {
     setMenuOpen(next);
     if (!next) setView("actions");
@@ -121,6 +134,15 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   const item = (entry: ReviewMenuItem) => <Button key={entry.label} variant="ghost" size="sm" aria-keyshortcuts={entry.keys} className={MENU_ITEM} onClick={() => pick(entry.onSelect)}>
     <Icon name={entry.icon} aria-hidden />{entry.label}{entry.keys && <kbd aria-hidden className="ml-auto hidden font-sans text-xs text-subtle-foreground pointer-fine:inline">{entry.keys}</kbd>}
   </Button>;
+
+  async function saveName(event: FormEvent) {
+    event.preventDefault();
+    if (actions.busy) return;
+    // Empty, or what it's called anyway, puts the PR's title or ref back.
+    const name = draft.trim() === original ? "" : draft.trim();
+    if (name === (review.name ?? "")) { setRenaming(false); return; }
+    if (await actions.rename(name)) setRenaming(false);
+  }
 
   async function remove() {
     if (!await actions.remove()) return;
@@ -155,8 +177,9 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
               <Icon name="Clock" aria-hidden />Snooze<Icon name="ChevronRight" className="ml-auto text-subtle-foreground" aria-hidden />
             </Button>}
           {pin && item({ label: review.pinnedAt ? "Unpin" : "Pin", icon: review.pinnedAt ? "PinOff" : "Pin", onSelect: () => void actions.setPinned(!review.pinnedAt) })}
+          {item({ label: "Rename…", icon: "Edit", onSelect: () => { setDraft(title); setRenaming(true); } })}
           {archivable && item({ label: review.userArchivedAt ? "Unarchive" : "Archive", icon: review.userArchivedAt ? "ArchiveRestore" : "Archive", onSelect: () => void moving(actions.setArchived(!review.userArchivedAt)) })}
-          {top && <div role="separator" className="my-1 h-px bg-border" />}
+          <div role="separator" className="my-1 h-px bg-border" />
           {review.url && <Button variant="ghost" size="sm" className={MENU_ITEM} onClick={() => pick(() => navigate.openUrl(review.url!))}>
             <Icon name="Github" aria-hidden />Open on GitHub<Icon name="ArrowUpRight" className="ml-auto text-subtle-foreground" aria-hidden />
           </Button>}
@@ -169,6 +192,34 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
         </>}
       </PopoverContent>
     </Popover>
+    {/* Opened, the dialog focuses its box with the name selected, so typing replaces it; a phone's drawer waits for a tap. */}
+    <Dialog open={renaming} onOpenChange={(next) => { if (!actions.busy) setRenaming(next); }}>
+      <DialogContent onCloseAutoFocus={(event) => { event.preventDefault(); trigger.current?.focus(); }}>
+        <form className="grid gap-4" onSubmit={(event) => void saveName(event)}>
+          <DialogHeader>
+            <DialogTitle>Rename review</DialogTitle>
+            <DialogDescription>{review.kind === "pr" ? "Shown in your lists instead of the PR’s title. Nothing changes on GitHub." : "Shown in your lists instead of the ref."}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input ref={nameInput} aria-label="Review name" aria-describedby={originalId} value={draft} maxLength={NAME_LIMIT} readOnly={actions.busy} onChange={(event) => setDraft(event.target.value)} />
+            <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span id={originalId} className="min-w-0 break-words">{review.kind === "pr"
+                ? <><span className="text-subtle-foreground">PR title:</span> <InlineCode text={original} /></>
+                : <><span className="text-subtle-foreground">Ref:</span> <span className="font-mono">{original}</span></>}</span>
+              {draft.trim() !== original && <button type="button" className={cn("relative inline-flex items-center gap-1 rounded-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50", TOUCH_TARGET)}
+                onClick={() => { setDraft(original); nameInput.current?.focus(); }}>
+                <Icon name="RotateCcw" className="size-3" aria-hidden />{review.kind === "pr" ? "Use PR title" : "Use ref"}
+              </button>}
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:space-x-0">
+            <Button type="button" variant="outline" className={TOUCH_CONTROL} onClick={() => { if (!actions.busy) setRenaming(false); }}>Cancel</Button>
+            {/* Busy, it stays focusable rather than drop the focus, and a press does nothing. */}
+            <Button type="submit" className={cn("aria-disabled:opacity-50", TOUCH_CONTROL)} aria-disabled={actions.busy}>{actions.busy ? "Renaming…" : "Rename review"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
     <Dialog open={confirming} onOpenChange={(next) => { if (!actions.busy) setConfirming(next); }}>
       <DialogContent onCloseAutoFocus={(event) => { event.preventDefault(); trigger.current?.focus(); }}>
         <DialogHeader>

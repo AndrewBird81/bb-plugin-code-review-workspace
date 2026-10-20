@@ -6,6 +6,7 @@ import type { ReviewMeta } from "../src/store";
 export interface StackMember {
   targetKey: string | null;
   number: number;
+  /** Your name for the review, else the PR's title. */
   title: string | null;
   url: string | null;
   status: ReviewMeta["status"] | null;
@@ -22,7 +23,7 @@ export interface StackPlace {
 }
 
 export type StackInput = Pick<ReviewMeta, "targetKey"> & Partial<Pick<ReviewMeta,
-  "kind" | "repo" | "number" | "base" | "head" | "prState" | "archivedAt" | "title" | "url" | "status" | "stackParent" | "submittedVerdict" | "signals" | "ownPr">>;
+  "kind" | "repo" | "number" | "base" | "head" | "prState" | "archivedAt" | "name" | "title" | "url" | "status" | "stackParent" | "submittedVerdict" | "signals" | "ownPr">>;
 
 /** A branch PRs merge into for good, such as gitflow's develop: an open PR from it (a release) stacks nothing on it. */
 export const longLivedBranch = (name: string) => /^(main|master|develop|development|dev|trunk|staging|production|prod|releases?\/.+)$/i.test(name);
@@ -36,7 +37,7 @@ export function findStacks(reviews: StackInput[]): Map<string, StackPlace> {
   const open = reviews.filter((r): r is StackInput & { repo: string; number: number } =>
     r.kind === "pr" && !!r.repo && !!r.number && r.prState !== "MERGED" && r.prState !== "CLOSED" && !r.archivedAt);
   const members = new Map<string, StackMember>(open.map((r) => [id(r.repo, r.number), {
-    targetKey: r.targetKey, number: r.number, title: r.title ?? null, url: r.url ?? null, status: r.status ?? null,
+    targetKey: r.targetKey, number: r.number, title: r.name ?? r.title ?? null, url: r.url ?? null, status: r.status ?? null,
     reviewed: !!(r.submittedVerdict || r.signals?.lastReviewAt || r.ownPr),
   }]));
   const parentOf = new Map<string, string>();

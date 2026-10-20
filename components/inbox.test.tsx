@@ -361,6 +361,120 @@ test("a row's quick actions archive it, with Undo, and Review actions is always 
   slot.lifecycle.unmount();
 });
 
+/** All reviews over reviews that renameReview renames, as the server does: "" for none. */
+async function renamable(initial: Array<Record<string, unknown>>, renameReview?: (input: any) => unknown) {
+  let reviews = initial;
+  const page = await inbox(reviews, {
+    listReviews: () => ({ reviews }),
+    renameReview: renameReview ?? (({ targetKey, name }: any) => { reviews = reviews.map((r) => r.targetKey === targetKey ? { ...r, name: name || null } : r); return { ok: true }; }),
+  });
+  /** Rename… from the review's ⋯, open. */
+  const rename = async (title: string) => {
+    const row = (await page.slot.findByText(title)).closest(".group\\/row") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Review actions" }));
+    fireEvent.click(await page.slot.findByRole("button", { name: "Rename…" }));
+    const dialog = within(await page.slot.findByRole("dialog", { name: "Rename review" }));
+    return { dialog, box: dialog.getByRole("textbox", { name: "Review name" }) as HTMLInputElement };
+  };
+  const closed = () => waitFor(() => expect(page.slot.queryByRole("dialog", { name: "Rename review" })).toBeNull());
+  return { ...page, rename, closed };
+}
+
+test("Rename… gives a review in Needs review your name, with the PR's title on hover; the box finds it by either, and Undo puts the title back", async () => {
+  const { slot, calls, rename, closed } = await renamable([
+    { targetKey: "a", kind: "pr", repo: "acme/web", number: 3, title: "feat(LIVE-8335): auto-paginate GETs", status: "ready" },
+    { targetKey: "b", kind: "pr", repo: "acme/web", number: 4, title: "Cache headers", status: "ready" },
+  ]);
+  const { dialog, box } = await rename("feat(LIVE-8335): auto-paginate GETs");
+  // The name it goes by, selected, so typing replaces it; under it, the PR's title.
+  await waitFor(() => expect(document.activeElement).toBe(box));
+  expect(box.value).toBe("feat(LIVE-8335): auto-paginate GETs");
+  expect([box.selectionStart, box.selectionEnd]).toEqual([0, box.value.length]);
+  expect(dialog.getByText("PR title:").parentElement!.textContent).toBe("PR title: feat(LIVE-8335): auto-paginate GETs");
+  // A screen reader hears the PR's title with the box.
+  expect(dialog.getByRole("textbox", { name: "Review name", description: "PR title: feat(LIVE-8335): auto-paginate GETs" })).toBe(box);
+  expect(dialog.getByText("Shown in your lists instead of the PR’s title. Nothing changes on GitHub.")).toBeTruthy();
+  fireEvent.change(box, { target: { value: "  Sencha pagination " } });
+  fireEvent.click(dialog.getByRole("button", { name: "Rename review" }));
+  await closed();
+  expect(calls("renameReview")).toEqual([{ targetKey: "a", name: "Sencha pagination" }]);
+  const title = await within(slot.getByRole("region", { name: "Needs review" })).findByText("Sencha pagination");
+  expect(title.getAttribute("title")).toBe("feat(LIVE-8335): auto-paginate GETs");
+  expect(slot.queryByText("feat(LIVE-8335): auto-paginate GETs")).toBeNull();
+
+  const find = slot.getByRole("searchbox", { name: "Find a review, or paste a PR link" });
+  for (const query of ["sencha", "auto-paginate"]) {
+    fireEvent.change(find, { target: { value: query } });
+    expect(slot.getByText("Sencha pagination")).toBeTruthy();
+    expect(slot.queryByText("Cache headers")).toBeNull();
+  }
+  fireEvent.change(find, { target: { value: "" } });
+
+  expect(vi.mocked(toast.success)).toHaveBeenCalledWith("Renamed to “Sencha pagination”", expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) }));
+  (vi.mocked(toast.success).mock.calls[0][1] as any).action.onClick();
+  await slot.findByText("feat(LIVE-8335): auto-paginate GETs");
+  expect(calls("renameReview")).toEqual([{ targetKey: "a", name: "Sencha pagination" }, { targetKey: "a", name: "" }]);
+  slot.lifecycle.unmount();
+});
+
+test("in Rename…, Esc and an unchanged name change nothing, and Use PR title or an emptied box puts the PR's title back", async () => {
+  const { slot, calls, rename, closed } = await renamable([{ targetKey: "a", kind: "pr", repo: "acme/web", number: 3, title: "Expire cache entries", name: "Cache expiry", status: "ready" }]);
+  let { dialog, box } = await rename("Cache expiry");
+  expect(box.value).toBe("Cache expiry");
+  fireEvent.keyDown(box, { key: "Escape" });
+  await closed();
+  // The focus goes back to the menu's button.
+  expect(document.activeElement).toBe(slot.getByRole("button", { name: "Review actions" }));
+  ({ dialog } = await rename("Cache expiry"));
+  fireEvent.click(dialog.getByRole("button", { name: "Rename review" }));
+  await closed();
+  expect(calls("renameReview")).toEqual([]);
+
+  ({ dialog, box } = await rename("Cache expiry"));
+  fireEvent.click(dialog.getByRole("button", { name: "Use PR title" }));
+  expect(box.value).toBe("Expire cache entries");
+  expect(document.activeElement).toBe(box);
+  // It's the PR's title already.
+  expect(dialog.queryByRole("button", { name: "Use PR title" })).toBeNull();
+  fireEvent.click(dialog.getByRole("button", { name: "Rename review" }));
+  await closed();
+  await slot.findByText("Expire cache entries");
+  expect(vi.mocked(toast.success)).toHaveBeenCalledWith("Back to the PR’s title", expect.anything());
+
+  ({ dialog, box } = await rename("Expire cache entries"));
+  fireEvent.change(box, { target: { value: "Cache expiry" } });
+  fireEvent.click(dialog.getByRole("button", { name: "Rename review" }));
+  await closed();
+  ({ dialog, box } = await rename("Cache expiry"));
+  fireEvent.change(box, { target: { value: "   " } });
+  fireEvent.click(dialog.getByRole("button", { name: "Rename review" }));
+  await closed();
+  await slot.findByText("Expire cache entries");
+  expect(calls("renameReview")).toEqual([{ targetKey: "a", name: "" }, { targetKey: "a", name: "Cache expiry" }, { targetKey: "a", name: "" }]);
+  slot.lifecycle.unmount();
+});
+
+test("a rename that fails says why and keeps the dialog, with what you typed", async () => {
+  const { slot, rename } = await renamable([{ targetKey: "a", kind: "pr", title: "Expire cache entries", status: "ready" }], () => ({ ok: false, error: "This review no longer exists." }));
+  const { dialog, box } = await rename("Expire cache entries");
+  fireEvent.change(box, { target: { value: "Cache expiry" } });
+  fireEvent.click(dialog.getByRole("button", { name: "Rename review" }));
+  await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalledWith("This review no longer exists."));
+  expect(slot.getByRole("dialog", { name: "Rename review" })).toBeTruthy();
+  expect(box.value).toBe("Cache expiry");
+  slot.lifecycle.unmount();
+});
+
+test("a renamed local review shows your name, with its ref where a PR's repository goes", async () => {
+  const { slot, rename } = await renamable([{ targetKey: "ref-1", kind: "ref", gitRef: "main...search", name: "Search revamp", status: "ready" }]);
+  const row = (await slot.findByText("Search revamp")).closest("button")!;
+  expect(within(row).getAllByText("main...search").length).toBeGreaterThan(0);
+  const { dialog } = await rename("Search revamp");
+  expect(dialog.getByText("Ref:").parentElement!.textContent).toBe("Ref: main...search");
+  expect(dialog.getByRole("button", { name: "Use ref" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("with no reviews yet, a first-run panel says what a review needs and how to start one", async () => {
   const { slot } = await inbox([], { getSetupStatus: () => ({ account: null, githubCli: true, agentAvailable: true, projectAvailable: true }) });
   const panel = await slot.findByRole("region", { name: "Review your first pull request" });

@@ -63,6 +63,14 @@ test("sends only the comments you chose, with the review agent's execution", asy
   expect(spawn.prompt).not.toContain("Why change b?");
 });
 
+test("a renamed review's fix thread has the name you gave it, and its message names the PR by its title", async () => {
+  const { bb, store, spawns } = host();
+  ownPr(store, { name: "Upload retries" });
+  expect((await startFixThread(bb, store, "pr-1", [{ file: "src/a.ts", line: 3, side: "RIGHT" }])).title).toBe("Fix review comments: #12 Upload retries");
+  expect(spawns()[0].prompt).toContain("acme/web PR #12 (Retry uploads)");
+  expect(spawns()[0].prompt).not.toContain("Upload retries");
+});
+
 test("a local review names its diff and directory and says which branch to work on", async () => {
   const { bb, store, spawns } = host();
   store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main...feature", status: "ready", createdAt: 1, projectId: "p1", cwd: "/repo" } as any);

@@ -88,7 +88,7 @@ function createNotifications(bb: BbPluginApi, store: Store) {
       // The async storage lock yields; a new generation may have started since
       // its read. Recheck immediately before dispatch, with no intervening await.
       if (!meta || !current(record)) continue;
-      const title = (meta.title || store.getGuide(record.targetKey)?.title || "Review guide").slice(0, 240);
+      const title = (meta.name || meta.title || store.getGuide(record.targetKey)?.title || "Review guide").slice(0, 240);
       const body = record.kind === "turn" ? (record.body ?? "It’s your turn to review.")
         : record.status === "ready" ? "Your guide is ready. Open it to start reviewing." : "The guide couldn’t be generated. Open the review to try again.";
       const result = await bb.sdk.plugins.callRpc({ pluginId: "inbox", method: "publishActivity", input: {

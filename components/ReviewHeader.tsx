@@ -6,6 +6,7 @@ import type { CheckItem } from "../src/threads";
 import type { StackMember, StackPlace } from "../lib/stacks";
 import { LINES_PER_HOUR, readingTime } from "../lib/review-size";
 import { reviewState, type ReviewItem } from "../lib/review-state";
+import { renamedFrom, reviewName } from "../lib/review-name";
 import { statusLine, type StatusKind, type StatusTone } from "../lib/status-line";
 import { useKnob } from "../lib/settings";
 import { canSnooze, canSnoozeUntil, type ReviewRound } from "../lib/turn";
@@ -95,6 +96,13 @@ export function StackLinks({ stack }: { stack: StackPlace }) {
   );
 }
 
+/** Once you've renamed the review, the PR's own title, which GitHub and the agents keep, under your name for it. */
+export function PrTitle({ review, className }: { review: ReviewItem; className?: string }) {
+  const title = review.kind === "pr" ? renamedFrom(review) : null;
+  if (!title) return null;
+  return <p className={cn("break-words text-xs text-muted-foreground", className)}><span className="text-subtle-foreground">PR title:</span> <InlineCode text={title} /></p>;
+}
+
 /** Says when the PR this one builds on hasn't had your review. */
 export function UnreviewedParent({ stack, className }: { stack: StackPlace | null | undefined; className?: string }) {
   if (!stack?.parent || stack.parent.reviewed) return null;
@@ -135,8 +143,9 @@ function Snooze({ review, snoozing, onSnooze }: { review: ReviewItem; snoozing: 
 }
 
 /**
- * The top of a review's Overview: its title, who and what it is, a status line (whose turn, your feedback, checks), your
- * reviews and its stack, then `action`, the way into its chapters, with Snooze beside it while it's your turn.
+ * The top of a review's Overview: its title (your name for it, with the PR's title under it), who and what it is, a
+ * status line (whose turn, your feedback, checks), your reviews and its stack, then `action`, the way into its chapters,
+ * with Snooze beside it while it's your turn.
  */
 export const ReviewHeader = memo(function ReviewHeader({ review, checks, readLines, onShowFeedback, onSnooze, snoozing = false, action }: {
   review: ReviewItem;
@@ -172,9 +181,12 @@ export const ReviewHeader = memo(function ReviewHeader({ review, checks, readLin
   const snooze = onSnooze && <Snooze review={review} snoozing={snoozing} onSnooze={onSnooze} />;
   return (
     <header className="space-y-2.5">
-      <h2 className="text-base font-semibold leading-snug text-foreground @min-[640px]/overview:text-xl">
-        <ReviewTitleLink url={review.url} text={review.title ?? review.gitRef ?? review.targetKey} />
-      </h2>
+      <div>
+        <h2 className="text-base font-semibold leading-snug text-foreground @min-[640px]/overview:text-xl">
+          <ReviewTitleLink url={review.url} text={reviewName(review)} />
+        </h2>
+        <PrTitle review={review} className="mt-1" />
+      </div>
       <MetaLine className="leading-6" items={[
         review.author && <span className="inline-flex items-center gap-1.5 align-top"><Avatar login={review.author} size={16} /><span className="text-foreground/90">@{review.author}</span></span>,
         review.repo && <span className="inline-flex items-center gap-1 align-top"><Icon name={kind.icon} className={cn("size-3.5 shrink-0", TONE_TEXT[kind.tone])} aria-hidden /><span className="font-mono text-[11px]">{review.repo}</span>{review.number ? <span className="text-subtle-foreground">#{review.number}</span> : null}</span>,

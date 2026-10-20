@@ -86,7 +86,8 @@ export async function startFixThread(bb: BbPluginApi, store: Store, targetKey: s
   const agent = store.getPreferences().preferences.assistantAgent;
   if (!agent && !(await bb.sdk.projects.defaultExecutionOptions({ projectId: review.projectId }).catch(() => null))) throw new Error("bb has no default agent for the review's project. Choose an agent for the Review agent in Review settings.");
   const patch = store.patch(targetKey);
-  const title = `Fix review comments: ${review.kind === "pr" ? `#${review.number} ${review.title ?? ""}`.trim() : review.gitRef}`;
+  // Named as you named the review; its message names the PR by its title.
+  const title = `Fix review comments: ${review.kind === "pr" ? `#${review.number} ${review.name ?? review.title ?? ""}`.trim() : review.name ?? review.gitRef}`;
   try {
     const thread = await bb.sdk.threads.spawn({
       projectId: review.projectId, environment: { type: "project-default" },

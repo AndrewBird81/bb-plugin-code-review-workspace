@@ -42,7 +42,8 @@ bb review list [--json]
 ```
 
 Every review in this BB, Needs review first, with its key, title, whose turn it is, and whether
-its guide is ready. `--json` prints the same as JSON.
+its guide is ready. A review the reviewer renamed adds `named "…"`, the name they may call it by.
+`--json` prints the same as JSON, the name as `name`.
 
 ## Draft comments
 

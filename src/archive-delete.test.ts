@@ -54,6 +54,23 @@ test("pinning records when, unpinning clears it, and both tell open pages", asyn
   expect(await harness.behavior.callRpc("pinReview", { targetKey: "missing", pinned: true })).toMatchObject({ ok: false });
 });
 
+test("renaming keeps your name for the review, trimmed, and tells open pages; an empty name, or the PR's title, puts the title back", async () => {
+  const { harness, store } = await setup();
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", title: "Expire cache entries", status: "ready", createdAt: 1 });
+  expect(await harness.behavior.callRpc("renameReview", { targetKey: "pr-1", name: "  Cache expiry  " })).toEqual({ ok: true });
+  expect(store.getReview("pr-1")).toMatchObject({ name: "Cache expiry", title: "Expire cache entries" });
+  expect(store.getReview("pr-2")?.name).toBeUndefined();
+  expect(harness.inspection.realtimeSignals.map((s) => s.channel)).toEqual(expect.arrayContaining(["reviews", "review:pr-1"]));
+  expect(await harness.behavior.callRpc("renameReview", { targetKey: "pr-1", name: "Expire cache entries" })).toEqual({ ok: true });
+  expect(store.getReview("pr-1")?.name).toBeNull();
+  await harness.behavior.callRpc("renameReview", { targetKey: "pr-1", name: "Cache expiry" });
+  expect(await harness.behavior.callRpc("renameReview", { targetKey: "pr-1", name: " " })).toEqual({ ok: true });
+  expect(store.getReview("pr-1")?.name).toBeNull();
+  // As long as a guide's title, at most.
+  await expect(harness.behavior.callRpc("renameReview", { targetKey: "pr-1", name: "x".repeat(121) })).rejects.toThrow();
+  expect(await harness.behavior.callRpc("renameReview", { targetKey: "missing", name: "Anything" })).toMatchObject({ ok: false });
+});
+
 test("deleting a review removes its data, queued notification, and hidden worker, and nothing else", async () => {
   const { bb, harness, store } = await setup();
   await bb.storage.kv.set("needs-you:pending:pr-1", { targetKey: "pr-1" });

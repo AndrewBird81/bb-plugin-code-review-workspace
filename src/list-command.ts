@@ -1,5 +1,6 @@
 import { lastActivity } from "../lib/status-line";
 import { GUIDE_STOPPED, needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
+import { defaultName, renamedFrom, reviewName } from "../lib/review-name";
 import { withStacks } from "../lib/stacks";
 import type { TurnGroup } from "../lib/turn";
 
@@ -7,7 +8,7 @@ export const LIST_USAGE = [
   "usage: bb review list [--json]",
   "",
   "Lists your reviews in this bb as All reviews orders them: Needs review first, as it's ordered, then Waiting on author, Reviewed, and Archive, each latest first.",
-  "  --json  each review's key, title, whose turn, and status as JSON",
+  "  --json  each review's key, title, the name you gave it, whose turn, and status as JSON",
 ].join("\n");
 
 /** The refusal a review's own agent gets for `bb review list`, as it may work only on its own review. */
@@ -33,7 +34,9 @@ export function runListCommand(reviews: ReviewItem[], argv: string[]): CliResult
   // Each stack's reviews together, bottom first, where its first one is in the section.
   const rows = (Object.keys(groups) as TurnGroup[]).flatMap((group) => withStacks(groups[group]).flat().map((review) => ({
     key: review.targetKey,
-    title: review.title ?? review.gitRef ?? review.targetKey,
+    title: defaultName(review),
+    // What the reviewer calls it, once they've renamed it.
+    ...(renamedFrom(review) ? { name: reviewName(review) } : {}),
     whoseTurn: SECTION[group],
     turn: reviewState(review).label,
     // A first guide you stopped didn't fail.
@@ -42,6 +45,6 @@ export function runListCommand(reviews: ReviewItem[], argv: string[]): CliResult
   })));
   if (json) return { exitCode: 0, stdout: JSON.stringify({ reviews: rows }, null, 2) };
   if (!rows.length) return { exitCode: 0, stdout: "No reviews yet. Start one with `bb review <pr-url | git-ref>`." };
-  // A PR's title is its author's words, quoted so an agent reads it as data, whatever it says.
-  return { exitCode: 0, stdout: rows.map((row) => `${row.key}  ${JSON.stringify(row.title)} · ${row.whoseTurn} (${row.turn}) · ${row.status}`).join("\n") };
+  // A PR's title is its author's words, quoted so an agent reads it as data, whatever it says; the name too.
+  return { exitCode: 0, stdout: rows.map((row) => `${row.key}  ${JSON.stringify(row.title)}${row.name ? ` named ${JSON.stringify(row.name)}` : ""} · ${row.whoseTurn} (${row.turn}) · ${row.status}`).join("\n") };
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0 — unreleased
+
+Give a review a name of your own. **Rename…** in its ⋯ menu changes what your lists call it, and nothing on GitHub; its Overview keeps the PR's title under the name. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.2.0. Rolling back to 1.1.3 keeps the names, unused, until you update again.
+
+- **Rename…** sits between Pin and Archive in **Review actions**: on a row in All reviews, in a review's title bar, and on the page of a review without a guide. Its dialog opens with the name selected, so typing replaces it; Enter saves, Esc cancels, and the toast has Undo.
+- All reviews, Needs review included, BB's thread list, the review's band, Finish review's next review, Needs You alerts, and the title of a **Fix in a new thread** thread use your name.
+- The PR's title stays in view: under your name on the Overview, on hover in All reviews and BB's thread list, and in the dialog, with **Use PR title**. The find box matches your name or the PR's title.
+- GitHub and the agents keep the PR's title. Your name stays when the author retitles the PR or pushes, and when the guide is rebuilt; **Use PR title**, or an emptied box, puts the title back, and Delete forgets it. A local review's name stands in for its ref, with **Use ref**.
+- `bb review list` adds `named "…"` after a renamed review's title, and `--json` a `name`.
+
 ## 1.1.3 — 2026-10-20
 
 **All reviews** is easier to scan: each review stands on its own, and the sections and their parts read as headings.

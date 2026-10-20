@@ -63,6 +63,26 @@ test("a PR review's title on its Overview opens the pull request on GitHub, and 
   slot.lifecycle.unmount();
 });
 
+test("a renamed review's Overview leads with your name, still opening the PR, with the PR's title under it, and the band says your name", async () => {
+  const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", name: "Token lock", url });
+  const link = await slot.findByRole("link", { name: "Token lock" });
+  expect(link.getAttribute("href")).toBe(url);
+  expect(main(slot).getByText("PR title:").parentElement!.textContent).toBe("PR title: Fix token refresh race");
+  fireEvent.click(slot.getByRole("button", { name: "Start reading: Refresh" }));
+  await waitFor(() => expect(slot.queryByRole("heading", { name: "Token lock" })).toBeNull());
+  expect(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "Token lock" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("the PR's title shows under the Overview's only while you call the review something else", async () => {
+  for (const review of [{ title: "Fix token refresh race" }, { title: "Fix token refresh race", name: "Fix token refresh race" }, { kind: "ref", gitRef: "main...lock", name: "Token lock" }]) {
+    const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", url, ...review });
+    await slot.findByRole("heading", { name: review.name ?? review.title });
+    expect(slot.queryByText("PR title:")).toBeNull();
+    slot.lifecycle.unmount();
+  }
+});
+
 test("a local review's title stays plain text", async () => {
   const slot = await renderWorkspace({ kind: "ref", gitRef: "main...feature", title: "Local change" });
   await slot.findByRole("heading", { name: "Local change" });

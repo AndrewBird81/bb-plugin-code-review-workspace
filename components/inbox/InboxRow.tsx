@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from "react";
 import { reviewState, type ReviewItem } from "../../lib/review-state";
+import { renamedFrom, reviewName } from "../../lib/review-name";
 import { lastActivity, statusLine } from "../../lib/status-line";
 import { useKnob } from "../../lib/settings";
 import { canSnooze, canSnoozeUntil } from "../../lib/turn";
@@ -15,9 +16,10 @@ import { InlineCode } from "../ui/inline-code";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 /**
- * A review in the inbox, on two lines: its title, repository and number, and age (in Needs review, how long it's been
- * your turn; elsewhere, its last activity), then its status line. The whole row opens it. Where there's a fine pointer,
- * hovering shows Snooze, Pin and Archive with Review actions; on touch, Review actions is always there.
+ * A review in the inbox, on two lines: its title (your name for it, with the PR's title on hover), repository and
+ * number, and age (in Needs review, how long it's been your turn; elsewhere, its last activity), then its status line.
+ * The whole row opens it. Where there's a fine pointer, hovering shows Snooze, Pin and Archive with Review actions; on
+ * touch, Review actions is always there.
  */
 export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }: {
   review: ReviewItem;
@@ -50,8 +52,8 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
     (rows[at + 1] ?? rows[at - 1] ?? section?.querySelector<HTMLElement>("h2 button"))?.focus();
   }
   const moving = async (action: Promise<boolean>) => { const from = document.activeElement; if (await action) keepFocus(from); };
-  const title = review.title ?? review.gitRef ?? review.targetKey;
-  const where = review.repo ? `${review.repo}${review.number ? ` #${review.number}` : ""}` : review.gitRef && review.title ? review.gitRef : null;
+  const title = reviewName(review);
+  const where = review.repo ? `${review.repo}${review.number ? ` #${review.number}` : ""}` : review.gitRef && title !== review.gitRef ? review.gitRef : null;
   const when = age(turn.group === "needs" ? turn.at ?? review.createdAt : lastActivity(review));
   // Only the reviewer's own archive can be undone, and a review already in Archive can't be archived.
   const archivable = review.userArchivedAt ? !(review.prState === "MERGED" || review.prState === "CLOSED" || review.archivedAt) : turn.group !== "archive";
@@ -63,7 +65,7 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
     <div ref={rowRef} className="group/row relative flex min-w-0 items-center hover:bg-state-hover has-[[data-row]:focus-visible]:bg-state-hover">
       <button type="button" data-row onClick={onOpen} className={cn("min-w-0 flex-1 px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", short ? "py-1.5" : "py-2.5 pointer-coarse:py-3")}>
         <span className="flex min-w-0 items-baseline gap-3">
-          <span id={titleId} className="min-w-0 flex-1 truncate text-sm font-medium leading-5 text-foreground">
+          <span id={titleId} title={renamedFrom(review) ?? undefined} className="min-w-0 flex-1 truncate text-sm font-medium leading-5 text-foreground">
             <InlineCode text={title} />
             {pinnable && review.pinnedAt && <Icon name="Pin" className="ml-1.5 inline size-3.5 align-[-2px] text-muted-foreground" aria-label="Pinned" />}
           </span>

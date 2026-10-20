@@ -31,6 +31,23 @@ test("reviews leave the server with their place in a stack, in the list and alon
   expect(review.stack.members).toHaveLength(2);
 });
 
+test("bb review list gives a renamed review's name beside its title, quoted, and in its JSON", async () => {
+  const { runListCommand } = await import("./list-command");
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const store = createStore(bb);
+  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", title: "Expire cache entries", status: "ready", createdAt: 1 });
+  store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, repo: "acme/web", title: "Fix login", status: "ready", createdAt: 2 });
+  store.setLifecycle("pr-1", { name: "Cache expiry" });
+  const { reviews } = await harness.behavior.callRpc("listReviews", null) as any;
+  const lines = runListCommand(reviews, []).stdout!.split("\n");
+  expect(lines.find((line) => line.startsWith("pr-1"))).toBe(`pr-1  "Expire cache entries" named "Cache expiry" · Needs review (Ready) · guide ready`);
+  expect(lines.find((line) => line.startsWith("pr-2"))).toBe(`pr-2  "Fix login" · Needs review (Ready) · guide ready`);
+  const json = JSON.parse(runListCommand(reviews, ["--json"]).stdout!).reviews;
+  expect(json.find((row: any) => row.key === "pr-1")).toMatchObject({ title: "Expire cache entries", name: "Cache expiry" });
+  expect(json.find((row: any) => row.key === "pr-2")).not.toHaveProperty("name");
+});
+
 test("bb review list keeps a stack's reviews together, bottom first, where its first one is, as All reviews does", async () => {
   const { runListCommand } = await import("./list-command");
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
