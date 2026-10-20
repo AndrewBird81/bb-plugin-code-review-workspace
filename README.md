@@ -1,6 +1,10 @@
 # Code Review Workspace
 
-<img src="assets/icon.svg" width="64" height="64" alt="Code Review Workspace icon">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/icon-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/icon-light.svg">
+  <img src="docs/images/icon-light.svg" width="64" height="64" alt="Code Review Workspace icon">
+</picture>
 
 Read a pull request or local change as a guided walkthrough, draft your review with an agent, and submit it to GitHub from [BB](https://getbb.app).
 

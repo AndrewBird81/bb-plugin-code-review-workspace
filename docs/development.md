@@ -19,6 +19,7 @@ bb plugin dev
 - Use a Node.js version compatible with the installed `better-sqlite3` package (this release was verified on Node.js 24).
 - BB builds the plugin from source when it installs or updates it, so the build output in `dist/` isn't committed.
 - Keep published tags immutable.
+- The README's icon is two copies of `assets/icon.svg` with GitHub's text colour in place of `currentColor`, which an `<img>` draws black. When the icon changes, regenerate them from the repo root: `sed 's/currentColor/#1f2328/' assets/icon.svg > docs/images/icon-light.svg && sed 's/currentColor/#f0f6fc/' assets/icon.svg > docs/images/icon-dark.svg`.
 
 ## Browser regression test
 
