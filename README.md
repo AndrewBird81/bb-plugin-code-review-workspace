@@ -12,11 +12,11 @@ A [BB](https://getbb.app) plugin for reviewing a GitHub pull request or a local 
 
 Formerly **Guided Review**. Coming from it? See [Moving from Guided Review](#moving-from-guided-review).
 
+[Quick start](#quick-start) · [Requirements](#requirements) · [Full guide](docs/guide.md)
+
 <img src="docs/screenshots/chapter-drafts-dark.webp" alt="A chapter of a pull request shows the diff of lib/turn.ts with two agent-drafted comments inline, one marked Blocking with a suggested change and one marked Should fix and Pre-existing.">
 
 **Agent-drafted comments:** severity-tagged drafts with suggested changes, which you edit or remove.
-
-[Quick start](#quick-start) · [Requirements](#requirements) · [Full guide](docs/guide.md)
 
 ## What you can do
 
@@ -27,7 +27,7 @@ An agent writes a guide to the change: what it does and why, then chapters in re
 - **Start here** lists the one to three riskiest lines, each a click from the code.
 - **Requirements** checks what the PR's description and linked issues ask for against the diff: covered, partial, missing, or unclear, with evidence.
 - Medium- and high-risk chapters say what to verify. **Dig deeper** asks the agent for a closer pass over one.
-- Lockfiles, generated files, and huge diffs start folded, and the reading-time estimate leaves out lockfiles and generated files.
+- Lockfiles, generated files, and diffs over 1,500 changed lines start folded. The reading-time estimate skips lockfiles and generated files.
 
 <img src="docs/screenshots/overview-dark.webp" alt="A review Overview lists what the PR does and why, three Start here hotspots, requirements scored 2 of 4 covered, a failing CI check, and chapters with High risk badges.">
 
@@ -38,12 +38,12 @@ An agent writes a guide to the change: what it does and why, then chapters in re
 When the guide is ready, the review agent reviews the change and drafts line comments, a summary, and a suggested verdict. You keep, edit, or remove each one. Nothing posts until you submit.
 
 - Each comment has a severity: **Blocking**, **Should fix**, **Question**, or **Nit**.
-- Drafts can carry a suggested change, and fold **How the agent checked**: what it read or ran, with file:line. That note stays in BB.
+- A draft can carry a suggested change. **How the agent checked** says what it read or ran, with file:line, and stays in BB.
 - The automatic review asks for at most 10 comments, each confirmed in the code.
 - Problems the PR didn't introduce are marked **Pre-existing**, and don't count as blocking against Approve.
 - Remove an agent's comment with a reason (**Wrong**, **Intended**, **Already known**, or **Not worth it**), and it won't raise it again unless the code changes.
 
-<img src="docs/screenshots/comments-panel-dark.webp" alt="The Comments panel on Not submitted lists four agent drafts counted as 2 blocking, 2 should fix and 1 pre-existing, with one expanded to show its suggested change and how the agent checked it.">
+<img src="docs/screenshots/comments-panel-dark.webp" alt="The Comments panel on Not submitted counts four agent drafts, 2 blocking, 2 should fix and 1 pre-existing, and expands one to show its suggested change and how the agent checked it.">
 
 **Comments panel:** every draft in one place, by severity, with the agent's evidence.
 
@@ -56,9 +56,9 @@ When the guide is ready, the review agent reviews the change and drafts line com
 - The agent reads the PR's description, linked issues, commits, failing CI, other reviewers' open threads, and the repo's instruction files.
 - **Pop out** turns the chat into a movable, resizable widget.
 
-<img src="docs/screenshots/ask-agent-dark.webp" alt="Two selected lines in a diff have a private thread below them, where the reviewer asks a question and the agent answers with file and line references and a test it ran.">
+<img src="docs/screenshots/ask-agent-dark.webp" alt="Lines 191–192 of a diff have a private thread below them, where the reviewer asks a question and the agent answers with file and line references and a test it ran.">
 
-**Ask agent:** a private question about selected lines, answered with file:line evidence.
+**Ask agent:** a private question about two lines, answered with file:line evidence.
 
 ### Post one review, checked before you approve
 
@@ -85,7 +85,7 @@ When the guide is ready, the review agent reviews the change and drafts line com
 
 <img src="docs/screenshots/all-reviews-dark.webp" alt="The All reviews list shows four PRs under Needs review, with status lines for Your PR, Checks failing, and Stack 1 of 2 and 2 of 2.">
 
-**All reviews:** every review in one list, with its checks and stack, under Needs review, Waiting on author, Reviewed, and Archive.
+**All reviews:** each row shows whose PR it is, its checks, its size, and its place in a stack.
 
 ### Re-review only what changed
 
@@ -107,13 +107,12 @@ After new commits, **Since your review** shows only what changed since the commi
 
 ### Catch what a quick read misses
 
-Some changes look harmless in a diff. The plugin flags them on the file, before you read its lines.
+Some changes look harmless in a diff. The plugin marks them where you'll see them, before you read the code.
 
 - A lockfile shows the packages it adds and removes, and warns when one downloads from a host other than its registry. The agents get the same summary.
 - A test file whose diff removes assertions or skips tests says so: "3 assertions removed · 1 test skipped". The agents are asked to check it.
 - Hidden bidirectional Unicode in a path or an added line gets a warning: it can make code read differently than it runs.
 - CI failures with annotations show under the line that failed, with **Comment** and **Ask agent**.
-- Agents start on their own only on PRs from the repository's owner, members, and collaborators, and not on a branch in someone else's fork. PR text reaches them fenced as untrusted data, and the repo's instruction files are read from the PR's base, never its head.
 
 <img src="docs/screenshots/lockfile-flags-dark.webp" alt="A chapter shows an agent draft about a hidden right-to-left override character, and a collapsed package-lock.json flagged +1 package and Downloads from downloads.example.com.">
 
@@ -126,6 +125,11 @@ Some changes look harmless in a diff. The plugin flags them on the file, before 
 <img src="docs/screenshots/ci-in-code-dark.webp" alt="A failing test's assertion error appears under line 47 of the test file, with Comment, Ask agent and View check actions.">
 
 **CI failures in the code:** a failing check shows under the line that failed.
+
+### Agents draft; only you post
+
+- None of the plugin's agent tools posts to GitHub. `bb review comment` and `bb review summary` change only the local draft. A review, reply, or resolve posts only when you click it. See [What the agents can and can't do](docs/guide.md#what-the-agents-can-and-cant-do).
+- By default, agents start on their own only on your own PRs, local reviews, and PRs from the repository's owner, members, and collaborators, and not on a branch in someone else's fork. You can change who in Settings. PR text reaches them fenced as untrusted data, and the repo's instruction files are read from the PR's base, never its head.
 
 ### Hand fixes back to the agent that wrote the code
 
@@ -144,7 +148,7 @@ bb review https://github.com/acme/web/pull/42
 ### Review from the keyboard, the palette, or your phone
 
 - Single keys move through files, chapters, changes, and comments, and mark files viewed. `?` lists them.
-- BB's command palette offers **Next review that needs me** (⌘⇧U) and **Review PR from clipboard**.
+- BB's command palette offers **Next review that needs me** (⌘⇧U on a Mac) and **Review PR from clipboard**.
 - On a phone, a dock at the bottom holds the chapters, Comments, Ask agent, and Full screen. On touch screens, iPads included, every control is a 44px target.
 - Every feature that can get in the way has a switch in Settings. You pick each agent's provider, model, effort, and machine.
 
@@ -152,17 +156,12 @@ bb review https://github.com/acme/web/pull/42
 
 **Keyboard-first:** move, mark and comment without leaving the keyboard.
 
-<img src="docs/screenshots/palette-dark.webp" width="400" alt="The command palette filtered to Code Review lists Next review that needs me, Review PR from clipboard, All reviews and settings.">
-
-**Command palette:** jump to the next review that needs you from anywhere in BB.
-
 <img src="docs/screenshots/phone-dark.webp" width="378" alt="On a phone, a review Overview shows the PR title, Your PR, 5/9 addressed and Checks passing, a Review changes button, Since your review, What and why, and Start here, above a bottom bar.">
 
 **Phone layout:** the same review reads on a phone.
 
 ## Is this for you?
 
-- **Yes,** if you review pull requests on github.com, or local branches, and want to understand each change before you approve it.
 - **Yes,** if you want an agent's draft to start from, and the final say on every word that posts.
 - **Not for** posting an agent's findings one by one. Rob Ennals' [Code Review](https://github.com/robennals/bb-plugins/tree/HEAD/plugins/code-review) plugin does that.
 
