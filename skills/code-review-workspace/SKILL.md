@@ -32,7 +32,7 @@ bb review <pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>] [--contex
   in the background; you needn't wait for it, but comments and the summary do: run
   `bb review list` until the review says guide ready.
 - Running it in this thread makes this thread the review's source. On a local review, or a PR the
-  reviewer opened, Finish review can send their comments back here, while **Send comments to the
+  reviewer authored, Finish review can send their comments back here, while **Send comments to the
   thread that made the change** is on in Settings. Reply to them as they ask.
 
 ## List reviews
@@ -46,23 +46,25 @@ its guide is ready. `--json` prints the same as JSON.
 
 ## Draft comments
 
-A `<review>` is a PR's URL or a review's key. A line is its number in the new file; add
-`--side LEFT` for a removed line, numbered in the old file.
+A `<review>` is a PR's URL, `owner/repo#n`, or a review's key (`pr-…` or `ref-…`). A line is its
+number in the new file; add `--side LEFT` for a removed line, numbered in the old file.
 
 ```sh
 bb review comment list   <review> [--json]
-bb review comment add    <review> <file>:<line> --code <text> --body <text> [--severity <severity>] [--evidence <text>]
-bb review comment edit   <review> <file>:<line> --body <text> [--severity <severity>] [--evidence <text>]
-bb review comment delete <review> <file>:<line>
+bb review comment add    <review> <file>:<line> --code <text> --body <text> [--severity <severity>] [--evidence <text>] [--pre-existing] [--side LEFT|RIGHT]
+bb review comment edit   <review> <file>:<line> --body <text> [--code <text>] [--severity <severity>] [--evidence <text>] [--pre-existing] [--side LEFT|RIGHT]
+bb review comment delete <review> <file>:<line> [--side LEFT|RIGHT]
 ```
 
-- `--code` is the line's text without the diff's `+`, `-`, or space; `add` refuses a line that
-  doesn't match, so read the diff first.
-- `<file>:<start>-<end>` comments on lines in one hunk.
+- `--code` is the line's text without the diff's `+`, `-`, or space; `add`, and `edit` of a range,
+  refuse lines that don't match, so read the diff first.
+- `<file>:<start>-<end>` comments on lines in one hunk; `--code` then holds the lines, one per
+  line. On `edit`, it sets the comment's first line.
 - `--severity` is `blocking`, `should-fix`, `question`, `nit`, or `none`.
 - `--evidence` says how you confirmed it: what you read or ran, with `file:line`. The reviewer sees
   it under the comment; it's never posted.
-- `--pre-existing` marks a problem in code this PR didn't change.
+- `--pre-existing` marks a problem in code this PR didn't change. Without it, `edit` keeps the
+  comment's mark, as it keeps its severity and evidence.
 - Quote `--body` for your shell. Comments stay in the draft until the reviewer submits.
 
 ## The summary

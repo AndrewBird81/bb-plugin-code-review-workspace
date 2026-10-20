@@ -9,7 +9,7 @@
   },
   "bb": {
     "name": "Code Review Workspace",
-    "description": "Read, discuss, and approve a pull request or local diff in one place: a chapter-by-chapter walkthrough, AI-drafted comments and verdict you edit, whose-turn tracking and re-review, then one complete review submitted to GitHub.",
+    "description": "Read a pull request or local diff as a chaptered guide, edit the comments and verdict the review agent drafts, see whose turn each review is, re-review against your earlier feedback, and submit pull request reviews to GitHub.",
     "branding": {
       "icon": "./assets/icon.svg",
       "experimental_icons": {
@@ -56,7 +56,17 @@
     "build": "bb plugin build",
     "check": "npm test && npm run typecheck && bb plugin types --check && npm run build"
   },
-  "description": "A code review workspace for BB: guided walkthroughs of pull requests and local diffs, an AI review assistant, and GitHub submission.",
+  "description": "A code review workspace for BB: chaptered guides to pull requests and local diffs, a review agent that drafts comments and a verdict you edit, and pull request reviews submitted to GitHub.",
+  "keywords": [
+    "bb-plugin",
+    "code-review",
+    "pull-request",
+    "github",
+    "diff",
+    "review-agent",
+    "re-review",
+    "local-diff"
+  ],
   "author": "Andrew Bird",
   "contributors": [
     "Pritam Sharma (https://github.com/notpritam)"
