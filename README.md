@@ -19,6 +19,69 @@ Code Review Workspace is a BB plugin for reviewing a GitHub pull request or a lo
 
 Formerly **Guided Review**: coming from it? See [Moving from Guided Review](#moving-from-guided-review).
 
+## Screenshots
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.webp">
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/overview-light.webp">
+  <img src="docs/screenshots/overview-light.webp" alt="A review Overview lists what the PR does and why, three Start here hotspots, requirements scored 2 of 4 covered, a failing CI check, and chapters with High risk badges.">
+</picture>
+
+**Chaptered guide:** the Overview shows what changed, where to start, requirement coverage and checks.
+
+<details>
+<summary>More screenshots: agent drafts, Ask agent, Finish review, whose turn, re-review, lockfile flags, and the phone layout</summary>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/chapter-drafts-dark.webp">
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/chapter-drafts-light.webp">
+  <img src="docs/screenshots/chapter-drafts-light.webp" alt="A chapter of a pull request shows the diff of lib/turn.ts with two agent-drafted comments inline, one marked Blocking with a suggested change and one marked Should fix and Pre-existing.">
+</picture>
+
+**Agent-drafted comments:** severity-tagged drafts with suggested changes, which you edit or remove.
+
+<img src="docs/screenshots/ask-agent-dark.webp" alt="Two selected lines in a diff have a private thread below them, where the reviewer asks a question and the agent answers with file and line references and a test it ran.">
+
+**Ask agent:** a private question about selected lines, answered with file:line evidence.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/finish-review-dark.webp">
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/finish-review-light.webp">
+  <img src="docs/screenshots/finish-review-light.webp" alt="The Finish review panel shows the verdict set to Comment, the agent's suggested verdict, a count of 4 comments going to GitHub by severity, and a Submit to GitHub button.">
+</picture>
+
+**Finish review:** you submit one review, with the verdict, summary and comment counts in view.
+
+<img src="docs/screenshots/all-reviews-dark.webp" alt="The All reviews list shows four PRs under Needs review, with status lines for Your PR, Checks failing, and Stack 1 of 2 and 2 of 2.">
+
+**Whose turn:** All reviews groups PRs by whose turn it is.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/since-your-review-dark.webp">
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/since-your-review-light.webp">
+  <img src="docs/screenshots/since-your-review-light.webp" alt="A review Overview after a follow-up commit shows a Since your review summary, 5/9 addressed, checks passing, a Review changes button, and chapters marked 1 changed and 2 changed.">
+</picture>
+
+**Since your review:** what changed since you reviewed, and where to look first.
+
+<img src="docs/screenshots/rereview-check-dark.webp" alt="The Comments panel shows the agent's check of a new commit, scoring 5 of 9 points addressed, with Addressed and Not addressed badges and unsent reply drafts on each earlier thread.">
+
+**Re-review check:** each earlier comment is scored against the new commits.
+
+<img src="docs/screenshots/since-your-review-diff-dark.webp" alt="A chapter in Since your review mode shows 2 of 5 files, a file marked Changed since your review, and an agent draft about a debug console.log left in the new commit.">
+
+**Since-your-review diff:** only the lines that changed since your review, with new drafts on them.
+
+<img src="docs/screenshots/lockfile-flags-dark.webp" alt="A chapter shows an agent draft about a hidden right-to-left override character, and a collapsed package-lock.json flagged +1 package and Downloads from downloads.example.com.">
+
+**Supply-chain flags:** new packages and non-registry download hosts are flagged on the lockfile.
+
+<img src="docs/screenshots/phone-dark.webp" width="378" alt="On a phone, a review Overview shows the PR title, Your PR, 5/9 addressed and Checks passing, a Review changes button, Since your review, What and why, and Start here, above a bottom bar.">
+
+**Phone layout:** the same review reads on a phone.
+
+</details>
+
 ## Requirements
 
 - **BB 0.45 or later** (plugin SDK 0.6.14+), running on **Node 24 or later**. No npm or build step is needed.
