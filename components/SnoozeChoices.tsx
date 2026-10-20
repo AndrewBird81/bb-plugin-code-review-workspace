@@ -12,11 +12,11 @@ export const MENU_ITEM = `w-full justify-start text-muted-foreground hover:text-
 const BUSY_ITEM = `${MENU_ITEM} aria-disabled:opacity-50`;
 
 /**
- * The Snooze menu: until the author responds (`onUntilAuthor`, for a review you gave), or until later today, tomorrow
- * morning, Monday morning, or 9 AM on a date you pick (`onPick`). `disabled`: a snooze is running; its choices stay
- * focusable, unavailable, and ignore the click.
+ * The Snooze menu: until the author responds (`onUntilAuthor`, for a review you gave), until the PR's checks finish
+ * (`onUntilChecks`, while they run), or until later today, tomorrow morning, Monday morning, or 9 AM on a date you pick
+ * (`onPick`). `disabled`: a snooze is running; its choices stay focusable, unavailable, and ignore the click.
  */
-export function SnoozeChoices({ onUntilAuthor, onPick, disabled, className }: { onUntilAuthor?: () => void; onPick?: (until: number) => void; disabled?: boolean; className?: string }) {
+export function SnoozeChoices({ onUntilAuthor, onUntilChecks, onPick, disabled, className }: { onUntilAuthor?: () => void; onUntilChecks?: () => void; onPick?: (until: number) => void; disabled?: boolean; className?: string }) {
   const [picking, setPicking] = useState(false);
   const [date, setDate] = useState("");
   const dateBox = useRef<HTMLInputElement>(null);
@@ -47,6 +47,9 @@ export function SnoozeChoices({ onUntilAuthor, onPick, disabled, className }: { 
     <div role="group" aria-label="Snooze" className={className}>
       {onUntilAuthor && <Button variant="ghost" size="sm" aria-disabled={disabled} className={BUSY_ITEM} onClick={() => { if (!disabled) onUntilAuthor(); }}>
         Until the author responds
+      </Button>}
+      {onUntilChecks && <Button variant="ghost" size="sm" aria-disabled={disabled} className={BUSY_ITEM} onClick={() => { if (!disabled) onUntilChecks(); }}>
+        Until checks finish<span className="sr-only">, </span><span className="ml-auto text-xs font-normal text-subtle-foreground">1 hr at most</span>
       </Button>}
       {choices.map((choice) => (
         <Button key={choice.label} variant="ghost" size="sm" aria-disabled={disabled} className={BUSY_ITEM} onClick={() => { if (!disabled) onPick?.(choice.until); }}>

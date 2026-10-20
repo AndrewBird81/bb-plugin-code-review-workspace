@@ -2,7 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Store, ReviewMeta } from "./store";
 import { isMissingThread } from "./thread-errors";
 import type { runGh } from "./gh";
-import { baselineOf, ciSettled, computeTurn, type Turn, type TurnReason } from "../lib/turn";
+import { baselineOf, checksFinished, ciSettled, computeTurn, type Turn, type TurnReason } from "../lib/turn";
 import { alertBody, factsUpdate, threadSignals, turnOptions } from "./turn-signals";
 import { completionNotifications } from "./completion-notifications";
 import { matchesRepo, reReviewCheckPrompt } from "./preferences";
@@ -344,7 +344,14 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     if (review.snoozedUntil != null && now >= review.snoozedUntil) {
       const held = turnOf(review, review.snoozedUntil - 1).reason === "snoozed";
       if (held) woke = review.snoozedUntil;
-      store.setLifecycle(key, { snoozedAt: null, snoozedUntil: null, ...(held ? { notifiedSignal: null, pendingAlert: null } : {}) });
+      store.setLifecycle(key, { snoozedAt: null, snoozedUntil: null, snoozedUntilChecks: null, ...(held ? { notifiedSignal: null, pendingAlert: null } : {}) });
+      review = store.getReview(key)!;
+    }
+    // A snooze until checks finish ends once they do, before its deadline. Like a timed snooze, the turn it set aside alerts again.
+    if (review.snoozedUntilChecks && review.snoozedAt != null && checksFinished(review.signals)) {
+      const held = turnOf(review, now).reason === "snoozed";
+      if (held) woke = now;
+      store.setLifecycle(key, { snoozedAt: null, snoozedUntil: null, snoozedUntilChecks: null, ...(held ? { notifiedSignal: null, pendingAlert: null } : {}) });
       review = store.getReview(key)!;
     }
     const preferences = store.getPreferences().preferences;

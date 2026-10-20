@@ -311,9 +311,12 @@ export const rpcContract = defineRpcContract({
   },
 
   // Whose turn. Reviews carry `turn` (lib/turn.ts Turn) and `progress` from the server.
-  /** Snooze until the author responds: back to Waiting on author until a newer signal; with `until` (epoch ms), also until then. snoozed: false undoes it. */
+  /**
+   * Snooze until the author responds: back to Waiting on author until a newer signal; with `until` (epoch ms), also until
+   * then; with `untilChecks`, until the head's checks finish, an hour at most. snoozed: false undoes it.
+   */
   snoozeReview: {
-    input: z.object({ targetKey: z.string(), snoozed: z.boolean(), until: z.number().nullable().optional() }).strict(),
+    input: z.object({ targetKey: z.string(), snoozed: z.boolean(), until: z.number().nullable().optional(), untilChecks: z.boolean().optional() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   /** The reviewer opened the review: clear its Needs You alert. */

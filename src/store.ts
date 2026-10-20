@@ -42,6 +42,8 @@ export interface ReviewLifecycle {
   snoozedAt?: number | null;
   /** Snooze until: hidden from Needs review until this time, or a newer signal. */
   snoozedUntil?: number | null;
+  /** Snoozed until the head's checks finish, or snoozedUntil at the latest. */
+  snoozedUntilChecks?: boolean | null;
   /** The assistant's latest check of your feedback. */
   assessment?: AssessmentSummary | null;
   /** The changed files the review's assistant read through Code Review Workspace, at `head`: a PR's head commit, or "diff:" and a local review's diff hash (src/agent-reads.ts). */

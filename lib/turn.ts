@@ -107,6 +107,8 @@ export interface TurnInput {
   snoozedAt?: number | null;
   /** Snooze until: set aside at snoozedAt until this time, or a newer signal. Without it, snoozedAt snoozes until the author responds. */
   snoozedUntil?: number | null;
+  /** Snoozed until the head's checks finish: snoozedUntil is then the latest it waits, for checks that never report. */
+  snoozedUntilChecks?: boolean | null;
   assessment?: AssessmentSummary | null;
   /** GitHub can't find the PR, or refuses access, since `since`. */
   unreachable?: { since: number; reason: "not-found" | "forbidden" } | null;
@@ -156,6 +158,8 @@ export const UNREACHABLE_MS = 7 * 86_400_000;
 /** How long after a push checks may stay pending or expected before they count as settled: some never report. */
 export const CI_STALE_MS = 60 * 60_000;
 export const defaultTurnOptions: TurnOptions = { wakeOnReplies: "questions", pushChecks: "off" };
+/** The badge of a review snoozed until its checks finish. */
+export const CHECKS_SNOOZE_LABEL = "Snoozed until checks finish";
 
 const VERDICT_LABEL: Record<Verdict, string> = { APPROVE: "Approved", REQUEST_CHANGES: "Changes requested", COMMENT: "Commented" };
 
@@ -183,11 +187,12 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   // A local receipt counts until GitHub reports the review.
   const lastReviewAt = Math.max(s.lastReviewAt ?? 0, review.submittedAt ?? 0) || null;
   const reviewed = lastReviewAt !== null || !!review.submittedVerdict;
-  // A snooze until a time ends then, and the review is back as it was.
-  const woke = review.snoozedUntil != null && now >= review.snoozedUntil;
+  // A snooze until a time ends then, and the review is back as it was; one until checks finish ends when they do, passing or failing.
+  const checksDone = !!review.snoozedUntilChecks && checksFinished(s);
+  const woke = review.snoozedUntil != null && (now >= review.snoozedUntil || checksDone);
   const snoozedAt = woke ? null : review.snoozedAt ?? null;
   const until = woke ? null : review.snoozedUntil ?? null;
-  const snoozedLabel = until ? "Snoozed" : "Snoozed until the author responds";
+  const snoozedLabel = until ? review.snoozedUntilChecks ? CHECKS_SNOOZE_LABEL : "Snoozed" : "Snoozed until the author responds";
   // Only a request to you asks you again; a team you're on being asked doesn't.
   const reRequested = reviewed && s.requestedVia !== "team" && after(s.requestedAt, lastReviewAt);
 
@@ -275,6 +280,11 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   }
 }
 
+/** Whether the head's checks have finished, passing or failing, for a snooze until they do. */
+export function checksFinished(s: TurnSignals | null | undefined): boolean {
+  return s?.ci !== "pending";
+}
+
 /** Whether the head's checks are done, or have been pending or expected so long they never will be. */
 export function ciSettled(s: TurnSignals, now = Date.now()): boolean {
   return (s.ci !== "pending" && s.ci !== "expected") || now - (s.headSeenAt ?? now) >= CI_STALE_MS;
@@ -319,6 +329,11 @@ export function canSnooze(review: TurnInput, turn: Turn): boolean {
 /** Whether "Snooze until" applies: it's your turn on a PR, new request or not, and the guide didn't fail. */
 export function canSnoozeUntil(review: TurnInput, turn: Turn): boolean {
   return turn.group === "needs" && !turn.failed && review.kind !== "ref";
+}
+
+/** Whether "Until checks finish" applies: a snooze until a time does, and the head's checks are still running. */
+export function canSnoozeUntilChecks(review: TurnInput, turn: Turn, now = Date.now()): boolean {
+  return canSnoozeUntil(review, turn) && !ciSettled(review.signals ?? {}, now);
 }
 
 /** When each snooze choice wakes, in local time: three hours from now (until 9 PM), and 9 AM tomorrow or next Monday. */

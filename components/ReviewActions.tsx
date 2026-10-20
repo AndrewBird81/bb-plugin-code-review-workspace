@@ -3,7 +3,7 @@ import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import { reviewState, type ReviewItem } from "../lib/review-state";
-import { canSnooze, canSnoozeUntil, snoozeLabel } from "../lib/turn";
+import { canSnooze, canSnoozeUntil, canSnoozeUntilChecks, CHECKS_SNOOZE_LABEL, snoozeLabel } from "../lib/turn";
 import { updateDraftRecovery } from "../lib/draft-recovery";
 import { forgetReview } from "../lib/panel-state";
 import { cn } from "../lib/utils";
@@ -50,16 +50,19 @@ export function useReviewActions(review: ReviewItem, onChanged?: () => void) {
   /** Until the author responds, or with `until`, until then too. */
   const snooze = useCallback((until?: number) => run(() => rpc.call("snoozeReview", { targetKey, snoozed: true, ...(until ? { until } : {}) }),
     until ? snoozeLabel(until) : "Snoozed until the author responds", { undo: () => void unsnooze() }), [rpc, run, targetKey, unsnooze]);
+  const snoozeUntilChecks = useCallback(() => run(() => rpc.call("snoozeReview", { targetKey, snoozed: true, untilChecks: true }),
+    CHECKS_SNOOZE_LABEL, { undo: () => void unsnooze() }), [rpc, run, targetKey, unsnooze]);
   const buildGuide = useCallback(() => run(() => rpc.call("startTrackedReview", { targetKey }), "Building the guide"), [rpc, run, targetKey]);
   // The page that showed it goes, rather than reading it again.
   const remove = useCallback(() => run(() => rpc.call("deleteReview", { targetKey }), "Review deleted", { changed: false }), [rpc, run, targetKey]);
-  return { busy, setArchived, setPinned, snooze, unsnooze, buildGuide, remove };
+  return { busy, setArchived, setPinned, snooze, snoozeUntilChecks, unsnooze, buildGuide, remove };
 }
 
 /**
  * Review actions (⋯): the page's own first (`items`, such as Update guide), then Build the guide, Snooze ›, Pin and
  * Archive, then Open on GitHub and the page's `trailing` items, then Delete…, which asks first. A tracked review builds
- * its guide; a review you gave can wait until its author responds, and any request until a time you pick.
+ * its guide; a review you gave can wait until its author responds, one whose checks are running until they finish, and
+ * any request until a time you pick.
  */
 export function ReviewActions({ review, items, trailing, pinnable = false, onChanged, onMoved, onDeleted, describedBy, className }: {
   review: ReviewItem;
@@ -93,6 +96,8 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   // Only a review you've already given can wait for the author.
   const untilAuthor = canSnooze(review, turn);
   const untilTime = canSnoozeUntil(review, turn);
+  // Checks still running can be waited out instead of guessing a time.
+  const untilChecks = canSnoozeUntilChecks(review, turn);
   const snoozed = turn.reason === "snoozed";
   // Archive takes a review out of Pinned, so it offers only Unpin there.
   const pin = pinnable && (!!review.pinnedAt || turn.group !== "archive");
@@ -146,7 +151,8 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
             <Icon name="ChevronLeft" aria-hidden />Snooze
           </Button>
           <div role="separator" className="my-1 h-px bg-border" />
-          <SnoozeChoices disabled={actions.busy} onUntilAuthor={untilAuthor ? () => pick(() => moving(actions.snooze())) : undefined} onPick={untilTime ? (until) => pick(() => moving(actions.snooze(until))) : undefined} />
+          <SnoozeChoices disabled={actions.busy} onUntilAuthor={untilAuthor ? () => pick(() => moving(actions.snooze())) : undefined}
+            onUntilChecks={untilChecks ? () => pick(() => moving(actions.snoozeUntilChecks())) : undefined} onPick={untilTime ? (until) => pick(() => moving(actions.snooze(until))) : undefined} />
         </> : <>
           {items?.map(item)}
           {review.status === "tracked" && item({ label: "Build the guide", icon: "Sparkles", onSelect: () => void actions.buildGuide() })}

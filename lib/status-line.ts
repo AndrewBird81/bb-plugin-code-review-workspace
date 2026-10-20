@@ -7,7 +7,7 @@ import { timeAgo } from "../components/time-ago";
 import { GUIDE_STOPPED, reviewState, type ReviewItem } from "./review-state";
 import { notRunReason } from "./trust";
 import { defaultKnobs, type Knobs } from "./knobs";
-import { baselineOf, progressText, snoozeLabel, type TurnSignals } from "./turn";
+import { baselineOf, CHECKS_SNOOZE_LABEL, progressText, snoozeLabel, type TurnSignals } from "./turn";
 
 /** foreground: plain text that stands out, for what came back to you; the tones color only what changes your next move. */
 export type StatusTone = Tone | "foreground";
@@ -60,7 +60,10 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
       : review.status === "tracked" ? why("No guide yet", "neutral") : why("Guide ready", "neutral");
     case "waiting": return review.submittedVerdict === "COMMENT" ? why(`You commented${ago(turn.at)}`, "neutral", "MessageSquare")
       : why(`You requested changes${ago(turn.at)}`, "neutral", "FileDiff");
-    case "snoozed": return why(review.snoozedUntil && turn.label === "Snoozed" ? snoozeLabel(review.snoozedUntil, now) : "Snoozed until the author responds", "neutral", "Clock");
+    case "snoozed": {
+      if (turn.label === CHECKS_SNOOZE_LABEL) return why(CHECKS_SNOOZE_LABEL, "neutral", "CircleDashed", { detail: "Back in Needs review when the checks pass or fail, or in an hour at most" });
+      return why(review.snoozedUntil && turn.label === "Snoozed" ? snoozeLabel(review.snoozedUntil, now) : "Snoozed until the author responds", "neutral", "Clock");
+    }
     case "draft": return why("Draft PR", "neutral", "GitPullRequestDraft");
     case "approved": return why(`You approved${ago(baselineOf(review).at)}`, "neutral", "Check");
     case "commented": return why(`You commented${ago(baselineOf(review).at)}`, "neutral", "MessageSquare");

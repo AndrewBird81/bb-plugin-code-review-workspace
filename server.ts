@@ -58,7 +58,7 @@ import { bindGhAccount } from "./src/gh-identity";
 import { completionNotifications } from "./src/completion-notifications";
 import { createPluginUpdates } from "./src/plugin-updates";
 import { onPrepared } from "./src/generate";
-import { feedbackProgress, type TurnOptions } from "./lib/turn";
+import { canSnoozeUntilChecks, CI_STALE_MS, feedbackProgress, type TurnOptions } from "./lib/turn";
 import { findStacks } from "./lib/stacks";
 import { baselineOf, diffAt, feedbackView, guideBehind, headOf, prCommits, pruneDiffs, pruneOldDiffs, remainingBody, sinceReview } from "./src/feedback-view";
 import { assess, changesSinceReview, describeFeedback, noteLeftQueue, readFileAt, startVerification } from "./src/verification";
@@ -280,10 +280,15 @@ export default async function plugin(bb: BbPluginApi) {
 
   function turnHandlers() {
     return {
-      async snoozeReview({ targetKey, snoozed, until }: { targetKey: string; snoozed: boolean; until?: number | null }) {
-        if (!store.getReview(targetKey)) return { ok: false, error: "This review no longer exists." };
+      async snoozeReview({ targetKey, snoozed, until, untilChecks }: { targetKey: string; snoozed: boolean; until?: number | null; untilChecks?: boolean }) {
+        const review = store.getReview(targetKey);
+        if (!review) return { ok: false, error: "This review no longer exists." };
         if (snoozed && until != null && until <= Date.now()) return { ok: false, error: "Pick a time in the future." };
-        store.setLifecycle(targetKey, { snoozedAt: snoozed ? Date.now() : null, snoozedUntil: snoozed ? until ?? null : null });
+        const checks = snoozed && !!untilChecks;
+        if (checks && !canSnoozeUntilChecks(review, sync.turnOf(review))) return { ok: false, error: "This PR’s checks have already finished." };
+        // Checks that never report don't hold it for good: it waits for them an hour at most.
+        const latest = checks ? Date.now() + CI_STALE_MS : until ?? null;
+        store.setLifecycle(targetKey, { snoozedAt: snoozed ? Date.now() : null, snoozedUntil: snoozed ? latest : null, snoozedUntilChecks: checks || null });
         if (snoozed) await notifications.dismiss(targetKey);
         await sync.evaluate(targetKey);
         changed(targetKey);
