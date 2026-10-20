@@ -28,6 +28,7 @@ import { notSubmitted } from "./look";
 import { MoveToSummary } from "./MoveToSummary";
 import { focusComments } from "./CommentsView";
 import { updateComments, useComments } from "./store";
+import { plural } from "../../lib/plural";
 
 const OWN_PR = "This is your PR, so GitHub allows only a Comment review.";
 const RECEIPT_LABEL: Record<Verdict, string> = { APPROVE: "Approved", REQUEST_CHANGES: "Changes requested", COMMENT: "Commented" };
@@ -36,7 +37,6 @@ const VERDICTS = [
   ["COMMENT", "aria-pressed:bg-primary/15 aria-pressed:text-primary aria-pressed:ring-primary/30 aria-pressed:hover:bg-primary/20"],
   ["REQUEST_CHANGES", "aria-pressed:bg-warning/15 aria-pressed:text-warning-text aria-pressed:ring-warning/30 aria-pressed:hover:bg-warning/20"],
 ] as const;
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 /** A primary button that's busy: aria-disabled, so it keeps the focus, and drawn as a disabled one (ui/button). */
 const BUSY = "aria-disabled:pointer-events-none aria-disabled:bg-muted/60 aria-disabled:text-subtle-foreground aria-disabled:shadow-none";
 

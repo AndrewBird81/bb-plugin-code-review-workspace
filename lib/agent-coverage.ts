@@ -1,5 +1,6 @@
 // How much of the change the review agent read through Code Review Workspace, for Finish review beside its verdict.
 import { classifyFile } from "../src/classify";
+import { plural } from "./plural";
 
 export interface AgentCoverage {
   /** Files worth reading that the agent read. */
@@ -23,4 +24,4 @@ export function agentCoverage(files: readonly string[], reads: { head: string; f
 }
 
 /** "12 of 16 files". */
-export const readOf = ({ read, total }: AgentCoverage) => `${read} of ${total} file${total === 1 ? "" : "s"}`;
+export const readOf = ({ read, total }: AgentCoverage) => `${read} of ${plural(total, "file")}`;

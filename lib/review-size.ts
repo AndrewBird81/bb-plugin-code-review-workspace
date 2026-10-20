@@ -1,6 +1,7 @@
 // How much there is to read in a review: changed lines, without the files a reviewer skims.
 import { patchRows, splitPatchByFile } from "../src/patch";
 import { classifyFile } from "../src/classify";
+import { plural } from "./plural";
 import { filePart } from "../src/hunks";
 
 /** Changed lines a reviewer reads in an hour, roughly: studies of code review put it at 300–500. */
@@ -39,5 +40,5 @@ export function readingTime(lines: number): string {
   if (hours < 24) return `about ${hours} h to read`;
   // Past a day, to the half day: "about 60.5 h" is more precise than an estimate.
   const days = Math.round(hours / 12) / 2;
-  return `about ${days} ${days === 1 ? "day" : "days"} to read`;
+  return `about ${plural(days, "day")} to read`;
 }

@@ -10,8 +10,8 @@ import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
 import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
+import { plural } from "../../lib/plural";
 
-const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
 const basename = (file: string) => file.slice(file.lastIndexOf("/") + 1);
 /** How many files not viewed yet the last chapter's end names. */
 const NAMED = 3;
