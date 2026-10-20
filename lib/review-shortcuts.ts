@@ -4,6 +4,7 @@ import { chapterAt } from "../src/hunks";
 /** The workspace's single-key shortcuts, as the help sheet lists them, by what they're for. */
 export const SHORTCUTS = [
   { group: "Move", keys: ["j", "k"], label: "Next or previous file" },
+  { group: "Move", keys: ["J", "K"], label: "Next or previous change" },
   { group: "Move", keys: ["n", "p"], label: "Next or previous chapter" },
   { group: "Move", keys: ["u"], label: "Next unviewed file, in any chapter" },
   { group: "Move", keys: ["]", "["], label: "Next or previous comment or discussion" },
@@ -40,7 +41,7 @@ export const keyHint = (label: string, key: string, on: boolean) => on ? `${labe
 export const ariaKeys = (key: string, on: boolean) => on ? (/^[A-Z]$/.test(key) ? `Shift+${key}` : key) : undefined;
 
 /** How the help sheet writes the keys that aren't what they type. */
-export const KEY_LABEL: Partial<Record<string, string>> = { V: "⇧V", F: "⇧F", Escape: "Esc" };
+export const KEY_LABEL: Partial<Record<string, string>> = { J: "⇧J", K: "⇧K", V: "⇧V", F: "⇧F", Escape: "Esc" };
 
 const KEYS = new Set<string>(SHORTCUTS.flatMap((shortcut) => shortcut.keys));
 const TEXT_INPUT = "input" + ["checkbox", "radio", "button", "submit", "reset", "range", "color", "file", "image"].map((type) => `:not([type=${type}])`).join("");
@@ -50,7 +51,7 @@ export const TEXT_FIELD = `${TEXT_INPUT}, textarea, [role=textbox]`;
 /** Keys that some layouts type with Alt (a Mac's Option) or AltGr, which a browser reports as Ctrl and Alt. */
 const ALT_TYPED = new Set(["[", "]"]);
 /** Keys that step on as you hold them; the rest act once. */
-const REPEATING = new Set(["j", "k"]);
+const REPEATING = new Set(["j", "k", "J", "K"]);
 
 /**
  * The shortcut a key press asks for: none while typing, in a dialog other than an overlay side (`data-gr-side`), or with

@@ -46,7 +46,7 @@ test("since your review: unchanged files hide, a changed file shows only its cha
   const a = diffOf("src/a.ts")!.getByTestId("filediff");
   expect(a.textContent).toContain("bb");
   expect(a.textContent).not.toContain("new");
-  expect(a.dataset.css).toContain('[data-line-type="change-addition"]:is([data-line="11"],[data-column-number="11"])');
+  expect(a.dataset.css).toContain('[data-line-type="change-addition"][data-column-number="11"] { border-right-color: var(--gr-since-mark); }');
   expect(diffOf("src/c.ts")!.getByTestId("filediff").textContent).toContain("brand new");
   const removed = screen.getByRole("region", { name: "src/d.ts removed" });
   expect(within(removed).getByText("Removed from the PR since your review")).toBeTruthy();

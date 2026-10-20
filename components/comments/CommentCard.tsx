@@ -4,6 +4,7 @@ import { linesOf, sameLocation } from "../../src/draft";
 import { withLineBreaks } from "../../src/line-breaks";
 import type { AskItem, CommentItem, DraftItem, PrivateItem, ThreadItem, ThreadMessage } from "../../lib/comments";
 import { answerReply, useReplyAsked } from "../../lib/comment-stops";
+import { setCommentOpen } from "../../lib/comments-fold";
 import { linkImages } from "../../lib/link-images";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { useKnob } from "../../lib/settings";
@@ -27,8 +28,11 @@ import { SentLine } from "../SentLine";
 import { CommentEditorMenu } from "../OpenInEditor";
 import { useComments } from "./store";
 
-/** In the code: inside pierre's code view, so it sets its own text style rather than inheriting the code's. */
-const INLINE_CARD = "mx-2 my-2 max-w-3xl overflow-hidden rounded-lg bg-card [contain:inline-size] font-sans text-sm leading-normal whitespace-normal text-foreground shadow-md";
+/**
+ * In the code: inside pierre's code view, so it sets its own text style rather than inheriting the code's, at a
+ * measure of 72 characters, hanging from its line.
+ */
+const INLINE_CARD = "mx-2 my-2 max-w-[min(72ch,calc(100%-1rem))] overflow-hidden rounded-lg bg-card [contain:inline-size] font-sans text-sm leading-[1.55] whitespace-normal text-foreground shadow-md";
 /** A card's head, and the small actions in it. */
 export const HEAD = "flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-xs text-muted-foreground";
 const ACTION = cn("h-7 px-2 text-xs text-muted-foreground aria-disabled:pointer-events-none aria-disabled:opacity-50", TOUCH_CONTROL);
@@ -106,7 +110,10 @@ function Replies({ replies }: { replies: ThreadMessage[] }) {
   </div>;
 }
 
-/** A thread on GitHub: who started it and when, its state and the agent's check, the messages, and its reply. A resolved one starts folded. */
+/**
+ * A thread on GitHub: who started it and when, its state and the agent's check, the messages, and its reply. In the
+ * code a resolved one starts as a pill (LineThreads), and Hide folds it back to one.
+ */
 function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: ThreadItem; variant: "inline" | "row" }) {
   const actions = useComments(targetKey, "actions");
   const busy = useComments(targetKey, "busy").includes(item.id);
@@ -114,7 +121,8 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
   const navigate = useBbNavigate();
   const inline = variant === "inline";
   // In a list, the row above it names who and what state, and folds it.
-  const [shut, setShut] = useState(item.state === "resolved");
+  const [shut, setShut] = useState(false);
+  const pill = inline && item.state === "resolved";
   const open = !inline || !shut;
   const [writing, setWriting] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -143,7 +151,7 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
         {item.tag && <Badge tone={TAG_TONE[item.tag] ?? "neutral"} size="sm">{item.tag}</Badge>}
         <ThreadState item={item} />
         {item.check && <CheckBadge check={item.check} />}
-        <Button variant="ghost" size="sm" aria-expanded={open} className={cn(ACTION, "ml-auto")} onClick={() => setShut(open)}>{open ? "Hide" : "Show"}</Button>
+        <Button variant="ghost" size="sm" aria-expanded={open} className={cn(ACTION, "ml-auto")} onClick={() => (pill && open ? setCommentOpen(targetKey, item.id, false) : setShut(open))}>{open ? "Hide" : "Show"}</Button>
       </div>}
       {open ? <div className="space-y-2.5 px-3 pb-2.5">
         {!inline && first && <Speaker message={first} />}
@@ -155,7 +163,8 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
           {!replyShows && <Button ref={replyButton} variant="ghost" size="sm" className={ACTION} disabled={busy || item.replyTo === null} onClick={() => setWriting(true)}><Icon name="CornerDownRight" className="size-3.5" aria-hidden />Reply</Button>}
           {/* Unlike the draft, Resolve doesn't wait for Submit. */}
           <Hint label="Posts to GitHub now" container={container}>
-            <Button variant="ghost" size="sm" className={ACTION} disabled={busy} aria-describedby={postsNow} onClick={() => void actions.setResolved(item.id, item.state !== "resolved")}>
+            {/* Resolved here, the card stays open where it is, with the focus, rather than fold to a pill. */}
+            <Button variant="ghost" size="sm" className={ACTION} disabled={busy} aria-describedby={postsNow} onClick={() => { if (inline) setCommentOpen(targetKey, item.id, true); void actions.setResolved(item.id, item.state !== "resolved"); }}>
               <Icon name={item.state === "resolved" ? "RotateCcw" : "CircleCheck"} className="size-3.5" aria-hidden />{item.state === "resolved" ? "Unresolve" : "Resolve"}
             </Button>
           </Hint>
@@ -177,7 +186,7 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
       </div> : <p className="truncate px-3 pb-2 text-xs text-muted-foreground">
         {shutLine}{shutLine && first && " · "}
         {/* Its code without the chip's ground, which the cut would leave as a sliver before the ellipsis. */}
-        {first && <>{first.who}: <span className="text-foreground/80 [&_code]:bg-transparent [&_code]:px-0"><InlineCode text={plainLine(first.body)} /></span></>}
+        {first && <>{first.who}: <span className="text-foreground/90 [&_code]:bg-transparent [&_code]:px-0"><InlineCode text={plainLine(first.body)} /></span></>}
       </p>}
     </article>
   );

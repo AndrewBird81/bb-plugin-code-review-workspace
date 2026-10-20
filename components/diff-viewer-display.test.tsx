@@ -2,19 +2,21 @@
 import { test, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
 
-// Each file pierre draws, with the options it was given; it fails to draw the files in `broken`.
-const drawn: { name: string; options: any }[] = [];
+// Each file pierre draws, with the options and annotations it was given; it fails to draw the files in `broken`.
+const drawn: { name: string; options: any; annotations?: any[] }[] = [];
 const broken = new Set<string>();
 vi.mock("@pierre/diffs/react", () => ({
-  FileDiff: ({ fileDiff, options }: any) => {
+  FileDiff: ({ fileDiff, options, lineAnnotations }: any) => {
     if (broken.has(fileDiff.name)) throw new Error(`Couldn't draw ${fileDiff.name}`);
-    drawn.push({ name: fileDiff.name, options });
+    drawn.push({ name: fileDiff.name, options, annotations: lineAnnotations });
     return <div data-testid="filediff" />;
   },
 }));
 
 import { installTestPluginRuntime, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { FileViewFlags } from "./DiffViewer";
+import { ONE_SIDE_CSS, WHOLE_FILE_CSS } from "../lib/diff-css";
+import { hunkPatch } from "../lib/diff-fixtures.test-support";
 
 installTestPluginRuntime();
 const { DiffViewer } = await import("./DiffViewer");
@@ -159,4 +161,69 @@ test("each file's card is a region named by its path, for a screen reader's list
   show(file("src/a.ts", ["a"]) + file("src/b.ts", ["b"]), ["src/a.ts", "src/b.ts"]);
   expect(screen.getByRole("region", { name: "src/a.ts" })).toBe(document.querySelector('[data-file="src/a.ts"]'));
   expect(screen.getByRole("region", { name: "src/b.ts" })).toBe(document.querySelector('[data-file="src/b.ts"]'));
+});
+
+const created = (path: string, lines: string[]) => file(path, lines).replace(`b/${path}\n`, `b/${path}\nnew file mode 100644\n`);
+const gone = (path: string, lines: string[]) => `diff --git a/${path} b/${path}\ndeleted file mode 100644\n--- a/${path}\n+++ /dev/null\n@@ -1,${lines.length} +0,0 @@\n${lines.map((line) => `-${line}`).join("\n")}\n`;
+
+test("a new file draws as a file: unified, on the canvas, with a rail; its row says New file and how long it is, with Show as diff", () => {
+  const onNewFiles = vi.fn();
+  render(<DiffViewer patch={created("src/new.ts", ["a", "b", "c"])} files={["src/new.ts"]} views={new Map()} onToggleViewed={() => {}} onNewFiles={onNewFiles} />);
+  const { options } = drawn.at(-1)!;
+  expect([options.diffStyle, options.diffIndicators, options.disableBackground]).toEqual(["unified", "bars", true]);
+  expect(options.unsafeCSS).toContain(ONE_SIDE_CSS + WHOLE_FILE_CSS.new);
+  expect(header("src/new.ts").getByText("New file")).toBeTruthy();
+  // Its length, not three lines' worth of changes and a size bar.
+  expect(header("src/new.ts").getByText("3 lines")).toBeTruthy();
+  expect(header("src/new.ts").queryByText("+3")).toBeNull();
+  const asDiff = header("src/new.ts").getByRole("button", { name: "Show as diff" });
+  expect(asDiff.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(asDiff);
+  expect(onNewFiles).toHaveBeenCalledWith("diff");
+});
+
+test("shown as a diff, a new file draws its lines as additions, with their color and one column of numbers", () => {
+  const onNewFiles = vi.fn();
+  render(<DiffViewer patch={created("src/new.ts", ["a", "b"])} files={["src/new.ts"]} views={new Map()} onToggleViewed={() => {}} newFiles="diff" onNewFiles={onNewFiles} />);
+  const { options } = drawn.at(-1)!;
+  expect([options.diffStyle, options.diffIndicators, options.disableBackground]).toEqual(["unified", "classic", false]);
+  expect(options.unsafeCSS).toContain(ONE_SIDE_CSS);
+  expect(options.unsafeCSS).not.toContain(WHOLE_FILE_CSS.new);
+  const asDiff = header("src/new.ts").getByRole("button", { name: "Show as diff" });
+  expect(asDiff.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(asDiff);
+  expect(onNewFiles).toHaveBeenCalledWith("file");
+});
+
+test("a deleted file starts folded, saying Deleted · N lines with Show diff; shown, it draws as a file with a dashed rail", () => {
+  show(gone("src/old.ts", ["a", "b"]), ["src/old.ts"]);
+  expect(drawn).toEqual([]);
+  expect(header("src/old.ts").getByText("Deleted file")).toBeTruthy();
+  expect(header("src/old.ts").getByText("Deleted · 2 lines")).toBeTruthy();
+  // Folded, there's nothing to show as a diff.
+  expect(header("src/old.ts").queryByRole("button", { name: "Show as diff" })).toBeNull();
+  fireEvent.click(header("src/old.ts").getByRole("button", { name: "Show diff of src/old.ts" }));
+  const { options } = drawn.at(-1)!;
+  expect([options.diffStyle, options.diffIndicators, options.disableBackground]).toEqual(["unified", "bars", true]);
+  expect(options.unsafeCSS).toContain(WHOLE_FILE_CSS.deleted);
+});
+
+test("a long run of deleted lines gets one fold row, under its third line, and waits to draw at the height it will draw at", () => {
+  const original = globalThis.IntersectionObserver;
+  // Nothing comes near the screen: every file of this large chapter waits to draw.
+  globalThis.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof IntersectionObserver;
+  try {
+    const big = hunkPatch("src/big.ts", [{ same: 1 }, { del: 50, add: 0 }, { same: 1 }]);
+    const filler = ["a", "b", "c"].map((name) => file(`src/${name}.ts`, Array.from({ length: 1100 }, (_, i) => `line ${i}`)));
+    show(big + filler.join(""), ["src/big.ts", "src/a.ts", "src/b.ts", "src/c.ts"]);
+    expect(drawn).toEqual([]);
+    // 52 rows, less the 47 folded, the fold row's 32px, and 16px of padding.
+    expect(document.querySelector<HTMLElement>('[data-file="src/big.ts"] [data-pending-diff]')!.style.height).toBe(`${16 + 5 * 20 + 32}px`);
+  } finally {
+    globalThis.IntersectionObserver = original;
+  }
+  cleanup();
+  drawn.length = 0;
+  show(hunkPatch("src/big.ts", [{ same: 1 }, { del: 50, add: 0 }, { same: 1 }]), ["src/big.ts"]);
+  expect(drawn.at(-1)!.annotations).toEqual([{ side: "deletions", lineNumber: 4, metadata: { fold: 0, file: "src/big.ts" } }]);
 });

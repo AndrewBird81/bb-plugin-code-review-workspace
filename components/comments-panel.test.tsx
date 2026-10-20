@@ -199,7 +199,7 @@ test("a row and a pill show what waits with an item: a thread's reply draft, and
   slot.lifecycle.unmount();
 });
 
-test("GitHub threads show at their lines with every message; a resolved one folds; outdated and file comments wait in the file's fold", async () => {
+test("GitHub threads show at their lines with every message; a resolved one is a pill; outdated and file comments wait in the file's fold", async () => {
   const { slot } = await renderWorkspace();
   const open = await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" });
   expect(open.closest("[data-annotation]")!.getAttribute("data-annotation")).toBe("additions:2");
@@ -209,14 +209,15 @@ test("GitHub threads show at their lines with every message; a resolved one fold
   expect(within(open).getByText("@alice")).toBeTruthy();
   expect(within(open).getByText("Author replied")).toBeTruthy();
   expect(within(open).getByText("Partial")).toBeTruthy();
-  const resolved = code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2 (old line)" });
-  expect(within(resolved).getByText("Resolved")).toBeTruthy();
-  // Folded to who resolved it and its first line, without its actions.
-  expect(within(resolved).getByText(/^Resolved by @bob/)).toBeTruthy();
+  // Resolved, it starts as its pill: who, its state, and its first line, without its actions.
+  const resolved = code(slot, "src/a.ts").getByRole("group", { name: "GitHub thread on src/a.ts:2 (old line), folded" });
+  expect(within(resolved).getByText(/Resolved/)).toBeTruthy();
+  expect(within(resolved).getByText("Old line note.")).toBeTruthy();
   expect(within(resolved).queryByRole("button", { name: "Reply" })).toBeNull();
-  fireEvent.click(within(resolved).getByRole("button", { name: "Show" }));
-  expect(within(resolved).getByRole("button", { name: "Reply" })).toBeTruthy();
-  expect(within(resolved).getByRole("button", { name: "Unresolve" })).toBeTruthy();
+  fireEvent.click(within(resolved).getByRole("button", { name: "Show GitHub thread on src/a.ts:2 (old line)" }));
+  const card = code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2 (old line)" });
+  expect(within(card).getByRole("button", { name: "Reply" })).toBeTruthy();
+  expect(within(card).getByRole("button", { name: "Unresolve" })).toBeTruthy();
   const fold = code(slot, "src/a.ts").getByRole("button", { name: "Outdated (1)" });
   expect(code(slot, "src/a.ts").queryByText("This moved.")).toBeNull();
   fireEvent.click(fold);
@@ -255,13 +256,15 @@ test("a card shows the latest two replies and a long message's start until asked
   slot.lifecycle.unmount();
 });
 
-test("a thread card hidden in the code keeps one plain line: who resolved it, its replies, and who said what first", async () => {
+test("a thread card hidden in the code keeps one plain line: its replies, and who said what first; a resolved one hides to its pill", async () => {
   const { slot } = await renderWorkspace();
   const line = (card: HTMLElement) => card.querySelector("p.truncate")?.textContent;
   const yours = await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:2" });
   fireEvent.click(within(yours).getByRole("button", { name: "Hide" }));
   expect(line(yours)).toBe("1 reply · You: Blocking: Why upper case?");
-  expect(line(code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2 (old line)" }))).toBe("Resolved by @bob · @bob: Old line note.");
+  fireEvent.click(code(slot, "src/a.ts").getByRole("button", { name: "Show GitHub thread on src/a.ts:2 (old line)" }));
+  fireEvent.click(within(code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2 (old line)" })).getByRole("button", { name: "Hide" }));
+  expect(code(slot, "src/a.ts").getByRole("group", { name: "GitHub thread on src/a.ts:2 (old line), folded" })).toBeTruthy();
   fireEvent.click(code(slot, "src/a.ts").getByRole("button", { name: "Outdated (1)" }));
   const daves = code(slot, "src/a.ts").getAllByRole("article").find((card) => within(card).queryByText("This moved."))!;
   fireEvent.click(within(daves).getByRole("button", { name: "Hide" }));
@@ -289,7 +292,7 @@ test("Reply posts now: on your thread through your feedback, on someone else's a
   fireEvent.click(within(card).getByRole("button", { name: "Send reply" }));
   await waitFor(() => expect(rpc.replyToFeedback).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t1", body: "Thanks, I'll look again.", account: "me" }));
   await waitFor(() => expect(rpc.getReviewThreads).toHaveBeenCalledTimes(2));
-  fireEvent.click(within(code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2 (old line)" })).getByRole("button", { name: "Show" }));
+  fireEvent.click(code(slot, "src/a.ts").getByRole("button", { name: "Show GitHub thread on src/a.ts:2 (old line)" }));
   const bobs = code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2 (old line)" });
   fireEvent.click(within(bobs).getByRole("button", { name: "Reply" }));
   fireEvent.change(within(bobs).getByRole("textbox", { name: "Reply on src/a.ts:2 (old line)" }), { target: { value: "Agreed." } });
@@ -412,6 +415,8 @@ test("a resolve in the code shows in the list at once, and one in the list in th
   // Yours: your feedback is read from GitHub again too.
   await waitFor(() => expect(rpc.refreshFeedback).toHaveBeenCalledWith({ targetKey: "pr-42" }));
   await list.findByRole("button", { name: "2 resolved · 1 outdated" });
+  // Resolved from its card, the card stays open where it is rather than fold to a pill, so its button keeps the focus.
+  expect(within(code(slot, "src/a.ts").getByRole("article", { name: "GitHub thread on src/a.ts:2" })).getByRole("button", { name: "Unresolve" })).toBeTruthy();
   fireEvent.click(list.getByRole("button", { name: "2 resolved · 1 outdated" }));
   fireEvent.click(list.getByRole("button", { name: /^Expand GitHub thread on src\/a\.ts:2$/ }));
   fireEvent.click(within(list.getByRole("article", { name: "GitHub thread on src/a.ts:2" })).getByRole("button", { name: "Unresolve" }));

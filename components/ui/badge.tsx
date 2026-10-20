@@ -8,7 +8,7 @@ import { Icon } from "./icon";
  * tints, so the same tone reads in any light or dark theme. Agent work uses
  * the terminal's bright magenta, which every bb theme defines.
  */
-export type Tone = "neutral" | "primary" | "success" | "warning" | "danger" | "merged" | "agent";
+export type Tone = "neutral" | "primary" | "success" | "warning" | "danger" | "merged" | "agent" | "added" | "removed";
 
 const SOFT: Record<Tone, string> = {
   neutral: "border-border bg-muted/50 text-muted-foreground",
@@ -18,6 +18,9 @@ const SOFT: Record<Tone, string> = {
   danger: "border-destructive/25 bg-destructive/10 text-destructive-text",
   merged: "border-pr-merged/30 bg-pr-merged/10 text-pr-merged",
   agent: "border-(--ansi-13)/30 bg-(--ansi-13)/10 text-(--ansi-13)",
+  // A file added or deleted whole, in the diff's own colors; a fainter fill keeps the deleted text at 4.5:1.
+  added: "border-diff-added/25 bg-diff-added/5 text-diff-added",
+  removed: "border-diff-removed/25 bg-diff-removed/5 text-diff-removed",
 };
 
 /** Text and icon color alone, for status text without a chip. */
@@ -29,6 +32,8 @@ export const TONE_TEXT: Record<Tone, string> = {
   danger: "text-destructive-text",
   merged: "text-pr-merged",
   agent: "text-(--ansi-13)",
+  added: "text-diff-added",
+  removed: "text-diff-removed",
 };
 
 export const TONE_FILL: Record<Tone, string> = {
@@ -39,6 +44,8 @@ export const TONE_FILL: Record<Tone, string> = {
   danger: "bg-destructive",
   merged: "bg-pr-merged",
   agent: "bg-(--ansi-13)",
+  added: "bg-diff-added",
+  removed: "bg-diff-removed",
 };
 
 /** A small status dot. `pulse` adds a ping for work in progress, off under reduced motion. */

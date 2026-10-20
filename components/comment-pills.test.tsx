@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Fold comments (i): every card in the code shrinks to a one-line pill that still says what it is, except an open
-// comment box; Show opens one, and going to a comment opens its pill.
+// comment box; Show opens one, and going to a comment opens its pill. A resolved thread starts as its pill.
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
@@ -49,7 +49,8 @@ async function renderWorkspace() {
   } as any });
   await slot.findByRole("main", { name: "Review" });
   const diff = () => within(slot.getByTestId("filediff"));
-  await diff().findByRole("article", { name: "GitHub thread on src/a.ts:2" });
+  await diff().findByRole("article", { name: "Draft comment on src/a.ts:2" });
+  await diff().findByRole("group", { name: "GitHub thread on src/a.ts:2, folded" });
   return { slot, diff };
 }
 const press = (key: string) => fireEvent.keyDown(document.body, { key });
@@ -101,10 +102,24 @@ test("an open comment box never folds", async () => {
   slot.lifecycle.unmount();
 });
 
+test("a resolved thread starts as its pill; shown, its card's Hide folds it back", async () => {
+  const { slot, diff } = await renderWorkspace();
+  const pill = diff().getByRole("group", { name: "GitHub thread on src/a.ts:2, folded" });
+  expect(pill.textContent).toContain("Resolved");
+  expect(diff().queryByRole("article", { name: "GitHub thread on src/a.ts:2" })).toBeNull();
+  fireEvent.click(within(pill).getByRole("button", { name: "Show GitHub thread on src/a.ts:2" }));
+  // In full at once, not its one plain line.
+  const card = within(diff().getByRole("article", { name: "GitHub thread on src/a.ts:2" }));
+  expect(card.getByText("It's a constant.")).toBeTruthy();
+  fireEvent.click(card.getByRole("button", { name: "Hide" }));
+  expect(diff().getByRole("group", { name: "GitHub thread on src/a.ts:2, folded" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("a thread card you're writing a reply in stays open when comments fold, with your text and the focus", async () => {
   const { slot, diff } = await renderWorkspace();
-  const card = within(await diff().findByRole("article", { name: "GitHub thread on src/a.ts:2" }));
-  fireEvent.click(card.getByRole("button", { name: "Show" }));
+  fireEvent.click(diff().getByRole("button", { name: "Show GitHub thread on src/a.ts:2" }));
+  const card = within(diff().getByRole("article", { name: "GitHub thread on src/a.ts:2" }));
   fireEvent.click(card.getByRole("button", { name: "Reply" }));
   const box = card.getByRole("textbox", { name: "Reply on src/a.ts:2" }) as HTMLTextAreaElement;
   fireEvent.change(box, { target: { value: "Half a thought" } });

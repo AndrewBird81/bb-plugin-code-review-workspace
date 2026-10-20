@@ -13,6 +13,7 @@ vi.mock("@pierre/diffs/react", () => ({
 
 import { installTestPluginRuntime } from "@get-bb/plugin-sdk/testing/app";
 import type { InlineDraft } from "./InlineDraft";
+import { MOVED_OUT, hunkPatch } from "../lib/diff-fixtures.test-support";
 
 installTestPluginRuntime();
 const { DiffViewer } = await import("./DiffViewer");
@@ -59,6 +60,22 @@ test("a large chapter draws a file's code only once it nears the screen, holding
   // Once drawn, a file stays drawn.
   act(() => observer!.callback([{ target: card("src/f0.ts"), isIntersecting: false } as unknown as IntersectionObserverEntry], observer as unknown as IntersectionObserver));
   expect(card("src/f0.ts").querySelector('[data-testid="filediff"]')).toBeTruthy();
+});
+
+test("a file waiting to draw holds its long runs folded, with each fold row as tall as it draws, taller on a touch screen", () => {
+  // 270 rows, 231 of them in two closed folds: 39 rows of 20px, pierre's 16px, and the two fold rows.
+  const moved = hunkPatch("infra/s3.tf", MOVED_OUT);
+  const matchMedia = window.matchMedia;
+  try {
+    for (const [coarse, height] of [[false, "860px"], [true, "884px"]] as const) {
+      window.matchMedia = ((query: string) => ({ matches: coarse && query === "(pointer: coarse)", media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+      render(<DiffViewer patch={patch + moved} files={[...paths, "infra/s3.tf"]} views={new Map()} onToggleViewed={() => {}} diffLayout="unified" />);
+      expect(card("infra/s3.tf").querySelector<HTMLElement>("[data-pending-diff]")!.style.height).toBe(height);
+      cleanup();
+    }
+  } finally {
+    window.matchMedia = matchMedia;
+  }
 });
 
 test("a file revealed for a comment, or holding the comment box, draws without coming near first", () => {

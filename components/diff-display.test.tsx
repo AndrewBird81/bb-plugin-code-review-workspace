@@ -199,6 +199,29 @@ test("Diff options' Layout switches between split and unified, and saves the lay
   slot.lifecycle.unmount();
 });
 
+test("Diff options' New and deleted files, or a file's Show as diff, draws a new file as a diff or as a file, saved for every review", async () => {
+  const created = "diff --git a/src/new.ts b/src/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/new.ts\n@@ -0,0 +1 @@\n+fresh\n";
+  const sections = [{ id: "c1", title: "Parsing", overview: "Reads rows.", diffs: [{ file: "src/new.ts", summary: "Starts rows." }] }, guide.sections[1]];
+  const getReviewBundle = () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: { ...structuredClone(guide), sections }, patch: patch + created, revision: "r1" });
+  const savePreferences = vi.fn(({ preferences, revision }: any) => ({ preferences, revision: revision + 1 }));
+  const { slot } = await renderWorkspace({ rpc: { getReviewBundle, savePreferences } });
+  await slot.findByText("fresh");
+  expect(drawn.at(-1)!.options.diffIndicators).toBe("bars");
+  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+  const choices = within(await slot.findByRole("radiogroup", { name: "New and deleted files" }));
+  expect(choices.getByRole("radio", { name: "As file" }).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(choices.getByRole("radio", { name: "As diff" }));
+  await waitFor(() => expect(drawn.at(-1)!.options.diffIndicators).toBe("classic"));
+  expect(savePreferences).toHaveBeenCalledWith({ preferences: { ...defaultPreferences, newFiles: "diff" }, revision: 0 });
+  // The file's own row switches it back, saved after the first.
+  const asDiff = within(slot.container.querySelector<HTMLElement>('[data-file="src/new.ts"] [data-file-header]')!).getByRole("button", { name: "Show as diff" });
+  expect(asDiff.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(asDiff);
+  await waitFor(() => expect(drawn.at(-1)!.options.diffIndicators).toBe("bars"));
+  await waitFor(() => expect(savePreferences).toHaveBeenLastCalledWith({ preferences: { ...defaultPreferences, newFiles: "file" }, revision: 1 }));
+  slot.lifecycle.unmount();
+});
+
 test("two quick Layout toggles save one after the other, and the second's layout stays", async () => {
   const { toast } = await import("sonner");
   // A slow server that, like the real one, refuses a save on a revision it has moved past.

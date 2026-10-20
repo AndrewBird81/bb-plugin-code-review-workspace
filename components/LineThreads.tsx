@@ -238,13 +238,13 @@ function useFlash(targetKey: string, id: string) {
   return ref;
 }
 
-/** One GitHub thread in the code: its card, or with comments folded its pill. */
+/** One GitHub thread in the code: its card, or with comments folded, or once resolved, its pill. */
 function ThreadInCode({ targetKey, item, className }: { targetKey: string; item: ThreadItem; className?: string }) {
   const folded = useComments(targetKey, "folded");
   const opened = useCommentOpen(targetKey, item.id);
   const ref = useFlash(targetKey, item.id);
   const replies = item.messages.length - 1;
-  if (folded && !opened) {
+  if ((folded || item.state === "resolved") && !opened) {
     return <div ref={ref} data-comment-id={item.id}>
       <CommentPill frame={frameOf(item)} icon={<Icon name="Github" className="size-3.5 shrink-0" aria-hidden />} who={item.who} words={itemWords(item)} text={item.messages[0]?.body ?? ""}
         badge={item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} />} briefBadge={item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} brief />}
@@ -298,7 +298,7 @@ export function OutdatedThreads({ threads }: { threads: ReviewThread[] }) {
       </button>
       {open && threads.map((thread) => {
         const item = byId.get(thread.id);
-        return item ? <ThreadInCode key={thread.id} targetKey={targetKey} item={item} className="[&_article]:max-w-none" /> : null;
+        return item ? <ThreadInCode key={thread.id} targetKey={targetKey} item={item} /> : null;
       })}
     </div>
   );

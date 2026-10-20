@@ -73,6 +73,9 @@ export interface WorkspaceApi {
   display: {
     layout: ReviewPreferences["diffLayout"];
     toggleLayout(): void;
+    /** How a new or deleted file draws, saved for every review like the layout. */
+    newFiles: ReviewPreferences["newFiles"];
+    setNewFiles(show: ReviewPreferences["newFiles"]): void;
     /** The pane is too narrow for split, so the diff shows unified whatever the layout. */
     unifiedOnly: boolean;
     wrap: boolean;

@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.1.0 — unreleased
+
+The diff reads more like the code it shows. A file the PR adds is drawn as a file, not a wall of green; long runs of deleted lines fold after their first three; a split's empty side, the bands between hunks, and line numbers say less and show more; and ⇧J and ⇧K step through the changes. One new preference, **New and deleted files** in Diff options, saved for every review; no new switches, and every switch means what it did. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.1.0. Rolling back to 1.0.0 keeps your reviews, drafts, and settings: 1.0.0 drops the new preference when it reads them.
+
+### New and deleted files
+
+- A new file shows as a file: its code in full syntax on the canvas, plain line numbers, and one rail in the add color beside them, under a **New file** badge and its length ("65 lines") in place of +65 −0.
+- A deleted file starts folded, "Deleted · 65 lines" with **Show diff**. Shown, it has a dashed rail and its syntax dimmed, still 4.5:1 or more on the canvas and under a text selection.
+- **Show as diff** in the file's row, or **New and deleted files** (As file | As diff) in Diff options, draws them as diffs instead, in every review.
+- A new or deleted file is always unified, with one column of numbers, even with Layout on Split.
+
+### Reading a diff
+
+- Unified diffs show old and new line numbers in their own columns, old on the left, as a deleted line has only an old number and an added one only a new number. Under 560px, one column, as before.
+- "N unmodified lines" is one quiet band across the row, and across both sides of a split, followed by git's function context ("export function unquote(name: string) {"). Its expand arrows show 20 more lines a click, up and down side by side, each at least 24px square.
+- A split's empty side is a flat recess a step below the canvas, without the hatching.
+- + and − are bold, in the diff's add and delete colors, with a true minus, and never copied with the code. Beside them, a 3px bar at the gutter's edge: solid for added lines, dashed for deleted ones.
+- 40 or more deleted lines in a row fold after their first three behind one row tinted like them, "Show 174 more deleted lines · old 17–190". It opens in place and keeps the focus, says **Hide 174 deleted lines** once open, and starts open when a comment, the comment box, a CI failure, or the lines you picked are in it; going to a line in it opens it. A comment on the last line shown keeps its own look above the fold's button. Added lines never fold.
+- A deleted line and the added line paired with it that share under 40% of their text lose their word emphasis, which marked nearly every word.
+- Lines new since your review carry a mark in the code's ink on the seam between number and code, with no tint, so a deleted line keeps its color.
+- A selected line's number keeps the selection color in a file shown as a file.
+
+### Comments in the code
+
+- A comment's card hangs from its line at a measure of 72 characters, on the canvas, its line's number in the code's ink at 600 with a hairline down the gutter to the card's foot. Outdated threads keep the same measure.
+- A resolved GitHub thread starts as its pill; **Resolve** from the card keeps it open, and its **Hide** folds it.
+
+### Keys
+
+- **⇧J** and **⇧K** go to the next or previous change in the chapter's code, a folded run and a split's two sides each one stop. Each is centered, outlined a moment, and said ("Change 3 of 12 · src/http.module.ts:34"); past the last, the next or previous file. Held down, they repeat, and keep going from the change they went to while the scroll there runs.
+
 ## 1.0.0 — 2026-10-19
 
 Guided Review is now **Code Review Workspace**, maintained by Andrew Bird, and installs from `github.com/AndrewBird81/bb-plugin-code-review-workspace`. It began as a fork of Pritam Sharma's [bb-plugin-guided-review](https://github.com/notpritam/bb-plugin-guided-review), credited in the README, LICENSE, and `package.json`. The new name takes a new plugin id, `code-review-workspace`, so it's a new install, not an update: see [Moving from Guided Review](README.md#moving-from-guided-review). Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; install at `^1.0.0`.

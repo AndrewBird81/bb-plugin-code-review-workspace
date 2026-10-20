@@ -20,9 +20,11 @@ Version 0.8.0 closes the loop with the thread that made the change and says more
 
 Version 1.0.0 renames the plugin from Guided Review to Code Review Workspace, with the id `code-review-workspace`, to say what it is: the place to read, discuss, and approve a code change, PR or local. Its first start copies in a Guided Review install's reviews, drafts, and settings. Nothing else changes.
 
+Version 1.1.0 makes the diff read like the code it shows. A file the PR adds is drawn as a file, with a rail beside its code rather than a wall of green, and a deleted file starts folded and, shown, is dimmed; either can be shown as a diff instead, a preference kept for every review. Long runs of deleted lines fold after their first three, opening where a comment, a failure, or the reviewer's selection is in them. Unified diffs give old and new line numbers their own columns, the bands between hunks name the function after them, a split's empty side is a flat recess, and word emphasis is dropped where a line was rewritten rather than edited. ⇧J and ⇧K step through the changes. Comments hang from their lines at a readable measure.
+
 ## Distribution and operating limits
 
-The current release is version **1.0.0**, for BB **0.45.0+**, Node **24+**, and plugin SDK **0.6.14+**. Reviewers need their own BB installation and GitHub authentication. It does not provide shared review workspaces or separate user accounts within one server.
+The current release is version **1.1.0**, for BB **0.45.0+**, Node **24+**, and plugin SDK **0.6.14+**. Reviewers need their own BB installation and GitHub authentication. It does not provide shared review workspaces or separate user accounts within one server.
 
 Git and `gh` run on the BB server. Local review checkouts must exist there; a checkout only on another enrolled machine is unsupported. GitHub features currently support `github.com`. Account switching affects that server’s `gh` credentials, including other consumers; environment-token overrides must be cleared before switching saved accounts.
 

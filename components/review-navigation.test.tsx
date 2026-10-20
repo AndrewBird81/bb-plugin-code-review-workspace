@@ -412,6 +412,21 @@ test("j and k move between files, n and p between chapters, and v marks the file
   slot.lifecycle.unmount();
 }, 15_000);
 
+test("⇧J and ⇧K step through the changes drawn; past the last one, they go on to the next or previous file, as j and k do", async () => {
+  const layout = fakeLayout();
+  const { slot } = await renderWorkspace();
+  await slot.findByText("aa");
+  press("n");
+  await slot.findByText("bb");
+  // Pierre draws no rows here, so no change is ahead: the next file.
+  press("J", { shiftKey: true });
+  expect(layout.top()).toBe("src/c.ts");
+  press("K", { shiftKey: true });
+  expect(layout.top()).toBe("src/b.ts");
+  layout.restore();
+  slot.lifecycle.unmount();
+}, 15_000);
+
 const currentFile = (slot: Slot) => chapters(slot).getAllByRole("button").find((button) => button.getAttribute("aria-current") === "true")?.textContent;
 
 test("on the Overview, j starts the first chapter, and k stays", async () => {

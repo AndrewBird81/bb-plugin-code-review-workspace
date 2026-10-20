@@ -91,8 +91,9 @@ export const InlineComposerContext = createContext<InlineComposer | null>(null);
 /** Marks a line's comment and discussion in the diff, so the panel can scroll to them. */
 export const locationKey = (at: CommentLocation) => `${at.file}:${at.line}:${at.side}`;
 
-// The diff renders these inside its code view, so set the text style instead of inheriting the code's.
-const card = "mx-2 my-2 max-w-3xl overflow-hidden rounded-lg bg-card [contain:inline-size] font-sans text-sm leading-normal whitespace-normal text-foreground shadow-md";
+// The diff renders these inside its code view, so set the text style instead of inheriting the code's; at a measure of
+// 72 characters, as a thread's card.
+const card = "mx-2 my-2 max-w-[min(72ch,calc(100%-1rem))] overflow-hidden rounded-lg bg-card [contain:inline-size] font-sans text-sm leading-[1.55] whitespace-normal text-foreground shadow-md";
 /** A card's title row, and the small actions in it. */
 export const bar = "flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-xs text-muted-foreground";
 export const action = cn("h-7 px-2 text-xs aria-disabled:pointer-events-none aria-disabled:opacity-50", TOUCH_CONTROL);

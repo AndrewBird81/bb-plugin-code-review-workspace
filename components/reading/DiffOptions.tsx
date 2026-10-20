@@ -148,6 +148,12 @@ export function DiffOptions({ threads, compareInBand = false, foldInBand = false
                 options={[{ value: "unified", label: "Unified" }, { value: "split", label: "Split", disabled: display.unifiedOnly, reason: display.unifiedOnly ? splitReason : undefined }]} />
             </div>}
             {tablet && display.unifiedOnly && <p id={splitReason} className="-mt-1 px-2 pb-1 text-right text-xs text-muted-foreground">Split view needs a wider pane</p>}
+            {/* A file the PR adds or deletes whole: its code with a rail beside it, or every line marked as a change. */}
+            <div className={cn(row, "hover:bg-transparent")}>
+              New and deleted files
+              <Segmented label="New and deleted files" value={display.newFiles} onChange={display.setNewFiles}
+                options={[{ value: "file", label: "As file" }, { value: "diff", label: "As diff" }]} />
+            </div>
             <Option label="Wrap long lines" on={display.wrap} onChange={display.setWrap} />
             <Option label="Hide whitespace changes" on={display.hideWhitespace} onChange={display.setHideWhitespace} />
             {isPr && threads && <Option label="GitHub threads in code" on={display.githubThreads} onChange={display.setGithubThreads} />}

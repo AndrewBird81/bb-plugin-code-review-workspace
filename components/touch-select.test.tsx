@@ -7,6 +7,7 @@ import { installTestPluginRuntime, loadPluginApp, renderSlot } from "@get-bb/plu
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
 import { defaultKnobs, type Knobs } from "../lib/knobs";
+import { DIFF_CSS } from "../lib/diff-css";
 
 // Each line of a file as pierre would take a tap on it: its click reports the line (onLineClick); its number's
 // press starts pierre's own pick of that line, reported when the press ends. The lines pierre paints, and its styles.
@@ -126,6 +127,20 @@ test("the gutter's + shows only with a fine pointer, and code lines keep a mouse
   const css: string = given.options.unsafeCSS;
   expect(css).toContain("@media not (any-pointer: fine) { [data-gutter-utility-slot] { display: none; } }");
   expect(css).toContain("@media (hover: hover) and (pointer: fine) { [data-interactive-lines] [data-line] { cursor: auto; } }");
+});
+
+test("the diff's own styles follow pierre's pointer ones, and what marks up each draw stays one function as lines are picked", () => {
+  const onLineSelected = () => {};
+  const diff = (picked: { file: string; range: SelectedLineRange } | null) => <DiffViewer patch={patch} files={["src/a.ts"]} views={new Map()} onToggleViewed={() => {}} onLineSelected={onLineSelected} selectedLines={picked} />;
+  const view = render(diff(null));
+  const css: string = given.options.unsafeCSS;
+  expect(css.indexOf(DIFF_CSS)).toBeGreaterThan(css.indexOf("[data-gutter-utility-slot]"));
+  const decorate = given.options.onPostRender;
+  expect(decorate).toBeTypeOf("function");
+  // New options would redraw the file, which takes the focus from an open comment box.
+  view.rerender(diff({ file: "src/a.ts", range: { start: 2, end: 2, side: "additions" } }));
+  expect(screen.getByTestId("filediff").dataset.selected).toBe("2-2");
+  expect(given.options.onPostRender).toBe(decorate);
 });
 
 /** Media queries answer as on a touch screen: a coarse pointer, and no fine one. */

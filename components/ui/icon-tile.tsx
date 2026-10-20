@@ -10,6 +10,8 @@ const TILE: Record<Tone, string> = {
   danger: "bg-destructive/10 text-destructive-text ring-destructive/20",
   merged: "bg-pr-merged/12 text-pr-merged ring-pr-merged/25",
   agent: "bg-(--ansi-13)/10 text-(--ansi-13) ring-(--ansi-13)/25",
+  added: "bg-diff-added/10 text-diff-added ring-diff-added/20",
+  removed: "bg-diff-removed/10 text-diff-removed ring-diff-removed/20",
 };
 
 /** A rounded tile holding an icon, tinted by tone. */

@@ -22,14 +22,15 @@ test("a plain key asks for its shortcut, and a key that isn't one asks for none"
   expect(shortcutKey(kd({ key: "z" }))).toBeNull();
 });
 
-test("Caps Lock j still moves, and Caps Lock v marks the file: only Shift makes ⇧V and ⇧F", () => {
+test("Caps Lock j still moves, and Caps Lock v marks the file: only Shift makes ⇧V, ⇧F, ⇧J and ⇧K", () => {
   expect(shortcutKey(kd({ key: "J" }))).toBe("j");
   expect(shortcutKey(kd({ key: "V" }))).toBe("v");
   expect(shortcutKey(kd({ key: "F" }))).toBe("f");
   expect(shortcutKey(kd({ key: "V", shiftKey: true }))).toBe("V");
   expect(shortcutKey(kd({ key: "F", shiftKey: true }))).toBe("F");
-  // Shift j types J too, which is no shortcut.
-  expect(shortcutKey(kd({ key: "J", shiftKey: true }))).toBeNull();
+  // Shift j types J: the next change, and Shift k the one before.
+  expect(shortcutKey(kd({ key: "J", shiftKey: true }))).toBe("J");
+  expect(shortcutKey(kd({ key: "K", shiftKey: true }))).toBe("K");
 });
 
 test("AltGr ] (ctrl+alt) and Option-] (alt) step comments, on layouts that type brackets that way", () => {
@@ -46,12 +47,14 @@ test("Alt, Ctrl or Meta with any other key, or Ctrl or Meta with a bracket, is n
   expect(shortcutKey(kd({ key: "]", metaKey: true, altKey: true }))).toBeNull();
 });
 
-test("a held key repeats only j and k", () => {
+test("a held key repeats only j and k, and ⇧J and ⇧K", () => {
   expect(shortcutKey(kd({ key: "v", repeat: true }))).toBeNull();
   expect(shortcutKey(kd({ key: "c", repeat: true }))).toBeNull();
   expect(shortcutKey(kd({ key: "]", repeat: true }))).toBeNull();
   expect(shortcutKey(kd({ key: "j", repeat: true }))).toBe("j");
   expect(shortcutKey(kd({ key: "k", repeat: true }))).toBe("k");
+  expect(shortcutKey(kd({ key: "J", shiftKey: true, repeat: true }))).toBe("J");
+  expect(shortcutKey(kd({ key: "K", shiftKey: true, repeat: true }))).toBe("K");
 });
 
 test("c inside an overlay side still toggles; inside another dialog, it's the dialog's", () => {

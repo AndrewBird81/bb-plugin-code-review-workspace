@@ -59,6 +59,7 @@ export const preferencesSchema = z.object({
   assistantInstructions: z.string().max(ASSISTANT_INSTRUCTIONS_LIMIT),
   automaticReview: z.string().max(12000),
   diffLayout: z.enum(["split", "unified"]),
+  newFiles: z.enum(["file", "diff"]),
   rereviewShows: z.enum(["since", "all"]),
   guideAgent: agentExecutionSchema.nullable(),
   assistantAgent: agentExecutionSchema.nullable(),

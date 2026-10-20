@@ -141,6 +141,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const codeTheme = experimental_useCodeTheme();
   const [preferences, setPreferences] = useState<{ preferences: ReviewPreferences; revision: number } | null>(null);
   const diffLayout = preferences?.preferences.diffLayout ?? defaultPreferences.diffLayout;
+  const newFiles = preferences?.preferences.newFiles ?? defaultPreferences.newFiles;
   const [loading, setLoading] = useState(true);
   const [generatingReplacement, setGeneratingReplacement] = useState(false);
   const hasDisplayedGuide = useRef(false);
@@ -393,33 +394,40 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Below about 960px the diff shows unified whatever the layout, so the toggle can't apply there.
   const [unifiedOnly, setUnifiedOnly] = useState(false);
   // The layout shows at once; each toggle saves after the one before it, on the revision that save returned, so two
-  // quick toggles keep the second.
+  // quick toggles keep the second. So does how new and deleted files draw.
   const shownPreferences = useRef(preferences);
   shownPreferences.current = preferences;
   const layoutSaves = useRef({ queue: Promise.resolve(), pending: 0 });
-  const toggleLayout = useCallback(() => {
+  const saveReading = useCallback((change: Pick<Partial<ReviewPreferences>, "diffLayout" | "newFiles">, failed: string) => {
     const shown = shownPreferences.current;
-    if (!shown || unifiedOnly) return;
-    const diffLayout = shown.preferences.diffLayout === "split" ? "unified" as const : "split" as const;
-    shownPreferences.current = { ...shown, preferences: { ...shown.preferences, diffLayout } };
+    if (!shown) return;
+    shownPreferences.current = { ...shown, preferences: { ...shown.preferences, ...change } };
     setPreferences(shownPreferences.current);
     const saves = layoutSaves.current;
     saves.pending++;
     saves.queue = saves.queue.then(async () => {
       const saved = savedPreferences.current ?? shown;
       try {
-        const result = await rpc.call("savePreferences", { preferences: { ...saved.preferences, diffLayout }, revision: saved.revision });
+        const result = await rpc.call("savePreferences", { preferences: { ...saved.preferences, ...change }, revision: saved.revision });
         savedPreferences.current = result;
         // A toggle after this one shows its own layout meanwhile.
         if (saves.pending === 1) setPreferences(result);
       } catch {
-        toast.error("Couldn’t save the layout.");
+        toast.error(failed);
         loadPreferences();
       } finally {
         saves.pending--;
       }
     });
-  }, [rpc, unifiedOnly, loadPreferences]);
+  }, [rpc, loadPreferences]);
+  const toggleLayout = useCallback(() => {
+    const shown = shownPreferences.current;
+    if (!shown || unifiedOnly) return;
+    saveReading({ diffLayout: shown.preferences.diffLayout === "split" ? "unified" : "split" }, "Couldn’t save the layout.");
+  }, [saveReading, unifiedOnly]);
+  const changeNewFiles = useCallback((show: ReviewPreferences["newFiles"]) => {
+    if (shownPreferences.current?.preferences.newFiles !== show) saveReading({ newFiles: show }, "Couldn’t save how new and deleted files show.");
+  }, [saveReading]);
   // Saved once the first load has picked the page, so the saved chapter isn't lost before it's read.
   useEffect(() => { if (activeId) patchReviewState(targetKey, { activeId }); }, [targetKey, activeId]);
   const isPr = review?.kind === "pr";
@@ -1218,6 +1226,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const showShortcuts = useCallback(() => setShortcutsOpen(true), []);
   const draftLines = useRef<CommentLocation[]>([]);
   const lastLine = useRef<CommentLocation | null>(null);
+  // The diff's step to its next or previous change, which it sets while it shows.
+  const changeStep = useRef<((direction: 1 | -1) => boolean) | null>(null);
   const shortcut = useRef<(key: string) => boolean>(() => false);
   shortcut.current = (key) => {
     const currentFile = currentFileOf(targetKey);
@@ -1261,6 +1271,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         // On a chapter's intro j goes to the first file first.
         const ahead = key === "j" && notReached(currentFile);
         goToFile(shown[ahead ? Math.max(at, 0) : key === "j" ? at + 1 : Math.max(at - 1, 0)]);
+        return true;
+      }
+      case "J": case "K": {
+        if (!inChapter) return false;
+        if (changeStep.current?.(key === "J" ? 1 : -1)) return true;
+        // Past the last change drawn, the next file, as j goes; before the first, the one before.
+        goToFile(shown[key === "J" ? at + 1 : Math.max(at - 1, 0)]);
         return true;
       }
       case "n": case "p": {
@@ -1360,12 +1377,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     panel: { view: shownPanel, open: openPanel, toggle: togglePanel, close: closePanel },
     files: { views, toggleViewed, markChapterViewed, nextUnviewed, foldAll: foldAllFiles },
     compare: { baseline: baselineSha, head: review?.headSha ?? null, from: compareFrom, pick: pickCompare, since, narrowed: sinceOnly, setNarrowed: flip, error: sinceError, what: sinceWhat },
-    display: { layout: diffLayout, toggleLayout, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads, commentsFolded, setCommentsFolded: changeCommentsFolded },
+    display: { layout: diffLayout, toggleLayout, newFiles, setNewFiles: changeNewFiles, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads, commentsFolded, setCommentsFolded: changeCommentsFolded },
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
     shortcuts: shortcutsOn,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn]);
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn]);
 
   if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");
@@ -1463,6 +1480,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 onSinceOnly={rereview || sheet || !compareShown ? flip : undefined}
                 switchSlot={switchSlot}
                 prUrl={isPr ? review?.url ?? undefined : undefined}
+                newFiles={newFiles}
+                onNewFiles={changeNewFiles}
+                changeStep={changeStep}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>

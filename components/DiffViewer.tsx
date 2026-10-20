@@ -1,4 +1,4 @@
-import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { z } from "zod";
 import { areSelectionsEqual, parsePatchFiles, processFile } from "@pierre/diffs";
@@ -19,6 +19,11 @@ import { testWeakening, weakeningChip, WEAKENING_COUNTED } from "../lib/test-wea
 import { lockfileDigest, packagesChange } from "../lib/lockfile-digest";
 import { hasHiddenBidi } from "../lib/hidden-bidi";
 import { withBlankContext } from "../lib/blank-context";
+import { DIFF_CSS, ONE_SIDE_CSS, WHOLE_FILE_CSS, sinceReviewCSS, tokenStyleCSS } from "../lib/diff-css";
+import { applyOpen, decorate } from "../lib/diff-decorate";
+import { FOLD_ROW, FOLD_ROW_COARSE, longRuns, runsHolding, type LongRun } from "../lib/long-runs";
+import { confettiCSS, confettiRows } from "../lib/confetti";
+import { LongRunFold, LongRunsContext } from "./LongRunFold";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
 import { Badge } from "./ui/badge";
@@ -27,6 +32,7 @@ import { FilePath } from "./ui/file-path";
 import { InlineCode } from "./ui/inline-code";
 import { FileTag } from "./FileTag";
 import { useIsCompactViewport } from "./ui/hooks/use-compact-viewport";
+import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { TOUCH_COMPACT } from "./touch";
 import { Segmented } from "./reading/DiffOptions";
 import { InlineDraftContext, InlineLocation, locationKey } from "./InlineDraft";
@@ -50,8 +56,19 @@ export interface FileViewFlags {
   viewedAt?: number;
 }
 
-/** A line pierre shows CI failures, GitHub threads, a draft comment, a discussion, or the comment box under. Its content comes from CheckFailuresContext, DiffThreadsContext, and InlineDraftContext. */
-type Annotation = CommentLocation;
+export { sinceReviewCSS } from "../lib/diff-css";
+
+/** How a new or deleted file draws: as a file, its code with a rail beside it, or as a diff. */
+export type NewFilesShow = "file" | "diff";
+
+/** A long run of deleted lines' fold row, under the last of its lines that show; `fold` is the run's index in its file. */
+interface FoldAt { fold: number; file: string }
+
+/**
+ * A line pierre shows CI failures, GitHub threads, a draft comment, a discussion, or the comment box under, whose content
+ * comes from CheckFailuresContext, DiffThreadsContext, and InlineDraftContext; or a long run's fold row.
+ */
+type Annotation = CommentLocation | FoldAt;
 
 // NOTE: @pierre/diffs@1.3.6 — `parsePatchFiles` returns `ParsedPatch[]`, each
 // with a nested `.files`; `FileDiff`'s prop is `fileDiff` and the theme lives
@@ -86,6 +103,8 @@ function startsFolded(path: string, stats: { add: number; del: number }, declare
 }
 
 const NONE = new Set<string>();
+const NO_RUNS: readonly LongRun[] = [];
+const NO_FOLDS: ReadonlySet<number> = new Set();
 
 /**
  * A chapter showing more rows than this draws each file's code only once it nears the screen:
@@ -102,10 +121,11 @@ function rowsOf(fileDiff: FileDiffMetadata, style: "split" | "unified"): number 
 
 /**
  * The height pierre draws a file's diff at, held while it waits to draw so the files above it don't
- * move when it does: 20px rows, 16px of padding, and a 48px bar for each run of lines it skips.
+ * move when it does: 20px rows, 16px of padding, a 48px bar for each run of lines it skips, and a fold row (`foldRow`
+ * tall) for each long run of deleted lines it folds, less the rows its closed folds hide.
  */
-function drawnHeight(fileDiff: FileDiffMetadata, style: "split" | "unified"): number {
-  return 16 + rowsOf(fileDiff, style) * 20 + fileDiff.hunks.filter((hunk) => hunk.collapsedBefore > 0).length * 48;
+function drawnHeight(fileDiff: FileDiffMetadata, style: "split" | "unified", hidden = 0, folds = 0, foldRow = FOLD_ROW): number {
+  return 16 + (rowsOf(fileDiff, style) - hidden) * 20 + fileDiff.hunks.filter((hunk) => hunk.collapsedBefore > 0).length * 48 + folds * foldRow;
 }
 
 /**
@@ -146,22 +166,12 @@ function scrollToCenter(el: HTMLElement, behavior: ScrollBehavior, header = 0, f
   box.scrollBy({ top: top - view.top - header - Math.max(0, (room - height) / 2), behavior });
 }
 
+/** How long, in ms, ⇧J or ⇧K goes on from the change it last went to, in view yet or not. */
+const CHANGE_STEP_RECENT = 1000;
+
 /** Outlines where a reveal landed for a moment, so it's clear which line or comment it is. */
 function flash(el: HTMLElement) {
   el.animate?.([{ outline: "2px solid var(--primary)", outlineOffset: "-2px" }, { outline: "2px solid transparent", outlineOffset: "-2px" }], { duration: 1600, easing: "ease-in" });
-}
-
-/**
- * Highlights lines new since your review. Pierre marks each rendered row with its
- * line type and number: code rows carry data-line, gutter rows data-column-number,
- * and deletion rows use old-file numbers in both layouts.
- */
-export function sinceReviewCSS(newLines: number[], newDeletions: number[]): string {
-  const rows = (type: string, lines: number[]) => lines.map((n) => `[data-line-type="${type}"]:is([data-line="${n}"],[data-column-number="${n}"])`);
-  const selectors = [...rows("change-addition", newLines), ...rows("change-deletion", newDeletions)];
-  if (!selectors.length) return "";
-  const tint = "color-mix(in oklab, var(--primary) 14%, transparent)";
-  return `${selectors.join(",\n")} { box-shadow: inset 2px 0 0 var(--primary); background-image: linear-gradient(${tint}, ${tint}); }`;
 }
 
 function parseFileDiff(text: string): FileDiffMetadata | null {
@@ -189,7 +199,9 @@ const StaticDiff = memo(function StaticDiff({ text, darkTheme, lightTheme, theme
     disableFileHeader: true,
     tokenizeMaxLength: TOKENIZE_MAX_LENGTH,
     overflow: wrap ? "wrap" : "scroll",
-  }), [darkTheme, lightTheme, themeMode, wrap]);
+    unsafeCSS: DIFF_CSS + tokenStyleCSS(themeMode),
+    onPostRender: (node, _diff, phase) => { if (fileDiff && phase !== "unmount") decorate(node, fileDiff); },
+  }), [darkTheme, lightTheme, themeMode, wrap, fileDiff]);
   if (!fileDiff) return null;
   return <div className="overflow-x-auto"><FileDiff fileDiff={fileDiff} options={options} /></div>;
 });
@@ -215,12 +227,36 @@ function lineRow(fileEl: HTMLElement, at: CommentLocation): HTMLElement | undefi
     ?? shadow?.querySelector<HTMLElement>(`:is(${column},[data-unified]) [data-line="${at.line}"]:not([data-line-type="${other}"])`)) ?? undefined;
 }
 
+/**
+ * Each change the chapter's drawn code shows, top to bottom: the first row of a block of added or deleted lines, its
+ * file's card, and its line. A split's two sides of a block are one change, and so is a folded run with its block.
+ */
+function changeStops(root: HTMLElement | null): { row: HTMLElement; card: HTMLElement; top: number; line: number; old: boolean }[] {
+  const stops: { row: HTMLElement; card: HTMLElement; top: number; line: number; old: boolean }[] = [];
+  for (const card of Array.from(root?.querySelectorAll<HTMLElement>("[data-file]") ?? [])) {
+    const tops = new Set<number>();
+    for (const cell of Array.from(card.querySelector("diffs-container")?.shadowRoot?.querySelectorAll<HTMLElement>('[data-column-number][data-line-type^="change"]') ?? [])) {
+      // A comment under a changed line doesn't start another change.
+      let before = cell.previousElementSibling;
+      while (before?.matches('[data-gutter-buffer="annotation"]')) before = before.previousElementSibling;
+      if (before?.matches('[data-line-type^="change"]') || !cell.getClientRects().length) continue;
+      const top = Math.round(cell.getBoundingClientRect().top);
+      if (tops.has(top)) continue;
+      tops.add(top);
+      const row = cell.closest("code")?.querySelector<HTMLElement>(`:scope > [data-content] > [data-line-index="${cell.dataset.lineIndex}"]`) ?? cell;
+      stops.push({ row, card, top, line: Number(cell.dataset.columnNumber), old: cell.dataset.lineType === "change-deletion" });
+    }
+  }
+  return stops.sort((a, b) => a.top - b.top);
+}
+
 /** A file's diff with its whole contents, from the diff text and contents it was made from. */
 type FullDiff = { text: string; loaded: FileContentsResult; fileDiff: FileDiffMetadata; commentable: (at: CommentLocation) => boolean };
 
 const lineEnd = (file: string, range: SelectedLineRange): CommentLocation => ({ file, line: range.end, side: (range.endSide ?? range.side) === "deletions" ? "LEFT" : "RIGHT" });
 
 function renderAnnotation({ metadata }: DiffLineAnnotation<Annotation>) {
+  if ("fold" in metadata) return <LongRunFold run={metadata.fold} />;
   return <><LineChecks at={metadata} /><LineThreads at={metadata} /><InlineLocation at={metadata} /></>;
 }
 
@@ -266,9 +302,17 @@ function FileError({ path, prUrl, onRetry }: { path: string; prUrl?: string; onR
 // One file's diff. Pierre redraws a file whenever its options or annotations
 // are new objects, which also takes focus from an open comment box, so both
 // stay the same until something in them changes.
-const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme, themeMode, diffStyle, wrap, annotations, selected, onLineSelected, onComment, unsafeCSS, wholeFile = false, commentable }: {
+const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme, themeMode, diffStyle, wrap, annotations, selected, onLineSelected, onComment, unsafeCSS, wholeFile = false, commentable, kind, asFile = false, runs = NO_RUNS, openRuns = NO_FOLDS, onToggleRun }: {
   path: string;
   fileDiff: FileDiffMetadata;
+  /** A file git adds or deletes whole, which has one side. */
+  kind?: "new" | "deleted";
+  /** Draw that file as a file: its code on the canvas, a rail beside it. */
+  asFile?: boolean;
+  /** Its long runs of deleted lines (lib/long-runs.ts), and the ones open. */
+  runs?: readonly LongRun[];
+  openRuns?: ReadonlySet<number>;
+  onToggleRun?: (file: string, run: number) => void;
   darkTheme?: string;
   lightTheme?: string;
   themeMode?: "light" | "dark";
@@ -279,13 +323,28 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
   selected: SelectedLineRange | null;
   onLineSelected?: (file: string, range: SelectedLineRange | null) => void;
   onComment?: (at: CommentLocation) => void;
-  /** Extra styles inside pierre's shadow root, such as lines new since your review. */
+  /** Extra styles inside pierre's shadow root: lines new since your review. */
   unsafeCSS?: string;
   /** Show every line of a file loaded in full, not just around its changes. */
   wholeFile?: boolean;
   /** In a file loaded in full, the lines a comment can go on. */
   commentable?: (at: CommentLocation) => boolean;
 }) {
+  const box = useRef<HTMLDivElement>(null);
+  // What each draw marks up (lib/diff-decorate.ts), read when it's done, so pierre's options stay the same object.
+  const drawing = useRef({ fileDiff, runs, openRuns });
+  drawing.current = { fileDiff, runs, openRuns };
+  // The runs the last draw folded: one it couldn't shows whole, without its fold row.
+  const [folded, setFolded] = useState<ReadonlySet<number>>(NO_FOLDS);
+  // Word emphasis on pairs of lines that share almost nothing, taken off; worked out only for a file that draws.
+  const confetti = useMemo(() => confettiCSS(confettiRows(fileDiff)), [fileDiff]);
+  const toggle = useCallback((run: number) => onToggleRun?.(path, run), [onToggleRun, path]);
+  const folds = useMemo(() => ({ runs, open: openRuns, folded, toggle }), [runs, openRuns, folded, toggle]);
+  // Opening or closing a run shows or hides its lines where they are: no redraw.
+  useEffect(() => {
+    const host = box.current?.querySelector("diffs-container");
+    if (host) applyOpen(host, openRuns);
+  }, [openRuns]);
   const fromGutter = useRef(false);
   // Pierre paints the selection we give it: the lines being dragged over, then the workspace's.
   // Giving it a selection reports that selection back, which isn't the reviewer's pick.
@@ -309,15 +368,25 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
   const options = useMemo<FileDiffOptions<Annotation>>(() => ({
     ...(darkTheme && lightTheme ? { theme: { dark: darkTheme, light: lightTheme } } : {}),
     themeType: themeMode,
-    diffStyle,
-    // + and − on changed lines, not their color alone.
-    diffIndicators: "classic",
+    // A new or deleted file has one side to show.
+    diffStyle: kind ? "unified" : diffStyle,
+    // + and − on changed lines, not their color alone; a file drawn as a file is all one kind, which its rail and
+    // header say.
+    diffIndicators: asFile ? "bars" : "classic",
+    disableBackground: asFile,
     // The card's own header names the file, counts its changes, and marks it viewed.
     disableFileHeader: true,
     tokenizeMaxLength: TOKENIZE_MAX_LENGTH,
     overflow: wrap ? "wrap" : "scroll",
-    unsafeCSS: POINTER_CSS + (unsafeCSS ?? ""),
+    unsafeCSS: POINTER_CSS + DIFF_CSS + (kind ? ONE_SIDE_CSS : "") + (kind && asFile ? WHOLE_FILE_CSS[kind] : "") + tokenStyleCSS(themeMode) + confetti + (unsafeCSS ?? ""),
+    onPostRender: (node, _diff, phase) => {
+      if (phase === "unmount") return;
+      const { fileDiff, runs, openRuns } = drawing.current;
+      const done = decorate(node, fileDiff, runs, openRuns);
+      setFolded((before) => (before.size === done.size && [...done].every((run) => before.has(run)) ? before : done));
+    },
     expandUnchanged: wholeFile,
+    expansionLineCount: 20,
     // GitHub-style line picking: drag to select a range to comment on or ask
     // about, or use the gutter "+" to open a comment box at a line.
     enableLineSelection: true,
@@ -345,11 +414,13 @@ const FileBody = memo(function FileBody({ path, fileDiff, darkTheme, lightTheme,
       queueMicrotask(() => { fromGutter.current = false; });
       onComment(lineEnd(path, range));
     },
-  }), [darkTheme, lightTheme, themeMode, diffStyle, wrap, path, onLineSelected, onComment, unsafeCSS, wholeFile, commentable]);
+  }), [darkTheme, lightTheme, themeMode, diffStyle, wrap, path, onLineSelected, onComment, unsafeCSS, wholeFile, commentable, kind, asFile, confetti]);
   // A drag the browser takes over as a scroll ends pierre's pick without onLineSelectionEnd: the lines go back.
   return (
-    <div className="overflow-x-auto" onPointerDownCapture={(event) => { pointer.current = event.pointerType || "mouse"; }} onPointerCancelCapture={() => setDragging(undefined)}>
-      <FileDiff fileDiff={fileDiff} options={options} lineAnnotations={annotations} selectedLines={shown} renderAnnotation={renderAnnotation} />
+    <div ref={box} className="overflow-x-auto" onPointerDownCapture={(event) => { pointer.current = event.pointerType || "mouse"; }} onPointerCancelCapture={() => setDragging(undefined)}>
+      <LongRunsContext.Provider value={folds}>
+        <FileDiff fileDiff={fileDiff} options={options} lineAnnotations={annotations} selectedLines={shown} renderAnnotation={renderAnnotation} />
+      </LongRunsContext.Provider>
     </div>
   );
 });
@@ -381,8 +452,16 @@ export const DiffViewer = memo(function DiffViewer({
   onSinceOnly,
   switchSlot,
   prUrl,
+  newFiles = "file",
+  onNewFiles,
+  changeStep,
 }: {
   diffLayout?: "split" | "unified";
+  /** How a new or deleted file draws, which its row's Show as diff switches for every review (`onNewFiles`). */
+  newFiles?: NewFilesShow;
+  onNewFiles?: (show: NewFilesShow) => void;
+  /** Set to step to the next or previous change in the code drawn (⇧J, ⇧K): false when there's none that way. */
+  changeStep?: MutableRefObject<((direction: 1 | -1) => boolean) | null>;
   /** Wrap long lines instead of scrolling them sideways. */
   wrapLines?: boolean;
   /** Show lines whose change is only whitespace as unchanged. */
@@ -431,6 +510,8 @@ export const DiffViewer = memo(function DiffViewer({
   const theme = useTheme();
   // A phone's, or one held sideways: the workspace's layout says, not the window's width.
   const compact = useIsCompactViewport();
+  // A touch screen's fold rows are taller, and a file waiting to draw holds their height.
+  const coarse = useMediaQuery("(pointer: coarse)");
   const draft = useContext(InlineDraftContext);
   const github = useContext(DiffThreadsContext);
   const failures = useContext(CheckFailuresContext);
@@ -468,12 +549,18 @@ export const DiffViewer = memo(function DiffViewer({
       const stats = diffStats(text);
       const shownStats = shown === text ? stats : diffStats(shown);
       const chosen = isChosenPath(f);
+      // A file git adds or deletes whole, as pierre reads its `new file mode` or `deleted file mode`.
+      const kind = fileDiff?.hunks.length && (fileDiff.type === "new" || fileDiff.type === "deleted") ? fileDiff.type : undefined;
       return [{
         path: f.path,
         oldPath: f.oldPath,
         stats,
         chosen,
-        noisy: startsFolded(f.path, stats, generated.has(f.path), chosen, foldGenerated),
+        // A deleted file starts folded too: what it says is that it's gone.
+        noisy: startsFolded(f.path, stats, generated.has(f.path), chosen, foldGenerated) || kind === "deleted",
+        kind,
+        // Long runs of deleted lines, folded past their first lines.
+        runs: fileDiff && !kind ? longRuns(fileDiff) : NO_RUNS,
         fileDiff,
         shown,
         whitespaceOnly: stats.add + stats.del > 0 && shownStats.add + shownStats.del === 0,
@@ -482,7 +569,6 @@ export const DiffViewer = memo(function DiffViewer({
         change,
         // A split file changed here when its hunks in this chapter did, or changes near them went.
         changedHere: change?.status === "added" || (change?.status === "changed" && (!split || !!hunksIn(change.patch, own) || !!dropped)),
-        css: change?.status === "changed" ? sinceReviewCSS(change.newLines, change.newDeletions) : "",
         split,
         first,
         dropped,
@@ -618,13 +704,15 @@ export const DiffViewer = memo(function DiffViewer({
     return byFile;
   }, [github?.threads, failures, patch]);
 
-  // The lines in each file with a GitHub thread, draft comment, discussion, or the comment box.
-  // A file keeps its list until those lines change; their content comes from context.
+  // The lines in each file with a GitHub thread, draft comment, discussion, or the comment box, then each long run's
+  // fold row. A file keeps its list until those lines change; their content comes from context.
   const previous = useRef(new Map<string, { key: string; list: DiffLineAnnotation<Annotation>[] }>());
   const inPart = useMemo(() => new Map(perFile.flatMap((f) => f.inPart ? [[f.path, f.inPart] as const] : [])), [perFile]);
+  const runsOf = useMemo(() => new Map(perFile.map((f) => [f.path, f.runs])), [perFile]);
   const annotations = useMemo(() => {
     const next = new Map<string, { key: string; list: DiffLineAnnotation<Annotation>[] }>();
     for (const path of files) {
+      const runs = runsOf.get(path) ?? NO_RUNS;
       const composer = draft?.composer?.file === path ? draft.composer : null;
       const shows = inPart.get(path) ?? (() => true);
       const lines: CommentLocation[] = [];
@@ -634,13 +722,44 @@ export const DiffViewer = memo(function DiffViewer({
       }
       // The box's line comes first: pierre keys annotations by position, so lines coming and going don't remount it.
       if (composer) lines.unshift({ file: path, line: composer.line, side: composer.side });
-      const key = JSON.stringify(lines.map((at) => [at.line, at.side]));
+      const key = JSON.stringify([lines.map((at) => [at.line, at.side]), runs.map((run) => run.anchor)]);
       const cached = previous.current.get(path);
-      next.set(path, cached?.key === key ? cached : { key, list: lines.map((at) => ({ side: annotationSide(at.side), lineNumber: at.line, metadata: at })) });
+      next.set(path, cached?.key === key ? cached : { key, list: [
+        ...lines.map((at): DiffLineAnnotation<Annotation> => ({ side: annotationSide(at.side), lineNumber: at.line, metadata: at })),
+        ...runs.map((run, fold): DiffLineAnnotation<Annotation> => ({ side: "deletions", lineNumber: run.anchor, metadata: { fold, file: path } })),
+      ] });
     }
     previous.current = next;
     return next;
-  }, [files, draft?.comments, draft?.discussions, draft?.composer, fromGitHub, inPart]);
+  }, [files, draft?.comments, draft?.discussions, draft?.composer, fromGitHub, inPart, runsOf]);
+
+  // Long runs of deleted lines opened or closed, by file. Unset, a run starts open when a comment, the comment box, a CI
+  // failure, or the lines picked are in it. A new diff starts over.
+  const [runsShown, setRunsShown] = useState<Record<string, Record<number, boolean>>>({});
+  useEffect(() => { setRunsShown({}); }, [patch]);
+  const openRunsCache = useRef(new Map<string, ReadonlySet<number>>());
+  const openRuns = useMemo(() => {
+    const next = new Map<string, ReadonlySet<number>>();
+    for (const [path, runs] of runsOf) {
+      if (!runs.length) continue;
+      const holding = runsHolding(runs, (annotations.get(path)?.list ?? []).flatMap((a) => a.side === "deletions" && !("fold" in a.metadata) ? [a.lineNumber] : []));
+      // Lines picked across a run, which picks its folded lines too: by old numbers from where the pick starts.
+      const picked = selectedLines?.file === path && selectedLines.range.side === "deletions" ? selectedLines.range : null;
+      const end = picked && (picked.endSide ?? "deletions") === "deletions" ? picked.end : picked?.start;
+      const across = (run: LongRun) => !!picked && Math.min(picked.start, end!) <= run.to && Math.max(picked.start, end!) >= run.anchor;
+      const open = new Set(runs.flatMap((run, index) => (runsShown[path]?.[index] ?? (holding.includes(index) || across(run))) ? [index] : []));
+      const cached = openRunsCache.current.get(path);
+      next.set(path, cached && cached.size === open.size && [...open].every((run) => cached.has(run)) ? cached : open);
+    }
+    openRunsCache.current = next;
+    return next;
+  }, [runsOf, annotations, selectedLines, runsShown]);
+  const openRunsNow = useRef(openRuns);
+  openRunsNow.current = openRuns;
+  const toggleRun = useCallback((file: string, run: number) => {
+    const open = !openRunsNow.current.get(file)?.has(run);
+    setRunsShown((shown) => ({ ...shown, [file]: { ...shown[file], [run]: open } }));
+  }, []);
 
   // Opens the file, then scrolls to the line once the chapter's diffs stop moving:
   // pierre draws each file once its highlighting loads, then sizes the rows beside comments.
@@ -651,6 +770,9 @@ export const DiffViewer = memo(function DiffViewer({
     const behavior = lazy || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
     setCollapsed((c) => ({ ...c, [at.file]: false }));
     setNear((current) => current.has(at.file) ? current : new Set([...current, at.file]));
+    // A line in a folded run: the run opens, so its line shows.
+    const holding = at.side === "LEFT" ? runsHolding(runsOf.get(at.file) ?? NO_RUNS, [at.line]) : [];
+    if (holding.length) setRunsShown((shown) => ({ ...shown, [at.file]: { ...shown[at.file], ...Object.fromEntries(holding.map((run) => [run, true])) } }));
     const drawn = () => Array.from(root.current?.querySelectorAll("diffs-container") ?? []).every((el) => el.shadowRoot?.querySelector("[data-line]"));
     let tries = 0;
     let lastHeight = -1;
@@ -681,6 +803,38 @@ export const DiffViewer = memo(function DiffViewer({
     });
     return () => cancelAnimationFrame(frame);
   }, [reveal]);
+
+  // ⇧J and ⇧K: on from the change last gone to while it's in view, or gone to a moment ago (a smooth scroll there may
+  // not have brought it into view yet, and a held key repeats faster), else from the view's top, to the next or
+  // previous change drawn, centered and outlined a moment, and said.
+  const [changeSaid, setChangeSaid] = useState("");
+  const lastChange = useRef<{ row: HTMLElement; at: number } | null>(null);
+  useEffect(() => {
+    if (!changeStep) return;
+    changeStep.current = (direction) => {
+      const box = root.current && scrollParent(root.current);
+      const stops = changeStops(root.current);
+      if (!box || !stops.length) return false;
+      const view = box.getBoundingClientRect();
+      const inView = (el: HTMLElement) => { const rect = el.getBoundingClientRect(); return rect.bottom > view.top && rect.top < view.bottom; };
+      // Still drawn, as it's among the stops.
+      const from = stops.findIndex((stop) => stop.row === lastChange.current?.row);
+      const recent = from >= 0 && performance.now() - lastChange.current!.at < CHANGE_STEP_RECENT;
+      // Below the file's sticky row, which is about 36px.
+      const top = view.top + 40;
+      const index = from >= 0 && (recent || inView(stops[from].row)) ? from + direction
+        : direction === 1 ? stops.findIndex((stop) => stop.top >= top) : stops.reduce((last, stop, at) => (stop.top < top ? at : last), -1);
+      const stop = stops[index];
+      if (!stop) return false;
+      lastChange.current = { row: stop.row, at: performance.now() };
+      const header = stop.card.querySelector("[data-file-header]")?.getBoundingClientRect().height;
+      scrollToCenter(stop.row, lazy || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", header);
+      flash(stop.row);
+      setChangeSaid(`Change ${index + 1} of ${stops.length} · ${stop.card.dataset.file}:${stop.line}${stop.old ? " (old line)" : ""}`);
+      return true;
+    };
+    return () => { changeStep.current = null; };
+  }, [changeStep, lazy]);
 
   // Each file's ▤ n, counted as the comments list counts: its drafts and its threads on GitHub that aren't resolved. In a
   // split file, those in this chapter's part; without the nits Hide nits hides (never one that needs you).
@@ -740,8 +894,13 @@ export const DiffViewer = memo(function DiffViewer({
   return (
     <div ref={root} className="space-y-4">
       {narrowedStatus}
+      {changeStep && <span role="status" className="sr-only">{changeSaid}</span>}
       {compareSwitch}
-      {perFile.map(({ path, oldPath, stats, chosen, fileDiff, whitespaceOnly, source, change, changedHere, css, split, first, dropped, noisy: noise, weakening, digest, bare, bidi }) => {
+      {perFile.map(({ path, oldPath, stats, chosen, fileDiff, whitespaceOnly, source, change, changedHere, kind, runs, split, first, dropped, noisy: noise, weakening, digest, bare, bidi }) => {
+        const asFile = !!kind && newFiles === "file";
+        const lines = kind === "deleted" ? stats.del : stats.add;
+        const opened = openRuns.get(path) ?? NO_FOLDS;
+        const css = change?.status === "changed" ? sinceReviewCSS(change.newLines, change.newDeletions, asFile) : "";
         const flags = views.get(path);
         const viewed = flags?.viewed ?? false;
         const stale = flags?.stale ?? false;
@@ -803,7 +962,20 @@ export const DiffViewer = memo(function DiffViewer({
                   <span className="sr-only">{commentLabel}</span>
                 </span>
               )}
-              <DiffStat add={stats.add} del={stats.del} className="hidden @min-[700px]/review:inline-flex" />
+              {/* A file added or deleted whole says so, and how long it is, rather than counting its lines as changes. */}
+              {kind && (
+                <Badge tone={kind === "new" ? "added" : "removed"} size="sm" icon={<Icon name={kind === "new" ? "FilePlus2" : "FileMinus2"} aria-hidden />} className="text-[11px]">
+                  {kind === "new" ? "New file" : "Deleted file"}
+                </Badge>
+              )}
+              {kind
+                ? <span className="hidden shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground @min-[700px]/review:inline">{lines.toLocaleString()} line{lines === 1 ? "" : "s"}</span>
+                : <DiffStat add={stats.add} del={stats.del} className="hidden @min-[700px]/review:inline-flex" />}
+              {kind && !folded && onNewFiles && (
+                <Button variant="ghost" size="sm" aria-pressed={!asFile} className={cn("hidden h-6 shrink-0 px-2 text-[11px] text-muted-foreground aria-pressed:text-primary @min-[700px]/review:inline-flex", TOUCH_COMPACT)} onClick={() => onNewFiles(asFile ? "diff" : "file")}>
+                  Show as diff
+                </Button>
+              )}
               <label className={cn(
                 "flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors",
                 TOUCH_COMPACT,
@@ -847,7 +1019,9 @@ export const DiffViewer = memo(function DiffViewer({
                 {detailed && <div className="flex flex-wrap items-center gap-1.5">
                   <FileTag file={path} generated={generated.has(path)} chosen={chosen} className="text-[11px]" />
                   {/* Why a file of code folded: its tag says why a lockfile or generated file did. */}
-                  {showDiff && stats.add + stats.del > LARGE_DIFF && <span className="text-[11px] tabular-nums text-muted-foreground">Large diff · {(stats.add + stats.del).toLocaleString()} lines</span>}
+                  {showDiff && (kind === "deleted"
+                    ? <span className="text-[11px] tabular-nums text-muted-foreground">Deleted · {lines.toLocaleString()} line{lines === 1 ? "" : "s"}</span>
+                    : stats.add + stats.del > LARGE_DIFF && <span className="text-[11px] tabular-nums text-muted-foreground">Large diff · {(stats.add + stats.del).toLocaleString()} lines</span>)}
                   {showDiff && (
                     <Button variant="ghost" size="sm" aria-label={`Show diff of ${path}`} className={cn("h-6 shrink-0 px-2 text-[11px]", TOUCH_COMPACT)} onClick={() => toggleCollapsed(path)}>Show diff</Button>
                   )}
@@ -876,7 +1050,7 @@ export const DiffViewer = memo(function DiffViewer({
               </p>
             )}
             {!folded && fileDiff && !draws(path) && (
-              <div data-pending-diff aria-hidden style={{ ...PENDING_ROWS, height: drawnHeight(full?.fileDiff ?? fileDiff, diffStyle) }} />
+              <div data-pending-diff aria-hidden style={{ ...PENDING_ROWS, height: drawnHeight(full?.fileDiff ?? fileDiff, kind ? "unified" : diffStyle, runs.reduce((hidden, run, index) => hidden + (opened.has(index) ? 0 : run.count), 0), runs.length, coarse ? FOLD_ROW_COARSE : FOLD_ROW) }} />
             )}
             {!folded && fileDiff && draws(path) && (
               <ErrorBoundary resetKey={full?.fileDiff ?? fileDiff} fallback={(retry) => <FileError path={path} prUrl={prUrl} onRetry={retry} />}>
@@ -895,6 +1069,11 @@ export const DiffViewer = memo(function DiffViewer({
                 onLineSelected={onLineSelected}
                 onComment={draft?.editable ? draft.open : undefined}
                 unsafeCSS={css}
+                kind={kind}
+                asFile={asFile}
+                runs={runs}
+                openRuns={opened}
+                onToggleRun={toggleRun}
               />
               </ErrorBoundary>
             )}
