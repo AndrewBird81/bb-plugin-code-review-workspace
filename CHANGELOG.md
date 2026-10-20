@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.0 — unreleased
+## 1.2.0 — 2026-10-20
 
 Give a review a name of your own. **Rename…** in its ⋯ menu changes what your lists call it, and nothing on GitHub; its Overview keeps the PR's title under the name. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.2.0. Rolling back to 1.1.3 keeps the names, unused, until you update again.
 
