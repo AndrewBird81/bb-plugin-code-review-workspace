@@ -1,3 +1,4 @@
+import { compare } from "natural-orderby";
 import { fold } from "./review-search";
 
 export interface TreeFolder { kind: "folder"; name: string; path: string; children: TreeNode[] }
@@ -5,7 +6,7 @@ export interface TreeFile { kind: "file"; name: string; path: string }
 export type TreeNode = TreeFolder | TreeFile;
 
 /**
- * Changed files as a folder tree: in each folder, folders first and then files, each by name. A folder
+ * Changed files as a folder tree: in each folder, folders first and then files, each by name in natural order. A folder
  * whose only entry is another folder shows as one ("src/lib"), as GitHub's file tree does.
  */
 export function fileTree(paths: readonly string[]): TreeNode[] {
@@ -24,9 +25,12 @@ export function fileTree(paths: readonly string[]): TreeNode[] {
   return arrange(root).children;
 }
 
+const byName = compare();
+
 function arrange(folder: TreeFolder): TreeFolder {
   const children = folder.children.map((child) => child.kind === "folder" ? arrange(child) : child);
-  children.sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "folder" ? -1 : 1);
+  // Natural order, as GitHub's file tree has it: step-2 before step-10.‮
+  children.sort((a, b) => a.kind === b.kind ? byName(a.name, b.name) : a.kind === "folder" ? -1 : 1);
   // The root keeps its folders: it has no name to join them to.
   if (folder.path && children.length === 1 && children[0].kind === "folder") {
     const only = children[0];
