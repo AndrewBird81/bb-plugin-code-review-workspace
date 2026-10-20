@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.2 — 2026-10-20
+
+- Use the magnifying glass and code brackets for each review row in **Needs review** and **Pinned**.
+
 ## 1.1.1 — 2026-10-20
 
 - Replace the clipboard icon with a magnifying glass and code brackets.

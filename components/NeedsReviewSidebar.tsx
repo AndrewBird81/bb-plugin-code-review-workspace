@@ -186,7 +186,7 @@ export function NeedsReviewSidebar() {
       return <li key={review.targetKey} className="group/row flex h-[var(--bb-sidebar-row-height)] min-w-0 items-center rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground max-md:pointer-coarse:h-[var(--bb-sidebar-row-height-coarse)]">
         <a href={`/plugins/${pluginId}/review/${review.targetKey}`} title={tooltip} aria-describedby={describedBy} onClick={(event) => open(event, review.targetKey)}
           className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md pl-2 pr-1 outline-none ring-sidebar-ring focus-visible:ring-2">
-          <Icon name={kindLook(review).icon} className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <HostIcon name={`${pluginId}/review`} fallback={kindLook(review).icon} className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <span className="min-w-0 flex-1 truncate">{title}</span>
           {waited && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{waited}</span>}
         </a>
