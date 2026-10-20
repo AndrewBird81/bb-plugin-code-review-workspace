@@ -2,11 +2,20 @@
 
 ## Unreleased
 
-Docs only; the plugin doesn't change.
+**All reviews** is easier to scan: each review stands on its own, and the sections and their parts read as headings.
+
+- A part's reviews (**Back to you**, **New**, **Team requests**), or a section's, sit in one card with a line between them; a stack keeps its left rule inside the card.
+- Section headings are a size larger, with their count in a badge. **Needs review**'s is filled, like the title bar's needs-you badge, while anything needs you.
+- Back to you, New, and Team requests are small capitals, like Finish review's part headings.
+- The repository and number are a tier quieter, so the title leads.
+- "Nothing needs you right now" sits in a dashed box, and the list loads as a card of placeholder rows.
+
+### Docs
 
 - The README shows what the plugin does, a feature at a time with a screenshot, then requirements, a quick start, and moving from Guided Review. The full reference moves to [docs/guide.md](docs/guide.md). It adds Troubleshooting, Uninstall, What the agents can and can't do, and Other settings and defaults, and moves notes for older versions into Upgrading from older versions.
 - Contributor and operator detail moves to [docs/development.md](docs/development.md), [docs/operations.md](docs/operations.md), and [docs/devices.md](docs/devices.md).
 - PRODUCT.md describes the plugin as it is now, and [PLUGIN_OVERVIEW.md](PLUGIN_OVERVIEW.md) is the marketplace overview.
+- The README's All reviews screenshot shows the new list.
 - The plugin's description says "review agent", as the UI does, and `package.json` has keywords. The `code-review-workspace` skill lists every option `bb review comment` takes.
 
 ## 1.1.2 — 2026-10-20

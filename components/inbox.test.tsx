@@ -67,7 +67,10 @@ test("reviews are in sections, not tabs: Needs review shows, the rest start clos
   ]);
   await slot.findByText("Pending change");
   expect(slot.queryByRole("group", { name: "Filter reviews" })).toBeNull();
-  expect(slot.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual(["Needs review· 1", "Reviewed· 1", "Archive· 1"]);
+  expect(slot.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual(["Needs review, 1", "Reviewed, 1", "Archive, 1"]);
+  // What needs you is counted as the title bar's needs-you badge is; the rest quietly.
+  expect(within(slot.getByRole("heading", { name: /^Needs review/ })).getByText("1").className).toContain("bg-primary");
+  expect(within(slot.getByRole("heading", { name: /^Reviewed/ })).getByText("1").className).toContain("bg-muted");
   expect(header("Reviewed").getAttribute("aria-expanded")).toBe("false");
   expect(slot.queryByText("Accepted change")).toBeNull();
   expect(slot.queryByText("Finished change")).toBeNull();
@@ -124,6 +127,7 @@ test("with nothing for you, Needs review says so and how many wait on their auth
     { targetKey: "c", title: "Change Quiet", status: "ready", turn: turn("waiting", "waiting", "Commented") },
   ]);
   expect((await slot.findByText(/^Nothing needs you right now/)).textContent).toBe("Nothing needs you right now · 2 waiting on authors");
+  expect(within(slot.getByRole("heading", { name: /^Needs review/ })).getByText("0").className).not.toContain("bg-primary");
   slot.lifecycle.unmount();
 });
 
@@ -231,7 +235,7 @@ test("the box finds reviews by repository, author, title, or number in every sec
   fireEvent.change(find, { target: { value: "nothing like it" } });
   expect(slot.getByText("No reviews match “nothing like it”")).toBeTruthy();
   fireEvent.change(find, { target: { value: "retries" } });
-  expect(slot.getByRole("heading", { name: /^Reviewed/ }).textContent).toBe("Reviewed· 1");
+  expect(slot.getByRole("heading", { name: /^Reviewed/ }).textContent).toBe("Reviewed, 1");
   // Esc clears it.
   fireEvent.keyDown(find, { key: "Escape" });
   expect((find as HTMLInputElement).value).toBe("");

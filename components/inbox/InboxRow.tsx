@@ -61,25 +61,25 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   const quick = "size-6 px-0 text-muted-foreground hover:text-foreground aria-disabled:opacity-50";
   return (
     <div ref={rowRef} className="group/row relative flex min-w-0 items-center hover:bg-state-hover has-[[data-row]:focus-visible]:bg-state-hover">
-      <button type="button" data-row onClick={onOpen} className={cn("min-w-0 flex-1 px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", short ? "py-1.5" : "py-2 pointer-coarse:py-3")}>
+      <button type="button" data-row onClick={onOpen} className={cn("min-w-0 flex-1 px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", short ? "py-1.5" : "py-2.5 pointer-coarse:py-3")}>
         <span className="flex min-w-0 items-baseline gap-3">
           <span id={titleId} className="min-w-0 flex-1 truncate text-sm font-medium leading-5 text-foreground">
             <InlineCode text={title} />
             {pinnable && review.pinnedAt && <Icon name="Pin" className="ml-1.5 inline size-3.5 align-[-2px] text-muted-foreground" aria-label="Pinned" />}
           </span>
-          {where && <span className="hidden shrink-0 font-mono text-[11px] text-muted-foreground @min-[720px]/inbox:inline">{where}</span>}
+          {where && <span className="hidden shrink-0 font-mono text-[11px] text-subtle-foreground @min-[720px]/inbox:inline">{where}</span>}
           {when && <span className="w-7 shrink-0 text-right text-xs tabular-nums text-subtle-foreground">{when}</span>}
         </span>
         {/* Narrow, where the PR is follows its status, which comes first when there's no room for both. */}
-        <StatusLine parts={statusLine(review, { knobs: { unattendedAgents } })} after={where ? { content: <span className="font-mono text-[11px]">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
+        <StatusLine parts={statusLine(review, { knobs: { unattendedAgents } })} after={where ? { content: <span className="font-mono text-[11px] text-subtle-foreground">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
           className="mt-0.5 text-xs leading-4 text-muted-foreground" />
       </button>
       {/* A fine pointer's quick actions show over the end of the status line, clear of the line above, while the row is
           hovered or focused, and stay while one's menu is open; a touch screen keeps Review actions, 44px, beside the
           row. The strip hides the status line under it, with the row's tint layered over, as the row has it. */}
-      <div className={cn("flex shrink-0 items-center gap-0.5 pr-1.5 pointer-fine:absolute pointer-fine:right-1.5 pointer-fine:rounded-md pointer-fine:bg-background pointer-fine:pr-0 pointer-fine:opacity-0 pointer-fine:group-hover/row:opacity-100 pointer-fine:group-focus-within/row:opacity-100 pointer-fine:has-[[aria-expanded=true]]:opacity-100",
+      <div className={cn("flex shrink-0 items-center gap-0.5 pr-1.5 pointer-fine:absolute pointer-fine:right-1.5 pointer-fine:rounded-md pointer-fine:bg-card pointer-fine:pr-0 pointer-fine:opacity-0 pointer-fine:group-hover/row:opacity-100 pointer-fine:group-focus-within/row:opacity-100 pointer-fine:has-[[aria-expanded=true]]:opacity-100",
         "pointer-fine:group-hover/row:bg-[linear-gradient(var(--state-hover),var(--state-hover))] pointer-fine:group-has-[[data-row]:focus-visible]/row:bg-[linear-gradient(var(--state-hover),var(--state-hover))]",
-        short ? "pointer-fine:bottom-0" : "pointer-fine:bottom-0.5")}>
+        short ? "pointer-fine:bottom-0" : "pointer-fine:bottom-1")}>
         <div className="flex items-center gap-0.5 pointer-coarse:hidden">
           {snoozable && <Popover open={snoozeOpen} onOpenChange={setSnoozeOpen}>
             <Hint label="Snooze">

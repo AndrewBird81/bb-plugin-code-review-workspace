@@ -20,7 +20,7 @@ import { Icon } from "../ui/icon";
 import { Skeleton } from "../ui/skeleton";
 import { FirstRun } from "./FirstRun";
 import { InboxRow } from "./InboxRow";
-import { InboxPart, InboxSection } from "./InboxSection";
+import { InboxPart, InboxSection, ROWS_CARD } from "./InboxSection";
 import { ListTitleBar } from "./ListTitleBar";
 import { Omnibox } from "./Omnibox";
 import { TOUCH_CONTROL } from "../touch";
@@ -235,8 +235,8 @@ export function Inbox() {
   const open = (targetKey: string) => navigate.toPluginPanel("review", { subPath: targetKey });
   const row = (review: ReviewItem) => <li key={review.targetKey}><InboxRow review={review} pinnable={pinnable} short={short} onOpen={() => open(review.targetKey)} onChanged={relist} /></li>;
   // A list per section or part, so a screen reader says how many rows it holds; a stack is one item, its own list.
-  const rows = (list: ReviewItem[]) => <ul>{withStacks(list).map((group) => group.length === 1 ? row(group[0]!)
-    : <li key={group[0]!.targetKey}><div role="group" aria-label={`Stack of ${group[0]!.stack!.members.length} in ${group[0]!.repo}`} className="ml-3 border-l border-border"><ul>{group.map(row)}</ul></div></li>)}</ul>;
+  const rows = (list: ReviewItem[]) => <ul className={ROWS_CARD}>{withStacks(list).map((group) => group.length === 1 ? row(group[0]!)
+    : <li key={group[0]!.targetKey}><div role="group" aria-label={`Stack of ${group[0]!.stack!.members.length} in ${group[0]!.repo}`} className="ml-3 border-l-2 border-border"><ul className="divide-y divide-border">{group.map(row)}</ul></div></li>)}</ul>;
   const omnibox = <Omnibox query={query} onQuery={setQuery} reviews={reviews} onOpen={open} inputRef={findBox} onFocusChange={setBoxFocused}
     placeholder={firstRun ? "Paste a GitHub PR link to review it" : compact ? "Find or paste a PR link" : "Find a review, or paste a PR link"}
     onCancel={phoneBox ? closeSearch : undefined} trailing={searchInline && ownControls ? <ListTitleBar placement="page" /> : undefined} />;
@@ -255,7 +255,7 @@ export function Inbox() {
         {!syncError && problem && <p role="status" className={cn("mx-1.5 mb-2 flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning-text", firstRun && "mt-4")}><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />{problem}</p>}
         {syncError && <p role="alert" className={cn("mx-1.5 mb-2 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text", firstRun && "mt-4")}><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />Couldn’t refresh GitHub status. Saved reviews are still available; try Refresh again.</p>}
         {firstRun ? <div className="px-2.5 pt-6"><FirstRun omnibox={omnibox} syncing={refreshing} /></div> : <>
-          {loading ? <div role="status" aria-busy="true" className="space-y-1 pt-2"><span className="sr-only">Loading reviews…</span>
+          {loading ? <div role="status" aria-busy="true" className={cn(ROWS_CARD, "mt-2")}><span className="sr-only">Loading reviews…</span>
             {Array.from({ length: 6 }).map((_, i) => <div key={i} className="space-y-2 px-3 py-3"><Skeleton className="h-3.5" style={{ width: `${62 - i * 6}%` }} /><Skeleton className="h-3 w-48" /></div>)}
           </div>
             : loadError ? <div role="alert" className="px-4 py-10 text-center"><h2 className="font-medium">Couldn’t load your reviews</h2><p className="mt-2 text-sm text-muted-foreground">Your saved reviews haven’t been removed. Check the connection and try again.</p><Button variant="outline" className={cn("mt-4", TOUCH_CONTROL)} onClick={() => setReload((n) => n + 1)}>Try again</Button></div>
@@ -263,17 +263,17 @@ export function Inbox() {
               <h2 className="text-sm font-medium text-foreground">No reviews match “{query.trim()}”</h2>
               <p className="mt-1 text-sm text-muted-foreground">Try fewer words, or paste a PR link to review it.</p>
             </div>)
-            : <div className="space-y-2 pt-1">
+            : <div className="space-y-1 pt-1">
               {SECTIONS.map(({ group, title }) => {
                 const list = sections[group];
                 if (!list.length && (group !== "needs" || searching)) return null;
-                return <InboxSection key={group} title={title} count={list.length} collapsed={isCollapsed(group)} onToggle={() => toggle(group)} short={short} stickyTop={phoneBox ? "top-14 pointer-coarse:top-[60px]" : undefined}>
+                return <InboxSection key={group} title={title} count={list.length} urgent={group === "needs"} collapsed={isCollapsed(group)} onToggle={() => toggle(group)} short={short} stickyTop={phoneBox ? "top-14 pointer-coarse:top-[60px]" : undefined}>
                   {group !== "needs" ? rows(list)
                     : list.length ? NEEDS_PARTS.map(({ part, title: partTitle }) => {
                       const partRows = list.filter((review) => needsGroup(review) === part);
                       return partRows.length > 0 && <InboxPart key={part} title={partTitle} count={partRows.length} short={short}>{rows(partRows)}</InboxPart>;
                     })
-                    : <p className="flex items-center gap-2 px-3 py-2.5 text-sm text-muted-foreground"><Icon name="CircleCheck" className="size-4 shrink-0 text-diff-added" aria-hidden />
+                    : <p className="flex items-center gap-2 rounded-xl border border-dashed border-border px-3 py-3 text-sm text-muted-foreground"><Icon name="CircleCheck" className="size-4 shrink-0 text-diff-added" aria-hidden />
                       Nothing needs you right now{waiting > 0 && ` · ${waiting} waiting on ${waiting === 1 ? "an author" : "authors"}`}
                     </p>}
                 </InboxSection>;
