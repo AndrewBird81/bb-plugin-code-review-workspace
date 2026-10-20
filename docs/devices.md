@@ -1,6 +1,6 @@
 # Phones, iPads, and foldables
 
-The full layout detail behind the README's [Phone and iPad](../README.md#phone-and-ipad) summary. [DESIGN.md](../DESIGN.md) has the rules the layouts follow.
+The full layout detail behind the guide's [Phone and iPad](guide.md#phone-and-ipad) summary. [DESIGN.md](../DESIGN.md) has the rules the layouts follow.
 
 ## Touch
 

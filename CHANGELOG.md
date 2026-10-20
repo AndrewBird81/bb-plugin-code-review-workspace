@@ -4,7 +4,7 @@
 
 Docs only; the plugin doesn't change.
 
-- The README starts with requirements, a quick start, and a tour by job, then the full reference. It adds Troubleshooting, Uninstall, What the agents can and can't do, and Other settings and defaults, and moves notes for older versions into Upgrading from older versions.
+- The README shows what the plugin does, a feature at a time with a screenshot, then requirements, a quick start, and moving from Guided Review. The full reference moves to [docs/guide.md](docs/guide.md). It adds Troubleshooting, Uninstall, What the agents can and can't do, and Other settings and defaults, and moves notes for older versions into Upgrading from older versions.
 - Contributor and operator detail moves to [docs/development.md](docs/development.md), [docs/operations.md](docs/operations.md), and [docs/devices.md](docs/devices.md).
 - PRODUCT.md describes the plugin as it is now, and [PLUGIN_OVERVIEW.md](PLUGIN_OVERVIEW.md) is the marketplace overview.
 - The plugin's description says "review agent", as the UI does, and `package.json` has keywords. The `code-review-workspace` skill lists every option `bb review comment` takes.

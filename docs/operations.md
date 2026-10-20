@@ -1,6 +1,6 @@
 # Running Code Review Workspace
 
-Notes for whoever runs the BB server Code Review Workspace is installed on. The README's [Updates](../README.md#updates) and [Data and access](../README.md#data-and-access) cover what a reviewer needs.
+Notes for whoever runs the BB server Code Review Workspace is installed on. The guide's [Updates](guide.md#updates) and [Data and access](guide.md#data-and-access) cover what a reviewer needs.
 
 ## Updates
 

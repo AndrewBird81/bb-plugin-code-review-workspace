@@ -2,7 +2,7 @@
 
 Code Review Workspace is a BB plugin for understanding a GitHub pull request or local Git change through an agent-authored chapter guide. Reviewers inspect diffs, track viewed files, ask an agent about the change, and prepare comments and a verdict in the same workspace. Its incumbent interface is an **Operate** surface inside BB: the review list starts or resumes work, and the chapter workspace supports the review itself.
 
-This is the product description for contributors: what the plugin is for and what it does now. [README.md](README.md) is the user guide, [DESIGN.md](DESIGN.md) the interface system, and [CHANGELOG.md](CHANGELOG.md) the version history.
+This is the product description for contributors: what the plugin is for and what it does now. [README.md](README.md) shows what it does, [docs/guide.md](docs/guide.md) is the user guide, [DESIGN.md](DESIGN.md) the interface system, and [CHANGELOG.md](CHANGELOG.md) the version history.
 
 ## Who it's for
 
@@ -36,7 +36,7 @@ Code Review Workspace runs on BB **0.45.0+**, Node **24+**, and plugin SDK **0.6
 
 Git and `gh` run on the BB server. Local review checkouts must exist there; a checkout only on another enrolled machine is unsupported. GitHub features currently support `github.com`. Account switching affects that server’s `gh` credentials, including other consumers; environment-token overrides must be cleared before switching saved accounts.
 
-Metadata, patches, guides, and drafts reside in the installation’s plugin database. Review agents receive context through the configured provider. Sharing a BB server shares its credentials and plugin storage. See [README.md](README.md) for installation and use, and [docs/operations.md](docs/operations.md) for running it.
+Metadata, patches, guides, and drafts reside in the installation’s plugin database. Review agents receive context through the configured provider. Sharing a BB server shares its credentials and plugin storage. See [README.md](README.md) for installation, [docs/guide.md](docs/guide.md) for use, and [docs/operations.md](docs/operations.md) for running it.
 
 ## Updates
 

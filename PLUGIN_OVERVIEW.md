@@ -45,6 +45,6 @@ For reviewers who need to understand a change before they approve it, often one 
 
 ## More
 
-- Full guide, troubleshooting, and settings: [README](https://github.com/AndrewBird81/bb-plugin-code-review-workspace#readme).
+- Full guide, troubleshooting, and settings: [the guide](https://github.com/AndrewBird81/bb-plugin-code-review-workspace/blob/main/docs/guide.md).
 - Formerly Guided Review. Moving over copies your reviews, drafts, and settings: [Moving from Guided Review](https://github.com/AndrewBird81/bb-plugin-code-review-workspace#moving-from-guided-review).
 - Maintained by Andrew Bird. It began as a fork of [Pritam Sharma's Guided Review](https://github.com/notpritam/bb-plugin-guided-review).
