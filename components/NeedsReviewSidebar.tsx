@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { experimental_usePluginId, experimental_useSidebarThreads, useBbNavigate, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
+import { experimental_Icon as HostIcon, experimental_usePluginId, experimental_useSidebarThreads, useBbNavigate, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import { needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
 import { statusWhy } from "../lib/status-line";
@@ -120,7 +120,7 @@ function closePhoneSidebar() {
 }
 
 /** A group in BB's look: its label collapses it, remembered in this browser. */
-function Group({ label, count, collapsedKey, children }: { label: string; count?: number; collapsedKey: string; children: ReactNode }) {
+function Group({ label, count, collapsedKey, icon, children }: { label: string; count?: number; collapsedKey: string; icon?: ReactNode; children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem(collapsedKey) === "1"; } catch { return false; }
   });
@@ -131,6 +131,7 @@ function Group({ label, count, collapsedKey, children }: { label: string; count?
   return (
     <section aria-label={label} className="min-w-0">
       <button type="button" aria-expanded={!collapsed} onClick={toggle} className="group/label flex h-7 w-full min-w-0 items-center gap-1 rounded-md pl-2 pr-2 text-left text-xs font-normal leading-5 text-muted-foreground outline-none ring-sidebar-ring hover:bg-state-hover focus-visible:ring-2 max-md:pointer-coarse:h-9">
+        {icon}
         <span className="min-w-0 truncate">{label}</span>
         {/* As on BB's groups: open, the chevron waits for the pointer where there is one. */}
         <Icon name="ChevronRight" className={cn("size-3 shrink-0 text-subtle-foreground transition-transform duration-150", !collapsed && "rotate-90 [@media(hover:hover)]:opacity-0 group-hover/label:opacity-100 group-focus-visible/label:opacity-100")} aria-hidden />
@@ -200,7 +201,7 @@ export function NeedsReviewSidebar() {
     })}
   </ul>;
   return <>
-    {needs.length > 0 && createPortal(<Group label="Needs review" count={needs.length} collapsedKey={NEEDS_COLLAPSED_KEY}>{rows(needs, false)}</Group>, needsSlot)}
+    {needs.length > 0 && createPortal(<Group label="Needs review" count={needs.length} collapsedKey={NEEDS_COLLAPSED_KEY} icon={<HostIcon name={`${pluginId}/review`} fallback="GitPullRequest" className="mr-1 size-3.5 shrink-0" aria-hidden />}>{rows(needs, false)}</Group>, needsSlot)}
     {known && pinned.length > 0 && (bbPinned
       // Inside BB's Pinned, after its threads; collapsing Pinned hides them with the rest.
       ? createPortal(rows(pinned, true), inBbPinned)

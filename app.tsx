@@ -23,7 +23,7 @@ export default definePluginApp((app) => {
   app.slots.navPanel({
     id: "review",
     title: "Code Review Workspace",
-    icon: "GitPullRequest",
+    icon: "code-review-workspace/review",
     path: "review",
     component: ReviewPanel,
     headerContent: TitleBarControls,

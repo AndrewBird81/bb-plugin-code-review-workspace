@@ -11,7 +11,10 @@
     "name": "Code Review Workspace",
     "description": "Read, discuss, and approve a pull request or local diff in one place: a chapter-by-chapter walkthrough, AI-drafted comments and verdict you edit, whose-turn tracking and re-review, then one complete review submitted to GitHub.",
     "branding": {
-      "icon": "./assets/icon.svg"
+      "icon": "./assets/icon.svg",
+      "experimental_icons": {
+        "review": "./assets/icon.svg"
+      }
     },
     "server": "./server.ts",
     "app": "./app.tsx"
