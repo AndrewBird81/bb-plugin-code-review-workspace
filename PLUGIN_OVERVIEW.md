@@ -6,7 +6,7 @@ For reviewers who need to understand a change before they approve it, often one 
 - **Requirements, checked.** What the PR's description and linked issues ask for, each marked covered, partial, missing, or unclear, with evidence.
 - **A drafted review you edit.** The review agent drafts line comments with a severity (Blocking, Should fix, Question, or Nit), a summary, and a suggested verdict. Each draft says how the agent confirmed the problem.
 - **Ask agent.** Ask the review agent about the whole change, a line, a selection, or a failing check.
-- **Finish review.** The summary, your verdict, and exactly what will be posted. Before you approve, it flags blocking comments, unviewed files in high-risk chapters, chapters read faster than your set pace, and files the agent didn't read.
+- **Finish review.** The summary, your verdict, and exactly what will be posted. Before you approve, it flags blocking comments, unviewed files in high-risk chapters, chapters read faster than your set pace, and, when the agent suggests Approve, files it didn't read.
 
 ## Whose turn and re-review
 
@@ -29,8 +29,8 @@ For reviewers who need to understand a change before they approve it, often one 
 
 ## Trust
 
-- Nothing posts to GitHub until you click **Submit**, **Send reply**, or **Resolve**. The agents change only the local draft.
-- Agents start on their own only on PRs from the repository's members and collaborators, and not on a branch in someone else's fork. For other PRs, one click runs them.
+- Nothing posts to GitHub until you click **Submit to GitHub**, **Send reply**, or **Resolve**. The agents change only the local draft.
+- Agents start on their own only on PRs from the repository's owner, members and collaborators, and not on a branch in someone else's fork. For other PRs, one click runs them.
 - Text from the PR reaches the agents fenced as untrusted data, and the repo's instruction files are read from the PR's base, never its head.
 - Every feature that can get in the way has a switch in Settings.
 

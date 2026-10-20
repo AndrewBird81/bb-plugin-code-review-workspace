@@ -38,7 +38,7 @@ Formerly **Guided Review**. Coming from it? See [Moving from Guided Review](#mov
 
 **Ask agent:** a private question about selected lines, answered with file:line evidence.
 
-<img src="docs/screenshots/finish-review-dark.webp" alt="The Finish review panel opens on the agent's summary, followed by the verdict set to Comment and a Submit to GitHub button. Behind it, the diff of lib/file-tree.ts shows an agent draft marked Should fix, with a suggested change.">
+<img src="docs/screenshots/finish-review-dark.webp" alt="The Finish review panel opens on the agent's summary, followed by the verdict set to Comment and a Submit to GitHub button. Beside it, the diff of lib/file-tree.ts shows an agent draft marked Should fix, with a suggested change.">
 
 **Finish review:** you submit one review, with the summary and verdict in view.
 
@@ -50,7 +50,7 @@ Formerly **Guided Review**. Coming from it? See [Moving from Guided Review](#mov
 
 **Since your review:** what changed since you reviewed, and where to look first.
 
-<img src="docs/screenshots/rereview-check-dark.webp" alt="The Comments panel shows the agent's check of a new commit, scoring 5 of 9 points addressed, with Addressed and Not addressed badges and unsent reply drafts on each earlier thread.">
+<img src="docs/screenshots/rereview-check-dark.webp" alt="The Comments panel shows the agent's check of a new commit, scoring 5 of 9 points addressed. Earlier threads carry Addressed, Not addressed or Unclear badges, and three have an unsent reply draft.">
 
 **Re-review check:** each earlier comment is scored against the new commits.
 
@@ -138,7 +138,7 @@ Two agents work on each review. The **guide writer** is a hidden agent that writ
 
 - **Finish review** shows the summary, the verdict, and exactly what will be posted. See [Finish review](#finish-review).
 - The agent suggests a verdict; only you pick it.
-- While you approve, it flags blocking comments, unviewed files in high-risk chapters, chapters read faster than your set pace, and files the agent didn't read.
+- While you approve, it flags blocking comments, unviewed files in high-risk chapters, chapters read faster than your set pace, and, when the agent suggests Approve, files it didn't read.
 - **Submit to GitHub** posts one review, as the account it verified, and then offers the next review that needs you.
 
 ### Re-review
@@ -170,7 +170,7 @@ Two agents work on each review. The **guide writer** is a hidden agent that writ
 ### Trust and safety
 
 - Nothing posts to GitHub without your click. The agents and `bb review` change only the local draft. See [What the agents can and can't do](#what-the-agents-can-and-cant-do).
-- Agents start on their own only on PRs from the repository's members and collaborators, and not on a branch in someone else's fork. You can change who. See [Who agents run for on their own](#who-agents-run-for-on-their-own).
+- Agents start on their own only on PRs from the repository's owner, members and collaborators, and not on a branch in someone else's fork. You can change who. See [Who agents run for on their own](#who-agents-run-for-on-their-own).
 - Text from the PR reaches the agents fenced as untrusted data, and the repo's instruction files are read from the PR's base, never its head. See [Data and access](#data-and-access).
 
 ## Reference
