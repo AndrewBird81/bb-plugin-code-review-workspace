@@ -32,7 +32,8 @@ docker rm -f crw-test-pg
 ```
 
 - With `CRW_TEST_PG_URL` set, `createStore` returns the Store over a Postgres schema of each fake host's own, migrated by its first statement and dropped once its test ends (`src/test-backend.test-support.ts`). The plugin a test starts and the test's own `testStore(bb)` share that schema, and `testSql(bb)` reaches its tables.
-- `src/store-backends.test.ts` runs a seeded random sequence of Store calls on SQLite and on Postgres, and compares each call's answer and every read after it. `src/storage-postgres.test.ts` starts the plugin on Postgres storage, as its settings choose it. They, and the tests in `src/db/` that connect to Postgres, are skipped without the URL.
+- `src/store-backends.test.ts` runs a seeded random sequence of Store calls on SQLite and on Postgres, and compares each call's answer and every read after it. `src/storage-postgres.test.ts` starts the plugin on Postgres storage, as its settings choose it, and `src/storage-cli.test.ts` moves seeded reviews to Postgres and back with `bb review storage`. They, and the tests in `src/db/` that connect to Postgres, are skipped without the URL.
+- `scripts/storage-round-trip.ts` does the same with a copy of a real `data.db`, such as a production snapshot, as an operator would, and writes the table checksums and reads dumps of what came back, to compare with `scripts/store-dump.ts`'s of the snapshot: `npx vite-node scripts/storage-round-trip.ts <data.db> <out dir>`, with `CRW_TEST_PG_URL` set.
 - A few tests are SQLite's alone: the former install's import, the dump script, the SQLite executor's own, and a query plan's index.
 
 ## Browser regression test

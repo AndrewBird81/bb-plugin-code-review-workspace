@@ -1,12 +1,12 @@
 // The Store's tables, copied between the plugin's SQLite database and Postgres, and checked to hold the same rows: what
-// the storage CLI (src/storage-cli.ts) moves the reviews with. Rows go in pages of a few MB, by the size of their text,
-// so a whole patch is held once or twice at a time, never every patch at once.
+// the storage CLI (src/storage-cli.ts) moves the reviews with. Rows go in pages of at most 4 MiB of text, a bigger row
+// in a page of its own, so only one page's patches are held at a time, never all of them.
 //
 // A table's checksum is the SHA-256 of its rows in primary-key order, each row its values in column-name order, then a
-// newline. Each value says its type: n; for NULL, i<digits>; for an integer, t<bytes>:<UTF-8> for text (r and b for
-// SQLite's REAL and BLOB, which the Store doesn't keep). Text keys sort by code point on both sides: SQLite's BINARY,
-// Postgres's COLLATE "C". A table with an id that AUTOINCREMENT (Postgres: an identity) hands out is also checked for
-// the next id it would give.
+// newline. Each value says its type: `n;` for NULL, `i<digits>;` for an integer, `t<bytes>:<UTF-8>` for text, and `r`
+// or `b` for SQLite's REAL and BLOB, which the Store doesn't keep. Text keys sort by code point on both sides: SQLite's
+// BINARY, Postgres's COLLATE "C". A table with an id that AUTOINCREMENT (Postgres: an identity) hands out is also
+// checked for the next id it would give.
 import { isUtf8 } from "node:buffer";
 import { createHash } from "node:crypto";
 import { setImmediate as nextTurn } from "node:timers/promises";
@@ -21,8 +21,8 @@ type Database = ReturnType<BbPluginApi["storage"]["database"]>;
 /** A Store table: its columns by name, as SQLite declares them, its primary key, and the id AUTOINCREMENT hands out. */
 export interface Table {
   name: string;
-  /** Sorted by name. */
-  columns: Array<{ name: string; type: "integer" | "text" | string }>;
+  /** Sorted by name. Their type is integer or text, as SQLite declares them; any other fails schemaProblems. */
+  columns: Array<{ name: string; type: string }>;
   key: string[];
   identity: string | null;
 }

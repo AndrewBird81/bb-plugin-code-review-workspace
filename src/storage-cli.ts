@@ -81,7 +81,7 @@ export function createStorageCommand(bb: BbPluginApi, storage: StorageChoice) {
       return null;
     }
     if (status.owner === "sqlite") return `The reviews are in SQLite already (storage:owner).`;
-    if (status.state !== "maintenance") return `The plugin is serving the reviews from ${where}. To copy them to SQLite, set storageBackend to sqlite, reload (${reload}), then run bb review storage export-sqlite.`;
+    if (status.state !== "maintenance") return `The plugin serves the reviews from ${where}. To copy them to SQLite, set storageBackend to sqlite, reload (${reload}), then run bb review storage export-sqlite.`;
     if (replace && status.configured !== "sqlite") return `--replace-data-db makes SQLite hold the reviews, so it runs with storageBackend set to sqlite: set it, reload (${reload}), then run it again.`;
     return null;
   }
@@ -202,7 +202,7 @@ export function createStorageCommand(bb: BbPluginApi, storage: StorageChoice) {
           return { resumed: true, tables, sums: fromSqlite };
         }
         await copyToPostgres(db, pg, schema, tables, signal, (table) => { progress(copiedLine(tables, table)); });
-        const checked = await check(tables, await sqliteChecksums(db, "main", tables, signal), await pgChecksums(pg, schema, tables, signal));
+        const checked = check(tables, await sqliteChecksums(db, "main", tables, signal), await pgChecksums(pg, schema, tables, signal));
         stopIfAborted(signal);
         return { resumed: false, ...checked };
       });
@@ -232,11 +232,13 @@ export function createStorageCommand(bb: BbPluginApi, storage: StorageChoice) {
     if (replace) await pg.lockWriter();
     say(`Copying the reviews from Postgres schema "${schema}" to ${exported}.`);
     const started = performance.now();
-    db.prepare("VACUUM INTO ?").run(exported);
-    db.prepare(`ATTACH DATABASE ? AS ${EXPORT}`).run(exported);
+    let attached = false;
     // Once data.db's reviews are replaced, the copy stays, whatever happens next.
     let kept = false;
     try {
+      db.prepare("VACUUM INTO ?").run(exported);
+      db.prepare(`ATTACH DATABASE ? AS ${EXPORT}`).run(exported);
+      attached = true;
       await pg.transaction(async () => {
         await pg.run("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
         const tables = sqliteTables(db, EXPORT);
@@ -245,7 +247,7 @@ export function createStorageCommand(bb: BbPluginApi, storage: StorageChoice) {
         if (problems.length) throw new StorageProblems(problems);
         await copyToSqlite(pg, schema, db, EXPORT, tables, signal, (table) => { progress(copiedLine(tables, table)); });
         const fromPostgres = await pgChecksums(pg, schema, tables, signal);
-        const checked = await check(tables, await sqliteChecksums(db, EXPORT, tables, signal), fromPostgres);
+        const checked = check(tables, await sqliteChecksums(db, EXPORT, tables, signal), fromPostgres);
         // Without the pages the copy's former rows left behind.
         db.exec(`VACUUM ${EXPORT}`);
         say(`Exported and checked, the same in Postgres and the copy: ${summary(checked.tables, checked.sums)}, in ${Math.round(performance.now() - started)} ms.`);
@@ -256,7 +258,7 @@ export function createStorageCommand(bb: BbPluginApi, storage: StorageChoice) {
         db.exec("BEGIN IMMEDIATE");
         try {
           replaceFromExport(db, tables);
-          await check(tables, await sqliteChecksums(db, "main", tables, signal), fromPostgres);
+          check(tables, await sqliteChecksums(db, "main", tables, signal), fromPostgres);
           stopIfAborted(signal);
           db.exec("COMMIT");
           kept = true;
@@ -271,7 +273,8 @@ export function createStorageCommand(bb: BbPluginApi, storage: StorageChoice) {
       });
       kept = true;
     } finally {
-      db.exec(`DETACH DATABASE ${EXPORT}`);
+      // A reload closes the database, the copy's attachment with it.
+      if (attached && db.open) db.exec(`DETACH DATABASE ${EXPORT}`);
       if (!kept) for (const file of [exported, `${exported}-journal`]) rmSync(file, { force: true });
     }
     say(`The copy: ${exported}`);
@@ -283,7 +286,7 @@ export function createStorageCommand(bb: BbPluginApi, storage: StorageChoice) {
 class OwnerNotMarked extends Error {}
 
 /** The checksums compared: the tables and their sums, or StorageProblems naming what differs. */
-async function check(tables: Table[], copy: Checksums, source: Checksums) {
+function check(tables: Table[], copy: Checksums, source: Checksums) {
   const differ = differences(copy, source);
   if (differ.length) throw new StorageProblems([`The copy differs in ${differ.join(", ")}: it was rolled back.`]);
   return { tables, sums: copy };
