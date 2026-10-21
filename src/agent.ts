@@ -1,5 +1,5 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { AgentMessage } from "./store";
+import type { AgentMessage, ReviewMeta } from "./store";
 import type { Guide } from "./guide";
 import { isMissingThread } from "./thread-errors";
 import { runGh } from "./gh";
@@ -234,17 +234,31 @@ export async function startAutomaticReview(bb: BbPluginApi, store: AsyncStore, t
   }
   if (!prompt) return "off";
   if (!threadId && !defaults) throw new Error("bb has no default agent for the review's project.");
-  const review = await store.getReview(targetKey);
-  // The sync knows once it has read the PR; before that, ask gh who you are.
-  const login = review?.kind === "pr" && review.author && typeof review.ownPr !== "boolean" ? await runGh(["api", "user", "--jq", ".login"]).then((r) => r.code === 0 ? r.stdout.trim() : "", () => "") : "";
-  const own = review?.ownPr === true || (!!login && login.toLowerCase() === review?.author?.toLowerCase());
-  // An untrusted author's PR waits for your click, as does your own whose branch is in someone else's fork.
-  if (review && !(own && typeof review.foreignHeadOwner !== "string") && !mayRunUnattended(review, preferences, review.headSha)) {
-    await skipRun(bb, store, targetKey, "review", review.headSha ?? null);
-    return "waiting";
+  /** What the review sends the agent besides the prompt, in the caller's block; null when it waits for your click instead. */
+  const notesFor = async (tx: AsyncStore, review: ReviewMeta | null, login: string) => {
+    const own = review?.ownPr === true || (!!login && login.toLowerCase() === review?.author?.toLowerCase());
+    // An untrusted author's PR waits for your click, as does your own whose branch is in someone else's fork.
+    if (review && !(own && typeof review.foreignHeadOwner !== "string") && !mayRunUnattended(review, preferences, review.headSha)) {
+      await skipRun(bb, tx, targetKey, "review", review.headSha ?? null);
+      return null;
+    }
+    // The instructions describe the checks from the stored review, so asking for them goes by it too.
+    return [own && SELF_REVIEW, review && mayRunChecks(review, preferences) && RUN_CHECKS, await reviewContextNote(tx, targetKey)].filter(Boolean).join("\n");
+  };
+  // The review, and what it decides, in one turn, unless gh must say who you are in between.
+  const read = await store.exclusive(async (tx) => {
+    const review = await tx.getReview(targetKey);
+    // The sync knows once it has read the PR; before that, ask gh who you are.
+    if (review?.kind === "pr" && review.author && typeof review.ownPr !== "boolean") return { review };
+    return { notes: await notesFor(tx, review, "") };
+  });
+  let notes = read.notes ?? null;
+  if (read.review) {
+    const { review } = read;
+    const login = await runGh(["api", "user", "--jq", ".login"]).then((r) => r.code === 0 ? r.stdout.trim() : "", () => "");
+    notes = await store.exclusive(async (tx) => await notesFor(tx, review, login));
   }
-  // The instructions describe the checks from the stored review, so asking for them goes by it too.
-  const notes = [own && SELF_REVIEW, review && mayRunChecks(review, preferences) && RUN_CHECKS, await reviewContextNote(store, targetKey)].filter(Boolean).join("\n");
+  if (notes === null) return "waiting";
   if (threadId) {
     // After its current work, as a message you send it.
     await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [

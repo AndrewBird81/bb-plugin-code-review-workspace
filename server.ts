@@ -378,10 +378,13 @@ export default async function plugin(bb: BbPluginApi) {
         return { feedback: await view(store, targetKey) };
       },
       async checkFeedback({ targetKey }: { targetKey: string }) {
-        const review = await store.getReview(targetKey);
+        const { review, checking } = await store.exclusive(async (tx) => {
+          const review = await tx.getReview(targetKey);
+          return { review, checking: !!review && !!baselineOf(review).at && !!reReviewCheckPrompt((await tx.getPreferences()).preferences) };
+        });
         if (!review) return { ok: false, error: "This review no longer exists." };
         if (!baselineOf(review).at) return { ok: false, error: "Submit a review first; then the assistant can check your feedback." };
-        if (!reReviewCheckPrompt((await store.getPreferences()).preferences)) return { ok: false, error: "The re-review check is off. Turn it on in Review settings." };
+        if (!checking) return { ok: false, error: "The re-review check is off. Turn it on in Review settings." };
         if (await isAssistantAnswering(bb, store, targetKey)) return { ok: false, error: "The assistant is still answering. Try again when it finishes." };
         await refreshThreads(review).catch(() => {});
         if (!await startVerification(bb, store, targetKey, "the reviewer asked for a check")) return { ok: false, error: "The assistant couldn't start. Open Ask agent to choose its agent." };

@@ -36,21 +36,30 @@ async function failed(deps: Deps, targetKey: string, why: string, now = Date.now
 
 /** Restart the interrupted guides whose writer's machine is back, for up to RESTART_WAIT. */
 export async function retryInterruptedGuides(deps: Deps, now = Date.now()): Promise<void> {
-  for (const review of await deps.store.listReviews()) {
-    const pending = review.restartPending;
-    if (!pending) continue;
-    // Rebuilt some other way since, as with a click on Rebuild.
-    if (review.status !== "error") { await deps.store.setLifecycle(review.targetKey, { restartPending: null }); continue; }
+  const waiting = await deps.store.exclusive(async (tx) => {
+    const waiting: Array<{ targetKey: string; since: number }> = [];
+    for (const review of await tx.listReviews()) {
+      const pending = review.restartPending;
+      if (!pending) continue;
+      // Rebuilt some other way since, as with a click on Rebuild.
+      if (review.status !== "error") await tx.setLifecycle(review.targetKey, { restartPending: null });
+      else waiting.push({ targetKey: review.targetKey, since: pending.since });
+    }
+    return waiting;
+  });
+  for (const { targetKey, since } of waiting) {
     const unavailable = await guideWriterUnavailable(deps.bb, deps.store).catch((error) => String(error));
-    if (now - pending.since >= RESTART_WAIT) {
-      await deps.store.setLifecycle(review.targetKey, { restartPending: null });
-      // An open page stops saying the guide restarts on its own, and says why it failed.
-      await failed(deps, review.targetKey, unavailable ?? "The guide writer's machine didn't reconnect in time.", now);
-      deps.bb.log.warn(`The interrupted guide for ${review.targetKey} stays failed: ${unavailable ?? "its machine didn't reconnect in time"}`);
+    if (now - since >= RESTART_WAIT) {
+      await deps.store.exclusive(async (tx) => {
+        await tx.setLifecycle(targetKey, { restartPending: null });
+        // An open page stops saying the guide restarts on its own, and says why it failed.
+        await failed({ ...deps, store: tx }, targetKey, unavailable ?? "The guide writer's machine didn't reconnect in time.", now);
+      });
+      deps.bb.log.warn(`The interrupted guide for ${targetKey} stays failed: ${unavailable ?? "its machine didn't reconnect in time"}`);
       continue;
     }
     if (unavailable) continue;
-    await deps.store.setLifecycle(review.targetKey, { restartPending: null });
-    await restartInterruptedGuide(deps, review.targetKey, pending.since);
+    await deps.store.setLifecycle(targetKey, { restartPending: null });
+    await restartInterruptedGuide(deps, targetKey, since);
   }
 }

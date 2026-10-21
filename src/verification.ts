@@ -44,8 +44,7 @@ export function noteLeftQueue(messageId: string, how: "dispatched" | "cancelled"
 
 /** Ask the review's assistant to check your feedback. False when it's turned off or can't start. */
 export async function startVerification(bb: BbPluginApi, store: AsyncStore, targetKey: string, reason: string): Promise<boolean> {
-  const prompt = reReviewCheckPrompt((await store.getPreferences()).preferences);
-  const review = await store.getReview(targetKey);
+  const { prompt, review } = await store.exclusive(async (tx) => ({ prompt: reReviewCheckPrompt((await tx.getPreferences()).preferences), review: await tx.getReview(targetKey) }));
   if (!prompt || !review || review.kind !== "pr" || !baselineOf(review).at) return false;
   let sent: Awaited<ReturnType<typeof messageAssistant>>;
   try {

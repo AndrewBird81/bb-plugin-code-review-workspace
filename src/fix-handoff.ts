@@ -82,17 +82,23 @@ export async function startFixThread(bb: BbPluginApi, store: AsyncStore, targetK
   if (!review) throw new Error("This review no longer exists.");
   if (!(await isOwnChange(review))) throw new Error("Fix in a new thread is only for your own PR or a local review.");
   if (!review.projectId) throw new Error("This review has no associated project; re-run `bb review` inside a project.");
-  const comments = (await store.getDraft(targetKey)).comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
+  // What the message says, read in one turn.
+  const { comments, agent, patch, stale, preExistingFindings } = await store.exclusive(async (tx) => {
+    const { preferences } = await tx.getPreferences();
+    return {
+      comments: (await tx.getDraft(targetKey)).comments.filter((comment) => picked.some((at) => sameLocation(at, comment))),
+      agent: preferences.assistantAgent, patch: await tx.patch(targetKey), stale: await tx.staleDraftComments(targetKey),
+      preExistingFindings: preferences.knobs.preExistingFindings,
+    };
+  });
   if (!comments.length) throw new Error("Those comments are no longer in the draft.");
-  const agent = (await store.getPreferences()).preferences.assistantAgent;
   if (!agent && !(await bb.sdk.projects.defaultExecutionOptions({ projectId: review.projectId }).catch(() => null))) throw new Error("bb has no default agent for the review's project. Choose an agent for the Review agent in Review settings.");
-  const patch = await store.patch(targetKey);
   // Named as you named the review; its message names the PR by its title.
   const title = `Fix review comments: ${review.kind === "pr" ? `#${review.number} ${review.name ?? review.title ?? ""}`.trim() : review.name ?? review.gitRef}`;
   try {
     const thread = await bb.sdk.threads.spawn({
       projectId: review.projectId, environment: { type: "project-default" },
-      prompt: fixMessage(review, comments, patch, await store.staleDraftComments(targetKey), (await store.getPreferences()).preferences.knobs.preExistingFindings),
+      prompt: fixMessage(review, comments, patch, stale, preExistingFindings),
       title,
       ...spawnExecution(agent),
     });
@@ -110,8 +116,11 @@ export interface SourceThread { threadId: string; title: string | null; state: "
 
 /** The review's source thread: open, archived, or gone. Null without one, and for one of this plugin's own agents. */
 export async function sourceThread(bb: BbPluginApi, store: AsyncStore, targetKey: string): Promise<SourceThread | null> {
-  const threadId = (await store.getReview(targetKey))?.sourceThreadId;
-  if (!threadId || await assistantReview(store, threadId) || await store.generationOf(threadId)) return null;
+  const threadId = await store.exclusive(async (tx) => {
+    const threadId = (await tx.getReview(targetKey))?.sourceThreadId;
+    return !threadId || await assistantReview(tx, threadId) || await tx.generationOf(threadId) ? null : threadId;
+  });
+  if (!threadId) return null;
   const thread = await bb.sdk.threads.get({ threadId }).catch((error) => {
     if (isMissingThread(error)) return null;
     throw error;
@@ -132,9 +141,12 @@ export async function sendToSourceThread(bb: BbPluginApi, store: AsyncStore, tar
   if (!source) throw new Error("This review has no thread to send to. Run `bb review` in the thread that made the change.");
   if (source.state === "gone") throw new Error("The thread that started this review was deleted.");
   if (source.state === "archived") throw new Error(`${source.title ?? "The thread that started this review"} is archived.`);
-  const comments = (await store.getDraft(targetKey)).comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
+  // What the message says, read in one turn.
+  const { comments, text } = await store.exclusive(async (tx) => {
+    const comments = (await tx.getDraft(targetKey)).comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
+    return { comments, text: comments.length ? [fixMessage(review, comments, await tx.patch(targetKey), await tx.staleDraftComments(targetKey), (await tx.getPreferences()).preferences.knobs.preExistingFindings), REPORT_BACK].join("\n\n") : "" };
+  });
   if (!comments.length) throw new Error("Those comments are no longer in the draft.");
-  const text = [fixMessage(review, comments, await store.patch(targetKey), await store.staleDraftComments(targetKey), (await store.getPreferences()).preferences.knobs.preExistingFindings), REPORT_BACK].join("\n\n");
   let delivery: "sent" | "queued";
   try {
     const sent = await bb.sdk.threads.send({ threadId: source.threadId, mode: "queue-if-active", input: [{ type: "text", text, mentions: [] }] });
