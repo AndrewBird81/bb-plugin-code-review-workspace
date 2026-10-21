@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { TLSSocket } from "node:tls";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-import { numberPlaceholders, pgSql, PgWriterLockError, type PgOptions, type PgSql } from "./pg";
+import { numberPlaceholders, pgSql, PgWriterLockError, usableAfter, type PgOptions, type PgSql } from "./pg";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
 
@@ -24,6 +24,18 @@ test("each ? outside a string, quoted identifier, dollar quote or comment is num
     ["SELECT 'open ? FROM t", "SELECT 'open ? FROM t", 0],
   ];
   for (const [text, numbered, count] of cases) expect(numberPlaceholders(text), text).toEqual({ text: numbered, count });
+});
+
+test("a connection is dropped after an error that ends its session, told by SQLSTATE where the severity is translated, or after pg's own", () => {
+  const failure = (code: string, severity: string) => Object.assign(new pg.DatabaseError("message", 0, "error"), { code, severity });
+  // A German server's FATAL: terminated, connection failure, idle in transaction, transaction_timeout.
+  for (const code of ["57P01", "08006", "25P03", "25P04"]) expect(usableAfter(failure(code, "SCHWERWIEGEND")), code).toBe(false);
+  expect(usableAfter(failure("XX000", "FATAL"))).toBe(false);
+  // Its ERRORs: a check constraint, and statement_timeout's cancel.
+  expect(usableAfter(failure("23514", "FEHLER"))).toBe(true);
+  expect(usableAfter(failure("57014", "FEHLER"))).toBe(true);
+  expect(usableAfter(new RangeError("Postgres returned 9007199254740993, which a JavaScript number can't hold exactly"))).toBe(true);
+  expect(usableAfter(new Error("Query read timeout"))).toBe(false);
 });
 
 describe("the options, checked before anything connects", () => {
@@ -131,7 +143,7 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
       const sent = vi.spyOn(pg.Connection.prototype as unknown as { sendSASLInitialResponseMessage(mechanism: string): void }, "sendSASLInitialResponseMessage");
       const password = vi.fn(() => server.password);
       const schema = await newSchema();
-      const sql = connect({ schema, password, timeouts: { statementMs: 12_000, idleInTransactionMs: 34_000 } });
+      const sql = connect({ schema, password, timeouts: { statementMs: 12_000, idleInTransactionMs: 34_000, keepAliveMs: 7_000 } });
       try {
         expect(await sql.get(`SELECT ssl, version FROM pg_stat_ssl WHERE pid = pg_backend_pid()`)).toEqual({ ssl: true, version: "TLSv1.3" });
         expect(sent.mock.calls.map(([mechanism]) => mechanism)).toEqual(["SCRAM-SHA-256-PLUS"]);
@@ -139,6 +151,9 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
         expect(await sql.get(`SELECT current_schema() AS schema, current_setting('application_name') AS name,
           current_setting('statement_timeout') AS statement, current_setting('idle_in_transaction_session_timeout') AS idle`))
           .toEqual({ schema, name: "code-review-workspace", statement: "12s", idle: "34s" });
+        // The server's keepalives, which end the session, and its writer lock, once this end goes silent.
+        expect(await sql.get(`SELECT current_setting('tcp_keepalives_idle') AS idle, current_setting('tcp_keepalives_interval') AS every,
+          current_setting('tcp_keepalives_count') AS count`)).toEqual({ idle: "7", every: "5", count: "3" });
       } finally {
         sent.mockRestore();
       }
@@ -202,30 +217,32 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
     test("require refuses a request to sign in again, once SCRAM with channel binding has begun, before pg answers it", async () => {
       const schema = await newSchema();
       // What a man in the middle could ask for after offering SCRAM-SHA-256-PLUS: the password itself, an MD5 hash it
-      // chose the salt for, or a second SCRAM exchange.
-      const requests: Array<[string, object, RegExp]> = [
-        ["authenticationCleartextPassword", { name: "authenticationCleartextPassword", length: 8 }, /asked for a cleartext password after signing in had begun/],
-        ["authenticationMD5Password", { name: "authenticationMD5Password", length: 12, salt: Buffer.alloc(4) }, /asked for an MD5 password after signing in had begun/],
-        ["authenticationSASL", { name: "authenticationSASL", length: 23, mechanisms: ["SCRAM-SHA-256-PLUS"] }, /asked for SCRAM-SHA-256-PLUS after signing in had begun/],
+      // chose the salt for, or a second SCRAM exchange; or, asking for the password, say it's in all the same.
+      const cleartext = { name: "authenticationCleartextPassword", length: 8 };
+      const requests: Array<[string, Array<{ name: string }>, RegExp]> = [
+        ["cleartext", [cleartext], /asked for a cleartext password after signing in had begun/],
+        ["MD5", [{ name: "authenticationMD5Password", length: 12, salt: Buffer.alloc(4) } as { name: string }], /asked for an MD5 password after signing in had begun/],
+        ["SCRAM again", [{ name: "authenticationSASL", length: 23, mechanisms: ["SCRAM-SHA-256-PLUS"] } as { name: string }], /asked for SCRAM-SHA-256-PLUS after signing in had begun/],
+        ["cleartext, then in", [cleartext, { name: "authenticationOk" }, { name: "readyForQuery", length: 5, status: "I" } as { name: string }], /asked for a cleartext password after signing in had begun/],
       ];
       type Sending = pg.Connection & { sendSASLInitialResponseMessage(mechanism: string, response: string): void };
       const prototype = pg.Connection.prototype as Sending;
       const initial = prototype.sendSASLInitialResponseMessage;
-      for (const [event, message, refusal] of requests) {
+      for (const [label, messages, refusal] of requests) {
         const password = vi.fn(() => server.password);
         let written: ReturnType<typeof vi.fn> | undefined;
         const sent = vi.spyOn(prototype, "sendSASLInitialResponseMessage").mockImplementationOnce(function (this: Sending, mechanism, response) {
           initial.call(this, mechanism, response);
           written = vi.spyOn(this.stream, "write") as unknown as ReturnType<typeof vi.fn>;
-          this.emit(event, message);
+          for (const message of messages) this.emit(message.name, message);
         });
         try {
-          await expect(connect({ schema, password }).get(`SELECT 1`), event).rejects.toThrow(refusal);
+          await expect(connect({ schema, password }).get(`SELECT 1`), label).rejects.toThrow(refusal);
           // pg hashes the MD5 answer asynchronously.
           await sleep(50);
-          expect(written, event).toBeDefined();
-          expect(written, event).not.toHaveBeenCalled();
-          expect(password, event).toHaveBeenCalledTimes(1);
+          expect(written, label).toBeDefined();
+          expect(written, label).not.toHaveBeenCalled();
+          expect(password, label).toHaveBeenCalledTimes(1);
         } finally {
           sent.mockRestore();
         }
@@ -593,6 +610,21 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
       const { sql } = await notes({ timeouts: { statementMs: 10_000, queryMs: 200 } });
       const before = await pid(sql);
       await expect(sql.get(`SELECT pg_sleep(2)`)).rejects.toThrow("Query read timeout");
+      expect(await pid(sql)).not.toBe(before);
+    });
+
+    test("Postgres ends a session whose transaction runs past transaction_timeout, nothing commits, and the next call connects again", async () => {
+      const lost = vi.fn();
+      const { sql, add, bodies } = await notes({ onConnectionLost: lost });
+      const before = await pid(sql);
+      // Not a setting this connection makes, but a role's or database's may.
+      await sql.run(`SET transaction_timeout = 200`);
+      await expect(sql.transaction(async () => {
+        await add("timed out");
+        await sql.get(`SELECT pg_sleep(2)`);
+      })).rejects.toMatchObject({ code: "25P04" });
+      expect(lost.mock.calls[0]![0]).toMatchObject({ code: "25P04" });
+      expect(await bodies()).toEqual([]);
       expect(await pid(sql)).not.toBe(before);
     });
 

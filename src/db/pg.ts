@@ -43,7 +43,10 @@ export interface PgTimeouts {
   queryMs: number;
   /** Postgres ends a session left idle this long inside a transaction (idle_in_transaction_session_timeout). */
   idleInTransactionMs: number;
-  /** TCP keepalive probes start after the connection is idle this long. */
+  /**
+   * TCP keepalive probes start after the connection is idle this long, from both ends. The server's (in whole seconds)
+   * then probe every 5 s and give up after 3, ending a session whose client vanished, and letting its writer lock go.
+   */
   keepAliveMs: number;
   /** How long taking the writer lock waits for another holder to let it go. */
   writerLockMs: number;
@@ -59,6 +62,8 @@ const DEFAULT_TIMEOUTS: PgTimeouts = {
   writerLockMs: 30_000,
 };
 
+const SERVER_KEEPALIVE_INTERVAL_S = 5;
+const SERVER_KEEPALIVE_COUNT = 3;
 const WRITER_LOCK_POLL_MS = 100;
 // How long closing waits for the server's goodbye, which a dead peer never sends.
 const CLOSE_WAIT_MS = 5_000;
@@ -229,12 +234,12 @@ const ignore = () => {};
 // sees the close; pg's own failures (a lost socket, a read timeout) leave it unusable. An ordinary error, or an int8 or
 // numeric refused by exactNumber, leaves it ready. The SQLSTATE classes stand in for the severity, which a server may
 // translate.
-function usableAfter(error: unknown): boolean {
+export function usableAfter(error: unknown): boolean {
   if (error instanceof RangeError) return true;
   if (!(error instanceof pg.DatabaseError)) return false;
   const code = error.code ?? "";
   return error.severity !== "FATAL" && error.severity !== "PANIC"
-    && !code.startsWith("08") && !code.startsWith("57P") && code !== "25P03";
+    && !code.startsWith("08") && !code.startsWith("57P") && code !== "25P03" && code !== "25P04";
 }
 
 /**
@@ -310,7 +315,12 @@ export function pgSql(options: PgOptions): PgSql {
       sslnegotiation: "postgres",
       enableChannelBinding: ssl !== false,
       application_name: options.applicationName ?? "code-review-workspace",
-      options: `-c search_path=${optionValue(quoteIdentifier(options.schema))}`,
+      options: [
+        `-c search_path=${optionValue(quoteIdentifier(options.schema))}`,
+        `-c tcp_keepalives_idle=${Math.max(1, Math.round(timeouts.keepAliveMs / 1000))}`,
+        `-c tcp_keepalives_interval=${SERVER_KEEPALIVE_INTERVAL_S}`,
+        `-c tcp_keepalives_count=${SERVER_KEEPALIVE_COUNT}`,
+      ].join(" "),
       statement_timeout: timeouts.statementMs,
       query_timeout: timeouts.queryMs,
       idle_in_transaction_session_timeout: timeouts.idleInTransactionMs,
