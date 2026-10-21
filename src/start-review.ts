@@ -2,7 +2,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { ReviewMeta } from "./store";
 import { parseTarget, prReviewKey } from "./targets";
 import { ensureGitHeaders } from "./patch";
-import { generateGuide, guideWriterUnavailable } from "./generate";
+import { beginGuide, guideWriterUnavailable } from "./generate";
 import { readPrSnapshot } from "./pr-snapshot";
 import { rebuildReview, upToDate } from "./rereview";
 import type { AsyncStore } from "./store-queue";
@@ -50,56 +50,61 @@ export async function createPrReview(
   }
   const { pr, patch } = snapshot;
 
-  const key = await prReviewKey(deps.store, { repo: target.repo, number: target.number });
   const now = Date.now();
   // Open pages hear of a review started, rebuilding, or back from Archive at once, not when its guide is done.
-  const told = () => {
+  const told = (key: string) => {
     deps.bb.realtime.publish(`review:${key}`, { ts: now });
     deps.bb.realtime.publish("reviews", { ts: now });
   };
 
-  const existing = await deps.store.getReview(key);
-  // A review already building, or showing this diff, just opens.
-  if (existing && (existing.status === "generating" || await upToDate(deps.store, existing, pr.headRefOid, patch))) {
-    if (existing.userArchivedAt) {
-      await deps.store.setLifecycle(key, { userArchivedAt: null });
-      told();
-    }
-    return { ok: true, targetKey: key };
+  // What it finds and what it starts, in one turn, so a second start finds this one.
+  let run: (() => Promise<void>) | undefined;
+  let started: { key: string; told: boolean };
+  try {
+    started = await deps.store.exclusive(async (tx) => {
+      const key = await prReviewKey(tx, { repo: target.repo!, number: target.number });
+      const existing = await tx.getReview(key);
+      // A review already building, or showing this diff, just opens.
+      if (existing && (existing.status === "generating" || await upToDate(tx, existing, pr.headRefOid, patch))) {
+        if (existing.userArchivedAt) await tx.setLifecycle(key, { userArchivedAt: null });
+        return { key, told: !!existing.userArchivedAt };
+      }
+      const meta: ReviewMeta & { projectId: string } = {
+        targetKey: key,
+        kind: "pr",
+        number: target.number,
+        repo: target.repo,
+        title: pr.title,
+        author: pr.author?.login,
+        base: pr.baseRefName,
+        head: pr.headRefName,
+        url: pr.url,
+        gitRef: `${pr.baseRefName}...${pr.headRefName}`,
+        headSha: pr.headRefOid,
+        projectId: args.projectId,
+        status: "generating",
+        // Starting it again keeps when the review was created.
+        createdAt: existing?.createdAt ?? now,
+      };
+      // An existing review rebuilds as Re-review does, keeping its guide and comments.
+      if (existing) {
+        await recordPrState(tx, key, pr.state);
+        run = await rebuildReview(deps, tx, meta, patch);
+        return { key, told: true };
+      }
+      await tx.saveReview(meta);
+      await recordPrState(tx, key, pr.state);
+      await tx.savePatch(key, ensureGitHeaders(patch));
+      // Starting a PR again brings it back into discovery after a delete.
+      await tx.unignoreDiscovery(key);
+      // The panel refetches on the realtime signal.
+      run = await beginGuide(deps.bb, tx, deps.store, key, args.projectId);
+      return { key, told: true };
+    });
+  } finally {
+    // Its guide builds on, after the turn that began it.
+    void run?.();
   }
-  const meta: ReviewMeta & { projectId: string } = {
-    targetKey: key,
-    kind: "pr",
-    number: target.number,
-    repo: target.repo,
-    title: pr.title,
-    author: pr.author?.login,
-    base: pr.baseRefName,
-    head: pr.headRefName,
-    url: pr.url,
-    gitRef: `${pr.baseRefName}...${pr.headRefName}`,
-    headSha: pr.headRefOid,
-    projectId: args.projectId,
-    status: "generating",
-    // Starting it again keeps when the review was created.
-    createdAt: existing?.createdAt ?? now,
-  };
-  // An existing review rebuilds as Re-review does, keeping its guide and comments.
-  if (existing) {
-    await recordPrState(deps.store, key, pr.state);
-    await rebuildReview(deps, meta, patch);
-    told();
-    return { ok: true, targetKey: key };
-  }
-  await deps.store.saveReview(meta);
-  await recordPrState(deps.store, key, pr.state);
-  await deps.store.savePatch(key, ensureGitHeaders(patch));
-  // Starting a PR again brings it back into discovery after a delete.
-  await deps.store.unignoreDiscovery(key);
-
-  // Fire-and-forget generation; the panel refetches on the realtime signal.
-  void generateGuide(deps.bb, deps.store, key, args.projectId);
-  told();
-
-  return { ok: true, targetKey: key };
+  if (started.told) told(started.key);
+  return { ok: true, targetKey: started.key };
 }

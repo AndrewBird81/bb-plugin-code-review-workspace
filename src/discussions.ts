@@ -81,14 +81,22 @@ export async function askAgent(bb: BbPluginApi, store: AsyncStore, targetKey: st
   return { started: result.started };
 }
 
+/** The review whose discussions wait for its assistant, `threadId`, if any. */
+export async function discussionsWaitingOn(store: AsyncStore, threadId: string): Promise<string | null> {
+  return store.exclusive(async (tx) => {
+    const targetKey = await assistantReview(tx, threadId);
+    return targetKey && (await tx.listDiscussions(targetKey)).some((d) => d.waiting) ? targetKey : null;
+  });
+}
+
 /**
  * Once the assistant's turn ends, it won't answer the discussions waiting for it,
- * unless a queued message starts another turn. Returns the review it settled.
+ * unless a queued message starts another turn. `waiting` is the review discussionsWaitingOn
+ * found as the turn ended. Returns the review it settled.
  */
-export async function settleDiscussions(bb: BbPluginApi, store: AsyncStore, threadId: string): Promise<string | null> {
-  const targetKey = await assistantReview(store, threadId);
-  if (!targetKey || !(await store.listDiscussions(targetKey)).some((d) => d.waiting)) return null;
+export async function settleDiscussions(bb: BbPluginApi, store: AsyncStore, threadId: string, waiting: string | null): Promise<string | null> {
+  if (!waiting) return null;
   const queued = await bb.sdk.threads.queuedMessages.list({ threadId }).catch(() => []);
   if (queued.length) return null;
-  return await store.stopWaiting(targetKey) ? targetKey : null;
+  return await store.stopWaiting(waiting) ? waiting : null;
 }

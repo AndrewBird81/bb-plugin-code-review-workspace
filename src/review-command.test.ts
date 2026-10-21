@@ -256,9 +256,7 @@ test("bb review with a renamed repository's PR URL opens the review the sync kee
   expect(await runReviewCommand({ bb, store, gh }, ["https://github.com/acme/site/pull/8"], { projectId: "p1", threadId: "assistant-7" }, key)).toEqual({ exitCode: 2, stderr: NOT_OWN_REVIEW });
 });
 
-// P5: generateGuide's start (getReview through beginGeneration) no longer runs before its caller returns, so the one-writer
-// guard is weakened; P5 runs that start in the caller's turn of the queue, then this test.fails goes back to test.
-test.fails("bb review tells open pages of the review it starts, rebuilds, or brings back from Archive, at once (bug bash LIV-5)", async () => {
+test("bb review tells open pages of the review it starts, rebuilds, or brings back from Archive, at once (bug bash LIV-5)", async () => {
   // The writer's spawn never settles, so only the command itself can have published.
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: () => new Promise(() => {}), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
   const store = queueStore(createStore(bb));
@@ -296,7 +294,8 @@ test("gh output that isn't JSON says it couldn't parse it, and starts nothing (b
 });
 
 test("bb review records the thread it ran in as the review's source thread, never this plugin's own agent", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  // A command while the guide writer's spawn is in flight reads the running thread's title.
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {}, get: async () => ({ title: null }) } } as any });
   await plugin(bb);
   const store = queueStore(createStore(bb));
   const run = (threadId?: string) => harness.behavior.runCli([url], { ...(threadId ? { threadId } : {}), projectId: "p1", cwd: process.cwd() });
@@ -313,7 +312,8 @@ test("bb review records the thread it ran in as the review's source thread, neve
 });
 
 test("bb review links to the review where BB has an app URL, and says to open the panel where it hasn't, or with its switch off", async () => {
-  const linked = createFakePluginHost({ pluginId: "code-review-workspace", appUrl: "https://bb.example/", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
+  // The guide is still building when the command runs again.
+  const linked = createFakePluginHost({ pluginId: "code-review-workspace", appUrl: "https://bb.example/", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: () => new Promise(() => {}), archive: async () => {}, stop: async () => {} } } });
   const store = queueStore(createStore(linked.bb));
   expect((await runReviewCommand({ bb: linked.bb, store, gh }, [url], { projectId: "p1", cwd: process.cwd() })).stdout)
     .toBe(`Review started for ${key}. Open https://bb.example/plugins/code-review-workspace/review/${key} to watch it build and review.`);

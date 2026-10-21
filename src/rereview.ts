@@ -1,7 +1,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { reanchorDraft, type ReviewMeta } from "./store";
 import { ensureGitHeaders } from "./patch";
-import { generateGuide, guideWriterUnavailable } from "./generate";
+import { beginGuide, guideWriterUnavailable } from "./generate";
 import { gitDiffArgs } from "./gh";
 import { readPrSnapshot } from "./pr-snapshot";
 import { pruneDiffs } from "./feedback-view";
@@ -42,8 +42,11 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
     try {
       const snapshot = await readPrSnapshot(deps.gh.runGh, m.number, m.repo);
       // Unattended, the head read now reaches the guide writer only from a trusted author, or one you started agents on.
-      if (options.unattended && !mayRunUnattended(m, (await deps.store.getPreferences()).preferences, snapshot.pr.headRefOid)) {
-        await skipRun(deps.bb, deps.store, targetKey, "guide", snapshot.pr.headRefOid);
+      if (options.unattended && await deps.store.exclusive(async (tx) => {
+        if (mayRunUnattended(m, (await tx.getPreferences()).preferences, snapshot.pr.headRefOid)) return false;
+        await skipRun(deps.bb, tx, targetKey, "guide", snapshot.pr.headRefOid);
+        return true;
+      })) {
         return { ok: false, error: "The PR's author isn't trusted to start agents on its new commits; it waits for your click." };
       }
       patch = snapshot.patch;
@@ -63,31 +66,41 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
     return { ok: false, error: "Review has no re-runnable target." };
   }
   if (!patch.trim()) return { ok: false, error: "No changes found." };
-  // The review may have been deleted while GitHub answered; don't bring it back.
-  if (!await deps.store.getReview(targetKey)) return { ok: false, error: "This review was deleted." };
-  // A guide started while GitHub or git answered, as by bb review, is building this review already: one writer, not two.
-  if ((await deps.store.getReview(targetKey))?.status === "generating") return { ok: true };
-  await rebuildReview(deps, { ...m, projectId: m.projectId }, patch, options);
-  return { ok: true };
+  const projectId = m.projectId;
+  // Checked and started in one turn, so a second start finds this one.
+  let run: (() => Promise<void>) | undefined;
+  try {
+    return await deps.store.exclusive(async (tx) => {
+      // The review may have been deleted while GitHub answered; don't bring it back.
+      if (!await tx.getReview(targetKey)) return { ok: false, error: "This review was deleted." };
+      // A guide started while GitHub or git answered, as by bb review, is building this review already: one writer, not two.
+      if ((await tx.getReview(targetKey))?.status === "generating") return { ok: true };
+      run = await rebuildReview(deps, tx, { ...m, projectId }, patch, options);
+      return { ok: true };
+    });
+  } finally {
+    void run?.();
+  }
 }
 
-/** Rebuild an existing review's guide for a new diff, keeping the current guide in case it fails and moving the draft comments. */
-export async function rebuildReview(deps: Pick<Deps, "bb" | "store">, m: ReviewMeta & { projectId: string }, patch: string, options: { notify?: boolean; unattended?: boolean } = {}) {
+/**
+ * Rebuild an existing review's guide for a new diff, in the caller's block, `tx`, keeping the current guide in case it
+ * fails and moving the draft comments. It begins the guide (beginGuide), so call it last in the block, and start the
+ * run it returns once the block has ended.
+ */
+export async function rebuildReview(deps: Pick<Deps, "bb" | "store">, tx: AsyncStore, m: ReviewMeta & { projectId: string }, patch: string, options: { notify?: boolean; unattended?: boolean } = {}): Promise<() => Promise<void>> {
   const targetKey = m.targetKey;
-  await deps.store.exclusive(async (tx) => {
-    const previous = await tx.patch(targetKey);
-    // If the new guide fails, the current one comes back.
-    await tx.backupGuide(targetKey);
-    const next = ensureGitHeaders(patch);
-    await tx.savePatch(targetKey, next);
-    await tx.saveReview({ ...m, status: "generating" });
-    if (m.headSha) await tx.saveSnapshot(targetKey, m.headSha, next);
-    // Unsent draft comments follow their lines into the new diff; ones whose lines are gone stay flagged.
-    await tx.rebaseDraftComments(targetKey, await reanchorDraft(tx, targetKey, previous, next));
-    await pruneDiffs(tx, (await tx.getReview(targetKey))!);
-  });
-  // Started after the block, which its calls to the store would wait for.
-  void generateGuide(deps.bb, deps.store, targetKey, m.projectId, options);
+  const previous = await tx.patch(targetKey);
+  // If the new guide fails, the current one comes back.
+  await tx.backupGuide(targetKey);
+  const next = ensureGitHeaders(patch);
+  await tx.savePatch(targetKey, next);
+  await tx.saveReview({ ...m, status: "generating" });
+  if (m.headSha) await tx.saveSnapshot(targetKey, m.headSha, next);
+  // Unsent draft comments follow their lines into the new diff; ones whose lines are gone stay flagged.
+  await tx.rebaseDraftComments(targetKey, await reanchorDraft(tx, targetKey, previous, next));
+  await pruneDiffs(tx, (await tx.getReview(targetKey))!);
+  return beginGuide(deps.bb, tx, deps.store, targetKey, m.projectId, options);
 }
 
 /**

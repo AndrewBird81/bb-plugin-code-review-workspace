@@ -89,6 +89,25 @@ test("read_review_patch and list_review_files say they read your own review, not
   }
 });
 
+test("generate_review_guide checks its generation and saves its guide in one turn, so a generation begun meanwhile comes after both", async () => {
+  const h = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { get: async () => ({ title: "Generate guide: pr-1" }) } } as any });
+  const store = await startPlugin(h.bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
+  await store.savePatch("pr-1", patch);
+  const superseded = await store.beginGeneration("pr-1");
+  await store.setGenerationWorker("pr-1", superseded, "thread-test");
+  const guide = { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: [] };
+  // A rebuild begins in the same tick as the old writer's submit, as a click on Re-review can.
+  const submitted = h.harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId: superseded, guide });
+  const next = store.beginGeneration("pr-1");
+  expect(toolText(await submitted)).toBe("Guide accepted.");
+  // The new generation came after the accepted guide and dropped it: no guide of the superseded run outlives it.
+  expect(await store.isCurrentGeneration("pr-1", await next)).toBe(true);
+  expect(await store.getGuide("pr-1")).toBeNull();
+  // Submitted again now, it's refused.
+  expect(toolText(await h.harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId: superseded, guide }))).toContain("superseded");
+});
+
 test("generate_review_guide rejects incomplete coverage then accepts a full guide", async () => {
   const { harness, generationId } = await host();
   const bad = await harness.behavior.callAgentTool("generate_review_guide", {

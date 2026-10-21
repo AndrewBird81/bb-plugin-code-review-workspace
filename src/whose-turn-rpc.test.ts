@@ -3,13 +3,15 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh, runGit: vi.fn(async () => ({ stdout: "", stderr: "", code: 0 })) }));
+vi.mock("./store-queue", async (original) => {
+  const actual = await original<typeof import("./store-queue")>();
+  return { ...actual, queueStore: vi.fn(actual.queueStore) };
+});
 
-import plugin from "../server";
-import { createStore } from "./store";
 import { reviewRevision } from "./review-revision";
 import { commentsKey } from "./draft";
 import type { FeedbackThread } from "./github/types";
-import { queueStore } from "./store-queue";
+import { startPlugin } from "./plugin-store.test-support";
 
 const reviewed = "diff --git a/a.ts b/a.ts\nindex 1..2 100644\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n keep\n-return cache.get(key);\n+return cache.get(key) ?? load(key);\n";
 const now = "diff --git a/a.ts b/a.ts\nindex 1..3 100644\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,3 @@\n keep\n-return cache.get(key);\n+invalidate(key);\n+return cache.get(key) ?? load(key);\n";
@@ -41,8 +43,8 @@ async function setup() {
     threads: { get: async () => ({ archivedAt: null, deletedAt: null, status: "idle", title: "Review agent: pr-1" }), send: async () => ({}), stop: async () => ({}), update: async () => ({}), archive: async () => ({}) },
     plugins: { callRpc: async ({ method, input }: any) => (method === "activityCapabilities" ? { version: 1 } : (published.push({ method, input }), { accepted: true, id: "a", duplicate: false, ok: true })) },
   } as any });
-  await plugin(bb);
-  const store = queueStore(createStore(bb));
+  // The plugin's own queue, so what the test calls takes its turns among the plugin's.
+  const store = await startPlugin(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, url: "https://github.com/acme/web/pull/1", base: "main", head: "cache", headSha: "sha2", createdAt: 1, status: "ready", projectId: "p1" });
   await store.savePatch("pr-1", now);
   await store.saveGuide("pr-1", { title: "T", intent: "I", sections: [{ id: "c", title: "Cache", overview: "o", diffs: [{ file: "a.ts", summary: "s" }] }], unplacedFiles: [] });
@@ -313,6 +315,23 @@ test("a check BB dispatches before its send returns ends with the turn that runs
   // BB lets the check go, and says so, before the send that queued it returns.
   harness.inspection.sdk.stub("threads.send", async () => {
     await harness.behavior.emitThreadEvent("message.dispatched", { entry: row });
+    return { ok: true, delivery: "queued", queuedMessage: row };
+  });
+  harness.inspection.sdk.stub("threads.queuedMessages.list", async () => []);
+  expect(await startVerification(bb, store, "pr-1", "the author pushed")).toBe(true);
+  expect(await store.getReview("pr-1")).toMatchObject({ verifyingSince: expect.any(Number), verifyingMessageId: null });
+  await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: null });
+  expect(await store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null });
+});
+
+test("a check BB dispatches before its send returns, telling the plugin without waiting for it, ends with the turn that runs it", async () => {
+  const { bb, harness, store } = await setup();
+  const { makeThreadResponse, makeQueueEntry } = await import("@get-bb/plugin-sdk/testing");
+  const { startVerification } = await import("./verification");
+  const row = makeQueueEntry({ id: "q-early", threadId: "assistant" });
+  // As BB delivers events: the handler starts, and the send returns without waiting for it.
+  harness.inspection.sdk.stub("threads.send", async () => {
+    void harness.behavior.emitThreadEvent("message.dispatched", { entry: row });
     return { ok: true, delivery: "queued", queuedMessage: row };
   });
   harness.inspection.sdk.stub("threads.queuedMessages.list", async () => []);

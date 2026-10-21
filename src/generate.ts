@@ -104,7 +104,10 @@ export function buildGenerationPrompt(targetKey: string, generationId?: string, 
   ].join("\n");
 }
 
-/** `notify: false` leaves the Needs You alert to the turn that started this re-review. */
+/**
+ * Build the review's guide: its start, which begins the generation, as one turn of the queue, then the rest of the run.
+ * `notify: false` leaves the Needs You alert to the turn that started this re-review.
+ */
 export async function generateGuide(
   bb: BbPluginApi,
   store: AsyncStore,
@@ -113,6 +116,26 @@ export async function generateGuide(
   /** unattended: started with no click from you, so it doesn't approve agents on the PR's head. */
   options: { notify?: boolean; unattended?: boolean } = {},
 ): Promise<void> {
+  // A reload disposed the store before the start's turn came; the next factory finds nothing begun.
+  const run = await store.exclusive((tx) => beginGuide(bb, tx, store, targetKey, projectId, options)).catch(() => null);
+  await run?.();
+}
+
+/**
+ * Begin the review's guide in the caller's block, `tx`, as one turn with what the caller read and wrote: the generation
+ * begins, and the review is generating, before anything else reaches the store, so a second start sees it and opens it
+ * as it is. Returns the rest of the run, which goes on through `store`: start it once the block has ended.
+ * `notify: false` leaves the Needs You alert to the turn that started this re-review.
+ */
+export async function beginGuide(
+  bb: BbPluginApi,
+  tx: AsyncStore,
+  store: AsyncStore,
+  targetKey: string,
+  projectId: string,
+  /** unattended: started with no click from you, so it doesn't approve agents on the PR's head. */
+  options: { notify?: boolean; unattended?: boolean } = {},
+): Promise<() => Promise<void>> {
   let generationId: string | undefined;
   let workerId: string | undefined;
   let threads: BbPluginApi["sdk"]["threads"] | undefined;
@@ -135,136 +158,158 @@ export async function generateGuide(
   const byReview = stoppable.get(bb) ?? new Map<string, typeof run>();
   stoppable.set(bb, byReview);
   byReview.set(targetKey, run);
+  let begun: { preferences: ReviewPreferences; earlier: { guide: Guide | null; reviewed: boolean } } | { error: unknown };
   try {
-    const review = await store.getReview(targetKey);
+    const review = await tx.getReview(targetKey);
     // A guide you start approves agents on its head, whoever wrote the PR (lib/trust.ts).
-    if (!options.unattended && review?.headSha) await store.setLifecycle(targetKey, { ...approve(review.headSha, Date.now()), skippedRun: null });
+    if (!options.unattended && review?.headSha) await tx.setLifecycle(targetKey, { ...approve(review.headSha, Date.now()), skippedRun: null });
     // The diff is already the new one: hunks of the earlier guide that no longer fit it show as whole files.
-    const kept = await store.getGuide(targetKey);
-    const patch = await store.patch(targetKey);
+    const kept = await tx.getGuide(targetKey);
+    const patch = await tx.patch(targetKey);
     const earlier = { guide: kept && { ...kept, sections: fitHunks(kept.sections, patch) }, reviewed: !!(review && baselineOf(review).at) };
     generation.sinceReview = earlier.reviewed;
     // The writer this generation replaces can still run commands: as a former writer, only on its own review.
-    const replaced = await store.generationWorker(targetKey);
+    const replaced = await tx.generationWorker(targetKey);
     if (replaced) void recordFormerWorker(bb, replaced, targetKey, "writer");
-    generationId = await store.beginGeneration(targetKey);
-    await store.setLifecycle(targetKey, { guideError: null });
+    generationId = await tx.beginGeneration(targetKey);
+    await tx.setLifecycle(targetKey, { guideError: null });
     const running = generations.get(bb) ?? new Map<string, typeof generation>();
     generations.set(bb, running);
     running.set(generationId, generation);
     threads = bb.sdk.threads;
-    const preferences = (await store.getPreferences()).preferences;
-    const title = `${GUIDE_WORKER_TITLE}${targetKey}`;
-    const placement = await agentPlacement(bb, preferences.guideAgent, projectId);
-    const execution = preferences.guideAgent ? spawnExecution(preferences.guideAgent) : await guideWriterMode(bb, projectId);
-    const id = generationId;
-    const worker = await spawningFor(bb, title, targetKey, async () => {
-      const worker = await bb.sdk.threads.spawn({
-        ...placement,
-        prompt: buildGenerationPrompt(targetKey, id, preferences, earlier),
-        title,
-        visibility: "hidden",
-        ...execution,
-      });
-      await store.setGenerationWorker(targetKey, id, worker.id);
-      // A generation replaced while this writer spawned has no row to hold it, and its successor never saw it.
-      if (await store.generationOf(worker.id) !== targetKey) void recordFormerWorker(bb, worker.id, targetKey, "writer");
-      return worker;
-    });
-    workerId = worker.id;
-    const failed = new AbortController();
-    const watched = failures.get(bb) ?? new Map<string, AbortController>();
-    failures.set(bb, watched);
-    watched.set(worker.id, failed);
-    try {
-      const deadline = Date.now() + waitCap((await store.patch(targetKey)).length);
-      const signal = AbortSignal.any([controller.signal, failed.signal, accepted.signal]);
-      let nudged = false;
-      for (;;) {
-        const started = Date.now();
-        const timeoutMs = Math.min(WAIT_STEP, deadline - started);
-        try {
-          await threads.wait({ threadId: worker.id, status: "idle", timeoutMs, signal });
-        } catch (error) {
-          // An accepted guide ends the wait: whatever the worker says after it, no one reads.
-          if (accepted.signal.aborted) break;
-          // Only a wait that ran its full time is tried again; any other failure ends the generation.
-          if (signal.aborted || Date.now() >= deadline || Date.now() - started < timeoutMs) throw error;
-          const thread = await threads.get({ threadId: worker.id }).catch(() => null);
-          if (!thread || !workerActive(thread.status)) throw error;
-          continue;
-        }
-        // Idle without an accepted guide: the worker is told why, once, and has the rest of its time to fix it.
-        if (nudged || await store.getGuide(targetKey) !== null || Date.now() >= deadline) break;
-        nudged = true;
-        await threads.send({ threadId: worker.id, mode: "queue-if-active", input: [{ type: "text", mentions: [], text: generation.rejection
-          ? `Your guide wasn't accepted:\n${generation.rejection}\nFix it and call generate_review_guide again with the same targetKey and generationId.`
-          : "You haven't submitted the guide. Finish it and call generate_review_guide with the same targetKey and generationId." }] });
-      }
-      if (failed.signal.aborted && !accepted.signal.aborted) throw new Error("the guide writer failed");
-      if (!accepted.signal.aborted && await store.getGuide(targetKey) === null) throw new Error("the guide writer stopped without an accepted guide");
-    } finally {
-      watched.delete(worker.id);
-    }
+    begun = { preferences: (await tx.getPreferences()).preferences, earlier };
   } catch (error) {
-    // spawn/wait failed — fall through and finalize as error below. The log
-    // carries the reason, such as a custom agent bb can no longer start, and the guide's last rejection.
-    if (!controller.signal.aborted) {
-      const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
-      failure = generation.rejection ? `Its last guide wasn't accepted:\n${generation.rejection}` : `${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`;
-      bb.log.warn(`Guide generation for ${targetKey} failed: ${String(error)}${generation.rejection ? `. Its last guide wasn't accepted:\n${generation.rejection}` : ""}`);
-    }
-  } finally {
-    if (workerId && threads) {
-      try { await threads.archive({ threadId: workerId }); } catch { /* best effort */ }
-      try { await threads.stop({ threadId: workerId }); } catch { /* best effort */ }
-    }
+    begun = { error };
   }
-  try {
-    if (!generationId || !await store.isCurrentGeneration(targetKey, generationId)) return;
-    const ok = !controller.signal.aborted && await store.getGuide(targetKey) !== null;
-    const before = ok ? await store.guideBackupHead(targetKey) : null;
-    // A failed rebuild keeps the guide you had; a guide this run already submitted stands.
-    if (ok) await store.dropGuideBackup(targetKey);
-    const putBack = !ok && await store.restoreGuide(targetKey);
-    // A rebuild you stopped is the guide you had, ready; a first guide you stopped waits for Build the guide.
-    const restored = stopped && putBack;
-    await store.setStatus(targetKey, ok || restored ? "ready" : "error");
-    await store.setLifecycle(targetKey, { guideError: ok || restored ? null : stopped ? { at: Date.now(), text: GUIDE_STOPPED } : failure ? { at: Date.now(), text: failure } : null });
-    // The review's assistant reads the new guide when its runtime restarts.
-    if (ok) void refreshAssistants(bb, store, [targetKey]);
-    bb.realtime.publish(`review:${targetKey}`, { status: ok || restored ? "ready" : "error" });
-    bb.realtime.publish("reviews", { ts: Date.now() });
-    // A review you already reviewed gets its feedback checked; a new one, the automatic review.
-    const review = await store.getReview(targetKey);
-    // An untrusted author's check waits for your click; the automatic review gates itself.
-    const preferences = (await store.getPreferences()).preferences;
-    const trusted = !!review && mayRunUnattended(review, preferences, review.headSha);
-    if (ok && review && baselineOf(review).at && !trusted && reReviewCheckPrompt(preferences)) await skipRun(bb, store, targetKey, "check", review.headSha ?? null);
-    const checking = ok && !!review && !!baselineOf(review).at && trusted && await startVerification(bb, store, targetKey, "the guide was rebuilt for the PR's new commits");
-    const newCommits = before && review?.headSha && before !== review.headSha ? { from: before, to: review.headSha } : undefined;
-    if (ok && !checking && !(review && baselineOf(review).at)) await startAutomaticReview(bb, store, targetKey, newCommits).catch(async (error) => {
-      return store.exclusive(async (tx) => {
-        bb.log.warn(`The automatic review of ${targetKey} didn't start: ${String(error)}`);
-        // One that couldn't start a conversation waits for Run review, saying why; Run review is the retry. One that would
-        // have waited for your click anyway, as startAutomaticReview decides after the conversation, says that instead.
-        const own = review?.ownPr === true && typeof review.foreignHeadOwner !== "string";
-        const held = !!review && !own && !trusted;
-        if (!await tx.getAssistantThread(targetKey)) await skipRun(bb, tx, targetKey, "review", review?.headSha ?? null, held ? undefined : error instanceof Error ? error.message : String(error));
+
+  return async () => {
+    try {
+      if ("error" in begun) throw begun.error;
+      const { preferences, earlier } = begun;
+      const title = `${GUIDE_WORKER_TITLE}${targetKey}`;
+      const placement = await agentPlacement(bb, preferences.guideAgent, projectId);
+      const execution = preferences.guideAgent ? spawnExecution(preferences.guideAgent) : await guideWriterMode(bb, projectId);
+      const id = generationId!;
+      const worker = await spawningFor(bb, title, targetKey, async () => {
+        const worker = await bb.sdk.threads.spawn({
+          ...placement,
+          prompt: buildGenerationPrompt(targetKey, id, preferences, earlier),
+          title,
+          visibility: "hidden",
+          ...execution,
+        });
+        // Recorded, and checked that the generation still holds it, in one turn.
+        const holder = await store.exclusive(async (tx) => {
+          await tx.setGenerationWorker(targetKey, id, worker.id);
+          return await tx.generationOf(worker.id);
+        });
+        // A generation replaced while this writer spawned has no row to hold it, and its successor never saw it.
+        if (holder !== targetKey) void recordFormerWorker(bb, worker.id, targetKey, "writer");
+        return worker;
       });
-    });
-    if (!checking) await store.setLifecycle(targetKey, { preparedAt: Date.now() });
-    preparedListeners.get(bb)?.(targetKey);
-    if (!controller.signal.aborted && options.notify !== false) await completionNotifications(bb, store).queue({
-      targetKey, generationId, projectId, status: ok ? "ready" : "error",
-    });
-  } catch {
-    // A plugin reload can dispose storage/realtime while a worker is finishing.
-    // The next factory marks interrupted runs as errors without reusing a guide.
-  } finally {
-    runs.delete(controller);
-    if (generationId) generations.get(bb)?.delete(generationId);
-    if (byReview.get(targetKey) === run) byReview.delete(targetKey);
-    finished();
-  }
+      workerId = worker.id;
+      const failed = new AbortController();
+      const watched = failures.get(bb) ?? new Map<string, AbortController>();
+      failures.set(bb, watched);
+      watched.set(worker.id, failed);
+      try {
+        const deadline = Date.now() + waitCap((await store.patch(targetKey)).length);
+        const signal = AbortSignal.any([controller.signal, failed.signal, accepted.signal]);
+        let nudged = false;
+        for (;;) {
+          const started = Date.now();
+          const timeoutMs = Math.min(WAIT_STEP, deadline - started);
+          try {
+            await threads!.wait({ threadId: worker.id, status: "idle", timeoutMs, signal });
+          } catch (error) {
+            // An accepted guide ends the wait: whatever the worker says after it, no one reads.
+            if (accepted.signal.aborted) break;
+            // Only a wait that ran its full time is tried again; any other failure ends the generation.
+            if (signal.aborted || Date.now() >= deadline || Date.now() - started < timeoutMs) throw error;
+            const thread = await threads!.get({ threadId: worker.id }).catch(() => null);
+            if (!thread || !workerActive(thread.status)) throw error;
+            continue;
+          }
+          // Idle without an accepted guide: the worker is told why, once, and has the rest of its time to fix it.
+          if (nudged || await store.getGuide(targetKey) !== null || Date.now() >= deadline) break;
+          nudged = true;
+          await threads!.send({ threadId: worker.id, mode: "queue-if-active", input: [{ type: "text", mentions: [], text: generation.rejection
+            ? `Your guide wasn't accepted:\n${generation.rejection}\nFix it and call generate_review_guide again with the same targetKey and generationId.`
+            : "You haven't submitted the guide. Finish it and call generate_review_guide with the same targetKey and generationId." }] });
+        }
+        if (failed.signal.aborted && !accepted.signal.aborted) throw new Error("the guide writer failed");
+        if (!accepted.signal.aborted && await store.getGuide(targetKey) === null) throw new Error("the guide writer stopped without an accepted guide");
+      } finally {
+        watched.delete(worker.id);
+      }
+    } catch (error) {
+      // spawn/wait failed — fall through and finalize as error below. The log
+      // carries the reason, such as a custom agent bb can no longer start, and the guide's last rejection.
+      if (!controller.signal.aborted) {
+        const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
+        failure = generation.rejection ? `Its last guide wasn't accepted:\n${generation.rejection}` : `${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`;
+        bb.log.warn(`Guide generation for ${targetKey} failed: ${String(error)}${generation.rejection ? `. Its last guide wasn't accepted:\n${generation.rejection}` : ""}`);
+      }
+    } finally {
+      if (workerId && threads) {
+        try { await threads.archive({ threadId: workerId }); } catch { /* best effort */ }
+        try { await threads.stop({ threadId: workerId }); } catch { /* best effort */ }
+      }
+    }
+    try {
+      if (!generationId) return;
+      const id = generationId;
+      // Fenced: whether this is still the review's generation, and its outcome, in one turn.
+      const outcome = await store.exclusive(async (tx) => {
+        if (!await tx.isCurrentGeneration(targetKey, id)) return null;
+        const ok = !controller.signal.aborted && await tx.getGuide(targetKey) !== null;
+        const before = ok ? await tx.guideBackupHead(targetKey) : null;
+        // A failed rebuild keeps the guide you had; a guide this run already submitted stands.
+        if (ok) await tx.dropGuideBackup(targetKey);
+        const putBack = !ok && await tx.restoreGuide(targetKey);
+        // A rebuild you stopped is the guide you had, ready; a first guide you stopped waits for Build the guide.
+        const restored = stopped && putBack;
+        await tx.setStatus(targetKey, ok || restored ? "ready" : "error");
+        await tx.setLifecycle(targetKey, { guideError: ok || restored ? null : stopped ? { at: Date.now(), text: GUIDE_STOPPED } : failure ? { at: Date.now(), text: failure } : null });
+        bb.realtime.publish(`review:${targetKey}`, { status: ok || restored ? "ready" : "error" });
+        bb.realtime.publish("reviews", { ts: Date.now() });
+        // A review you already reviewed gets its feedback checked; a new one, the automatic review.
+        const review = await tx.getReview(targetKey);
+        // An untrusted author's check waits for your click; the automatic review gates itself.
+        const preferences = (await tx.getPreferences()).preferences;
+        const trusted = !!review && mayRunUnattended(review, preferences, review.headSha);
+        if (ok && review && baselineOf(review).at && !trusted && reReviewCheckPrompt(preferences)) await skipRun(bb, tx, targetKey, "check", review.headSha ?? null);
+        return { ok, before, review, trusted };
+      });
+      if (!outcome) return;
+      const { ok, before, review, trusted } = outcome;
+      // The review's assistant reads the new guide when its runtime restarts.
+      if (ok) void refreshAssistants(bb, store, [targetKey]);
+      const checking = ok && !!review && !!baselineOf(review).at && trusted && await startVerification(bb, store, targetKey, "the guide was rebuilt for the PR's new commits");
+      const newCommits = before && review?.headSha && before !== review.headSha ? { from: before, to: review.headSha } : undefined;
+      if (ok && !checking && !(review && baselineOf(review).at)) await startAutomaticReview(bb, store, targetKey, newCommits).catch(async (error) => {
+        return store.exclusive(async (tx) => {
+          bb.log.warn(`The automatic review of ${targetKey} didn't start: ${String(error)}`);
+          // One that couldn't start a conversation waits for Run review, saying why; Run review is the retry. One that would
+          // have waited for your click anyway, as startAutomaticReview decides after the conversation, says that instead.
+          const own = review?.ownPr === true && typeof review.foreignHeadOwner !== "string";
+          const held = !!review && !own && !trusted;
+          if (!await tx.getAssistantThread(targetKey)) await skipRun(bb, tx, targetKey, "review", review?.headSha ?? null, held ? undefined : error instanceof Error ? error.message : String(error));
+        });
+      });
+      if (!checking) await store.setLifecycle(targetKey, { preparedAt: Date.now() });
+      preparedListeners.get(bb)?.(targetKey);
+      if (!controller.signal.aborted && options.notify !== false) await completionNotifications(bb, store).queue({
+        targetKey, generationId: id, projectId, status: ok ? "ready" : "error",
+      });
+    } catch {
+      // A plugin reload can dispose storage/realtime while a worker is finishing.
+      // The next factory marks interrupted runs as errors without reusing a guide.
+    } finally {
+      runs.delete(controller);
+      if (generationId) generations.get(bb)?.delete(generationId);
+      if (byReview.get(targetKey) === run) byReview.delete(targetKey);
+      finished();
+    }
+  };
 }

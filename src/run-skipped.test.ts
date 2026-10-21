@@ -49,9 +49,7 @@ test("Run starts the feedback check that didn't run, on the PR's head", async ()
   expect(await store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", approvedAt: expect.any(Number), skippedRun: null, verifyingSince: expect.any(Number) });
 });
 
-// P5: generateGuide's start (getReview through beginGeneration) no longer runs before its caller returns, so the one-writer
-// guard is weakened; P5 runs that start in the caller's turn of the queue, then this test.fails goes back to test.
-test.fails("Run builds a guide that didn't start, or one behind the PR, and approves its head", async () => {
+test("Run builds a guide that didn't start, or one behind the PR, and approves its head", async () => {
   for (const lifecycle of [{ skippedRun: { run: "guide", head: "sha2", at: 1 } }, { skippedRun: { run: "check", head: "sha2", at: 1 }, latestHeadSha: "sha2" }] as ReviewLifecycle[]) {
     const { harness, store, titles } = await setup(lifecycle);
     expect(await harness.behavior.callRpc("runSkipped", { targetKey: "pr-1" })).toEqual({ ok: true });
@@ -60,9 +58,7 @@ test.fails("Run builds a guide that didn't start, or one behind the PR, and appr
   }
 });
 
-// P5: generateGuide's start (getReview through beginGeneration) no longer runs before its caller returns, so the one-writer
-// guard is weakened; P5 runs that start in the caller's turn of the queue, then this test.fails goes back to test.
-test.fails("Run rebuilds the guide first for a check on a PR retargeted to a new base", async () => {
+test("Run rebuilds the guide first for a check on a PR retargeted to a new base", async () => {
   const { harness, store, titles } = await setup({ skippedRun: { run: "check", head: "sha1", at: 1 }, latestBase: "main" });
   await store.saveReview({ ...(await store.getReview("pr-1"))!, base: "parent" });
   expect(await harness.behavior.callRpc("runSkipped", { targetKey: "pr-1" })).toEqual({ ok: true });

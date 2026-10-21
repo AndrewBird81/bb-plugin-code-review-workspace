@@ -26,7 +26,7 @@ import { agentReadsHead, recordAgentReads } from "./src/agent-reads";
 import { describeDraft, writeSummary } from "./src/draft-summary";
 import { summaryLine, withSummaryLine } from "./lib/move-to-summary";
 import { runSummaryCommand } from "./src/summary-command";
-import { askAgent, settleDiscussions } from "./src/discussions";
+import { askAgent, discussionsWaitingOn, settleDiscussions } from "./src/discussions";
 import { clearAsks, listAsks, setAsk } from "./src/asks";
 import { digDeeper } from "./src/deep-dive";
 import { runCommentCommand } from "./src/comment-command";
@@ -1209,26 +1209,33 @@ export default async function plugin(bb: BbPluginApi) {
   });
   // A discussion the assistant didn't answer by the end of its turn stops waiting for it.
   const settle = async ({ thread }: { thread: { id: string } }) => {
-    // A turn ended; an ask on the summary or a comment ends with the turn that carried it. Before anything
-    // awaits, so a turn after it can't find it open.
-    const reviewKey = await assistantReview(store, thread.id);
-    const asking = reviewKey ? await store.getReview(reviewKey) : null;
-    for (const { at, ask } of asking ? listAsks(asking) : []) if (ask.state === "running" && ask.threadId === thread.id) {
-      await setAsk(store, reviewKey!, at, null);
-      // Its chapter stops saying the agent is digging into it.
-      if ("deepDive" in at) bb.realtime.publish(`review:${reviewKey}`, { ts: Date.now() });
-    }
-    const checkQueued = !!asking?.verifyingMessageId;
-    const targetKey = await settleDiscussions(bb, store, thread.id);
+    // A turn ended; an ask on the summary or a comment ends with the turn that carried it. In one turn of the queue,
+    // taken as the event arrives, so a turn after it can't find the ask open, nor an event after it see half of this.
+    const { reviewKey, checkQueued, waiting } = await store.exclusive(async (tx) => {
+      const reviewKey = await assistantReview(tx, thread.id);
+      const asking = reviewKey ? await tx.getReview(reviewKey) : null;
+      for (const { at, ask } of asking ? listAsks(asking) : []) if (ask.state === "running" && ask.threadId === thread.id) {
+        await setAsk(tx, reviewKey!, at, null);
+        // Its chapter stops saying the agent is digging into it.
+        if ("deepDive" in at) bb.realtime.publish(`review:${reviewKey}`, { ts: Date.now() });
+      }
+      return { reviewKey, checkQueued: !!asking?.verifyingMessageId, waiting: await discussionsWaitingOn(tx, thread.id) };
+    });
+    const targetKey = await settleDiscussions(bb, store, thread.id, waiting);
     if (targetKey) bb.realtime.publish(`draft:${targetKey}`, {});
     const review = reviewKey ? await store.getReview(reviewKey) : null;
     if (!reviewKey || !review) return;
     // A feedback check ends with the assistant's turn; an alert waiting for it can go now. A check still
     // queued behind another message hasn't run yet.
-    if (review.verifyingSince && !checkQueued && !(await bb.sdk.threads.queuedMessages.list({ threadId: thread.id }).catch(() => [])).length) await checkEnded(reviewKey);
+    if (review.verifyingSince && !checkQueued && !(await bb.sdk.threads.queuedMessages.list({ threadId: thread.id }).catch(() => [])).length) {
+      await endCheck(store, reviewKey);
+      await checkEnded(reviewKey);
+    }
   };
+  /** A feedback check that ended, recorded through `writer`, the store or the block that found it ended: its review is prepared for its next turn. */
+  const endCheck = (writer: AsyncStore, reviewKey: string) => writer.setLifecycle(reviewKey, { verifyingSince: null, verifyingHead: null, verifyingMessageId: null, preparedAt: Date.now() });
+  /** Once a check's end is recorded: whose turn the review is now, and its open pages told. */
   const checkEnded = async (reviewKey: string) => {
-    await store.setLifecycle(reviewKey, { verifyingSince: null, verifyingHead: null, verifyingMessageId: null, preparedAt: Date.now() });
     await sync.evaluate(reviewKey);
     bb.realtime.publish(`feedback:${reviewKey}`, { ts: Date.now() });
   };
@@ -1252,6 +1259,8 @@ export default async function plugin(bb: BbPluginApi) {
       return found ? { reviewKey: reviewKey!, ...found } : null;
     });
   };
+  // A message leaving the queue takes one turn of the store's queue as its event arrives, so the event, the turn's end,
+  // and the send that queued the message see each other whole, in the order BB told them.
   bb.events.on("message.dispatched", async ({ entry }) => {
     return store.exclusive(async (tx) => {
       const found = await queuedAsk(tx, entry);
@@ -1262,13 +1271,17 @@ export default async function plugin(bb: BbPluginApi) {
     });
   });
   bb.events.on("message.cancelled", async ({ entry }) => {
-    const found = await queuedAsk(store, entry);
-    if (found) await setAsk(store, found.reviewKey, found.at, null);
-    if (found && "deepDive" in found.at) bb.realtime.publish(`review:${found.reviewKey}`, { ts: Date.now() });
-    // A check deleted from the queue never runs.
-    const checking = await queuedCheck(store, entry);
+    const checking = await store.exclusive(async (tx) => {
+      const found = await queuedAsk(tx, entry);
+      if (found) await setAsk(tx, found.reviewKey, found.at, null);
+      if (found && "deepDive" in found.at) bb.realtime.publish(`review:${found.reviewKey}`, { ts: Date.now() });
+      // A check deleted from the queue never runs.
+      const checking = await queuedCheck(tx, entry);
+      if (checking) await endCheck(tx, checking);
+      else noteLeftQueue(entry.id, "cancelled");
+      return checking;
+    });
     if (checking) await checkEnded(checking);
-    else noteLeftQueue(entry.id, "cancelled");
   });
 
   const guideToolParameters = z.object({ targetKey: z.string(), generationId: z.string(), guide: GuideInputSchema });
@@ -1282,40 +1295,43 @@ export default async function plugin(bb: BbPluginApi) {
       const ids = guideToolParameters.pick({ targetKey: true, generationId: true }).safeParse(raw);
       if (!ids.success) return failed("Pass targetKey and generationId exactly as your task gives them.");
       const { targetKey, generationId } = ids.data;
-      if (!await store.isCurrentGeneration(targetKey, generationId) || (await store.getReview(targetKey))?.status !== "generating") {
-        return failed("This generation was superseded or interrupted. Do not overwrite the current review.");
-      }
-      // Stopped, it's finalizing: a guide now would stand in for the one you stopped.
-      if (guideStopped(bb, generationId)) return failed("The reviewer stopped this guide. Don't submit it again.");
-      // The run remembers why, to remind its worker and tell the reviewer if the guide fails.
-      const reject = (text: string) => { guideRejected(bb, generationId, text); return failed(text); };
-      const guide = (raw as { guide?: unknown }).guide;
-      const input = checkGuideInput(guide);
-      // The input's parse drops what the plugin stamps; a guide that fails it is never saved.
-      const v = validateGuide(input.ok ? input.guide : guide);
-      const invalid = [...new Set([...(input.ok ? [] : input.errors), ...(v.ok ? [] : v.errors)])];
-      if (!v.ok) return reject("Invalid guide:\n" + invalid.join("\n"));
-      const patch = await store.patch(targetKey);
-      const files = changedFiles(patch);
-      // Every category's errors in one answer, so one more call can fix them all.
-      const errors = [...(invalid.length ? [`Invalid guide:\n${invalid.join("\n")}`] : []), ...([
-        ["Coverage errors", [checkCoverage(v.guide, files, hunkCounts(patch)), checkUnplaced(v.guide, patch)]],
-        ["Hotspot errors", [checkHotspots(v.guide, patch)]],
-        ["Requirement errors", [checkRequirements(v.guide, patch)]],
-      ] as const).flatMap(([heading, checks]) => {
-        const found = checks.flatMap((check) => check.ok ? [] : check.errors);
-        return found.length ? [`${heading}:\n${found.join("\n")}`] : [];
-      })];
-      if (errors.length) return reject(errors.join("\n\n"));
-      // Stamp the store's authoritative gitRef/base over whatever the agent
-      // submitted — the guide must never carry a wrong or stale review ref.
-      const meta = await store.getReview(targetKey);
-      if (meta?.gitRef) v.guide.review = { gitRef: meta.gitRef, ...(meta.base ? { base: meta.base } : {}) };
-      // Only a re-review is asked what changed since your review; a first guide's would show as if you had reviewed it.
-      if (!guideAsksSinceReview(bb, generationId)) delete v.guide.sinceReview;
-      await store.saveGuide(targetKey, placeUnplacedFiles(v.guide, patch));
-      guideAccepted(bb, generationId);
-      return "Guide accepted.";
+      // Fenced: the generation is checked, and its guide saved, in one turn, so a generation begun meanwhile comes after both.
+      return store.exclusive(async (tx) => {
+        if (!await tx.isCurrentGeneration(targetKey, generationId) || (await tx.getReview(targetKey))?.status !== "generating") {
+          return failed("This generation was superseded or interrupted. Do not overwrite the current review.");
+        }
+        // Stopped, it's finalizing: a guide now would stand in for the one you stopped.
+        if (guideStopped(bb, generationId)) return failed("The reviewer stopped this guide. Don't submit it again.");
+        // The run remembers why, to remind its worker and tell the reviewer if the guide fails.
+        const reject = (text: string) => { guideRejected(bb, generationId, text); return failed(text); };
+        const guide = (raw as { guide?: unknown }).guide;
+        const input = checkGuideInput(guide);
+        // The input's parse drops what the plugin stamps; a guide that fails it is never saved.
+        const v = validateGuide(input.ok ? input.guide : guide);
+        const invalid = [...new Set([...(input.ok ? [] : input.errors), ...(v.ok ? [] : v.errors)])];
+        if (!v.ok) return reject("Invalid guide:\n" + invalid.join("\n"));
+        const patch = await tx.patch(targetKey);
+        const files = changedFiles(patch);
+        // Every category's errors in one answer, so one more call can fix them all.
+        const errors = [...(invalid.length ? [`Invalid guide:\n${invalid.join("\n")}`] : []), ...([
+          ["Coverage errors", [checkCoverage(v.guide, files, hunkCounts(patch)), checkUnplaced(v.guide, patch)]],
+          ["Hotspot errors", [checkHotspots(v.guide, patch)]],
+          ["Requirement errors", [checkRequirements(v.guide, patch)]],
+        ] as const).flatMap(([heading, checks]) => {
+          const found = checks.flatMap((check) => check.ok ? [] : check.errors);
+          return found.length ? [`${heading}:\n${found.join("\n")}`] : [];
+        })];
+        if (errors.length) return reject(errors.join("\n\n"));
+        // Stamp the store's authoritative gitRef/base over whatever the agent
+        // submitted — the guide must never carry a wrong or stale review ref.
+        const meta = await tx.getReview(targetKey);
+        if (meta?.gitRef) v.guide.review = { gitRef: meta.gitRef, ...(meta.base ? { base: meta.base } : {}) };
+        // Only a re-review is asked what changed since your review; a first guide's would show as if you had reviewed it.
+        if (!guideAsksSinceReview(bb, generationId)) delete v.guide.sinceReview;
+        await tx.saveGuide(targetKey, placeUnplacedFiles(v.guide, patch));
+        guideAccepted(bb, generationId);
+        return "Guide accepted.";
+      });
     },
   });
 

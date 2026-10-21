@@ -34,7 +34,8 @@ test("a review's own agent can't set the context its automatic review sends", as
 });
 
 test("a review's own assistant can't rewrite or remove the context your thread gave the review", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "w" }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}) } } as any });
+  // A command while the guide writer's spawn is in flight reads the running thread's title.
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "w" }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}), get: async () => ({ title: null }) } } as any });
   await plugin(bb);
   const store = queueStore(createStore(bb));
   expect(await harness.behavior.runCli([url, "--context", "Implements LIN-42: retry once."], { threadId: "coder", projectId: "p1" })).toMatchObject({ exitCode: 0 });

@@ -55,10 +55,13 @@ export async function startVerification(bb: BbPluginApi, store: AsyncStore, targ
     return false;
   }
   // The check is about this commit, even if the author pushes while it runs. Already dispatched, as BB can say before the
-  // send returns, it's no longer waiting in the queue (70-review #3); already deleted from it, it never runs.
-  const left = sent.queuedMessageId ? leftQueue.get(sent.queuedMessageId) : undefined;
-  const queued = sent.queuedMessageId && !left ? sent.queuedMessageId : null;
-  if (left !== "cancelled") await store.setLifecycle(targetKey, { verifyingSince: Date.now(), verifyingHead: headOf(review), verifyingMessageId: queued });
+  // send returns, it's no longer waiting in the queue (70-review #3); already deleted from it, it never runs. Read in a
+  // turn of the queue, after an event's that came first has noted it.
+  await store.exclusive(async (tx) => {
+    const left = sent.queuedMessageId ? leftQueue.get(sent.queuedMessageId) : undefined;
+    const queued = sent.queuedMessageId && !left ? sent.queuedMessageId : null;
+    if (left !== "cancelled") await tx.setLifecycle(targetKey, { verifyingSince: Date.now(), verifyingHead: headOf(review), verifyingMessageId: queued });
+  });
   bb.realtime.publish(`conversation:${targetKey}`, {});
   return true;
 }

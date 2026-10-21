@@ -138,17 +138,23 @@ const starting = (bb: BbPluginApi, targetKey: string) => starts.get(bb)?.get(tar
 export async function startConversation(bb: BbPluginApi, store: AsyncStore, args: { targetKey: string; text: string; context?: string; agent: AgentChoice }): Promise<{ threadId: string }> {
   // One start at a time per review: a later caller waits, then finds the conversation it started.
   for (let pending = starting(bb, args.targetKey); pending; pending = starting(bb, args.targetKey)) await pending.catch(() => {});
-  const review = await store.getReview(args.targetKey);
-  if (!review?.projectId) throw new Error("This review has no associated project; re-run `bb review` inside a project.");
-  if (await store.getAssistantThread(args.targetKey)) throw new Error("This review already has a conversation. Reload it to continue.");
-  const run = spawnConversation(bb, store, args, review.projectId);
+  // Registered before anything awaits, so a caller that comes meanwhile waits for this one.
+  const run = (async () => {
+    const projectId = await store.exclusive(async (tx) => {
+      const review = await tx.getReview(args.targetKey);
+      if (!review?.projectId) throw new Error("This review has no associated project; re-run `bb review` inside a project.");
+      if (await tx.getAssistantThread(args.targetKey)) throw new Error("This review already has a conversation. Reload it to continue.");
+      return review.projectId;
+    });
+    return await spawnConversation(bb, store, args, projectId);
+  })();
   const runs = starts.get(bb) ?? new Map<string, Promise<{ threadId: string }>>();
   starts.set(bb, runs);
   runs.set(args.targetKey, run);
   try {
     return await run;
   } finally {
-    runs.delete(args.targetKey);
+    if (runs.get(args.targetKey) === run) runs.delete(args.targetKey);
   }
 }
 

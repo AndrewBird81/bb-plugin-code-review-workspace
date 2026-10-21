@@ -377,9 +377,7 @@ test("a finished guide restarts the review's idle assistant so it reads the new 
   await expect.poll(() => harness.inspection.sdk.callsTo("threads.stop").map(([args]) => (args as any).threadId)).toContain("assistant");
 });
 
-// P5: startConversation now awaits the store between its `starting()` check and `runs.set`, so two messages both start a
-// conversation; P5 closes that gap, then this test.fails goes back to test.
-test.fails("messages sent at once start one conversation; the later one goes to it", async () => {
+test("messages sent at once start one conversation; the later one goes to it", async () => {
   let release!: () => void;
   const spawned = new Promise<void>((resolve) => { release = resolve; });
   const { bb, harness, store } = await host({ spawn: async () => { await spawned; return { id: "worker" }; }, send: async () => ({ delivery: "sent" }) },

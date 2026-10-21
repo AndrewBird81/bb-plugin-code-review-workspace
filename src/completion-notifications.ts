@@ -40,9 +40,9 @@ function createNotifications(bb: BbPluginApi, store: AsyncStore) {
   }
   bb.onDispose(() => { disposed = true; });
 
-  /** Whether an outcome still describes the review and its alert is on: a newer generation or turn replaces it. */
-  async function current(record: Pending, checkStatus = true): Promise<boolean> {
-    return store.exclusive(async (tx) => {
+  /** Whether an outcome still describes the review and its alert is on: a newer generation or turn replaces it. Read through `reader`, the store or a block's tx. */
+  async function current(reader: AsyncStore, record: Pending, checkStatus = true): Promise<boolean> {
+    return reader.exclusive(async (tx) => {
       if (Date.now() - record.occurredAt > MAX_AGE) return false;
       // Turned off in Settings while it waited, it isn't sent.
       const { knobs } = (await tx.getPreferences()).preferences;
@@ -68,7 +68,7 @@ function createNotifications(bb: BbPluginApi, store: AsyncStore) {
         if (disposed) return;
         const record = await bb.storage.kv.get<Pending>(key);
         if (!record) continue;
-        if (!await current(record, false)) await bb.storage.kv.delete(key);
+        if (!await current(store, record, false)) await bb.storage.kv.delete(key);
         else liveKeys.push(key);
       }
     });
@@ -79,18 +79,21 @@ function createNotifications(bb: BbPluginApi, store: AsyncStore) {
       const record = await locked(async () => {
         const pending = await bb.storage.kv.get<Pending>(key);
         if (!pending || disposed) return null;
-        if (!await current(pending)) {
+        if (!await current(store, pending)) {
           await bb.storage.kv.delete(key);
           return null;
         }
         return pending;
       });
       if (!record || disposed) continue;
-      const meta = await store.getReview(record.targetKey);
-      // The async storage lock yields; a new generation may have started since
-      // its read. Recheck immediately before dispatch, with no intervening await.
-      if (!meta || !await current(record)) continue;
-      const title = (meta.name || meta.title || (await store.getGuide(record.targetKey))?.title || "Review guide").slice(0, 240);
+      // The async storage lock yields; a new generation may have started since its read. Recheck immediately before
+      // dispatch, in the same turn as what the alert says.
+      const title = await store.exclusive(async (tx) => {
+        const meta = await tx.getReview(record.targetKey);
+        if (!meta || !await current(tx, record)) return null;
+        return (meta.name || meta.title || (await tx.getGuide(record.targetKey))?.title || "Review guide").slice(0, 240);
+      });
+      if (title === null) continue;
       const body = record.kind === "turn" ? (record.body ?? "It’s your turn to review.")
         : record.status === "ready" ? "Your guide is ready. Open it to start reviewing." : "The guide couldn’t be generated. Open the review to try again.";
       const result = await bb.sdk.plugins.callRpc({ pluginId: "inbox", method: "publishActivity", input: {
@@ -119,7 +122,7 @@ function createNotifications(bb: BbPluginApi, store: AsyncStore) {
       const key = `${PREFIX}${record.targetKey}`;
       const clockKey = `needs-you:clock:${record.targetKey}`;
       const previous = await bb.storage.kv.get<number>(clockKey);
-      if (disposed || !await current({ ...record, occurredAt: Date.now() }, false)) return;
+      if (disposed || !await current(store, { ...record, occurredAt: Date.now() }, false)) return;
       const occurredAt = Math.max(Date.now(), (previous ?? 0) + 1);
       await bb.storage.kv.set(clockKey, occurredAt);
       await bb.storage.kv.set(key, { ...record, occurredAt });
@@ -139,7 +142,7 @@ function createNotifications(bb: BbPluginApi, store: AsyncStore) {
       });
     },
     async queue(record: Omit<Pending, "occurredAt" | "kind" | "body">) {
-      if (disposed || !(await store.getPreferences()).preferences.knobs.alertGuides || !await store.isCurrentGeneration(record.targetKey, record.generationId)) return;
+      if (disposed || !await store.exclusive(async (tx) => (await tx.getPreferences()).preferences.knobs.alertGuides && await tx.isCurrentGeneration(record.targetKey, record.generationId))) return;
       await enqueue({ ...record, kind: "generation" });
     },
     /**
