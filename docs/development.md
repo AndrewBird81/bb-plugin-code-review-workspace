@@ -21,6 +21,20 @@ bb plugin dev
 - Keep published tags immutable.
 - The README's icon is two copies of `assets/icon.svg` with GitHub's text colour in place of `currentColor`, which an `<img>` draws black. When the icon changes, regenerate them from the repo root: `sed 's/currentColor/#1f2328/' assets/icon.svg > docs/images/icon-light.svg && sed 's/currentColor/#f0f6fc/' assets/icon.svg > docs/images/icon-dark.svg`.
 
+## Backend tests on Postgres
+
+The backend tests run the Store on SQLite. To run them on Postgres, `scripts/test-postgres.sh [name] [port]` starts a throwaway `postgres:18` container in Docker, initialised with `--locale=C` and serving TLS 1.3 as the homelab cluster does, and prints `CRW_TEST_PG_URL=…` for it:
+
+```sh
+export "$(scripts/test-postgres.sh crw-test-pg 55432)"
+npm test -- --project backend
+docker rm -f crw-test-pg
+```
+
+- With `CRW_TEST_PG_URL` set, `createStore` returns the Store over a Postgres schema of each fake host's own, migrated by its first statement and dropped once its test ends (`src/test-backend.test-support.ts`). The plugin a test starts and the test's own `testStore(bb)` share that schema, and `testSql(bb)` reaches its tables.
+- `src/store-backends.test.ts` runs a seeded random sequence of Store calls on SQLite and on Postgres, and compares each call's answer and every read after it. It, and the tests in `src/db/` that connect to Postgres, are skipped without the URL.
+- A few tests are SQLite's alone: the former install's import, the dump script, the SQLite executor's own, and a query plan's index.
+
 ## Browser regression test
 
 Use Node 24, matching the installed SQLite native module. Build and reload this plugin in an isolated test BB, then run:
