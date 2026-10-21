@@ -5,7 +5,8 @@ import tseslint from "typescript-eslint";
 export default defineConfig([
   globalIgnores(["dist/"]),
   {
-    files: ["server.ts", "src/**/*.ts", "scripts/**/*.ts"],
+    // The backend, and the frontend tests and e2e tests that create a Store; the rest of the frontend doesn't call it.
+    files: ["server.ts", "src/**/*.ts", "scripts/**/*.ts", "e2e/**/*.ts", "components/overview-chapter-id.test.tsx"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },

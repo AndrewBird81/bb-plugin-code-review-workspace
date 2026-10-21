@@ -161,6 +161,24 @@ test("a loop repeats a call between awaits, and joins the end of one pass to the
   ]);
 });
 
+test("a while loop's last condition check runs in the stretch after the loop", () => {
+  const report = audit({ "a.ts": `
+    import { tick, type Store } from "./store";
+    export async function drain(store: Store) {
+      while (store.get("next")) await tick();
+      store.set("next", "");
+    }
+    export async function counted(store: Store) {
+      for (let i = 0; store.get(String(i)); i++) await tick();
+      store.list();
+    }
+  ` });
+  expect(report.stretches.map((s) => [s.fn.name, labels(s.uses)])).toEqual([
+    ["drain", ["Store.get", "Store.set"]],
+    ["counted", ["Store.get", "Store.list"]],
+  ]);
+});
+
 test("a for await awaits before each pass, and a switch's cases each lead to what follows it", () => {
   const report = audit({ "a.ts": `
     import { tick, type Store } from "./store";
@@ -230,6 +248,45 @@ test("a sync helper's calls are one use where it's called, since R1 makes it one
   expect(report.stretches.map((s) => [s.fn.name, labels(s.uses)])).toEqual([["twice", ["bump (a.ts:3)", "Store.get"]]]);
 });
 
+test("an async function's start runs in its caller's stretch, awaited or not", () => {
+  const report = audit({ "a.ts": `
+    import { tick, type Store } from "./store";
+    async function ended(store: Store) { store.set("a", "done"); await tick(); store.list(); }
+    async function waitsFirst(store: Store) { await tick(); store.set("a", "done"); }
+    async function relay(store: Store) { await ended(store); }
+    export async function awaited(store: Store) {
+      await tick();
+      if (store.get("a")) await ended(store);
+    }
+    export async function unawaited(store: Store) {
+      await tick();
+      store.get("a");
+      void ended(store);
+      await tick();
+    }
+    export async function transitive(store: Store) {
+      await tick();
+      store.get("a");
+      await relay(store);
+    }
+    export async function afterItsAwait(store: Store) {
+      await tick();
+      store.get("a");
+      await waitsFirst(store);
+    }
+    export function handler(store: Store) {
+      void (async () => { store.set("b", "c"); await tick(); })();
+    }
+  ` });
+  expect(report.stretches.map((s) => [s.fn.name, s.fromStart, labels(s.uses)])).toEqual([
+    ["awaited", false, ["Store.get", "start of ended (a.ts:3)"]],
+    ["unawaited", false, ["Store.get", "start of ended (a.ts:3)"]],
+    ["transitive", false, ["Store.get", "start of relay (a.ts:5)"]],
+  ]);
+  expect(fn(report, "relay").uses).toEqual([{ file: "a.ts", line: 5, label: "start of ended (a.ts:3)", helper: true, asyncStart: true }]);
+  expect(fn(report, "handler").uses.map((u) => [u.label, u.asyncStart])).toEqual([["start of handler > IIFE (a.ts:27)", true]]);
+});
+
 test("lists store calls in array-method callbacks and in positions that can't await", () => {
   const report = audit({ "a.ts": `
     import { createStore, type Store } from "./store";
@@ -251,6 +308,7 @@ test("lists store calls in array-method callbacks and in positions that can't aw
   expect(report.callbacks.map((c) => [c.line, c.position, labels(c.uses)])).toEqual([
     [4, "module scope", ["Store.list"]],
     [5, ".filter callback", ["Store.get"]],
+    [8, ".some callback", ["Store.get"]],
     [10, "default parameter", ["Store.get"]],
     [12, "constructor", ["Store.list"]],
     [13, "getter", ["Store.get"]],
@@ -258,7 +316,7 @@ test("lists store calls in array-method callbacks and in positions that can't aw
     [16, "method used as a value", ["Store.get"]],
   ]);
   // A function passed by name runs once per element, as a use in its caller.
-  expect(fn(report, "named").uses).toEqual([{ file: "a.ts", line: 8, label: "named > known (a.ts:7)", helper: true }]);
+  expect(fn(report, "named").uses).toEqual([{ file: "a.ts", line: 8, label: "named > known (a.ts:7)", helper: true, asyncStart: false }]);
 });
 
 test("lists BB's callbacks that use the store, those that must return synchronously first", () => {
@@ -297,14 +355,14 @@ test("the report counts each section and prints every entry", () => {
 
 Files audited: 2
 Store call sites: 3 (plus 1 calls inside the store implementations, not audited)
-(a) Functions that use the store: 2 (1 sync, 1 async); 2 call it directly
+(a) Functions that use the store: 2 (1 sync, 1 async); 2 call it directly; 0 only through an async function's start
 (b) R2 candidates: 1 stretches in 1 async functions; 1 run from the function's start; 0 repeat a call in a loop or callback
 (c) Callbacks and positions that can't await: 0 (0 array-method callbacks, 0 of them predicates)
 (d) BB callbacks that use the store: 2; 1 must return synchronously
     value: 1 (must return its result synchronously)
     promise: 1 (its type allows a Promise)
 
-(a) Functions that use the store, with their store calls and the synchronous helpers they call that do
+(a) Functions that use the store, with their store calls, the synchronous helpers they call that do, and the async functions they call whose starts do
   a.ts:5  sync   plugin > callback to host.configure()  [1 direct, 0 via helpers]
       Store.get @5
   a.ts:6  async  plugin > callback to host.on("idle")  [2 direct, 0 via helpers]
