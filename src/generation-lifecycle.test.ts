@@ -4,29 +4,30 @@ import plugin from "../server";
 import { createStore } from "./store";
 import { generateGuide, stopGuideGenerations } from "./generate";
 import { toolFailed } from "./fake-host.test-support";
+import { queueStore, type AsyncStore } from "./store-queue";
 
 const guide = { title: "T", intent: "I", sections: [], unplacedFiles: [] };
 
 test("failed regeneration does not mark an old guide ready", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => { throw new Error("offline"); } } } });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
-  store.saveGuide("target", guide);
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  await store.saveGuide("target", guide);
   await generateGuide(bb, store, "target", "p1");
-  expect(store.getGuide("target")).toBeNull();
-  expect(store.getReview("target")?.status).toBe("error");
+  expect(await store.getGuide("target")).toBeNull();
+  expect((await store.getReview("target"))?.status).toBe("error");
 });
 
 test("a superseded generation cannot replace a newer guide", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "generating", createdAt: 1 });
-  const old = store.beginGeneration("target");
-  const current = store.beginGeneration("target");
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "generating", createdAt: 1 });
+  const old = await store.beginGeneration("target");
+  const current = await store.beginGeneration("target");
   expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "target", generationId: current, guide }))).toBeFalsy();
   expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "target", generationId: old, guide: { ...guide, title: "Old result" } }))).toBe(true);
-  expect(store.getGuide("target")?.title).toBe("T");
+  expect((await store.getGuide("target"))?.title).toBe("T");
 });
 
 test("hidden workers are archived and stopped when waiting fails", async () => {
@@ -35,24 +36,24 @@ test("hidden workers are archived and stopped when waiting fails", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), wait: async () => { throw new Error("timeout"); }, archive, stop,
   } } });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "generating", createdAt: 1 });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "generating", createdAt: 1 });
   await generateGuide(bb, store, "target", "p1");
   expect(archive).toHaveBeenCalledWith({ threadId: "worker" });
   expect(stop).toHaveBeenCalledWith({ threadId: "worker" });
-  expect(store.getReview("target")?.status).toBe("error");
+  expect((await store.getReview("target"))?.status).toBe("error");
 });
 
 test("restart marks persisted in-progress reviews as interrupted without discarding drafts", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "generating", createdAt: 1 });
-  const old = store.beginGeneration("target");
-  store.setVerdict("target", "COMMENT", "Keep this draft");
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "generating", createdAt: 1 });
+  const old = await store.beginGeneration("target");
+  await store.setVerdict("target", "COMMENT", "Keep this draft");
   await plugin(bb);
-  expect(store.getReview("target")?.status).toBe("error");
-  expect(store.isCurrentGeneration("target", old)).toBe(false);
-  expect(store.getDraft("target").body).toBe("Keep this draft");
+  expect((await store.getReview("target"))?.status).toBe("error");
+  expect(await store.isCurrentGeneration("target", old)).toBe(false);
+  expect((await store.getDraft("target")).body).toBe("Keep this draft");
 });
 
 test("disposal aborts a pending worker wait and releases the worker", async () => {
@@ -67,14 +68,14 @@ test("disposal aborts a pending worker wait and releases the worker", async () =
     }),
     archive: async () => {}, stop,
   } } });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "generating", createdAt: 1 });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "generating", createdAt: 1 });
   const run = generateGuide(bb, store, "target", "p1");
   await vi.waitFor(() => expect(waiting).toBe(true));
   stopGuideGenerations(bb);
   await run;
   expect(stop).toHaveBeenCalledWith({ threadId: "worker" });
-  expect(store.getReview("target")?.status).toBe("error");
+  expect((await store.getReview("target"))?.status).toBe("error");
 });
 
 test("a guide worker that fails ends its generation at once", async () => {
@@ -89,21 +90,21 @@ test("a guide worker that fails ends its generation at once", async () => {
     queuedMessages: { list: async () => [] },
   } } as any });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
   const run = generateGuide(bb, store, "target", "p1");
   await vi.waitFor(() => expect(waiting).toBe(true));
   await harness.behavior.emitThreadEvent("thread.failed", { thread: makeThreadResponse({ id: "someone-else" }), error: null });
-  expect(store.getReview("target")?.status).toBe("generating");
+  expect((await store.getReview("target"))?.status).toBe("generating");
   await harness.behavior.emitThreadEvent("thread.failed", { thread: makeThreadResponse({ id: "worker" }), error: "Provider crashed" });
   await run;
-  expect(store.getReview("target")?.status).toBe("error");
+  expect((await store.getReview("target"))?.status).toBe("error");
 });
 
 test("a guide worker still working when the wait times out is waited for longer", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   const waits: number[] = [];
-  let store!: ReturnType<typeof createStore>;
+  let store!: AsyncStore;
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}),
     get: async () => ({ id: "worker", status: "active", archivedAt: null, deletedAt: null }),
@@ -113,21 +114,21 @@ test("a guide worker still working when the wait times out is waited for longer"
         vi.setSystemTime(Date.now() + timeoutMs);
         throw new Error("Timed out waiting for thread worker");
       }
-      store.saveGuide("target", guide);
+      await store.saveGuide("target", guide);
       return { matched: true };
     },
   } } as any });
-  store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
   // A 50 KB diff gets five more minutes.
-  store.savePatch("target", "x".repeat(50_000));
+  await store.savePatch("target", "x".repeat(50_000));
   try {
     await generateGuide(bb, store, "target", "p1");
   } finally {
     vi.useRealTimers();
   }
   expect(waits).toEqual([600_000, 300_000]);
-  expect(store.getReview("target")?.status).toBe("ready");
+  expect((await store.getReview("target"))?.status).toBe("ready");
 });
 
 test("a wait that fails before its time ends the generation, even while the worker looks active", async () => {
@@ -136,11 +137,11 @@ test("a wait that fails before its time ends the generation, even while the work
     spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}), wait,
     get: async () => ({ id: "worker", status: "active", archivedAt: null, deletedAt: null }),
   } } as any });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
   await generateGuide(bb, store, "target", "p1");
   expect(wait).toHaveBeenCalledTimes(1);
-  expect(store.getReview("target")?.status).toBe("error");
+  expect((await store.getReview("target"))?.status).toBe("error");
 });
 
 test("an accepted guide is ready at once, though its worker's turn goes on", async () => {
@@ -154,14 +155,14 @@ test("an accepted guide is ready at once, though its worker's turn goes on", asy
     archive, stop,
   } } as any });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
   const run = generateGuide(bb, store, "target", "p1", { notify: false });
   await vi.waitFor(() => expect(prompt).toContain("generationId"));
   const generationId = prompt.match(/generationId "([^"]+)"/)![1];
   expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "target", generationId, guide }))).toBeFalsy();
   await run;
-  expect(store.getReview("target")?.status).toBe("ready");
+  expect((await store.getReview("target"))?.status).toBe("ready");
   expect(archive).toHaveBeenCalledWith({ threadId: "worker" });
   expect(stop).toHaveBeenCalledWith({ threadId: "worker" });
 }, 5_000);
@@ -190,21 +191,21 @@ function stoppableHost() {
 test("Stop mid-rebuild puts the previous guide back, ready, stops and archives the worker, and alerts no one", async () => {
   const { bb, harness, archive, stop, delivered, waiting } = stoppableHost();
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", gitRef: "main", status: "ready", createdAt: 1, projectId: "p1" });
-  store.savePatch("target", "old patch");
-  store.saveGuide("target", { ...guide, title: "Before" });
-  store.backupGuide("target");
-  store.savePatch("target", "new patch");
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", gitRef: "main", status: "ready", createdAt: 1, projectId: "p1" });
+  await store.savePatch("target", "old patch");
+  await store.saveGuide("target", { ...guide, title: "Before" });
+  await store.backupGuide("target");
+  await store.savePatch("target", "new patch");
   const run = generateGuide(bb, store, "target", "p1");
   await vi.waitFor(() => expect(waiting()).toBe(true));
-  expect(store.getReview("target")?.status).toBe("generating");
+  expect((await store.getReview("target"))?.status).toBe("generating");
   expect(await harness.behavior.callRpc("stopGuide", { targetKey: "target" })).toEqual({ ok: true, restored: true });
   await run;
-  expect(store.getReview("target")?.status).toBe("ready");
-  expect(store.getGuide("target")?.title).toBe("Before");
-  expect(store.patch("target")).toBe("old patch");
-  expect(store.getReview("target")?.guideError).toBeNull();
+  expect((await store.getReview("target"))?.status).toBe("ready");
+  expect((await store.getGuide("target"))?.title).toBe("Before");
+  expect(await store.patch("target")).toBe("old patch");
+  expect((await store.getReview("target"))?.guideError).toBeNull();
   expect(archive).toHaveBeenCalledWith({ threadId: "worker" });
   expect(stop).toHaveBeenCalledWith({ threadId: "worker" });
   expect(delivered).toEqual([]);
@@ -213,14 +214,14 @@ test("Stop mid-rebuild puts the previous guide back, ready, stops and archives t
 test("Stop on a first guide ends it with the error Stopped, and alerts no one", async () => {
   const { bb, harness, stop, delivered, waiting } = stoppableHost();
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
   const run = generateGuide(bb, store, "target", "p1");
   await vi.waitFor(() => expect(waiting()).toBe(true));
   expect(await harness.behavior.callRpc("stopGuide", { targetKey: "target" })).toEqual({ ok: true });
   await run;
-  expect(store.getReview("target")?.status).toBe("error");
-  expect(store.getReview("target")?.guideError).toMatchObject({ text: "Stopped" });
+  expect((await store.getReview("target"))?.status).toBe("error");
+  expect((await store.getReview("target"))?.guideError).toMatchObject({ text: "Stopped" });
   expect(stop).toHaveBeenCalledWith({ threadId: "worker" });
   expect(delivered).toEqual([]);
 });
@@ -228,11 +229,11 @@ test("Stop on a first guide ends it with the error Stopped, and alerts no one", 
 test("Stop on a review with no guide building, or an unknown one, does nothing", async () => {
   const { bb, harness } = stoppableHost();
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
   expect(await harness.behavior.callRpc("stopGuide", { targetKey: "target" })).toEqual({ ok: true });
   expect(await harness.behavior.callRpc("stopGuide", { targetKey: "nope" })).toEqual({ ok: true });
-  expect(store.getReview("target")?.status).toBe("ready");
+  expect((await store.getReview("target"))?.status).toBe("ready");
 });
 
 // bug bash AGT-6: you press Stop on a first guide, and the writer, not stopped yet, submits its guide while the plugin
@@ -250,8 +251,8 @@ test("a guide submitted after Stop is refused, and Stop doesn't say a guide was 
     queuedMessages: { list: async () => [] },
   } } as any });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
   const run = generateGuide(bb, store, "target", "p1");
   await vi.waitFor(() => expect(waiting).toBe(true));
   const generationId = prompt.match(/generationId "([^"]+)"/)![1];
@@ -260,6 +261,6 @@ test("a guide submitted after Stop is refused, and Stop doesn't say a guide was 
   expect(await harness.behavior.callRpc("stopGuide", { targetKey: "target" })).toEqual({ ok: true });
   await run;
   expect(toolFailed(answer)).toBeTruthy();
-  expect(store.getGuide("target")).toBeNull();
-  expect(store.getReview("target")).toMatchObject({ status: "error", guideError: { text: "Stopped" } });
+  expect(await store.getGuide("target")).toBeNull();
+  expect(await store.getReview("target")).toMatchObject({ status: "error", guideError: { text: "Stopped" } });
 });

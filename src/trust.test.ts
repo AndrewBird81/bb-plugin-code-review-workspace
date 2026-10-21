@@ -4,15 +4,16 @@ import { createStore } from "./store";
 import { defaultPreferences, readPreferences } from "./preferences";
 import { approve, mayRunChecks, mayRunUnattended, notRunReason, skipWhy, trustedAuthor } from "../lib/trust";
 import type { ReviewMeta } from "./store";
+import { queueStore } from "./store-queue";
 
 const pr = (extra: Partial<ReviewMeta> = {}): ReviewMeta => ({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, author: "mallory", headSha: "sha1", status: "ready", createdAt: 1, ...extra });
 
-test("settings saved before trust existed keep agents to members and collaborators, and the repo's checks off", () => {
+test("settings saved before trust existed keep agents to members and collaborators, and the repo's checks off", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = createStore(bb);
+  const store = queueStore(createStore(bb));
   const { unattendedAuthors: _authors, runRepoChecks: _checks, ...older } = defaultPreferences;
   bb.storage.database().prepare(`INSERT INTO review_preferences (id,value,revision) VALUES (1,?,1)`).run(JSON.stringify({ ...older, diffLayout: "unified" }));
-  expect(store.getPreferences().preferences).toMatchObject({ unattendedAuthors: "members", runRepoChecks: false, diffLayout: "unified" });
+  expect((await store.getPreferences()).preferences).toMatchObject({ unattendedAuthors: "members", runRepoChecks: false, diffLayout: "unified" });
   expect(readPreferences({})).toMatchObject({ unattendedAuthors: "members", runRepoChecks: false });
 });
 

@@ -8,6 +8,7 @@ vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 import plugin from "../server";
 import { createStore } from "./store";
 import type { FeedbackThread } from "./github/types";
+import { queueStore } from "./store-queue";
 
 const feedbackThread: FeedbackThread = {
   id: "t-mine", commentId: 11, reviewId: null, path: "a.ts", line: 2, originalLine: 2, startLine: null, side: "RIGHT", subjectType: "LINE",
@@ -29,10 +30,10 @@ async function setup() {
   });
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready", headSha: "sha1" });
-  store.setLifecycle("pr-1", { submittedVerdict: "COMMENT", submittedAt: 10, submittedHeadSha: "sha1" });
-  store.saveFeedbackThreads("pr-1", [feedbackThread], 1);
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready", headSha: "sha1" });
+  await store.setLifecycle("pr-1", { submittedVerdict: "COMMENT", submittedAt: 10, submittedHeadSha: "sha1" });
+  await store.saveFeedbackThreads("pr-1", [feedbackThread], 1);
   const call = (method: string, input: Record<string, unknown>) => harness.behavior.callRpc(method, { targetKey: "pr-1", ...input }) as Promise<{ ok: boolean; error?: string }>;
   /** The writes that reached GitHub, with the token each carried. */
   const writes = () => runGh.mock.calls

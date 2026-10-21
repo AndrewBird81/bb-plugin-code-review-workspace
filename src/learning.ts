@@ -2,7 +2,6 @@
 // doesn't raise them again), and, once a review is submitted, which they kept, edited, or removed.
 // The reviewer can ask an agent to propose instruction lines from them; nothing applies them but Save.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { Store } from "./store";
 import { postedBody, sameLocation, type CommentLocation, type Draft, type DraftComment } from "./draft";
 import { diffPositions } from "./review-positions";
 import { agentPlacement, machineUnavailable, personalProjectId } from "./machines";
@@ -11,6 +10,7 @@ import { untrusted } from "./untrusted";
 import { NO_REVIEW, recordFormerWorker } from "./former-workers";
 import { spawningFor } from "./thread-review";
 import { REMOVAL_NOTE_LIMIT, REMOVAL_REASON_WORDS, REMOVAL_REASONS, type RemovalReason, type RemovalReasonId } from "../lib/removal-reasons";
+import type { AsyncStore } from "./store-queue";
 
 // Words are kept as GitHub would get them, severity label and all, so a changed severity is an edit.
 
@@ -125,90 +125,98 @@ export function agentCommentStore(db: Database): AgentCommentStore {
   };
 }
 
-const pending = (store: Store, targetKey: string, kind: AgentCommentChange["kind"], at: CommentLocation) =>
-  store.agentCommentChanges(targetKey).filter((c) => c.kind === kind && !c.recorded && sameLocation(c, at));
+const pending = async (store: AsyncStore, targetKey: string, kind: AgentCommentChange["kind"], at: CommentLocation) =>
+  (await store.agentCommentChanges(targetKey)).filter((c) => c.kind === kind && !c.recorded && sameLocation(c, at));
 
 /**
  * Before the reviewer saves a comment from the panel: their save over an agent's comment edits it,
  * and one that puts back a comment they just removed (Undo) forgets the removal.
  */
-export function noteReviewerSave(store: Store, targetKey: string, comment: CommentLocation & Pick<DraftComment, "body" | "severity">) {
-  const existing = store.getDraft(targetKey).comments.find((c) => sameLocation(c, comment));
-  if (existing) {
-    if (existing.author === "agent" && !pending(store, targetKey, "edited", comment).length) {
-      store.noteAgentCommentChange(targetKey, { ...location(comment), kind: "edited", code: store.draftCommentCode(targetKey, comment) ?? null, body: postedBody(existing), removed: null });
+export async function noteReviewerSave(store: AsyncStore, targetKey: string, comment: CommentLocation & Pick<DraftComment, "body" | "severity">) {
+  return store.exclusive(async (tx) => {
+    const existing = (await tx.getDraft(targetKey)).comments.find((c) => sameLocation(c, comment));
+    if (existing) {
+      if (existing.author === "agent" && !(await pending(tx, targetKey, "edited", comment)).length) {
+        await tx.noteAgentCommentChange(targetKey, { ...location(comment), kind: "edited", code: await tx.draftCommentCode(targetKey, comment) ?? null, body: postedBody(existing), removed: null });
+      }
+      return;
     }
-    return;
-  }
-  const removal = pending(store, targetKey, "removed", comment).filter((c) => c.removed === postedBody(comment)).at(-1);
-  if (!removal) return;
-  store.forgetAgentCommentChange(targetKey, removal.id);
-  // Put back, it counts as the agent's words, kept unless the reviewer changes them.
-  store.noteAgentCommentChange(targetKey, { ...location(comment), kind: "edited", code: removal.code, body: removal.body, removed: null });
+    const removal = (await pending(tx, targetKey, "removed", comment)).filter((c) => c.removed === postedBody(comment)).at(-1);
+    if (!removal) return;
+    await tx.forgetAgentCommentChange(targetKey, removal.id);
+    // Put back, it counts as the agent's words, kept unless the reviewer changes them.
+    await tx.noteAgentCommentChange(targetKey, { ...location(comment), kind: "edited", code: removal.code, body: removal.body, removed: null });
+  });
 }
 
 /** Before the reviewer removes a comment: remember it when the words were the agent's. */
-export function noteReviewerRemoval(store: Store, targetKey: string, at: CommentLocation) {
-  const existing = store.getDraft(targetKey).comments.find((c) => sameLocation(c, at));
-  if (!existing) return;
-  const [edit] = pending(store, targetKey, "edited", at);
-  if (existing.author !== "agent" && !edit) return;
-  store.noteAgentCommentChange(targetKey, {
-    ...location(at), kind: "removed", code: edit?.code ?? store.draftCommentCode(targetKey, at) ?? null,
-    body: edit?.body ?? postedBody(existing), removed: postedBody(existing),
+export async function noteReviewerRemoval(store: AsyncStore, targetKey: string, at: CommentLocation) {
+  return store.exclusive(async (tx) => {
+    const existing = (await tx.getDraft(targetKey)).comments.find((c) => sameLocation(c, at));
+    if (!existing) return;
+    const [edit] = await pending(tx, targetKey, "edited", at);
+    if (existing.author !== "agent" && !edit) return;
+    await tx.noteAgentCommentChange(targetKey, {
+      ...location(at), kind: "removed", code: edit?.code ?? await tx.draftCommentCode(targetKey, at) ?? null,
+      body: edit?.body ?? postedBody(existing), removed: postedBody(existing),
+    });
+    if (edit) await tx.forgetAgentCommentChange(targetKey, edit.id);
   });
-  if (edit) store.forgetAgentCommentChange(targetKey, edit.id);
 }
 
 const location = ({ file, line, side }: CommentLocation): CommentLocation => ({ file, line, side });
 /** Whether the reviewer is asked why they remove an agent's comment, so the agent and suggestions read their reasons. */
-const askingWhy = (store: Store) => store.getPreferences().preferences.knobs.removalReasons;
+const askingWhy = async (store: AsyncStore) => (await store.getPreferences()).preferences.knobs.removalReasons;
 const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
-const removals = (store: Store, targetKey: string) => store.agentCommentChanges(targetKey).filter((c) => c.kind === "removed");
+const removals = async (store: AsyncStore, targetKey: string) => (await store.agentCommentChanges(targetKey)).filter((c) => c.kind === "removed");
 const indent = (text: string) => text.split("\n").map((line) => `  ${line}`).join("\n");
 
 /** For list_draft_comments: the agent's comments the reviewer removed, and whether their code is still in the diff. */
-export function describeRemovals(store: Store, targetKey: string): string {
-  const removed = removals(store, targetKey).slice(-20);
-  if (!removed.length) return "";
-  const positions = diffPositions(store.patch(targetKey));
-  const reasons = askingWhy(store);
-  // The reviewer's line is their own text: fenced, as data.
-  const why = ({ why }: AgentCommentChange) => !reasons || !why ? ""
-    : ` (why: ${REMOVAL_REASON_WORDS[why.reason]}${why.note ? ` — ${untrusted("reviewer-note", why.note)}` : ""})`;
-  return [
-    "",
-    "The reviewer removed these comments an agent wrote. Don't raise them again unless their code changed:",
-    ...removed.map((c) => {
-      const lines = positions.get(c.file)?.[c.side === "LEFT" ? "left" : "right"];
-      const still = c.code !== null && !!lines && [...lines.values()].some((line) => normalize(line) === normalize(c.code!));
-      const code = c.code === null ? "" : ` · on \`${c.code.trim().slice(0, 200)}\`, ${still ? "still in the diff" : "no longer in the diff"}`;
-      return `${c.file}:${c.line} ${c.side}${code}${why(c)}\n${indent(c.body)}`;
-    }),
-  ].join("\n");
+export async function describeRemovals(store: AsyncStore, targetKey: string): Promise<string> {
+  return store.exclusive(async (tx) => {
+    const removed = (await removals(tx, targetKey)).slice(-20);
+    if (!removed.length) return "";
+    const positions = diffPositions(await tx.patch(targetKey));
+    const reasons = await askingWhy(tx);
+    // The reviewer's line is their own text: fenced, as data.
+    const why = ({ why }: AgentCommentChange) => !reasons || !why ? ""
+      : ` (why: ${REMOVAL_REASON_WORDS[why.reason]}${why.note ? ` — ${untrusted("reviewer-note", why.note)}` : ""})`;
+    return [
+      "",
+      "The reviewer removed these comments an agent wrote. Don't raise them again unless their code changed:",
+      ...removed.map((c) => {
+        const lines = positions.get(c.file)?.[c.side === "LEFT" ? "left" : "right"];
+        const still = c.code !== null && !!lines && [...lines.values()].some((line) => normalize(line) === normalize(c.code!));
+        const code = c.code === null ? "" : ` · on \`${c.code.trim().slice(0, 200)}\`, ${still ? "still in the diff" : "no longer in the diff"}`;
+        return `${c.file}:${c.line} ${c.side}${code}${why(c)}\n${indent(c.body)}`;
+      }),
+    ].join("\n");
+  });
 }
 
 /** add_draft_comment: a note when the reviewer removed an earlier comment on the same code. */
-export function removalWarning(store: Store, targetKey: string, input: { file: string; code: string }): string {
+export async function removalWarning(store: AsyncStore, targetKey: string, input: { file: string; code: string }): Promise<string> {
   const code = normalize(input.code);
-  const match = code && removals(store, targetKey).filter((c) => c.file === input.file && c.code !== null && normalize(c.code) === code).at(-1);
+  const match = code && (await removals(store, targetKey)).filter((c) => c.file === input.file && c.code !== null && normalize(c.code) === code).at(-1);
   if (!match) return "";
   return ` The reviewer removed an earlier comment on this code: "${match.body.slice(0, 300)}". Unless this one makes a different point, delete it with delete_draft_comment.`;
 }
 
 /** After the reviewer submits `draft`, the draft as submitted: record what became of each agent comment. */
-export function recordOutcomes(store: Store, targetKey: string, draft: Draft) {
-  const repo = store.getReview(targetKey)?.repo ?? "";
-  const changes = store.agentCommentChanges(targetKey).filter((c) => !c.recorded);
-  const outcomes: Array<Omit<AgentCommentOutcome, "at">> = [];
-  for (const comment of draft.comments) {
-    const edit = changes.find((c) => c.kind === "edited" && sameLocation(c, comment));
-    const body = postedBody(comment);
-    if (comment.author === "agent") outcomes.push({ repo, file: comment.file, outcome: "kept", body, edited: null });
-    else if (edit) outcomes.push({ repo, file: comment.file, outcome: edit.body === body ? "kept" : "edited", body: edit.body, edited: edit.body === body ? null : body });
-  }
-  for (const c of changes) if (c.kind === "removed") outcomes.push({ repo, file: c.file, outcome: "removed", body: c.body, edited: null });
-  store.recordAgentOutcomes(targetKey, outcomes);
+export async function recordOutcomes(store: AsyncStore, targetKey: string, draft: Draft) {
+  return store.exclusive(async (tx) => {
+    const repo = (await tx.getReview(targetKey))?.repo ?? "";
+    const changes = (await tx.agentCommentChanges(targetKey)).filter((c) => !c.recorded);
+    const outcomes: Array<Omit<AgentCommentOutcome, "at">> = [];
+    for (const comment of draft.comments) {
+      const edit = changes.find((c) => c.kind === "edited" && sameLocation(c, comment));
+      const body = postedBody(comment);
+      if (comment.author === "agent") outcomes.push({ repo, file: comment.file, outcome: "kept", body, edited: null });
+      else if (edit) outcomes.push({ repo, file: comment.file, outcome: edit.body === body ? "kept" : "edited", body: edit.body, edited: edit.body === body ? null : body });
+    }
+    for (const c of changes) if (c.kind === "removed") outcomes.push({ repo, file: c.file, outcome: "removed", body: c.body, edited: null });
+    await tx.recordAgentOutcomes(targetKey, outcomes);
+  });
 }
 
 const firstLine = (text: string) => text.trim().split("\n")[0].slice(0, 200);
@@ -217,33 +225,37 @@ const firstLine = (text: string) => text.trim().split("\n")[0].slice(0, 200);
  * For Settings: how the agent's last comments fared, the latest few removed, and, while the reviewer is asked why, how
  * many removals had each reason, most first.
  */
-export function learningStats(store: Store) {
-  const outcomes = store.listAgentOutcomes();
-  const count = (outcome: AgentCommentOutcome["outcome"]) => outcomes.filter((o) => o.outcome === outcome).length;
-  const given = askingWhy(store) ? store.reasonedRemovals() : [];
-  const reasons = REMOVAL_REASONS.map((reason) => ({ reason, count: given.filter((removal) => removal.why.reason === reason).length }))
-    .filter((entry) => entry.count > 0).sort((a, b) => b.count - a.count);
-  return {
-    total: outcomes.length, kept: count("kept"), edited: count("edited"), removed: count("removed"), reasons,
-    recentRemoved: outcomes.filter((o) => o.outcome === "removed").slice(0, 5).map((o) => ({ repo: o.repo, file: o.file, line: firstLine(o.body), at: o.at })),
-  };
+export async function learningStats(store: AsyncStore) {
+  return store.exclusive(async (tx) => {
+    const outcomes = await tx.listAgentOutcomes();
+    const count = (outcome: AgentCommentOutcome["outcome"]) => outcomes.filter((o) => o.outcome === outcome).length;
+    const given = await askingWhy(tx) ? await tx.reasonedRemovals() : [];
+    const reasons = REMOVAL_REASONS.map((reason) => ({ reason, count: given.filter((removal) => removal.why.reason === reason).length }))
+      .filter((entry) => entry.count > 0).sort((a, b) => b.count - a.count);
+    return {
+      total: outcomes.length, kept: count("kept"), edited: count("edited"), removed: count("removed"), reasons,
+      recentRemoved: outcomes.filter((o) => o.outcome === "removed").slice(0, 5).map((o) => ({ repo: o.repo, file: o.file, line: firstLine(o.body), at: o.at })),
+    };
+  });
 }
 
 /**
  * The recent removed and edited comments a suggestion learns from, newest first; with the reviewer asked why, each
  * removal with the reason they gave for the same words in the same file.
  */
-const lessons = (store: Store) => {
-  const outcomes = store.listAgentOutcomes();
-  const given = askingWhy(store) ? store.reasonedRemovals() : [];
-  const whyOf = (o: AgentCommentOutcome) => given.find((removal) => removal.file === o.file && removal.body === o.body)?.why ?? null;
-  return {
-    removed: outcomes.filter((o) => o.outcome === "removed").slice(0, 20).map((o) => ({ ...o, why: whyOf(o) })),
-    edited: outcomes.filter((o) => o.outcome === "edited").slice(0, 20),
-  };
+const lessons = async (store: AsyncStore) => {
+  return store.exclusive(async (tx) => {
+    const outcomes = await tx.listAgentOutcomes();
+    const given = await askingWhy(tx) ? await tx.reasonedRemovals() : [];
+    const whyOf = (o: AgentCommentOutcome) => given.find((removal) => removal.file === o.file && removal.body === o.body)?.why ?? null;
+    return {
+      removed: outcomes.filter((o) => o.outcome === "removed").slice(0, 20).map((o) => ({ ...o, why: whyOf(o) })),
+      edited: outcomes.filter((o) => o.outcome === "edited").slice(0, 20),
+    };
+  });
 };
 
-export function suggestionPrompt(instructions: string, { removed, edited }: ReturnType<typeof lessons>): string {
+export function suggestionPrompt(instructions: string, { removed, edited }: Awaited<ReturnType<typeof lessons>>): string {
   const where = (o: AgentCommentOutcome) => `${o.repo || "local"} · ${o.file}`;
   const why = ({ why }: { why: RemovalReason | null }) => why ? ` (why: ${REMOVAL_REASON_WORDS[why.reason]}${why.note ? ` — ${why.note}` : ""})` : "";
   return [
@@ -282,7 +294,7 @@ const SUGGESTER_TITLE = "Suggest assistant instructions";
  * Proposals for the assistant's instructions, from a short-lived hidden worker on the review assistant's
  * agent. One runs at a time; `changed` is told when the proposal's state changes.
  */
-export function createInstructionSuggester(bb: BbPluginApi, store: Store, changed: () => void) {
+export function createInstructionSuggester(bb: BbPluginApi, store: AsyncStore, changed: () => void) {
   let suggestion: Suggestion = { state: "idle" };
   const stopped = new AbortController();
   bb.onDispose(() => stopped.abort());
@@ -291,7 +303,7 @@ export function createInstructionSuggester(bb: BbPluginApi, store: Store, change
   async function run(prompt: string) {
     let workerId: string | undefined;
     try {
-      const { assistantAgent } = store.getPreferences().preferences;
+      const { assistantAgent } = (await store.getPreferences()).preferences;
       const unavailable = await machineUnavailable(bb, assistantAgent, "review assistant");
       if (unavailable) return settle({ state: "failed", at: Date.now(), error: unavailable });
       const projectId = await personalProjectId(bb);
@@ -322,15 +334,19 @@ export function createInstructionSuggester(bb: BbPluginApi, store: Store, change
 
   return {
     current: () => suggestion,
-    /** Whether there's anything to learn from. */
-    possible: () => { const { removed, edited } = lessons(store); return removed.length + edited.length > 0; },
-    start(): { ok: boolean; error?: string } {
-      if (suggestion.state === "running") return { ok: true };
-      const material = lessons(store);
-      if (!material.removed.length && !material.edited.length) return { ok: false, error: "There are no removed or edited comments to learn from yet." };
-      settle({ state: "running", at: Date.now() });
-      void run(suggestionPrompt(store.getPreferences().preferences.assistantInstructions, material));
-      return { ok: true };
+    /** Whether there's anything to learn from, read through `from`: a caller in a block passes its tx. */
+    possible: async (from: AsyncStore) => { const { removed, edited } = await lessons(from); return removed.length + edited.length > 0; },
+    async start(): Promise<{ ok: boolean; error?: string }> {
+      const { prompt, ...result } = await store.exclusive(async (tx): Promise<{ ok: boolean; error?: string; prompt?: string }> => {
+        if (suggestion.state === "running") return { ok: true };
+        const material = await lessons(tx);
+        if (!material.removed.length && !material.edited.length) return { ok: false, error: "There are no removed or edited comments to learn from yet." };
+        settle({ state: "running", at: Date.now() });
+        return { ok: true, prompt: suggestionPrompt((await tx.getPreferences()).preferences.assistantInstructions, material) };
+      });
+      // Started after the block, which its reads of the store would wait for.
+      if (prompt !== undefined) void run(prompt);
+      return result;
     },
     /** Forget a finished proposal; one still running carries on. */
     dismiss() {

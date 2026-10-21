@@ -8,6 +8,7 @@ import { generateGuide } from "./generate";
 import plugin from "../server";
 import { formerWorkerReview } from "./former-workers";
 import { runGh } from "./gh";
+import { queueStore } from "./store-queue";
 
 vi.mock("./gh", async (original) => {
   const actual = await original<typeof import("./gh")>();
@@ -17,14 +18,14 @@ vi.mock("./gh", async (original) => {
 const opus = { providerId: "claude-code", model: "opus", reasoningLevel: "high" } as const;
 const guide = (intent: string) => ({ title: "Change", intent, sections: [{ id: "s1", title: "Retry", overview: "Retries once.", diffs: [] }], unplacedFiles: [] });
 
-function host(threads: Record<string, unknown> = {}, projects: Record<string, unknown> = {}) {
+async function host(threads: Record<string, unknown> = {}, projects: Record<string, unknown> = {}) {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}),
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), ...threads,
   }, projects } });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "p1" });
-  store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "p1" });
+  await store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
   return { bb, harness, store };
 }
 
@@ -36,7 +37,7 @@ function legacyConversation(bb: BbPluginApi, worker: string, messages: Array<[st
 }
 
 test("the first message starts one hidden assistant thread on the chosen agent", async () => {
-  const { bb, harness, store } = host();
+  const { bb, harness, store } = await host();
   expect(await startConversation(bb, store, { targetKey: "pr-1", text: "Why retry?", agent: opus })).toEqual({ threadId: "worker" });
   const [spawn] = harness.inspection.sdk.callsTo("threads.spawn")[0] as [any];
   expect(spawn).toMatchObject({
@@ -46,15 +47,15 @@ test("the first message starts one hidden assistant thread on the chosen agent",
   });
   // Project defaults choose no permission mode, so bb resolves the provider's own.
   expect(spawn).not.toHaveProperty("permissionMode");
-  expect(store.getAssistantThread("pr-1")).toBe("worker");
+  expect(await store.getAssistantThread("pr-1")).toBe("worker");
   await expect(startConversation(bb, store, { targetKey: "pr-1", text: "Again", agent: opus })).rejects.toThrow(/already has a conversation/);
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1);
 });
 
 test("the Settings default supplies its permission mode only for its own provider", async () => {
-  const { bb, harness, store } = host();
-  store.savePreferences({ ...defaultPreferences, assistantAgent: { ...opus, permissionMode: "full" } }, 0);
-  store.saveReview({ targetKey: "pr-2", kind: "pr", status: "ready", createdAt: 1, projectId: "p1" });
+  const { bb, harness, store } = await host();
+  await store.savePreferences({ ...defaultPreferences, assistantAgent: { ...opus, permissionMode: "full" } }, 0);
+  await store.saveReview({ targetKey: "pr-2", kind: "pr", status: "ready", createdAt: 1, projectId: "p1" });
   await startConversation(bb, store, { targetKey: "pr-1", text: "Why?", agent: { ...opus, model: "sonnet" } });
   await startConversation(bb, store, { targetKey: "pr-2", text: "Why?", agent: { providerId: "codex", model: "gpt-6", reasoningLevel: "low", serviceTier: "fast" } });
   const [same, other] = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any);
@@ -64,13 +65,13 @@ test("the Settings default supplies its permission mode only for its own provide
 });
 
 test("a legacy conversation stays visible, reaches the agent as hidden history, and retires its worker", async () => {
-  const { bb, harness, store } = host();
+  const { bb, harness, store } = await host();
   legacyConversation(bb, "legacy-worker", [["user", "Earlier question"], ["assistant", "Earlier answer"]]);
   await startConversation(bb, store, { targetKey: "pr-1", text: "Go on", agent: opus });
   const [spawn] = harness.inspection.sdk.callsTo("threads.spawn")[0] as [any];
   expect(spawn.input[1]).toEqual({ type: "text", visibility: "agent-only", mentions: [], text: "Previous review conversation:\nuser: Earlier question\n\nassistant: Earlier answer" });
   expect(harness.inspection.sdk.callsTo("threads.archive")).toEqual([[{ threadId: "legacy-worker" }]]);
-  expect(store.getAgentThread("pr-1")).toBeNull();
+  expect(await store.getAgentThread("pr-1")).toBeNull();
   // Archived, it can still run commands: as a former assistant, only on its own review (71-review-security F4).
   expect(await formerWorkerReview(bb, "legacy-worker")).toBe("pr-1");
   expect((await getConversation(bb, store, "pr-1")).legacy.map((message) => message.text)).toEqual(["Earlier question", "Earlier answer"]);
@@ -78,34 +79,34 @@ test("a legacy conversation stays visible, reaches the agent as hidden history, 
 
 test("a live thread continues; otherwise the conversation starts from the Settings or project default", async () => {
   const projectDefaults = { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", permissionMode: "auto", serviceTier: "default" };
-  const { bb, harness, store } = host({}, { defaultExecutionOptions: async ({ projectId }: { projectId: string }) => projectId === "p1" ? projectDefaults : null });
-  store.setAssistantThread("pr-1", "worker");
+  const { bb, harness, store } = await host({}, { defaultExecutionOptions: async ({ projectId }: { projectId: string }) => projectId === "p1" ? projectDefaults : null });
+  await store.setAssistantThread("pr-1", "worker");
   expect(await getConversation(bb, store, "pr-1")).toEqual({ threadId: "worker", legacy: [], defaults: null, machine: null });
 
   harness.inspection.sdk.stub("threads.get", async () => ({ archivedAt: 123, deletedAt: null }));
   expect(await getConversation(bb, store, "pr-1")).toEqual({ threadId: null, legacy: [], defaults: { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", serviceTier: "default" }, machine: null });
-  expect(store.getAssistantThread("pr-1")).toBeNull();
+  expect(await store.getAssistantThread("pr-1")).toBeNull();
 
-  store.savePreferences({ ...defaultPreferences, assistantAgent: { ...opus, permissionMode: "full" } }, 0);
+  await store.savePreferences({ ...defaultPreferences, assistantAgent: { ...opus, permissionMode: "full" } }, 0);
   expect((await getConversation(bb, store, "pr-1")).defaults).toEqual(opus);
 
-  store.setAssistantThread("pr-1", "deleted");
+  await store.setAssistantThread("pr-1", "deleted");
   harness.inspection.sdk.stub("threads.get", async () => { throw new Error("HTTP 404: Thread not found"); });
   expect((await getConversation(bb, store, "pr-1")).threadId).toBeNull();
 
-  store.setAssistantThread("pr-1", "unreachable");
+  await store.setAssistantThread("pr-1", "unreachable");
   harness.inspection.sdk.stub("threads.get", async () => { throw new Error("Connection unavailable"); });
   await expect(getConversation(bb, store, "pr-1")).rejects.toThrow("Connection unavailable");
-  expect(store.getAssistantThread("pr-1")).toBe("unreachable");
+  expect(await store.getAssistantThread("pr-1")).toBe("unreachable");
 });
 
 test("New conversation archives the thread and clears the legacy transcript", async () => {
-  const { bb, harness, store } = host({ archive: async ({ threadId }: { threadId: string }) => { if (threadId === "worker") throw new Error("Connection unavailable"); } });
+  const { bb, harness, store } = await host({ archive: async ({ threadId }: { threadId: string }) => { if (threadId === "worker") throw new Error("Connection unavailable"); } });
   legacyConversation(bb, "legacy-worker", [["user", "Earlier question"]]);
-  store.setAssistantThread("pr-1", "worker");
+  await store.setAssistantThread("pr-1", "worker");
   await newConversation(bb, store, "pr-1");
   expect(harness.inspection.sdk.callsTo("threads.archive").map(([args]) => (args as any).threadId)).toEqual(["worker", "legacy-worker"]);
-  expect([store.getAssistantThread("pr-1"), store.getAgentThread("pr-1"), store.listAgentMessages("pr-1")]).toEqual([null, null, []]);
+  expect([await store.getAssistantThread("pr-1"), await store.getAgentThread("pr-1"), await store.listAgentMessages("pr-1")]).toEqual([null, null, []]);
 });
 
 test("instructions carry the review's current guide and preferences, trimmed to bb's limit", () => {
@@ -229,13 +230,13 @@ function reviewAgentContext(pluginMetadata: Record<string, string>): PluginAgent
 }
 
 test("the assistant gets its review's current instructions, without private notes, and only the read and draft-comment tools", async () => {
-  const { bb, harness, store } = host();
+  const { bb, harness, store } = await host();
   await plugin(bb);
-  store.saveReviewerNotes("pr-1", "PRIVATE-SCRATCHPAD", 0);
-  store.savePreferences({ ...defaultPreferences, assistantInstructions: "Focus on security" }, 0);
-  store.saveGuide("pr-1", guide("Old behavior") as any);
-  store.saveGuide("pr-1", guide("New retry behavior") as any);
-  store.setAssistantThread("pr-1", "worker");
+  await store.saveReviewerNotes("pr-1", "PRIVATE-SCRATCHPAD", 0);
+  await store.savePreferences({ ...defaultPreferences, assistantInstructions: "Focus on security" }, 0);
+  await store.saveGuide("pr-1", guide("Old behavior") as any);
+  await store.saveGuide("pr-1", guide("New retry behavior") as any);
+  await store.setAssistantThread("pr-1", "worker");
   const mine = await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: "pr-1" }));
   expect(mine.tools.map((tool) => tool.name)).toEqual(["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
     "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"]);
@@ -247,22 +248,22 @@ test("the assistant gets its review's current instructions, without private note
   expect(mine.instructions).toContain("Focus on security");
   expect(mine.instructions).not.toMatch(/Old behavior|PRIVATE-SCRATCHPAD/);
   // A thread that's no review's assistant gets none, whatever its metadata says.
-  store.clearAssistantThread("pr-1");
+  await store.clearAssistantThread("pr-1");
   expect((await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: "pr-1" }))).instructions).toBeNull();
 });
 
 test("idle assistants restart for new instructions after Re-review or a preferences change; busy ones finish", async () => {
-  const { bb, harness, store } = host({ get: async ({ threadId }: { threadId: string }) => ({ archivedAt: null, deletedAt: null, status: threadId === "busy" ? "active" : "idle" }) });
+  const { bb, harness, store } = await host({ get: async ({ threadId }: { threadId: string }) => ({ archivedAt: null, deletedAt: null, status: threadId === "busy" ? "active" : "idle" }) });
   await plugin(bb);
-  store.saveReview({ targetKey: "pr-2", kind: "pr", status: "ready", createdAt: 1, projectId: "p1" });
-  store.setAssistantThread("pr-1", "idle");
-  store.setAssistantThread("pr-2", "busy");
+  await store.saveReview({ targetKey: "pr-2", kind: "pr", status: "ready", createdAt: 1, projectId: "p1" });
+  await store.setAssistantThread("pr-1", "idle");
+  await store.setAssistantThread("pr-2", "busy");
   await refreshAssistants(bb, store, ["pr-2"]);
   expect(harness.inspection.sdk.callsTo("threads.stop")).toEqual([]);
   await refreshAssistants(bb, store);
   expect(harness.inspection.sdk.callsTo("threads.stop")).toEqual([[{ threadId: "idle" }]]);
 
-  const { revision } = store.getPreferences();
+  const { revision } = await store.getPreferences();
   await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, diffLayout: "unified" }, revision });
   expect(harness.inspection.sdk.callsTo("threads.stop")).toHaveLength(1);
   await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, diffLayout: "unified", assistantInstructions: "Be brief" }, revision: revision + 1 });
@@ -285,16 +286,16 @@ test("idle assistants restart for new instructions after Re-review or a preferen
 test("a ready guide starts the automatic review when the review has no conversation", async () => {
   const projectDefaults = { providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" };
   let spawned = 0;
-  const { bb, harness, store } = host(
-    { spawn: async () => ({ id: `thread-${++spawned}` }), wait: async () => { store.saveGuide("pr-1", guide("New retry behavior") as any); } },
+  const { bb, harness, store } = await host(
+    { spawn: async () => ({ id: `thread-${++spawned}` }), wait: async () => { await store.saveGuide("pr-1", guide("New retry behavior") as any); } },
     { defaultExecutionOptions: async () => projectDefaults },
   );
   await generateGuide(bb, store, "pr-1", "p1");
   const [writer, assistant] = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any);
   expect(writer.title).toBe("Generate guide: pr-1");
   expect(assistant).toMatchObject({ title: "Review agent: pr-1", visibility: "hidden", providerId: "codex", model: "gpt-6", input: [{ type: "text", text: defaultPreferences.automaticReview }] });
-  expect(store.getAssistantThread("pr-1")).toBe("thread-2");
-  expect(store.getReview("pr-1")?.status).toBe("ready");
+  expect(await store.getAssistantThread("pr-1")).toBe("thread-2");
+  expect((await store.getReview("pr-1"))?.status).toBe("ready");
 
   // The review now has a conversation, so the next guide leaves it alone.
   await generateGuide(bb, store, "pr-1", "p1");
@@ -302,11 +303,11 @@ test("a ready guide starts the automatic review when the review has no conversat
 });
 
 test("the automatic review carries the context bb review --context kept with the review", async () => {
-  const { bb, harness, store } = host(
-    { wait: async () => { store.saveGuide("pr-1", guide("Retry") as any); } },
+  const { bb, harness, store } = await host(
+    { wait: async () => { await store.saveGuide("pr-1", guide("Retry") as any); } },
     { defaultExecutionOptions: async () => ({ providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" }) },
   );
-  store.setReviewContext("pr-1", "Implements LIN-42: retry once, never twice.");
+  await store.setReviewContext("pr-1", "Implements LIN-42: retry once, never twice.");
   await generateGuide(bb, store, "pr-1", "p1");
   const assistant = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any).find((args) => args.title === "Review agent: pr-1");
   // Only the agent sees it, fenced: the thread that ran bb review may have been steered by what it read.
@@ -317,46 +318,46 @@ test("the automatic review carries the context bb review --context kept with the
 });
 
 test("no automatic review for a blank prompt or a failed guide; one that can't start is logged", async () => {
-  const { bb, harness, store } = host({ wait: async () => {} }, { defaultExecutionOptions: async () => null });
+  const { bb, harness, store } = await host({ wait: async () => {} }, { defaultExecutionOptions: async () => null });
   await generateGuide(bb, store, "pr-1", "p1");
-  expect(store.getReview("pr-1")?.status).toBe("error");
-  store.savePreferences({ ...defaultPreferences, automaticReview: "  " }, 0);
+  expect((await store.getReview("pr-1"))?.status).toBe("error");
+  await store.savePreferences({ ...defaultPreferences, automaticReview: "  " }, 0);
   await startAutomaticReview(bb, store, "pr-1");
   expect(harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title)).toEqual(["Generate guide: pr-1"]);
 
   // Without a default agent, the guide is still ready and the reason is logged.
-  store.savePreferences({ ...defaultPreferences }, 1);
-  harness.inspection.sdk.stub("threads.wait", async () => { store.saveGuide("pr-1", guide("Retry") as any); return { matched: true }; });
+  await store.savePreferences({ ...defaultPreferences }, 1);
+  harness.inspection.sdk.stub("threads.wait", async () => { await store.saveGuide("pr-1", guide("Retry") as any); return { matched: true }; });
   await generateGuide(bb, store, "pr-1", "p1");
-  expect(store.getReview("pr-1")?.status).toBe("ready");
+  expect((await store.getReview("pr-1"))?.status).toBe("ready");
   expect(harness.inspection.logEntries.map((entry) => entry.message)).toContainEqual(expect.stringContaining("automatic review of pr-1 didn't start"));
 });
 
 test("with Run the automatic review off, a ready guide starts no assistant, though the default prompt is saved", async () => {
-  const { bb, harness, store } = host(
-    { wait: async () => { store.saveGuide("pr-1", guide("Retry") as any); } },
+  const { bb, harness, store } = await host(
+    { wait: async () => { await store.saveGuide("pr-1", guide("Retry") as any); } },
     { defaultExecutionOptions: async () => opus },
   );
-  store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, runAutomaticReview: false } }, 0);
+  await store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, runAutomaticReview: false } }, 0);
   await generateGuide(bb, store, "pr-1", "p1");
-  expect(store.getReview("pr-1")?.status).toBe("ready");
+  expect((await store.getReview("pr-1"))?.status).toBe("ready");
   expect(harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title)).toEqual(["Generate guide: pr-1"]);
 });
 
 test("a finished guide restarts the review's idle assistant so it reads the new guide", async () => {
-  let finishGuide = () => {};
-  const { bb, harness, store } = host({ wait: async () => finishGuide() });
-  finishGuide = () => store.saveGuide("pr-1", guide("New retry behavior") as any);
-  store.setAssistantThread("pr-1", "assistant");
+  let finishGuide = async () => {};
+  const { bb, harness, store } = await host({ wait: async () => await finishGuide() });
+  finishGuide = async () => await store.saveGuide("pr-1", guide("New retry behavior") as any);
+  await store.setAssistantThread("pr-1", "assistant");
   await generateGuide(bb, store, "pr-1", "p1");
-  expect(store.getReview("pr-1")?.status).toBe("ready");
+  expect((await store.getReview("pr-1"))?.status).toBe("ready");
   await expect.poll(() => harness.inspection.sdk.callsTo("threads.stop").map(([args]) => (args as any).threadId)).toContain("assistant");
 });
 
 test("messages sent at once start one conversation; the later one goes to it", async () => {
   let release!: () => void;
   const spawned = new Promise<void>((resolve) => { release = resolve; });
-  const { bb, harness, store } = host({ spawn: async () => { await spawned; return { id: "worker" }; }, send: async () => ({ delivery: "sent" }) },
+  const { bb, harness, store } = await host({ spawn: async () => { await spawned; return { id: "worker" }; }, send: async () => ({ delivery: "sent" }) },
     { defaultExecutionOptions: async () => opus });
   const first = messageAssistant(bb, store, "pr-1", "Why retry?", "ctx");
   const second = messageAssistant(bb, store, "pr-1", "And the timeout?", "ctx");
@@ -371,20 +372,20 @@ test("messages sent at once start one conversation; the later one goes to it", a
 });
 
 test("a guide rebuilt for new commits asks the assistant to re-check its draft comments", async () => {
-  const { bb, harness, store } = host({ send: async () => ({}), wait: async () => { store.saveGuide("pr-1", guide("New retry behavior") as any); } });
-  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "p1", headSha: "1111111aaa" });
-  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
-  store.saveGuide("pr-1", guide("Old") as any);
-  store.setAssistantThread("pr-1", "assistant");
+  const { bb, harness, store } = await host({ send: async () => ({}), wait: async () => { await store.saveGuide("pr-1", guide("New retry behavior") as any); } });
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "p1", headSha: "1111111aaa" });
+  await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
+  await store.saveGuide("pr-1", guide("Old") as any);
+  await store.setAssistantThread("pr-1", "assistant");
   // Like rerunReview: keep the guide, then move the review to the new head.
-  store.backupGuide("pr-1");
-  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "generating", createdAt: 1, projectId: "p1", headSha: "2222222bbb" });
+  await store.backupGuide("pr-1");
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", status: "generating", createdAt: 1, projectId: "p1", headSha: "2222222bbb" });
   await generateGuide(bb, store, "pr-1", "p1");
   expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
 
-  store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "**Should fix:** b", author: "agent" });
-  store.backupGuide("pr-1");
-  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "generating", createdAt: 1, projectId: "p1", headSha: "3333333ccc" });
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "**Should fix:** b", author: "agent" });
+  await store.backupGuide("pr-1");
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", status: "generating", createdAt: 1, projectId: "p1", headSha: "3333333ccc" });
   await generateGuide(bb, store, "pr-1", "p1");
   const [[sent]] = harness.inspection.sdk.callsTo("threads.send") as any;
   expect(sent).toMatchObject({ threadId: "assistant", mode: "queue-if-active" });
@@ -399,126 +400,126 @@ test("a guide ready on a merged or closed PR starts no automatic review and reco
     [{ prState: "MERGED" }, false], [{ prState: "CLOSED" }, false], [{ prState: "OPEN" }, true],
     [{ startedPrState: "MERGED" }, false], [{ startedPrState: "CLOSED" }, false], [{ startedPrState: "OPEN", prState: "CLOSED" }, true],
   ] as const) {
-    const { bb, harness, store } = host(
-      { wait: async () => { store.saveGuide("pr-1", guide("Retry") as any); } },
+    const { bb, harness, store } = await host(
+      { wait: async () => { await store.saveGuide("pr-1", guide("Retry") as any); } },
       { defaultExecutionOptions: async () => opus },
     );
-    store.setLifecycle("pr-1", lifecycle);
+    await store.setLifecycle("pr-1", lifecycle);
     await generateGuide(bb, store, "pr-1", "p1");
-    expect(store.getReview("pr-1")?.status).toBe("ready");
+    expect((await store.getReview("pr-1"))?.status).toBe("ready");
     const titles = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title);
     expect(titles, JSON.stringify(lifecycle)).toEqual(open ? ["Generate guide: pr-1", "Review agent: pr-1"] : ["Generate guide: pr-1"]);
-    expect(store.getReview("pr-1")?.skippedRun).toBeUndefined();
+    expect((await store.getReview("pr-1"))?.skippedRun).toBeUndefined();
   }
 });
 
 test("a guide rebuilt for new commits on a merged PR sends its assistant nothing", async () => {
-  const { bb, harness, store } = host({ send: async () => ({}), wait: async () => { store.saveGuide("pr-1", guide("New retry behavior") as any); } });
-  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "p1", headSha: "1111111aaa" });
-  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
-  store.saveGuide("pr-1", guide("Old") as any);
-  store.setAssistantThread("pr-1", "assistant");
-  store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "**Should fix:** b", author: "agent" });
-  store.setLifecycle("pr-1", { prState: "MERGED" });
-  store.backupGuide("pr-1");
-  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "generating", createdAt: 1, projectId: "p1", headSha: "2222222bbb" });
+  const { bb, harness, store } = await host({ send: async () => ({}), wait: async () => { await store.saveGuide("pr-1", guide("New retry behavior") as any); } });
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "p1", headSha: "1111111aaa" });
+  await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
+  await store.saveGuide("pr-1", guide("Old") as any);
+  await store.setAssistantThread("pr-1", "assistant");
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "**Should fix:** b", author: "agent" });
+  await store.setLifecycle("pr-1", { prState: "MERGED" });
+  await store.backupGuide("pr-1");
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", status: "generating", createdAt: 1, projectId: "p1", headSha: "2222222bbb" });
   await generateGuide(bb, store, "pr-1", "p1");
-  expect(store.getReview("pr-1")?.status).toBe("ready");
+  expect((await store.getReview("pr-1"))?.status).toBe("ready");
   expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
 });
 
 test("with Re-check the agent's comments off, a guide rebuilt for new commits sends the assistant nothing", async () => {
-  const { bb, harness, store } = host({ send: async () => ({}), wait: async () => { store.saveGuide("pr-1", guide("New retry behavior") as any); } });
-  store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, recheckOnNewCommits: false } }, 0);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "p1", headSha: "1111111aaa" });
-  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
-  store.saveGuide("pr-1", guide("Old") as any);
-  store.setAssistantThread("pr-1", "assistant");
-  store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "**Should fix:** b", author: "agent" });
-  store.backupGuide("pr-1");
-  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "generating", createdAt: 1, projectId: "p1", headSha: "2222222bbb" });
+  const { bb, harness, store } = await host({ send: async () => ({}), wait: async () => { await store.saveGuide("pr-1", guide("New retry behavior") as any); } });
+  await store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, recheckOnNewCommits: false } }, 0);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "p1", headSha: "1111111aaa" });
+  await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
+  await store.saveGuide("pr-1", guide("Old") as any);
+  await store.setAssistantThread("pr-1", "assistant");
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "**Should fix:** b", author: "agent" });
+  await store.backupGuide("pr-1");
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", status: "generating", createdAt: 1, projectId: "p1", headSha: "2222222bbb" });
   await generateGuide(bb, store, "pr-1", "p1");
-  expect(store.getReview("pr-1")?.status).toBe("ready");
+  expect((await store.getReview("pr-1"))?.status).toBe("ready");
   expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
   expect(harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title)).toEqual(["Generate guide: pr-1"]);
 });
 
 /** A PR from someone outside acme, at `head`, whose guide finishes when its writer goes idle. */
-function outsider(head = "sha1", preferences: Partial<typeof defaultPreferences> = {}) {
+async function outsider(head = "sha1", preferences: Partial<typeof defaultPreferences> = {}) {
   let spawned = 0;
-  const h = host(
-    { spawn: async () => ({ id: `thread-${++spawned}` }), wait: async () => { h.store.saveGuide("pr-1", guide("Retry") as any); } },
+  const h = await host(
+    { spawn: async () => ({ id: `thread-${++spawned}` }), wait: async () => { await h.store.saveGuide("pr-1", guide("Retry") as any); } },
     { defaultExecutionOptions: async () => opus },
   );
-  h.store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, author: "mallory", status: "generating", createdAt: 1, projectId: "p1", headSha: head });
-  h.store.setLifecycle("pr-1", { authorAssociation: "FIRST_TIME_CONTRIBUTOR", ownPr: false });
-  if (Object.keys(preferences).length) h.store.savePreferences({ ...defaultPreferences, ...preferences }, 0);
+  await h.store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, author: "mallory", status: "generating", createdAt: 1, projectId: "p1", headSha: head });
+  await h.store.setLifecycle("pr-1", { authorAssociation: "FIRST_TIME_CONTRIBUTOR", ownPr: false });
+  if (Object.keys(preferences).length) await h.store.savePreferences({ ...defaultPreferences, ...preferences }, 0);
   const titles = () => h.harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title);
   return { ...h, titles };
 }
 
 test("an outside author's guide that started on its own doesn't start the automatic review; the review says what didn't run", async () => {
-  const { bb, store, harness, titles } = outsider();
+  const { bb, store, harness, titles } = await outsider();
   await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
-  expect(store.getReview("pr-1")?.status).toBe("ready");
+  expect((await store.getReview("pr-1"))?.status).toBe("ready");
   expect(titles()).toEqual(["Generate guide: pr-1"]);
-  expect(store.getReview("pr-1")?.skippedRun).toEqual({ run: "review", head: "sha1", at: expect.any(Number) });
+  expect((await store.getReview("pr-1"))?.skippedRun).toEqual({ run: "review", head: "sha1", at: expect.any(Number) });
   expect(harness.inspection.realtimeSignals.map((signal) => signal.channel)).toContain("reviews");
 });
 
 test("a guide you start approves its head, so the automatic review follows; a new head is gated again", async () => {
-  const { bb, store, titles } = outsider();
-  store.setLifecycle("pr-1", { skippedRun: { run: "guide", head: "sha1", at: 1 } });
+  const { bb, store, titles } = await outsider();
+  await store.setLifecycle("pr-1", { skippedRun: { run: "guide", head: "sha1", at: 1 } });
   await generateGuide(bb, store, "pr-1", "p1");
-  expect(store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", approvedAt: expect.any(Number), skippedRun: null });
+  expect(await store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", approvedAt: expect.any(Number), skippedRun: null });
   expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: pr-1"]);
 
-  const next = outsider("sha2");
-  next.store.setLifecycle("pr-1", { approvedHead: "sha1" });
+  const next = await outsider("sha2");
+  await next.store.setLifecycle("pr-1", { approvedHead: "sha1" });
   await generateGuide(next.bb, next.store, "pr-1", "p1", { unattended: true });
   expect(next.titles()).toEqual(["Generate guide: pr-1"]);
-  expect(next.store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "review", head: "sha2" });
+  expect((await next.store.getReview("pr-1"))?.skippedRun).toMatchObject({ run: "review", head: "sha2" });
 });
 
 test("an outside author's rebuilt guide doesn't start the feedback check on its own", async () => {
-  const { bb, store, harness, titles } = outsider();
-  store.setLifecycle("pr-1", { submittedVerdict: "REQUEST_CHANGES", submittedAt: 5, submittedHeadSha: "sha0" });
+  const { bb, store, harness, titles } = await outsider();
+  await store.setLifecycle("pr-1", { submittedVerdict: "REQUEST_CHANGES", submittedAt: 5, submittedHeadSha: "sha0" });
   await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
   expect(titles()).toEqual(["Generate guide: pr-1"]);
   expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
-  expect(store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "check", head: "sha1" });
-  expect(store.getReview("pr-1")?.verifyingSince).toBeFalsy();
+  expect((await store.getReview("pr-1"))?.skippedRun).toMatchObject({ run: "check", head: "sha1" });
+  expect((await store.getReview("pr-1"))?.verifyingSince).toBeFalsy();
 });
 
 test("with Run the re-review check off, an outside author's rebuilt guide records no skipped check", async () => {
-  const { bb, store, titles } = outsider("sha1", { knobs: { ...defaultPreferences.knobs, runReReviewCheck: false } });
-  store.setLifecycle("pr-1", { submittedVerdict: "REQUEST_CHANGES", submittedAt: 5, submittedHeadSha: "sha0" });
+  const { bb, store, titles } = await outsider("sha1", { knobs: { ...defaultPreferences.knobs, runReReviewCheck: false } });
+  await store.setLifecycle("pr-1", { submittedVerdict: "REQUEST_CHANGES", submittedAt: 5, submittedHeadSha: "sha0" });
   await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
   expect(titles()).toEqual(["Generate guide: pr-1"]);
-  expect(store.getReview("pr-1")?.skippedRun).toBeUndefined();
+  expect((await store.getReview("pr-1"))?.skippedRun).toBeUndefined();
 });
 
 test("your own PR whose branch is in someone else's fork doesn't start the automatic review on its own", async () => {
-  const { bb, store, titles } = outsider();
-  store.setLifecycle("pr-1", { authorAssociation: "MEMBER", ownPr: true, foreignHeadOwner: "mallory" });
+  const { bb, store, titles } = await outsider();
+  await store.setLifecycle("pr-1", { authorAssociation: "MEMBER", ownPr: true, foreignHeadOwner: "mallory" });
   await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
   expect(titles()).toEqual(["Generate guide: pr-1"]);
-  expect(store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "review", head: "sha1" });
+  expect((await store.getReview("pr-1"))?.skippedRun).toMatchObject({ run: "review", head: "sha1" });
 });
 
 test("with Start agents on their own off, a member's guide that started on its own records why the automatic review didn't", async () => {
-  const { bb, store, titles } = outsider("sha1", { knobs: { ...defaultPreferences.knobs, unattendedAgents: false } });
-  store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
+  const { bb, store, titles } = await outsider("sha1", { knobs: { ...defaultPreferences.knobs, unattendedAgents: false } });
+  await store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
   await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
   expect(titles()).toEqual(["Generate guide: pr-1"]);
-  expect(store.getReview("pr-1")?.skippedRun).toEqual({ run: "review", head: "sha1", at: expect.any(Number), why: "settings" });
+  expect((await store.getReview("pr-1"))?.skippedRun).toEqual({ run: "review", head: "sha1", at: expect.any(Number), why: "settings" });
 });
 
 test("no automatic review is recorded as skipped when it's turned off", async () => {
-  const { bb, store, titles } = outsider("sha1", { automaticReview: "" });
+  const { bb, store, titles } = await outsider("sha1", { automaticReview: "" });
   await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
   expect(titles()).toEqual(["Generate guide: pr-1"]);
-  expect(store.getReview("pr-1")?.skippedRun).toBeUndefined();
+  expect((await store.getReview("pr-1"))?.skippedRun).toBeUndefined();
 });
 
 test("with the repo's checks allowed, the instructions say how to run them in a temporary worktree, and never in the reviewer's checkout", () => {
@@ -531,38 +532,38 @@ test("with the repo's checks allowed, the instructions say how to run them in a 
 });
 
 test("the review agent may run the repo's checks only when they're on and the PR's author is trusted", async () => {
-  const { bb, harness, store } = host();
+  const { bb, harness, store } = await host();
   await plugin(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
-  store.setAssistantThread("pr-1", "worker");
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  await store.setAssistantThread("pr-1", "worker");
   const instructions = async () => (await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: "pr-1" }))).instructions ?? "";
   expect(await instructions()).not.toContain("worktree");
-  store.savePreferences({ ...defaultPreferences, runRepoChecks: true }, 0);
+  await store.savePreferences({ ...defaultPreferences, runRepoChecks: true }, 0);
   expect(await instructions()).toContain("refs/code-review-workspace/pr-7");
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
   // You approving the head lets agents read an outside author's PR, never run its code.
-  store.setLifecycle("pr-1", { authorAssociation: "FIRST_TIME_CONTRIBUTOR", approvedHead: "sha1" });
+  await store.setLifecycle("pr-1", { authorAssociation: "FIRST_TIME_CONTRIBUTOR", approvedHead: "sha1" });
   expect(await instructions()).not.toContain("worktree");
   expect((await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: "pr-1" }))).tools.find((tool) => tool.name === "read_file")?.instructions).toMatch(/Never check out, commit, push, or change the working tree, except as your instructions allow for the repo's checks/);
 });
 
 test("with the repo's checks allowed, the automatic review asks the agent to run them", async () => {
-  const { bb, harness, store, titles } = outsider("sha1", { runRepoChecks: true });
-  store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
+  const { bb, harness, store, titles } = await outsider("sha1", { runRepoChecks: true });
+  await store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
   await generateGuide(bb, store, "pr-1", "p1");
   expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: pr-1"]);
   const assistant = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any)[1];
   expect(assistant.input[1]).toMatchObject({ visibility: "agent-only", text: expect.stringMatching(/Run the repo's checks as your instructions describe/) });
 
-  const approved = outsider("sha1", { runRepoChecks: true });
+  const approved = await outsider("sha1", { runRepoChecks: true });
   await generateGuide(approved.bb, approved.store, "pr-1", "p1");
   const input = approved.harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any)[1].input;
   expect(input).toHaveLength(1);
 });
 
 test("on your own PR before the sync read it, the automatic review asks for the repo's checks only as the instructions allow", async () => {
-  const { bb, harness, store, titles } = outsider("sha1", { runRepoChecks: true });
-  store.setLifecycle("pr-1", { ownPr: null });
+  const { bb, harness, store, titles } = await outsider("sha1", { runRepoChecks: true });
+  await store.setLifecycle("pr-1", { ownPr: null });
   vi.mocked(runGh).mockResolvedValueOnce({ stdout: "mallory\n", stderr: "", code: 0 });
   await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
   expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: pr-1"]);

@@ -6,6 +6,7 @@ vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 
 import plugin from "../server";
 import { createStore } from "./store";
+import { queueStore } from "./store-queue";
 
 const node = (id: string) => ({ id, isResolved: false, isOutdated: false, path: "a.ts", line: 1, comments: { nodes: [{ id: `${id}-c`, databaseId: 1, author: { login: "alice" }, body: id }] } });
 const page = (ids: string[], endCursor: string | null) =>
@@ -15,7 +16,7 @@ async function setup() {
   runGh.mockReset();
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  createStore(bb).saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
+  await queueStore(createStore(bb)).saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
   return (input: unknown) => harness.behavior.callRpc("getReviewThreads", input) as Promise<any>;
 }
 
@@ -83,29 +84,29 @@ test("re-reading your threads writes nothing for a review deleted while GitHub a
   runGh.mockReset();
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
-  store.setLifecycle("pr-1", { submittedVerdict: "COMMENT", submittedAt: 5, signals: { lastReviewAt: 5 } });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
+  await store.setLifecycle("pr-1", { submittedVerdict: "COMMENT", submittedAt: 5, signals: { lastReviewAt: 5 } });
   runGh.mockImplementation(async (args: string[]) => {
     if (args[1] === "user") return { code: 0, stderr: "", stdout: "me\n" };
-    store.deleteReview("pr-1");
+    await store.deleteReview("pr-1");
     return { code: 0, stderr: "", stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [{
       id: "t1", isResolved: false, isOutdated: false, path: "a.ts", line: 1, originalLine: 1, startLine: null, diffSide: "RIGHT", subjectType: "LINE", resolvedBy: null,
       first: { nodes: [{ id: "c1", databaseId: 1, author: { login: "me" }, body: "Fix", createdAt: "2026-10-01T00:00:00Z", pullRequestReview: { id: "r1" } }] }, recent: { nodes: [] },
     }] } } } } }) };
   });
   await harness.behavior.callRpc("refreshFeedback", { targetKey: "pr-1" });
-  expect(store.listFeedbackThreads("pr-1")).toEqual([]);
-  expect(store.feedbackFetched("pr-1")).toBeNull();
+  expect(await store.listFeedbackThreads("pr-1")).toEqual([]);
+  expect(await store.feedbackFetched("pr-1")).toBeNull();
 });
 
 test("re-reading your threads tells open review pages only when they changed", async () => {
   runGh.mockReset();
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
-  store.setLifecycle("pr-1", { submittedVerdict: "COMMENT", submittedAt: 5, signals: { lastReviewAt: 5 } });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
+  await store.setLifecycle("pr-1", { submittedVerdict: "COMMENT", submittedAt: 5, signals: { lastReviewAt: 5 } });
   let body = "Fix";
   runGh.mockImplementation(async (args: string[]) => args[1] === "user" ? { code: 0, stderr: "", stdout: "me\n" }
     : { code: 0, stderr: "", stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [{
@@ -115,7 +116,7 @@ test("re-reading your threads tells open review pages only when they changed", a
   const told = () => harness.inspection.realtimeSignals.filter((signal) => signal.channel === "feedback:pr-1").length;
   const refreshed = await harness.behavior.callRpc("refreshFeedback", { targetKey: "pr-1" }) as any;
   expect(refreshed.feedback).toBeDefined();
-  expect(store.listFeedbackThreads("pr-1")).toHaveLength(1);
+  expect(await store.listFeedbackThreads("pr-1")).toHaveLength(1);
   expect(told()).toBe(1);
   await harness.behavior.callRpc("refreshFeedback", { targetKey: "pr-1" });
   expect(told()).toBe(1);

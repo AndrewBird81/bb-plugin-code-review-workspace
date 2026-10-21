@@ -1,13 +1,17 @@
 import { createHash } from "node:crypto";
-import type { Store } from "./store";
+import type { AsyncStore } from "./store-queue";
 
-export function reviewRevision(store: Store, targetKey: string): string {
-  const meta = store.getReview(targetKey);
-  return createHash("sha256").update(meta?.headSha ?? "").update("\0").update(store.patchHash(targetKey)).digest("hex");
+export async function reviewRevision(store: AsyncStore, targetKey: string): Promise<string> {
+  return store.exclusive(async (tx) => {
+    const meta = await tx.getReview(targetKey);
+    return createHash("sha256").update(meta?.headSha ?? "").update("\0").update(await tx.patchHash(targetKey)).digest("hex");
+  });
 }
-export function requireReviewRevision(store: Store, targetKey: string, revision?: string) {
-  if (store.getReview(targetKey)?.status === "generating") throw new Error("The guide is rebuilding for new commits; your text is kept. Try again when it’s ready.");
-  if (!revision || revision !== reviewRevision(store, targetKey)) {
-    throw new Error("This review changed in another window. Open the latest diff before saving or submitting feedback. Your text is still here.");
-  }
+export async function requireReviewRevision(store: AsyncStore, targetKey: string, revision?: string) {
+  return store.exclusive(async (tx) => {
+    if ((await tx.getReview(targetKey))?.status === "generating") throw new Error("The guide is rebuilding for new commits; your text is kept. Try again when it’s ready.");
+    if (!revision || revision !== await reviewRevision(tx, targetKey)) {
+      throw new Error("This review changed in another window. Open the latest diff before saving or submitting feedback. Your text is still here.");
+    }
+  });
 }

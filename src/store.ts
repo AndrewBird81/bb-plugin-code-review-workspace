@@ -10,6 +10,7 @@ import { diffPositions, rangeProblem, type FilePositions } from "./review-positi
 import { reanchorIn } from "./reanchor";
 import { renamedPaths } from "./patch";
 import { fileHashCache, type FileHashes } from "./file-views";
+import type { AsyncStore } from "./store-queue";
 import { agentCommentStore, type AgentCommentStore } from "./learning";
 import { importFormerInstall } from "./former-install";
 
@@ -978,21 +979,37 @@ const REVIEW_TABLES = [
   "assessment_items", "assessment_runs", "reply_drafts", "guide_backups", "agent_comment_changes",
 ] as const;
 
+type Placement = { at: CommentLocation; line: number; startLine?: number };
+
 /**
  * Where each unsent comment's line is in `next`, for rebaseDraftComments, and its range's first line. Comments whose
- * lines are gone are left out, as are ranges that lost an end or would no longer be a range GitHub takes.
+ * lines are gone are left out, as are ranges that lost an end or would no longer be a range GitHub takes. The store's
+ * own restoreGuide calls this; callers of the AsyncStore use reanchorDraft.
  */
-export function reanchorAll(store: Store, k: string, previous: string, next: string): Array<{ at: CommentLocation; line: number; startLine?: number }> {
-  const comments = store.getDraft(k).comments;
+export function reanchorAll(store: Store, k: string, previous: string, next: string): Placement[] {
+  return placeComments(store.getDraft(k).comments, (comment, end) => store.draftCommentCode(k, comment, end), previous, next);
+}
+
+/** reanchorAll through the AsyncStore: it reads the draft and each comment's code first. */
+export async function reanchorDraft(store: Pick<AsyncStore, "getDraft" | "draftCommentCode">, k: string, previous: string, next: string): Promise<Placement[]> {
+  const { comments } = await store.getDraft(k);
+  const codes = new Map<DraftComment, { line?: string; start?: string }>();
+  for (const comment of comments) {
+    codes.set(comment, { line: await store.draftCommentCode(k, comment), start: comment.startLine === undefined ? undefined : await store.draftCommentCode(k, comment, "start") });
+  }
+  return placeComments(comments, (comment, end) => codes.get(comment)![end ?? "line"], previous, next);
+}
+
+function placeComments(comments: DraftComment[], codeOf: (comment: DraftComment, end?: "start") => string | undefined, previous: string, next: string): Placement[] {
   if (!comments.length) return [];
   // Each diff parsed once, not per comment.
   const [before, after] = [diffPositions(previous), diffPositions(next)];
   return comments.flatMap((comment) => {
-    const placed = reanchorIn({ ...comment, code: store.draftCommentCode(k, comment) }, before, after);
+    const placed = reanchorIn({ ...comment, code: codeOf(comment) }, before, after);
     if (placed.status === "lost") return [];
     const line = placed.status === "moved" ? placed.line : comment.line;
     if (comment.startLine === undefined) return [{ at: comment, line }];
-    const start = reanchorIn({ file: comment.file, line: comment.startLine, side: comment.startSide ?? comment.side, code: store.draftCommentCode(k, comment, "start") }, before, after);
+    const start = reanchorIn({ file: comment.file, line: comment.startLine, side: comment.startSide ?? comment.side, code: codeOf(comment, "start") }, before, after);
     if (start.status === "lost") return [];
     const startLine = start.status === "moved" ? start.line : comment.startLine;
     return rangeProblem(next, { ...comment, line, startLine }) ? [] : [{ at: comment, line, startLine }];

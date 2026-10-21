@@ -7,6 +7,7 @@ import { spawnPrompt, toolFailed, toolText } from "./fake-host.test-support";
 import { generateGuide } from "./generate";
 import { skipRun } from "./agent";
 import { defaultPreferences } from "./preferences";
+import { queueStore } from "./store-queue";
 
 const patch = `diff --git a/a.ts b/a.ts
 --- a/a.ts
@@ -20,11 +21,11 @@ const patch = `diff --git a/a.ts b/a.ts
 async function host() {
   const h = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { get: async () => ({ title: "Generate guide: pr-1" }) } } as any });
   await plugin(h.bb);
-  const store = createStore(h.bb); // same pluginId → same DB the factory's tools read
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
-  store.savePatch("pr-1", patch);
-  const generationId = store.beginGeneration("pr-1");
-  store.setGenerationWorker("pr-1", generationId, "thread-test");
+  const store = queueStore(createStore(h.bb)); // same pluginId → same DB the factory's tools read
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
+  await store.savePatch("pr-1", patch);
+  const generationId = await store.beginGeneration("pr-1");
+  await store.setGenerationWorker("pr-1", generationId, "thread-test");
   return { ...h, store, generationId };
 }
 
@@ -36,7 +37,7 @@ test("read_review_patch returns stored patch text", async () => {
 
 test("read_review_patch reads one file's diff on request", async () => {
   const { harness, store } = await host();
-  store.savePatch("pr-1", patch + patch.replaceAll("a.ts", "b.ts").replace("+new", "+other"));
+  await store.savePatch("pr-1", patch + patch.replaceAll("a.ts", "b.ts").replace("+new", "+other"));
   const text = (out: any) => String(out.content?.[0]?.text ?? out);
   const one = await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", file: "b.ts" });
   expect(text(one)).toContain("+other");
@@ -47,7 +48,7 @@ test("read_review_patch reads one file's diff on request", async () => {
 
 test("read_review_patch finds a renamed file by its old path too", async () => {
   const { harness, store } = await host();
-  store.savePatch("pr-1", "diff --git a/src/old.ts b/src/new.ts\nsimilarity index 90%\nrename from src/old.ts\nrename to src/new.ts\n--- a/src/old.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-a\n+b\n");
+  await store.savePatch("pr-1", "diff --git a/src/old.ts b/src/new.ts\nsimilarity index 90%\nrename from src/old.ts\nrename to src/new.ts\n--- a/src/old.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-a\n+b\n");
   const out = await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", file: "src/old.ts" });
   expect(toolFailed(out)).toBeFalsy();
   expect(toolText(out)).toContain("rename to src/new.ts");
@@ -55,9 +56,9 @@ test("read_review_patch finds a renamed file by its old path too", async () => {
 
 test("read_review_patch and list_review_files read only the calling thread's own review", async () => {
   const { harness, store } = await host();
-  store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, status: "ready", createdAt: 1 });
-  store.savePatch("pr-2", patch.replaceAll("a.ts", "secret.ts").replace("+new", "+PRIVATE_TOKEN"));
-  store.setAssistantThread("pr-3", "assistant-of-3");
+  await store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, status: "ready", createdAt: 1 });
+  await store.savePatch("pr-2", patch.replaceAll("a.ts", "secret.ts").replace("+new", "+PRIVATE_TOKEN"));
+  await store.setAssistantThread("pr-3", "assistant-of-3");
   const text = (out: any) => String(out.content?.[0]?.text ?? out);
   // pr-1's guide writer, and another review's assistant.
   for (const threadId of ["thread-test", "assistant-of-3"]) {
@@ -68,14 +69,14 @@ test("read_review_patch and list_review_files read only the calling thread's own
     expect(typeof list !== "string" && list.isError).toBe(true);
     expect(text(list)).not.toContain("secret.ts");
   }
-  store.setAssistantThread("pr-2", "assistant-of-2");
+  await store.setAssistantThread("pr-2", "assistant-of-2");
   expect(text(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-2" }, { threadId: "assistant-of-2" }))).toContain("PRIVATE_TOKEN");
 });
 
 test("read_review_patch and list_review_files say they read your own review, not any target", async () => {
   const writer = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate"] });
   await plugin(writer.bb);
-  recordWriter(writer.bb, "thread-1");
+  await recordWriter(writer.bb, "thread-1");
   const { tools } = await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("code-review-workspace", "Generate guide: pr-1"));
   for (const name of ["read_review_patch", "list_review_files"]) {
     const description = tools.find((tool) => tool.name === name)!.description;
@@ -101,7 +102,7 @@ test("generate_review_guide rejects incomplete coverage then accepts a full guid
 
 test("generate_review_guide stamps the store's authoritative gitRef (and base) over whatever the guide submitted, and accepts a section risk", async () => {
   const { harness, store, generationId } = await host();
-  store.saveReview({
+  await store.saveReview({
     targetKey: "pr-1",
     kind: "pr",
     number: 1,
@@ -134,7 +135,7 @@ test("generate_review_guide stamps the store's authoritative gitRef (and base) o
   });
   expect(toolFailed(good)).toBeFalsy();
 
-  const stored = store.getGuide("pr-1");
+  const stored = await store.getGuide("pr-1");
   expect(stored?.review).toEqual({ gitRef: "main...feature-authoritative", base: "main" });
   expect(stored).not.toHaveProperty("source");
   expect(stored).not.toHaveProperty("generator");
@@ -143,7 +144,7 @@ test("generate_review_guide stamps the store's authoritative gitRef (and base) o
 
 test("generate_review_guide stamps gitRef even when the submitted guide omitted review entirely", async () => {
   const { harness, store, generationId } = await host();
-  store.saveReview({
+  await store.saveReview({
     targetKey: "pr-1",
     kind: "pr",
     number: 1,
@@ -164,7 +165,7 @@ test("generate_review_guide stamps gitRef even when the submitted guide omitted 
   });
   expect(toolFailed(good)).toBeFalsy();
 
-  const stored = store.getGuide("pr-1");
+  const stored = await store.getGuide("pr-1");
   expect(stored?.review).toEqual({ gitRef: "main...feature-authoritative" });
 });
 
@@ -181,17 +182,17 @@ function baseConfigContext(pluginId: string | null, threadTitle: string | null =
 }
 
 /** Records `threadId` as pr-1's guide writer, the way generateGuide does once its spawn returns. */
-function recordWriter(bb: Parameters<typeof plugin>[0], threadId: string) {
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
-  store.setGenerationWorker("pr-1", store.beginGeneration("pr-1"), threadId);
+async function recordWriter(bb: Parameters<typeof plugin>[0], threadId: string) {
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
+  await store.setGenerationWorker("pr-1", await store.beginGeneration("pr-1"), threadId);
 }
 
 test("agents.configure exposes tools/skill only to this plugin's own generation thread", async () => {
   const h = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate"] });
   await plugin(h.bb);
-  recordWriter(h.bb, "thread-1");
-  createStore(h.bb).setAssistantThread("pr-1", "assistant-1");
+  await recordWriter(h.bb, "thread-1");
+  await queueStore(createStore(h.bb)).setAssistantThread("pr-1", "assistant-1");
 
   const mine = await h.harness.behavior.resolveAgentConfiguration(
     baseConfigContext("code-review-workspace", "Generate guide: pr-1"),
@@ -236,12 +237,12 @@ test("a rebuilt guide for a PR you reviewed checks your feedback instead of revi
     spawn: async () => ({ id: "worker" }), archive: async () => {}, stop: async () => {},
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), send: async () => ({}),
   } } as any });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, headSha: "sha2", status: "ready", createdAt: 1, projectId: "p1" });
-  store.setLifecycle("pr-1", { submittedVerdict: "REQUEST_CHANGES", submittedAt: 1000, submittedHeadSha: "sha1", signals: { lastReviewAt: 1000, lastReviewSha: "sha1" } });
-  store.saveGuide("pr-1", { title: "T", intent: "I", sections: [{ id: "cache", title: "Cache", overview: "o", diffs: [{ file: "a.ts", summary: "s" }] }], unplacedFiles: [] });
-  store.setAssistantThread("pr-1", "assistant");
-  harness.inspection.sdk.stub("threads.wait", async () => { store.saveGuide("pr-1", { title: "T", intent: "I", sections: [], unplacedFiles: [] }); return { matched: true }; });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, headSha: "sha2", status: "ready", createdAt: 1, projectId: "p1" });
+  await store.setLifecycle("pr-1", { submittedVerdict: "REQUEST_CHANGES", submittedAt: 1000, submittedHeadSha: "sha1", signals: { lastReviewAt: 1000, lastReviewSha: "sha1" } });
+  await store.saveGuide("pr-1", { title: "T", intent: "I", sections: [{ id: "cache", title: "Cache", overview: "o", diffs: [{ file: "a.ts", summary: "s" }] }], unplacedFiles: [] });
+  await store.setAssistantThread("pr-1", "assistant");
+  harness.inspection.sdk.stub("threads.wait", async () => { await store.saveGuide("pr-1", { title: "T", intent: "I", sections: [], unplacedFiles: [] }); return { matched: true }; });
   await generateGuide(bb, store, "pr-1", "p1", { notify: false });
   // The guide writer kept the earlier chapters in view and was asked for sinceReview.
   const prompt = spawnPrompt(harness.inspection.sdk.callsTo("threads.spawn")[0][0]);
@@ -251,7 +252,7 @@ test("a rebuilt guide for a PR you reviewed checks your feedback instead of revi
   const sent = harness.inspection.sdk.callsTo("threads.send")[0][0] as any;
   expect(sent.input[0].text).toBe(defaultPreferences.verificationPrompt);
   expect(sent.input[1]).toMatchObject({ visibility: "agent-only", text: expect.stringContaining("REQUEST_CHANGES on commit sha1") });
-  expect(store.getReview("pr-1")?.verifyingSince).toEqual(expect.any(Number));
+  expect((await store.getReview("pr-1"))?.verifyingSince).toEqual(expect.any(Number));
   // A first review gets neither.
   expect(buildGenerationPrompt("pr-2", "g", defaultPreferences)).not.toContain("sinceReview");
 });
@@ -259,23 +260,23 @@ test("a rebuilt guide for a PR you reviewed checks your feedback instead of revi
 test("a failed rebuild keeps the guide you had", async () => {
   const { generateGuide } = await import("./generate");
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "worker" }), archive: async () => {}, stop: async () => {} } } as any });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, headSha: "sha1", status: "ready", createdAt: 1, projectId: "p1" });
-  store.savePatch("pr-1", patch);
-  store.saveGuide("pr-1", { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
-  store.backupGuide("pr-1");
-  store.savePatch("pr-1", "diff --git a/b.ts b/b.ts\n");
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, headSha: "sha1", status: "ready", createdAt: 1, projectId: "p1" });
+  await store.savePatch("pr-1", patch);
+  await store.saveGuide("pr-1", { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
+  await store.backupGuide("pr-1");
+  await store.savePatch("pr-1", "diff --git a/b.ts b/b.ts\n");
   harness.inspection.sdk.stub("threads.wait", async () => { throw new Error("worker timed out"); });
   await generateGuide(bb, store, "pr-1", "p1", { notify: false });
-  expect(store.getReview("pr-1")?.status).toBe("error");
-  expect(store.getGuide("pr-1")?.title).toBe("Kept");
-  expect(store.patch("pr-1")).toBe(patch);
+  expect((await store.getReview("pr-1"))?.status).toBe("error");
+  expect((await store.getGuide("pr-1"))?.title).toBe("Kept");
+  expect(await store.patch("pr-1")).toBe(patch);
 });
 
 test("generate_review_guide advertises the guide's schema and accepts a guide without unplacedFiles", async () => {
   const writer = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate"] });
   await plugin(writer.bb);
-  recordWriter(writer.bb, "thread-1");
+  await recordWriter(writer.bb, "thread-1");
   const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("code-review-workspace", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
   const schema = JSON.stringify(tool?.inputSchema);
   for (const field of ["intent", "overview", "risk", "focus", "summary", "unplacedFiles", "requirements"]) expect(schema).toContain(`"${field}"`);
@@ -286,18 +287,18 @@ test("generate_review_guide advertises the guide's schema and accepts a guide wi
     guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] }] },
   });
   expect(toolFailed(out)).toBeFalsy();
-  expect(store.getGuide("pr-1")?.unplacedFiles).toEqual([]);
+  expect((await store.getGuide("pr-1"))?.unplacedFiles).toEqual([]);
 });
 
 test("files the guide leaves unplaced get a final low-risk chapter, so the reviewer sees them", async () => {
   const { harness, store, generationId } = await host();
-  store.savePatch("pr-1", patch + "diff --git a/logo.png b/logo.png\nindex 1..2 100644\nBinary files a/logo.png and b/logo.png differ\n");
+  await store.savePatch("pr-1", patch + "diff --git a/logo.png b/logo.png\nindex 1..2 100644\nBinary files a/logo.png and b/logo.png differ\n");
   const out = await harness.behavior.callAgentTool("generate_review_guide", {
     targetKey: "pr-1", generationId,
     guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: ["logo.png"] },
   });
   expect(toolFailed(out)).toBeFalsy();
-  const saved = store.getGuide("pr-1");
+  const saved = await store.getGuide("pr-1");
   expect(saved?.unplacedFiles).toEqual([]);
   expect(saved?.sections.at(-1)).toMatchObject({ id: "other-files", title: "Other files", risk: "low", diffs: [{ file: "logo.png", summary: expect.any(String) }] });
 });
@@ -305,7 +306,7 @@ test("files the guide leaves unplaced get a final low-risk chapter, so the revie
 test("generate_review_guide refuses to leave a file with changed lines unplaced", async () => {
   const { harness, store, generationId } = await host();
   const removedCheck = (name: string) => `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1,2 +1,2 @@\n-if (!isAdmin(user)) throw denied();\n+// auth check removed\n ok();\n`;
-  store.savePatch("pr-1", patch + removedCheck("src/auth.ts"));
+  await store.savePatch("pr-1", patch + removedCheck("src/auth.ts"));
   const out = await harness.behavior.callAgentTool("generate_review_guide", {
     targetKey: "pr-1", generationId,
     guide: { title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", risk: "high", diffs: [{ file: "a.ts", summary: "x" }] }], unplacedFiles: ["src/auth.ts"] },
@@ -313,7 +314,7 @@ test("generate_review_guide refuses to leave a file with changed lines unplaced"
   if (typeof out === "string") throw new Error(`expected an error, got ${out}`);
   expect(out.isError).toBe(true);
   expect(out.content[0]).toEqual({ type: "text", text: expect.stringContaining("unplaced: src/auth.ts has changed lines; put it in a chapter") });
-  expect(store.getGuide("pr-1")).toBeNull();
+  expect(await store.getGuide("pr-1")).toBeNull();
 });
 
 test("generate_review_guide reports every category of error in one answer", async () => {
@@ -334,7 +335,7 @@ test("the guide writer lists the files first, and patch pages end on file bounda
   expect(buildGenerationPrompt("pr-1", "g")).toMatch(/Start with read_pr_context, then list_review_files.*\n.*intent from what the PR says it does/);
   const { harness, store } = await host();
   const second = patch.replaceAll("a.ts", "b.ts");
-  store.savePatch("pr-1", patch + second);
+  await store.savePatch("pr-1", patch + second);
   const text = (out: any) => String(out.content?.[0]?.text ?? out);
   expect(text(await harness.behavior.callAgentTool("list_review_files", { targetKey: "pr-1" }))).toMatch(/^a\.ts · modified · \+1 −1 · \d+ chars · code$/m);
   const page = text(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1", limit: patch.length + 20 }));
@@ -388,7 +389,7 @@ test("read_review_patch pages stub lockfiles and generated files, reads them who
   const lock = "diff --git a/package-lock.json b/package-lock.json\n--- a/package-lock.json\n+++ b/package-lock.json\n@@ -1,2 +1,3 @@\n {\n-  \"a\": 1\n+  \"a\": 2,\n+  \"resolved\": \"https://evil.example/a.tgz\"\n";
   // Changed where it was: one the PR adds there is read in full (src/review-files.test.ts).
   const vendored = "diff --git a/vendor/x/y.go b/vendor/x/y.go\n--- a/vendor/x/y.go\n+++ b/vendor/x/y.go\n@@ -1 +1,3 @@\n package y\n+func Y() {}\n+func Z() {}\n";
-  store.savePatch("pr-1", patch + lock + vendored);
+  await store.savePatch("pr-1", patch + lock + vendored);
   const page = toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1" }));
   expect(page).toBe(patch
     // With Summarize lockfile changes on, the stub names the host it adds.
@@ -398,7 +399,7 @@ test("read_review_patch pages stub lockfiles and generated files, reads them who
 
   // 12 files of about 10 KB: the first page stops at the last file boundary before 80 KB.
   const big = Array.from({ length: 12 }, (_, i) => `diff --git a/f${i}.ts b/f${i}.ts\n--- a/f${i}.ts\n+++ b/f${i}.ts\n@@ -1 +1 @@\n-a\n+${"x".repeat(10_000)}\n`).join("");
-  store.savePatch("pr-1", big);
+  await store.savePatch("pr-1", big);
   const first = toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1" }));
   const end = Number(first.match(/call again with offset=(\d+)/)?.[1]);
   expect(end).toBeLessThanOrEqual(80_000);
@@ -431,7 +432,7 @@ test("the guide-writing skill follows ticket references only from a trusted auth
 test("generate_review_guide's description names every rule it enforces, and its instructions say to stop once accepted", async () => {
   const writer = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate"] });
   await plugin(writer.bb);
-  recordWriter(writer.bb, "thread-1");
+  await recordWriter(writer.bb, "thread-1");
   const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("code-review-workspace", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
   for (const rule of [
     "every problem listed", "each changed file (or each hunk of a split file) is in exactly one chapter", "chapter ids are unique", "unplaced files have no changed lines",
@@ -461,9 +462,9 @@ async function writerRun(turns: Array<(submit: (guide: unknown) => Promise<unkno
     },
   } } as any });
   await plugin(h.bb);
-  const store = createStore(h.bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, headSha: "sha1", status: "generating", createdAt: 1, projectId: "p1" });
-  store.savePatch("pr-1", patch);
+  const store = queueStore(createStore(h.bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, headSha: "sha1", status: "generating", createdAt: 1, projectId: "p1" });
+  await store.savePatch("pr-1", patch);
   await generateGuide(h.bb, store, "pr-1", "p1", { notify: false });
   const logs = h.harness.inspection.logEntries.map((e) => `${e.level}: ${e.message}`).filter((line) => line.includes("pr-1"));
   return { store, send, logs };
@@ -472,11 +473,11 @@ const ghostGuide = { title: "T", intent: "I", sections: [{ id: "s", title: "S", 
 
 test("a guide writer that stops without an accepted guide is told why once, then the guide fails with the reason logged and kept", async () => {
   const { store, send, logs } = await writerRun([async (submit) => { await submit(ghostGuide); }]);
-  expect(store.getReview("pr-1")?.status).toBe("error");
+  expect((await store.getReview("pr-1"))?.status).toBe("error");
   expect(send).toHaveBeenCalledTimes(1);
   expect(send.mock.calls[0]).toEqual([{ threadId: "worker", mode: "queue-if-active", input: [{ type: "text", mentions: [], text: expect.stringMatching(/^Your guide wasn't accepted:\nCoverage errors:\nextra: ghost\.ts .*\nmissing: a\.ts .*\nFix it and call generate_review_guide again with the same targetKey and generationId\.$/s) }] }]);
   expect(logs).toEqual([expect.stringMatching(/^warn: Guide generation for pr-1 failed: .*stopped without an accepted guide.*Coverage errors:\nextra: ghost\.ts/s)]);
-  expect(store.getReview("pr-1")?.guideError).toEqual({ at: expect.any(Number), text: expect.stringMatching(/^Its last guide wasn't accepted:\nCoverage errors:\nextra: ghost\.ts/) });
+  expect((await store.getReview("pr-1"))?.guideError).toEqual({ at: expect.any(Number), text: expect.stringMatching(/^Its last guide wasn't accepted:\nCoverage errors:\nextra: ghost\.ts/) });
 });
 
 test("a guide writer that never submits is told to, and the guide's failure says it stopped", async () => {
@@ -484,15 +485,15 @@ test("a guide writer that never submits is told to, and the guide's failure says
   expect(send).toHaveBeenCalledTimes(1);
   expect(JSON.stringify(send.mock.calls[0])).toContain("You haven't submitted the guide.");
   expect(logs).toHaveLength(1);
-  expect(store.getReview("pr-1")?.guideError?.text).toBe("The guide writer stopped without an accepted guide.");
+  expect((await store.getReview("pr-1"))?.guideError?.text).toBe("The guide writer stopped without an accepted guide.");
 });
 
 test("a guide writer told why its guide wasn't accepted can fix it, and the guide is ready with no error kept", async () => {
   const fixed = { ...ghostGuide, sections: [{ ...ghostGuide.sections[0], diffs: [{ file: "a.ts", summary: "x" }] }] };
   const { store, send } = await writerRun([async (submit) => { await submit(ghostGuide); }, async (submit) => { await submit(fixed); }]);
   expect(send).toHaveBeenCalledTimes(1);
-  expect(store.getReview("pr-1")?.status).toBe("ready");
-  expect(store.getReview("pr-1")?.guideError).toBeNull();
+  expect((await store.getReview("pr-1"))?.status).toBe("ready");
+  expect((await store.getReview("pr-1"))?.guideError).toBeNull();
 });
 
 // bug bash AGT-5: the review agent in Settings runs on a laptop that's asleep, the guide writer on the project's default
@@ -509,19 +510,19 @@ test("an automatic review that can't start waits for Run review, saying why", as
     hosts: { get: async () => ({ id: "host_laptop", name: "Laptop", status: "disconnected", lifecycle: { phase: "active" } }) },
   } as any });
   await plugin(bb);
-  const store = createStore(bb);
-  store.savePreferences({ ...defaultPreferences, assistantAgent: { hostId: "host_laptop", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
-  store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
-  store.savePatch("ref-1", patch);
+  const store = queueStore(createStore(bb));
+  await store.savePreferences({ ...defaultPreferences, assistantAgent: { hostId: "host_laptop", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
+  await store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
+  await store.savePatch("ref-1", patch);
   const run = generateGuide(bb, store, "ref-1", "p1", { notify: false });
   await vi.waitFor(() => expect(prompt).toContain("generationId"));
   const generationId = prompt.match(/generationId "([^"]+)"/)![1];
   const guide = { title: "T", intent: "I", sections: [{ id: "c1", title: "A", overview: "O", risk: "low", diffs: [{ file: "a.ts", summary: "S" }] }], unplacedFiles: [] };
   expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "ref-1", generationId, guide }))).toBeFalsy();
   await run;
-  expect(store.getReview("ref-1")?.status).toBe("ready");
-  expect(store.getAssistantThread("ref-1")).toBeNull();
-  expect(store.getReview("ref-1")?.skippedRun).toEqual({ run: "review", head: null, at: expect.any(Number), why: "failed", error: "Laptop is offline. Wake it, or choose another machine for the review assistant in Review settings." });
+  expect((await store.getReview("ref-1"))?.status).toBe("ready");
+  expect(await store.getAssistantThread("ref-1")).toBeNull();
+  expect((await store.getReview("ref-1"))?.skippedRun).toEqual({ run: "review", head: null, at: expect.any(Number), why: "failed", error: "Laptop is offline. Wake it, or choose another machine for the review assistant in Review settings." });
   expect(harness.inspection.logEntries.map((entry) => entry.message)).toContainEqual(expect.stringContaining("The automatic review of ref-1 didn't start: Error: Laptop is offline."));
 });
 
@@ -538,13 +539,13 @@ test("an untrusted author's automatic review that couldn't start says it waits f
     },
   } as any });
   await plugin(bb);
-  const store = createStore(bb);
+  const store = queueStore(createStore(bb));
   const review = { targetKey: "pr-1", kind: "pr" as const, repo: "acme/web", number: 1, author: "stranger", headSha: "sha1", status: "generating" as const, createdAt: 1, projectId: "p1" };
   const build = async (key: string, lifecycle: Parameters<typeof store.setLifecycle>[1]) => {
     harness.inspection.sdk.stub("projects.defaultExecutionOptions", async () => ({ providerId: "codex", hostId: "host_1" }) as any);
-    store.saveReview({ ...review, targetKey: key });
-    store.setLifecycle(key, { authorAssociation: "CONTRIBUTOR", ownPr: false, prState: "OPEN", ...lifecycle });
-    store.savePatch(key, patch);
+    await store.saveReview({ ...review, targetKey: key });
+    await store.setLifecycle(key, { authorAssociation: "CONTRIBUTOR", ownPr: false, prState: "OPEN", ...lifecycle });
+    await store.savePatch(key, patch);
     prompt = "";
     // Rebuilt without a click, as for new commits.
     const run = generateGuide(bb, store, key, "p1", { notify: false, unattended: true });
@@ -555,8 +556,8 @@ test("an untrusted author's automatic review that couldn't start says it waits f
     const guide = { title: "T", intent: "I", sections: [{ id: "c1", title: "A", overview: "O", risk: "low", diffs: [{ file: "a.ts", summary: "S" }] }], unplacedFiles: [] };
     expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: key, generationId, guide }))).toBeFalsy();
     await run;
-    expect(store.getAssistantThread(key)).toBeNull();
-    return store.getReview(key)?.skippedRun;
+    expect(await store.getAssistantThread(key)).toBeNull();
+    return (await store.getReview(key))?.skippedRun;
   };
   // You started agents at an earlier head: this one waits for your click.
   expect(await build("pr-1", { approvedHead: "sha0", approvedAt: 5 })).toEqual({ run: "review", head: "sha1", at: expect.any(Number) });
@@ -564,12 +565,12 @@ test("an untrusted author's automatic review that couldn't start says it waits f
   expect(await build("pr-2", { approvedHead: "sha1", approvedAt: 5 })).toEqual({ run: "review", head: "sha1", at: expect.any(Number), why: "failed", error: "bb has no default agent for the review's project." });
 });
 
-test("a run that couldn't start keeps its reason as one line, capped", () => {
+test("a run that couldn't start keeps its reason as one line, capped", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "ready", createdAt: 1, projectId: "p1" });
-  skipRun(bb, store, "ref-1", "review", null, `spawn failed:\n${"x".repeat(300)}`);
-  const { error } = store.getReview("ref-1")!.skippedRun!;
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "ready", createdAt: 1, projectId: "p1" });
+  await skipRun(bb, store, "ref-1", "review", null, `spawn failed:\n${"x".repeat(300)}`);
+  const { error } = (await store.getReview("ref-1"))!.skippedRun!;
   expect(error).toHaveLength(200);
   expect(error).toMatch(/^spawn failed: x+…$/);
 });
@@ -585,10 +586,10 @@ test("a first guide's sinceReview is dropped; a re-review's is kept", async () =
       archive: async () => ({}), stop: async () => ({}),
     } } as any });
     await plugin(bb);
-    const store = createStore(bb);
-    store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
-    store.savePatch("ref-1", patch);
-    if (reviewed) store.setLifecycle("ref-1", { submittedVerdict: "COMMENT", submittedAt: 1000, signals: { lastReviewAt: 1000 } });
+    const store = queueStore(createStore(bb));
+    await store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
+    await store.savePatch("ref-1", patch);
+    if (reviewed) await store.setLifecycle("ref-1", { submittedVerdict: "COMMENT", submittedAt: 1000, signals: { lastReviewAt: 1000 } });
     const run = generateGuide(bb, store, "ref-1", "p1", { notify: false });
     await vi.waitFor(() => expect(prompt).toContain("generationId"));
     const generationId = prompt.match(/generationId "([^"]+)"/)![1];
@@ -596,6 +597,6 @@ test("a first guide's sinceReview is dropped; a re-review's is kept", async () =
     expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "ref-1", generationId, guide }))).toBeFalsy();
     await run;
     expect(prompt.includes("sinceReview")).toBe(reviewed);
-    expect(store.getGuide("ref-1")?.sinceReview).toBe(reviewed ? "The retry now backs off." : undefined);
+    expect((await store.getGuide("ref-1"))?.sinceReview).toBe(reviewed ? "The retry now backs off." : undefined);
   }
 });

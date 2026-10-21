@@ -1,5 +1,5 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { Store, ReviewMeta } from "./store";
+import type { ReviewMeta } from "./store";
 import { isMissingThread } from "./thread-errors";
 import type { runGh } from "./gh";
 import { baselineOf, ciSettled, computeTurn, type Turn, type TurnReason } from "../lib/turn";
@@ -15,6 +15,7 @@ import { createNotificationGate, type NotificationGate } from "./github/notifica
 import { discoverPrs } from "./github/discovery";
 import { createViewer, type Viewer } from "./github/viewer";
 import type { DiscoveredPr, FeedbackThread, PrFacts, PrRead, PrRef } from "./github/types";
+import type { AsyncStore } from "./store-queue";
 
 /** Everything the sync reads from GitHub. */
 export interface GithubReads {
@@ -86,7 +87,7 @@ const GH_MISSING = /\bgh could not start\b/;
 const PREPARE = new Set<TurnReason>(["re-requested", "handled", "looks-ready", "dismissed"]);
 
 /** Reconcile durable review state with GitHub, and act when a review becomes your turn. Never writes to GitHub. */
-export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runGh, options: { github?: GithubReads; actions?: TurnActions; now?: () => number } = {}) {
+export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof runGh, options: { github?: GithubReads; actions?: TurnActions; now?: () => number } = {}) {
   const github = options.github ?? githubReads(run);
   const actions = options.actions;
   const clock = options.now ?? Date.now;
@@ -127,31 +128,31 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
   const upgradeRules = () => rulesUpgraded ??= (async () => {
     if (await bb.storage.kv.get<number>("turn-rules") === TURN_RULES) return;
     const at = clock();
-    for (const review of store.listReviews()) {
-      if (review.watchingSince != null) store.setLifecycle(review.targetKey, { watchingSince: at, watchedHead: review.latestHeadSha ?? review.headSha ?? null });
+    for (const review of await store.listReviews()) {
+      if (review.watchingSince != null) await store.setLifecycle(review.targetKey, { watchingSince: at, watchedHead: review.latestHeadSha ?? review.headSha ?? null });
     }
     await bb.storage.kv.set("turn-rules", TURN_RULES);
   })().catch((error) => bb.log.warn(`Could not start the new turn rules: ${String(error)}`));
 
-  const turnOf = (review: ReviewMeta, now = clock(), options = turnOptions(store.getPreferences().preferences)) => computeTurn(review, options, now);
-  // Stale alerts drop when the review is no longer your turn for the same reason.
-  notifications.useTurns((key) => {
-    const review = store.getReview(key);
-    const turn = review && turnOf(review);
+  const turnOf = async (review: ReviewMeta, now = clock(), options?: ReturnType<typeof turnOptions>) => computeTurn(review, options ?? turnOptions((await store.getPreferences()).preferences), now);
+  // Stale alerts drop when the review is no longer your turn for the same reason. The outbox asks inside its block.
+  notifications.useTurns(async (tx, key) => {
+    const review = await tx.getReview(key);
+    const turn = review && await turnOf(review, undefined, turnOptions((await tx.getPreferences()).preferences));
     return turn?.group === "needs" ? turn.signal : null;
   });
 
   // Tidies a legacy review-agent worker. Assistant threads in bb stay
   // unarchived, because an archived thread cannot take messages.
   async function maintainThread(targetKey: string) {
-    const threadId = store.getAgentThread(targetKey);
+    const threadId = await store.getAgentThread(targetKey);
     if (!threadId || disposed) return;
     try {
       if (!hidden.has(threadId)) {
         await bb.sdk.threads.update({ threadId, visibility: "hidden" });
         hidden.add(threadId);
       }
-      if (store.getReview(targetKey)?.archivedAt && !archived.has(threadId) && !disposed) {
+      if ((await store.getReview(targetKey))?.archivedAt && !archived.has(threadId) && !disposed) {
         try { await bb.sdk.threads.stop({ threadId }); }
         finally { if (!disposed) await bb.sdk.threads.archive({ threadId }); }
         archived.add(threadId);
@@ -160,7 +161,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       if (disposed) return;
       if (isMissingThread(error)) {
         // Retain the transcript, and never detach a different replacement worker.
-        if (store.getAgentThread(targetKey) === threadId) store.clearAgentThread(targetKey);
+        if (await store.getAgentThread(targetKey) === threadId) await store.clearAgentThread(targetKey);
       } else bb.log.warn(`Could not tidy review thread ${threadId}: ${String(error)}`);
     }
   }
@@ -189,7 +190,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       const login = await viewerLogin();
       if (!login || disposed) return;
       const teams = await github.viewer.teams();
-      const reviews = fresh.map((key) => store.getReview(key)).filter(readable);
+      const reviews = (await Promise.all(fresh.map(async (key) => await store.getReview(key)))).filter(readable);
       // The list hears once per pass, however many reviews changed.
       let changed = false;
       let missing = 0;
@@ -232,7 +233,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       }
       // Once GitHub answers, a batch it failed waits for its next turn like the rest.
       for (const key of unread) checked.set(key, clock());
-      const teamsFailed = store.getPreferences().preferences.trackTeamRequests && !!github.viewer.errors?.().teams;
+      const teamsFailed = (await store.getPreferences()).preferences.trackTeamRequests && !!github.viewer.errors?.().teams;
       // Any good read shows gh runs and GitHub answers again; only a pass says whether every PR and your teams could be read.
       const kept = pass ? null : health.error?.kind === "partial" || health.error?.kind === "teams" ? health.error : null;
       health = { lastReadAt: clock(), error: kept };
@@ -245,50 +246,50 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
 
   /** Returns whether the review changed. */
   async function apply(key: string, facts: PrFacts, login: string, startedAt: number): Promise<boolean> {
-    const before = store.getReview(key);
+    const before = await store.getReview(key);
     if (!before || before.prState === "MERGED" && facts.state !== "MERGED") return false;
     // What happened before bb first read the PR is history: it shows, but doesn't alert or start work.
     const firstRead = before.watchingSince == null;
-    if (firstRead) store.setLifecycle(key, { watchingSince: startedAt, watchedHead: facts.headSha });
+    if (firstRead) await store.setLifecycle(key, { watchingSince: startedAt, watchedHead: facts.headSha });
     // Keep what the list shows current; a review found on GitHub learns its PR here.
     const meta = { title: facts.title || before.title, url: facts.url || before.url, author: facts.author ?? before.author, base: before.base ?? facts.baseRefName, head: before.head ?? facts.headRefName };
     if (meta.title !== before.title || meta.url !== before.url || meta.author !== before.author || meta.base !== before.base || meta.head !== before.head) {
-      store.saveReview({ ...before, ...meta });
+      await store.saveReview({ ...before, ...meta });
     }
-    store.setLifecycle(key, factsUpdate(before, facts, login, startedAt, clock()));
-    const updated = store.getReview(key)!;
+    await store.setLifecycle(key, factsUpdate(before, facts, login, startedAt, clock()));
+    const updated = (await store.getReview(key))!;
     // Once you've reviewed, here or as GitHub last said, as refreshThreads reads them.
     if (baselineOf(updated).at) {
-      const fetched = store.feedbackFetched(key);
-      const active = turnOf(updated).group === "needs" || turnOf(updated).group === "waiting";
-      const unresolved = active && store.listFeedbackThreads(key).some((t) => !t.isResolved);
+      const fetched = await store.feedbackFetched(key);
+      const active = (await turnOf(updated)).group === "needs" || (await turnOf(updated)).group === "waiting";
+      const unresolved = active && (await store.listFeedbackThreads(key)).some((t) => !t.isResolved);
       if (!fetched || fetched.prUpdatedAt !== facts.updatedAt || unresolved && clock() - fetched.fetchedAt >= THREADS_EVERY) {
         try {
           const threads = await github.threads(facts.repo, facts.number, login, facts.author);
           // The review may have been deleted while GitHub answered.
-          if (!store.getReview(key)) return false;
+          if (!await store.getReview(key)) return false;
           // Every open review page reads the threads again when told, so it's told only when they changed.
-          if (store.saveFeedbackThreads(key, threads, facts.updatedAt)) bb.realtime.publish(`feedback:${key}`, { ts: clock() });
+          if (await store.saveFeedbackThreads(key, threads, facts.updatedAt)) bb.realtime.publish(`feedback:${key}`, { ts: clock() });
         } catch (error) { bb.log.warn(`Could not read your threads on ${key}: ${String(error)}`); }
       }
-      store.setLifecycle(key, { signals: { ...store.getReview(key)!.signals, ...threadSignals(store.listFeedbackThreads(key)) } });
+      await store.setLifecycle(key, { signals: { ...(await store.getReview(key))!.signals, ...threadSignals(await store.listFeedbackThreads(key)) } });
     }
     await evaluate(key, firstRead);
-    return changed(key, before);
+    return await changed(key, before);
   }
 
   /** Record that GitHub can't find the PR, or refuses access, since the first read that saw it. */
   async function unreachable(key: string, reason: "not-found" | "forbidden"): Promise<boolean> {
-    const before = store.getReview(key);
+    const before = await store.getReview(key);
     if (!before) return false;
-    store.setLifecycle(key, { unreachable: { since: before.unreachable?.since ?? clock(), reason } });
+    await store.setLifecycle(key, { unreachable: { since: before.unreachable?.since ?? clock(), reason } });
     await evaluate(key);
-    return changed(key, before);
+    return await changed(key, before);
   }
 
   /** Tell the review's page when it changed; returns whether it did. */
-  function changed(key: string, before: ReviewMeta): boolean {
-    if (JSON.stringify(before) === JSON.stringify(store.getReview(key))) return false;
+  async function changed(key: string, before: ReviewMeta): Promise<boolean> {
+    if (JSON.stringify(before) === JSON.stringify(await store.getReview(key))) return false;
     bb.realtime.publish(`review:${key}`, { ts: clock() });
     return true;
   }
@@ -301,8 +302,8 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
 
   /** `woke`: the time a snooze that held this turn ended, whose alert is an event of its own. */
   async function alert(key: string, turn: Turn, woke: number | null = null) {
-    const review = store.getReview(key)!;
-    store.setLifecycle(key, { notifiedSignal: turn.signal, pendingAlert: null });
+    const review = (await store.getReview(key))!;
+    await store.setLifecycle(key, { notifiedSignal: turn.signal, pendingAlert: null });
     const eventId = woke != null ? `turn:${turn.signal}:woke:${woke}` : undefined;
     await notifications.queueTurn({ targetKey: key, signal: turn.signal!, eventId, projectId: review.projectId ?? "", body: alertBody(review, turn) }).catch(() => {});
   }
@@ -321,12 +322,14 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
    * You opened the review: an alert waiting for its re-review to be prepared is seen, so it doesn't come once
    * that's done. Only the turn's current signal; after any evaluation in progress, which may be about to queue it.
    */
-  const seen = (key: string) => serialized(key, () => {
-    const review = store.getReview(key);
-    const waiting = review?.pendingAlert;
-    if (!review || !waiting) return;
-    const turn = turnOf(review);
-    if (turn.group === "needs" && turn.signal === waiting.signal) store.setLifecycle(key, { notifiedSignal: waiting.signal, pendingAlert: null });
+  const seen = (key: string) => serialized(key, async () => {
+    return store.exclusive(async (tx) => {
+      const review = await tx.getReview(key);
+      const waiting = review?.pendingAlert;
+      if (!review || !waiting) return;
+      const turn = await turnOf(review, undefined, turnOptions((await tx.getPreferences()).preferences));
+      if (turn.group === "needs" && turn.signal === waiting.signal) await tx.setLifecycle(key, { notifiedSignal: waiting.signal, pendingAlert: null });
+    });
   });
 
   /**
@@ -336,22 +339,22 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
    */
   async function evaluateNow(key: string, firstRead: boolean): Promise<void> {
     await upgradeRules();
-    let review = store.getReview(key);
+    let review = await store.getReview(key);
     if (!review || disposed) return;
     const now = clock();
     // A snooze until a time ends then. The turn it set aside alerts again, once; one that woke it earlier has alerted.
     let woke: number | null = null;
     if (review.snoozedUntil != null && now >= review.snoozedUntil) {
-      const held = turnOf(review, review.snoozedUntil - 1).reason === "snoozed";
+      const held = (await turnOf(review, review.snoozedUntil - 1)).reason === "snoozed";
       if (held) woke = review.snoozedUntil;
-      store.setLifecycle(key, { snoozedAt: null, snoozedUntil: null, ...(held ? { notifiedSignal: null, pendingAlert: null } : {}) });
-      review = store.getReview(key)!;
+      await store.setLifecycle(key, { snoozedAt: null, snoozedUntil: null, ...(held ? { notifiedSignal: null, pendingAlert: null } : {}) });
+      review = (await store.getReview(key))!;
     }
-    const preferences = store.getPreferences().preferences;
-    const turn = turnOf(review, now);
+    const preferences = (await store.getPreferences()).preferences;
+    const turn = await turnOf(review, now);
     const head = review.latestHeadSha ?? review.headSha ?? null;
     // A person asking again takes the review out of your archive for good.
-    if (review.userArchivedAt && turn.reason === "re-requested") store.setLifecycle(key, { userArchivedAt: null });
+    if (review.userArchivedAt && turn.reason === "re-requested") await store.setLifecycle(key, { userArchivedAt: null });
     if (turn.group === "needs" && turn.signal) {
       if (turn.signal !== review.notifiedSignal && turn.signal !== review.pendingAlert?.signal) {
         const watching = review.watchingSince ?? null;
@@ -361,13 +364,13 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
         const act = recent || request && !!review.newRequest;
         // Handled and looks-ready come from passing states; once they're your turn, they hold until you act.
         const held = turn.reason === "handled" || turn.reason === "looks-ready" ? { heldTurn: { reason: turn.reason, label: turn.label, signal: turn.signal, at: now } } : {};
-        if (!act) store.setLifecycle(key, { notifiedSignal: turn.signal, preparedSignal: turn.signal, newRequest: null, ...held });
+        if (!act) await store.setLifecycle(key, { notifiedSignal: turn.signal, preparedSignal: turn.signal, newRequest: null, ...held });
         else {
-          store.setLifecycle(key, { newRequest: null, ...held });
+          await store.setLifecycle(key, { newRequest: null, ...held });
           const preparing = await prepare(key, turn, head);
-          if (!store.getReview(key)) return;
-          if (!turn.notify) store.setLifecycle(key, { notifiedSignal: turn.signal });
-          else if (preparing) store.setLifecycle(key, { pendingAlert: { signal: turn.signal, since: now } });
+          if (!await store.getReview(key)) return;
+          if (!turn.notify) await store.setLifecycle(key, { notifiedSignal: turn.signal });
+          else if (preparing) await store.setLifecycle(key, { pendingAlert: { signal: turn.signal, since: now } });
           else await alert(key, turn, woke);
         }
       } else if (review.preparedSignal !== turn.signal && now - (review.prepareTriedAt ?? 0) >= RETRY_PREPARE) {
@@ -375,12 +378,12 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
         await prepare(key, turn, head);
       }
     }
-    review = store.getReview(key);
+    review = await store.getReview(key);
     if (!review) return;
     const waiting = review.pendingAlert;
     if (waiting) {
-      const current = turnOf(review, now);
-      if (current.group !== "needs" || current.signal !== waiting.signal) store.setLifecycle(key, { pendingAlert: null });
+      const current = await turnOf(review, now);
+      if (current.group !== "needs" || current.signal !== waiting.signal) await store.setLifecycle(key, { pendingAlert: null });
       else if (now - waiting.since >= ALERT_WAIT || prepared(review, waiting.since)) await alert(key, current);
     }
     // While you wait, the assistant checks the author's pushes once they settle; ones from before bb watched are history.
@@ -391,14 +394,14 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       && now - (review.pushCheckTriedAt ?? 0) >= RETRY_PREPARE) {
       // An untrusted author's pushes wait for your click.
       if (!mayRunUnattended(review, preferences, head)) {
-        store.setLifecycle(key, { autoRunHead: head, skippedRun: { run: "check", head, at: now, ...skipWhy(review, preferences) } });
+        await store.setLifecycle(key, { autoRunHead: head, skippedRun: { run: "check", head, at: now, ...skipWhy(review, preferences) } });
       } else {
-        store.setLifecycle(key, { autoRunHead: head, pushCheckTriedAt: now });
-        if (!await actions.checkPushes(key).catch(() => false) && store.getReview(key)) store.setLifecycle(key, { autoRunHead: review.autoRunHead ?? null });
+        await store.setLifecycle(key, { autoRunHead: head, pushCheckTriedAt: now });
+        if (!await actions.checkPushes(key).catch(() => false) && await store.getReview(key)) await store.setLifecycle(key, { autoRunHead: review.autoRunHead ?? null });
       }
     }
     if (review.turnGroup === "needs" && turn.group !== "needs") void notifications.dismiss(key);
-    if (review.turnGroup !== turn.group && store.getReview(key)) store.setLifecycle(key, { turnGroup: turn.group });
+    if (review.turnGroup !== turn.group && await store.getReview(key)) await store.setLifecycle(key, { turnGroup: turn.group });
   }
 
   /**
@@ -406,16 +409,16 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
    * start the guide for a new request. Returns whether work started; a turn that needs none counts as prepared.
    */
   async function prepare(key: string, turn: Turn, head: string | null): Promise<boolean> {
-    const review = store.getReview(key);
+    const review = await store.getReview(key);
     if (!review || !turn.signal) return false;
-    const preferences = store.getPreferences().preferences;
+    const preferences = (await store.getPreferences()).preferences;
     const request = turn.reason === "requested" || turn.reason === "team-requested";
     // Guides for PRs found on GitHub cost a run each; they start only in your auto-start repositories.
     const allowed = review.status !== "tracked" || matchesRepo(preferences.autoStartRepos, review.repo);
     // Off in Settings, a re-review alerts at once; a request still starts its guide in your auto-start repositories.
     const wanted = PREPARE.has(turn.reason) && preferences.knobs.prepareOnReturn || request && review.status === "tracked";
     if (!actions || !head || !allowed || !wanted || review.status === "generating" || review.autoRunHead === head) {
-      store.setLifecycle(key, { preparedSignal: turn.signal });
+      await store.setLifecycle(key, { preparedSignal: turn.signal });
       return false;
     }
     // An untrusted author's text reaches agents only after your click; the review says what didn't run.
@@ -423,14 +426,14 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
       // A check that's turned off wouldn't have run; the guide behind it still needed rebuilding.
       const check = !!reReviewCheckPrompt(preferences);
       const skipped = request || review.status === "tracked" || guideBehind(review) || check;
-      store.setLifecycle(key, { preparedSignal: turn.signal, ...(skipped ? { skippedRun: { run: request || !check ? "guide" : "check", head, at: clock(), ...skipWhy(review, preferences) } } : {}) });
+      await store.setLifecycle(key, { preparedSignal: turn.signal, ...(skipped ? { skippedRun: { run: request || !check ? "guide" : "check", head, at: clock(), ...skipWhy(review, preferences) } } : {}) });
       return false;
     }
     const previous = review.autoRunHead ?? null;
-    store.setLifecycle(key, { autoRunHead: head, prepareTriedAt: clock() });
+    await store.setLifecycle(key, { autoRunHead: head, prepareTriedAt: clock() });
     const started = await (request ? actions.autoStart(key) : actions.prepare(key, turn.reason)).catch(() => false);
-    if (!store.getReview(key)) return false;
-    store.setLifecycle(key, started ? { preparedSignal: turn.signal } : { autoRunHead: previous });
+    if (!await store.getReview(key)) return false;
+    await store.setLifecycle(key, started ? { preparedSignal: turn.signal } : { autoRunHead: previous });
     return started;
   }
 
@@ -442,13 +445,13 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
    */
   async function discover(since: number): Promise<void> {
     if (!actions) return;
-    if (!store.getPreferences().preferences.trackGithubReviews) {
+    if (!(await store.getPreferences()).preferences.trackGithubReviews) {
       await bb.storage.kv.delete(DISCOVERED);
       return;
     }
     const login = await viewerLogin();
     if (!login) return;
-    const { knobs, trackTeamRequests } = store.getPreferences().preferences;
+    const { knobs, trackTeamRequests } = (await store.getPreferences()).preferences;
     const found = await github.discover({ reviewed: knobs.trackReviewedPrs, teams: trackTeamRequests });
     // With nothing to read, as in an empty list, only this look shows GitHub answers again. It says nothing of PRs or teams.
     const error = health.error;
@@ -462,26 +465,29 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     const widened = trackTeamRequests && last?.teams === false;
     const added: string[] = [];
     // A renamed or transferred repository's PRs are already here under their old name, with their new URL.
-    const urlsNow = () => new Set(store.listReviews().map((r) => r.url?.toLowerCase()).filter(Boolean));
-    let urls = urlsNow();
-    const known = (pr: DiscoveredPr) => {
-      const key = keyFor({ kind: "pr", number: pr.number, repo: pr.repo });
-      return !!store.getReview(key) || store.isDiscoveryIgnored(key) || urls.has(pr.url.toLowerCase());
+    const urlsNow = async () => new Set((await store.listReviews()).map((r) => r.url?.toLowerCase()).filter(Boolean));
+    let urls = await urlsNow();
+    const known = async (pr: DiscoveredPr) => {
+      return store.exclusive(async (tx) => {
+        const key = keyFor({ kind: "pr", number: pr.number, repo: pr.repo });
+        return !!await tx.getReview(key) || await tx.isDiscoveryIgnored(key) || urls.has(pr.url.toLowerCase());
+      });
     };
     // One that no read has told its new URL yet is read first: a review of the same number in another repository.
-    const unknown = found.filter((pr) => !known(pr));
-    const namesakes = store.listReviews().filter(readable)
+    const unknown: DiscoveredPr[] = [];
+    for (const pr of found) if (!await known(pr)) unknown.push(pr);
+    const namesakes = (await store.listReviews()).filter(readable)
       .filter((r) => unknown.some((pr) => pr.number === r.number && pr.repo.toLowerCase() !== r.repo.toLowerCase()));
     if (namesakes.length) {
       await read(namesakes.map((r) => r.targetKey));
       if (disposed) return;
-      urls = urlsNow();
+      urls = await urlsNow();
     }
     for (const pr of found) {
       const key = keyFor({ kind: "pr", number: pr.number, repo: pr.repo });
-      if (known(pr)) continue;
-      store.saveReview({ targetKey: key, kind: "pr", number: pr.number, repo: pr.repo, title: pr.title, author: pr.author ?? undefined, url: pr.url, status: "tracked", createdAt: clock(), projectId });
-      if (!first && !widened && pr.requested && !pr.reviewed) store.setLifecycle(key, { newRequest: true });
+      if (await known(pr)) continue;
+      await store.saveReview({ targetKey: key, kind: "pr", number: pr.number, repo: pr.repo, title: pr.title, author: pr.author ?? undefined, url: pr.url, status: "tracked", createdAt: clock(), projectId });
+      if (!first && !widened && pr.requested && !pr.reviewed) await store.setLifecycle(key, { newRequest: true });
       added.push(key);
     }
     await bb.storage.kv.set(DISCOVERED, { login, at: clock(), teams: trackTeamRequests });
@@ -490,9 +496,9 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     bb.realtime.publish("reviews", { ts: clock() });
   }
 
-  function one(targetKey: string, force = false): Promise<void> {
+  async function one(targetKey: string, force = false): Promise<void> {
     if (disposed) return Promise.resolve();
-    const review = store.getReview(targetKey);
+    const review = await store.getReview(targetKey);
     if (!readable(review)) return maintainThread(targetKey);
     if (!force && clock() - (checked.get(targetKey) ?? 0) < MINUTE) return inflight.get(targetKey) ?? Promise.resolve();
     return read([targetKey]);
@@ -502,7 +508,7 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     if (disposed) return;
     // `gh auth switch` outside the plugin: read as the new account, and let the panel know.
     if (await github.viewer.changed?.().catch(() => false)) {
-      resetViewer();
+      await resetViewer();
       bb.realtime.publish("gh-account", { active: null });
     }
     // A failed check of notifications is no reason to read everything more often.
@@ -511,11 +517,14 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     const now = clock();
     // Without notifications, reviews in progress are read every minute instead.
     const interval = (group: Turn["group"]) => gate.kind === "unsupported" && (group === "needs" || group === "waiting") ? MINUTE : INTERVAL[group];
-    const reviews = store.listReviews();
+    const reviews = await store.listReviews();
     // A renamed repository's PRs keep their old name here; their URL has the new one.
     const fromUrl = (url?: string) => /\/([^/]+\/[^/]+)\/pull\/(\d+)$/.exec(url ?? "")?.slice(1).join("#").toLowerCase();
-    const due = reviews.filter(readable).filter((r) => force || changed.has(`${r.repo.toLowerCase()}#${r.number}`) || changed.has(fromUrl(r.url) ?? "")
-      || now - (checked.get(r.targetKey) ?? 0) >= interval(turnOf(r, now).group));
+    const due: ReviewMeta[] = [];
+    for (const r of reviews.filter(readable)) {
+      if (force || changed.has(`${r.repo.toLowerCase()}#${r.number}`) || changed.has(fromUrl(r.url) ?? "")
+        || now - (checked.get(r.targetKey) ?? 0) >= interval((await turnOf(r, now)).group)) due.push(r);
+    }
     await read(due.map((r) => r.targetKey), true);
     for (const review of reviews) if (!disposed) await maintainThread(review.targetKey);
     if (!limited() && (force || now - lastDiscovery >= DISCOVER_EVERY)) {
@@ -525,15 +534,15 @@ export function createReviewSync(bb: BbPluginApi, store: Store, run: typeof runG
     }
     // Turns also change with time, such as a quiet period ending, and waiting alerts may be ready.
     const readKeys = new Set(due.map((r) => r.targetKey));
-    for (const review of store.listReviews()) if (!disposed && !readKeys.has(review.targetKey)) await evaluate(review.targetKey).catch(() => {});
+    for (const review of await store.listReviews()) if (!disposed && !readKeys.has(review.targetKey)) await evaluate(review.targetKey).catch(() => {});
   }
 
   /** The active GitHub account changed: read who you are, your teams, your notifications, and your threads again. */
-  function resetViewer() {
+  async function resetViewer() {
     github.viewer.reset();
     github.gate.reset?.();
     checked.clear();
-    store.clearFeedbackFetches();
+    await store.clearFeedbackFetches();
   }
 
   return { one, all, evaluate, seen, turnOf, resetViewer, health: (): SyncHealth => health, login: () => github.viewer.login(), teams: () => github.viewer.teams(), cachedLogin: () => github.viewer.cachedLogin?.() ?? null };

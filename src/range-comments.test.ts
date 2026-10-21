@@ -1,12 +1,13 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore, reanchorAll } from "./store";
+import { createStore, reanchorDraft } from "./store";
 import { createReviewSubmitter } from "./submit-review";
 import { invalidComments, orderRange, rangeProblem } from "./review-positions";
 import { toGithubReviewPayload, type DraftComment } from "./draft";
 import { runGh } from "./gh";
 import { addComment, undoChange } from "./draft-comments";
+import { queueStore } from "./store-queue";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -54,29 +55,29 @@ test("the GitHub payload sends a range's start line and side; single-line commen
   ]);
 });
 
-function storeWith(text = patch) {
+async function storeWith(text = patch) {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, headSha: "sha1" });
-  store.savePatch("pr-1", text);
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, headSha: "sha1" });
+  await store.savePatch("pr-1", text);
   return store;
 }
 
 test("submitting a range sends it, and the page must show the same range", async () => {
-  const store = storeWith();
-  store.upsertDraftComment("pr-1", at(4, 2));
+  const store = await storeWith();
+  await store.upsertDraftComment("pr-1", at(4, 2));
   const run = vi.fn<typeof runGh>(async (args) => ({ code: 0, stderr: "", stdout: args[0] === "pr" ? '{"headRefOid":"sha1"}' : '{"id":12}' }));
   const submit = createReviewSubmitter(store, run);
-  const summary = { body: store.getDraft("pr-1").body, verdict: store.getDraft("pr-1").verdict };
+  const summary = { body: (await store.getDraft("pr-1")).body, verdict: (await store.getDraft("pr-1")).verdict };
   expect(await submit("pr-1", undefined, undefined, [{ ...at(4), body: "x" }], summary)).toMatchObject({ ok: false, error: expect.stringContaining("Your draft comments changed") });
   expect(await submit("pr-1", undefined, undefined, [at(4, 2)], summary)).toEqual({ ok: true });
   expect(JSON.parse(run.mock.calls[1][1]!.stdin!).comments).toEqual([{ path: "a.ts", line: 4, side: "RIGHT", start_line: 2, start_side: "RIGHT", body: "x" }]);
 });
 
-test("a re-review moves both ends of a range; one whose either end is gone is on an older diff", () => {
-  const store = storeWith();
-  store.upsertDraftComment("pr-1", at(4, 2));
-  store.upsertDraftComment("pr-1", { ...at(23, 21), body: "y" });
+test("a re-review moves both ends of a range; one whose either end is gone is on an older diff", async () => {
+  const store = await storeWith();
+  await store.upsertDraftComment("pr-1", at(4, 2));
+  await store.upsertDraftComment("pr-1", { ...at(23, 21), body: "y" });
   // Two lines added at the top, and the line `more` is gone.
   const next = [
     ...headers,
@@ -86,25 +87,25 @@ test("a re-review moves both ends of a range; one whose either end is gone is on
     " twenty", " end",
     "",
   ].join("\n");
-  store.savePatch("pr-1", next);
-  store.rebaseDraftComments("pr-1", reanchorAll(store, "pr-1", patch, next));
-  expect(store.getDraft("pr-1").comments).toEqual([at(6, 4), { ...at(24, 23), body: "y" }]);
-  expect(store.staleDraftComments("pr-1")).toEqual([]);
+  await store.savePatch("pr-1", next);
+  await store.rebaseDraftComments("pr-1", await reanchorDraft(store, "pr-1", patch, next));
+  expect((await store.getDraft("pr-1")).comments).toEqual([at(6, 4), { ...at(24, 23), body: "y" }]);
+  expect(await store.staleDraftComments("pr-1")).toEqual([]);
 
   // `two();` is gone now, so the first range lost its start.
   const third = [...headers, "@@ -1,4 +1,4 @@", " one", "-two", "+three();", " four", " five", ""].join("\n");
-  store.savePatch("pr-1", third);
-  store.rebaseDraftComments("pr-1", reanchorAll(store, "pr-1", next, third));
-  expect(store.staleDraftComments("pr-1").map((c) => [c.startLine, c.line])).toEqual([[4, 6], [23, 24]]);
+  await store.savePatch("pr-1", third);
+  await store.rebaseDraftComments("pr-1", await reanchorDraft(store, "pr-1", next, third));
+  expect((await store.staleDraftComments("pr-1")).map((c) => [c.startLine, c.line])).toEqual([[4, 6], [23, 24]]);
 });
 
 async function host() {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
-  store.savePatch("pr-1", patch);
-  store.setAssistantThread("pr-1", "assistant");
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
+  await store.savePatch("pr-1", patch);
+  await store.setAssistantThread("pr-1", "assistant");
   const call = async (tool: string, input: Record<string, unknown>) => {
     const result: any = await harness.behavior.callAgentTool(tool, input, { threadId: "assistant" });
     return typeof result === "string" ? result : result.isError ? `error: ${result.content[0].text}` : result;
@@ -122,14 +123,14 @@ test("the assistant comments on a range, checking its code's first and last line
   expect(await call("add_draft_comment", { file: "a.ts", startLine: 4, line: 22, code: "four\nfive\ntwenty\nmore", body: "x" }))
     .toBe("error: Lines 4 and 22 of a.ts are in different hunks of the diff. GitHub takes a range within one hunk. Nothing was added.");
   expect(await call("add_draft_comment", { file: "a.ts", startLine: 2, startSide: "LEFT", line: 3, code: "two\ntwo();\nthree();", body: "Old and new." })).toBe("Added a draft comment on a.ts:2–3. It stays in bb until the reviewer submits the review.");
-  expect(store.getDraft("pr-1").comments).toEqual([
+  expect((await store.getDraft("pr-1")).comments).toEqual([
     { file: "a.ts", line: 4, side: "RIGHT", startLine: 2, author: "agent", body: "Merge these." },
     { file: "a.ts", line: 3, side: "RIGHT", startLine: 2, startSide: "LEFT", author: "agent", body: "Old and new." },
   ]);
   expect(await call("edit_draft_comment", { file: "a.ts", line: 4, startLine: 3, code: "three();\nfour", body: "Just these." })).toBe("Updated the draft comment on a.ts:3–4.");
   expect(await call("edit_draft_comment", { file: "a.ts", line: 4, startLine: 3, body: "x" })).toBe("error: Give code, the text of lines 3 to 4, to change the comment's lines. Nothing was changed.");
-  expect(store.getDraft("pr-1").comments[0]).toEqual({ file: "a.ts", line: 4, side: "RIGHT", startLine: 3, author: "agent", body: "Just these." });
-  expect(store.staleDraftComments("pr-1")).toEqual([]);
+  expect((await store.getDraft("pr-1")).comments[0]).toEqual({ file: "a.ts", line: 4, side: "RIGHT", startLine: 3, author: "agent", body: "Just these." });
+  expect(await store.staleDraftComments("pr-1")).toEqual([]);
   expect(await call("list_draft_comments", {})).toContain("a.ts:3–4 RIGHT · added by an agent\n  Just these.");
 });
 
@@ -141,7 +142,7 @@ test("bb review comment adds a range as <file>:<start>-<end>, and lists it", asy
   expect(await cli("add", "pr-1", "a.ts:2-x", "--code", "x", "--body", "x")).toMatchObject({ exitCode: 2, stderr: expect.stringContaining("a.ts:2-x isn't a <file>:<line> or <file>:<start>-<end>.") });
   expect((await cli("list", "pr-1")).stdout).toContain("a.ts:2–4 RIGHT · added by an agent");
   expect(JSON.parse((await cli("list", "pr-1", "--json")).stdout).comments[0]).toEqual({ file: "a.ts", startLine: 2, line: 4, side: "RIGHT", author: "agent", severity: "none", body: "Merge these.", stale: false });
-  expect(store.getDraft("pr-1").comments.map((c) => [c.startLine, c.line])).toEqual([[2, 4], [21, 23]]);
+  expect((await store.getDraft("pr-1")).comments.map((c) => [c.startLine, c.line])).toEqual([[2, 4], [21, 23]]);
 });
 
 test("saveDraftComment saves a range in one hunk, and refuses one across hunks", async () => {
@@ -152,7 +153,7 @@ test("saveDraftComment saves a range in one hunk, and refuses one across hunks",
     .rejects.toThrow("Lines 4 and 22 of a.ts are in different hunks of the diff. GitHub takes a range within one hunk.");
   // A one-line "range" is a line comment.
   await harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-1", revision, comment: { file: "a.ts", startLine: 5, line: 5, side: "RIGHT", body: "One line." } });
-  expect(store.getDraft("pr-1").comments).toEqual([
+  expect((await store.getDraft("pr-1")).comments).toEqual([
     { file: "a.ts", startLine: 2, line: 4, side: "RIGHT", body: "Range." },
     { file: "a.ts", line: 5, side: "RIGHT", body: "One line." },
   ]);
@@ -162,49 +163,49 @@ test("undoing the agent's removal of a range comment puts the range back", async
   const { harness, store, call } = await host();
   await call("add_draft_comment", { file: "a.ts", startLine: 2, line: 4, code: "two();\nthree();\nfour", body: "Merge these." });
   // The reviewer asked about it, so the removal shows in their discussion there, with Undo.
-  store.addDiscussionMessage("pr-1", { file: "a.ts", line: 4, side: "RIGHT" }, "reviewer", "Drop this?");
+  await store.addDiscussionMessage("pr-1", { file: "a.ts", line: 4, side: "RIGHT" }, "reviewer", "Drop this?");
   await call("delete_draft_comment", { file: "a.ts", line: 4 });
   await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", file: "a.ts", line: 4, side: "RIGHT" });
-  expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 2, author: "agent", body: "Merge these." }]);
+  expect((await store.getDraft("pr-1")).comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 2, author: "agent", body: "Merge these." }]);
 });
 
 test("undoing the agent's edit of a comment's lines puts its old lines back with its old text", async () => {
   const { harness, store, call } = await host();
   await call("add_draft_comment", { file: "a.ts", startLine: 2, line: 4, code: "two();\nthree();\nfour", body: "Merge these." });
-  store.addDiscussionMessage("pr-1", { file: "a.ts", line: 4, side: "RIGHT" }, "reviewer", "Only the last two?");
+  await store.addDiscussionMessage("pr-1", { file: "a.ts", line: 4, side: "RIGHT" }, "reviewer", "Only the last two?");
   await call("edit_draft_comment", { file: "a.ts", line: 4, startLine: 3, code: "three();\nfour", body: "Just these." });
   await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", file: "a.ts", line: 4, side: "RIGHT" });
-  expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 2, author: "agent", body: "Merge these." }]);
-  expect(store.staleDraftComments("pr-1")).toEqual([]);
+  expect((await store.getDraft("pr-1")).comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 2, author: "agent", body: "Merge these." }]);
+  expect(await store.staleDraftComments("pr-1")).toEqual([]);
 });
 
 test("undoing the agent's edit of a comment's lines is refused when its old first line's code changed", async () => {
   const { store, call } = await host();
   await call("add_draft_comment", { file: "a.ts", startLine: 2, line: 4, code: "two();\nthree();\nfour", body: "Merge these." });
   const end = { file: "a.ts", line: 4, side: "RIGHT" as const };
-  store.addDiscussionMessage("pr-1", end, "reviewer", "Only the last two?");
+  await store.addDiscussionMessage("pr-1", end, "reviewer", "Only the last two?");
   await call("edit_draft_comment", { file: "a.ts", line: 4, startLine: 3, code: "three();\nfour", body: "Just these." });
   // A new commit changes line 2 only, so the comment stays on 3–4.
   const next = patch.replace("+two();", "+two(1);");
-  store.savePatch("pr-1", next);
-  store.rebaseDraftComments("pr-1", reanchorAll(store, "pr-1", patch, next));
-  expect(undoChange(store, "pr-1", end)).toEqual({ ok: false, error: "The code at a.ts:2 changed since the comment was drafted, so it can't go back there." });
-  expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 3, author: "agent", body: "Just these." }]);
+  await store.savePatch("pr-1", next);
+  await store.rebaseDraftComments("pr-1", await reanchorDraft(store, "pr-1", patch, next));
+  expect(await undoChange(store, "pr-1", end)).toEqual({ ok: false, error: "The code at a.ts:2 changed since the comment was drafted, so it can't go back there." });
+  expect((await store.getDraft("pr-1")).comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 3, author: "agent", body: "Just these." }]);
 });
 
 test("undoing the agent's text-only edit puts its text back, even after a re-review moved the range's first line", async () => {
   const { store, call } = await host();
   await call("add_draft_comment", { file: "a.ts", startLine: 2, line: 4, code: "two();\nthree();\nfour", body: "Merge these." });
   const end = { file: "a.ts", line: 4, side: "RIGHT" as const };
-  store.addDiscussionMessage("pr-1", end, "reviewer", "Shorter?");
+  await store.addDiscussionMessage("pr-1", end, "reviewer", "Shorter?");
   await call("edit_draft_comment", { file: "a.ts", line: 4, body: "Merge." });
   // A new commit adds a line above `two();` and drops `three();`, so the range is now 3–4.
   const next = [...headers, "@@ -1,4 +1,5 @@", " one", "-two", "+zero", "+two();", " four", " five", "@@ -20,2 +21,3 @@", " twenty", "+more", " end", ""].join("\n");
-  store.savePatch("pr-1", next);
-  store.rebaseDraftComments("pr-1", reanchorAll(store, "pr-1", patch, next));
-  expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 3, author: "agent", body: "Merge." }]);
-  expect(undoChange(store, "pr-1", end)).toMatchObject({ ok: true });
-  expect(store.getDraft("pr-1").comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 3, author: "agent", body: "Merge these." }]);
+  await store.savePatch("pr-1", next);
+  await store.rebaseDraftComments("pr-1", await reanchorDraft(store, "pr-1", patch, next));
+  expect((await store.getDraft("pr-1")).comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 3, author: "agent", body: "Merge." }]);
+  expect(await undoChange(store, "pr-1", end)).toMatchObject({ ok: true });
+  expect((await store.getDraft("pr-1")).comments).toEqual([{ file: "a.ts", line: 4, side: "RIGHT", startLine: 3, author: "agent", body: "Merge these." }]);
 });
 
 test("a range whose two ends are one row of the diff isn't one GitHub takes", () => {
@@ -213,12 +214,12 @@ test("a range whose two ends are one row of the diff isn't one GitHub takes", ()
   expect(rangeProblem(patch, at(4, 3, "RIGHT", "LEFT"))).toBe("Lines 3 and 4 of a.ts are one line of the diff. Comment on the line alone.");
 });
 
-test("an agent's range can start or end on a blank line", () => {
+test("an agent's range can start or end on a blank line", async () => {
   const blank = ["diff --git a/b.ts b/b.ts", "--- a/b.ts", "+++ b/b.ts", "@@ -0,0 +1,5 @@", "+a", "+", "+b", "+", "+c", ""].join("\n");
-  const store = storeWith(blank);
-  expect(addComment(store, "pr-1", { file: "b.ts", startLine: 1, line: 2, code: "a\n", body: "Ends blank." })).toMatchObject({ ok: true });
-  expect(addComment(store, "pr-1", { file: "b.ts", startLine: 2, line: 3, code: "\nb", body: "Starts blank." })).toMatchObject({ ok: true });
+  const store = await storeWith(blank);
+  expect(await addComment(store, "pr-1", { file: "b.ts", startLine: 1, line: 2, code: "a\n", body: "Ends blank." })).toMatchObject({ ok: true });
+  expect(await addComment(store, "pr-1", { file: "b.ts", startLine: 2, line: 3, code: "\nb", body: "Starts blank." })).toMatchObject({ ok: true });
   // A trailing newline after the last line's text is still allowed.
-  expect(addComment(store, "pr-1", { file: "b.ts", startLine: 3, line: 5, code: "b\n\nc\n", body: "Last three." })).toMatchObject({ ok: true });
-  expect(store.getDraft("pr-1").comments.map((c) => [c.startLine, c.line])).toEqual([[1, 2], [2, 3], [3, 5]]);
+  expect(await addComment(store, "pr-1", { file: "b.ts", startLine: 3, line: 5, code: "b\n\nc\n", body: "Last three." })).toMatchObject({ ok: true });
+  expect((await store.getDraft("pr-1")).comments.map((c) => [c.startLine, c.line])).toEqual([[1, 2], [2, 3], [3, 5]]);
 });

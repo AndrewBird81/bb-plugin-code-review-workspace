@@ -6,6 +6,7 @@ vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 
 import plugin from "../server";
 import { createStore } from "./store";
+import { queueStore } from "./store-queue";
 
 const ok = (stdout: string) => ({ stdout, stderr: "", code: 0 });
 const one = (line: string) => `diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+${line}\n`;
@@ -25,9 +26,9 @@ async function setUp() {
   });
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "c3ccccc", latestHeadSha: "c4ddddd", status: "ready", createdAt: 1 });
-  store.savePatch("pr-1", one("third"));
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "c3ccccc", latestHeadSha: "c4ddddd", status: "ready", createdAt: 1 });
+  await store.savePatch("pr-1", one("third"));
   return { harness, store, call: (method: string, input: unknown) => harness.behavior.callRpc(method as any, input as any) as Promise<any> };
 }
 
@@ -64,6 +65,6 @@ test("getSinceReview takes only a commit sha to compare from", async () => {
 
 test("a local review has no commits to pick", async () => {
   const { call, store } = await setUp();
-  store.saveReview({ targetKey: "local-1", kind: "ref", cwd: "/tmp", gitRef: "main..HEAD", status: "ready", createdAt: 1 });
+  await store.saveReview({ targetKey: "local-1", kind: "ref", cwd: "/tmp", gitRef: "main..HEAD", status: "ready", createdAt: 1 });
   expect(await call("getPrCommits", { targetKey: "local-1" })).toEqual({ commits: [] });
 });

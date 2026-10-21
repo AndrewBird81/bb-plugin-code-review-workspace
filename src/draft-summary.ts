@@ -1,43 +1,45 @@
 // The review summary as agents and `bb review summary` write it. Like the draft
 // comments, it stays in this bb's local draft until the reviewer submits it.
-import type { Store } from "./store";
 import { commentsKey, SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "./draft";
 import { describeComments, unchangeable, type DraftResult } from "./draft-comments";
 import { asked } from "./asks";
+import type { AsyncStore } from "./store-queue";
 
 /**
  * Write the summary as an agent, and suggest a verdict. An agent writes an empty summary or
  * an agent's; the reviewer's only when they asked on the summary, and then it stays theirs.
  */
-export function writeSummary(store: Store, targetKey: string, input: { body: string; verdict?: Verdict; unchecked?: string[] }, threadId?: string): DraftResult {
-  const refused = unchangeable(store.getReview(targetKey));
-  if (refused) return { ok: false, error: refused };
-  const draft = store.getDraft(targetKey);
-  const body = input.body.trim();
-  const reviewers = !draft.bodyAuthor && !!draft.body.trim();
-  // Asking on the summary opens it to the turn that carries the ask, replies and all, on that conversation.
-  if (reviewers && !asked(store, targetKey, SUMMARY_AT, threadId)) {
-    return { ok: false, error: "The reviewer wrote the review summary, so it stays as they wrote it. Put your suggested summary in your reply instead; the reviewer can ask on the summary (Ask agent on the review summary, in Finish review) to apply it. Nothing was changed." };
-  }
-  // What it didn't check goes with its verdict; without it, what it said before stays.
-  const suggested = { ...input.verdict ? { suggestedVerdict: input.verdict } : {}, ...input.unchecked ? { unchecked: input.unchecked.map((item) => item.trim()).filter(Boolean) } : {} };
-  store.updateSummary(targetKey, reviewers ? { body, ...suggested } : {
-    body, bodyAuthor: "agent", ...suggested,
-    written: { verdict: input.verdict ?? (verdictPicked(draft) ? draft.verdict : null), comments: commentsKey(draft.comments) },
+export async function writeSummary(store: AsyncStore, targetKey: string, input: { body: string; verdict?: Verdict; unchecked?: string[] }, threadId?: string): Promise<DraftResult> {
+  return store.exclusive(async (tx) => {
+    const refused = unchangeable(await tx.getReview(targetKey));
+    if (refused) return { ok: false, error: refused };
+    const draft = await tx.getDraft(targetKey);
+    const body = input.body.trim();
+    const reviewers = !draft.bodyAuthor && !!draft.body.trim();
+    // Asking on the summary opens it to the turn that carries the ask, replies and all, on that conversation.
+    if (reviewers && !await asked(tx, targetKey, SUMMARY_AT, threadId)) {
+      return { ok: false, error: "The reviewer wrote the review summary, so it stays as they wrote it. Put your suggested summary in your reply instead; the reviewer can ask on the summary (Ask agent on the review summary, in Finish review) to apply it. Nothing was changed." };
+    }
+    // What it didn't check goes with its verdict; without it, what it said before stays.
+    const suggested = { ...input.verdict ? { suggestedVerdict: input.verdict } : {}, ...input.unchecked ? { unchecked: input.unchecked.map((item) => item.trim()).filter(Boolean) } : {} };
+    await tx.updateSummary(targetKey, reviewers ? { body, ...suggested } : {
+      body, bodyAuthor: "agent", ...suggested,
+      written: { verdict: input.verdict ?? (verdictPicked(draft) ? draft.verdict : null), comments: commentsKey(draft.comments) },
+    });
+    await tx.noteDiscussionChange(targetKey, SUMMARY_AT, draft.body.trim() ? "edited" : "added", {
+      body, previous: {
+        body: draft.body, ...(draft.bodyAuthor ? { author: draft.bodyAuthor } : {}), ...(draft.written ? { written: draft.written } : {}),
+        ...(input.verdict ? { suggested: input.verdict, suggestedVerdict: draft.suggestedVerdict ?? null } : {}),
+      },
+    });
+    const verdict = input.verdict ? ` Your suggested verdict, ${VERDICT_LABEL[input.verdict]}, is marked for the reviewer, who picks the verdict.` : "";
+    return { ok: true, text: `${reviewers ? "Updated the reviewer's review summary, as they asked." : "Wrote the review summary."}${verdict} It stays in bb until the reviewer submits the review.` };
   });
-  store.noteDiscussionChange(targetKey, SUMMARY_AT, draft.body.trim() ? "edited" : "added", {
-    body, previous: {
-      body: draft.body, ...(draft.bodyAuthor ? { author: draft.bodyAuthor } : {}), ...(draft.written ? { written: draft.written } : {}),
-      ...(input.verdict ? { suggested: input.verdict, suggestedVerdict: draft.suggestedVerdict ?? null } : {}),
-    },
-  });
-  const verdict = input.verdict ? ` Your suggested verdict, ${VERDICT_LABEL[input.verdict]}, is marked for the reviewer, who picks the verdict.` : "";
-  return { ok: true, text: `${reviewers ? "Updated the reviewer's review summary, as they asked." : "Wrote the review summary."}${verdict} It stays in bb until the reviewer submits the review.` };
 }
 
 /** The summary and who wrote it, the verdict, and the assistant's suggestion. */
-export function describeSummary(store: Store, targetKey: string): string {
-  const draft = store.getDraft(targetKey);
+export async function describeSummary(store: AsyncStore, targetKey: string): Promise<string> {
+  const draft = await store.getDraft(targetKey);
   return [
     draft.body.trim()
       ? [`Review summary · written by ${draft.bodyAuthor === "agent" ? "an agent" : "the reviewer"}`, ...draft.body.trim().split("\n").map((line) => `  ${line}`)].join("\n")
@@ -48,6 +50,8 @@ export function describeSummary(store: Store, targetKey: string): string {
 }
 
 /** list_draft_comments: the summary, the verdicts, then the comments. */
-export function describeDraft(store: Store, targetKey: string): string {
-  return `${describeSummary(store, targetKey)}\n${describeComments(store, targetKey)}`;
+export async function describeDraft(store: AsyncStore, targetKey: string): Promise<string> {
+  return store.exclusive(async (tx) => {
+    return `${await describeSummary(tx, targetKey)}\n${await describeComments(tx, targetKey)}`;
+  });
 }

@@ -1,8 +1,9 @@
 // The reviewer's asks on the review summary or a draft comment. An ask opens what the reviewer wrote
 // there to the assistant's turn that carries it, on that conversation, and only that turn. Dig deeper on
 // a chapter is an ask too, whose turn's end ends it, though it opens nothing.
-import type { Ask, ReviewMeta, Store } from "./store";
+import type { Ask, ReviewMeta } from "./store";
 import { isSummary, sameLocation, SUMMARY_AT, type CommentLocation } from "./draft";
+import type { AsyncStore } from "./store-queue";
 
 /** An ask whose turn's end bb never reported gives way after this. */
 export const ASK_LIFETIME = 30 * 60_000;
@@ -20,15 +21,17 @@ export function askAt(review: ReviewMeta | null, at: AskAt): Ask | null {
 }
 
 /** Record or (with null) withdraw the ask at a location. */
-export function setAsk(store: Store, targetKey: string, at: AskAt, ask: Ask | null) {
-  if (isDeepDive(at)) {
-    // Withdrawing one chapter's leaves another's be.
-    if (!ask && store.getReview(targetKey)?.deepDive?.chapterId !== at.deepDive) return;
-    return store.setLifecycle(targetKey, { deepDive: ask && { chapterId: at.deepDive, ask } });
-  }
-  if (isSummary(at)) return store.setLifecycle(targetKey, { summaryAsk: ask });
-  const others = (store.getReview(targetKey)?.commentAsks ?? []).filter((entry) => !sameLocation(entry, at));
-  store.setLifecycle(targetKey, { commentAsks: ask ? [...others, { file: at.file, line: at.line, side: at.side, ask }] : others });
+export async function setAsk(store: AsyncStore, targetKey: string, at: AskAt, ask: Ask | null) {
+  return store.exclusive(async (tx) => {
+    if (isDeepDive(at)) {
+      // Withdrawing one chapter's leaves another's be.
+      if (!ask && (await tx.getReview(targetKey))?.deepDive?.chapterId !== at.deepDive) return;
+      return await tx.setLifecycle(targetKey, { deepDive: ask && { chapterId: at.deepDive, ask } });
+    }
+    if (isSummary(at)) return await tx.setLifecycle(targetKey, { summaryAsk: ask });
+    const others = ((await tx.getReview(targetKey))?.commentAsks ?? []).filter((entry) => !sameLocation(entry, at));
+    await tx.setLifecycle(targetKey, { commentAsks: ask ? [...others, { file: at.file, line: at.line, side: at.side, ask }] : others });
+  });
 }
 
 export function listAsks(review: ReviewMeta): Array<{ at: AskAt; ask: Ask }> {
@@ -39,12 +42,12 @@ export function listAsks(review: ReviewMeta): Array<{ at: AskAt; ask: Ask }> {
   ];
 }
 
-export function clearAsks(store: Store, targetKey: string) {
-  store.setLifecycle(targetKey, { summaryAsk: null, commentAsks: [], deepDive: null });
+export async function clearAsks(store: AsyncStore, targetKey: string) {
+  await store.setLifecycle(targetKey, { summaryAsk: null, commentAsks: [], deepDive: null });
 }
 
 /** Whether the turn running on `threadId` carries the reviewer's ask at this location. */
-export function asked(store: Store, targetKey: string, at: AskAt, threadId?: string): boolean {
-  const ask = askAt(store.getReview(targetKey), at);
+export async function asked(store: AsyncStore, targetKey: string, at: AskAt, threadId?: string): Promise<boolean> {
+  const ask = askAt(await store.getReview(targetKey), at);
   return !!threadId && ask?.state === "running" && ask.threadId === threadId && Date.now() - ask.at < ASK_LIFETIME;
 }

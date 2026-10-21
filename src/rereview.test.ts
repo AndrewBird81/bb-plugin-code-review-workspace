@@ -22,6 +22,7 @@ import { defaultPreferences } from "./preferences";
 import * as gh from "./gh";
 import plugin from "../server";
 import { GUIDE_STOPPED } from "../lib/review-state";
+import { queueStore } from "./store-queue";
 
 function host() {
   return createFakePluginHost({
@@ -32,41 +33,41 @@ function host() {
 
 test("rerunReview re-fetches a PR diff, re-saves patch, sets generating, and returns ok", async () => {
   const { bb } = host();
-  const store = createStore(bb);
-  store.saveReview({
+  const store = queueStore(createStore(bb));
+  await store.saveReview({
     targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1,
     projectId: "p1", headSha: "oldsha", gitRef: "main...feature",
   });
-  store.savePatch("pr-7", "stale patch");
+  await store.savePatch("pr-7", "stale patch");
 
   const res = await rerunReview({ bb, store, gh }, "pr-7");
 
   expect(res).toEqual({ ok: true });
-  expect(store.patch("pr-7")).toContain("diff --git a/a.ts");
-  const meta = store.getReview("pr-7");
+  expect(await store.patch("pr-7")).toContain("diff --git a/a.ts");
+  const meta = await store.getReview("pr-7");
   expect(meta?.headSha).toBe("newsha");
 });
 
 test("rerunReview re-fetches a local-ref diff via git when cwd is present", async () => {
   const { bb } = host();
-  const store = createStore(bb);
-  store.saveReview({
+  const store = queueStore(createStore(bb));
+  await store.saveReview({
     targetKey: "ref-abc", kind: "ref", status: "ready", createdAt: 1,
     projectId: "p1", gitRef: "main...feature", cwd: "/repo",
   });
-  store.savePatch("ref-abc", "stale patch");
+  await store.savePatch("ref-abc", "stale patch");
 
   const res = await rerunReview({ bb, store, gh }, "ref-abc");
 
   expect(res).toEqual({ ok: true });
-  expect(store.patch("ref-abc")).toContain("diff --git a/b.ts");
-  expect(store.getReview("ref-abc")?.status).toBe("generating");
+  expect(await store.patch("ref-abc")).toContain("diff --git a/b.ts");
+  expect((await store.getReview("ref-abc"))?.status).toBe("generating");
 });
 
 test("rerunReview fails a local-ref review with no stored cwd", async () => {
   const { bb } = host();
-  const store = createStore(bb);
-  store.saveReview({
+  const store = queueStore(createStore(bb));
+  await store.saveReview({
     targetKey: "ref-abc", kind: "ref", status: "ready", createdAt: 1,
     projectId: "p1", gitRef: "main...feature",
   });
@@ -79,37 +80,37 @@ test("rerunReview fails a local-ref review with no stored cwd", async () => {
 
 test("rerunReview fails for an unknown target", async () => {
   const { bb } = host();
-  const store = createStore(bb);
+  const store = queueStore(createStore(bb));
   const res = await rerunReview({ bb, store, gh }, "missing");
   expect(res.ok).toBe(false);
 });
 
 test("rerunReview leaves the review as it was when the guide writer's machine is offline", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { hosts: { get: async () => ({ id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } }) } } });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "oldsha", gitRef: "main...feature" });
-  store.savePatch("pr-7", "stale patch");
-  store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "oldsha", gitRef: "main...feature" });
+  await store.savePatch("pr-7", "stale patch");
+  await store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
   expect(await rerunReview({ bb, store, gh }, "pr-7")).toEqual({ ok: false, error: "FloMac is offline. Wake it, or choose another machine for the guide writer in Review settings." });
-  expect(store.getReview("pr-7")).toMatchObject({ status: "ready", headSha: "oldsha" });
-  expect(store.patch("pr-7")).toBe("stale patch");
+  expect(await store.getReview("pr-7")).toMatchObject({ status: "ready", headSha: "oldsha" });
+  expect(await store.patch("pr-7")).toBe("stale patch");
 });
 
 test("a review deleted while its PR loads isn't brought back", async () => {
   const { rerunReview } = await import("./rereview");
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "w" }), wait: async () => ({}), archive: async () => ({}), stop: async () => ({}) } } as any });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-9", kind: "pr", number: 9, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-9", kind: "pr", number: 9, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
   const runGh = vi.fn(async (args: string[]) => {
     // The reviewer deletes the review while GitHub answers.
-    store.deleteReview("pr-9");
+    await store.deleteReview("pr-9");
     if (args[1] === "view") return { code: 0, stderr: "", stdout: JSON.stringify({ title: "T", baseRefName: "main", headRefName: "h", url: "u", headRefOid: "sha2" }) };
     if (args[1] === "diff") return { code: 0, stderr: "", stdout: "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n" };
     return { code: 0, stderr: "", stdout: JSON.stringify({ headRefOid: "sha2" }) };
   });
   const result = await rerunReview({ bb, store, gh: { runGh: runGh as any, runGit: vi.fn() as any } }, "pr-9");
   expect(result).toEqual({ ok: false, error: "This review was deleted." });
-  expect(store.getReview("pr-9")).toBeNull();
+  expect(await store.getReview("pr-9")).toBeNull();
 });
 
 const fileDiff = (lines: string[]) => ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", `@@ -0,0 +1,${lines.length} @@`, ...lines.map((l) => `+${l}`), ""].join("\n");
@@ -118,37 +119,37 @@ const prGh = (patch: string) => vi.fn(async (args: string[]) => args[1] === "dif
 
 test("comments on neighbouring lines all follow their lines into the new diff", async () => {
   const { bb } = host();
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
-  store.savePatch("pr-1", fileDiff(["a", "b", "c"]));
-  store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "on a" });
-  store.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "on b" });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  await store.savePatch("pr-1", fileDiff(["a", "b", "c"]));
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "on a" });
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "on b" });
   const runGh = prGh(fileDiff(["import x;", "a", "b", "c"]));
   expect(await rerunReview({ bb, store, gh: { runGh: runGh as any, runGit: vi.fn() as any } }, "pr-1")).toEqual({ ok: true });
-  expect(store.getDraft("pr-1").comments.map((c) => [c.body, c.line])).toEqual([["on a", 2], ["on b", 3]]);
-  expect(store.staleDraftComments("pr-1")).toEqual([]);
+  expect((await store.getDraft("pr-1")).comments.map((c) => [c.body, c.line])).toEqual([["on a", 2], ["on b", 3]]);
+  expect(await store.staleDraftComments("pr-1")).toEqual([]);
 });
 
 test("Re-review asked twice at once starts one guide writer", async () => {
   const { bb, harness } = host();
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
-  store.savePatch("pr-1", fileDiff(["a"]));
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  await store.savePatch("pr-1", fileDiff(["a"]));
   const runGh = prGh(fileDiff(["b"]));
   const deps = { bb, store, gh: { runGh: runGh as any, runGit: vi.fn() as any } };
   expect(await Promise.all([rerunReview(deps, "pr-1"), rerunReview(deps, "pr-1")])).toEqual([{ ok: true }, { ok: true }]);
-  await vi.waitFor(() => expect(store.getReview("pr-1")?.status).not.toBe("generating"));
+  await vi.waitFor(async () => expect((await store.getReview("pr-1"))?.status).not.toBe("generating"));
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1);
 });
 
 test("a PR that can't be read says Couldn't, keeping the review as it was", async () => {
   const { bb } = host();
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "oldsha" });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "oldsha" });
   // gh failing in a way that isn't an Error says nothing of its own.
   vi.mocked(gh.runGh).mockRejectedValueOnce("gh vanished");
   expect(await rerunReview({ bb, store, gh }, "pr-7")).toEqual({ ok: false, error: "Couldn't load the PR." });
-  expect(store.getReview("pr-7")).toMatchObject({ status: "ready", headSha: "oldsha" });
+  expect(await store.getReview("pr-7")).toMatchObject({ status: "ready", headSha: "oldsha" });
 });
 
 // bug bash LIV-1: a merged PR is archived seconds after it starts, and Rebuild refused every archived review, so a first
@@ -165,15 +166,15 @@ test.each([
   try {
     const { bb, harness } = host();
     await plugin(bb);
-    const store = createStore(bb);
-    store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", title: "Launch it", status: "error", createdAt: 1, projectId: "proj", headSha: "abc123", gitRef: "main...feat", base: "main", head: "feat" });
-    store.savePatch("pr-1", diff);
-    store.setLifecycle("pr-1", { prState: "MERGED", archivedAt: Date.now(), guideError: { at: Date.now(), text } });
+    const store = queueStore(createStore(bb));
+    await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", title: "Launch it", status: "error", createdAt: 1, projectId: "proj", headSha: "abc123", gitRef: "main...feat", base: "main", head: "feat" });
+    await store.savePatch("pr-1", diff);
+    await store.setLifecycle("pr-1", { prState: "MERGED", archivedAt: Date.now(), guideError: { at: Date.now(), text } });
     expect(await harness.behavior.callRpc("rereview", { targetKey: "pr-1" })).toEqual({ ok: true });
     expect(harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => (args as any).title)).toEqual(["Generate guide: pr-1"]);
 
-    await vi.waitFor(() => expect(store.getReview("pr-1")?.status).not.toBe("generating"));
-    store.saveGuide("pr-1", { title: "Launch it", intent: "Launch", sections: [], unplacedFiles: [] } as any);
+    await vi.waitFor(async () => expect((await store.getReview("pr-1"))?.status).not.toBe("generating"));
+    await store.saveGuide("pr-1", { title: "Launch it", intent: "Launch", sections: [], unplacedFiles: [] } as any);
     expect(await harness.behavior.callRpc("rereview", { targetKey: "pr-1" })).toEqual({ ok: false, error: "This PR is archived. Its guide and conversation are still available." });
   } finally {
     vi.mocked(gh.runGh).mockReset();
@@ -198,10 +199,10 @@ test("bb review during an update's PR read leaves one guide writer building the 
     const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
     let spawned = 0;
     const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: `writer-${++spawned}` }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}) } } as any });
-    const store = createStore(bb);
-    store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
-    store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+n\n");
-    store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
+    const store = queueStore(createStore(bb));
+    await store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+    await store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+n\n");
+    await store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
     const update = rerunReview({ bb, store, gh }, key);
     await vi.waitFor(() => expect(release).not.toBeNull());
     // Meanwhile an agent runs bb review on the same PR: it reads GitHub, sees a ready guide behind the PR, and rebuilds.

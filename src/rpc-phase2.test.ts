@@ -65,6 +65,7 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
 import * as gh from "./gh";
+import { queueStore } from "./store-queue";
 
 function host() {
   return createFakePluginHost({ pluginId: "code-review-workspace" });
@@ -73,8 +74,8 @@ function host() {
 async function seeded() {
   const { bb, harness } = host();
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({
+  const store = queueStore(createStore(bb));
+  await store.saveReview({
     targetKey: "pr-1",
     kind: "pr",
     number: 1,
@@ -83,7 +84,7 @@ async function seeded() {
     createdAt: 1,
     headSha: "oldsha",
   });
-  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n");
+  await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n");
   return { bb, harness, store };
 }
 
@@ -155,7 +156,7 @@ test("replyToThread returns ok:true and calls gh with the reply endpoint + body"
 
 test("checkForUpdates compares the head the sync read with the guide's, without asking gh again", async () => {
   const { harness, store } = await seeded();
-  store.setLifecycle("pr-1", { latestHeadSha: "newsha" });
+  await store.setLifecycle("pr-1", { latestHeadSha: "newsha" });
   vi.mocked(gh.runGh).mockClear();
   const res: any = await harness.behavior.callRpc("checkForUpdates", { targetKey: "pr-1" });
   expect(res).toEqual({ hasNewCommits: true, current: "newsha", stored: "oldsha" });
@@ -164,8 +165,8 @@ test("checkForUpdates compares the head the sync read with the guide's, without 
 
 test("checkForUpdates says the guide is behind when the PR's base changed, with the same head", async () => {
   const { harness, store } = await seeded();
-  store.saveReview({ ...store.getReview("pr-1")!, base: "parent" });
-  store.setLifecycle("pr-1", { latestHeadSha: "oldsha", latestBase: "main" });
+  await store.saveReview({ ...(await store.getReview("pr-1"))!, base: "parent" });
+  await store.setLifecycle("pr-1", { latestHeadSha: "oldsha", latestBase: "main" });
   const res: any = await harness.behavior.callRpc("checkForUpdates", { targetKey: "pr-1" });
   expect(res).toEqual({ hasNewCommits: true, current: "oldsha", stored: "oldsha", baseChanged: { from: "parent", to: "main" } });
 });
@@ -176,7 +177,7 @@ test("getReviewBundle leaves out the patch the page already shows", async () => 
   expect(first.patch).toBe("diff --git a/a.ts b/a.ts\n");
   const again: any = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1", knownRevision: first.revision });
   expect(again).toMatchObject({ patch: null, revision: first.revision });
-  store.savePatch("pr-1", "diff --git a/b.ts b/b.ts\n");
+  await store.savePatch("pr-1", "diff --git a/b.ts b/b.ts\n");
   const changed: any = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1", knownRevision: first.revision });
   expect(changed.patch).toBe("diff --git a/b.ts b/b.ts\n");
   expect(changed.revision).not.toBe(first.revision);
@@ -184,7 +185,7 @@ test("getReviewBundle leaves out the patch the page already shows", async () => 
 
 test("re-reading your threads asks GitHub who you are once, not on every read", async () => {
   const { harness, store } = await seeded();
-  store.setLifecycle("pr-1", { submittedAt: 5, submittedHeadSha: "oldsha", submittedVerdict: "COMMENT" });
+  await store.setLifecycle("pr-1", { submittedAt: 5, submittedHeadSha: "oldsha", submittedVerdict: "COMMENT" });
   const login = (args: string[]) => args.join(" ") === "api user --jq .login";
   const original = vi.mocked(gh.runGh).getMockImplementation()!;
   vi.mocked(gh.runGh).mockImplementation(async (args, options) => login(args) ? { stdout: "me\n", stderr: "", code: 0 } : original(args, options));
@@ -205,7 +206,7 @@ test("rereview delegates to rerunReview and returns its result", async () => {
 
 test("opening a review whose diff was pruned reads the diff again", async () => {
   const { harness, store } = await seeded();
-  store.dropPatch("pr-1");
+  await store.dropPatch("pr-1");
   const diff = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
   const original = vi.mocked(gh.runGh).getMockImplementation()!;
   vi.mocked(gh.runGh).mockImplementation(async (args, options) => args[0] === "pr" && args[1] === "diff" ? { stdout: diff, stderr: "", code: 0 }
@@ -213,6 +214,6 @@ test("opening a review whose diff was pruned reads the diff again", async () => 
   try {
     const bundle: any = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" });
     expect(bundle.patch).toBe(diff);
-    expect(store.hasPatch("pr-1")).toBe(true);
+    expect(await store.hasPatch("pr-1")).toBe(true);
   } finally { vi.mocked(gh.runGh).mockImplementation(original); }
 });

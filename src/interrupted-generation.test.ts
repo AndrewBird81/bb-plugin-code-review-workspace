@@ -6,6 +6,7 @@ import { generateGuide } from "./generate";
 import { defaultPreferences } from "./preferences";
 import { formerWorkerReview, NO_REVIEW, recordFormerWorker } from "./former-workers";
 import { runGh } from "./gh";
+import { queueStore } from "./store-queue";
 
 vi.mock("./gh", async (original) => ({
   ...await original<typeof import("./gh")>(),
@@ -21,12 +22,12 @@ async function interrupted(sdk: Record<string, unknown> = {}, lifecycle: Record<
   const first = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "old-worker" }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
-  const store = createStore(first.bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
-  store.setLifecycle("pr-1", { authorAssociation: "MEMBER", ...lifecycle });
-  store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+a2\n");
-  store.saveGuide("pr-1", guide);
-  store.backupGuide("pr-1");
+  const store = queueStore(createStore(first.bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  await store.setLifecycle("pr-1", { authorAssociation: "MEMBER", ...lifecycle });
+  await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+a2\n");
+  await store.saveGuide("pr-1", guide);
+  await store.backupGuide("pr-1");
   void generateGuide(first.bb, store, "pr-1", "p1");
   await vi.waitFor(() => expect(first.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
   const archive = vi.fn(async () => ({}));
@@ -37,7 +38,7 @@ async function interrupted(sdk: Record<string, unknown> = {}, lifecycle: Record<
   next.harness.inspection.sdk.stub("threads.archive", archive);
   next.harness.inspection.sdk.stub("threads.stop", stop);
   for (const [name, fn] of Object.entries(sdk)) next.harness.inspection.sdk.stub(name as any, fn as any);
-  return { ...next, store: createStore(next.bb), archive, stop };
+  return { ...next, store: queueStore(createStore(next.bb)), archive, stop };
 }
 
 test("after a reload, the guide being written is stopped and archived, the old guide kept, and the rebuild starts again", async () => {
@@ -46,18 +47,18 @@ test("after a reload, the guide being written is stopped and archived, the old g
   await vi.waitFor(() => expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
   expect(stop).toHaveBeenCalledWith({ threadId: "old-worker" });
   expect(archive).toHaveBeenCalledWith({ threadId: "old-worker" });
-  expect(store.getReview("pr-1")).toMatchObject({ status: "generating", headSha: "sha2" });
+  expect(await store.getReview("pr-1")).toMatchObject({ status: "generating", headSha: "sha2" });
 });
 
 test("after a reload with the guide writer's machine offline, the old guide stays and nothing starts", async () => {
   const { bb, harness, store, stop } = await interrupted({ "hosts.get": async () => ({ id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } }) });
-  store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
+  await store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
   await plugin(bb);
   await vi.waitFor(() => expect(stop).toHaveBeenCalledWith({ threadId: "old-worker" }));
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
-  expect(store.getGuide("pr-1")?.title).toBe("Kept");
-  expect(store.getReview("pr-1")).toMatchObject({ status: "error", headSha: "sha1" });
+  expect((await store.getGuide("pr-1"))?.title).toBe("Kept");
+  expect(await store.getReview("pr-1")).toMatchObject({ status: "error", headSha: "sha1" });
 });
 
 test("after a reload, an outside author's guide restarts only at the head you started it on", async () => {
@@ -65,18 +66,18 @@ test("after a reload, an outside author's guide restarts only at the head you st
   const { bb, harness, store, stop } = await interrupted({}, { authorAssociation: "CONTRIBUTOR", approvedHead: "sha1" });
   await plugin(bb);
   await vi.waitFor(() => expect(stop).toHaveBeenCalledWith({ threadId: "old-worker" }));
-  await vi.waitFor(() => expect(store.getReview("pr-1")?.skippedRun).toMatchObject({ run: "guide", head: "sha2" }));
+  await vi.waitFor(async () => expect((await store.getReview("pr-1"))?.skippedRun).toMatchObject({ run: "guide", head: "sha2" }));
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
-  expect(store.getGuide("pr-1")?.title).toBe("Kept");
-  expect(store.getReview("pr-1")).toMatchObject({ status: "error", headSha: "sha1" });
+  expect((await store.getGuide("pr-1"))?.title).toBe("Kept");
+  expect(await store.getReview("pr-1")).toMatchObject({ status: "error", headSha: "sha1" });
 });
 
 test("after a reload with the guide writer's machine offline, the guide restarts on a later pass once it's back", async () => {
   const host = { id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } };
   const { bb, harness, store, stop } = await interrupted({ "hosts.get": async () => host, "projects.list": async () => [{ id: "personal", kind: "personal" }] });
-  store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
+  await store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
   await plugin(bb);
-  await vi.waitFor(() => expect(store.getReview("pr-1")?.restartPending).toEqual({ since: expect.any(Number) }));
+  await vi.waitFor(async () => expect((await store.getReview("pr-1"))?.restartPending).toEqual({ since: expect.any(Number) }));
   expect(stop).toHaveBeenCalledWith({ threadId: "old-worker" });
   const pass = async () => {
     const { controller, done } = harness.runService("review-state");
@@ -87,31 +88,31 @@ test("after a reload with the guide writer's machine offline, the guide restarts
   // Still offline: the review waits, Failed.
   await pass();
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
-  expect(store.getReview("pr-1")).toMatchObject({ status: "error", restartPending: { since: expect.any(Number) } });
+  expect(await store.getReview("pr-1")).toMatchObject({ status: "error", restartPending: { since: expect.any(Number) } });
   host.status = "connected";
   await pass();
   await vi.waitFor(() => expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
-  expect(store.getReview("pr-1")).toMatchObject({ status: "generating", headSha: "sha2", restartPending: null });
+  expect(await store.getReview("pr-1")).toMatchObject({ status: "generating", headSha: "sha2", restartPending: null });
 });
 
 test("an interrupted guide whose machine stays offline past 10 minutes isn't tried again", async () => {
   const host = { id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } };
   const { bb, harness, store } = await interrupted({ "hosts.get": async () => host });
-  store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
+  await store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
   await plugin(bb);
-  await vi.waitFor(() => expect(store.getReview("pr-1")?.restartPending).toBeTruthy());
-  store.setLifecycle("pr-1", { restartPending: { since: Date.now() - 11 * 60_000 } });
+  await vi.waitFor(async () => expect((await store.getReview("pr-1"))?.restartPending).toBeTruthy());
+  await store.setLifecycle("pr-1", { restartPending: { since: Date.now() - 11 * 60_000 } });
   host.status = "connected";
   const told = () => harness.inspection.realtimeSignals.filter((signal) => signal.channel === "review:pr-1").length;
   const before = told();
   const { controller, done } = harness.runService("review-state");
-  await vi.waitFor(() => expect(store.getReview("pr-1")?.restartPending).toBeNull());
+  await vi.waitFor(async () => expect((await store.getReview("pr-1"))?.restartPending).toBeNull());
   controller.abort();
   await done;
   // The open page hears, so it stops saying the guide restarts on its own (70-review-correctness #3).
   expect(told()).toBeGreaterThan(before);
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
-  expect(store.getReview("pr-1")).toMatchObject({ status: "error", headSha: "sha1" });
+  expect(await store.getReview("pr-1")).toMatchObject({ status: "error", headSha: "sha1" });
   expect(harness.inspection.logEntries.some((entry: any) => String(entry.message).includes("stays failed"))).toBe(true);
 });
 
@@ -121,10 +122,10 @@ test("after a reload, a writer whose spawn it interrupted is found by its title,
   const first = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: () => new Promise(() => {}), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
-  const before = createStore(first.bb);
-  before.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
-  before.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
-  before.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+a2\n");
+  const before = queueStore(createStore(first.bb));
+  await before.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  await before.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
+  await before.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+a2\n");
   void generateGuide(first.bb, before, "pr-1", "p1");
   await vi.waitFor(() => expect(first.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
   const next = await first.harness.lifecycle.reload(async () => {});
@@ -150,11 +151,11 @@ test("after a reload, a thread titled as the interrupted review's writer stays k
   const first = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: () => new Promise(() => {}), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
-  const before = createStore(first.bb);
-  for (const key of ["pr-1", "pr-2"]) before.saveReview({ targetKey: key, kind: "pr", number: Number(key.slice(3)), repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
-  before.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
-  before.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+a2\n");
-  before.setAssistantThread("pr-2", "pr2-assistant");
+  const before = queueStore(createStore(first.bb));
+  for (const key of ["pr-1", "pr-2"]) await before.saveReview({ targetKey: key, kind: "pr", number: Number(key.slice(3)), repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
+  await before.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
+  await before.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+a2\n");
+  await before.setAssistantThread("pr-2", "pr2-assistant");
   await recordFormerWorker(first.bb, "old-pr2-writer", "pr-2", "writer");
   await recordFormerWorker(first.bb, "suggester", null, "suggester");
   void generateGuide(first.bb, before, "pr-1", "p1");
@@ -184,10 +185,10 @@ test("a guide a reload interrupted while GitHub couldn't be read stays failed, s
   try {
     const { bb, harness, store } = await interrupted();
     await plugin(bb);
-    await vi.waitFor(() => expect(store.getReview("pr-1")?.guideError?.text).toContain("error connecting to api.github.com"));
-    expect(store.getReview("pr-1")?.status).toBe("error");
-    expect(store.getReview("pr-1")?.restartPending ?? null).toBeNull();
-    expect(store.getGuide("pr-1")?.title).toBe("Kept");
+    await vi.waitFor(async () => expect((await store.getReview("pr-1"))?.guideError?.text).toContain("error connecting to api.github.com"));
+    expect((await store.getReview("pr-1"))?.status).toBe("error");
+    expect((await store.getReview("pr-1"))?.restartPending ?? null).toBeNull();
+    expect((await store.getGuide("pr-1"))?.title).toBe("Kept");
     expect(harness.inspection.realtimeSignals.some((signal) => signal.channel === "review:pr-1")).toBe(true);
     // GitHub answers again; the review-state loop leaves it to Try again.
     vi.mocked(runGh).mockImplementation(reads!);
@@ -204,14 +205,14 @@ test("a guide a reload interrupted while GitHub couldn't be read stays failed, s
 test("an interrupted guide whose machine stays offline past 10 minutes says why it failed", async () => {
   const host = { id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } };
   const { bb, harness, store } = await interrupted({ "hosts.get": async () => host });
-  store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
+  await store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
   await plugin(bb);
-  await vi.waitFor(() => expect(store.getReview("pr-1")?.restartPending).toBeTruthy());
-  expect(store.getReview("pr-1")?.guideError ?? null).toBeNull();
-  store.setLifecycle("pr-1", { restartPending: { since: Date.now() - 11 * 60_000 } });
+  await vi.waitFor(async () => expect((await store.getReview("pr-1"))?.restartPending).toBeTruthy());
+  expect((await store.getReview("pr-1"))?.guideError ?? null).toBeNull();
+  await store.setLifecycle("pr-1", { restartPending: { since: Date.now() - 11 * 60_000 } });
   const { controller, done } = harness.runService("review-state");
-  await vi.waitFor(() => expect(store.getReview("pr-1")?.restartPending).toBeNull());
+  await vi.waitFor(async () => expect((await store.getReview("pr-1"))?.restartPending).toBeNull());
   controller.abort();
   await done;
-  expect(store.getReview("pr-1")?.guideError?.text).toContain("FloMac is offline");
+  expect((await store.getReview("pr-1"))?.guideError?.text).toContain("FloMac is offline");
 });

@@ -1,7 +1,7 @@
 // The review assistant's check of whether your feedback was addressed: how it
 // starts, and what its tools return. Nothing here writes to GitHub.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { Store, ReviewMeta } from "./store";
+import type { ReviewMeta } from "./store";
 import { ghErrorMessage, type runGh, type runGit } from "./gh";
 import { messageAssistant } from "./agent";
 import { reReviewCheckPrompt } from "./preferences";
@@ -11,6 +11,7 @@ import type { AssessmentItem, AssessmentVerdict } from "../lib/feedback";
 import type { Verdict } from "./draft";
 import { untrusted } from "./untrusted";
 import { threadLabel } from "./github/threads";
+import type { AsyncStore } from "./store-queue";
 
 type Run = typeof runGh;
 const short = (sha: string | null | undefined) => sha ? sha.slice(0, 7) : "unknown";
@@ -42,9 +43,9 @@ export function noteLeftQueue(messageId: string, how: "dispatched" | "cancelled"
 }
 
 /** Ask the review's assistant to check your feedback. False when it's turned off or can't start. */
-export async function startVerification(bb: BbPluginApi, store: Store, targetKey: string, reason: string): Promise<boolean> {
-  const prompt = reReviewCheckPrompt(store.getPreferences().preferences);
-  const review = store.getReview(targetKey);
+export async function startVerification(bb: BbPluginApi, store: AsyncStore, targetKey: string, reason: string): Promise<boolean> {
+  const prompt = reReviewCheckPrompt((await store.getPreferences()).preferences);
+  const review = await store.getReview(targetKey);
   if (!prompt || !review || review.kind !== "pr" || !baselineOf(review).at) return false;
   let sent: Awaited<ReturnType<typeof messageAssistant>>;
   try {
@@ -57,14 +58,14 @@ export async function startVerification(bb: BbPluginApi, store: Store, targetKey
   // send returns, it's no longer waiting in the queue (70-review #3); already deleted from it, it never runs.
   const left = sent.queuedMessageId ? leftQueue.get(sent.queuedMessageId) : undefined;
   const queued = sent.queuedMessageId && !left ? sent.queuedMessageId : null;
-  if (left !== "cancelled") store.setLifecycle(targetKey, { verifyingSince: Date.now(), verifyingHead: headOf(review), verifyingMessageId: queued });
+  if (left !== "cancelled") await store.setLifecycle(targetKey, { verifyingSince: Date.now(), verifyingHead: headOf(review), verifyingMessageId: queued });
   bb.realtime.publish(`conversation:${targetKey}`, {});
   return true;
 }
 
 /** list_feedback: your threads, their replies and state, and your review summaries. */
-export function describeFeedback(store: Store, review: ReviewMeta): string {
-  const view = feedbackView(store, review);
+export async function describeFeedback(store: AsyncStore, review: ReviewMeta): Promise<string> {
+  const view = await feedbackView(store, review);
   const threads = view.items.filter((item) => item.thread);
   const lines: string[] = [];
   for (const { thread, assessment } of threads) {
@@ -89,7 +90,7 @@ export function describeFeedback(store: Store, review: ReviewMeta): string {
 const checkedHead = (review: ReviewMeta) => review.verifyingSince && review.verifyingHead ? review.verifyingHead : headOf(review);
 
 /** read_changes_since_review: the diff of diffs since your review, with the commits made since. */
-export async function changesSinceReview(store: Store, run: Run, review: ReviewMeta, file?: string): Promise<string> {
+export async function changesSinceReview(store: AsyncStore, run: Run, review: ReviewMeta, file?: string): Promise<string> {
   const baseline = baselineOf(review);
   const head = checkedHead(review);
   if (!baseline.sha || !head) return "The reviewer hasn't reviewed this PR yet, so there's nothing to compare.";
@@ -186,36 +187,39 @@ export interface AssessInput {
 }
 
 /** assess_feedback: record the assistant's verdicts for the PR's head. */
-export function assess(store: Store, review: ReviewMeta, input: AssessInput): { ok: true; text: string } | { ok: false; error: string } {
-  // During a check, verdicts belong to the commit it started on; the author may have pushed since.
-  const head = review.verifyingSince && review.verifyingHead ? review.verifyingHead : headOf(review);
-  if (!head) return { ok: false, error: "This review has no commit to check against." };
-  const threads = store.listFeedbackThreads(review.targetKey);
-  const threadIds = threads.map((t) => t.id);
-  const unknown = input.items.filter((item) => !threadIds.includes(item.id) && !isSummaryItem(item.id)).map((item) => item.id);
-  if (unknown.length) return { ok: false, error: `Unknown item ids: ${unknown.join(", ")}. Use the thread ids from list_feedback, or "summary:<n>" for asks in a review summary. Nothing was recorded.` };
-  const untitled = input.items.filter((item) => isSummaryItem(item.id) && !item.title?.trim() && !store.getAssessment(review.targetKey, head).items.some((i) => i.id === item.id && i.title));
-  if (untitled.length) return { ok: false, error: `Give each summary ask a title: ${untitled.map((i) => i.id).join(", ")}. Nothing was recorded.` };
-  const now = Date.now();
-  // Where the evidence is, only as a line the current diff shows on its new side, so it links to code the reviewer sees.
-  const positions = store.diffPositions(review.targetKey);
-  const shown = (file?: string, line?: number) => !!file && !!line && !!positions.get(file)?.right.has(line);
-  const items: AssessmentItem[] = input.items.map((item) => ({
-    id: item.id, verdict: item.verdict, evidence: item.evidence.trim().slice(0, 1000), assessedAt: now,
-    ...(item.title?.trim() ? { title: item.title.trim().slice(0, 300) } : {}),
-    ...(shown(item.file, item.line) ? { file: item.file, line: item.line } : {}),
-  }));
-  store.saveAssessmentItems(review.targetKey, head, items);
-  const previous = store.getAssessment(review.targetKey, head).run;
-  store.saveAssessmentRun(review.targetKey, {
-    headSha: head, assessedAt: now,
-    summary: input.summary?.trim() ?? previous?.summary ?? "",
-    suggestedVerdict: input.suggestedVerdict ?? previous?.suggestedVerdict ?? null,
-    suggestedBody: input.suggestedBody?.trim() ?? previous?.suggestedBody ?? "",
+export async function assess(store: AsyncStore, review: ReviewMeta, input: AssessInput): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  return store.exclusive(async (tx) => {
+    // During a check, verdicts belong to the commit it started on; the author may have pushed since.
+    const head = review.verifyingSince && review.verifyingHead ? review.verifyingHead : headOf(review);
+    if (!head) return { ok: false, error: "This review has no commit to check against." };
+    const threads = await tx.listFeedbackThreads(review.targetKey);
+    const threadIds = threads.map((t) => t.id);
+    const unknown = input.items.filter((item) => !threadIds.includes(item.id) && !isSummaryItem(item.id)).map((item) => item.id);
+    if (unknown.length) return { ok: false, error: `Unknown item ids: ${unknown.join(", ")}. Use the thread ids from list_feedback, or "summary:<n>" for asks in a review summary. Nothing was recorded.` };
+    const untitled: AssessInput["items"] = [];
+    for (const item of input.items) if (isSummaryItem(item.id) && !item.title?.trim() && !(await tx.getAssessment(review.targetKey, head)).items.some((i) => i.id === item.id && i.title)) untitled.push(item);
+    if (untitled.length) return { ok: false, error: `Give each summary ask a title: ${untitled.map((i) => i.id).join(", ")}. Nothing was recorded.` };
+    const now = Date.now();
+    // Where the evidence is, only as a line the current diff shows on its new side, so it links to code the reviewer sees.
+    const positions = await tx.diffPositions(review.targetKey);
+    const shown = (file?: string, line?: number) => !!file && !!line && !!positions.get(file)?.right.has(line);
+    const items: AssessmentItem[] = input.items.map((item) => ({
+      id: item.id, verdict: item.verdict, evidence: item.evidence.trim().slice(0, 1000), assessedAt: now,
+      ...(item.title?.trim() ? { title: item.title.trim().slice(0, 300) } : {}),
+      ...(shown(item.file, item.line) ? { file: item.file, line: item.line } : {}),
+    }));
+    await tx.saveAssessmentItems(review.targetKey, head, items);
+    const previous = (await tx.getAssessment(review.targetKey, head)).run;
+    await tx.saveAssessmentRun(review.targetKey, {
+      headSha: head, assessedAt: now,
+      summary: input.summary?.trim() ?? previous?.summary ?? "",
+      suggestedVerdict: input.suggestedVerdict ?? previous?.suggestedVerdict ?? null,
+      suggestedBody: input.suggestedBody?.trim() ?? previous?.suggestedBody ?? "",
+    });
+    // Non-blocking threads are checked too, but don't count toward what's addressed.
+    const summary = summarize(head, (await tx.getAssessment(review.targetKey, head)).items, threads.filter((t) => !threadLabel(t.body)?.nonBlocking).map((t) => t.id));
+    await tx.setLifecycle(review.targetKey, { assessment: summary });
+    const missing = summary.total - summary.addressed - summary.partial - summary.notAddressed - summary.disputed - summary.unclear;
+    return { ok: true, text: `Recorded ${items.length} item${items.length === 1 ? "" : "s"} for ${short(head)}: ${summary.addressed} of ${summary.total} addressed.${missing ? ` ${missing} item${missing === 1 ? " has" : "s have"} no verdict yet.` : ""} The reviewer sees them in Comments.` };
   });
-  // Non-blocking threads are checked too, but don't count toward what's addressed.
-  const summary = summarize(head, store.getAssessment(review.targetKey, head).items, threads.filter((t) => !threadLabel(t.body)?.nonBlocking).map((t) => t.id));
-  store.setLifecycle(review.targetKey, { assessment: summary });
-  const missing = summary.total - summary.addressed - summary.partial - summary.notAddressed - summary.disputed - summary.unclear;
-  return { ok: true, text: `Recorded ${items.length} item${items.length === 1 ? "" : "s"} for ${short(head)}: ${summary.addressed} of ${summary.total} addressed.${missing ? ` ${missing} item${missing === 1 ? " has" : "s have"} no verdict yet.` : ""} The reviewer sees them in Comments.` };
 }

@@ -8,18 +8,19 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
 import { createStore } from "./store";
 import plugin from "../server";
+import { queueStore } from "./store-queue";
 
 const dataDirs: string[] = [];
 const newDataDir = () => { const dir = mkdtempSync(join(tmpdir(), "crw-data-")); dataDirs.push(dir); return dir; };
 afterEach(() => { for (const dir of dataDirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 /** A data directory holding a former guided-review install's database, with one review, its draft and assistant. */
-function formerDataDir() {
+async function formerDataDir() {
   const former = createFakePluginHost({ pluginId: "guided-review" });
-  const store = createStore(former.bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1 });
-  store.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "Why?" });
-  store.setAssistantThread("pr-1", "assistant-1");
+  const store = queueStore(createStore(former.bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1 });
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "Why?" });
+  await store.setAssistantThread("pr-1", "assistant-1");
   const db = former.bb.storage.database();
   const file = db.name;
   db.close();
@@ -29,36 +30,36 @@ function formerDataDir() {
   return dataDir;
 }
 
-test("the first start under the new id brings in the former install's reviews, drafts, and assistants", () => {
-  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", dataDir: formerDataDir() });
-  const store = createStore(bb);
-  expect(store.getReview("pr-1")).toMatchObject({ repo: "acme/web", status: "ready" });
-  expect(store.getDraft("pr-1").comments).toEqual([expect.objectContaining({ file: "a.ts", line: 2, body: "Why?" })]);
-  expect(store.getAssistantThread("pr-1")).toBe("assistant-1");
+test("the first start under the new id brings in the former install's reviews, drafts, and assistants", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", dataDir: await formerDataDir() });
+  const store = queueStore(createStore(bb));
+  expect(await store.getReview("pr-1")).toMatchObject({ repo: "acme/web", status: "ready" });
+  expect((await store.getDraft("pr-1")).comments).toEqual([expect.objectContaining({ file: "a.ts", line: 2, body: "Why?" })]);
+  expect(await store.getAssistantThread("pr-1")).toBe("assistant-1");
   // Its migrations came with it, so a new review still saves.
-  store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, status: "ready", createdAt: 2 });
-  expect(store.listReviews().map((review) => review.targetKey)).toEqual(["pr-2", "pr-1"]);
+  await store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, status: "ready", createdAt: 2 });
+  expect((await store.listReviews()).map((review) => review.targetKey)).toEqual(["pr-2", "pr-1"]);
 });
 
-test("an install that already has its own data, or is itself guided-review, imports nothing", () => {
-  const dataDir = formerDataDir();
+test("an install that already has its own data, or is itself guided-review, imports nothing", async () => {
+  const dataDir = await formerDataDir();
   const mine = createFakePluginHost({ pluginId: "code-review-workspace", dataDir });
-  const store = createStore(mine.bb);
-  store.deleteReview("pr-1");
+  const store = queueStore(createStore(mine.bb));
+  await store.deleteReview("pr-1");
   // A restart opens the same database again.
-  expect(createStore(mine.bb).getReview("pr-1")).toBeNull();
+  expect(await queueStore(createStore(mine.bb)).getReview("pr-1")).toBeNull();
 
   const former = createFakePluginHost({ pluginId: "guided-review", dataDir });
-  expect(createStore(former.bb).listReviews()).toEqual([]);
+  expect(await queueStore(createStore(former.bb)).listReviews()).toEqual([]);
 });
 
-test("with no former install, the store starts empty", () => {
+test("with no former install, the store starts empty", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", dataDir: newDataDir() });
-  expect(createStore(bb).listReviews()).toEqual([]);
+  expect(await queueStore(createStore(bb)).listReviews()).toEqual([]);
 });
 
 test("the former install's recorded assistant keeps its tools; its unrecorded threads get none", async () => {
-  const h = createFakePluginHost({ pluginId: "code-review-workspace", dataDir: formerDataDir() });
+  const h = createFakePluginHost({ pluginId: "code-review-workspace", dataDir: await formerDataDir() });
   await plugin(h.bb);
   const resolve = (id: string) => h.harness.behavior.resolveAgentConfiguration({
     pluginMetadata: {}, thread: { id, title: "Review agent: pr-1", parentThreadId: null, sourceThreadId: null },

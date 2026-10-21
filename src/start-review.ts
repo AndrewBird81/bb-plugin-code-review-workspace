@@ -1,14 +1,15 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { ReviewMeta, Store } from "./store";
+import type { ReviewMeta } from "./store";
 import { parseTarget, prReviewKey } from "./targets";
 import { ensureGitHeaders } from "./patch";
 import { generateGuide, guideWriterUnavailable } from "./generate";
 import { readPrSnapshot } from "./pr-snapshot";
 import { rebuildReview, upToDate } from "./rereview";
+import type { AsyncStore } from "./store-queue";
 
 interface Deps {
   bb: BbPluginApi;
-  store: Store;
+  store: AsyncStore;
   gh: { runGh: typeof import("./gh").runGh; runGit: typeof import("./gh").runGit };
 }
 
@@ -16,8 +17,8 @@ interface Deps {
  * The PR's state as gh read it at the start, so the automatic review knows a merged or closed PR before the sync reads
  * it. The sync's later read replaces it. It isn't prState, which the sync stops reading once it's MERGED.
  */
-export function recordPrState(store: Store, targetKey: string, state: string | undefined): void {
-  if (state === "OPEN" || state === "CLOSED" || state === "MERGED") store.setLifecycle(targetKey, { startedPrState: state });
+export async function recordPrState(store: AsyncStore, targetKey: string, state: string | undefined): Promise<void> {
+  if (state === "OPEN" || state === "CLOSED" || state === "MERGED") await store.setLifecycle(targetKey, { startedPrState: state });
 }
 
 // Panel-driven counterpart to review-command.ts's PR branch: a user pastes a
@@ -49,7 +50,7 @@ export async function createPrReview(
   }
   const { pr, patch } = snapshot;
 
-  const key = prReviewKey(deps.store, { repo: target.repo, number: target.number });
+  const key = await prReviewKey(deps.store, { repo: target.repo, number: target.number });
   const now = Date.now();
   // Open pages hear of a review started, rebuilding, or back from Archive at once, not when its guide is done.
   const told = () => {
@@ -57,11 +58,11 @@ export async function createPrReview(
     deps.bb.realtime.publish("reviews", { ts: now });
   };
 
-  const existing = deps.store.getReview(key);
+  const existing = await deps.store.getReview(key);
   // A review already building, or showing this diff, just opens.
-  if (existing && (existing.status === "generating" || upToDate(deps.store, existing, pr.headRefOid, patch))) {
+  if (existing && (existing.status === "generating" || await upToDate(deps.store, existing, pr.headRefOid, patch))) {
     if (existing.userArchivedAt) {
-      deps.store.setLifecycle(key, { userArchivedAt: null });
+      await deps.store.setLifecycle(key, { userArchivedAt: null });
       told();
     }
     return { ok: true, targetKey: key };
@@ -85,16 +86,16 @@ export async function createPrReview(
   };
   // An existing review rebuilds as Re-review does, keeping its guide and comments.
   if (existing) {
-    recordPrState(deps.store, key, pr.state);
-    rebuildReview(deps, meta, patch);
+    await recordPrState(deps.store, key, pr.state);
+    await rebuildReview(deps, meta, patch);
     told();
     return { ok: true, targetKey: key };
   }
-  deps.store.saveReview(meta);
-  recordPrState(deps.store, key, pr.state);
-  deps.store.savePatch(key, ensureGitHeaders(patch));
+  await deps.store.saveReview(meta);
+  await recordPrState(deps.store, key, pr.state);
+  await deps.store.savePatch(key, ensureGitHeaders(patch));
   // Starting a PR again brings it back into discovery after a delete.
-  deps.store.unignoreDiscovery(key);
+  await deps.store.unignoreDiscovery(key);
 
   // Fire-and-forget generation; the panel refetches on the realtime signal.
   void generateGuide(deps.bb, deps.store, key, args.projectId);

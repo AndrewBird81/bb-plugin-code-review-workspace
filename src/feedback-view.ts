@@ -1,6 +1,6 @@
 // Your feedback, the PR's diffs at the commits that matter, and the assistant's
 // check, assembled for Comments and the assistant's tools.
-import type { Store, ReviewMeta } from "./store";
+import type { ReviewMeta } from "./store";
 import type { runGh } from "./gh";
 import { ghErrorMessage, ghPrHeadArgs } from "./gh";
 import { diffTooLarge, readFilesPatch, readPrDiff } from "./pr-snapshot";
@@ -10,6 +10,7 @@ import { firstLine, type AssessmentItem, type FeedbackItem, type FeedbackView } 
 import { baselineOf, type AssessmentSummary } from "../lib/turn";
 import type { Verdict } from "./draft";
 import { threadLabel } from "./github/threads";
+import type { AsyncStore } from "./store-queue";
 
 type Run = typeof runGh;
 
@@ -25,12 +26,12 @@ export const guideBehind = (review: ReviewMeta) =>
  * The PR's diff at a commit: saved, the review's own diff, the PR's diff while its head is that commit, or
  * reconstructed by comparing the base branch with that commit.
  */
-export async function diffAt(store: Store, run: Run, review: ReviewMeta, sha: string): Promise<string> {
-  const saved = store.getSnapshot(review.targetKey, sha);
+export async function diffAt(store: AsyncStore, run: Run, review: ReviewMeta, sha: string): Promise<string> {
+  const saved = await store.getSnapshot(review.targetKey, sha);
   if (saved !== null) return saved;
   if (sha === review.headSha) {
-    const patch = store.patch(review.targetKey);
-    if (patch) { store.saveSnapshot(review.targetKey, sha, patch); return patch; }
+    const patch = await store.patch(review.targetKey);
+    if (patch) { await store.saveSnapshot(review.targetKey, sha, patch); return patch; }
   }
   if (!review.repo || !review.number) throw new Error("This review has no GitHub PR.");
   const { repo, number } = review;
@@ -44,7 +45,7 @@ export async function diffAt(store: Store, run: Run, review: ReviewMeta, sha: st
   patch ??= await compareDiff(run, repo, (sha === headOf(review) ? review.latestBase : null) ?? review.base ?? "HEAD", sha);
   patch = ensureGitHeaders(patch);
   // A commit picked to compare with lives in the comparisons cache; storing its diff would keep it until a rebuild or submit.
-  if (keptDiffs(review).includes(sha)) store.saveSnapshot(review.targetKey, sha, patch);
+  if (keptDiffs(review).includes(sha)) await store.saveSnapshot(review.targetKey, sha, patch);
   return patch;
 }
 
@@ -74,8 +75,8 @@ async function compareDiff(run: Run, repo: string, base: string, sha: string): P
 const keptDiffs = (review: ReviewMeta) => [review.headSha, baselineOf(review).sha, headOf(review)].filter((sha): sha is string => !!sha);
 
 /** Keep the diffs this review still needs. */
-export function pruneDiffs(store: Store, review: ReviewMeta) {
-  store.pruneSnapshots(review.targetKey, keptDiffs(review));
+export async function pruneDiffs(store: AsyncStore, review: ReviewMeta) {
+  await store.pruneSnapshots(review.targetKey, keptDiffs(review));
 }
 
 /** How long a review stays out of play (merged, closed, or archived) before its stored diffs are dropped. */
@@ -90,36 +91,38 @@ const PRUNE_AFTER = 30 * 86_400_000;
  * (the base has it, or the base branch is gone); and drafts with comments, which follow their lines into a
  * new diff. Returns the reviews pruned.
  */
-export function pruneOldDiffs(store: Store, now: number): string[] {
-  const pruned: string[] = [];
-  for (const review of store.listReviews()) {
-    const since = Math.min(review.archivedAt ?? Infinity, review.userArchivedAt ?? Infinity);
-    if (review.kind !== "pr" || review.status !== "ready" || !review.headSha || now - since < PRUNE_AFTER) continue;
-    if (review.prState !== "MERGED" && review.prState !== "CLOSED" || headOf(review) !== review.headSha) continue;
-    if (!store.hasPatch(review.targetKey) || store.getDraft(review.targetKey).comments.length) continue;
-    const baseline = baselineOf(review).sha;
-    store.dropPatch(review.targetKey);
-    store.pruneSnapshots(review.targetKey, baseline && baseline !== review.headSha ? [baseline] : []);
-    pruned.push(review.targetKey);
-  }
-  return pruned;
+export async function pruneOldDiffs(store: AsyncStore, now: number): Promise<string[]> {
+  return store.exclusive(async (tx) => {
+    const pruned: string[] = [];
+    for (const review of await tx.listReviews()) {
+      const since = Math.min(review.archivedAt ?? Infinity, review.userArchivedAt ?? Infinity);
+      if (review.kind !== "pr" || review.status !== "ready" || !review.headSha || now - since < PRUNE_AFTER) continue;
+      if (review.prState !== "MERGED" && review.prState !== "CLOSED" || headOf(review) !== review.headSha) continue;
+      if (!await tx.hasPatch(review.targetKey) || (await tx.getDraft(review.targetKey)).comments.length) continue;
+      const baseline = baselineOf(review).sha;
+      await tx.dropPatch(review.targetKey);
+      await tx.pruneSnapshots(review.targetKey, baseline && baseline !== review.headSha ? [baseline] : []);
+      pruned.push(review.targetKey);
+    }
+    return pruned;
+  });
 }
 
 type SinceReview = { baseline: { sha: string; at: number | null; verdict: Verdict | null }; files: FileInterdiff[] };
 /** The latest comparisons, by review and starting commit, for the few compared last. */
-const compared = new WeakMap<Store, Map<string, { key: string; since: SinceReview }>>();
+const compared = new WeakMap<AsyncStore, Map<string, { key: string; since: SinceReview }>>();
 const COMPARED_REVIEWS = 8;
 
 /**
  * The displayed diff compared with the diff at your last review, or at `from`, a commit you picked;
  * null when there's nothing to compare. An added file's patch is left out: the page has its whole diff already.
  */
-export async function sinceReview(store: Store, run: Run, review: ReviewMeta, from?: string): Promise<SinceReview | null> {
+export async function sinceReview(store: AsyncStore, run: Run, review: ReviewMeta, from?: string): Promise<SinceReview | null> {
   const baseline = from ? { sha: from, at: null, verdict: null } : baselineOf(review);
   if (!baseline.sha || !review.headSha || baseline.sha === review.headSha) return null;
   const cache = compared.get(store) ?? new Map<string, { key: string; since: SinceReview }>();
   compared.set(store, cache);
-  const key = JSON.stringify([baseline, store.patchHash(review.targetKey)]);
+  const key = JSON.stringify([baseline, await store.patchHash(review.targetKey)]);
   const slot = `${review.targetKey}\0${from ?? ""}`;
   const hit = cache.get(slot);
   cache.delete(slot);
@@ -128,7 +131,7 @@ export async function sinceReview(store: Store, run: Run, review: ReviewMeta, fr
     return hit.since;
   }
   const reviewed = await diffAt(store, run, review, baseline.sha);
-  const current = store.patch(review.targetKey);
+  const current = await store.patch(review.targetKey);
   const files = interdiff(reviewed, current).map((f) => (f.status === "added" ? { ...f, patch: "" } : f));
   const since = { baseline: { ...baseline, sha: baseline.sha }, files };
   cache.set(slot, { key, since });
@@ -165,35 +168,37 @@ export async function prCommits(run: Run, review: ReviewMeta): Promise<PrCommit[
 export const isSummaryItem = (id: string) => /^summary:\d+$/.test(id);
 
 /** Your feedback, the assistant's latest check, and drafted replies. */
-export function feedbackView(store: Store, review: ReviewMeta): FeedbackView {
-  const head = headOf(review);
-  const threads = store.listFeedbackThreads(review.targetKey);
-  const latest = store.latestAssessmentRun(review.targetKey);
-  // The check of the head now; otherwise the latest check, marked as older.
-  const checkedHead = head && store.getAssessment(review.targetKey, head).items.length ? head : latest?.headSha ?? null;
-  const assessment = checkedHead ? store.getAssessment(review.targetKey, checkedHead) : { items: [], run: null };
-  const byId = new Map(assessment.items.map((item) => [item.id, item]));
-  const drafts = store.listReplyDrafts(review.targetKey);
-  const url = (commentId: number) => review.url ? `${review.url}#discussion_r${commentId}` : null;
-  const items: FeedbackItem[] = threads.map(({ resolvedSeenAt: _, ...thread }) => {
-    const label = threadLabel(thread.body);
+export async function feedbackView(store: AsyncStore, review: ReviewMeta): Promise<FeedbackView> {
+  return store.exclusive(async (tx) => {
+    const head = headOf(review);
+    const threads = await tx.listFeedbackThreads(review.targetKey);
+    const latest = await tx.latestAssessmentRun(review.targetKey);
+    // The check of the head now; otherwise the latest check, marked as older.
+    const checkedHead = head && (await tx.getAssessment(review.targetKey, head)).items.length ? head : latest?.headSha ?? null;
+    const assessment = checkedHead ? await tx.getAssessment(review.targetKey, checkedHead) : { items: [], run: null };
+    const byId = new Map(assessment.items.map((item) => [item.id, item]));
+    const drafts = await tx.listReplyDrafts(review.targetKey);
+    const url = (commentId: number) => review.url ? `${review.url}#discussion_r${commentId}` : null;
+    const items: FeedbackItem[] = threads.map(({ resolvedSeenAt: _, ...thread }) => {
+      const label = threadLabel(thread.body);
+      return {
+        id: thread.id, kind: "thread", title: firstLine(thread.body) || `${thread.path ?? "File"} comment`,
+        thread: { ...thread, url: url(thread.commentId) }, assessment: byId.get(thread.id) ?? null, replyDraft: drafts.get(thread.id) ?? null,
+        ...(label ? { label: label.label } : {}), ...(label?.nonBlocking ? { nonBlocking: true as const } : {}),
+      };
+    });
+    for (const item of assessment.items) {
+      if (isSummaryItem(item.id)) items.push({ id: item.id, kind: "summary", title: item.title ?? "From your review summary", thread: null, assessment: item, replyDraft: null });
+    }
+    const run = assessment.run ?? (checkedHead ? null : latest);
+    const suggested = run?.suggestedBody.trim();
     return {
-      id: thread.id, kind: "thread", title: firstLine(thread.body) || `${thread.path ?? "File"} comment`,
-      thread: { ...thread, url: url(thread.commentId) }, assessment: byId.get(thread.id) ?? null, replyDraft: drafts.get(thread.id) ?? null,
-      ...(label ? { label: label.label } : {}), ...(label?.nonBlocking ? { nonBlocking: true as const } : {}),
+      baseline: baselineOf(review), head, items,
+      run: run ? { ...run, current: run.headSha === head } : null,
+      fetchedAt: (await tx.feedbackFetched(review.targetKey))?.fetchedAt ?? null,
+      suggestionInDraft: !!suggested && (await tx.getDraft(review.targetKey)).body.trim() === suggested,
     };
   });
-  for (const item of assessment.items) {
-    if (isSummaryItem(item.id)) items.push({ id: item.id, kind: "summary", title: item.title ?? "From your review summary", thread: null, assessment: item, replyDraft: null });
-  }
-  const run = assessment.run ?? (checkedHead ? null : latest);
-  const suggested = run?.suggestedBody.trim();
-  return {
-    baseline: baselineOf(review), head, items,
-    run: run ? { ...run, current: run.headSha === head } : null,
-    fetchedAt: store.feedbackFetched(review.targetKey)?.fetchedAt ?? null,
-    suggestionInDraft: !!suggested && store.getDraft(review.targetKey).body.trim() === suggested,
-  };
 }
 
 /** Counts for the list and the turn rules, over every thread plus the summary asks checked. */

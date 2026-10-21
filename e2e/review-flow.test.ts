@@ -6,6 +6,7 @@ import { createStore } from "../src/store";
 import plugin from "../server";
 import { runGh } from "../src/gh";
 import { loopbackUrl } from "./loopback";
+import { queueStore } from "../src/store-queue";
 
 vi.mock("../src/gh", async (original) => ({ ...await original<typeof import("../src/gh")>(), runGh: vi.fn() }));
 
@@ -30,13 +31,13 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     stop: async () => ({}), update: async () => ({}), archive: async () => ({}),
   } } });
   await plugin(bb);
-  const store = createStore(bb);
+  const store = queueStore(createStore(bb));
   const key = "e2e-review";
-  store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", title: "Validate incoming review data", author: "alice", status: "ready", createdAt: Date.now(), headSha: "sha1", projectId: "test-project" });
-  store.saveGuide(key, { title: "Validate incoming review data", intent: "Reject invalid values before they reach storage.", sections: [{ id: "validation", title: "Input validation", overview: "The entry point checks the value before saving it.", diffs: [{ file: "src/input.ts", description: "Reject blank values" }] }], unplacedFiles: [] } as any);
-  store.savePatch(key, 'diff --git a/src/input.ts b/src/input.ts\n--- a/src/input.ts\n+++ b/src/input.ts\n@@ -1 +1,2 @@\n+if (!value.trim()) throw new Error("Required");\n save(value);\n');
+  await store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", title: "Validate incoming review data", author: "alice", status: "ready", createdAt: Date.now(), headSha: "sha1", projectId: "test-project" });
+  await store.saveGuide(key, { title: "Validate incoming review data", intent: "Reject invalid values before they reach storage.", sections: [{ id: "validation", title: "Input validation", overview: "The entry point checks the value before saving it.", diffs: [{ file: "src/input.ts", description: "Reject blank values" }] }], unplacedFiles: [] } as any);
+  await store.savePatch(key, 'diff --git a/src/input.ts b/src/input.ts\n--- a/src/input.ts\n+++ b/src/input.ts\n@@ -1 +1,2 @@\n+if (!value.trim()) throw new Error("Required");\n save(value);\n');
   // Notes from before 0.6.0, when they had a tool of their own: Finish keeps them, in Stays in BB.
-  store.saveReviewerNotes(key, "Private: verify the staged rollout.", 0);
+  await store.saveReviewerNotes(key, "Private: verify the staged rollout.", 0);
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   page.setDefaultTimeout(10_000);
@@ -101,7 +102,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.getByRole("button", { name: "Save comment", exact: true }).click();
     await list.getByText("Please test whitespace-only input too.", { exact: true }).waitFor();
     await inline.getByText("Please test whitespace-only input too.", { exact: true }).waitFor();
-    expect(store.getDraft(key).comments).toHaveLength(1);
+    expect((await store.getDraft(key)).comments).toHaveLength(1);
     await page.screenshot({ animations: "disabled", path: `${dir}/comments-desktop.png` });
     await commands.getByRole("button", { name: "Comments", exact: true }).click();
     await side.waitFor({ state: "hidden" });
@@ -119,7 +120,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await summary.getByRole("textbox", { name: "Review summary", exact: true }).fill("The validation looks good with this test follow-up.");
     await summary.getByRole("button", { name: "Save summary", exact: true }).click();
     await summary.getByText("The validation looks good with this test follow-up.", { exact: true }).waitFor();
-    expect(store.getDraft(key).body).toBe("The validation looks good with this test follow-up.");
+    expect((await store.getDraft(key)).body).toBe("The validation looks good with this test follow-up.");
     const verdicts = page.getByRole("group", { name: "Review verdict" });
     await verdicts.getByRole("button", { name: "Approve", exact: true }).waitFor();
     expect(await page.getByRole("combobox", { name: "Review verdict" }).count()).toBe(0);
@@ -130,7 +131,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await notes.fill("Private: verify the staged rollout, then the cache.");
     await notes.blur();
     await page.getByText("Notes saved", { exact: true }).waitFor();
-    expect(store.getReviewerNotes(key).body).toBe("Private: verify the staged rollout, then the cache.");
+    expect((await store.getReviewerNotes(key)).body).toBe("Private: verify the staged rollout, then the cache.");
     await page.screenshot({ animations: "disabled", path: `${dir}/finish-desktop.png` });
     // A phone: Finish is inside the Comments sheet, above the dock.
     await page.setViewportSize({ width: 390, height: 844 });
@@ -166,9 +167,9 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.screenshot({ animations: "disabled", path: `${dir}/fullscreen-verdict.png` });
     await page.getByRole("button", { name: /^Submit to GitHub/ }).click();
     await page.getByRole("region", { name: "Submitted review" }).waitFor();
-    expect(store.getReview(key)?.submittedVerdict).toBe("APPROVE");
-    expect(store.getDraft(key).comments).toHaveLength(0);
-    expect(store.getReviewerNotes(key).body).toBe("Private: verify the staged rollout, then the cache.");
+    expect((await store.getReview(key))?.submittedVerdict).toBe("APPROVE");
+    expect((await store.getDraft(key)).comments).toHaveLength(0);
+    expect((await store.getReviewerNotes(key)).body).toBe("Private: verify the staged rollout, then the cache.");
     const submission = vi.mocked(runGh).mock.calls.find(([args]) => args.includes("POST"));
     expect(submission?.[1]?.stdin).not.toContain("Private:");
     expect(submission?.[1]?.stdin).toContain("Please test whitespace-only input too.");
@@ -227,7 +228,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     const archiveHeader = archive.getByRole("button", { name: /^Archive/ });
     await archiveHeader.waitFor();
     expect(await page.getByRole("button", { name: /^Reviewed/ }).count()).toBe(0);
-    expect(store.getReview(key)?.archivedAt).toBeTypeOf("number");
+    expect((await store.getReview(key))?.archivedAt).toBeTypeOf("number");
     // bb cannot send to an archived thread, so the assistant chat stays unarchived.
     expect(harness.inspection.sdk.callsTo("threads.archive")).toHaveLength(0);
     await archiveHeader.click();

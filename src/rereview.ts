@@ -1,5 +1,5 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { reanchorAll, type ReviewMeta, type Store } from "./store";
+import { reanchorDraft, type ReviewMeta } from "./store";
 import { ensureGitHeaders } from "./patch";
 import { generateGuide, guideWriterUnavailable } from "./generate";
 import { gitDiffArgs } from "./gh";
@@ -8,9 +8,10 @@ import { pruneDiffs } from "./feedback-view";
 import { skipRun } from "./agent";
 import { mayRunUnattended } from "../lib/trust";
 import { existsSync } from "node:fs";
+import type { AsyncStore } from "./store-queue";
 
 interface Deps {
-  bb: BbPluginApi; store: Store;
+  bb: BbPluginApi; store: AsyncStore;
   gh: { runGh: typeof import("./gh").runGh; runGit: typeof import("./gh").runGit };
 }
 
@@ -31,7 +32,7 @@ export async function rerunReview(deps: Deps, targetKey: string, options: { noti
 }
 
 async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean; unattended?: boolean }): Promise<{ ok: boolean; error?: string }> {
-  const m = deps.store.getReview(targetKey);
+  const m = await deps.store.getReview(targetKey);
   if (!m || !m.projectId) return { ok: false, error: "Unknown review or missing project." };
   const unavailable = await guideWriterUnavailable(deps.bb, deps.store);
   if (unavailable) return { ok: false, error: unavailable };
@@ -41,8 +42,8 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
     try {
       const snapshot = await readPrSnapshot(deps.gh.runGh, m.number, m.repo);
       // Unattended, the head read now reaches the guide writer only from a trusted author, or one you started agents on.
-      if (options.unattended && !mayRunUnattended(m, deps.store.getPreferences().preferences, snapshot.pr.headRefOid)) {
-        skipRun(deps.bb, deps.store, targetKey, "guide", snapshot.pr.headRefOid);
+      if (options.unattended && !mayRunUnattended(m, (await deps.store.getPreferences()).preferences, snapshot.pr.headRefOid)) {
+        await skipRun(deps.bb, deps.store, targetKey, "guide", snapshot.pr.headRefOid);
         return { ok: false, error: "The PR's author isn't trusted to start agents on its new commits; it waits for your click." };
       }
       patch = snapshot.patch;
@@ -63,26 +64,29 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
   }
   if (!patch.trim()) return { ok: false, error: "No changes found." };
   // The review may have been deleted while GitHub answered; don't bring it back.
-  if (!deps.store.getReview(targetKey)) return { ok: false, error: "This review was deleted." };
+  if (!await deps.store.getReview(targetKey)) return { ok: false, error: "This review was deleted." };
   // A guide started while GitHub or git answered, as by bb review, is building this review already: one writer, not two.
-  if (deps.store.getReview(targetKey)?.status === "generating") return { ok: true };
-  rebuildReview(deps, { ...m, projectId: m.projectId }, patch, options);
+  if ((await deps.store.getReview(targetKey))?.status === "generating") return { ok: true };
+  await rebuildReview(deps, { ...m, projectId: m.projectId }, patch, options);
   return { ok: true };
 }
 
 /** Rebuild an existing review's guide for a new diff, keeping the current guide in case it fails and moving the draft comments. */
-export function rebuildReview(deps: Pick<Deps, "bb" | "store">, m: ReviewMeta & { projectId: string }, patch: string, options: { notify?: boolean; unattended?: boolean } = {}) {
+export async function rebuildReview(deps: Pick<Deps, "bb" | "store">, m: ReviewMeta & { projectId: string }, patch: string, options: { notify?: boolean; unattended?: boolean } = {}) {
   const targetKey = m.targetKey;
-  const previous = deps.store.patch(targetKey);
-  // If the new guide fails, the current one comes back.
-  deps.store.backupGuide(targetKey);
-  const next = ensureGitHeaders(patch);
-  deps.store.savePatch(targetKey, next);
-  deps.store.saveReview({ ...m, status: "generating" });
-  if (m.headSha) deps.store.saveSnapshot(targetKey, m.headSha, next);
-  // Unsent draft comments follow their lines into the new diff; ones whose lines are gone stay flagged.
-  deps.store.rebaseDraftComments(targetKey, reanchorAll(deps.store, targetKey, previous, next));
-  pruneDiffs(deps.store, deps.store.getReview(targetKey)!);
+  await deps.store.exclusive(async (tx) => {
+    const previous = await tx.patch(targetKey);
+    // If the new guide fails, the current one comes back.
+    await tx.backupGuide(targetKey);
+    const next = ensureGitHeaders(patch);
+    await tx.savePatch(targetKey, next);
+    await tx.saveReview({ ...m, status: "generating" });
+    if (m.headSha) await tx.saveSnapshot(targetKey, m.headSha, next);
+    // Unsent draft comments follow their lines into the new diff; ones whose lines are gone stay flagged.
+    await tx.rebaseDraftComments(targetKey, await reanchorDraft(tx, targetKey, previous, next));
+    await pruneDiffs(tx, (await tx.getReview(targetKey))!);
+  });
+  // Started after the block, which its calls to the store would wait for.
   void generateGuide(deps.bb, deps.store, targetKey, m.projectId, options);
 }
 
@@ -94,11 +98,13 @@ export async function localDiffChanged(deps: Pick<Deps, "store" | "gh">, m: Revi
   if (m.kind !== "ref" || m.status !== "ready" || !m.gitRef || !m.cwd || !existsSync(m.cwd)) return false;
   const diff = await deps.gh.runGit(gitDiffArgs(m.gitRef), { cwd: m.cwd });
   if (diff.code !== 0 || !diff.stdout.trim()) return false;
-  return deps.store.patch(m.targetKey) !== ensureGitHeaders(diff.stdout);
+  return await deps.store.patch(m.targetKey) !== ensureGitHeaders(diff.stdout);
 }
 
 /** Whether a review already shows this diff: its guide is ready, at the same head, for the same patch. */
-export function upToDate(store: Store, m: ReviewMeta, headSha: string | undefined, patch: string): boolean {
-  return m.status === "ready" && !!store.getGuide(m.targetKey) && m.headSha === headSha
-    && store.patch(m.targetKey) === ensureGitHeaders(patch);
+export async function upToDate(store: AsyncStore, m: ReviewMeta, headSha: string | undefined, patch: string): Promise<boolean> {
+  return store.exclusive(async (tx) => {
+    return m.status === "ready" && !!await tx.getGuide(m.targetKey) && m.headSha === headSha
+      && await tx.patch(m.targetKey) === ensureGitHeaders(patch);
+  });
 }

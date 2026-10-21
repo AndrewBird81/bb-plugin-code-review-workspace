@@ -9,6 +9,7 @@ import { createStore } from "./store";
 import { reviewRevision } from "./review-revision";
 import { commentsKey } from "./draft";
 import type { FeedbackThread } from "./github/types";
+import { queueStore } from "./store-queue";
 
 const reviewed = "diff --git a/a.ts b/a.ts\nindex 1..2 100644\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n keep\n-return cache.get(key);\n+return cache.get(key) ?? load(key);\n";
 const now = "diff --git a/a.ts b/a.ts\nindex 1..3 100644\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,3 @@\n keep\n-return cache.get(key);\n+invalidate(key);\n+return cache.get(key) ?? load(key);\n";
@@ -41,17 +42,17 @@ async function setup() {
     plugins: { callRpc: async ({ method, input }: any) => (method === "activityCapabilities" ? { version: 1 } : (published.push({ method, input }), { accepted: true, id: "a", duplicate: false, ok: true })) },
   } as any });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, url: "https://github.com/acme/web/pull/1", base: "main", head: "cache", headSha: "sha2", createdAt: 1, status: "ready", projectId: "p1" });
-  store.savePatch("pr-1", now);
-  store.saveGuide("pr-1", { title: "T", intent: "I", sections: [{ id: "c", title: "Cache", overview: "o", diffs: [{ file: "a.ts", summary: "s" }] }], unplacedFiles: [] });
-  store.setLifecycle("pr-1", {
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, url: "https://github.com/acme/web/pull/1", base: "main", head: "cache", headSha: "sha2", createdAt: 1, status: "ready", projectId: "p1" });
+  await store.savePatch("pr-1", now);
+  await store.saveGuide("pr-1", { title: "T", intent: "I", sections: [{ id: "c", title: "Cache", overview: "o", diffs: [{ file: "a.ts", summary: "s" }] }], unplacedFiles: [] });
+  await store.setLifecycle("pr-1", {
     prState: "OPEN", latestHeadSha: "sha2", submittedVerdict: "REQUEST_CHANGES", submittedAt: 1000, submittedHeadSha: "sha1",
     signals: { lastReviewAt: 1000, lastReviewSha: "sha1", requestedAt: 2000, requestedBy: "alice", ci: "pass" },
     reviewBodies: [{ state: "CHANGES_REQUESTED", at: 1000, body: "Also document the TTL." }],
   });
-  store.saveFeedbackThreads("pr-1", [thread("t1", "answered")], 1);
-  store.setAssistantThread("pr-1", "assistant");
+  await store.saveFeedbackThreads("pr-1", [thread("t1", "answered")], 1);
+  await store.setAssistantThread("pr-1", "assistant");
   const call = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
   const tool = (name: string, input: unknown) => harness.behavior.callAgentTool(name, input, { threadId: "assistant" }) as Promise<any>;
   return { bb, harness, store, call, tool, published };
@@ -77,13 +78,13 @@ test("Snooze until keeps a review in Waiting on author until its time, and snooz
   const { call, store } = await setup();
   const until = Date.now() + 3_600_000;
   expect(await call("snoozeReview", { targetKey: "pr-1", snoozed: true, until })).toEqual({ ok: true });
-  expect(store.getReview("pr-1")).toMatchObject({ snoozedUntil: until });
+  expect(await store.getReview("pr-1")).toMatchObject({ snoozedUntil: until });
   expect((await call("getReviewBundle", { targetKey: "pr-1" })).review.turn).toMatchObject({ group: "waiting", reason: "snoozed", label: "Snoozed" });
   // Its time comes.
-  store.setLifecycle("pr-1", { snoozedUntil: Date.now() - 1 });
+  await store.setLifecycle("pr-1", { snoozedUntil: Date.now() - 1 });
   expect((await call("getReviewBundle", { targetKey: "pr-1" })).review.turn).toMatchObject({ group: "needs", reason: "re-requested" });
   await call("snoozeReview", { targetKey: "pr-1", snoozed: true });
-  expect(store.getReview("pr-1")?.snoozedUntil).toBeNull();
+  expect((await store.getReview("pr-1"))?.snoozedUntil).toBeNull();
   expect(await call("snoozeReview", { targetKey: "pr-1", snoozed: true, until: Date.now() - 1 })).toEqual({ ok: false, error: "Pick a time in the future." });
 });
 
@@ -92,14 +93,14 @@ test("opening a review whose alert waits for its re-review records that alert as
   const { call, store, published } = await setup();
   const { signal } = (await call("getReviewBundle", { targetKey: "pr-1" })).review.turn;
   expect(signal).toBe("re-requested:2000");
-  store.setLifecycle("pr-1", { notifiedSignal: null, pendingAlert: { signal, since: Date.now() } });
+  await store.setLifecycle("pr-1", { notifiedSignal: null, pendingAlert: { signal, since: Date.now() } });
   expect(await call("markSeen", { targetKey: "pr-1" })).toEqual({ ok: true });
-  expect(store.getReview("pr-1")).toMatchObject({ notifiedSignal: signal, pendingAlert: null });
+  expect(await store.getReview("pr-1")).toMatchObject({ notifiedSignal: signal, pendingAlert: null });
   expect(published.some((p) => p.method === "dismissActivity" && p.input.id === "activity:code-review-workspace:pr-1")).toBe(true);
   // An alert waiting for a signal that's no longer the turn's isn't marked seen in its place.
-  store.setLifecycle("pr-1", { notifiedSignal: "requested:1", pendingAlert: { signal: "re-requested:1500", since: Date.now() } });
+  await store.setLifecycle("pr-1", { notifiedSignal: "requested:1", pendingAlert: { signal: "re-requested:1500", since: Date.now() } });
   await call("markSeen", { targetKey: "pr-1" });
-  expect(store.getReview("pr-1")).toMatchObject({ notifiedSignal: "requested:1" });
+  expect(await store.getReview("pr-1")).toMatchObject({ notifiedSignal: "requested:1" });
 });
 
 // bug bash verification 70-4: markSeen dismissed the Needs You item only after any evaluation of the review in progress,
@@ -109,7 +110,7 @@ test("opening a review dismisses its Needs You item at once, while an evaluation
   // Once the sync is under way; then a request since it began watching, whose re-review check is starting, its message
   // to the assistant not gone yet.
   await call("snoozeReview", { targetKey: "pr-1", snoozed: false });
-  store.setLifecycle("pr-1", { watchingSince: 1, approvedHead: "sha2", notifiedSignal: null, preparedSignal: null });
+  await store.setLifecycle("pr-1", { watchingSince: 1, approvedHead: "sha2", notifiedSignal: null, preparedSignal: null });
   let sent!: () => void;
   harness.inspection.sdk.stub("threads.send", (() => new Promise((resolve) => { sent = () => resolve({}); })) as any);
   const evaluating = call("snoozeReview", { targetKey: "pr-1", snoozed: false });
@@ -145,7 +146,7 @@ test("the assistant lists your feedback, reads what changed, and records its che
     summary: "One of two asks done.", suggestedVerdict: "REQUEST_CHANGES", suggestedBody: "Thanks! Still need the TTL docs.",
   });
   expect(ok).toContain("1 of 2 addressed");
-  expect(store.getReview("pr-1")?.assessment).toMatchObject({ headSha: "sha2", total: 2, addressed: 1, notAddressed: 1 });
+  expect((await store.getReview("pr-1"))?.assessment).toMatchObject({ headSha: "sha2", total: 2, addressed: 1, notAddressed: 1 });
   expect(await tool("draft_thread_reply", { threadId: "t1", body: "Fixed in sha2, thanks." })).toContain("Drafted");
 
   const { feedback } = await call("getFeedback", { targetKey: "pr-1" });
@@ -159,8 +160,8 @@ test("the suggested verdict and what's left fill the draft, bound to the display
   const { tool, call, store } = await setup();
   await tool("assess_feedback", { items: [{ id: "t1", verdict: "partial", evidence: "Only the write path invalidates" }], suggestedVerdict: "REQUEST_CHANGES", suggestedBody: "Close! One path left." });
   expect((await call("useSuggestedVerdict", { targetKey: "pr-1", mode: "suggested" })).ok).toBe(false);
-  const revision = reviewRevision(store, "pr-1");
-  store.updateSummary("pr-1", { body: "Mine." });
+  const revision = await reviewRevision(store, "pr-1");
+  await store.updateSummary("pr-1", { body: "Mine." });
   const used = await call("useSuggestedVerdict", { targetKey: "pr-1", revision, mode: "suggested" });
   expect(used).toMatchObject({ ok: true, draft: { verdict: "REQUEST_CHANGES", verdictChosen: true, body: "Close! One path left.", bodyAuthor: "agent", written: { verdict: "REQUEST_CHANGES", comments: commentsKey([]) } } });
   expect((await call("getFeedback", { targetKey: "pr-1" })).feedback.suggestionInDraft).toBe(true);
@@ -173,19 +174,19 @@ test("a check's suggested summary goes into the draft, but never over the review
   const drafts = () => harness.inspection.realtimeSignals.filter((signal) => signal.channel === "draft:pr-1").length;
   const item = { id: "t1", verdict: "partial", evidence: "Only the write path invalidates" };
   expect(await tool("assess_feedback", { items: [item], suggestedVerdict: "APPROVE" })).toContain("1 item");
-  expect(store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "", comments: [], suggestedVerdict: "APPROVE" });
+  expect(await store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "", comments: [], suggestedVerdict: "APPROVE" });
   expect(drafts()).toBe(1);
 
   expect(await tool("assess_feedback", { items: [item], suggestedVerdict: "REQUEST_CHANGES", suggestedBody: "One path left." })).toContain("Your suggested summary is in the reviewer's draft.");
-  expect(store.getDraft("pr-1")).toMatchObject({ verdict: "COMMENT", body: "One path left.", bodyAuthor: "agent", suggestedVerdict: "REQUEST_CHANGES", written: { verdict: "REQUEST_CHANGES" } });
+  expect(await store.getDraft("pr-1")).toMatchObject({ verdict: "COMMENT", body: "One path left.", bodyAuthor: "agent", suggestedVerdict: "REQUEST_CHANGES", written: { verdict: "REQUEST_CHANGES" } });
   expect((await call("getFeedback", { targetKey: "pr-1" })).feedback.suggestionInDraft).toBe(true);
   expect(drafts()).toBe(2);
 
-  await call("saveSummary", { targetKey: "pr-1", body: "My own words.", revision: reviewRevision(store, "pr-1") });
+  await call("saveSummary", { targetKey: "pr-1", body: "My own words.", revision: await reviewRevision(store, "pr-1") });
   expect(drafts()).toBe(3);
   expect(await tool("assess_feedback", { items: [item], suggestedVerdict: "APPROVE", suggestedBody: "All done." })).toContain("The reviewer wrote the draft's summary, so yours waits in Finish review.");
   // The reviewer's words stay; the check's verdict is still marked for them.
-  expect(store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "My own words.", comments: [], suggestedVerdict: "APPROVE" });
+  expect(await store.getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "My own words.", comments: [], suggestedVerdict: "APPROVE" });
   const { feedback } = await call("getFeedback", { targetKey: "pr-1" });
   expect(feedback).toMatchObject({ suggestionInDraft: false, run: { suggestedVerdict: "APPROVE", suggestedBody: "All done." } });
   expect(drafts()).toBe(4);
@@ -193,12 +194,12 @@ test("a check's suggested summary goes into the draft, but never over the review
 
 test("replying from the Feedback view posts to the thread and clears the drafted reply", async () => {
   const { call, store } = await setup();
-  store.setReplyDraft("pr-1", "t1", "Thanks!", "agent");
+  await store.setReplyDraft("pr-1", "t1", "Thanks!", "agent");
   const result = await call("replyToFeedback", { targetKey: "pr-1", threadId: "t1", body: "Thanks, looks right.", account: "me" });
   expect(result.ok).toBe(true);
   const reply = runGh.mock.calls.find(([args]) => String(args[3]).includes("/comments/11/replies"));
   expect(reply?.[1]).toEqual({ stdin: JSON.stringify({ body: "Thanks, looks right." }), timeoutMs: 0, authToken: "tok-me" });
-  expect(store.listReplyDrafts("pr-1").size).toBe(0);
+  expect((await store.listReplyDrafts("pr-1")).size).toBe(0);
 });
 
 test("since your review compares the displayed diff with the diff you reviewed", async () => {
@@ -210,23 +211,23 @@ test("since your review compares the displayed diff with the diff you reviewed",
 
 test("deleting a PR keeps discovery from adding it back", async () => {
   const { call, store } = await setup();
-  store.clearAssistantThread("pr-1");
+  await store.clearAssistantThread("pr-1");
   expect(await call("deleteReview", { targetKey: "pr-1" })).toEqual({ ok: true });
-  expect(store.isDiscoveryIgnored("pr-1")).toBe(true);
+  expect(await store.isDiscoveryIgnored("pr-1")).toBe(true);
 });
 
 test("a check records verdicts for the commit it started on, even after a push", async () => {
   const { tool, store } = await setup();
-  store.setLifecycle("pr-1", { verifyingSince: Date.now(), verifyingHead: "sha2", latestHeadSha: "sha3" });
+  await store.setLifecycle("pr-1", { verifyingSince: Date.now(), verifyingHead: "sha2", latestHeadSha: "sha3" });
   expect(await tool("assess_feedback", { items: [{ id: "t1", verdict: "addressed", evidence: "Fixed" }] })).toContain("for sha2");
-  expect(store.getAssessment("pr-1", "sha2").items).toHaveLength(1);
-  expect(store.getAssessment("pr-1", "sha3").items).toHaveLength(0);
+  expect((await store.getAssessment("pr-1", "sha2")).items).toHaveLength(1);
+  expect((await store.getAssessment("pr-1", "sha3")).items).toHaveLength(0);
 });
 
 test("with Run the re-review check off, Check again says so and sends the assistant nothing", async () => {
   const { call, store, harness } = await setup();
   const { defaultPreferences } = await import("./preferences");
-  store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, runReReviewCheck: false } }, 0);
+  await store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, runReReviewCheck: false } }, 0);
   expect(await call("checkFeedback", { targetKey: "pr-1" })).toEqual({ ok: false, error: "The re-review check is off. Turn it on in Review settings." });
   expect(harness.inspection.sdk.callsTo("threads.send")).toEqual([]);
 });
@@ -272,13 +273,13 @@ test("a read whose last 30 reviews of yours hold no real review keeps your last 
 test("a check queued behind another message isn't over when the assistant's current turn ends", async () => {
   const { bb, harness, store } = await setup();
   const { makeThreadResponse } = await import("@get-bb/plugin-sdk/testing");
-  store.setLifecycle("pr-1", { verifyingSince: Date.now(), verifyingHead: "sha2" });
+  await store.setLifecycle("pr-1", { verifyingSince: Date.now(), verifyingHead: "sha2" });
   harness.inspection.sdk.stub("threads.queuedMessages.list", async () => [{ id: "q1" }]);
   await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: null });
-  expect(store.getReview("pr-1")?.verifyingSince).toEqual(expect.any(Number));
+  expect((await store.getReview("pr-1"))?.verifyingSince).toEqual(expect.any(Number));
   harness.inspection.sdk.stub("threads.queuedMessages.list", async () => []);
   await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: null });
-  expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null, preparedAt: expect.any(Number) });
+  expect(await store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null, preparedAt: expect.any(Number) });
   void bb;
 });
 
@@ -290,18 +291,18 @@ test("a check queued behind another message ends with its own turn, not with an 
   const row = makeQueueEntry({ id: "q-check", threadId: "assistant" });
   harness.inspection.sdk.stub("threads.send", async () => ({ ok: true, delivery: "queued", queuedMessage: row }));
   expect(await startVerification(bb, store, "pr-1", "the author pushed")).toBe(true);
-  expect(store.getReview("pr-1")?.verifyingMessageId).toBe("q-check");
+  expect((await store.getReview("pr-1"))?.verifyingMessageId).toBe("q-check");
   // The earlier turn's idle, heard after the queue let the check go but before it dispatched.
   harness.inspection.sdk.stub("threads.queuedMessages.list", async () => []);
   await idle();
-  expect(store.getReview("pr-1")?.verifyingSince).toEqual(expect.any(Number));
+  expect((await store.getReview("pr-1"))?.verifyingSince).toEqual(expect.any(Number));
   await harness.behavior.emitThreadEvent("message.dispatched", { entry: makeQueueEntry({ id: "someone-else", threadId: "assistant" }) });
   await idle();
-  expect(store.getReview("pr-1")?.verifyingSince).toEqual(expect.any(Number));
+  expect((await store.getReview("pr-1"))?.verifyingSince).toEqual(expect.any(Number));
   await harness.behavior.emitThreadEvent("message.dispatched", { entry: row });
-  expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: expect.any(Number), verifyingMessageId: null });
+  expect(await store.getReview("pr-1")).toMatchObject({ verifyingSince: expect.any(Number), verifyingMessageId: null });
   await idle();
-  expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null, preparedAt: expect.any(Number) });
+  expect(await store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null, preparedAt: expect.any(Number) });
 });
 
 test("a check BB dispatches before its send returns ends with the turn that runs it (70-review #3)", async () => {
@@ -316,9 +317,9 @@ test("a check BB dispatches before its send returns ends with the turn that runs
   });
   harness.inspection.sdk.stub("threads.queuedMessages.list", async () => []);
   expect(await startVerification(bb, store, "pr-1", "the author pushed")).toBe(true);
-  expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: expect.any(Number), verifyingMessageId: null });
+  expect(await store.getReview("pr-1")).toMatchObject({ verifyingSince: expect.any(Number), verifyingMessageId: null });
   await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: null });
-  expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null });
+  expect(await store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null });
 });
 
 test("a check deleted from the queue before its send returns never waits (95-recheck P3)", async () => {
@@ -331,7 +332,7 @@ test("a check deleted from the queue before its send returns never waits (95-rec
     return { ok: true, delivery: "queued", queuedMessage: row };
   });
   expect(await startVerification(bb, store, "pr-1", "the author pushed")).toBe(true);
-  const review = store.getReview("pr-1");
+  const review = await store.getReview("pr-1");
   expect([review?.verifyingSince ?? null, review?.verifyingMessageId ?? null]).toEqual([null, null]);
 });
 
@@ -343,19 +344,19 @@ test("a queued check deleted from the queue stops the wait for it", async () => 
   harness.inspection.sdk.stub("threads.send", async () => ({ ok: true, delivery: "queued", queuedMessage: row }));
   await startVerification(bb, store, "pr-1", "the author pushed");
   await harness.behavior.emitThreadEvent("message.cancelled", { entry: makeQueueEntry({ id: "someone-else", threadId: "assistant" }) });
-  expect(store.getReview("pr-1")?.verifyingSince).toEqual(expect.any(Number));
+  expect((await store.getReview("pr-1"))?.verifyingSince).toEqual(expect.any(Number));
   await harness.behavior.emitThreadEvent("message.cancelled", { entry: row });
-  expect(store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingMessageId: null, preparedAt: expect.any(Number) });
+  expect(await store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingMessageId: null, preparedAt: expect.any(Number) });
 });
 
 test("a non-blocking thread is checked, but left out of what's addressed and of what's left, and listed with its label", async () => {
   const { tool, call, store } = await setup();
-  store.saveFeedbackThreads("pr-1", [thread("t1", "answered"), { ...thread("t2", "open"), body: "**Nit:** name it `cacheKey`" }], 1);
+  await store.saveFeedbackThreads("pr-1", [thread("t1", "answered"), { ...thread("t2", "open"), body: "**Nit:** name it `cacheKey`" }], 1);
   const ok = await tool("assess_feedback", { items: [{ id: "t1", verdict: "addressed", evidence: "Invalidated" }, { id: "t2", verdict: "not_addressed", evidence: "Still `key`" }] });
   expect(ok).toContain("1 of 1 addressed");
-  expect(store.getReview("pr-1")?.assessment).toMatchObject({ total: 1, addressed: 1, notAddressed: 0 });
+  expect((await store.getReview("pr-1"))?.assessment).toMatchObject({ total: 1, addressed: 1, notAddressed: 0 });
   const { feedback } = await call("getFeedback", { targetKey: "pr-1" });
   expect(feedback.items.map((i: any) => [i.id, i.label ?? null, i.nonBlocking ?? false])).toEqual([["t1", null, false], ["t2", "Nit", true]]);
   // Nothing blocking is left, so Request what's left has nothing to ask.
-  expect(await call("useSuggestedVerdict", { targetKey: "pr-1", revision: reviewRevision(store, "pr-1"), mode: "remaining" })).toEqual({ ok: false, error: "Nothing is left open. Consider approving." });
+  expect(await call("useSuggestedVerdict", { targetKey: "pr-1", revision: await reviewRevision(store, "pr-1"), mode: "remaining" })).toEqual({ ok: false, error: "Nothing is left open. Consider approving." });
 });

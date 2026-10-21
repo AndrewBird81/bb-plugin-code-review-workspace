@@ -6,6 +6,7 @@ import { AUTOMATIC_REVIEW_BEFORE_EVIDENCE, AUTOMATIC_REVIEW_BEFORE_PRECISION, AU
 import { buildGenerationPrompt } from "./generate";
 import { generateGuide } from "./generate";
 import { startConversation } from "./agent";
+import { queueStore } from "./store-queue";
 
 test("settings persist across stores, reject stale edits, and validate input", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
@@ -15,7 +16,7 @@ test("settings persist across stores, reject stale edits, and validate input", a
   const preferences = { ...initial.preferences, guideDetail: "detailed", guideInstructions: "Explain migration risks", assistantInstructions: "Focus on security" };
   const saved = await harness.behavior.callRpc("savePreferences", { preferences, revision: initial.revision }) as any;
   expect(saved.revision).toBe(1);
-  expect(createStore(bb).getPreferences().preferences).toEqual(preferences);
+  expect((await queueStore(createStore(bb)).getPreferences()).preferences).toEqual(preferences);
   await expect(harness.behavior.callRpc("savePreferences", { preferences, revision: 0 })).rejects.toThrow(/changed/);
   await expect(harness.behavior.callRpc("savePreferences", { preferences: { ...preferences, guideDetail: "invalid" }, revision: 1 })).rejects.toThrow();
   expect(buildGenerationPrompt("pr-1", "run-1", preferences)).toContain("Explain migration risks");
@@ -30,7 +31,7 @@ test("a page from before 0.5.1 saves settings without the thread-list setting, w
   const { threadListReviews: _omitted, ...older } = { ...defaultPreferences, guideDetail: "detailed" as const };
   const saved = await harness.behavior.callRpc("savePreferences", { preferences: older, revision: off.revision }) as any;
   expect(saved.preferences).toMatchObject({ guideDetail: "detailed", threadListReviews: false });
-  expect(createStore(bb).getPreferences().preferences.threadListReviews).toBe(false);
+  expect((await queueStore(createStore(bb)).getPreferences()).preferences.threadListReviews).toBe(false);
 });
 
 test("a re-review shows what changed since your review unless Settings says All changes, which a page from before 0.6.0 keeps", async () => {
@@ -48,39 +49,39 @@ test("a re-review shows what changed since your review unless Settings says All 
 test("an automatic review saved with the default from before the review summary reads as the current default; a custom one stays", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_SUMMARY, diffLayout: "unified" }, 0);
-  expect(store.getPreferences()).toEqual({ preferences: { ...defaultPreferences, diffLayout: "unified" }, revision: 1 });
+  const store = queueStore(createStore(bb));
+  await store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_SUMMARY, diffLayout: "unified" }, 0);
+  expect(await store.getPreferences()).toEqual({ preferences: { ...defaultPreferences, diffLayout: "unified" }, revision: 1 });
   expect(defaultPreferences.automaticReview).toContain("set_review_summary");
   expect(defaultPreferences.automaticReview).not.toContain("Put general points in your reply.");
   const custom = `${AUTOMATIC_REVIEW_BEFORE_SUMMARY}\nFocus on security.`;
-  store.savePreferences({ ...defaultPreferences, automaticReview: custom }, 1);
-  expect(store.getPreferences().preferences.automaticReview).toBe(custom);
+  await store.savePreferences({ ...defaultPreferences, automaticReview: custom }, 1);
+  expect((await store.getPreferences()).preferences.automaticReview).toBe(custom);
 });
 
 test("private notes persist independently of drafts, with conflict protection", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1 });
-  store.setVerdict("pr-1", "COMMENT", "Existing public summary");
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1 });
+  await store.setVerdict("pr-1", "COMMENT", "Existing public summary");
   expect(await harness.behavior.callRpc("getReviewerNotes", { targetKey: "pr-1" })).toEqual({ body: "", revision: 0 });
   await harness.behavior.callRpc("saveReviewerNotes", { targetKey: "pr-1", body: "Private thought", revision: 0 });
   await expect(harness.behavior.callRpc("saveReviewerNotes", { targetKey: "pr-1", body: "Stale edit", revision: 0 })).rejects.toThrow(/changed/);
-  store.clearSubmittedDraft(store.getDraft("pr-1"));
-  store.setLifecycle("pr-1", { prState: "MERGED", archivedAt: Date.now() });
-  expect(createStore(bb).getReviewerNotes("pr-1")).toEqual({ body: "Private thought", revision: 1 });
-  expect(store.getDraft("pr-1").body).toBe("");
+  await store.clearSubmittedDraft(await store.getDraft("pr-1"));
+  await store.setLifecycle("pr-1", { prState: "MERGED", archivedAt: Date.now() });
+  expect(await queueStore(createStore(bb)).getReviewerNotes("pr-1")).toEqual({ body: "Private thought", revision: 1 });
+  expect((await store.getDraft("pr-1")).body).toBe("");
 });
 
 test("workers receive current customization without private notes", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "worker" }), wait: async () => {}, stop: async () => {}, archive: async () => {},
   } } });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1, projectId: "project" });
-  store.saveReviewerNotes("target", "PRIVATE-SCRATCHPAD", 0);
-  store.savePreferences({ ...defaultPreferences, guideInstructions: "Explain public contracts", assistantInstructions: "Focus on security" }, 0);
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1, projectId: "project" });
+  await store.saveReviewerNotes("target", "PRIVATE-SCRATCHPAD", 0);
+  await store.savePreferences({ ...defaultPreferences, guideInstructions: "Explain public contracts", assistantInstructions: "Focus on security" }, 0);
   await generateGuide(bb, store, "target", "project");
   expect(harness.inspection.sdk.callsTo("threads.spawn")[0][0]).toMatchObject({ prompt: expect.stringContaining("Explain public contracts") });
   await startConversation(bb, store, { targetKey: "target", text: "Explain this", agent: { providerId: "codex", model: "gpt-6", reasoningLevel: "low" } });
@@ -102,11 +103,11 @@ test("agent selections default to project defaults, persist, and validate", asyn
   expect(initial.preferences).toMatchObject({ guideDetail: "detailed", guideAgent: null, assistantAgent: null, automaticReview: defaultPreferences.automaticReview });
   const preferences = { ...initial.preferences, guideAgent: codex, assistantAgent: claude };
   await harness.behavior.callRpc("savePreferences", { preferences, revision: 1 });
-  expect(createStore(bb).getPreferences().preferences).toEqual(preferences);
+  expect((await queueStore(createStore(bb)).getPreferences()).preferences).toEqual(preferences);
   for (const assistantAgent of [{ ...claude, permissionMode: "ask" }, { ...claude, model: "" }, { ...claude, reasoningLevel: "" }, { ...claude, extra: true }]) {
     await expect(harness.behavior.callRpc("savePreferences", { preferences: { ...preferences, assistantAgent }, revision: 2 })).rejects.toThrow();
   }
-  expect(createStore(bb).getPreferences()).toEqual({ preferences, revision: 2 });
+  expect(await queueStore(createStore(bb)).getPreferences()).toEqual({ preferences, revision: 2 });
 });
 
 test("an agent saves with any reasoning level its provider offers, not only those the SDK's types list", async () => {
@@ -115,7 +116,7 @@ test("an agent saves with any reasoning level its provider offers, not only thos
   const preferences = { ...defaultPreferences, guideAgent: { ...codex, reasoningLevel: "turbo" }, assistantAgent: { ...claude, reasoningLevel: "turbo" } };
   const saved = await harness.behavior.callRpc("savePreferences", { preferences, revision: 0 }) as any;
   expect(saved.preferences).toEqual(preferences);
-  expect(createStore(bb).getPreferences().preferences).toEqual(preferences);
+  expect((await queueStore(createStore(bb)).getPreferences()).preferences).toEqual(preferences);
 });
 
 /** A provider as bb lists it, running in `modes`. */
@@ -126,15 +127,15 @@ test("each agent starts with its own selection, sourced as the user's choice; on
     spawn: async () => ({ id: "worker" }), wait: async () => {}, output: async () => "Answer", stop: async () => {}, archive: async () => {},
   }, projects: { defaultExecutionOptions: async () => ({ providerId: "claude-code", model: "opus", reasoningLevel: "high", permissionMode: "full" }) },
   providers: { list: async () => [provider("claude-code", ["accept-edits", "auto", "full"])] } } as any });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1, projectId: "project" });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1, projectId: "project" });
   await generateGuide(bb, store, "target", "project");
   // On the project's defaults, only the guide writer's permission mode is set (src/generate.ts).
   const execution = ["providerId", "model", "reasoningLevel", "serviceTier"];
   for (const key of execution) expect(harness.inspection.sdk.callsTo("threads.spawn")[0][0]).not.toHaveProperty(key);
   expect(harness.inspection.sdk.callsTo("threads.spawn")[0][0]).toMatchObject({ permissionMode: "accept-edits", executionInputSources: { permissionMode: "explicit" } });
 
-  store.savePreferences({ ...defaultPreferences, guideAgent: codex, assistantAgent: claude }, 0);
+  await store.savePreferences({ ...defaultPreferences, guideAgent: codex, assistantAgent: claude }, 0);
   await generateGuide(bb, store, "target", "project");
   await startConversation(bb, store, { targetKey: "target", text: "Explain this", agent: { providerId: claude.providerId, model: claude.model, reasoningLevel: claude.reasoningLevel } });
   const [, guide, assistant] = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any);
@@ -151,8 +152,8 @@ test("on the defaults, the guide writer runs at accept-edits, else auto, where t
     spawn: async () => ({ id: "worker" }), wait: async () => {}, stop: async () => {}, archive: async () => {},
   }, projects: { defaultExecutionOptions: async ({ projectId }: { projectId: string }) => projectId === "project" ? defaults : null },
   providers: { list: () => providers() } } as any });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1, projectId: "project" });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1, projectId: "project" });
   const mode = async () => {
     await generateGuide(bb, store, "target", "project");
     const spawn = harness.inspection.sdk.callsTo("threads.spawn").at(-1)![0] as any;
@@ -214,45 +215,45 @@ test("getProviderModes lists a machine's providers with the permission modes eac
 test("assistant instructions are capped at 2,000 characters; a longer saved text loads cut to fit", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  expect(() => store.savePreferences({ ...defaultPreferences, assistantInstructions: "x".repeat(2001) }, 0)).toThrow();
+  const store = queueStore(createStore(bb));
+  await expect(store.savePreferences({ ...defaultPreferences, assistantInstructions: "x".repeat(2001) }, 0)).rejects.toThrow();
   bb.storage.database().prepare(`INSERT INTO review_preferences (id,value,revision) VALUES (1,?,1)`)
     .run(JSON.stringify({ ...defaultPreferences, assistantInstructions: "x".repeat(5000) }));
-  expect(store.getPreferences().preferences.assistantInstructions).toBe("x".repeat(2000));
+  expect((await store.getPreferences()).preferences.assistantInstructions).toBe("x".repeat(2000));
 });
 
 test("a feedback check saved with the default that replied on every thread reads as the current default; a custom one stays", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
+  const store = queueStore(createStore(bb));
   expect(VERIFICATION_PROMPT_BEFORE_OPEN_THREADS).toContain("Draft a short reply for each of my threads");
-  store.savePreferences({ ...defaultPreferences, verificationPrompt: VERIFICATION_PROMPT_BEFORE_OPEN_THREADS }, 0);
-  expect(store.getPreferences().preferences.verificationPrompt).toBe(defaultPreferences.verificationPrompt);
+  await store.savePreferences({ ...defaultPreferences, verificationPrompt: VERIFICATION_PROMPT_BEFORE_OPEN_THREADS }, 0);
+  expect((await store.getPreferences()).preferences.verificationPrompt).toBe(defaultPreferences.verificationPrompt);
   expect(defaultPreferences.verificationPrompt).toContain("only on open threads where one adds something");
   const custom = `${VERIFICATION_PROMPT_BEFORE_OPEN_THREADS}\nBe kind.`;
-  store.savePreferences({ ...defaultPreferences, verificationPrompt: custom }, 1);
-  expect(store.getPreferences().preferences.verificationPrompt).toBe(custom);
+  await store.savePreferences({ ...defaultPreferences, verificationPrompt: custom }, 1);
+  expect((await store.getPreferences()).preferences.verificationPrompt).toBe(custom);
 });
 
 test("an automatic review saved with the default from before precision-first reviews reads as the current default; a custom one stays", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
+  const store = queueStore(createStore(bb));
   // The default as Settings saved it before.
   expect(AUTOMATIC_REVIEW_BEFORE_PRECISION).toBe("Review this change adversarially. Look up related code or PRs when you need context.\nAdd each finding as an inline draft comment with add_draft_comment. Then write the review summary with set_review_summary: your overall assessment, what blocks merging, and the verdict you'd suggest. Don't repeat the line comments there.\nKeep every comment terse. Skip nitpicks.");
-  store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_PRECISION }, 0);
-  expect(store.getPreferences().preferences.automaticReview).toBe(defaultPreferences.automaticReview);
+  await store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_PRECISION }, 0);
+  expect((await store.getPreferences()).preferences.automaticReview).toBe(defaultPreferences.automaticReview);
   expect(defaultPreferences.automaticReview).toMatch(/^Review this change for defects a careful senior engineer would block on or want fixed\. Precision over recall.*\n1\. Start with read_pr_context.*\n6\. Then set_review_summary.*otherwise COMMENT\.$/s);
   const custom = `${AUTOMATIC_REVIEW_BEFORE_PRECISION} Focus on security.`;
-  store.savePreferences({ ...defaultPreferences, automaticReview: custom }, 1);
-  expect(store.getPreferences().preferences.automaticReview).toBe(custom);
+  await store.savePreferences({ ...defaultPreferences, automaticReview: custom }, 1);
+  expect((await store.getPreferences()).preferences.automaticReview).toBe(custom);
 });
 
 test("an automatic review saved with the default from before it asked for evidence reads as the current default", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
+  const store = queueStore(createStore(bb));
   expect(defaultPreferences.automaticReview).toBe(AUTOMATIC_REVIEW_BEFORE_EVIDENCE.replace("add a ```suggestion block.", "add a ```suggestion block. Put how you confirmed it in evidence, with file:line: only what you read or ran."));
-  store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_EVIDENCE }, 0);
-  expect(store.getPreferences().preferences.automaticReview).toBe(defaultPreferences.automaticReview);
+  await store.savePreferences({ ...defaultPreferences, automaticReview: AUTOMATIC_REVIEW_BEFORE_EVIDENCE }, 0);
+  expect((await store.getPreferences()).preferences.automaticReview).toBe(defaultPreferences.automaticReview);
 });

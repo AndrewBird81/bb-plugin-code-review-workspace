@@ -1,5 +1,4 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { Store } from "./store";
 import { completionNotifications } from "./completion-notifications";
 import { defaultPreferences, guidePreferencesPrompt, reReviewCheckPrompt, spawnExecution, type ReviewPreferences } from "./preferences";
 import { refreshAssistants, skipRun, startAutomaticReview } from "./agent";
@@ -13,6 +12,7 @@ import { spawningFor } from "./thread-review";
 import { recordFormerWorker } from "./former-workers";
 import { untrusted } from "./untrusted";
 import { GUIDE_STOPPED } from "../lib/review-state";
+import type { AsyncStore } from "./store-queue";
 
 /** Starts a guide-writing worker's title; `agents.configure` grants it the guide tools by it. */
 export const GUIDE_WORKER_TITLE = "Generate guide: ";
@@ -58,16 +58,16 @@ const stoppable = new WeakMap<BbPluginApi, Map<string, { stop(): boolean; done: 
  * Stop the review's running guide, once it's finalized: "restored" when a rebuild got its previous guide back,
  * "stopped" when a first guide ended without one, null when nothing was running or its guide was already accepted.
  */
-export async function stopGuide(bb: BbPluginApi, store: Store, targetKey: string): Promise<"restored" | "stopped" | null> {
+export async function stopGuide(bb: BbPluginApi, store: AsyncStore, targetKey: string): Promise<"restored" | "stopped" | null> {
   const run = stoppable.get(bb)?.get(targetKey);
   if (!run?.stop()) return null;
   await run.done;
-  return store.getReview(targetKey)?.status === "ready" ? "restored" : "stopped";
+  return (await store.getReview(targetKey))?.status === "ready" ? "restored" : "stopped";
 }
 
 /** Why a guide can't start now: the guide writer's machine is offline or removed. */
-export function guideWriterUnavailable(bb: BbPluginApi, store: Store): Promise<string | null> {
-  return machineUnavailable(bb, store.getPreferences().preferences.guideAgent, "guide writer");
+export async function guideWriterUnavailable(bb: BbPluginApi, store: AsyncStore): Promise<string | null> {
+  return machineUnavailable(bb, (await store.getPreferences()).preferences.guideAgent, "guide writer");
 }
 
 /**
@@ -107,7 +107,7 @@ export function buildGenerationPrompt(targetKey: string, generationId?: string, 
 /** `notify: false` leaves the Needs You alert to the turn that started this re-review. */
 export async function generateGuide(
   bb: BbPluginApi,
-  store: Store,
+  store: AsyncStore,
   targetKey: string,
   projectId: string,
   /** unattended: started with no click from you, so it doesn't approve agents on the PR's head. */
@@ -136,24 +136,24 @@ export async function generateGuide(
   stoppable.set(bb, byReview);
   byReview.set(targetKey, run);
   try {
-    const review = store.getReview(targetKey);
+    const review = await store.getReview(targetKey);
     // A guide you start approves agents on its head, whoever wrote the PR (lib/trust.ts).
-    if (!options.unattended && review?.headSha) store.setLifecycle(targetKey, { ...approve(review.headSha, Date.now()), skippedRun: null });
+    if (!options.unattended && review?.headSha) await store.setLifecycle(targetKey, { ...approve(review.headSha, Date.now()), skippedRun: null });
     // The diff is already the new one: hunks of the earlier guide that no longer fit it show as whole files.
-    const kept = store.getGuide(targetKey);
-    const patch = store.patch(targetKey);
+    const kept = await store.getGuide(targetKey);
+    const patch = await store.patch(targetKey);
     const earlier = { guide: kept && { ...kept, sections: fitHunks(kept.sections, patch) }, reviewed: !!(review && baselineOf(review).at) };
     generation.sinceReview = earlier.reviewed;
     // The writer this generation replaces can still run commands: as a former writer, only on its own review.
-    const replaced = store.generationWorker(targetKey);
+    const replaced = await store.generationWorker(targetKey);
     if (replaced) void recordFormerWorker(bb, replaced, targetKey, "writer");
-    generationId = store.beginGeneration(targetKey);
-    store.setLifecycle(targetKey, { guideError: null });
+    generationId = await store.beginGeneration(targetKey);
+    await store.setLifecycle(targetKey, { guideError: null });
     const running = generations.get(bb) ?? new Map<string, typeof generation>();
     generations.set(bb, running);
     running.set(generationId, generation);
     threads = bb.sdk.threads;
-    const preferences = store.getPreferences().preferences;
+    const preferences = (await store.getPreferences()).preferences;
     const title = `${GUIDE_WORKER_TITLE}${targetKey}`;
     const placement = await agentPlacement(bb, preferences.guideAgent, projectId);
     const execution = preferences.guideAgent ? spawnExecution(preferences.guideAgent) : await guideWriterMode(bb, projectId);
@@ -166,9 +166,9 @@ export async function generateGuide(
         visibility: "hidden",
         ...execution,
       });
-      store.setGenerationWorker(targetKey, id, worker.id);
+      await store.setGenerationWorker(targetKey, id, worker.id);
       // A generation replaced while this writer spawned has no row to hold it, and its successor never saw it.
-      if (store.generationOf(worker.id) !== targetKey) void recordFormerWorker(bb, worker.id, targetKey, "writer");
+      if (await store.generationOf(worker.id) !== targetKey) void recordFormerWorker(bb, worker.id, targetKey, "writer");
       return worker;
     });
     workerId = worker.id;
@@ -177,7 +177,7 @@ export async function generateGuide(
     failures.set(bb, watched);
     watched.set(worker.id, failed);
     try {
-      const deadline = Date.now() + waitCap(store.patch(targetKey).length);
+      const deadline = Date.now() + waitCap((await store.patch(targetKey)).length);
       const signal = AbortSignal.any([controller.signal, failed.signal, accepted.signal]);
       let nudged = false;
       for (;;) {
@@ -195,14 +195,14 @@ export async function generateGuide(
           continue;
         }
         // Idle without an accepted guide: the worker is told why, once, and has the rest of its time to fix it.
-        if (nudged || store.getGuide(targetKey) !== null || Date.now() >= deadline) break;
+        if (nudged || await store.getGuide(targetKey) !== null || Date.now() >= deadline) break;
         nudged = true;
         await threads.send({ threadId: worker.id, mode: "queue-if-active", input: [{ type: "text", mentions: [], text: generation.rejection
           ? `Your guide wasn't accepted:\n${generation.rejection}\nFix it and call generate_review_guide again with the same targetKey and generationId.`
           : "You haven't submitted the guide. Finish it and call generate_review_guide with the same targetKey and generationId." }] });
       }
       if (failed.signal.aborted && !accepted.signal.aborted) throw new Error("the guide writer failed");
-      if (!accepted.signal.aborted && store.getGuide(targetKey) === null) throw new Error("the guide writer stopped without an accepted guide");
+      if (!accepted.signal.aborted && await store.getGuide(targetKey) === null) throw new Error("the guide writer stopped without an accepted guide");
     } finally {
       watched.delete(worker.id);
     }
@@ -221,37 +221,39 @@ export async function generateGuide(
     }
   }
   try {
-    if (!generationId || !store.isCurrentGeneration(targetKey, generationId)) return;
-    const ok = !controller.signal.aborted && store.getGuide(targetKey) !== null;
-    const before = ok ? store.guideBackupHead(targetKey) : null;
+    if (!generationId || !await store.isCurrentGeneration(targetKey, generationId)) return;
+    const ok = !controller.signal.aborted && await store.getGuide(targetKey) !== null;
+    const before = ok ? await store.guideBackupHead(targetKey) : null;
     // A failed rebuild keeps the guide you had; a guide this run already submitted stands.
-    if (ok) store.dropGuideBackup(targetKey);
-    const putBack = !ok && store.restoreGuide(targetKey);
+    if (ok) await store.dropGuideBackup(targetKey);
+    const putBack = !ok && await store.restoreGuide(targetKey);
     // A rebuild you stopped is the guide you had, ready; a first guide you stopped waits for Build the guide.
     const restored = stopped && putBack;
-    store.setStatus(targetKey, ok || restored ? "ready" : "error");
-    store.setLifecycle(targetKey, { guideError: ok || restored ? null : stopped ? { at: Date.now(), text: GUIDE_STOPPED } : failure ? { at: Date.now(), text: failure } : null });
+    await store.setStatus(targetKey, ok || restored ? "ready" : "error");
+    await store.setLifecycle(targetKey, { guideError: ok || restored ? null : stopped ? { at: Date.now(), text: GUIDE_STOPPED } : failure ? { at: Date.now(), text: failure } : null });
     // The review's assistant reads the new guide when its runtime restarts.
     if (ok) void refreshAssistants(bb, store, [targetKey]);
     bb.realtime.publish(`review:${targetKey}`, { status: ok || restored ? "ready" : "error" });
     bb.realtime.publish("reviews", { ts: Date.now() });
     // A review you already reviewed gets its feedback checked; a new one, the automatic review.
-    const review = store.getReview(targetKey);
+    const review = await store.getReview(targetKey);
     // An untrusted author's check waits for your click; the automatic review gates itself.
-    const preferences = store.getPreferences().preferences;
+    const preferences = (await store.getPreferences()).preferences;
     const trusted = !!review && mayRunUnattended(review, preferences, review.headSha);
-    if (ok && review && baselineOf(review).at && !trusted && reReviewCheckPrompt(preferences)) skipRun(bb, store, targetKey, "check", review.headSha ?? null);
+    if (ok && review && baselineOf(review).at && !trusted && reReviewCheckPrompt(preferences)) await skipRun(bb, store, targetKey, "check", review.headSha ?? null);
     const checking = ok && !!review && !!baselineOf(review).at && trusted && await startVerification(bb, store, targetKey, "the guide was rebuilt for the PR's new commits");
     const newCommits = before && review?.headSha && before !== review.headSha ? { from: before, to: review.headSha } : undefined;
-    if (ok && !checking && !(review && baselineOf(review).at)) await startAutomaticReview(bb, store, targetKey, newCommits).catch((error) => {
-      bb.log.warn(`The automatic review of ${targetKey} didn't start: ${String(error)}`);
-      // One that couldn't start a conversation waits for Run review, saying why; Run review is the retry. One that would
-      // have waited for your click anyway, as startAutomaticReview decides after the conversation, says that instead.
-      const own = review?.ownPr === true && typeof review.foreignHeadOwner !== "string";
-      const held = !!review && !own && !trusted;
-      if (!store.getAssistantThread(targetKey)) skipRun(bb, store, targetKey, "review", review?.headSha ?? null, held ? undefined : error instanceof Error ? error.message : String(error));
+    if (ok && !checking && !(review && baselineOf(review).at)) await startAutomaticReview(bb, store, targetKey, newCommits).catch(async (error) => {
+      return store.exclusive(async (tx) => {
+        bb.log.warn(`The automatic review of ${targetKey} didn't start: ${String(error)}`);
+        // One that couldn't start a conversation waits for Run review, saying why; Run review is the retry. One that would
+        // have waited for your click anyway, as startAutomaticReview decides after the conversation, says that instead.
+        const own = review?.ownPr === true && typeof review.foreignHeadOwner !== "string";
+        const held = !!review && !own && !trusted;
+        if (!await tx.getAssistantThread(targetKey)) await skipRun(bb, tx, targetKey, "review", review?.headSha ?? null, held ? undefined : error instanceof Error ? error.message : String(error));
+      });
     });
-    if (!checking) store.setLifecycle(targetKey, { preparedAt: Date.now() });
+    if (!checking) await store.setLifecycle(targetKey, { preparedAt: Date.now() });
     preparedListeners.get(bb)?.(targetKey);
     if (!controller.signal.aborted && options.notify !== false) await completionNotifications(bb, store).queue({
       targetKey, generationId, projectId, status: ok ? "ready" : "error",

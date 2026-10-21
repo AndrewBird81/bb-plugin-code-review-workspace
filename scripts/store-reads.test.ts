@@ -7,6 +7,7 @@ import Database from "better-sqlite3";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "../src/store";
 import { canonical, dumpDatabase, tableChecksums } from "./store-reads";
+import { queueStore } from "../src/store-queue";
 
 const RENAMED = "diff --git a/old.ts b/new.ts\nsimilarity index 90%\nrename from old.ts\nrename to new.ts\n--- a/old.ts\n+++ b/new.ts\n@@ -1 +1 @@\n-a\n+b\n";
 const sha256 = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
@@ -17,19 +18,19 @@ afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: tru
 /** A snapshot of a store with a review whose reads write: its patch's hash is missing, and its rows are under a renamed file's old path. */
 async function snapshot(): Promise<string> {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "o/r", status: "ready", createdAt: 1, headSha: "h1" });
-  store.setLifecycle("pr-1", { pinnedAt: 5 });
-  store.savePatch("pr-1", RENAMED);
-  store.setFileViewed("pr-1", "old.ts", "x", 7);
-  store.upsertDraftComment("pr-1", { file: "new.ts", line: 1, side: "RIGHT", body: "why b?", author: "agent" });
-  store.addDiscussionMessage("pr-1", { file: "old.ts", line: 1, side: "RIGHT" }, "reviewer", "why?");
-  store.saveSnapshot("pr-1", "h1", RENAMED);
-  store.saveAssessmentRun("pr-1", { headSha: "h1", summary: "ok", suggestedVerdict: null, suggestedBody: "", assessedAt: 9 });
-  const id = store.beginGeneration("pr-1");
-  store.setGenerationWorker("pr-1", id, "worker-1");
-  store.setAssistantThread("pr-1", "thread-1");
-  store.ignoreDiscovery("pr-2");
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "o/r", status: "ready", createdAt: 1, headSha: "h1" });
+  await store.setLifecycle("pr-1", { pinnedAt: 5 });
+  await store.savePatch("pr-1", RENAMED);
+  await store.setFileViewed("pr-1", "old.ts", "x", 7);
+  await store.upsertDraftComment("pr-1", { file: "new.ts", line: 1, side: "RIGHT", body: "why b?", author: "agent" });
+  await store.addDiscussionMessage("pr-1", { file: "old.ts", line: 1, side: "RIGHT" }, "reviewer", "why?");
+  await store.saveSnapshot("pr-1", "h1", RENAMED);
+  await store.saveAssessmentRun("pr-1", { headSha: "h1", summary: "ok", suggestedVerdict: null, suggestedBody: "", assessedAt: 9 });
+  const id = await store.beginGeneration("pr-1");
+  await store.setGenerationWorker("pr-1", id, "worker-1");
+  await store.setAssistantThread("pr-1", "thread-1");
+  await store.ignoreDiscovery("pr-2");
   const db = bb.storage.database();
   db.prepare(`UPDATE patches SET hash=NULL`).run();
   const dir = mkdtempSync(join(tmpdir(), "store-reads-test-"));

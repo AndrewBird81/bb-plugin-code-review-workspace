@@ -8,6 +8,7 @@ import { startConversation } from "./agent";
 import { generateGuide } from "./generate";
 import plugin from "../server";
 import { toolFailed, toolText } from "./fake-host.test-support";
+import { queueStore } from "./store-queue";
 
 const patch = (file: string, line: string) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n-old\n+${line}\n`;
 const guide = (chapter: string) => ({ title: "T", intent: "I", unplacedFiles: [], sections: [{ id: "s", title: chapter, overview: "o", risk: "high", diffs: [{ file: "a.ts", summary: "s" }] }], hotspots: [] });
@@ -26,13 +27,13 @@ async function host(titles: Record<string, string> = {}) {
     wait: async () => ({}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
   await plugin(h.bb);
-  const store = createStore(h.bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1, projectId: "p1" });
-  store.savePatch("pr-1", patch("a.ts", "public"));
-  store.saveGuide("pr-1", guide("PUBLIC_CHAPTER") as any);
-  store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, status: "ready", createdAt: 1, projectId: "p1" });
-  store.savePatch("pr-2", patch("secret.ts", "PRIVATE_TOKEN"));
-  store.saveGuide("pr-2", guide("PRIVATE_CHAPTER") as any);
+  const store = queueStore(createStore(h.bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1, projectId: "p1" });
+  await store.savePatch("pr-1", patch("a.ts", "public"));
+  await store.saveGuide("pr-1", guide("PUBLIC_CHAPTER") as any);
+  await store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, status: "ready", createdAt: 1, projectId: "p1" });
+  await store.savePatch("pr-2", patch("secret.ts", "PRIVATE_TOKEN"));
+  await store.saveGuide("pr-2", guide("PRIVATE_CHAPTER") as any);
   return { ...h, store, titles, onSpawn: (run: (id: string) => Promise<void>) => { whileSpawning = run; } };
 }
 
@@ -59,7 +60,7 @@ test("an assistant's first session, configured before its spawn returns, gets it
 
 test("a guide writer's tool call before its spawn returns reads its own review", async () => {
   const { bb, harness, store, onSpawn } = await host();
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1, projectId: "p1", headSha: "h1" });
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1, projectId: "p1", headSha: "h1" });
   const reads: string[] = [];
   onSpawn(async (threadId) => {
     reads.push(toolText(await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-1" }, { threadId })));
@@ -72,7 +73,7 @@ test("a guide writer's tool call before its spawn returns reads its own review",
 
 test("a mapped assistant's instructions follow its own review, not the pluginMetadata it can write", async () => {
   const { harness, store } = await host();
-  store.setAssistantThread("pr-1", "thread-1");
+  await store.setAssistantThread("pr-1", "thread-1");
   const config = await harness.behavior.resolveAgentConfiguration(configureContext("thread-1", "Review agent: pr-1", { targetKey: "pr-2" }));
   expect(config.instructions).toContain('target key "pr-1"');
   expect(config.instructions).not.toContain("PRIVATE_CHAPTER");
@@ -111,7 +112,7 @@ test("while a spawn is in flight, an unmapped thread whose title doesn't match i
 
 test("a guide writer that retitles itself for another review still reads only its own", async () => {
   const { harness, store } = await host({ "writer-1": "Generate guide: pr-2" });
-  store.setGenerationWorker("pr-1", store.beginGeneration("pr-1"), "writer-1");
+  await store.setGenerationWorker("pr-1", await store.beginGeneration("pr-1"), "writer-1");
   const read = await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-2" }, { threadId: "writer-1" });
   expect(toolFailed(read)).toBe(true);
   expect(toolText(read)).not.toContain("PRIVATE_TOKEN");
@@ -120,8 +121,8 @@ test("a guide writer that retitles itself for another review still reads only it
 
 test("a replaced assistant that retitles itself as a guide writer reads no review", async () => {
   const { harness, store } = await host({ "old-assistant": "Generate guide: pr-2" });
-  store.setAssistantThread("pr-1", "old-assistant");
-  store.setAssistantThread("pr-1", "new-assistant");
+  await store.setAssistantThread("pr-1", "old-assistant");
+  await store.setAssistantThread("pr-1", "new-assistant");
   const read = await harness.behavior.callAgentTool("read_review_patch", { targetKey: "pr-2" }, { threadId: "old-assistant" });
   expect(toolFailed(read)).toBe(true);
   expect(toolText(read)).not.toContain("PRIVATE_TOKEN");
@@ -141,7 +142,7 @@ const writerTools = ["read_review_patch", "list_review_files", "read_changes_sin
 
 test("a recorded assistant that's retitled keeps its tools and its review's instructions", async () => {
   const { harness, store } = await host();
-  store.setAssistantThread("pr-1", "thread-1");
+  await store.setAssistantThread("pr-1", "thread-1");
   const config = await harness.behavior.resolveAgentConfiguration(configureContext("thread-1", "anything"));
   expect(config.tools.map((tool) => tool.name)).toEqual(assistantTools);
   expect(config.skills).toEqual([]);
@@ -150,8 +151,8 @@ test("a recorded assistant that's retitled keeps its tools and its review's inst
 
 test("a recorded guide writer that's retitled keeps the writer's tools", async () => {
   const { harness, store } = await host();
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1, projectId: "p1" });
-  store.setGenerationWorker("pr-1", store.beginGeneration("pr-1"), "writer-1");
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1, projectId: "p1" });
+  await store.setGenerationWorker("pr-1", await store.beginGeneration("pr-1"), "writer-1");
   const config = await harness.behavior.resolveAgentConfiguration(configureContext("writer-1", "anything"));
   expect(config.tools.map((tool) => tool.name)).toEqual(writerTools);
 });
@@ -167,14 +168,14 @@ test("an unrecorded thread with a plugin title gets no tools outside a spawn", a
 test("an agent in one of your own threads gets the bb review skill while its switch is on; this plugin's threads keep their own", async () => {
   const h = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate", "code-review-workspace"] });
   await plugin(h.bb);
-  const store = createStore(h.bb);
-  store.setAssistantThread("pr-1", "assistant-1");
+  const store = queueStore(createStore(h.bb));
+  await store.setAssistantThread("pr-1", "assistant-1");
   const resolve = (id: string, pluginId: string | null) => h.harness.behavior.resolveAgentConfiguration({ ...configureContext(id, "anything"), origin: { kind: null, pluginId } } as PluginAgentConfigurationContext);
   expect(await resolve("mine", null)).toMatchObject({ tools: [], skills: ["code-review-workspace"] });
   expect(await resolve("another-plugin's", "other-plugin")).toMatchObject({ tools: [], skills: ["code-review-workspace"] });
   expect((await resolve("assistant-1", "code-review-workspace")).skills).toEqual([]);
   expect(await resolve("unrecorded", "code-review-workspace")).toMatchObject({ tools: [], skills: [] });
-  store.savePreferences({ ...store.getPreferences().preferences, knobs: { ...store.getPreferences().preferences.knobs, reviewCommandInThreads: false } }, store.getPreferences().revision);
+  await store.savePreferences({ ...(await store.getPreferences()).preferences, knobs: { ...(await store.getPreferences()).preferences.knobs, reviewCommandInThreads: false } }, (await store.getPreferences()).revision);
   expect(await resolve("mine", null)).toMatchObject({ tools: [], skills: [] });
 });
 

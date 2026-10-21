@@ -6,6 +6,7 @@ import { chapterAt, droppedNear, fitHunks, hunkCounts, hunksIn, keepHunks } from
 import { buildGenerationPrompt, generateGuide } from "./generate";
 import plugin from "../server";
 import { spawnPrompt, toolFailed, toolText } from "./fake-host.test-support";
+import { queueStore } from "./store-queue";
 
 // a.ts has three hunks: lines 2, 20 and 40 change.
 const a = [
@@ -65,17 +66,17 @@ test("coverage errors say which hunks are missing, doubled, or don't exist", () 
 test("generate_review_guide checks a split file's hunks against the diff", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
-  store.savePatch("pr-1", patch);
-  const generationId = store.beginGeneration("pr-1");
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
+  await store.savePatch("pr-1", patch);
+  const generationId = await store.beginGeneration("pr-1");
   const submit = (sections: ReturnType<typeof section>[]) => harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide: { title: "T", intent: "I", sections: sections.map((s) => ({ ...s, risk: "low" })) } });
   const bad = await submit([section("s1", [{ file: "a.ts", hunks: [1] }, { file: "b.ts" }])]);
   expect(toolFailed(bad)).toBe(true);
   expect(toolText(bad)).toContain("missing: hunks 2, 3 of a.ts aren't in any chapter");
   const good = await submit([section("s1", [{ file: "a.ts", hunks: [1] }, { file: "b.ts" }]), section("s2", [{ file: "a.ts", hunks: [2, 3] }])]);
   expect(toolFailed(good)).toBeFalsy();
-  expect(store.getGuide("pr-1")?.sections.map((s) => s.diffs.map((d) => d.hunks))).toEqual([[[1], undefined], [[2, 3]]]);
+  expect((await store.getGuide("pr-1"))?.sections.map((s) => s.diffs.map((d) => d.hunks))).toEqual([[[1], undefined], [[2, 3]]]);
 });
 
 test("a split file's part keeps its headers and only its hunks", () => {
@@ -121,11 +122,11 @@ test("the guide writer's earlier chapters name their hunks, or whole files when 
     spawn: async () => ({ id: "worker" }), archive: async () => {}, stop: async () => {},
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), send: async () => ({}),
   } } as any });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, headSha: "sha2", status: "ready", createdAt: 1, projectId: "p1" });
-  store.saveGuide("pr-1", earlier.guide);
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, headSha: "sha2", status: "ready", createdAt: 1, projectId: "p1" });
+  await store.saveGuide("pr-1", earlier.guide);
   // The new commits leave a.ts with two hunks.
-  store.savePatch("pr-1", keepHunks(a, (_, i) => i < 2) + b);
+  await store.savePatch("pr-1", keepHunks(a, (_, i) => i < 2) + b);
   harness.inspection.sdk.stub("threads.wait", async () => ({ matched: true }));
   await generateGuide(bb, store, "pr-1", "p1", { notify: false });
   const rebuilt = spawnPrompt(harness.inspection.sdk.callsTo("threads.spawn")[0][0]);

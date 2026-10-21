@@ -37,6 +37,8 @@ import { defaultPreferences } from "./preferences";
 import * as gh from "./gh";
 import { targetKey } from "./targets";
 import plugin from "../server";
+import { queueStore, type AsyncStore } from "./store-queue";
+
 const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
 
 test("createPrReview stores the review + patch and returns ok with a targetKey", async () => {
@@ -44,7 +46,7 @@ test("createPrReview stores the review + patch and returns ok with a targetKey",
     pluginId: "code-review-workspace",
     sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } },
   });
-  const store = createStore(bb);
+  const store = queueStore(createStore(bb));
 
   const res = await createPrReview(
     { bb, store, gh },
@@ -54,12 +56,12 @@ test("createPrReview stores the review + patch and returns ok with a targetKey",
   expect(res.ok).toBe(true);
   expect(res.targetKey).toBe(key);
 
-  const meta = store.getReview(key);
+  const meta = await store.getReview(key);
   expect(meta?.repo).toBe("acme/web");
   expect(meta?.title).toBe("Fix the thing");
   expect(meta?.headSha).toBe("abc123");
   expect(meta?.projectId).toBe("p1");
-  expect(store.patch(key)).toContain("diff --git a/a.ts");
+  expect(await store.patch(key)).toContain("diff --git a/a.ts");
 });
 
 test("starting an archived PR's review again returns it to the queue", async () => {
@@ -67,18 +69,18 @@ test("starting an archived PR's review again returns it to the queue", async () 
     pluginId: "code-review-workspace",
     sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } },
   });
-  const store = createStore(bb);
+  const store = queueStore(createStore(bb));
   await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" });
-  store.setLifecycle(key, { userArchivedAt: 1 });
+  await store.setLifecycle(key, { userArchivedAt: 1 });
 
   await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" });
 
-  expect(store.getReview(key)?.userArchivedAt).toBeNull();
+  expect((await store.getReview(key))?.userArchivedAt).toBeNull();
 });
 
 test("createPrReview rejects a non-PR-URL input", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = createStore(bb);
+  const store = queueStore(createStore(bb));
 
   const res = await createPrReview({ bb, store, gh }, { input: "42", projectId: "p1" });
 
@@ -88,75 +90,75 @@ test("createPrReview rejects a non-PR-URL input", async () => {
 
 test("an offline guide writer machine stops the review before the PR is fetched", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { hosts: { get: async () => ({ id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } }) } } });
-  const store = createStore(bb);
-  store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
+  const store = queueStore(createStore(bb));
+  await store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
   vi.mocked(gh.runGh).mockClear();
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" }))
     .toEqual({ ok: false, error: "FloMac is offline. Wake it, or choose another machine for the guide writer in Review settings." });
   expect(gh.runGh).not.toHaveBeenCalled();
-  expect(store.getReview(key)).toBeNull();
+  expect(await store.getReview(key)).toBeNull();
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
 });
 
 const reviewed = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+n\n";
-function seedReady(store: ReturnType<typeof createStore>, headSha: string, patch: string) {
-  store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha, gitRef: "main...f" });
-  store.savePatch(key, patch);
-  store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
-  store.upsertDraftComment(key, { file: "a.ts", line: 1, side: "RIGHT", body: "Why n?" });
+async function seedReady(store: AsyncStore, headSha: string, patch: string) {
+  await store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha, gitRef: "main...f" });
+  await store.savePatch(key, patch);
+  await store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
+  await store.upsertDraftComment(key, { file: "a.ts", line: 1, side: "RIGHT", body: "Why n?" });
 }
 
 test("pasting the link of a review that hasn't changed opens it without rebuilding", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = createStore(bb);
-  seedReady(store, "abc123", reviewed);
-  store.setLifecycle(key, { userArchivedAt: 1 });
+  const store = queueStore(createStore(bb));
+  await seedReady(store, "abc123", reviewed);
+  await store.setLifecycle(key, { userArchivedAt: 1 });
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
   expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
-  expect(store.getReview(key)).toMatchObject({ status: "ready", userArchivedAt: null });
-  expect(store.getGuide(key)?.title).toBe("Kept");
-  expect(store.staleDraftComments(key)).toEqual([]);
+  expect(await store.getReview(key)).toMatchObject({ status: "ready", userArchivedAt: null });
+  expect((await store.getGuide(key))?.title).toBe("Kept");
+  expect(await store.staleDraftComments(key)).toEqual([]);
 });
 
 test("pasting a renamed repository's PR link opens the review the sync keeps under the old name (bug bash CLI-2)", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = createStore(bb);
-  seedReady(store, "abc123", reviewed);
-  store.saveReview({ ...store.getReview(key)!, url: "https://github.com/acme/site/pull/7" });
+  const store = queueStore(createStore(bb));
+  await seedReady(store, "abc123", reviewed);
+  await store.saveReview({ ...(await store.getReview(key))!, url: "https://github.com/acme/site/pull/7" });
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/site/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
-  expect(store.listReviews().map((review) => review.targetKey)).toEqual([key]);
+  expect((await store.listReviews()).map((review) => review.targetKey)).toEqual([key]);
 });
 
 test("pasting a PR link tells open pages of the review it starts, rebuilds, or brings back from Archive, at once (bug bash LIV-5)", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: () => new Promise(() => {}), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
-  const store = createStore(bb);
+  const store = queueStore(createStore(bb));
   const channels = async () => {
     harness.inspection.realtimeSignals.length = 0;
     expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
     return harness.inspection.realtimeSignals.map((signal) => signal.channel).sort();
   };
   expect(await channels()).toEqual([`review:${key}`, "reviews"]);
-  seedReady(store, "abc123", reviewed);
+  await seedReady(store, "abc123", reviewed);
   expect(await channels()).toEqual([]);
-  store.setLifecycle(key, { userArchivedAt: 5 });
+  await store.setLifecycle(key, { userArchivedAt: 5 });
   expect(await channels()).toEqual([`review:${key}`, "reviews"]);
-  seedReady(store, "old", reviewed);
+  await seedReady(store, "old", reviewed);
   expect(await channels()).toEqual([`review:${key}`, "reviews"]);
-  expect(store.getReview(key)?.status).toBe("generating");
+  expect((await store.getReview(key))?.status).toBe("generating");
 });
 
 test("pasting the link of a review with new commits rebuilds it like Re-review, keeping the guide and comments if it fails", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "w" }), wait: async () => { throw new Error("worker failed"); }, archive: async () => ({}), stop: async () => ({}),
   } } as any });
-  const store = createStore(bb);
-  seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
+  const store = queueStore(createStore(bb));
+  await seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
-  await vi.waitFor(() => expect(store.getReview(key)?.status).toBe("error"));
-  expect(store.getGuide(key)?.title).toBe("Kept");
-  expect(store.getReview(key)?.headSha).toBe("old");
-  expect(store.getDraft(key).comments).toMatchObject([{ line: 1, body: "Why n?" }]);
-  expect(store.staleDraftComments(key)).toEqual([]);
+  await vi.waitFor(async () => expect((await store.getReview(key))?.status).toBe("error"));
+  expect((await store.getGuide(key))?.title).toBe("Kept");
+  expect((await store.getReview(key))?.headSha).toBe("old");
+  expect((await store.getDraft(key)).comments).toMatchObject([{ line: 1, body: "Why n?" }]);
+  expect(await store.staleDraftComments(key)).toEqual([]);
 });
 
 // A host whose guide writer never finishes, so the rebuild stays generating.
@@ -166,19 +168,19 @@ const building = () => createFakePluginHost({ pluginId: "code-review-workspace",
 
 test("pasting the link of a review with new commits keeps when it was created", async () => {
   const { bb } = building();
-  const store = createStore(bb);
-  seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
+  const store = queueStore(createStore(bb));
+  await seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
-  expect(store.getReview(key)).toMatchObject({ status: "generating", createdAt: 1 });
+  expect(await store.getReview(key)).toMatchObject({ status: "generating", createdAt: 1 });
 });
 
 test("pasting the link of an archived review with new commits brings it back from Archive", async () => {
   const { bb } = building();
-  const store = createStore(bb);
-  seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
-  store.setLifecycle(key, { userArchivedAt: 5 });
+  const store = queueStore(createStore(bb));
+  await seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
+  await store.setLifecycle(key, { userArchivedAt: 5 });
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
-  expect(store.getReview(key)).toMatchObject({ status: "generating", userArchivedAt: null });
+  expect(await store.getReview(key)).toMatchObject({ status: "generating", userArchivedAt: null });
 });
 
 test("starting a PR's review records whether gh says it's merged or closed, new or rebuilt", async () => {
@@ -189,19 +191,19 @@ test("starting a PR's review records whether gh says it's merged or closed, new 
   });
   try {
     const { bb } = building();
-    const store = createStore(bb);
+    const store = queueStore(createStore(bb));
     stated("MERGED");
     expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
-    expect([store.getReview(key)?.startedPrState, store.getReview(key)?.prState]).toEqual(["MERGED", undefined]);
+    expect([(await store.getReview(key))?.startedPrState, (await store.getReview(key))?.prState]).toEqual(["MERGED", undefined]);
     // A rebuild, at a new head, reads it again; a state gh doesn't name is left.
-    seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
+    await seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
     stated("CLOSED");
     expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
-    expect(store.getReview(key)?.startedPrState).toBe("CLOSED");
-    seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
+    expect((await store.getReview(key))?.startedPrState).toBe("CLOSED");
+    await seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
     stated("DRAFTY");
     await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" });
-    expect(store.getReview(key)?.startedPrState).toBe("CLOSED");
+    expect((await store.getReview(key))?.startedPrState).toBe("CLOSED");
   } finally {
     vi.mocked(gh.runGh).mockImplementation(base);
   }

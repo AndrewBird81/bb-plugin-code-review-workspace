@@ -5,6 +5,7 @@ import { mkdir } from "node:fs/promises";
 import { createStore } from "../src/store";
 import { generateGuide } from "../src/generate";
 import plugin from "../server";
+import { queueStore } from "../src/store-queue";
 
 // Only run against a dedicated BB with both test builds installed. Guide work
 // and all review/GitHub RPCs are simulated; Needs You storage/realtime/UI is real.
@@ -24,11 +25,11 @@ test.skipIf(!process.env.BB_ACTIVITY_E2E_URL)("guide completion → Needs You po
     threads: { spawn: async () => ({ id: "synthetic-hidden-worker" }), archive: async () => {}, stop: async () => {} },
   } });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: key, kind: "ref", gitRef: "feature", title: "Notification integration check", status: "generating", createdAt: Date.now(), projectId: "test-project" });
-  store.savePatch(key, 'diff --git a/example.ts b/example.ts\n--- a/example.ts\n+++ b/example.ts\n@@ -1 +1 @@\n-old();\n+newCall();\n');
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: key, kind: "ref", gitRef: "feature", title: "Notification integration check", status: "generating", createdAt: Date.now(), projectId: "test-project" });
+  await store.savePatch(key, 'diff --git a/example.ts b/example.ts\n--- a/example.ts\n+++ b/example.ts\n@@ -1 +1 @@\n-old();\n+newCall();\n');
   harness.inspection.sdk.stub("threads.wait", async () => {
-    store.saveGuide(key, { title: "Notification integration check", intent: "Read the completed guide.", sections: [{ id: "entry", title: "Entry point", overview: "Update the call.", diffs: [{ file: "example.ts", summary: "New call" }] }], unplacedFiles: [] });
+    await store.saveGuide(key, { title: "Notification integration check", intent: "Read the completed guide.", sections: [{ id: "entry", title: "Entry point", overview: "Update the call.", diffs: [{ file: "example.ts", summary: "New call" }] }], unplacedFiles: [] });
     return { matched: true };
   });
   const browser = await chromium.launch({ headless: true });

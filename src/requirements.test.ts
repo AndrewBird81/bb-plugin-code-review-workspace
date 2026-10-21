@@ -5,6 +5,7 @@ import { checkRequirements, validateGuide } from "./guide";
 import { buildGenerationPrompt } from "./generate";
 import plugin from "../server";
 import { toolFailed, toolText } from "./fake-host.test-support";
+import { queueStore } from "./store-queue";
 
 const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -10,3 +10,3 @@\n keep\n-old\n+new\n keep2\n";
 const section = { id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] };
@@ -58,18 +59,18 @@ test("a requirement's line is a new-file line the diff shows, and a covered one 
 test("generate_review_guide refuses a requirement off the diff, and keeps requirements and focus", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
-  store.savePatch("pr-1", patch);
-  const generationId = store.beginGeneration("pr-1");
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
+  await store.savePatch("pr-1", patch);
+  const generationId = await store.beginGeneration("pr-1");
   const bad = await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide: guide({ requirements: [{ ...covered, line: 99 }] }) });
   expect(toolFailed(bad)).toBe(true);
   expect(toolText(bad)).toContain("requirements.0: line 99 of a.ts isn't a new-file line the diff shows");
   const focus = ["Check that the retry can't loop."];
   const good = await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "pr-1", generationId, guide: guide({ requirements: [covered], sections: [{ ...section, focus }] }) });
   expect(toolFailed(good)).toBeFalsy();
-  expect(store.getGuide("pr-1")?.requirements).toEqual([covered]);
-  expect(store.getGuide("pr-1")?.sections[0]?.focus).toEqual(focus);
+  expect((await store.getGuide("pr-1"))?.requirements).toEqual([covered]);
+  expect((await store.getGuide("pr-1"))?.sections[0]?.focus).toEqual(focus);
 });
 
 test("the guide writer checks what the PR asks for against the diff", () => {

@@ -1,7 +1,8 @@
 import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { lineText, reanchor } from "./reanchor";
-import { createStore, reanchorAll, type Store } from "./store";
+import { createStore, reanchorDraft } from "./store";
+import { queueStore, type AsyncStore } from "./store-queue";
 
 // Count whole-diff parses.
 const parses = vi.hoisted(() => ({ count: 0 }));
@@ -83,25 +84,25 @@ const shiftedFile = (i: number, shift: number) => [
 ].join("\n");
 const shiftedPatch = (shift: number) => Array.from({ length: 300 }, (_, i) => shiftedFile(i, shift)).join("\n") + "\n";
 
-test("re-anchoring 100 stored comments on a 60k-line diff parses each diff once", () => {
+test("re-anchoring 100 stored comments on a 60k-line diff parses each diff once", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
   const before = shiftedPatch(0);
-  store.savePatch("pr-1", before);
-  for (let i = 0; i < 100; i++) store.upsertDraftComment("pr-1", { file: `f${i}.ts`, line: 10, side: "RIGHT", body: "x" });
+  await store.savePatch("pr-1", before);
+  for (let i = 0; i < 100; i++) await store.upsertDraftComment("pr-1", { file: `f${i}.ts`, line: 10, side: "RIGHT", body: "x" });
   // One range too, whose start is placed as well.
-  store.upsertDraftComment("pr-1", { file: "f200.ts", line: 20, startLine: 18, side: "RIGHT", body: "x" });
+  await store.upsertDraftComment("pr-1", { file: "f200.ts", line: 20, startLine: 18, side: "RIGHT", body: "x" });
   const after = shiftedPatch(2);
-  store.savePatch("pr-1", after);
+  await store.savePatch("pr-1", after);
   parses.count = 0;
-  const placements = reanchorAll(store, "pr-1", before, after);
+  const placements = await reanchorDraft(store, "pr-1", before, after);
   expect(placements.filter((p) => p.line === 12)).toHaveLength(100);
   expect(placements.find((p) => p.at.file === "f200.ts")).toMatchObject({ line: 22, startLine: 20 });
   expect(parses.count).toBeLessThanOrEqual(2);
 });
 
-test("re-anchoring 50 comments with no stored code on a 2,000-file diff parses each diff once", () => {
+test("re-anchoring 50 comments with no stored code on a 2,000-file diff parses each diff once", async () => {
   const out: string[] = [];
   for (let f = 0; f < 2000; f++) {
     out.push(`diff --git a/src/f${f}.ts b/src/f${f}.ts`, `--- a/src/f${f}.ts`, `+++ b/src/f${f}.ts`, "@@ -1,100 +1,100 @@");
@@ -109,9 +110,9 @@ test("re-anchoring 50 comments with no stored code on a 2,000-file diff parses e
   }
   const patch = out.join("\n") + "\n";
   const comments = Array.from({ length: 50 }, (_, i) => ({ file: `src/f${i * 7}.ts`, line: 3, side: "RIGHT" as const, body: "x" }));
-  const store = { getDraft: () => ({ comments }), draftCommentCode: () => undefined } as unknown as Store;
+  const store = { getDraft: async () => ({ comments }), draftCommentCode: async () => undefined } as unknown as Pick<AsyncStore, "getDraft" | "draftCommentCode">;
   parses.count = 0;
-  expect(reanchorAll(store, "k", patch, patch)).toHaveLength(50);
+  expect(await reanchorDraft(store, "k", patch, patch)).toHaveLength(50);
   expect(parses.count).toBeLessThanOrEqual(2);
 });
 
@@ -121,24 +122,24 @@ const added = (lines: string[]) => `diff --git a/a.ts b/a.ts\nnew file mode 1006
 const fn = added(["function a() {", "  if (x) {", "    y();", "  }", "}"]);
 const fnGrown = added(["function a() {", "  if (x) {", "    y();", "    z();", "  }", "}"]);
 
-function rebuilt(comment: { line: number; startLine?: number; body: string }) {
+async function rebuilt(comment: { line: number; startLine?: number; body: string }) {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-test", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, headSha: "sha1" });
-  store.savePatch("pr-test", fn);
-  store.upsertDraftComment("pr-test", { file: "a.ts", side: "RIGHT", ...comment });
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-test", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, headSha: "sha1" });
+  await store.savePatch("pr-test", fn);
+  await store.upsertDraftComment("pr-test", { file: "a.ts", side: "RIGHT", ...comment });
   // As rebuildReview does for a new commit.
-  store.savePatch("pr-test", fnGrown);
-  store.rebaseDraftComments("pr-test", reanchorAll(store, "pr-test", fn, fnGrown));
-  return { moved: store.getDraft("pr-test").comments[0], stale: store.staleDraftComments("pr-test").length > 0 };
+  await store.savePatch("pr-test", fnGrown);
+  await store.rebaseDraftComments("pr-test", await reanchorDraft(store, "pr-test", fn, fnGrown));
+  return { moved: (await store.getDraft("pr-test")).comments[0], stale: (await store.staleDraftComments("pr-test")).length > 0 };
 }
 
-test("a comment on a function's closing brace follows it, not an inner block's brace, after a rebuild", () => {
-  expect(rebuilt({ line: 5, body: "a() never returns a value." })).toMatchObject({ moved: { line: 6 }, stale: false });
+test("a comment on a function's closing brace follows it, not an inner block's brace, after a rebuild", async () => {
+  expect(await rebuilt({ line: 5, body: "a() never returns a value." })).toMatchObject({ moved: { line: 6 }, stale: false });
 });
 
-test("a suggestion over a whole function keeps covering the function after a rebuild", () => {
-  expect(rebuilt({ startLine: 1, line: 5, body: "```suggestion\nconst a = () => x && y();\n```" })).toMatchObject({ moved: { startLine: 1, line: 6 }, stale: false });
+test("a suggestion over a whole function keeps covering the function after a rebuild", async () => {
+  expect(await rebuilt({ startLine: 1, line: 5, body: "```suggestion\nconst a = () => x && y();\n```" })).toMatchObject({ moved: { startLine: 1, line: 6 }, stale: false });
 });
 
 test("code found more than once is the same line only where the lines around it are too", () => {

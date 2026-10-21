@@ -6,6 +6,7 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "../src/store";
 import { checkGuideInput } from "../src/guide";
 import { defaultPreferences } from "../src/preferences";
+import { queueStore } from "../src/store-queue";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // Each diff's new lines.
@@ -62,10 +63,10 @@ test("a stored chapter whose id was overview leaves the Overview reachable, and 
   expect(checkGuideInput({ ...guide, sections: guide.sections.map((s) => ({ ...s, risk: "low" })) }).ok).toBe(false);
   // The guide as the store reads it back for the review's bundle.
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = createStore(bb);
-  store.saveGuide("pr-42", guide);
+  const store = queueStore(createStore(bb));
+  await store.saveGuide("pr-42", guide);
   // A first open shows the Overview: the guide's intent, and no chapter's code.
-  const slot = await renderWorkspace(store.getGuide("pr-42"));
+  const slot = await renderWorkspace(await store.getGuide("pr-42"));
   await slot.findByRole("button", { name: /^Overview/ });
   await new Promise((resolve) => setTimeout(resolve, 300));
   expect(currentChapter(slot)).toBeUndefined();

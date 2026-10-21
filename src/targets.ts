@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { parsePrLink } from "../lib/pr-link";
-import type { Store } from "./store";
+import type { AsyncStore } from "./store-queue";
 
 export type ReviewTarget =
   | { kind: "pr"; number: number; repo?: string }
@@ -30,9 +30,11 @@ export function targetKey(t: ReviewTarget, scope?: { projectId: string; cwd: str
  * The key of the saved review of a PR: its own, else, for a renamed or transferred repository, the one the sync keeps
  * under the old name with the PR's new link. The PR's own key when neither is saved.
  */
-export function prReviewKey(store: Pick<Store, "getReview" | "listReviews">, pr: { repo: string; number: number }): string {
-  const key = targetKey({ kind: "pr", ...pr });
-  if (store.getReview(key)) return key;
-  const url = `https://github.com/${pr.repo.toLowerCase()}/pull/${pr.number}`;
-  return store.listReviews().find((review) => review.kind === "pr" && review.url && parsePrLink(review.url)?.url === url)?.targetKey ?? key;
+export async function prReviewKey(store: Pick<AsyncStore, "getReview" | "listReviews" | "exclusive">, pr: { repo: string; number: number }): Promise<string> {
+  return store.exclusive(async (tx) => {
+    const key = targetKey({ kind: "pr", ...pr });
+    if (await tx.getReview(key)) return key;
+    const url = `https://github.com/${pr.repo.toLowerCase()}/pull/${pr.number}`;
+    return (await tx.listReviews()).find((review) => review.kind === "pr" && review.url && parsePrLink(review.url)?.url === url)?.targetKey ?? key;
+  });
 }

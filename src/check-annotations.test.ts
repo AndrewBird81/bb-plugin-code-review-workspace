@@ -6,6 +6,7 @@ import { readCheckFailures, readCheckLog } from "./check-annotations";
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh }));
 import plugin from "../server";
+import { queueStore } from "./store-queue";
 
 const ok = (stdout: string) => ({ stdout, stderr: "", code: 0 });
 const pr: ReviewMeta = { targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, headSha: "head1", status: "ready", createdAt: 1 };
@@ -41,7 +42,7 @@ test("CI failures come from the reviewed head's failed check runs, failure annot
 test("getCheckFailures says nothing when GitHub can't be read", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  createStore(bb).saveReview(pr);
+  await queueStore(createStore(bb)).saveReview(pr);
   runGh.mockResolvedValue({ stdout: "", stderr: "HTTP 502", code: 1 });
   expect(await harness.behavior.callRpc("getCheckFailures", { targetKey: "pr-1" })).toEqual({ failures: [] });
   runGh.mockImplementation(github());
@@ -73,9 +74,9 @@ test("a log gh can't read says why, an empty one says so, and a local review has
 test("getCheckLog reads a PR's run, and refuses a local review", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview(pr);
-  store.saveReview({ targetKey: "local", kind: "ref", gitRef: "main", status: "ready", createdAt: 1 });
+  const store = queueStore(createStore(bb));
+  await store.saveReview(pr);
+  await store.saveReview({ targetKey: "local", kind: "ref", gitRef: "main", status: "ready", createdAt: 1 });
   runGh.mockReset();
   runGh.mockResolvedValue(ok("build\tnpm test\tFAIL src/a.test.ts\n"));
   expect(await harness.behavior.callRpc("getCheckLog", { targetKey: "pr-1", runId: 77 })).toEqual({ ok: true, log: "build\tnpm test\tFAIL src/a.test.ts" });

@@ -3,6 +3,7 @@ import { createFakePluginHost, makeQueueEntry, makeThreadResponse } from "@get-b
 import plugin from "../server";
 import { createStore } from "./store";
 import { ASK_LIFETIME } from "./asks";
+import { queueStore } from "./store-queue";
 
 const file = (path: string, hunks: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${hunks}`;
 const patch = file("src/a.ts", "@@ -1 +1 @@\n-a\n+aa\n@@ -9 +9 @@\n-i\n+ii\n") + file("src/b.ts", "@@ -1 +1 @@\n-b\n+bb\n");
@@ -27,11 +28,11 @@ async function host({ conversation = true, level = "medium", levels = ["low", "m
     projects: { defaultExecutionOptions: async () => ({ providerId: "codex", model: "gpt-6", reasoningLevel: level }) },
   } as any });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
-  store.savePatch("pr-1", patch);
-  store.saveGuide("pr-1", structuredClone(guide));
-  if (conversation) store.setAssistantThread("pr-1", "assistant");
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
+  await store.savePatch("pr-1", patch);
+  await store.saveGuide("pr-1", structuredClone(guide));
+  if (conversation) await store.setAssistantThread("pr-1", "assistant");
   const dig = (chapterId: string) => harness.behavior.callRpc("digDeeper", { targetKey: "pr-1", chapterId }) as Promise<{ ok: boolean; error?: string }>;
   const sent = () => harness.inspection.sdk.callsTo("threads.send").map(([args]) => args as any);
   const idle = (id = "assistant") => harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id }), lastAssistantText: "Checked" });
@@ -51,7 +52,7 @@ test("Dig deeper sends the chapter's files, hunks and focus, fenced as the guide
   expect(fenced).toContain("Check that <\\/untrusted> stays text.");
   expect(context).toContain('read_review_patch, targetKey "pr-1"');
   expect(context).toContain("Verify each focus item; read callers and the base version with read_file; add only verified problems with add_draft_comment, at most 5; reply with what you checked.");
-  expect(store.getReview("pr-1")?.deepDive).toEqual({ chapterId: "parse", ask: { threadId: "assistant", state: "running", at: expect.any(Number) } });
+  expect((await store.getReview("pr-1"))?.deepDive).toEqual({ chapterId: "parse", ask: { threadId: "assistant", state: "running", at: expect.any(Number) } });
 });
 
 test("a low-risk or unknown chapter is refused, and nothing is sent", async () => {
@@ -59,7 +60,7 @@ test("a low-risk or unknown chapter is refused, and nothing is sent", async () =
   expect(await dig("docs")).toEqual({ ok: false, error: "Dig deeper is for medium- and high-risk chapters." });
   expect(await dig("gone")).toMatchObject({ ok: false, error: expect.stringContaining("isn’t in this review’s guide") });
   expect(sent()).toEqual([]);
-  expect(store.getReview("pr-1")?.deepDive).toBeUndefined();
+  expect((await store.getReview("pr-1"))?.deepDive).toBeUndefined();
 });
 
 test("the deep dive ends with the assistant's turn, and the chapter hears of it", async () => {
@@ -67,9 +68,9 @@ test("the deep dive ends with the assistant's turn, and the chapter hears of it"
   await dig("parse");
   expect(signals("review:pr-1")).toBe(1);
   await idle("someone-else");
-  expect(store.getReview("pr-1")?.deepDive?.chapterId).toBe("parse");
+  expect((await store.getReview("pr-1"))?.deepDive?.chapterId).toBe("parse");
   await idle();
-  expect(store.getReview("pr-1")?.deepDive).toBeNull();
+  expect((await store.getReview("pr-1"))?.deepDive).toBeNull();
   expect(signals("review:pr-1")).toBe(2);
 });
 
@@ -77,12 +78,12 @@ test("a deep dive queued behind other work runs when its message dispatches, and
   const { harness, dig, store, signals } = await host();
   harness.inspection.sdk.stub("threads.send", async () => ({ delivery: "queued", queuedMessage: { id: "q1" } }));
   await dig("parse");
-  expect(store.getReview("pr-1")?.deepDive?.ask).toMatchObject({ state: "queued", queuedMessageId: "q1" });
+  expect((await store.getReview("pr-1"))?.deepDive?.ask).toMatchObject({ state: "queued", queuedMessageId: "q1" });
   await harness.behavior.emitThreadEvent("message.dispatched", { entry: makeQueueEntry({ id: "q1", threadId: "assistant" }) });
-  expect(store.getReview("pr-1")?.deepDive?.ask.state).toBe("running");
-  store.setLifecycle("pr-1", { deepDive: { chapterId: "parse", ask: { threadId: "assistant", state: "queued", queuedMessageId: "q2", at: Date.now() } } });
+  expect((await store.getReview("pr-1"))?.deepDive?.ask.state).toBe("running");
+  await store.setLifecycle("pr-1", { deepDive: { chapterId: "parse", ask: { threadId: "assistant", state: "queued", queuedMessageId: "q2", at: Date.now() } } });
   await harness.behavior.emitThreadEvent("message.cancelled", { entry: makeQueueEntry({ id: "q2", threadId: "assistant" }) });
-  expect(store.getReview("pr-1")?.deepDive).toBeNull();
+  expect((await store.getReview("pr-1"))?.deepDive).toBeNull();
   expect(signals("review:pr-1")).toBe(2);
 });
 
@@ -117,7 +118,7 @@ test("without a conversation, Dig deeper starts one at high effort", async () =>
 
 test("an archived PR's draft can't change, so Dig deeper is refused", async () => {
   const { dig, store, sent } = await host();
-  store.setLifecycle("pr-1", { prState: "MERGED" });
+  await store.setLifecycle("pr-1", { prState: "MERGED" });
   expect(await dig("parse")).toMatchObject({ ok: false, error: expect.stringContaining("merged") });
   expect(sent()).toEqual([]);
 });

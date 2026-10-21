@@ -12,6 +12,7 @@ const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh }));
 import plugin from "../server";
 import { toolText } from "./fake-host.test-support";
+import { queueStore } from "./store-queue";
 
 const ok = (stdout: string) => ({ stdout, stderr: "", code: 0 });
 const pr: ReviewMeta = { targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "head1", status: "ready", createdAt: 1 };
@@ -97,9 +98,9 @@ test("a local review's file is read with git on either side of its range, or fro
 test("getFileContents reads a file of the review's diff", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ ...pr, headSha: "head6" });
-  store.savePatch("pr-1", patch);
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ ...pr, headSha: "head6" });
+  await store.savePatch("pr-1", patch);
   runGh.mockImplementation(github({ "src/a.ts?ref=base1": oldText, "src/a.ts?ref=head6": newText }));
   expect(await harness.behavior.callRpc("getFileContents", { targetKey: "pr-1", file: "src/a.ts" })).toEqual({ ok: true, old: oldText, new: newText });
   expect(await harness.behavior.callRpc("getFileContents", { targetKey: "pr-1", file: "src/b.ts" })).toEqual({ ok: false, error: "src/b.ts isn’t in this review’s diff." });
@@ -152,9 +153,9 @@ test("a local review reads .gitattributes at the start of its range", async () =
 test("getGeneratedFiles lists the review's changed files its repo declares generated", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ ...pr, headSha: "head9" });
-  store.savePatch("pr-1", patch);
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ ...pr, headSha: "head9" });
+  await store.savePatch("pr-1", patch);
   runGh.mockImplementation(github({ ".gitattributes?ref=base9": "src/a.ts linguist-generated\n" }, "base9"));
   expect(await harness.behavior.callRpc("getGeneratedFiles", { targetKey: "pr-1" })).toEqual({ files: ["src/a.ts"] });
 });
@@ -162,10 +163,10 @@ test("getGeneratedFiles lists the review's changed files its repo declares gener
 test("list_review_files calls the files the repo declares generated what they are", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = createStore(bb);
-  store.saveReview({ ...pr, headSha: "head10" });
-  store.savePatch("pr-1", patch);
-  store.setAssistantThread("pr-1", "thread-test");
+  const store = queueStore(createStore(bb));
+  await store.saveReview({ ...pr, headSha: "head10" });
+  await store.savePatch("pr-1", patch);
+  await store.setAssistantThread("pr-1", "thread-test");
   runGh.mockImplementation(github({ ".gitattributes?ref=base10": "src/a.ts linguist-generated\n" }, "base10"));
   const out = await harness.behavior.callAgentTool("list_review_files", { targetKey: "pr-1" });
   expect(toolText(out)).toMatch(/^src\/a\.ts · modified · \+1 −1 · \d+ chars · generated$/m);
