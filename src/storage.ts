@@ -44,8 +44,8 @@ export type StorageSettings = Awaited<ReturnType<ReturnType<typeof defineStorage
 export interface StorageStatus {
   /** storageBackend, as the settings have it. */
   readonly configured: string;
-  /** What storage:owner names: the backend holding the reviews. */
-  readonly owner: string;
+  /** What storage:owner names: the backend holding the reviews. The storage CLI's migrate and export-sqlite move it. */
+  owner: string;
   /** maintenance: only the CLI serves. opening: Postgres is being opened, at activation. */
   state: "maintenance" | "opening" | "serving";
   /** Why it isn't serving: maintenance's reason, or opening's latest failure. */
@@ -58,7 +58,7 @@ export type StorageChoice =
   | { kind: "postgres"; status: StorageStatus; settings: StorageSettings; pg: PgSql; schema: string; redact(text: string): string };
 
 /** pgSql's options from the settings, or a plain Error naming the setting that's missing or wrong. */
-function pgOptions(settings: StorageSettings, onConnectionLost?: PgOptions["onConnectionLost"]): PgOptions {
+export function pgOptions(settings: StorageSettings, onConnectionLost?: PgOptions["onConnectionLost"]): PgOptions {
   if (!settings.postgresUrl) throw new Error("postgresUrl is not set: postgres://user@host:port/database");
   if (!settings.postgresPassword) throw new Error("postgresPassword is not set");
   return {
@@ -68,7 +68,7 @@ function pgOptions(settings: StorageSettings, onConnectionLost?: PgOptions["onCo
 }
 
 /** `text` without the Postgres URL or password, which no log or status shows. */
-function redactor(settings: StorageSettings) {
+export function redactor(settings: StorageSettings) {
   const secrets = [settings.postgresUrl, settings.postgresPassword].filter((secret): secret is string => !!secret);
   return (text: string) => secrets.reduce((redacted, secret) => redacted.replaceAll(secret, "[redacted]"), text);
 }
@@ -96,7 +96,7 @@ export async function chooseStorage(bb: BbPluginApi): Promise<StorageChoice> {
   if (settings.storageBackend !== owner) {
     return maintenance(owner === "sqlite"
       ? `Code Review Workspace's storage is set to Postgres, but its reviews are in SQLite. Run bb review storage migrate to copy them to Postgres, then ${reload}. To stay on SQLite, set storageBackend back to sqlite and reload.`
-      : `Code Review Workspace's storage is set to SQLite, but its reviews are in Postgres. Set storageBackend back to postgres and reload (${reload}), or run bb review storage export-sqlite to copy them to SQLite first.`);
+      : `Code Review Workspace's storage is set to SQLite, but its reviews are in Postgres. Set storageBackend back to postgres and reload (${reload}), or run bb review storage export-sqlite --replace-data-db to copy them to SQLite first.`);
   }
   if (owner === "sqlite") return { kind: "sqlite", status: { ...status, state: "serving" }, settings };
   const redact = redactor(settings);
@@ -124,7 +124,7 @@ export function unreachable(error: unknown): boolean {
   return error.message === "timeout expired" || error.message === "Connection terminated unexpectedly";
 }
 
-function describe(error: unknown): string {
+export function describe(error: unknown): string {
   if (error instanceof pg.DatabaseError) return `Postgres answered: ${error.message} (SQLSTATE ${error.code})`;
   if (error instanceof PgWriterLockError) return `${error.message}. Stop the other BB using this schema, or give this one a schema of its own (postgresSchema)`;
   if (error instanceof AggregateError && error.errors.length) return error.errors.map(describe).join("; ");

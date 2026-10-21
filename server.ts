@@ -74,7 +74,7 @@ import { FORMER_PLUGIN_ID } from "./src/former-install";
 import { queueStore, type AsyncStore, type QueuedStore } from "./src/store-queue";
 import { createConfigureView } from "./src/configure-view";
 import { chooseStorage, openPostgres, unlessAborted } from "./src/storage";
-import { runStorageCommand } from "./src/storage-cli";
+import { createStorageCommand } from "./src/storage-cli";
 import { migratePg } from "./src/db/pg-migrations";
 
 export { rpcContract } from "./src/rpc-contract";
@@ -100,6 +100,7 @@ export default async function plugin(bb: BbPluginApi) {
   const serving = new Promise<Served>((resolve) => { serve = (opened) => { served = opened; resolve(opened); }; });
   // bb.agents.configure must answer synchronously, every time: until the store is open, it gives no thread anything.
   bb.agents.configure((context) => served?.configure(context) ?? { tools: [], skills: [] });
+  const storageCommand = createStorageCommand(bb, storage);
   bb.cli.register({
     name: "review",
     summary: "Open a review of a GitHub PR or local git ref in Code Review Workspace, or change its local draft",
@@ -112,7 +113,7 @@ export default async function plugin(bb: BbPluginApi) {
     ],
     async run(argv, ctx) {
       // Storage answers in maintenance too, where the reviews move between backends.
-      if (argv[0] === "storage") return runStorageCommand(storage.status, argv.slice(1));
+      if (argv[0] === "storage") return storageCommand(argv.slice(1), ctx);
       if (served) return served.run(argv, ctx);
       return { exitCode: 1, stderr: storage.status.problem ?? "Code Review Workspace is opening its Postgres storage. Try again in a moment." };
     },

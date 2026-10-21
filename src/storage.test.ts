@@ -129,7 +129,7 @@ describe("maintenance: only the CLI, until the settings and the owner agree", ()
   const cases: Array<{ name: string; settings: Record<string, string>; owner?: unknown; says: string }> = [
     { name: "Postgres chosen, reviews never moved", settings: postgres(5432), says: "Run bb review storage migrate to copy them to Postgres, then bb plugin reload code-review-workspace" },
     { name: "Postgres chosen, reviews in SQLite", settings: postgres(5432), owner: "sqlite", says: "its reviews are in SQLite" },
-    { name: "SQLite chosen, reviews in Postgres", settings: { storageBackend: "sqlite" }, owner: "postgres", says: "or run bb review storage export-sqlite to copy them to SQLite first" },
+    { name: "SQLite chosen, reviews in Postgres", settings: { storageBackend: "sqlite" }, owner: "postgres", says: "or run bb review storage export-sqlite --replace-data-db to copy them to SQLite first" },
     { name: "an owner this version doesn't know", settings: {}, owner: "mysql", says: "marked as kept in mysql (storage:owner), which this version doesn't know" },
     { name: "an owner that isn't a name", settings: {}, owner: { backend: "sqlite" }, says: "marked as kept in {\"backend\":\"sqlite\"}" },
     { name: "Postgres without a URL", settings: { storageBackend: "postgres", postgresPassword: PASSWORD }, owner: "postgres", says: "can't use Postgres: postgresUrl is not set" },

@@ -311,10 +311,11 @@ export type SummaryChange = Partial<Pick<Draft, "verdict" | "body" | "bodyAuthor
  */
 export type PreviousState = { body: string; author?: "agent"; severity?: Severity; evidence?: string; introduced?: false; chapterId?: string; startLine?: number; startSide?: "LEFT" | "RIGHT"; startCode?: string; relined?: true; written?: Draft["written"]; suggestedVerdict?: Verdict | null; suggested?: Verdict } | null;
 
-export function createStore(bb: BbPluginApi): Store {
-  const db = bb.storage.database();
-  importFormerInstall(bb, db);
-  bb.storage.migrate(db, [
+/**
+ * The statements bb.storage.migrate applies to the plugin's SQLite database, each at its index for good, and mirrored
+ * by src/db/pg-migrations.ts. _bb_migrations records each one's SHA-256, so its text stays as it is, indentation and all.
+ */
+export const SQLITE_MIGRATIONS: readonly string[] = [
     `CREATE TABLE IF NOT EXISTS reviews (
       target_key TEXT PRIMARY KEY, kind TEXT NOT NULL, number INTEGER, repo TEXT,
       title TEXT, author TEXT, base TEXT, head TEXT, git_ref TEXT, url TEXT,
@@ -389,8 +390,18 @@ export function createStore(bb: BbPluginApi): Store {
     `ALTER TABLE review_preferences ADD COLUMN knobs TEXT`,
     // Why the reviewer removed an agent's comment, and their line about it, as JSON (lib/removal-reasons.ts).
     `ALTER TABLE agent_comment_changes ADD COLUMN reason TEXT`,
-  ]);
-  return storeOn(sqliteSql(db));
+];
+
+/** The plugin's SQLite database, a former install brought in and SQLITE_MIGRATIONS applied, as the Store opens it. */
+export function migrateSqlite(bb: BbPluginApi) {
+  const db = bb.storage.database();
+  importFormerInstall(bb, db);
+  bb.storage.migrate(db, [...SQLITE_MIGRATIONS]);
+  return db;
+}
+
+export function createStore(bb: BbPluginApi): Store {
+  return storeOn(sqliteSql(migrateSqlite(bb)));
 }
 
 /** The Store over `sql`, on the tables the migrations above make, or on Postgres those of src/db/pg-migrations.ts. */
