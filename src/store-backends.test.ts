@@ -203,10 +203,11 @@ function randomCall(r: Rng, made: Made): Call {
     }
     default: {
       if (r.bool(0.5)) {
-        const text = r.pick(TEXTS), revision = r.int(0, 3);
+        // Mostly at the saved revision; otherwise a stale one, which is refused.
+        const text = r.pick(TEXTS), stale = r.bool(0.2);
         return r.bool()
-          ? call("saveReviewerNotes", (s) => s.saveReviewerNotes(k, text, revision))
-          : call("savePreferences", async (s) => s.savePreferences({ ...defaultPreferences, assistantInstructions: text.slice(0, 2000) }, (await s.getPreferences()).revision));
+          ? call("saveReviewerNotes", async (s) => s.saveReviewerNotes(k, text, (await s.getReviewerNotes(k)).revision - (stale ? 1 : 0)))
+          : call("savePreferences", async (s) => s.savePreferences({ ...defaultPreferences, assistantInstructions: text.slice(0, 2000) }, (await s.getPreferences()).revision - (stale ? 1 : 0)));
       }
       const outcomes = FILES.filter(() => r.bool(0.3)).map((file) => ({ repo: "acme/web", file, outcome: r.pick(["kept", "edited", "removed"] as const), body: r.pick(TEXTS), edited: r.pick([null, "Edited"]) }));
       return call("recordAgentOutcomes", (s) => s.recordAgentOutcomes(k, outcomes));
