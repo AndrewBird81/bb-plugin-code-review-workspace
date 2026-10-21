@@ -162,6 +162,20 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
         .rejects.toThrow(/IP: 127\.0\.0\.1 is not in the cert's list/);
     });
 
+    test("a schema whose name needs quoting, with a space, a quote and a backslash, is the search_path as written", async () => {
+      const schema = `Crw ${randomBytes(3).toString("hex")} "q" \\`;
+      await admin.query(`CREATE SCHEMA ${pg.escapeIdentifier(schema)}`);
+      try {
+        const sql = connect({ schema });
+        await sql.run(`CREATE TABLE here (id INTEGER)`);
+        expect(await sql.get(`SELECT current_schema() AS schema`)).toEqual({ schema });
+        expect((await admin.query(`SELECT 1 FROM pg_tables WHERE schemaname=$1 AND tablename='here'`, [schema])).rowCount).toBe(1);
+        await sql.end();
+      } finally {
+        await admin.query(`DROP SCHEMA ${pg.escapeIdentifier(schema)} CASCADE`);
+      }
+    });
+
     test("disable connects without TLS", async () => {
       const sql = connect({ schema: await newSchema(), ssl: "disable" });
       expect(await sql.get(`SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()`)).toEqual({ ssl: false });
