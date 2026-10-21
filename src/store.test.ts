@@ -315,6 +315,37 @@ test("a failed or interrupted rebuild puts the previous guide and diff back", as
   expect(await s.restoreGuide("pr-1")).toBe(false);
 });
 
+test("an interruption whose second restore fails puts nothing back, the first restore's savepoint going with the whole transaction", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const s = queueStore(createStore(bb));
+  for (const k of ["pr-1", "pr-2"]) {
+    await s.saveReview({ targetKey: k, kind: "pr", number: 1, status: "ready", createdAt: 1, headSha: "sha1" });
+    await s.savePatch(k, "old patch");
+    await s.saveGuide(k, { title: "Old", intent: "I", sections: [], unplacedFiles: [] });
+    await s.backupGuide(k);
+    await s.savePatch(k, "new patch");
+    await s.saveReview({ ...(await s.getReview(k))!, headSha: "sha2", status: "generating" });
+    await s.beginGeneration(k);
+  }
+  const db = bb.storage.database();
+  const prepare = db.prepare.bind(db);
+  let restores = 0;
+  const failing = vi.spyOn(db, "prepare").mockImplementation(((text: string) => {
+    if (text.startsWith("UPDATE reviews SET head_sha=?") && ++restores === 2) throw new Error("disk full");
+    return prepare(text);
+  }) as typeof db.prepare);
+  await expect(s.interruptGenerations()).rejects.toThrow("disk full");
+  failing.mockRestore();
+  expect(restores).toBe(2);
+  for (const k of ["pr-1", "pr-2"]) {
+    expect([await s.patch(k), await s.getGuide(k), await s.guideBackupHead(k)]).toEqual(["new patch", null, "sha1"]);
+    expect(await s.getReview(k)).toMatchObject({ headSha: "sha2", status: "generating" });
+  }
+  // Tried again, it restores both.
+  expect((await s.interruptGenerations()).map((g) => g.targetKey)).toEqual(["pr-1", "pr-2"]);
+  expect(await s.getReview("pr-2")).toMatchObject({ headSha: "sha1", status: "error" });
+});
+
 test("restoring a guide moves unsent comments back to the restored diff, and never replaces a submitted guide", async () => {
   const s = store();
   const p1 = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,1 +1,2 @@\n context\n+the line\n";
