@@ -1,13 +1,12 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import { testStore } from "./test-store.test-support";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 
 import plugin from "../server";
-import { createStore } from "./store";
 import { toolFailed, toolText } from "./fake-host.test-support";
-import { queueStore } from "./store-queue";
 
 test("read_pr_context reads the context of the guide writer's or the assistant's review", async () => {
   runGh.mockImplementation(async (args: string[]) => args[1] === "graphql"
@@ -16,7 +15,7 @@ test("read_pr_context reads the context of the guide writer's or the assistant's
   const titles: Record<string, string> = { writer: "Generate guide: pr-1", stranger: "Something else" };
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { get: async ({ threadId }: { threadId: string }) => ({ title: titles[threadId] ?? null }) } } as any });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "abc", status: "generating", createdAt: 1 });
   await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
   await store.setReviewContext("pr-1", "Implements LIN-42.");
@@ -37,7 +36,7 @@ test("read_pr_context tells the agent not to follow an untrusted author's ticket
     : { stdout: "[]", stderr: "", code: 0 });
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "abc", status: "ready", createdAt: 1 });
   await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
   await store.setAssistantThread("pr-1", "assistant");
@@ -56,7 +55,7 @@ test("read_pr_context judges the author's trust from its own read until the sync
     : { stdout: "[]", stderr: "", code: 0 });
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "abc", status: "ready", createdAt: 1 });
   await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n");
   await store.setAssistantThread("pr-1", "assistant");

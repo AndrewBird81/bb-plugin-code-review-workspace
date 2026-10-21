@@ -1,13 +1,12 @@
 import { test, expect } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 test("the list carries each review's lifecycle and turn, without its review summaries, and the sync's health", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1 });
   await store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, repo: "acme/web", status: "ready", createdAt: 2 });
   await store.setLifecycle("pr-1", { submittedVerdict: "APPROVE", submittedAt: 5, reviewBodies: [{ state: "APPROVED", at: 5, body: "Ship it" }] });
@@ -22,7 +21,7 @@ test("the list carries each review's lifecycle and turn, without its review summ
 test("reviews leave the server with their place in a stack, in the list and alone", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", base: "main", head: "feat-a", status: "ready", createdAt: 1 });
   await store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, repo: "acme/web", base: "feat-a", head: "feat-b", status: "tracked", createdAt: 2 });
   const { reviews } = await harness.behavior.callRpc("listReviews", null) as any;
@@ -36,7 +35,7 @@ test("bb review list gives a renamed review's name beside its title, quoted, and
   const { runListCommand } = await import("./list-command");
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", title: "Expire cache entries", status: "ready", createdAt: 1 });
   await store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, repo: "acme/web", title: "Fix login", status: "ready", createdAt: 2 });
   await store.setLifecycle("pr-1", { name: "Cache expiry" });
@@ -53,7 +52,7 @@ test("bb review list keeps a stack's reviews together, bottom first, where its f
   const { runListCommand } = await import("./list-command");
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", base: "main", head: "feat-a", status: "ready", createdAt: 1 });
   await store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, repo: "acme/web", base: "main", head: "other", status: "ready", createdAt: 2 });
   await store.saveReview({ targetKey: "pr-3", kind: "pr", number: 3, repo: "acme/web", base: "feat-a", head: "feat-b", status: "ready", createdAt: 3 });

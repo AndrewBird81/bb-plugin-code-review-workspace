@@ -3,16 +3,16 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore, type ReviewMeta } from "./store";
+import type { ReviewMeta } from "./store";
 import { runGit } from "./gh";
 import { splitPatchByFile } from "./patch";
 import { readFileContents, readGeneratedFiles } from "./file-contents";
+import { testStore } from "./test-store.test-support";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh }));
 import plugin from "../server";
 import { toolText } from "./fake-host.test-support";
-import { queueStore } from "./store-queue";
 
 const ok = (stdout: string) => ({ stdout, stderr: "", code: 0 });
 const pr: ReviewMeta = { targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "head1", status: "ready", createdAt: 1 };
@@ -98,7 +98,7 @@ test("a local review's file is read with git on either side of its range, or fro
 test("getFileContents reads a file of the review's diff", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ ...pr, headSha: "head6" });
   await store.savePatch("pr-1", patch);
   runGh.mockImplementation(github({ "src/a.ts?ref=base1": oldText, "src/a.ts?ref=head6": newText }));
@@ -153,7 +153,7 @@ test("a local review reads .gitattributes at the start of its range", async () =
 test("getGeneratedFiles lists the review's changed files its repo declares generated", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ ...pr, headSha: "head9" });
   await store.savePatch("pr-1", patch);
   runGh.mockImplementation(github({ ".gitattributes?ref=base9": "src/a.ts linguist-generated\n" }, "base9"));
@@ -163,7 +163,7 @@ test("getGeneratedFiles lists the review's changed files its repo declares gener
 test("list_review_files calls the files the repo declares generated what they are", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ ...pr, headSha: "head10" });
   await store.savePatch("pr-1", patch);
   await store.setAssistantThread("pr-1", "thread-test");

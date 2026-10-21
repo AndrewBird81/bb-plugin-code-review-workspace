@@ -1,12 +1,11 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import { testStore } from "./test-store.test-support";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 
 import plugin from "../server";
-import { createStore } from "./store";
-import { queueStore } from "./store-queue";
 
 async function setup() {
   runGh.mockReset();
@@ -15,7 +14,7 @@ async function setup() {
   runGh.mockImplementation(async (args: string[]) => signedIn(args) ?? { code: 0, stdout: "{}", stderr: "" });
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
   const call = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
   // The channels published from now on.

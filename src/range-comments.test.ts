@@ -1,13 +1,13 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore, reanchorDraft } from "./store";
+import { reanchorDraft } from "./store";
 import { createReviewSubmitter } from "./submit-review";
 import { invalidComments, orderRange, rangeProblem } from "./review-positions";
 import { toGithubReviewPayload, type DraftComment } from "./draft";
 import { runGh } from "./gh";
 import { addComment, undoChange } from "./draft-comments";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -57,7 +57,7 @@ test("the GitHub payload sends a range's start line and side; single-line commen
 
 async function storeWith(text = patch) {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, headSha: "sha1" });
   await store.savePatch("pr-1", text);
   return store;
@@ -102,7 +102,7 @@ test("a re-review moves both ends of a range; one whose either end is gone is on
 async function host() {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   await store.savePatch("pr-1", patch);
   await store.setAssistantThread("pr-1", "assistant");

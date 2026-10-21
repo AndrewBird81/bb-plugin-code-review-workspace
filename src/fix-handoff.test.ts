@@ -1,14 +1,14 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import { testStore } from "./test-store.test-support";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 
-import { createStore } from "./store";
 import { fixMessage, sendToSourceThread, sourceThread, startFixThread } from "./fix-handoff";
 import plugin from "../server";
 import { defaultPreferences } from "./preferences";
-import { queueStore, type AsyncStore } from "./store-queue";
+import type { AsyncStore } from "./store-queue";
 
 const PATCH = [
   "diff --git a/src/a.ts b/src/a.ts", "--- a/src/a.ts", "+++ b/src/a.ts", "@@ -1,3 +1,4 @@",
@@ -20,7 +20,7 @@ function host(spawn: (args: any) => Promise<unknown> = async () => ({ id: "fixer
     threads: { spawn },
     projects: { defaultExecutionOptions: async () => projectDefaults },
   } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   return { bb, harness, store, spawns: () => harness.inspection.sdk.callsTo("threads.spawn").map((call) => call[0] as any) };
 }
 
@@ -158,7 +158,7 @@ function sendHost(threads: Record<string, { title: string | null; archivedAt?: n
     },
     send: async () => delivery === "queued" ? { ok: true, delivery, queuedMessage: { id: "q1" } } : { ok: true, delivery },
   } } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   return { bb, harness, store, sends: () => harness.inspection.sdk.callsTo("threads.send").map((call) => call[0] as any) };
 }
 

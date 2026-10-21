@@ -1,19 +1,18 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import { testStore } from "./test-store.test-support";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 
-import { createStore } from "./store";
 import { startAutomaticReview } from "./agent";
-import { queueStore } from "./store-queue";
 
 function host() {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: { spawn: async () => ({ id: "worker" }), get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }) },
     projects: { defaultExecutionOptions: async () => ({ providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" }) },
   } as any });
-  return { bb, harness, store: queueStore(createStore(bb)) };
+  return { bb, harness, store: testStore(bb) };
 }
 const input = (harness: ReturnType<typeof host>["harness"]) => (harness.inspection.sdk.callsTo("threads.spawn")[0][0] as any).input;
 

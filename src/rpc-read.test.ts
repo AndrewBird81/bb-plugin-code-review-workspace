@@ -1,13 +1,12 @@
 import { test, expect } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 test("seed then read", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1 });
   await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n");
   const list = await harness.behavior.callRpc("listReviews", null);

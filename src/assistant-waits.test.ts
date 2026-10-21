@@ -1,9 +1,8 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import { getConversation } from "./agent";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn(async () => ({ code: 1, stdout: "", stderr: "" })) }));
 
@@ -16,7 +15,7 @@ async function waiting(thread: Parameters<typeof makeThreadResponse>[0] | Error)
     archive: async () => ({}),
     queuedMessages: { list: async () => [] },
   }, projects: { defaultExecutionOptions: async () => null } } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
   await store.setAssistantThread("pr-1", "assistant");
   await store.addDiscussionMessage("pr-1", at, "reviewer", "Why?");

@@ -1,4 +1,5 @@
 import { test, expect, vi } from "vitest";
+import { testStore } from "./test-store.test-support";
 
 // `submit` must exist before the `vi.mock` factory below runs (module
 // evaluation for "../server" — and transitively "./gh" — happens before any
@@ -21,8 +22,7 @@ vi.mock("./gh", async (importOriginal) => {
 
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
-import { queueStore, type AsyncStore } from "./store-queue";
+import type { AsyncStore } from "./store-queue";
 
 /** What the reviewer's page shows of the draft, which submitReview takes to check it still matches. */
 const shown = async (store: AsyncStore, targetKey: string) => {
@@ -33,7 +33,7 @@ const shown = async (store: AsyncStore, targetKey: string) => {
 test("draft comment then submit builds a batched review", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
   const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-1" }) as any;
@@ -55,7 +55,7 @@ test("draft comment then submit builds a batched review", async () => {
 test("submitting a review clears what didn't run on its own", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
   await store.setLifecycle("pr-1", { skippedRun: { run: "review", head: "sha123", at: 1 } });
@@ -69,7 +69,7 @@ test("submitting a review clears what didn't run on its own", async () => {
 test("draft reads and writes report comments drafted against an older diff", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.savePatch("pr-2", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
   const revisionOf = async () => ((await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-2" })) as any).revision;
@@ -90,7 +90,7 @@ test("draft reads and writes report comments drafted against an older diff", asy
 test("saveDraftComment refuses a line outside the current diff, naming it", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-3", kind: "pr", number: 3, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.savePatch("pr-3", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
   const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-3" }) as any;
@@ -104,7 +104,7 @@ test("saveDraftComment refuses a line outside the current diff, naming it", asyn
 test("while the guide rebuilds, the summary and verdict save, and a comment's save says why it waits", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-4", kind: "pr", number: 4, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.savePatch("pr-4", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
   const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-4" }) as any;
@@ -120,7 +120,7 @@ test("while the guide rebuilds, the summary and verdict save, and a comment's sa
 test("the review bundle says whether the signed-in account wrote the PR", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "mine", kind: "pr", number: 5, repo: "acme/web", author: "Casey", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.saveReview({ targetKey: "theirs", kind: "pr", number: 6, repo: "acme/web", author: "dana", headSha: "sha123", status: "ready", createdAt: 1 });
   expect((await harness.behavior.callRpc("getReviewBundle", { targetKey: "mine" }) as any).review.ownPr).toBe(true);
@@ -130,7 +130,7 @@ test("the review bundle says whether the signed-in account wrote the PR", async 
 test("the list says Your PR for a PR the signed-in account wrote before the sync has read it", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "mine", kind: "pr", number: 5, repo: "acme/web", author: "Casey", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.saveReview({ targetKey: "theirs", kind: "pr", number: 6, repo: "acme/web", author: "dana", headSha: "sha123", status: "ready", createdAt: 2 });
   // Before anything has read who you are, the list doesn't wait on gh for it.
@@ -144,7 +144,7 @@ test("the list says Your PR for a PR the signed-in account wrote before the sync
 test("saveDraftComment with replaces refuses to replace a comment the box didn't show, and replaces the one it did", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.savePatch("pr-7", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
   const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-7" }) as any;
@@ -166,7 +166,7 @@ test("saveDraftComment with replaces refuses to replace a comment the box didn't
 test("saveDraftComment keeps an agent's comment the agent's when Undo puts it back", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-6", kind: "pr", number: 6, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.savePatch("pr-6", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
   const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-6" }) as any;
@@ -177,7 +177,7 @@ test("saveDraftComment keeps an agent's comment the agent's when Undo puts it ba
 test("saving a draft comment tells the review's other windows, so one with its box open reads it again", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-3", kind: "pr", number: 3, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.savePatch("pr-3", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
   const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-3" }) as any;
@@ -193,7 +193,7 @@ test("saving a draft comment tells the review's other windows, so one with its b
 test("removing a draft comment tells the review's other windows, so none keeps showing it (70-review #8)", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-4", kind: "pr", number: 4, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.upsertDraftComment("pr-4", { file: "a.ts", line: 1, side: "RIGHT", body: "nit" });
   const from = harness.inspection.realtimeSignals.length;
@@ -205,7 +205,7 @@ test("removing a draft comment tells the review's other windows, so none keeps s
 test("moveToSummary makes a comment on an older diff a line of the summary, which is then yours, and only such a comment", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-8", kind: "pr", number: 8, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.savePatch("pr-8", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,3 @@\n+one\n+two\n+three\n");
   const rpc = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
@@ -238,7 +238,7 @@ test("moveToSummary makes a comment on an older diff a line of the summary, whic
 test("moveToSummary marks a pre-existing comment's line as it would post", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-9", kind: "pr", number: 9, repo: "acme/web", headSha: "sha123", status: "ready", createdAt: 1 });
   await store.upsertDraftComment("pr-9", { file: "a.ts", line: 1, side: "RIGHT", author: "agent", severity: "blocking", introduced: false, body: "Already racy." });
   await store.savePatch("pr-9", "diff --git a/b.ts b/b.ts\n--- a/b.ts\n+++ b/b.ts\n@@ -0,0 +1 @@\n+uno\n");

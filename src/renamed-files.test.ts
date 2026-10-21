@@ -1,10 +1,9 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import { toGithubReviewPayload } from "./draft";
 import { changedFiles } from "./patch";
-import { queueStore } from "./store-queue";
+import { testOnPostgres, testSql, testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -17,7 +16,7 @@ const patch = [
 async function host() {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   await store.savePatch("pr-1", patch);
   await store.setAssistantThread("pr-1", "assistant");
@@ -57,13 +56,12 @@ test("a discussion without a comment, and a Viewed mark, saved under a renamed f
 
 test("renames move saved rows once per diff, not on every read", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   await store.savePatch("pr-1", patch);
   await store.upsertDraftComment("pr-1", { file: "src/new.ts", line: 2, side: "RIGHT", body: "Why 3?" });
-  const db = bb.storage.database();
-  const prepare = vi.spyOn(db, "prepare");
-  const updates = () => prepare.mock.calls.filter(([sql]) => /^UPDATE \w+ SET file=/.test(sql)).length;
+  const run = vi.spyOn(testSql(bb), "run");
+  const updates = () => run.mock.calls.filter(([text]) => /^UPDATE \w+ SET file=/.test(text)).length;
   await store.getDraft("pr-1");
   const first = updates();
   expect(first).toBeGreaterThan(0);
@@ -73,17 +71,16 @@ test("renames move saved rows once per diff, not on every read", async () => {
   expect(updates()).toBe(first);
 });
 
-test("moving a renamed file's discussions finds them by an index", () => {
+test.skipIf(testOnPostgres)("moving a renamed file's discussions finds them by an index", () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  queueStore(createStore(bb));
+  testStore(bb);
   const plan = bb.storage.database().prepare(`EXPLAIN QUERY PLAN UPDATE discussion_entries SET file=? WHERE target_key=? AND file=?`).all("b", "k", "a") as Array<{ detail: string }>;
   expect(plan.map((row) => row.detail).join("\n")).toMatch(/USING INDEX/);
 });
 
 test("a row already at a renamed file's new path keeps it, and its namesake stays at the old path, as UPDATE OR IGNORE left them", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
-  const db = bb.storage.database();
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   // Before the diff showed the rename, both paths had rows: line 2 under each, line 1 only under the old one.
   await store.savePatch("pr-1", [
@@ -96,23 +93,30 @@ test("a row already at a renamed file's new path keeps it, and its namesake stay
     await store.setFileViewed("pr-1", file, `${file} hash`);
   }
   await store.savePatch("pr-1", patch);
-  const rows = () => ({
-    revisions: db.prepare(`SELECT file, line, code FROM draft_comment_revisions ORDER BY file, line`).all(),
-    entries: db.prepare(`SELECT file, line, body FROM discussion_entries ORDER BY id`).all(),
-    waits: db.prepare(`SELECT file, line FROM discussion_waits ORDER BY file, line`).all(),
-    views: db.prepare(`SELECT file, hash FROM file_views ORDER BY file`).all(),
+  const sql = testSql(bb);
+  const rows = async () => ({
+    revisions: await sql.all(`SELECT file, line, code FROM draft_comment_revisions ORDER BY file, line`),
+    entries: await sql.all(`SELECT file, line, body FROM discussion_entries ORDER BY id`),
+    waits: await sql.all(`SELECT file, line FROM discussion_waits ORDER BY file, line`),
+    views: await sql.all(`SELECT file, hash FROM file_views ORDER BY file`),
   });
-  // What 1.2.0's statements made of the same rows, rolled back once read.
-  db.exec("SAVEPOINT before_rename");
-  for (const table of ["draft_comment_revisions", "discussion_entries", "discussion_waits", "file_views"]) {
-    db.prepare(`UPDATE OR IGNORE ${table} SET file=? WHERE target_key=? AND file=?`).run("src/new.ts", "pr-1", "src/old.ts");
+  const before = await rows();
+  // On SQLite, what 1.2.0's statements made of the same rows, rolled back once read.
+  let ignored: Awaited<ReturnType<typeof rows>> | undefined;
+  if (!testOnPostgres) {
+    const db = bb.storage.database();
+    db.exec("SAVEPOINT before_rename");
+    for (const table of ["draft_comment_revisions", "discussion_entries", "discussion_waits", "file_views"]) {
+      db.prepare(`UPDATE OR IGNORE ${table} SET file=? WHERE target_key=? AND file=?`).run("src/new.ts", "pr-1", "src/old.ts");
+    }
+    ignored = await rows();
+    db.exec("ROLLBACK TO SAVEPOINT before_rename; RELEASE SAVEPOINT before_rename");
   }
-  const ignored = rows();
-  db.exec("ROLLBACK TO SAVEPOINT before_rename; RELEASE SAVEPOINT before_rename");
-  expect(rows()).not.toEqual(ignored);
   await store.getFileViews("pr-1");
-  expect(rows()).toEqual(ignored);
-  expect(rows()).toEqual({
+  const renamed = await rows();
+  expect(renamed).not.toEqual(before);
+  if (ignored) expect(renamed).toEqual(ignored);
+  expect(renamed).toEqual({
     revisions: [{ file: "src/new.ts", line: 1, code: "old one" }, { file: "src/new.ts", line: 2, code: "new two" }, { file: "src/old.ts", line: 2, code: "old two" }],
     entries: [{ file: "src/new.ts", line: 1, body: "src/old.ts:1" }, { file: "src/new.ts", line: 2, body: "src/old.ts:2" }, { file: "src/new.ts", line: 2, body: "src/new.ts:2" }],
     waits: [{ file: "src/new.ts", line: 1 }, { file: "src/new.ts", line: 2 }, { file: "src/old.ts", line: 2 }],

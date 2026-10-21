@@ -1,14 +1,13 @@
 // Replies and resolves on GitHub: posted as the account the page verified, and only on the review's own PR's threads.
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import { testStore } from "./test-store.test-support";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 
 import plugin from "../server";
-import { createStore } from "./store";
 import type { FeedbackThread } from "./github/types";
-import { queueStore } from "./store-queue";
 
 const feedbackThread: FeedbackThread = {
   id: "t-mine", commentId: 11, reviewId: null, path: "a.ts", line: 2, originalLine: 2, startLine: null, side: "RIGHT", subjectType: "LINE",
@@ -30,7 +29,7 @@ async function setup() {
   });
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready", headSha: "sha1" });
   await store.setLifecycle("pr-1", { submittedVerdict: "COMMENT", submittedAt: 10, submittedHeadSha: "sha1" });
   await store.saveFeedbackThreads("pr-1", [feedbackThread], 1);

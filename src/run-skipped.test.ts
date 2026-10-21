@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (orig) => ({
   ...(await orig<any>()),
@@ -11,11 +12,9 @@ vi.mock("./gh", async (orig) => ({
 
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import type { ReviewLifecycle } from "./store";
 import { defaultPreferences } from "./preferences";
 import { defaultKnobs } from "../lib/knobs";
-import { queueStore } from "./store-queue";
 
 const PATCH = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
 
@@ -26,7 +25,7 @@ async function setup(lifecycle: ReviewLifecycle) {
     projects: { defaultExecutionOptions: async () => ({ providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" }), list: async () => [] },
   } as any });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, author: "mallory", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
   await store.savePatch("pr-1", PATCH);
   await store.saveGuide("pr-1", { title: "Retry", intent: "Retry once", sections: [], unplacedFiles: [] } as any);

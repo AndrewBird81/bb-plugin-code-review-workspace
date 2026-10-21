@@ -1,11 +1,10 @@
 import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore } from "./store";
 import { generateGuide, stopGuideGenerations } from "./generate";
 import { completionNotifications } from "./completion-notifications";
 import plugin from "../server";
 import { defaultPreferences } from "./preferences";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 const guide = { title: "Improve sign-in", intent: "I", sections: [], unplacedFiles: [] };
 async function fixture() {
@@ -19,7 +18,7 @@ async function fixture() {
       return { accepted: true, id: "activity:code-review-workspace:target", duplicate: false };
     },
   }, threads: { spawn: async () => ({ id: "worker" }), archive: async () => {}, stop: async () => {} } } });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "target", kind: "ref", title: "Improve sign-in", status: "generating", createdAt: 1, projectId: "p1" });
   harness.inspection.sdk.stub("threads.wait", async () => { await store.saveGuide("target", guide); return { matched: true }; });
   return { bb, harness, store, delivered, offline: (value: boolean) => { offline = value; } };
@@ -110,7 +109,7 @@ test("a queued completion survives a plugin reload and same-millisecond generati
   f.offline(true);
   await generateGuide(f.bb, f.store, "target", "p1");
   const next = await f.harness.lifecycle.reload(plugin);
-  const store = queueStore(createStore(next.bb));
+  const store = testStore(next.bb);
   f.offline(false);
   await completionNotifications(next.bb, store).flush();
   expect(f.delivered).toHaveLength(1);

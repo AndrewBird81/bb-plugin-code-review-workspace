@@ -9,6 +9,7 @@ import { feedbackProgress } from "../lib/turn";
 import { completionNotifications } from "./completion-notifications";
 import { BATCH_SIZE } from "./github/pr-facts";
 import { queueStore } from "./store-queue";
+import { testSql, testStore } from "./test-store.test-support";
 
 const HOUR = 3_600_000;
 const T0 = Date.parse("2026-10-10T12:00:00Z");
@@ -41,11 +42,11 @@ async function setup(options: { pr?: Partial<PrFacts>; threads?: FeedbackThread[
       return { accepted: true, id: "activity", duplicate: false };
     } },
   } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, headSha: "sha1", createdAt: 1, status: "ready", projectId: "p1" });
   if (options.preferences) await store.savePreferences({ ...defaultPreferences, ...options.preferences }, 0);
   // A legacy review-agent worker, from before conversations moved into bb threads.
-  bb.storage.database().prepare(`INSERT INTO agent_threads (target_key,thread_id,created_at) VALUES ('pr-1','agent-1',1)`).run();
+  await testSql(bb).run(`INSERT INTO agent_threads (target_key,thread_id,created_at) VALUES ('pr-1','agent-1',1)`);
   await store.setAssistantThread("pr-1", "assistant-1");
   let now = T0;
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -131,7 +132,7 @@ test("an in-flight read cannot overwrite a newer local submission", async () => 
 
 test("deleted workers are detached without losing the review conversation", async () => {
   const { bb, sync, store, harness } = await setup();
-  bb.storage.database().prepare(`INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES ('pr-1','assistant','Keep this answer',NULL,1)`).run();
+  await testSql(bb).run(`INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES ('pr-1','assistant','Keep this answer',NULL,1)`);
   harness.inspection.sdk.stub("threads.update", async () => { throw new Error("HTTP 404: Thread not found"); });
   await sync.all();
   expect(await store.getAgentThread("pr-1")).toBeNull();
@@ -1239,7 +1240,7 @@ test("once the turn rules are current, an event from before a pass still acts", 
 // GitHub in 20 batches, and a read of one review that joined it waited for every batch (bug bash PRF-1).
 test("a forced read of one review doesn't wait for the rest of a 200-review sync pass", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { update: async () => ({}), stop: async () => ({}), archive: async () => ({}) } } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   for (let i = 0; i < 200; i++) await store.saveReview({ targetKey: `pr-${i}`, kind: "pr", repo: "acme/web", number: i + 1, headSha: "sha1", createdAt: 1000 - i, status: "ready", projectId: "p1" });
   let batches = 0;
   const github: GithubReads = {

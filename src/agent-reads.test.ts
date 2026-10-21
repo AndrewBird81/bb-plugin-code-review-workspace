@@ -2,11 +2,11 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import { runGh } from "./gh";
 import { createReviewSubmitter } from "./submit-review";
 import { queueStore } from "./store-queue";
 import { startPlugin } from "./plugin-store.test-support";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn(async () => ({ code: 0, stdout: "x\n", stderr: "" })) }));
 vi.mock("./store-queue", async (original) => {
@@ -79,7 +79,7 @@ test("what the agent says it didn't check is kept with its summary, stays withou
 
 test("after the upgrade that adds unchecked and introduced, idle review assistants restart once to pick up the tools", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { get: async () => ({ status: "idle", archivedAt: null, deletedAt: null }), stop: async () => ({}) } } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   await store.setAssistantThread("pr-1", "assistant");
   // The version 0.7.0's tools were recorded at.

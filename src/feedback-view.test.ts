@@ -1,9 +1,9 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore, type ReviewMeta } from "./store";
+import type { ReviewMeta } from "./store";
 import { diffAt, pruneOldDiffs, sinceReview } from "./feedback-view";
 import { changedFiles } from "./patch";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 const tooLarge = { code: 1, stdout: '{"message":"Sorry, the diff exceeded the maximum number of files (300). Consider using \'List pull requests files\' API or locally cloning the repository instead.","errors":[{"resource":"PullRequest","field":"diff","code":"too_large"}]}', stderr: "gh: HTTP 406" };
 const DAY = 86_400_000;
@@ -11,7 +11,7 @@ const file = (filename: string) => JSON.stringify({ filename, status: "modified"
 
 async function setup() {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   const review: ReviewMeta = { targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "sha1", latestHeadSha: "sha2", status: "ready", createdAt: 1 };
   await store.saveReview(review);
   return { store, review };
@@ -111,7 +111,7 @@ test("Since your review is compared once per baseline and diff, and leaves out a
 
 test("diffs of reviews out of play for a month are dropped, keeping the guide, the draft, notes, and what Since your review needs", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   const now = 100 * DAY;
   const old = now - 31 * DAY;
   const reviews: Array<Partial<ReviewMeta> & { targetKey: string }> = [

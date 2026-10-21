@@ -1,8 +1,9 @@
 import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { lineText, reanchor } from "./reanchor";
-import { createStore, reanchorDraft } from "./store";
-import { queueStore, type AsyncStore } from "./store-queue";
+import { reanchorDraft } from "./store";
+import type { AsyncStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 // Count whole-diff parses.
 const parses = vi.hoisted(() => ({ count: 0 }));
@@ -86,7 +87,7 @@ const shiftedPatch = (shift: number) => Array.from({ length: 300 }, (_, i) => sh
 
 test("re-anchoring 100 stored comments on a 60k-line diff parses each diff once", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
   const before = shiftedPatch(0);
   await store.savePatch("pr-1", before);
@@ -124,7 +125,7 @@ const fnGrown = added(["function a() {", "  if (x) {", "    y();", "    z();", "
 
 async function rebuilt(comment: { line: number; startLine?: number; body: string }) {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-test", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, headSha: "sha1" });
   await store.savePatch("pr-test", fn);
   await store.upsertDraftComment("pr-test", { file: "a.ts", side: "RIGHT", ...comment });

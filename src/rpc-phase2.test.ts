@@ -1,4 +1,5 @@
 import { test, expect, vi } from "vitest";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (orig) => {
   const real = await orig<any>();
@@ -63,9 +64,7 @@ vi.mock("./gh", async (orig) => {
 
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import * as gh from "./gh";
-import { queueStore } from "./store-queue";
 
 function host() {
   return createFakePluginHost({ pluginId: "code-review-workspace" });
@@ -74,7 +73,7 @@ function host() {
 async function seeded() {
   const { bb, harness } = host();
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({
     targetKey: "pr-1",
     kind: "pr",

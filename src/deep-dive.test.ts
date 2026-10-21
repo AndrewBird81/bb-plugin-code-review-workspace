@@ -1,9 +1,8 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost, makeQueueEntry, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import { ASK_LIFETIME } from "./asks";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 const file = (path: string, hunks: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${hunks}`;
 const patch = file("src/a.ts", "@@ -1 +1 @@\n-a\n+aa\n@@ -9 +9 @@\n-i\n+ii\n") + file("src/b.ts", "@@ -1 +1 @@\n-b\n+bb\n");
@@ -28,7 +27,7 @@ async function host({ conversation = true, level = "medium", levels = ["low", "m
     projects: { defaultExecutionOptions: async () => ({ providerId: "codex", model: "gpt-6", reasoningLevel: level }) },
   } as any });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
   await store.savePatch("pr-1", patch);
   await store.saveGuide("pr-1", structuredClone(guide));

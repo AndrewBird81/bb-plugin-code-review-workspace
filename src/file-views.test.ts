@@ -1,11 +1,11 @@
 import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore, type FileView } from "./store";
+import type { FileView } from "./store";
 import { computeFileViewState, fileHashCache, hashForFile } from "./file-views";
 import { hashFileDiff, normalizedFileHash } from "./diff-hash";
 import { rpcContract } from "./rpc-contract";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./diff-hash", async (original) => {
   const actual = await original<typeof import("./diff-hash")>();
@@ -41,7 +41,7 @@ test("hashForFile hashes only the file asked for", () => {
 test("setFilesViewed marks a chapter's files in one call, hashing just those", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
   await store.savePatch("pr-1", patch + "diff --git a/c.ts b/c.ts\n+three\n");
   vi.mocked(normalizedFileHash).mockClear();
@@ -59,7 +59,7 @@ test("setFilesViewed marks a chapter's files in one call, hashing just those", a
 test("setFilesViewed with viewed false unmarks a chapter's files at once, for Undo", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
   await store.savePatch("pr-1", patch + "diff --git a/c.ts b/c.ts\n+three\n");
   expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts", "b.ts", "c.ts"], viewed: true })).toEqual({ ok: true, previous: [] });
@@ -70,7 +70,7 @@ test("setFilesViewed with viewed false unmarks a chapter's files at once, for Un
 test("setFilesViewed returns the views it replaced, and Undo with them puts a file viewed at an older version back as changed since", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
   await store.savePatch("pr-1", patch);
   // a.ts was viewed before its diff last changed.
@@ -139,7 +139,7 @@ const manyFiles = (files: number, changed = -1) => Array.from({ length: files },
 test("reading Viewed marks on a 2,000-file review hashes only the marked files, once per patch", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1 });
   await store.savePatch("pr-1", manyFiles(2000));
   const call = (name: "setFileViewed" | "getFileViews", input: object) => harness.behavior.callRpc(name, input as never);

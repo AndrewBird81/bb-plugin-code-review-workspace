@@ -1,9 +1,8 @@
 import { test, expect } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import { formerWorkerReview } from "./former-workers";
-import { queueStore } from "./store-queue";
+import { testSql, testStore } from "./test-store.test-support";
 
 interface ListedThread { id: string; title: string; originPluginId: string; archivedAt: number | null }
 type ListArgs = { archived?: boolean; originPluginId?: string; limit?: number; offset?: number };
@@ -20,13 +19,13 @@ async function setup() {
     get: async ({ threadId }: { threadId: string }) => ({ archivedAt: null, deletedAt: null, status: answering.has(threadId) ? "active" : "idle" }),
   } } });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   for (const key of ["pr-1", "pr-2"]) {
     await store.saveReview({ targetKey: key, kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1 });
     await store.setAssistantThread(key, `assistant-${key}`);
     // A legacy conversation, from before conversations moved into bb threads.
-    bb.storage.database().prepare(`INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES (?,'user','question',NULL,1)`).run(key);
-    bb.storage.database().prepare(`INSERT INTO agent_threads (target_key,thread_id,created_at) VALUES (?,?,1)`).run(key, `worker-${key}`);
+    await testSql(bb).run(`INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES (?,'user','question',NULL,1)`, [key]);
+    await testSql(bb).run(`INSERT INTO agent_threads (target_key,thread_id,created_at) VALUES (?,?,1)`, [key, `worker-${key}`]);
   }
   return { bb, harness, store, answering, listed };
 }
@@ -41,7 +40,7 @@ test("archiving moves a review out of the queue until it is unarchived, keeping 
   expect((await store.getReview("pr-1"))?.userArchivedAt).toBeNull();
 
   expect(await harness.behavior.callRpc("archiveReview", { targetKey: "missing", archived: true })).toMatchObject({ ok: false });
-  expect(bb.storage.database().prepare(`SELECT COUNT(*) AS n FROM review_lifecycle WHERE target_key='missing'`).get()).toEqual({ n: 0 });
+  expect(await testSql(bb).get(`SELECT COUNT(*) AS n FROM review_lifecycle WHERE target_key='missing'`)).toEqual({ n: 0 });
 });
 
 test("pinning records when, unpinning clears it, and both tell open pages", async () => {
@@ -99,13 +98,13 @@ test("deleting a review removes its data, queued notification, and hidden worker
 test("a summary, verdict, viewed mark or reply draft saved after the review was deleted writes nothing", async () => {
   const { bb, harness, store } = await setup();
   expect(await harness.behavior.callRpc("deleteReview", { targetKey: "pr-1" })).toEqual({ ok: true });
-  const rows = (table: string) => (bb.storage.database().prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE target_key='pr-1'`).get() as { n: number }).n;
+  const rows = async (table: string) => (await testSql(bb).get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table} WHERE target_key='pr-1'`))!.n;
   await expect(harness.behavior.callRpc("saveSummary", { targetKey: "pr-1", body: "Old summary from the deleted review." })).rejects.toThrow("This review no longer exists.");
   await expect(harness.behavior.callRpc("setVerdict", { targetKey: "pr-1", verdict: "REQUEST_CHANGES" })).rejects.toThrow("This review no longer exists.");
   expect(await harness.behavior.callRpc("setFilesViewed", { targetKey: "pr-1", files: ["a.ts"], viewed: false, previous: [{ file: "a.ts", hash: "h", viewedAt: 1 }] })).toEqual({ ok: false });
   expect(await harness.behavior.callRpc("setFileViewed", { targetKey: "pr-1", file: "a.ts", viewed: false })).toEqual({ ok: false });
   expect(await harness.behavior.callRpc("saveReplyDraft", { targetKey: "pr-1", threadId: "t1", body: "Thanks." })).toEqual({ ok: false });
-  for (const table of ["drafts", "review_lifecycle", "file_views", "reply_drafts"]) expect(rows(table), table).toBe(0);
+  for (const table of ["drafts", "review_lifecycle", "file_views", "reply_drafts"]) expect(await rows(table), table).toBe(0);
   // Started again, the review doesn't show the deleted one's summary and verdict.
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 2 });
   expect(await store.getDraft("pr-1")).toMatchObject({ body: "", verdict: "COMMENT" });

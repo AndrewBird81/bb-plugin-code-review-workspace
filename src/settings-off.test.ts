@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import { testStore } from "./test-store.test-support";
 
 const submit = vi.hoisted(() => vi.fn(async () => ({ stdout: JSON.stringify({ id: 1, node_id: "PRR_1", html_url: "u" }), stderr: "", code: 0 })));
 vi.mock("./gh", async (importOriginal) => {
@@ -19,7 +20,6 @@ vi.mock("./store-queue", async (original) => {
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import { defaultPreferences } from "./preferences";
 import { defaultKnobs, type Knobs } from "../lib/knobs";
 import { generateGuide } from "./generate";
@@ -56,7 +56,7 @@ async function host() {
       return { accepted: true, id: "activity", duplicate: false, ok: true };
     } },
   } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, author: "alice", headSha: "sha1", status: "generating", createdAt: 1, projectId: "p1" });
   await store.setLifecycle("pr-1", { authorAssociation: "MEMBER", ownPr: false });
   await store.savePreferences({ ...defaultPreferences, knobs: allKnobsOff }, 0);

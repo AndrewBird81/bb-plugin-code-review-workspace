@@ -1,12 +1,11 @@
 import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore } from "./store";
 import { checkCoverage, validateGuide } from "./guide";
 import { chapterAt, droppedNear, fitHunks, hunkCounts, hunksIn, keepHunks } from "./hunks";
 import { buildGenerationPrompt, generateGuide } from "./generate";
 import plugin from "../server";
 import { spawnPrompt, toolFailed, toolText } from "./fake-host.test-support";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 // a.ts has three hunks: lines 2, 20 and 40 change.
 const a = [
@@ -66,7 +65,7 @@ test("coverage errors say which hunks are missing, doubled, or don't exist", () 
 test("generate_review_guide checks a split file's hunks against the diff", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
   await store.savePatch("pr-1", patch);
   const generationId = await store.beginGeneration("pr-1");
@@ -122,7 +121,7 @@ test("the guide writer's earlier chapters name their hunks, or whole files when 
     spawn: async () => ({ id: "worker" }), archive: async () => {}, stop: async () => {},
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), send: async () => ({}),
   } } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, headSha: "sha2", status: "ready", createdAt: 1, projectId: "p1" });
   await store.saveGuide("pr-1", earlier.guide);
   // The new commits leave a.ts with two hunks.

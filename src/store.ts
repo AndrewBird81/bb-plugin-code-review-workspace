@@ -393,8 +393,8 @@ export function createStore(bb: BbPluginApi): Store {
   return storeOn(sqliteSql(db));
 }
 
-/** The Store over `sql`, on the tables the migrations above make. */
-function storeOn(sql: Sql): Store {
+/** The Store over `sql`, on the tables the migrations above make, or on Postgres those of src/db/pg-migrations.ts. */
+export function storeOn(sql: Sql): Store {
   const at = (k: string, { file, line, side }: CommentLocation) => [k, file, line, side] as const;
   const hasDiscussion = async (k: string, location: CommentLocation) =>
     !!await sql.get(`SELECT 1 FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=? LIMIT 1`, at(k, location));

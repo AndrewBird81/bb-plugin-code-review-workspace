@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +8,9 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { createStore } from "../src/store";
 import { canonical, dumpDatabase, tableChecksums } from "./store-reads";
 import { queueStore } from "../src/store-queue";
+
+// The dump reads a data.db through SQLite's own store.
+vi.unmock("../src/store");
 
 const RENAMED = "diff --git a/old.ts b/new.ts\nsimilarity index 90%\nrename from old.ts\nrename to new.ts\n--- a/old.ts\n+++ b/new.ts\n@@ -1 +1 @@\n-a\n+b\n";
 const sha256 = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");

@@ -1,15 +1,15 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore, type Ask } from "./store";
+import type { Ask } from "./store";
 import { ASK_LIFETIME, askAt, asked, clearAsks, listAsks, setAsk } from "./asks";
 import { SUMMARY_AT } from "./draft";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 afterEach(() => { vi.useRealTimers(); });
 
 async function review() {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
   return store;
 }

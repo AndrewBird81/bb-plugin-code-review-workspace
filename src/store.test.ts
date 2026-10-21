@@ -1,10 +1,10 @@
 import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore, reanchorDraft } from "./store";
+import { reanchorDraft } from "./store";
 import { renamedPaths } from "./patch";
 import { askAt, setAsk } from "./asks";
 import { createHash } from "node:crypto";
-import { queueStore } from "./store-queue";
+import { testSql, testStore } from "./test-store.test-support";
 
 // To count reads of a review's renames, which split its whole patch.
 vi.mock("./patch", async (original) => {
@@ -14,7 +14,7 @@ vi.mock("./patch", async (original) => {
 
 function store() {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  return queueStore(createStore(bb));
+  return testStore(bb);
 }
 
 test("review round-trips and lists newest first", async () => {
@@ -67,10 +67,10 @@ test("assistant thread ids round-trip and list", async () => {
 
 test("legacy agent messages list oldest-first with context, and clear", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const s = queueStore(createStore(bb));
-  const insert = bb.storage.database().prepare(`INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES ('pr-1',?,?,?,1)`);
-  insert.run("user", "why flagged?", JSON.stringify({ file: "a.ts", startLine: 3, endLine: 5 }));
-  insert.run("assistant", "because it's a test file", null);
+  const s = testStore(bb);
+  const insert = `INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES ('pr-1',?,?,?,1)`;
+  await testSql(bb).run(insert, ["user", "why flagged?", JSON.stringify({ file: "a.ts", startLine: 3, endLine: 5 })]);
+  await testSql(bb).run(insert, ["assistant", "because it's a test file", null]);
   const msgs = await s.listAgentMessages("pr-1");
   expect(msgs.map((m) => m.role)).toEqual(["user", "assistant"]);
   expect(msgs[0].context).toEqual({ file: "a.ts", startLine: 3, endLine: 5 });
@@ -81,7 +81,7 @@ test("legacy agent messages list oldest-first with context, and clear", async ()
 
 test("deleteReview clears every per-review table and leaves other reviews intact", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const s = queueStore(createStore(bb));
+  const s = testStore(bb);
   for (const key of ["pr-1", "pr-2"]) {
     await s.saveReview({ targetKey: key, kind: "pr", number: 1, status: "ready", createdAt: 1 });
     await s.savePatch(key, "diff --git a/a.ts b/a.ts\n");
@@ -91,8 +91,8 @@ test("deleteReview clears every per-review table and leaves other reviews intact
     await s.setFileViewed(key, "a.ts", "hash");
     await s.setAssistantThread(key, `th-${key}`);
     // Legacy conversation rows, from before conversations moved into bb threads.
-    bb.storage.database().prepare(`INSERT INTO agent_threads (target_key,thread_id,created_at) VALUES (?,?,1)`).run(key, `legacy-${key}`);
-    bb.storage.database().prepare(`INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES (?,'user','question',NULL,1)`).run(key);
+    await testSql(bb).run(`INSERT INTO agent_threads (target_key,thread_id,created_at) VALUES (?,?,1)`, [key, `legacy-${key}`]);
+    await testSql(bb).run(`INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES (?,'user','question',NULL,1)`, [key]);
     await s.setLifecycle(key, { userArchivedAt: 1 });
     await s.saveReviewerNotes(key, "private", 0);
     await s.setReviewContext(key, "Implements LIN-1");
@@ -109,17 +109,19 @@ test("deleteReview clears every per-review table and leaves other reviews intact
   await s.deleteReview("pr-1");
 
   // Every table keyed by review, including ones added after this test.
-  const db = bb.storage.database();
-  const tables = (db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as { name: string }[])
+  const sql = testSql(bb);
+  const keyed = sql.dialect === "postgres"
+    ? `SELECT table_name AS name FROM information_schema.columns WHERE table_schema=current_schema() AND column_name='target_key'`
+    : `SELECT m.name FROM sqlite_master m JOIN pragma_table_info(m.name) c WHERE m.type='table' AND c.name='target_key'`;
+  const tables = (await sql.all<{ name: string }>(keyed))
     .map((t) => t.name)
-    .filter((name) => (db.prepare(`PRAGMA table_info(${name})`).all() as { name: string }[]).some((c) => c.name === "target_key"))
     // A deleted PR stays out of discovery on purpose.
     .filter((name) => name !== "discovery_ignores");
   expect(tables.length).toBeGreaterThan(0);
-  const count = (table: string, key: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE target_key=?`).get(key) as { n: number }).n;
+  const count = async (table: string, key: string) => (await sql.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table} WHERE target_key=?`, [key]))!.n;
   for (const table of tables) {
-    expect({ table, rows: count(table, "pr-2") }).not.toEqual({ table, rows: 0 });
-    expect({ table, rows: count(table, "pr-1") }).toEqual({ table, rows: 0 });
+    expect({ table, rows: await count(table, "pr-2") }).not.toEqual({ table, rows: 0 });
+    expect({ table, rows: await count(table, "pr-1") }).toEqual({ table, rows: 0 });
   }
   expect(await s.getReview("pr-1")).toBeNull();
   expect(await s.getReview("pr-2")).toMatchObject({ userArchivedAt: 1 });
@@ -144,11 +146,11 @@ test("draft comments upsert and delete", async () => {
 
 test("the summary keeps who wrote it and the verdicts around it, and a change clears the fields it leaves undefined", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const s = queueStore(createStore(bb));
+  const s = testStore(bb);
   await s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
   const written = { verdict: null, comments: "0:811c9dc5" };
   await s.updateSummary("pr-1", { body: "Looks good.", bodyAuthor: "agent", suggestedVerdict: "APPROVE", written });
-  expect(await queueStore(createStore(bb)).getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "Looks good.", comments: [], bodyAuthor: "agent", suggestedVerdict: "APPROVE", written });
+  expect(await testStore(bb).getDraft("pr-1")).toEqual({ targetKey: "pr-1", verdict: "COMMENT", body: "Looks good.", comments: [], bodyAuthor: "agent", suggestedVerdict: "APPROVE", written });
   // A comment change keeps the summary's fields.
   await s.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "x" });
   expect(await s.getDraft("pr-1")).toMatchObject({ bodyAuthor: "agent", suggestedVerdict: "APPROVE", written });
@@ -317,7 +319,7 @@ test("a failed or interrupted rebuild puts the previous guide and diff back", as
 
 test("an interruption whose second restore fails puts nothing back, the first restore's savepoint going with the whole transaction", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const s = queueStore(createStore(bb));
+  const s = testStore(bb);
   for (const k of ["pr-1", "pr-2"]) {
     await s.saveReview({ targetKey: k, kind: "pr", number: 1, status: "ready", createdAt: 1, headSha: "sha1" });
     await s.savePatch(k, "old patch");
@@ -327,13 +329,13 @@ test("an interruption whose second restore fails puts nothing back, the first re
     await s.saveReview({ ...(await s.getReview(k))!, headSha: "sha2", status: "generating" });
     await s.beginGeneration(k);
   }
-  const db = bb.storage.database();
-  const prepare = db.prepare.bind(db);
+  const sql = testSql(bb);
+  const run = sql.run.bind(sql);
   let restores = 0;
-  const failing = vi.spyOn(db, "prepare").mockImplementation(((text: string) => {
+  const failing = vi.spyOn(sql, "run").mockImplementation(async (text, params) => {
     if (text.startsWith("UPDATE reviews SET head_sha=?") && ++restores === 2) throw new Error("disk full");
-    return prepare(text);
-  }) as typeof db.prepare);
+    return run(text, params);
+  });
   await expect(s.interruptGenerations()).rejects.toThrow("disk full");
   failing.mockRestore();
   expect(restores).toBe(2);
@@ -407,7 +409,7 @@ test("a thread known to be open and resolved since dates from now, even after an
 
 test("the patch's hash is kept when it's saved, and its positions are parsed once per patch", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const s = queueStore(createStore(bb));
+  const s = testStore(bb);
   const one = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
   const two = one.replace("+b", "+c");
   await s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
@@ -421,17 +423,16 @@ test("the patch's hash is kept when it's saved, and its positions are parsed onc
   expect(await s.patchHash("pr-1")).toBe(sha(two));
   expect((await s.diffPositions("pr-1")).get("a.ts")?.right.get(1)).toBe("c");
   // A patch saved before its hash was kept gets one when it's first needed.
-  bb.storage.database().prepare(`UPDATE patches SET hash=NULL`).run();
+  await testSql(bb).run(`UPDATE patches SET hash=NULL`);
   expect(await s.patchHash("pr-1")).toBe(sha(two));
   expect(await s.patchHash("pr-2")).toBe(sha(""));
 });
 
 test("a comment's severity round-trips, a draft saved before severities loads with none, and an edit changes or keeps it", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const s = queueStore(createStore(bb));
+  const s = testStore(bb);
   await s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
-  bb.storage.database().prepare(`INSERT INTO drafts (target_key,verdict,body,comments) VALUES ('pr-1','COMMENT','',?)`)
-    .run(JSON.stringify([{ file: "a.ts", line: 1, side: "RIGHT", body: "Old" }]));
+  await testSql(bb).run(`INSERT INTO drafts (target_key,verdict,body,comments) VALUES ('pr-1','COMMENT','',?)`, [JSON.stringify([{ file: "a.ts", line: 1, side: "RIGHT", body: "Old" }])]);
   expect((await s.getDraft("pr-1")).comments).toEqual([{ file: "a.ts", line: 1, side: "RIGHT", body: "Old" }]);
   await s.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", severity: "nit", body: "Spacing" });
   expect((await s.getDraft("pr-1")).comments[1]).toEqual({ file: "a.ts", line: 2, side: "RIGHT", severity: "nit", body: "Spacing" });

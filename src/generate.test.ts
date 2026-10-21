@@ -1,7 +1,6 @@
 import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
-import { createStore } from "./store";
 import plugin from "../server";
 import { spawnPrompt, toolFailed, toolText } from "./fake-host.test-support";
 import { generateGuide } from "./generate";
@@ -9,6 +8,7 @@ import { skipRun } from "./agent";
 import { defaultPreferences } from "./preferences";
 import { queueStore, type AsyncStore } from "./store-queue";
 import { startPlugin } from "./plugin-store.test-support";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./store-queue", async (original) => {
   const actual = await original<typeof import("./store-queue")>();
@@ -27,7 +27,7 @@ const patch = `diff --git a/a.ts b/a.ts
 async function host() {
   const h = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { get: async () => ({ title: "Generate guide: pr-1" }) } } as any });
   await plugin(h.bb);
-  const store = queueStore(createStore(h.bb)); // same pluginId → same DB the factory's tools read
+  const store = testStore(h.bb); // same pluginId → same DB the factory's tools read
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
   await store.savePatch("pr-1", patch);
   const generationId = await store.beginGeneration("pr-1");
@@ -260,7 +260,7 @@ test("a rebuilt guide for a PR you reviewed checks your feedback instead of revi
     spawn: async () => ({ id: "worker" }), archive: async () => {}, stop: async () => {},
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), send: async () => ({}),
   } } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, headSha: "sha2", status: "ready", createdAt: 1, projectId: "p1" });
   await store.setLifecycle("pr-1", { submittedVerdict: "REQUEST_CHANGES", submittedAt: 1000, submittedHeadSha: "sha1", signals: { lastReviewAt: 1000, lastReviewSha: "sha1" } });
   await store.saveGuide("pr-1", { title: "T", intent: "I", sections: [{ id: "cache", title: "Cache", overview: "o", diffs: [{ file: "a.ts", summary: "s" }] }], unplacedFiles: [] });
@@ -283,7 +283,7 @@ test("a rebuilt guide for a PR you reviewed checks your feedback instead of revi
 test("a failed rebuild keeps the guide you had", async () => {
   const { generateGuide } = await import("./generate");
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "worker" }), archive: async () => {}, stop: async () => {} } } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, headSha: "sha1", status: "ready", createdAt: 1, projectId: "p1" });
   await store.savePatch("pr-1", patch);
   await store.saveGuide("pr-1", { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
@@ -483,7 +483,7 @@ async function writerRun(turns: Array<(submit: (guide: unknown) => Promise<unkno
     },
   } } as any });
   await plugin(h.bb);
-  const store = queueStore(createStore(h.bb));
+  const store = testStore(h.bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, headSha: "sha1", status: "generating", createdAt: 1, projectId: "p1" });
   await store.savePatch("pr-1", patch);
   await generateGuide(h.bb, store, "pr-1", "p1", { notify: false });
@@ -531,7 +531,7 @@ test("an automatic review that can't start waits for Run review, saying why", as
     hosts: { get: async () => ({ id: "host_laptop", name: "Laptop", status: "disconnected", lifecycle: { phase: "active" } }) },
   } as any });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.savePreferences({ ...defaultPreferences, assistantAgent: { hostId: "host_laptop", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
   await store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
   await store.savePatch("ref-1", patch);
@@ -560,7 +560,7 @@ test("an untrusted author's automatic review that couldn't start says it waits f
     },
   } as any });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   const review = { targetKey: "pr-1", kind: "pr" as const, repo: "acme/web", number: 1, author: "stranger", headSha: "sha1", status: "generating" as const, createdAt: 1, projectId: "p1" };
   const build = async (key: string, lifecycle: Parameters<typeof store.setLifecycle>[1]) => {
     harness.inspection.sdk.stub("projects.defaultExecutionOptions", async () => ({ providerId: "codex", hostId: "host_1" }) as any);
@@ -588,7 +588,7 @@ test("an untrusted author's automatic review that couldn't start says it waits f
 
 test("a run that couldn't start keeps its reason as one line, capped", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "ready", createdAt: 1, projectId: "p1" });
   await skipRun(bb, store, "ref-1", "review", null, `spawn failed:\n${"x".repeat(300)}`);
   const { error } = (await store.getReview("ref-1"))!.skippedRun!;
@@ -607,7 +607,7 @@ test("a first guide's sinceReview is dropped; a re-review's is kept", async () =
       archive: async () => ({}), stop: async () => ({}),
     } } as any });
     await plugin(bb);
-    const store = queueStore(createStore(bb));
+    const store = testStore(bb);
     await store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main", status: "generating", createdAt: 1, projectId: "p1" });
     await store.savePatch("ref-1", patch);
     if (reviewed) await store.setLifecycle("ref-1", { submittedVerdict: "COMMENT", submittedAt: 1000, signals: { lastReviewAt: 1000 } });

@@ -1,6 +1,6 @@
 // Until 1.0.0 the plugin was guided-review, and BB keeps a plugin's database under its id: the first start under the
 // new id copies the former install's reviews in, and the former install's agent threads keep their tools.
-import { afterEach, test, expect } from "vitest";
+import { afterEach, test, expect, vi } from "vitest";
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,9 @@ import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
 import { createStore } from "./store";
 import plugin from "../server";
 import { queueStore } from "./store-queue";
+
+// The former install is a SQLite database, which SQLite's store imports as it opens.
+vi.unmock("./store");
 
 const dataDirs: string[] = [];
 const newDataDir = () => { const dir = mkdtempSync(join(tmpdir(), "crw-data-")); dataDirs.push(dir); return dir; };

@@ -1,9 +1,8 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost, makeQueueEntry, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import { runGh } from "./gh";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -25,7 +24,7 @@ async function host({ conversation = true } = {}) {
     projects: { defaultExecutionOptions: async () => ({ providerId: "claude-code", model: "opus", reasoningLevel: "high" }) },
   } as any });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
   await store.savePatch("pr-1", patch);
   if (conversation) await store.setAssistantThread("pr-1", "assistant");

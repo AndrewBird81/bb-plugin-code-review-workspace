@@ -7,6 +7,9 @@ import { createStore } from "../store";
 import { pgSql, type PgSql } from "./pg";
 import { migratePg, PG_MIGRATIONS } from "./pg-migrations";
 
+// SQLite's own store, for the migrations the Postgres ones mirror.
+vi.unmock("../store");
+
 /** The statements createStore hands bb.storage.migrate. */
 function sqliteMigrations(): string[] {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });

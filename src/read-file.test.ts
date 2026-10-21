@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore, type ReviewMeta } from "./store";
+import type { ReviewMeta } from "./store";
 import { runGit } from "./gh";
 import { readFileAt } from "./verification";
 import { localRevs } from "./file-contents";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -89,7 +89,7 @@ test("the assistant of a local review can read files", async () => {
     await runGit(["commit", "-qm", "base"], { cwd });
     const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
     await plugin(bb);
-    const store = queueStore(createStore(bb));
+    const store = testStore(bb);
     await store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "HEAD", cwd, status: "ready", createdAt: 1 });
     await store.setAssistantThread("ref-1", "assistant");
     expect(await harness.behavior.callAgentTool("read_file", { path: "a.ts", ref: "base" }, { threadId: "assistant" })).toContain("    1  one");

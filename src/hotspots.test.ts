@@ -1,10 +1,9 @@
 import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore } from "./store";
 import { checkHotspots, validateGuide } from "./guide";
 import plugin from "../server";
 import { toolFailed, toolText } from "./fake-host.test-support";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -10,3 +10,3 @@\n keep\n-old\n+new\n keep2\n";
 const guide = (hotspots?: unknown) => ({ title: "T", intent: "I", sections: [{ id: "s1", title: "S", overview: "o", risk: "low", diffs: [{ file: "a.ts", summary: "x" }] }], ...(hotspots ? { hotspots } : {}) });
@@ -29,7 +28,7 @@ test("hotspots must be on new-file lines the diff shows", () => {
 test("generate_review_guide refuses a hotspot off the diff, and keeps valid ones", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
   await store.savePatch("pr-1", patch);
   const generationId = await store.beginGeneration("pr-1");

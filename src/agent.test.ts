@@ -1,7 +1,6 @@
 import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { BbPluginApi, PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
-import { createStore } from "./store";
 import { assistantInstructions, getConversation, messageAssistant, newConversation, refreshAssistants, startAutomaticReview, startConversation } from "./agent";
 import { defaultPreferences } from "./preferences";
 import { generateGuide } from "./generate";
@@ -10,6 +9,7 @@ import { formerWorkerReview } from "./former-workers";
 import { runGh } from "./gh";
 import { queueStore } from "./store-queue";
 import { startPlugin } from "./plugin-store.test-support";
+import { testSql, testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (original) => {
   const actual = await original<typeof import("./gh")>();
@@ -28,17 +28,17 @@ async function host(threads: Record<string, unknown> = {}, projects: Record<stri
     spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}),
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), ...threads,
   }, projects } });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "p1" });
   await store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
   return { bb, harness, store };
 }
 
 /** Conversations stored by plugin versions before the chat moved into bb threads. */
-function legacyConversation(bb: BbPluginApi, worker: string, messages: Array<[string, string]>) {
-  const db = bb.storage.database();
-  db.prepare(`INSERT INTO agent_threads (target_key,thread_id,created_at) VALUES ('pr-1',?,1)`).run(worker);
-  for (const [role, text] of messages) db.prepare(`INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES ('pr-1',?,?,NULL,1)`).run(role, text);
+async function legacyConversation(bb: BbPluginApi, worker: string, messages: Array<[string, string]>) {
+  const sql = testSql(bb);
+  await sql.run(`INSERT INTO agent_threads (target_key,thread_id,created_at) VALUES ('pr-1',?,1)`, [worker]);
+  for (const [role, text] of messages) await sql.run(`INSERT INTO agent_messages (target_key,role,text,context,created_at) VALUES ('pr-1',?,?,NULL,1)`, [role, text]);
 }
 
 test("the first message starts one hidden assistant thread on the chosen agent", async () => {
@@ -71,7 +71,7 @@ test("the Settings default supplies its permission mode only for its own provide
 
 test("a legacy conversation stays visible, reaches the agent as hidden history, and retires its worker", async () => {
   const { bb, harness, store } = await host();
-  legacyConversation(bb, "legacy-worker", [["user", "Earlier question"], ["assistant", "Earlier answer"]]);
+  await legacyConversation(bb, "legacy-worker", [["user", "Earlier question"], ["assistant", "Earlier answer"]]);
   await startConversation(bb, store, { targetKey: "pr-1", text: "Go on", agent: opus });
   const [spawn] = harness.inspection.sdk.callsTo("threads.spawn")[0] as [any];
   expect(spawn.input[1]).toEqual({ type: "text", visibility: "agent-only", mentions: [], text: "Previous review conversation:\nuser: Earlier question\n\nassistant: Earlier answer" });
@@ -107,7 +107,7 @@ test("a live thread continues; otherwise the conversation starts from the Settin
 
 test("New conversation archives the thread and clears the legacy transcript", async () => {
   const { bb, harness, store } = await host({ archive: async ({ threadId }: { threadId: string }) => { if (threadId === "worker") throw new Error("Connection unavailable"); } });
-  legacyConversation(bb, "legacy-worker", [["user", "Earlier question"]]);
+  await legacyConversation(bb, "legacy-worker", [["user", "Earlier question"]]);
   await store.setAssistantThread("pr-1", "worker");
   await newConversation(bb, store, "pr-1");
   expect(harness.inspection.sdk.callsTo("threads.archive").map(([args]) => (args as any).threadId)).toEqual(["worker", "legacy-worker"]);

@@ -1,12 +1,11 @@
 import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import { defaultPreferences } from "./preferences";
 import { generateGuide } from "./generate";
 import { getConversation, startConversation } from "./agent";
 import { machineUnavailable } from "./machines";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 const machine = (id: string, name: string, status: "connected" | "disconnected", phase = "active") => ({ id, name, status, type: "persistent", lifecycle: { phase } });
 const machines = [
@@ -25,7 +24,7 @@ async function host() {
     },
     system: { config: async () => ({ primaryHostId: "host_server" }) },
   } });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1, projectId: "proj_work" });
   return { bb, harness, store };
 }

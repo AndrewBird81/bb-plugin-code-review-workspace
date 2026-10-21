@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import { testStore } from "./test-store.test-support";
 
 const { submit } = vi.hoisted(() => ({ submit: vi.fn(async () => ({ stdout: "{}", stderr: "", code: 0 })) }));
 vi.mock("./gh", async (original) => ({
@@ -11,10 +12,10 @@ vi.mock("./gh", async (original) => ({
 
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore, reanchorDraft } from "./store";
+import { reanchorDraft } from "./store";
 import { OUTCOMES_KEPT, suggestionLines } from "./learning";
 import { NOT_OWN_REVIEW } from "./review-command";
-import { queueStore, type AsyncStore } from "./store-queue";
+import type { AsyncStore } from "./store-queue";
 
 /** What the reviewer's page shows of the draft, which submitReview takes to check it still matches. */
 const shown = async (store: AsyncStore, targetKey: string) => {
@@ -31,7 +32,7 @@ const at = { file: "a.ts", line: 3, side: "RIGHT" } as const;
 async function host(sdk: Record<string, unknown> = {}) {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: sdk as any });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   await store.savePatch("pr-1", patch);
   await store.setAssistantThread("pr-1", "assistant");

@@ -2,12 +2,12 @@ import { expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import { targetKey } from "./targets";
 import { runGh } from "./gh";
 import { getConversation, newConversation } from "./agent";
 import { FORMER_WORKERS_KEPT, formerWorkerReview, recordFormerWorker } from "./former-workers";
-import { queueStore, type AsyncStore } from "./store-queue";
+import type { AsyncStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -18,7 +18,7 @@ const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@
 async function host() {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   await store.savePatch(key, patch);
   const cli = (...argv: string[]) => harness.behavior.runCli(["comment", ...argv]);
@@ -246,7 +246,7 @@ test("an assistant found archived, or a guide writer a new generation replaced, 
 // replaced meanwhile had no row at all, so neither was recorded (70-review-correctness #2, 71-review-security F4).
 test("a guide writer a reload interrupted, or one whose generation was replaced while it spawned, can change only its own review", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "generating", createdAt: 1, headSha: "sha1" });
   await store.savePatch(key, patch);
   await store.setGenerationWorker(key, await store.beginGeneration(key), "writer-9");

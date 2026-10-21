@@ -1,4 +1,5 @@
 import { test, expect, vi } from "vitest";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (orig) => {
   const real = await orig<any>();
@@ -31,13 +32,12 @@ vi.mock("./gh", async (orig) => {
 });
 
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore } from "./store";
 import { createPrReview } from "./start-review";
 import { defaultPreferences } from "./preferences";
 import * as gh from "./gh";
 import { targetKey } from "./targets";
 import plugin from "../server";
-import { queueStore, type AsyncStore } from "./store-queue";
+import type { AsyncStore } from "./store-queue";
 
 const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
 
@@ -46,7 +46,7 @@ test("createPrReview stores the review + patch and returns ok with a targetKey",
     pluginId: "code-review-workspace",
     sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } },
   });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
 
   const res = await createPrReview(
     { bb, store, gh },
@@ -69,7 +69,7 @@ test("starting an archived PR's review again returns it to the queue", async () 
     pluginId: "code-review-workspace",
     sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } },
   });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" });
   await store.setLifecycle(key, { userArchivedAt: 1 });
 
@@ -80,7 +80,7 @@ test("starting an archived PR's review again returns it to the queue", async () 
 
 test("createPrReview rejects a non-PR-URL input", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
 
   const res = await createPrReview({ bb, store, gh }, { input: "42", projectId: "p1" });
 
@@ -90,7 +90,7 @@ test("createPrReview rejects a non-PR-URL input", async () => {
 
 test("an offline guide writer machine stops the review before the PR is fetched", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { hosts: { get: async () => ({ id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } }) } } });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
   vi.mocked(gh.runGh).mockClear();
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" }))
@@ -110,7 +110,7 @@ async function seedReady(store: AsyncStore, headSha: string, patch: string) {
 
 test("pasting the link of a review that hasn't changed opens it without rebuilding", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await seedReady(store, "abc123", reviewed);
   await store.setLifecycle(key, { userArchivedAt: 1 });
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
@@ -122,7 +122,7 @@ test("pasting the link of a review that hasn't changed opens it without rebuildi
 
 test("pasting a renamed repository's PR link opens the review the sync keeps under the old name (bug bash CLI-2)", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await seedReady(store, "abc123", reviewed);
   await store.saveReview({ ...(await store.getReview(key))!, url: "https://github.com/acme/site/pull/7" });
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/site/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
@@ -131,7 +131,7 @@ test("pasting a renamed repository's PR link opens the review the sync keeps und
 
 test("pasting a PR link tells open pages of the review it starts, rebuilds, or brings back from Archive, at once (bug bash LIV-5)", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: () => new Promise(() => {}), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   const channels = async () => {
     harness.inspection.realtimeSignals.length = 0;
     expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
@@ -151,7 +151,7 @@ test("pasting the link of a review with new commits rebuilds it like Re-review, 
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "w" }), wait: async () => { throw new Error("worker failed"); }, archive: async () => ({}), stop: async () => ({}),
   } } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
   await vi.waitFor(async () => expect((await store.getReview(key))?.status).toBe("error"));
@@ -168,7 +168,7 @@ const building = () => createFakePluginHost({ pluginId: "code-review-workspace",
 
 test("pasting the link of a review with new commits keeps when it was created", async () => {
   const { bb } = building();
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
   expect(await store.getReview(key)).toMatchObject({ status: "generating", createdAt: 1 });
@@ -176,7 +176,7 @@ test("pasting the link of a review with new commits keeps when it was created", 
 
 test("pasting the link of an archived review with new commits brings it back from Archive", async () => {
   const { bb } = building();
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await seedReady(store, "old", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
   await store.setLifecycle(key, { userArchivedAt: 5 });
   expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
@@ -191,7 +191,7 @@ test("starting a PR's review records whether gh says it's merged or closed, new 
   });
   try {
     const { bb } = building();
-    const store = queueStore(createStore(bb));
+    const store = testStore(bb);
     stated("MERGED");
     expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
     expect([(await store.getReview(key))?.startedPrState, (await store.getReview(key))?.prState]).toEqual(["MERGED", undefined]);

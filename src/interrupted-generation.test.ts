@@ -1,12 +1,11 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import { generateGuide } from "./generate";
 import { defaultPreferences } from "./preferences";
 import { formerWorkerReview, NO_REVIEW, recordFormerWorker } from "./former-workers";
 import { runGh } from "./gh";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (original) => ({
   ...await original<typeof import("./gh")>(),
@@ -22,7 +21,7 @@ async function interrupted(sdk: Record<string, unknown> = {}, lifecycle: Record<
   const first = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "old-worker" }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
-  const store = queueStore(createStore(first.bb));
+  const store = testStore(first.bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
   await store.setLifecycle("pr-1", { authorAssociation: "MEMBER", ...lifecycle });
   await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+a2\n");
@@ -38,7 +37,7 @@ async function interrupted(sdk: Record<string, unknown> = {}, lifecycle: Record<
   next.harness.inspection.sdk.stub("threads.archive", archive);
   next.harness.inspection.sdk.stub("threads.stop", stop);
   for (const [name, fn] of Object.entries(sdk)) next.harness.inspection.sdk.stub(name as any, fn as any);
-  return { ...next, store: queueStore(createStore(next.bb)), archive, stop };
+  return { ...next, store: testStore(next.bb), archive, stop };
 }
 
 test("after a reload, the guide being written is stopped and archived, the old guide kept, and the rebuild starts again", async () => {
@@ -122,7 +121,7 @@ test("after a reload, a writer whose spawn it interrupted is found by its title,
   const first = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: () => new Promise(() => {}), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
-  const before = queueStore(createStore(first.bb));
+  const before = testStore(first.bb);
   await before.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
   await before.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
   await before.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+a2\n");
@@ -151,7 +150,7 @@ test("after a reload, a thread titled as the interrupted review's writer stays k
   const first = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: () => new Promise(() => {}), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
-  const before = queueStore(createStore(first.bb));
+  const before = testStore(first.bb);
   for (const key of ["pr-1", "pr-2"]) await before.saveReview({ targetKey: key, kind: "pr", number: Number(key.slice(3)), repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
   await before.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
   await before.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+a2\n");

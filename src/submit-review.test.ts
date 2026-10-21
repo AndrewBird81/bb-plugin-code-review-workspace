@@ -1,11 +1,12 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore, reanchorDraft } from "./store";
+import { reanchorDraft } from "./store";
 import { createReviewSubmitter } from "./submit-review";
 import type { runGh } from "./gh";
 import { reviewRevision } from "./review-revision";
 import plugin from "../server";
-import { queueStore, type AsyncStore } from "./store-queue";
+import type { AsyncStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 // The server's gh, for submitting through the RPC; the submitter's own tests pass theirs.
 const serverGh = vi.hoisted(() => vi.fn());
@@ -14,7 +15,7 @@ vi.mock("./gh", async (orig) => ({ ...(await orig<typeof import("./gh")>()), run
 const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n";
 async function setup() {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-test", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, headSha: "sha1" });
   await store.savePatch("pr-test", patch);
   await store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "RIGHT", body: "Please explain this" });
@@ -267,7 +268,7 @@ test("submitReview without the comments, summary, and verdict the page shows is 
     : { code: 0, stderr: "", stdout: JSON.stringify({ id: 1, node_id: "R_1", html_url: "https://github.com/acme/web/pull/1#r1", user: { login: "me" } }) });
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha1" });
   await store.savePatch("pr-1", patch);
   await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "Text the reviewer never saw" });

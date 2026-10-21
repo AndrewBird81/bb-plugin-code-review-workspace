@@ -1,9 +1,9 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { assess, changesSinceReview, startVerification, verificationContext } from "./verification";
-import { createStore, type ReviewMeta } from "./store";
+import type { ReviewMeta } from "./store";
 import { defaultPreferences } from "./preferences";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 const review: ReviewMeta = {
   targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "aaaaaaa1",
@@ -22,7 +22,7 @@ test("with Run the re-review check off, the check doesn't start, though the defa
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     get: async () => ({ archivedAt: null, deletedAt: null, status: "idle" }), send: async () => ({}),
   } } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview(review);
   await store.setLifecycle("pr-1", { submittedVerdict: "REQUEST_CHANGES", submittedAt: 1000, submittedHeadSha: "0000000", signals: review.signals });
   await store.setAssistantThread("pr-1", "assistant");
@@ -34,7 +34,7 @@ test("with Run the re-review check off, the check doesn't start, though the defa
 
 test("assess_feedback keeps where its evidence is only as a line the current diff shows on its new side", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, headSha: "sha1", status: "ready", createdAt: 1 });
   await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,3 +1,2 @@\n keep();\n-if (!isAdmin(user)) throw denied();\n next();\n");
   const item = (id: string, at: { file?: string; line?: number }) => ({ id, title: "Ask", verdict: "addressed" as const, evidence: "Fixed", ...at });
@@ -55,7 +55,7 @@ test("assess_feedback keeps where its evidence is only as a line the current dif
 
 test("commit headlines since your review are fenced as untrusted", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n keep();\n-old();\n+next();\n";
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "bbbbbbb2", status: "ready", createdAt: 1 });
   await store.setLifecycle("pr-1", { submittedHeadSha: "aaaaaaa1", submittedAt: 10, submittedVerdict: "REQUEST_CHANGES" });
@@ -68,7 +68,7 @@ test("commit headlines since your review are fenced as untrusted", async () => {
 
 test("the assistant's changes since your review are read at the commit its check records, not a later push", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   const one = (line: string) => `diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+${line}\n`;
   const at: Record<string, string> = { sha1: one("guide"), sha2: one("checked"), sha3: one("pushed-later") };
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "sha1", status: "ready", createdAt: 1 });
@@ -91,7 +91,7 @@ test("the assistant's changes since your review are read at the commit its check
 
 test("on a PR with more commits than GitHub lists, a reviewed commit missing from the list isn't said to be force-pushed away", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha: "bbbbbbb2", status: "ready", createdAt: 1 });
   await store.setLifecycle("pr-1", { submittedHeadSha: "aaaaaaa1", submittedAt: 10, submittedVerdict: "REQUEST_CHANGES" });

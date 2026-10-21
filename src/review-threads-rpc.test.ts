@@ -1,12 +1,11 @@
 import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import { testStore } from "./test-store.test-support";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 
 import plugin from "../server";
-import { createStore } from "./store";
-import { queueStore } from "./store-queue";
 
 const node = (id: string) => ({ id, isResolved: false, isOutdated: false, path: "a.ts", line: 1, comments: { nodes: [{ id: `${id}-c`, databaseId: 1, author: { login: "alice" }, body: id }] } });
 const page = (ids: string[], endCursor: string | null) =>
@@ -16,7 +15,7 @@ async function setup() {
   runGh.mockReset();
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  await queueStore(createStore(bb)).saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
+  await testStore(bb).saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
   return (input: unknown) => harness.behavior.callRpc("getReviewThreads", input) as Promise<any>;
 }
 
@@ -84,7 +83,7 @@ test("re-reading your threads writes nothing for a review deleted while GitHub a
   runGh.mockReset();
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
   await store.setLifecycle("pr-1", { submittedVerdict: "COMMENT", submittedAt: 5, signals: { lastReviewAt: 5 } });
   runGh.mockImplementation(async (args: string[]) => {
@@ -104,7 +103,7 @@ test("re-reading your threads tells open review pages only when they changed", a
   runGh.mockReset();
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, createdAt: 1, status: "ready" });
   await store.setLifecycle("pr-1", { submittedVerdict: "COMMENT", submittedAt: 5, signals: { lastReviewAt: 5 } });
   let body = "Fix";

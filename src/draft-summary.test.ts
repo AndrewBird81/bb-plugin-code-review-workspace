@@ -1,12 +1,11 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
 import { commentsKey, SUMMARY_AT } from "./draft";
 import { writeSummary } from "./draft-summary";
 import { reviewRevision } from "./review-revision";
 import { runGh } from "./gh";
-import { queueStore } from "./store-queue";
+import { testSql, testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 
@@ -19,7 +18,7 @@ const at = { file: "a.ts", line: 3, side: "RIGHT" } as const;
 async function host() {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   await store.savePatch("pr-1", patch);
   await store.setAssistantThread("pr-1", "assistant");
@@ -216,7 +215,7 @@ test("a removed comment drafted before bb kept its line's code doesn't go back",
   await ask(at, "Drop it?");
   await tool("add_draft_comment", { ...at, code: "const c = b * 2;", body: "Overflow?" });
   // As a version before 0.3.0 left it.
-  bb.storage.database().prepare(`UPDATE draft_comment_revisions SET code=NULL`).run();
+  await testSql(bb).run(`UPDATE draft_comment_revisions SET code=NULL`);
   await tool("delete_draft_comment", at);
   expect(await store.lastDiscussionChange("pr-1", at)).toMatchObject({ kind: "removed" });
   expect((await call("getDraft", {})).discussions[0]).not.toHaveProperty("undoable");
@@ -226,7 +225,7 @@ test("a removed comment drafted before bb kept its line's code doesn't go back",
 
 test("an ask on the summary left from before the plugin started gives way", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   await store.setLifecycle("pr-1", { summaryAsk: { threadId: "assistant", state: "running", at: Date.now() } });
   await plugin(bb);

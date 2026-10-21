@@ -1,12 +1,11 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import { testStore } from "./test-store.test-support";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 
 import plugin from "../server";
-import { createStore } from "./store";
-import { queueStore } from "./store-queue";
 
 const ok = (stdout: string) => ({ stdout, stderr: "", code: 0 });
 const patch = ["src/api/a.ts", "src/b.ts", "README.md"].map((f) => `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n@@ -1 +1 @@\n-a\n+b\n`).join("");
@@ -30,7 +29,7 @@ function github(codeowners: string | null) {
 async function setUp(headSha: string) {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, base: "main", headSha, status: "ready", createdAt: 1 });
   await store.savePatch("pr-1", patch);
   await store.setAssistantThread("pr-1", "assistant");

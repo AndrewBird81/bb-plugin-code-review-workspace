@@ -1,4 +1,5 @@
 import { test, expect, vi } from "vitest";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (orig) => {
   const real = await orig<any>();
@@ -15,13 +16,12 @@ vi.mock("./gh", async (orig) => {
 });
 
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore } from "./store";
 import { NOT_OWN_REVIEW, runReviewCommand } from "./review-command";
 import { defaultPreferences } from "./preferences";
 import * as gh from "./gh";
 import { targetKey } from "./targets";
 import plugin from "../server";
-import { queueStore, type AsyncStore } from "./store-queue";
+import type { AsyncStore } from "./store-queue";
 
 const key = targetKey({ kind: "pr", number: 7, repo: "acme/web" });
 
@@ -30,7 +30,7 @@ test("bb review <number> fetches, stores patch+meta, and kicks generation", asyn
     pluginId: "code-review-workspace",
     sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } },
   });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   const res = await runReviewCommand({ bb, store, gh }, ["7"], { projectId: "p1", cwd: process.cwd() });
   expect(res.exitCode).toBe(0);
   const meta = await store.getReview(key);
@@ -40,7 +40,7 @@ test("bb review <number> fetches, stores patch+meta, and kicks generation", asyn
 
 test("bb review reports an offline guide writer machine without starting a review", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { hosts: { get: async () => ({ id: "host_flomac", name: "FloMac", status: "disconnected", lifecycle: { phase: "active" } }) } } });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.savePreferences({ ...defaultPreferences, guideAgent: { hostId: "host_flomac", providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" } }, 0);
   expect(await runReviewCommand({ bb, store, gh }, ["7"], { projectId: "p1", cwd: process.cwd() }))
     .toEqual({ exitCode: 1, stderr: "FloMac is offline. Wake it, or choose another machine for the guide writer in Review settings." });
@@ -49,7 +49,7 @@ test("bb review reports an offline guide writer machine without starting a revie
 
 test("bb review --help names both forms without starting a review", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   for (const argv of [["--help"], ["-h"], ["main", "--help"]]) {
     expect(await runReviewCommand({ bb, store, gh }, argv, { projectId: "p1", cwd: "/repo" })).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("bb review comment") });
   }
@@ -60,7 +60,7 @@ const url = "https://github.com/acme/web/pull/7";
 const laptop = "/Users/someone/only-on-a-laptop";
 function host() {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
-  return { bb, store: queueStore(createStore(bb)) };
+  return { bb, store: testStore(bb) };
 }
 
 test("a PR URL starts a review from a thread on any machine; gh never runs in the caller's directory", async () => {
@@ -160,7 +160,7 @@ test("--context says the automatic review won't run on a merged or closed PR, or
 
 test("bb review of a review that hasn't changed opens it without rebuilding, and still keeps --context", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "abc123" });
   await store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-o\n+n\n");
   await store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
@@ -175,7 +175,7 @@ test("bb review of a review with new commits backs up its guide and moves its co
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "w" }), wait: async () => { throw new Error("worker failed"); }, archive: async () => ({}), stop: async () => ({}),
   } } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "old" });
   await store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
   await store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
@@ -190,7 +190,7 @@ test("bb review of a review with new commits keeps when it was created", async (
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
     spawn: async () => ({ id: "w" }), wait: async () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   await store.saveReview({ targetKey: key, kind: "pr", number: 7, repo: "acme/web", status: "ready", createdAt: 1, projectId: "p1", headSha: "old" });
   await store.savePatch(key, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1 @@\n+n\n");
   await store.saveGuide(key, { title: "Kept", intent: "I", sections: [], unplacedFiles: [] });
@@ -259,7 +259,7 @@ test("bb review with a renamed repository's PR URL opens the review the sync kee
 test("bb review tells open pages of the review it starts, rebuilds, or brings back from Archive, at once (bug bash LIV-5)", async () => {
   // The writer's spawn never settles, so only the command itself can have published.
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: () => new Promise(() => {}), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   const channels = async () => {
     harness.inspection.realtimeSignals.length = 0;
     expect(await runReviewCommand({ bb, store, gh }, [url], { projectId: "p1" })).toMatchObject({ exitCode: 0 });
@@ -297,7 +297,7 @@ test("bb review records the thread it ran in as the review's source thread, neve
   // A command while the guide writer's spawn is in flight reads the running thread's title.
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {}, get: async () => ({ title: null }) } } as any });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   const run = (threadId?: string) => harness.behavior.runCli([url], { ...(threadId ? { threadId } : {}), projectId: "p1", cwd: process.cwd() });
   expect(await run("coder")).toMatchObject({ exitCode: 0 });
   expect(await store.getReview(key)).toMatchObject({ sourceThreadId: "coder", sourceThreadAt: expect.any(Number) });
@@ -314,7 +314,7 @@ test("bb review records the thread it ran in as the review's source thread, neve
 test("bb review links to the review where BB has an app URL, and says to open the panel where it hasn't, or with its switch off", async () => {
   // The guide is still building when the command runs again.
   const linked = createFakePluginHost({ pluginId: "code-review-workspace", appUrl: "https://bb.example/", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: () => new Promise(() => {}), archive: async () => {}, stop: async () => {} } } });
-  const store = queueStore(createStore(linked.bb));
+  const store = testStore(linked.bb);
   expect((await runReviewCommand({ bb: linked.bb, store, gh }, [url], { projectId: "p1", cwd: process.cwd() })).stdout)
     .toBe(`Review started for ${key}. Open https://bb.example/plugins/code-review-workspace/review/${key} to watch it build and review.`);
   await store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, reviewCommandInThreads: false } }, (await store.getPreferences()).revision);
@@ -328,7 +328,7 @@ test("bb review links to the review where BB has an app URL, and says to open th
 test("bb review list lists your reviews in All reviews' order, as text or JSON; a review's own agent can't, and with its switch off there's no list", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } } });
   await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = testStore(bb);
   const list = (...argv: string[]) => harness.behavior.runCli(["list", ...argv], { threadId: "coder", projectId: "p1", cwd: process.cwd() });
   expect(await list()).toMatchObject({ exitCode: 0, stdout: "No reviews yet. Start one with `bb review <pr-url | git-ref>`." });
   await store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main...feature", cwd: "/repo", status: "ready", createdAt: 2, projectId: "p1" });

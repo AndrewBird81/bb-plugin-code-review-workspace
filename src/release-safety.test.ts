@@ -1,13 +1,12 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { createStore } from "./store";
-import { queueStore } from "./store-queue";
+import { testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async importOriginal => ({...await importOriginal<typeof import('./gh')>(),runGh:vi.fn(async()=>({code:0,stdout:'{}',stderr:''}))}));
 
 test('a stale window cannot stamp comments onto a newer stored patch, or submit', async()=>{
- const {bb,harness}=createFakePluginHost({pluginId:'code-review-workspace'});await plugin(bb);const store=queueStore(createStore(bb));
+ const {bb,harness}=createFakePluginHost({pluginId:'code-review-workspace'});await plugin(bb);const store=testStore(bb);
  const meta={targetKey:'pr-1',kind:'pr' as const,repo:'example/project',number:1,headSha:'old',status:'ready' as const,createdAt:1};await store.saveReview(meta);await store.savePatch('pr-1','old patch');
  const old=await harness.behavior.callRpc('getReviewBundle',{targetKey:'pr-1'}) as any;
  await store.saveReview({...meta,headSha:'new'});await store.savePatch('pr-1','new patch');
