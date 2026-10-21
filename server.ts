@@ -153,9 +153,13 @@ export default async function plugin(bb: BbPluginApi) {
   // A turn that ended while the plugin was down never settled what waited for it.
   void (async () => {
     for (const review of await store.listReviews()) {
-      if (!review.verifyingSince && !(await store.listDiscussions(review.targetKey)).some((d) => d.waiting)) continue;
-      // A check that left the queue while the plugin was down has had its turn, or is having it.
-      const threadId = review.verifyingMessageId ? await store.getAssistantThread(review.targetKey) : null;
+      // What waits on its assistant, read in one turn: undefined for nothing.
+      const threadId = await store.exclusive(async (tx) => {
+        if (!review.verifyingSince && !(await tx.listDiscussions(review.targetKey)).some((d) => d.waiting)) return undefined;
+        // A check that left the queue while the plugin was down has had its turn, or is having it.
+        return review.verifyingMessageId ? await tx.getAssistantThread(review.targetKey) : null;
+      });
+      if (threadId === undefined) continue;
       const queue = threadId ? await bb.sdk.threads.queuedMessages.list({ threadId }).catch(() => null) : null;
       if (queue && !queue.some((m) => m.id === review.verifyingMessageId)) await store.setLifecycle(review.targetKey, { verifyingMessageId: null });
       if (await assistantMayAnswer(bb, store, review.targetKey)) continue;
@@ -1020,14 +1024,18 @@ export default async function plugin(bb: BbPluginApi) {
         });
       }
       const { patch, review } = await store.exclusive(async (tx) => ({ patch: await tx.patch(targetKey), review: await tx.getReview(targetKey) }));
-      const paged = stubSkippedFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [], { lockfileDigest: (await store.getPreferences()).preferences.knobs.lockfileDigest });
-      const past = offsetPastEnd("the diff", offset ?? 0, paged.length);
-      if (past) return failed(past);
-      const { text, end } = patchPage(paged, offset ?? 0, limit ?? 80_000);
-      // Each file the page includes, if only in part.
-      await recordAgentReads(store, threadId, targetKey, splitPatchByFile(text).map((f) => f.path));
-      const more = end < paged.length ? `\n\n[${end}/${paged.length} bytes — call again with offset=${end}]` : "";
-      return text + more;
+      const generated = review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [];
+      // The page, and its read recorded, in one turn.
+      return store.exclusive(async (tx) => {
+        const paged = stubSkippedFiles(patch, generated, { lockfileDigest: (await tx.getPreferences()).preferences.knobs.lockfileDigest });
+        const past = offsetPastEnd("the diff", offset ?? 0, paged.length);
+        if (past) return failed(past);
+        const { text, end } = patchPage(paged, offset ?? 0, limit ?? 80_000);
+        // Each file the page includes, if only in part.
+        await recordAgentReads(tx, threadId, targetKey, splitPatchByFile(text).map((f) => f.path));
+        const more = end < paged.length ? `\n\n[${end}/${paged.length} bytes — call again with offset=${end}]` : "";
+        return text + more;
+      });
     },
   });
   bb.agents.registerTool({

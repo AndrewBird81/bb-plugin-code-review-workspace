@@ -104,7 +104,17 @@ export async function getConversation(bb: BbPluginApi, store: AsyncStore, target
   threadId: string | null; legacy: AgentMessage[]; defaults: AgentChoice | null;
   machine: { name: string; connected: boolean } | null;
 }> {
-  const { legacy, threadId } = await store.exclusive(async (tx) => ({ legacy: await tx.listAgentMessages(targetKey), threadId: await tx.getAssistantThread(targetKey) }));
+  /** The agent a new conversation would start on: Settings', or the project's, by its id. */
+  const chosen = async (tx: AsyncStore) => {
+    const custom = (await tx.getPreferences()).preferences.assistantAgent;
+    return { custom, projectId: custom ? undefined : (await tx.getReview(targetKey))?.projectId };
+  };
+  const { legacy, threadId, ...unthreaded } = await store.exclusive(async (tx) => {
+    const legacy = await tx.listAgentMessages(targetKey);
+    const threadId = await tx.getAssistantThread(targetKey);
+    return { legacy, threadId, ...threadId ? { custom: null, projectId: undefined } : await chosen(tx) };
+  });
+  let { custom, projectId } = unthreaded;
   if (threadId) {
     try {
       const thread = await bb.sdk.threads.get({ threadId });
@@ -115,15 +125,13 @@ export async function getConversation(bb: BbPluginApi, store: AsyncStore, target
     // Archived, it can still run commands: as a former assistant, only on its own review.
     await recordFormerWorker(bb, threadId, targetKey, "assistant");
     // A conversation archived or deleted won't answer, and its turn's end won't reach this review.
-    if (await store.exclusive(async (tx) => {
+    const ended = await store.exclusive(async (tx) => {
       await tx.clearAssistantThread(targetKey);
-      return await endAssistantWaits(bb, tx, targetKey);
-    })) waitsEnded.get(bb)?.(targetKey);
+      return { ended: await endAssistantWaits(bb, tx, targetKey), ...await chosen(tx) };
+    });
+    ({ custom, projectId } = ended);
+    if (ended.ended) waitsEnded.get(bb)?.(targetKey);
   }
-  const { custom, projectId } = await store.exclusive(async (tx) => {
-    const custom = (await tx.getPreferences()).preferences.assistantAgent;
-    return { custom, projectId: custom ? undefined : (await tx.getReview(targetKey))?.projectId };
-  });
   if (custom) return { threadId: null, legacy, defaults: choice(custom), machine: await machineStatus(bb, custom.hostId) };
   const project = projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }).catch(() => null) : null;
   return { threadId: null, legacy, defaults: project && choice(project), machine: null };
