@@ -425,54 +425,55 @@ export function pgSql(options: PgOptions): PgSql {
     { cause: failed },
   );
 
+  /** `fn` in `frame`, which closes as soon as `fn` settles: what `fn` left running then waits like any call from outside. */
+  async function runIn<T>(frame: Frame, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await frames.run(frame, fn);
+    } finally {
+      frame.open = false;
+    }
+  }
+
   async function savepoint<T>(parent: Frame, fn: () => Promise<T>): Promise<T> {
     const { session } = parent;
     const name = `sql_savepoint_${parent.depth + 1}`;
     await execute(session, `SAVEPOINT ${name}`, [], parent);
     const frame: Frame = { depth: parent.depth + 1, open: true, session };
+    let result: T;
     try {
-      let result: T;
-      try {
-        result = await frames.run(frame, fn);
-      } catch (error) {
-        await rollback(session, `ROLLBACK TO SAVEPOINT ${name}`);
-        await rollback(session, `RELEASE SAVEPOINT ${name}`);
-        throw error;
-      }
-      if (frame.failed !== undefined) {
-        await rollback(session, `ROLLBACK TO SAVEPOINT ${name}`);
-        await rollback(session, `RELEASE SAVEPOINT ${name}`);
-        throw aborted(frame.failed);
-      }
-      await execute(session, `RELEASE SAVEPOINT ${name}`, [], parent);
-      return result;
-    } finally {
-      frame.open = false;
+      result = await runIn(frame, fn);
+    } catch (error) {
+      await rollback(session, `ROLLBACK TO SAVEPOINT ${name}`);
+      await rollback(session, `RELEASE SAVEPOINT ${name}`);
+      throw error;
     }
+    if (frame.failed !== undefined) {
+      await rollback(session, `ROLLBACK TO SAVEPOINT ${name}`);
+      await rollback(session, `RELEASE SAVEPOINT ${name}`);
+      throw aborted(frame.failed);
+    }
+    await execute(session, `RELEASE SAVEPOINT ${name}`, [], parent);
+    return result;
   }
 
   async function transaction<T>(fn: () => Promise<T>): Promise<T> {
     const session = await connection();
     await execute(session, "BEGIN", []);
     const frame: Frame = { depth: 0, open: true, session };
+    let result: T;
     try {
-      let result: T;
-      try {
-        result = await frames.run(frame, fn);
-      } catch (error) {
-        await rollback(session, "ROLLBACK");
-        throw error;
-      }
-      if (frame.failed !== undefined) {
-        await rollback(session, "ROLLBACK");
-        throw aborted(frame.failed);
-      }
-      const { command } = await execute(session, "COMMIT", []);
-      if (command !== "COMMIT") throw aborted(undefined);
-      return result;
-    } finally {
-      frame.open = false;
+      result = await runIn(frame, fn);
+    } catch (error) {
+      await rollback(session, "ROLLBACK");
+      throw error;
     }
+    if (frame.failed !== undefined) {
+      await rollback(session, "ROLLBACK");
+      throw aborted(frame.failed);
+    }
+    const { command } = await execute(session, "COMMIT", []);
+    if (command !== "COMMIT") throw aborted(undefined);
+    return result;
   }
 
   return {

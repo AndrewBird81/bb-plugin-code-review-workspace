@@ -458,6 +458,21 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
       await late;
       expect(await bodies()).toEqual(["inside", "late"]);
     });
+
+    test("work a transaction started without awaiting, made while its COMMIT runs, waits like any statement from outside", async () => {
+      const { sql, add, bodies } = await notes();
+      // A deferred trigger that makes each COMMIT of a new note take 300 ms.
+      await sql.run(`CREATE FUNCTION slow_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.3); RETURN NULL; END $$`);
+      await sql.run(`CREATE CONSTRAINT TRIGGER slow_commit AFTER INSERT ON notes DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slow_commit()`);
+      let late: Promise<unknown> | undefined;
+      await sql.transaction(async () => {
+        await add("inside");
+        // A transaction of its own once this one ends; a savepoint in it, after its COMMIT, would fail.
+        late = sleep(100).then(() => sql.transaction(async () => { await add("late"); }));
+      });
+      await late;
+      expect(await bodies()).toEqual(["inside", "late"]);
+    });
   });
 
   describe("the writer lock", () => {
@@ -541,14 +556,15 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
     });
 
     test("a transaction the connection is lost in fails without committing anything, and the next call connects again", async () => {
-      const { sql, add, bodies } = await notes();
+      const lost = vi.fn();
+      const { sql, add, bodies } = await notes({ onConnectionLost: lost });
       const failing = sql.transaction(async () => {
         await add("lost");
         await terminate(await pid(sql));
-        await sleep(50);
+        await vi.waitFor(() => { expect(lost).toHaveBeenCalledTimes(1); });
         await add("after the kill");
       });
-      await expect(failing).rejects.toThrow();
+      await expect(failing).rejects.toThrow("Client has encountered a connection error and is not queryable");
       expect(await bodies()).toEqual([]);
     });
 
@@ -588,7 +604,7 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
         await add("idle");
         await sleep(600);
         await add("too late");
-      })).rejects.toThrow();
+      })).rejects.toThrow("Client has encountered a connection error and is not queryable");
       expect(lost.mock.calls[0]![0]).toMatchObject({ code: "25P03" });
       expect(await bodies()).toEqual([]);
       expect(await pid(sql)).not.toBe(before);
