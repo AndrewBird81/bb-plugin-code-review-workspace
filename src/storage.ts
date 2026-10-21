@@ -100,16 +100,16 @@ export async function chooseStorage(bb: BbPluginApi): Promise<StorageChoice> {
   }
   if (owner === "sqlite") return { kind: "sqlite", status: { ...status, state: "serving" }, settings };
   const redact = redactor(settings);
-  let pgStore: PgSql;
+  let connection: PgSql;
   try {
-    pgStore = pgSql(pgOptions(settings, (error) => {
+    connection = pgSql(pgOptions(settings, (error) => {
       bb.log.warn(`Lost the connection to Postgres: ${redact(String(error))}. The next store call connects again.`);
     }));
   } catch (error) {
     return maintenance(`Code Review Workspace can't use Postgres: ${redact(error instanceof Error ? error.message : String(error))}. Fix the setting, then ${reload}.`);
   }
   status.state = "opening";
-  return { kind: "postgres", status, settings, pg: pgStore, schema: settings.postgresSchema, redact };
+  return { kind: "postgres", status, settings, pg: connection, schema: settings.postgresSchema, redact };
 }
 
 /** Errors that say only that Postgres can't be reached yet: from the network, or from a server starting or stopping. */

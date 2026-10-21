@@ -134,7 +134,7 @@ export default async function plugin(bb: BbPluginApi) {
   // Opened at activation, once the instance a reload replaces has closed its connection and let the writer lock go.
   bb.background.service("storage", {
     async start(signal) {
-      // Restarted after a crash BB put down to work it started, it finds the store open.
+      // BB restarts a service for an uncaught error in work started from it, as the store's is: run again, it finds the store open.
       if (!served) {
         const opened = await openPostgres(bb, storage, signal, async () => {
           await pg.lockWriter();
