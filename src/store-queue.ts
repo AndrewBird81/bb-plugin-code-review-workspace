@@ -3,10 +3,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Store } from "./store";
 
-type Promised<T> = { [K in keyof T]: T[K] extends (...args: infer A) => infer R ? (...args: A) => Promise<R> : never };
-
 /** The Store, each call resolving once its turn in the queue has run. */
-export interface AsyncStore extends Promised<Store> {
+export interface AsyncStore extends Store {
   /**
    * Run `fn` as one turn of the queue: nothing else reaches the store until it settles, and calls `fn` started but
    * didn't await have run. Inside, use `tx`: the outer store throws there, since it would wait for the block. On `tx`
@@ -19,9 +17,6 @@ export interface QueuedStore extends AsyncStore {
   /** Reject the queued calls and every later one, and resolve once the call or block running now ends. */
   dispose(): Promise<void>;
 }
-
-/** What the queue runs each call on: the synchronous Store, or one whose calls return Promises. */
-export type StoreBackend = { [K in keyof Store]: Store[K] extends (...args: infer A) => infer R ? (...args: A) => R | Promise<R> : never };
 
 /** A call on a disposed store, or one still queued when it was disposed. */
 export class StoreDisposedError extends Error {
@@ -50,7 +45,7 @@ const ignore = () => {};
  * The queue over `backend`, whose own calls between its methods (`this.getReview`) don't go through it. `backend`'s
  * methods are its own function properties, as an object literal has them.
  */
-export function queueStore(backend: StoreBackend, options: QueueOptions = {}): QueuedStore {
+export function queueStore(backend: Store, options: QueueOptions = {}): QueuedStore {
   const names = Object.keys(backend).filter((name) => typeof backend[name as keyof Store] === "function") as Array<keyof Store>;
   const call = (name: keyof Store, args: unknown[]) => (backend[name] as (...args: unknown[]) => unknown).apply(backend, args);
   const units = new AsyncLocalStorage<Unit>();

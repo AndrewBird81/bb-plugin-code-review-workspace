@@ -10,9 +10,9 @@ import { diffPositions, rangeProblem, type FilePositions } from "./review-positi
 import { reanchorIn } from "./reanchor";
 import { renamedPaths } from "./patch";
 import { fileHashCache, type FileHashes } from "./file-views";
-import type { AsyncStore } from "./store-queue";
 import { agentCommentStore, type AgentCommentStore } from "./learning";
 import { importFormerInstall } from "./former-install";
+import { sqliteSql, type Sql } from "./db/sql";
 
 export interface ReviewLifecycle {
   prState?: "OPEN" | "CLOSED" | "MERGED";
@@ -168,136 +168,136 @@ export interface AgentMessage {
 }
 
 export interface Store extends AgentCommentStore {
-  getPreferences(): PreferencesRecord;
-  savePreferences(preferences: ReviewPreferences, revision: number): PreferencesRecord;
-  getReviewerNotes(targetKey: string): ReviewerNotesRecord;
-  saveReviewerNotes(targetKey: string, body: string, revision: number): ReviewerNotesRecord;
-  saveReview(meta: ReviewMeta): void;
-  getReview(targetKey: string): ReviewMeta | null;
-  listReviews(): ReviewMeta[];
-  setStatus(targetKey: string, status: ReviewMeta["status"]): void;
-  setLifecycle(targetKey: string, state: ReviewLifecycle): void;
+  getPreferences(): Promise<PreferencesRecord>;
+  savePreferences(preferences: ReviewPreferences, revision: number): Promise<PreferencesRecord>;
+  getReviewerNotes(targetKey: string): Promise<ReviewerNotesRecord>;
+  saveReviewerNotes(targetKey: string, body: string, revision: number): Promise<ReviewerNotesRecord>;
+  saveReview(meta: ReviewMeta): Promise<void>;
+  getReview(targetKey: string): Promise<ReviewMeta | null>;
+  listReviews(): Promise<ReviewMeta[]>;
+  setStatus(targetKey: string, status: ReviewMeta["status"]): Promise<void>;
+  setLifecycle(targetKey: string, state: ReviewLifecycle): Promise<void>;
   /** Context for the assistant's automatic review, from `bb review --context`. */
-  getReviewContext(targetKey: string): string | null;
+  getReviewContext(targetKey: string): Promise<string | null>;
   /** null removes it. */
-  setReviewContext(targetKey: string, text: string | null): void;
+  setReviewContext(targetKey: string, text: string | null): Promise<void>;
   /** Remove the review and everything stored for it. */
-  deleteReview(targetKey: string): void;
-  savePatch(targetKey: string, patch: string): void;
-  patch(targetKey: string): string;
+  deleteReview(targetKey: string): Promise<void>;
+  savePatch(targetKey: string, patch: string): Promise<void>;
+  patch(targetKey: string): Promise<string>;
   /** Whether the review has a diff stored; pruneOldDiffs drops it. */
-  hasPatch(targetKey: string): boolean;
+  hasPatch(targetKey: string): Promise<boolean>;
   /** Forget the review's diff and any guide kept for a rebuild, to read the diff again when it's opened. */
-  dropPatch(targetKey: string): void;
+  dropPatch(targetKey: string): Promise<void>;
   /** SHA-256 of the stored patch, kept since it was saved. */
-  patchHash(targetKey: string): string;
+  patchHash(targetKey: string): Promise<string>;
   /** The stored patch's commentable lines by file, parsed once per patch. Read-only. */
-  diffPositions(targetKey: string): Map<string, FilePositions>;
+  diffPositions(targetKey: string): Promise<Map<string, FilePositions>>;
   /** The stored patch's file hashes, each taken once per patch. */
-  fileHashes(targetKey: string): FileHashes;
-  saveGuide(targetKey: string, guide: Guide): void;
-  getGuide(targetKey: string): Guide | null;
-  beginGeneration(targetKey: string): string;
+  fileHashes(targetKey: string): Promise<FileHashes>;
+  saveGuide(targetKey: string, guide: Guide): Promise<void>;
+  getGuide(targetKey: string): Promise<Guide | null>;
+  beginGeneration(targetKey: string): Promise<string>;
   /** Keep the current guide and diff, to put back if regenerating them fails. */
-  backupGuide(targetKey: string): void;
+  backupGuide(targetKey: string): Promise<void>;
   /** Put the kept guide and diff back. False when there's nothing kept. */
-  restoreGuide(targetKey: string): boolean;
+  restoreGuide(targetKey: string): Promise<boolean>;
   /** The head commit of the guide kept by backupGuide, if any. */
-  guideBackupHead(targetKey: string): string | null;
-  dropGuideBackup(targetKey: string): void;
-  isCurrentGeneration(targetKey: string, generationId: string): boolean;
+  guideBackupHead(targetKey: string): Promise<string | null>;
+  dropGuideBackup(targetKey: string): Promise<void>;
+  isCurrentGeneration(targetKey: string, generationId: string): Promise<boolean>;
   /** Record the hidden thread writing a generation's guide, to stop it if the plugin reloads first. */
-  setGenerationWorker(targetKey: string, generationId: string, workerId: string): void;
+  setGenerationWorker(targetKey: string, generationId: string, workerId: string): Promise<void>;
   /** The review whose current generation's guide this thread writes, if any. */
-  generationOf(workerId: string): string | null;
+  generationOf(workerId: string): Promise<string | null>;
   /** The hidden thread writing the review's current generation's guide, if one was recorded. */
-  generationWorker(targetKey: string): string | null;
+  generationWorker(targetKey: string): Promise<string | null>;
   /** Every generation's recorded worker, by review: what generationOf answers, for src/configure-view.ts. */
-  listGenerationWorkers(): Array<{ targetKey: string; workerId: string }>;
+  listGenerationWorkers(): Promise<Array<{ targetKey: string; workerId: string }>>;
   /** End the generations a reload interrupted, putting back their previous guides. Returns them, with their workers. */
-  interruptGenerations(): Array<{ targetKey: string; workerId: string | null }>;
-  getDraft(targetKey: string): Draft;
-  upsertDraftComment(targetKey: string, c: DraftComment): Draft;
+  interruptGenerations(): Promise<Array<{ targetKey: string; workerId: string | null }>>;
+  getDraft(targetKey: string): Promise<Draft>;
+  upsertDraftComment(targetKey: string, c: DraftComment): Promise<Draft>;
   /**
    * Change only a comment's text, with `severity` its severity, and with `evidence` how the agent checked it (null
    * for none of either), and with `introduced` whether the PR introduced it, keeping who added it and the diff it was
    * drafted against. Null when there's no comment there.
    */
-  editDraftComment(targetKey: string, at: CommentLocation, body: string, severity?: Severity | null, evidence?: string | null, introduced?: boolean): Draft | null;
+  editDraftComment(targetKey: string, at: CommentLocation, body: string, severity?: Severity | null, evidence?: string | null, introduced?: boolean): Promise<Draft | null>;
   /** Null when there's no comment there. */
-  deleteDraftComment(targetKey: string, at: CommentLocation): Draft | null;
+  deleteDraftComment(targetKey: string, at: CommentLocation): Promise<Draft | null>;
   /** The reviewer picks a verdict. With body, they also write the summary. */
-  setVerdict(targetKey: string, verdict: Verdict, body?: string): Draft;
+  setVerdict(targetKey: string, verdict: Verdict, body?: string): Promise<Draft>;
   /** Change the summary and its verdicts. A field given as undefined is cleared. */
-  updateSummary(targetKey: string, change: SummaryChange): Draft;
-  staleDraftComments(targetKey: string): DraftComment[];
-  clearSubmittedDraft(draft: Draft): void;
+  updateSummary(targetKey: string, change: SummaryChange): Promise<Draft>;
+  staleDraftComments(targetKey: string): Promise<DraftComment[]>;
+  clearSubmittedDraft(draft: Draft): Promise<void>;
   // Discussions with the review assistant at lines of the diff.
-  listDiscussions(targetKey: string): Discussion[];
+  listDiscussions(targetKey: string): Promise<Discussion[]>;
   /** A reviewer's message waits for the assistant; the assistant's answers it. */
-  addDiscussionMessage(targetKey: string, at: CommentLocation, author: DiscussionEntry["author"], body: string, startLine?: number): void;
+  addDiscussionMessage(targetKey: string, at: CommentLocation, author: DiscussionEntry["author"], body: string, startLine?: number): Promise<void>;
   /**
    * Record an agent's change to the draft comment or summary at a discussion, which answers it:
    * `body`, the text it left, and `previous`, what was there before, to undo it.
    */
-  noteDiscussionChange(targetKey: string, at: CommentLocation, kind: "added" | "edited" | "removed", change?: { body: string; previous: PreviousState }): void;
+  noteDiscussionChange(targetKey: string, at: CommentLocation, kind: "added" | "edited" | "removed", change?: { body: string; previous: PreviousState }): Promise<void>;
   /** The latest entry at a discussion, when it's an agent's change that recorded what came before. */
-  lastDiscussionChange(targetKey: string, at: CommentLocation): { kind: "added" | "edited" | "removed"; body: string; previous: PreviousState } | null;
+  lastDiscussionChange(targetKey: string, at: CommentLocation): Promise<{ kind: "added" | "edited" | "removed"; body: string; previous: PreviousState } | null>;
   /** Record that the reviewer undid the agent's latest change there. */
-  noteDiscussionRestored(targetKey: string, at: CommentLocation): void;
-  deleteDiscussion(targetKey: string, at: CommentLocation): void;
-  clearDiscussions(targetKey: string): void;
+  noteDiscussionRestored(targetKey: string, at: CommentLocation): Promise<void>;
+  deleteDiscussion(targetKey: string, at: CommentLocation): Promise<void>;
+  clearDiscussions(targetKey: string): Promise<void>;
   /** Stop waiting for answers, for example once the assistant finishes. False when none were waiting. */
-  stopWaiting(targetKey: string): boolean;
+  stopWaiting(targetKey: string): Promise<boolean>;
   // Per-file "Viewed" state.
-  getFileViews(targetKey: string): FileView[];
+  getFileViews(targetKey: string): Promise<FileView[]>;
   /** `viewedAt`, when Undo puts back a view as it was; otherwise now. */
-  setFileViewed(targetKey: string, file: string, hash: string, viewedAt?: number): void;
-  unsetFileViewed(targetKey: string, file: string): void;
+  setFileViewed(targetKey: string, file: string, hash: string, viewedAt?: number): Promise<void>;
+  unsetFileViewed(targetKey: string, file: string): Promise<void>;
   // Legacy review-agent worker and plugin-stored chat log, read-only since
   // conversations moved into bb threads.
-  getAgentThread(targetKey: string): string | null;
-  clearAgentThread(targetKey: string): void;
-  listAgentMessages(targetKey: string): AgentMessage[];
-  clearAgentMessages(targetKey: string): void;
+  getAgentThread(targetKey: string): Promise<string | null>;
+  clearAgentThread(targetKey: string): Promise<void>;
+  listAgentMessages(targetKey: string): Promise<AgentMessage[]>;
+  clearAgentMessages(targetKey: string): Promise<void>;
   // The hidden bb thread behind a review's assistant chat.
-  getAssistantThread(targetKey: string): string | null;
-  setAssistantThread(targetKey: string, threadId: string): void;
-  clearAssistantThread(targetKey: string): void;
-  listAssistantThreads(): Array<{ targetKey: string; threadId: string }>;
+  getAssistantThread(targetKey: string): Promise<string | null>;
+  setAssistantThread(targetKey: string, threadId: string): Promise<void>;
+  clearAssistantThread(targetKey: string): Promise<void>;
+  listAssistantThreads(): Promise<Array<{ targetKey: string; threadId: string }>>;
   // The PR's diff at commits you reviewed or the sync read, for "since your review".
-  saveSnapshot(targetKey: string, headSha: string, patch: string): void;
-  getSnapshot(targetKey: string, headSha: string): string | null;
+  saveSnapshot(targetKey: string, headSha: string, patch: string): Promise<void>;
+  getSnapshot(targetKey: string, headSha: string): Promise<string | null>;
   /** Keep only these heads' snapshots. */
-  pruneSnapshots(targetKey: string, keep: readonly string[]): void;
+  pruneSnapshots(targetKey: string, keep: readonly string[]): Promise<void>;
   // Your review threads on the PR, as last read from GitHub.
   /** Returns whether the threads changed: the first read always does. */
-  saveFeedbackThreads(targetKey: string, threads: FeedbackThread[], prUpdatedAt: number | null): boolean;
-  listFeedbackThreads(targetKey: string): Array<FeedbackThread & { resolvedSeenAt: number | null }>;
-  feedbackFetched(targetKey: string): { fetchedAt: number; prUpdatedAt: number | null } | null;
+  saveFeedbackThreads(targetKey: string, threads: FeedbackThread[], prUpdatedAt: number | null): Promise<boolean>;
+  listFeedbackThreads(targetKey: string): Promise<Array<FeedbackThread & { resolvedSeenAt: number | null }>>;
+  feedbackFetched(targetKey: string): Promise<{ fetchedAt: number; prUpdatedAt: number | null } | null>;
   /** Forget when every review's threads were read, so they're read again (after a GitHub account switch). */
-  clearFeedbackFetches(): void;
+  clearFeedbackFetches(): Promise<void>;
   // The assistant's check of your feedback, per head commit.
-  saveAssessmentItems(targetKey: string, headSha: string, items: AssessmentItem[]): void;
-  saveAssessmentRun(targetKey: string, run: AssessmentRun): void;
-  getAssessment(targetKey: string, headSha: string): { items: AssessmentItem[]; run: AssessmentRun | null };
+  saveAssessmentItems(targetKey: string, headSha: string, items: AssessmentItem[]): Promise<void>;
+  saveAssessmentRun(targetKey: string, run: AssessmentRun): Promise<void>;
+  getAssessment(targetKey: string, headSha: string): Promise<{ items: AssessmentItem[]; run: AssessmentRun | null }>;
   /** The latest run for any head. */
-  latestAssessmentRun(targetKey: string): AssessmentRun | null;
+  latestAssessmentRun(targetKey: string): Promise<AssessmentRun | null>;
   // Replies to your threads, drafted here and posted only when you send them.
-  setReplyDraft(targetKey: string, threadId: string, body: string, author: ReplyDraft["author"]): void;
-  listReplyDrafts(targetKey: string): Map<string, ReplyDraft>;
-  deleteReplyDraft(targetKey: string, threadId: string): void;
+  setReplyDraft(targetKey: string, threadId: string, body: string, author: ReplyDraft["author"]): Promise<void>;
+  listReplyDrafts(targetKey: string): Promise<Map<string, ReplyDraft>>;
+  deleteReplyDraft(targetKey: string, threadId: string): Promise<void>;
   // PRs you deleted from the list, which discovery mustn't add back.
-  ignoreDiscovery(targetKey: string): void;
-  unignoreDiscovery(targetKey: string): void;
-  isDiscoveryIgnored(targetKey: string): boolean;
+  ignoreDiscovery(targetKey: string): Promise<void>;
+  unignoreDiscovery(targetKey: string): Promise<void>;
+  isDiscoveryIgnored(targetKey: string): Promise<boolean>;
   /** The text a draft comment's line, or with "start" its range's first line, had when it was drafted. */
-  draftCommentCode(targetKey: string, at: CommentLocation, end?: "start" | "line"): string | undefined;
+  draftCommentCode(targetKey: string, at: CommentLocation, end?: "start" | "line"): Promise<string | undefined>;
   /**
    * Mark draft comments as drafted against the current diff, each at a possibly new line, all at once.
    * A comment whose new place another comment ends up on stays where it was, drafted against the older diff.
    */
-  rebaseDraftComments(targetKey: string, placements: ReadonlyArray<{ at: CommentLocation; line: number; startLine?: number }>): void;
+  rebaseDraftComments(targetKey: string, placements: ReadonlyArray<{ at: CommentLocation; line: number; startLine?: number }>): Promise<void>;
 }
 
 /** A summary change: any of these fields, where undefined clears it. */
@@ -390,56 +390,67 @@ export function createStore(bb: BbPluginApi): Store {
     // Why the reviewer removed an agent's comment, and their line about it, as JSON (lib/removal-reasons.ts).
     `ALTER TABLE agent_comment_changes ADD COLUMN reason TEXT`,
   ]);
+  return storeOn(sqliteSql(db));
+}
+
+/** The Store over `sql`, on the tables the migrations above make. */
+function storeOn(sql: Sql): Store {
   const at = (k: string, { file, line, side }: CommentLocation) => [k, file, line, side] as const;
-  const hasDiscussion = (k: string, location: CommentLocation) =>
-    !!db.prepare(`SELECT 1 FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=? LIMIT 1`).get(...at(k, location));
+  const hasDiscussion = async (k: string, location: CommentLocation) =>
+    !!await sql.get(`SELECT 1 FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=? LIMIT 1`, at(k, location));
   const stopWaitingAt = (k: string, location: CommentLocation) =>
-    db.prepare(`DELETE FROM discussion_waits WHERE target_key=? AND file=? AND line=? AND side=?`).run(...at(k, location));
+    sql.run(`DELETE FROM discussion_waits WHERE target_key=? AND file=? AND line=? AND side=?`, at(k, location));
+  const patchText = async (k: string) => (await sql.get<{ patch: string }>(`SELECT patch FROM patches WHERE target_key=?`, [k]))?.patch ?? "";
   // What's parsed from each review's patch, by the patch's hash, for the few reviews used last.
   const parsed = new Map<string, { hash: string; positions?: Map<string, FilePositions>; renamed?: Map<string, string>; followed?: boolean; fileHashes?: FileHashes }>();
-  const parsedPatch = (k: string) => {
-    const hash = storedPatchHash(k);
+  const parsedPatch = async (k: string) => {
+    const hash = await storedPatchHash(k);
     let entry = parsed.get(k);
     parsed.delete(k);
     if (entry?.hash !== hash) entry = { hash };
     parsed.set(k, entry);
     if (parsed.size > PARSED_REVIEWS) parsed.delete(parsed.keys().next().value!);
-    return { entry, patch: () => (db.prepare(`SELECT patch FROM patches WHERE target_key=?`).get(k) as any)?.patch ?? "" };
+    return { entry, patch: () => patchText(k) };
   };
-  const storedPatchHash = (k: string): string => {
-    const row = db.prepare(`SELECT hash FROM patches WHERE target_key=?`).get(k) as { hash: string | null } | undefined;
+  const storedPatchHash = async (k: string): Promise<string> => {
+    const row = await sql.get<{ hash: string | null }>(`SELECT hash FROM patches WHERE target_key=?`, [k]);
     if (!row) return patchHash("");
     if (row.hash) return row.hash;
     // A patch saved before the hash was kept.
-    const hash = patchHash((db.prepare(`SELECT patch FROM patches WHERE target_key=?`).get(k) as any).patch);
-    db.prepare(`UPDATE patches SET hash=? WHERE target_key=?`).run(hash, k);
+    const hash = patchHash(await patchText(k));
+    await sql.run(`UPDATE patches SET hash=? WHERE target_key=?`, [hash, k]);
     return hash;
   };
   // Files were once keyed by their old path when renamed; what was saved then moves to the new path when read.
-  const renamesOf = (k: string) => {
-    const { entry, patch } = parsedPatch(k);
-    return entry.renamed ??= renamedPaths(patch());
+  const renamesOf = async (k: string) => {
+    const { entry, patch } = await parsedPatch(k);
+    return entry.renamed ??= renamedPaths(await patch());
   };
   // New writes use the new path, so the rows move once per diff.
-  const followRenames = (k: string) => {
-    const { entry, patch } = parsedPatch(k);
-    const renamed = entry.renamed ??= renamedPaths(patch());
-    if (renamed.size && !entry.followed) db.transaction(() => {
+  const followRenames = async (k: string) => {
+    const { entry, patch } = await parsedPatch(k);
+    const renamed = entry.renamed ??= renamedPaths(await patch());
+    if (renamed.size && !entry.followed) await sql.transaction(async () => {
       for (const [from, to] of renamed) {
-        for (const table of ["draft_comment_revisions", "discussion_entries", "discussion_waits", "file_views"]) {
-          db.prepare(`UPDATE OR IGNORE ${table} SET file=? WHERE target_key=? AND file=?`).run(to, k, from);
-        }
+        // As UPDATE OR IGNORE did, a row whose key is taken at the new path stays at the old one. discussion_entries has no such key.
+        await sql.run(`UPDATE draft_comment_revisions SET file=? WHERE target_key=? AND file=? AND NOT EXISTS (SELECT 1 FROM draft_comment_revisions x
+          WHERE x.target_key=draft_comment_revisions.target_key AND x.file=? AND x.line=draft_comment_revisions.line AND x.side=draft_comment_revisions.side)`, [to, k, from, to]);
+        await sql.run(`UPDATE discussion_entries SET file=? WHERE target_key=? AND file=?`, [to, k, from]);
+        await sql.run(`UPDATE discussion_waits SET file=? WHERE target_key=? AND file=? AND NOT EXISTS (SELECT 1 FROM discussion_waits x
+          WHERE x.target_key=discussion_waits.target_key AND x.file=? AND x.line=discussion_waits.line AND x.side=discussion_waits.side)`, [to, k, from, to]);
+        await sql.run(`UPDATE file_views SET file=? WHERE target_key=? AND file=? AND NOT EXISTS (SELECT 1 FROM file_views x
+          WHERE x.target_key=file_views.target_key AND x.file=?)`, [to, k, from, to]);
       }
-    })();
+    });
     entry.followed = true;
     return renamed;
   };
-  const followDraftRenames = (draft: Draft): Draft => {
+  const followDraftRenames = async (draft: Draft): Promise<Draft> => {
     if (!draft.comments.length) return draft;
-    const renamed = followRenames(draft.targetKey);
+    const renamed = await followRenames(draft.targetKey);
     if (!draft.comments.some((c) => renamed.has(c.file))) return draft;
     const moved = { ...draft, comments: draft.comments.map((c) => ({ ...c, file: renamed.get(c.file) ?? c.file })) };
-    writeDraft(db, moved);
+    await writeDraft(sql, moved);
     return moved;
   };
 
@@ -449,222 +460,228 @@ export function createStore(bb: BbPluginApi): Store {
     head: r.head ?? undefined, gitRef: r.git_ref ?? undefined, url: r.url ?? undefined,
     status: r.status, createdAt: r.created_at, projectId: r.project_id ?? undefined,
     headSha: r.head_sha ?? undefined, cwd: r.cwd ?? undefined,
-    // listReviews joins the lifecycle in as `lifecycle`; a single review reads it here.
-    ...JSON.parse(("lifecycle" in r ? r.lifecycle : (db.prepare(`SELECT state FROM review_lifecycle WHERE target_key=?`).get(r.target_key) as any)?.state) ?? "{}"),
+    // The review's reads join its lifecycle in as `lifecycle`.
+    ...JSON.parse(r.lifecycle ?? "{}"),
   });
+  const reviewsWithLifecycle = `SELECT r.target_key, r.kind, r.number, r.repo, r.title, r.author, r.base, r.head, r.git_ref, r.url, r.status,
+    r.created_at, r.project_id, r.head_sha, r.cwd, l.state AS lifecycle FROM reviews r LEFT JOIN review_lifecycle l ON l.target_key=r.target_key`;
 
   return {
-    ...agentCommentStore(db),
-    getPreferences() {
-      const row = db.prepare(`SELECT value,revision,knobs FROM review_preferences WHERE id=1`).get() as { value: string; revision: number; knobs: string | null } | undefined;
+    ...agentCommentStore(sql),
+    async getPreferences() {
+      const row = await sql.get<{ value: string; revision: number; knobs: string | null }>(`SELECT value, revision, knobs FROM review_preferences WHERE id=1`);
       // No row, or a value that won't parse: defaults, as fresh copies.
       let value = {};
       try { if (row) value = JSON.parse(row.value); } catch { /* reads as defaults */ }
       const preferences = readPreferences(value, row?.knobs ?? null);
       return { preferences, revision: row?.revision ?? 0 };
     },
-    savePreferences(preferences, revision) {
+    async savePreferences(preferences, revision) {
       const parsed = preferencesSchema.parse(preferences);
       const { knobs, ...rest } = parsed;
       // Knobs this version doesn't know, saved by a newer one before a rollback, stay for it.
-      const raw = (db.prepare(`SELECT knobs FROM review_preferences WHERE id=1`).get() as { knobs: string | null } | undefined)?.knobs;
+      const raw = (await sql.get<{ knobs: string | null }>(`SELECT knobs FROM review_preferences WHERE id=1`))?.knobs;
       const value = JSON.stringify(rest), saved = JSON.stringify({ ...unknownKnobs(raw ?? null), ...knobs });
       const result = revision === 0
-        ? db.prepare(`INSERT OR IGNORE INTO review_preferences (id,value,revision,knobs) VALUES (1,?,1,?)`).run(value, saved)
-        : db.prepare(`UPDATE review_preferences SET value=?,knobs=?,revision=revision+1 WHERE id=1 AND revision=?`).run(value, saved, revision);
+        ? await sql.run(`INSERT INTO review_preferences (id,value,revision,knobs) VALUES (1,?,1,?) ON CONFLICT DO NOTHING`, [value, saved])
+        : await sql.run(`UPDATE review_preferences SET value=?,knobs=?,revision=revision+1 WHERE id=1 AND revision=?`, [value, saved, revision]);
       if (!result.changes) throw new Error("Settings changed in another window. Reload settings before saving.");
       return { preferences: parsed, revision: revision + 1 };
     },
-    getReviewerNotes(targetKey) {
-      return (db.prepare(`SELECT body,revision FROM reviewer_notes WHERE target_key=?`).get(targetKey) as ReviewerNotesRecord | undefined) ?? { body: "", revision: 0 };
+    async getReviewerNotes(targetKey) {
+      return await sql.get<ReviewerNotesRecord>(`SELECT body, revision FROM reviewer_notes WHERE target_key=?`, [targetKey]) ?? { body: "", revision: 0 };
     },
-    saveReviewerNotes(targetKey, body, revision) {
-      if (!this.getReview(targetKey)) throw new Error("Review not found.");
+    async saveReviewerNotes(targetKey, body, revision) {
+      if (!await this.getReview(targetKey)) throw new Error("Review not found.");
       const result = revision === 0
-        ? db.prepare(`INSERT OR IGNORE INTO reviewer_notes (target_key,body,revision) VALUES (?,?,1)`).run(targetKey, body)
-        : db.prepare(`UPDATE reviewer_notes SET body=?,revision=revision+1 WHERE target_key=? AND revision=?`).run(body, targetKey, revision);
+        ? await sql.run(`INSERT INTO reviewer_notes (target_key,body,revision) VALUES (?,?,1) ON CONFLICT DO NOTHING`, [targetKey, body])
+        : await sql.run(`UPDATE reviewer_notes SET body=?,revision=revision+1 WHERE target_key=? AND revision=?`, [body, targetKey, revision]);
       if (!result.changes) throw new Error("Notes changed in another window. Your text is kept here; reload the saved notes to compare.");
       return { body, revision: revision + 1 };
     },
-    saveReview(m) {
-      db.prepare(
+    async saveReview(m) {
+      await sql.run(
         `INSERT INTO reviews (target_key,kind,number,repo,title,author,base,head,git_ref,url,status,created_at,project_id,head_sha,cwd)
-         VALUES (@targetKey,@kind,@number,@repo,@title,@author,@base,@head,@gitRef,@url,@status,@createdAt,@projectId,@headSha,@cwd)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(target_key) DO UPDATE SET
-           kind=@kind,number=@number,repo=@repo,title=@title,author=@author,base=@base,head=@head,
-           git_ref=@gitRef,url=@url,status=@status,created_at=@createdAt,project_id=@projectId,
-           head_sha=@headSha,cwd=@cwd`,
-      ).run({
-        targetKey: m.targetKey, kind: m.kind, number: m.number ?? null, repo: m.repo ?? null,
-        title: m.title ?? null, author: m.author ?? null, base: m.base ?? null, head: m.head ?? null,
-        gitRef: m.gitRef ?? null, url: m.url ?? null, status: m.status, createdAt: m.createdAt,
-        projectId: m.projectId ?? null, headSha: m.headSha ?? null, cwd: m.cwd ?? null,
-      });
+           kind=excluded.kind,number=excluded.number,repo=excluded.repo,title=excluded.title,author=excluded.author,
+           base=excluded.base,head=excluded.head,git_ref=excluded.git_ref,url=excluded.url,status=excluded.status,
+           created_at=excluded.created_at,project_id=excluded.project_id,head_sha=excluded.head_sha,cwd=excluded.cwd`,
+        [
+          m.targetKey, m.kind, m.number ?? null, m.repo ?? null, m.title ?? null, m.author ?? null, m.base ?? null, m.head ?? null,
+          m.gitRef ?? null, m.url ?? null, m.status, m.createdAt, m.projectId ?? null, m.headSha ?? null, m.cwd ?? null,
+        ],
+      );
     },
-    getReview(k) {
-      const r = db.prepare(`SELECT * FROM reviews WHERE target_key=?`).get(k);
+    async getReview(k) {
+      const r = await sql.get(`${reviewsWithLifecycle} WHERE r.target_key=?`, [k]);
       return r ? rowToMeta(r) : null;
     },
-    listReviews() {
-      return db.prepare(`SELECT r.*, l.state AS lifecycle FROM reviews r LEFT JOIN review_lifecycle l ON l.target_key=r.target_key ORDER BY r.created_at DESC`).all().map(rowToMeta);
+    async listReviews() {
+      return (await sql.all(`${reviewsWithLifecycle} ORDER BY r.created_at DESC, r.target_key`)).map(rowToMeta);
     },
-    setStatus(k, status) {
-      db.prepare(`UPDATE reviews SET status=? WHERE target_key=?`).run(status, k);
+    async setStatus(k, status) {
+      await sql.run(`UPDATE reviews SET status=? WHERE target_key=?`, [status, k]);
     },
-    setLifecycle(k, state) {
-      const previous = JSON.parse((db.prepare(`SELECT state FROM review_lifecycle WHERE target_key=?`).get(k) as any)?.state ?? "{}");
-      db.prepare(`INSERT INTO review_lifecycle VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET state=excluded.state`)
-        .run(k, JSON.stringify({ ...previous, ...state }));
+    async setLifecycle(k, state) {
+      const previous = JSON.parse((await sql.get<{ state: string }>(`SELECT state FROM review_lifecycle WHERE target_key=?`, [k]))?.state ?? "{}");
+      await sql.run(`INSERT INTO review_lifecycle (target_key,state) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET state=excluded.state`,
+        [k, JSON.stringify({ ...previous, ...state })]);
     },
-    getReviewContext(k) {
-      return (db.prepare(`SELECT text FROM review_context WHERE target_key=?`).get(k) as { text: string } | undefined)?.text ?? null;
+    async getReviewContext(k) {
+      return (await sql.get<{ text: string }>(`SELECT text FROM review_context WHERE target_key=?`, [k]))?.text ?? null;
     },
-    setReviewContext(k, text) {
-      if (text === null) db.prepare(`DELETE FROM review_context WHERE target_key=?`).run(k);
-      else db.prepare(`INSERT INTO review_context VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET text=excluded.text`).run(k, text);
+    async setReviewContext(k, text) {
+      if (text === null) await sql.run(`DELETE FROM review_context WHERE target_key=?`, [k]);
+      else await sql.run(`INSERT INTO review_context (target_key,text) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET text=excluded.text`, [k, text]);
     },
-    deleteReview(k) {
-      db.transaction(() => {
-        for (const table of REVIEW_TABLES) db.prepare(`DELETE FROM ${table} WHERE target_key=?`).run(k);
-      })();
+    async deleteReview(k) {
+      await sql.transaction(async () => {
+        for (const table of REVIEW_TABLES) await sql.run(`DELETE FROM ${table} WHERE target_key=?`, [k]);
+      });
     },
-    savePatch(k, patch) {
-      db.prepare(
+    async savePatch(k, patch) {
+      await sql.run(
         `INSERT INTO patches (target_key,patch,hash) VALUES (?,?,?)
          ON CONFLICT(target_key) DO UPDATE SET patch=excluded.patch, hash=excluded.hash`,
-      ).run(k, patch, patchHash(patch));
+        [k, patch, patchHash(patch)],
+      );
     },
-    patch(k) {
-      const row: any = db.prepare(`SELECT patch FROM patches WHERE target_key=?`).get(k);
-      return row?.patch ?? "";
+    patch: patchText,
+    async hasPatch(k) {
+      return !!await sql.get(`SELECT 1 FROM patches WHERE target_key=? AND patch != ''`, [k]);
     },
-    hasPatch(k) {
-      return !!db.prepare(`SELECT 1 FROM patches WHERE target_key=? AND patch != ''`).get(k);
-    },
-    dropPatch(k) {
-      db.transaction(() => {
-        db.prepare(`DELETE FROM patches WHERE target_key=?`).run(k);
-        db.prepare(`DELETE FROM guide_backups WHERE target_key=?`).run(k);
-      })();
+    async dropPatch(k) {
+      await sql.transaction(async () => {
+        await sql.run(`DELETE FROM patches WHERE target_key=?`, [k]);
+        await sql.run(`DELETE FROM guide_backups WHERE target_key=?`, [k]);
+      });
     },
     patchHash: storedPatchHash,
-    diffPositions(k) {
-      const { entry, patch } = parsedPatch(k);
-      return entry.positions ??= diffPositions(patch());
+    async diffPositions(k) {
+      const { entry, patch } = await parsedPatch(k);
+      return entry.positions ??= diffPositions(await patch());
     },
-    fileHashes(k) {
-      const { entry, patch } = parsedPatch(k);
-      return entry.fileHashes ??= fileHashCache(patch);
+    async fileHashes(k) {
+      const { entry, patch } = await parsedPatch(k);
+      // The patch is read in this call's turn of the queue: its hashes are taken later, when asked for.
+      if (!entry.fileHashes) {
+        const text = await patch();
+        entry.fileHashes = fileHashCache(() => text);
+      }
+      return entry.fileHashes;
     },
-    saveGuide(k, guide) {
-      db.prepare(
+    async saveGuide(k, guide) {
+      await sql.run(
         `INSERT INTO guides (target_key,guide) VALUES (?,?)
          ON CONFLICT(target_key) DO UPDATE SET guide=excluded.guide`,
-      ).run(k, JSON.stringify(guide));
+        [k, JSON.stringify(guide)],
+      );
     },
-    getGuide(k) {
-      const row: any = db.prepare(`SELECT guide FROM guides WHERE target_key=?`).get(k);
+    async getGuide(k) {
+      const row = await sql.get<{ guide: string }>(`SELECT guide FROM guides WHERE target_key=?`, [k]);
       if (!row) return null;
       const guide = renameOverviewChapter(JSON.parse(row.guide) as Guide);
-      const renamed = renamesOf(k);
+      const renamed = await renamesOf(k);
       if (!renamed.size) return guide;
       return { ...guide, sections: guide.sections.map((s) => ({ ...s, diffs: s.diffs.map((d) => ({ ...d, file: renamed.get(d.file) ?? d.file })) })), unplacedFiles: guide.unplacedFiles.map((f) => renamed.get(f) ?? f) };
     },
-    beginGeneration(k) {
+    async beginGeneration(k) {
       const id = randomUUID();
-      db.transaction(() => {
-        db.prepare(`INSERT INTO generations (target_key,generation_id) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET generation_id=excluded.generation_id, worker_id=NULL`).run(k, id);
-        db.prepare(`DELETE FROM guides WHERE target_key=?`).run(k);
-        db.prepare(`UPDATE reviews SET status='generating' WHERE target_key=?`).run(k);
+      await sql.transaction(async () => {
+        await sql.run(`INSERT INTO generations (target_key,generation_id) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET generation_id=excluded.generation_id, worker_id=NULL`, [k, id]);
+        await sql.run(`DELETE FROM guides WHERE target_key=?`, [k]);
+        await sql.run(`UPDATE reviews SET status='generating' WHERE target_key=?`, [k]);
         // Restarting a review (new PR link, `bb review`, Re-review) takes it out of the reviewer's archive.
-        if (this.getReview(k)?.userArchivedAt) this.setLifecycle(k, { userArchivedAt: null });
-      })();
+        if ((await this.getReview(k))?.userArchivedAt) await this.setLifecycle(k, { userArchivedAt: null });
+      });
       return id;
     },
-    isCurrentGeneration(k, id) {
-      return (db.prepare(`SELECT generation_id FROM generations WHERE target_key=?`).get(k) as any)?.generation_id === id;
+    async isCurrentGeneration(k, id) {
+      return (await sql.get<{ generation_id: string }>(`SELECT generation_id FROM generations WHERE target_key=?`, [k]))?.generation_id === id;
     },
-    setGenerationWorker(k, id, workerId) {
-      db.prepare(`UPDATE generations SET worker_id=? WHERE target_key=? AND generation_id=?`).run(workerId, k, id);
+    async setGenerationWorker(k, id, workerId) {
+      await sql.run(`UPDATE generations SET worker_id=? WHERE target_key=? AND generation_id=?`, [workerId, k, id]);
     },
-    generationOf(workerId) {
-      return (db.prepare(`SELECT target_key FROM generations WHERE worker_id=?`).get(workerId) as { target_key: string } | undefined)?.target_key ?? null;
+    async generationOf(workerId) {
+      // Worker ids are spawned threads', so one names one generation; the first review, as listGenerationWorkers orders them.
+      return (await sql.get<{ target_key: string }>(`SELECT target_key FROM generations WHERE worker_id=? ORDER BY target_key LIMIT 1`, [workerId]))?.target_key ?? null;
     },
-    generationWorker(k) {
-      return (db.prepare(`SELECT worker_id FROM generations WHERE target_key=?`).get(k) as { worker_id: string | null } | undefined)?.worker_id ?? null;
+    async generationWorker(k) {
+      return (await sql.get<{ worker_id: string | null }>(`SELECT worker_id FROM generations WHERE target_key=?`, [k]))?.worker_id ?? null;
     },
-    listGenerationWorkers() {
-      return (db.prepare(`SELECT target_key, worker_id FROM generations WHERE worker_id IS NOT NULL ORDER BY target_key, worker_id`).all() as Array<{ target_key: string; worker_id: string }>)
+    async listGenerationWorkers() {
+      return (await sql.all<{ target_key: string; worker_id: string }>(`SELECT target_key, worker_id FROM generations WHERE worker_id IS NOT NULL ORDER BY target_key, worker_id`))
         .map((row) => ({ targetKey: row.target_key, workerId: row.worker_id }));
     },
-    interruptGenerations() {
-      const interrupted = (db.prepare(`SELECT r.target_key, g.worker_id FROM reviews r LEFT JOIN generations g ON g.target_key=r.target_key WHERE r.status='generating'`).all() as Array<{ target_key: string; worker_id: string | null }>)
+    async interruptGenerations() {
+      const interrupted = (await sql.all<{ target_key: string; worker_id: string | null }>(`SELECT r.target_key, g.worker_id FROM reviews r LEFT JOIN generations g ON g.target_key=r.target_key WHERE r.status='generating' ORDER BY r.target_key`))
         .map((row) => ({ targetKey: row.target_key, workerId: row.worker_id ?? null }));
-      db.transaction(() => {
+      await sql.transaction(async () => {
         // An interrupted rebuild gets its previous guide back.
-        for (const { targetKey } of interrupted) this.restoreGuide(targetKey);
+        for (const { targetKey } of interrupted) await this.restoreGuide(targetKey);
         // Completed identities are also durable notification receipts. Only
         // workers interrupted by this reload lose the right to finalize.
-        db.prepare(`DELETE FROM generations WHERE target_key IN (SELECT target_key FROM reviews WHERE status='generating')`).run();
-        db.prepare(`UPDATE reviews SET status='error' WHERE status='generating'`).run();
-      })();
+        await sql.run(`DELETE FROM generations WHERE target_key IN (SELECT target_key FROM reviews WHERE status='generating')`);
+        await sql.run(`UPDATE reviews SET status='error' WHERE status='generating'`);
+      });
       return interrupted;
     },
-    backupGuide(k) {
-      const guide = this.getGuide(k);
-      const review = this.getReview(k);
+    async backupGuide(k) {
+      const guide = await this.getGuide(k);
+      const review = await this.getReview(k);
       if (!guide || !review) return;
-      const patch = this.patch(k);
-      db.prepare(`INSERT INTO guide_backups VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET data=excluded.data`)
-        .run(k, JSON.stringify({ guide, patch, headSha: review.headSha ?? null, base: review.base ?? null, head: review.head ?? null, gitRef: review.gitRef ?? null }));
+      const patch = await this.patch(k);
+      await sql.run(`INSERT INTO guide_backups (target_key,data) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET data=excluded.data`,
+        [k, JSON.stringify({ guide, patch, headSha: review.headSha ?? null, base: review.base ?? null, head: review.head ?? null, gitRef: review.gitRef ?? null })]);
     },
-    restoreGuide(k) {
-      const row = db.prepare(`SELECT data FROM guide_backups WHERE target_key=?`).get(k) as { data: string } | undefined;
+    async restoreGuide(k) {
+      const row = await sql.get<{ data: string }>(`SELECT data FROM guide_backups WHERE target_key=?`, [k]);
       if (!row) return false;
       // A guide the worker already submitted stands; only an empty review gets the kept one back.
-      if (this.getGuide(k)) {
-        this.dropGuideBackup(k);
+      if (await this.getGuide(k)) {
+        await this.dropGuideBackup(k);
         return false;
       }
       const kept = JSON.parse(row.data);
-      const replaced = this.patch(k);
-      db.transaction(() => {
-        this.savePatch(k, kept.patch);
-        this.saveGuide(k, kept.guide);
-        db.prepare(`UPDATE reviews SET head_sha=?, base=?, head=?, git_ref=? WHERE target_key=?`).run(kept.headSha, kept.base, kept.head, kept.gitRef, k);
-        db.prepare(`DELETE FROM guide_backups WHERE target_key=?`).run(k);
+      const replaced = await this.patch(k);
+      await sql.transaction(async () => {
+        await this.savePatch(k, kept.patch);
+        await this.saveGuide(k, kept.guide);
+        await sql.run(`UPDATE reviews SET head_sha=?, base=?, head=?, git_ref=? WHERE target_key=?`, [kept.headSha, kept.base, kept.head, kept.gitRef, k]);
+        await sql.run(`DELETE FROM guide_backups WHERE target_key=?`, [k]);
         // Unsent comments moved to the replaced diff move back with it.
-        this.rebaseDraftComments(k, reanchorAll(this, k, replaced, kept.patch));
-      })();
+        await this.rebaseDraftComments(k, await reanchorDraft(this, k, replaced, kept.patch));
+      });
       return true;
     },
-    guideBackupHead(k) {
-      const row = db.prepare(`SELECT data FROM guide_backups WHERE target_key=?`).get(k) as { data: string } | undefined;
+    async guideBackupHead(k) {
+      const row = await sql.get<{ data: string }>(`SELECT data FROM guide_backups WHERE target_key=?`, [k]);
       return row ? JSON.parse(row.data).headSha ?? null : null;
     },
-    dropGuideBackup(k) {
-      db.prepare(`DELETE FROM guide_backups WHERE target_key=?`).run(k);
+    async dropGuideBackup(k) {
+      await sql.run(`DELETE FROM guide_backups WHERE target_key=?`, [k]);
     },
-    getDraft(k) {
-      const row: any = db.prepare(`SELECT * FROM drafts WHERE target_key=?`).get(k);
+    async getDraft(k) {
+      const row = await sql.get<{ verdict: Verdict; body: string; comments: string; meta: string | null }>(`SELECT verdict, body, comments, meta FROM drafts WHERE target_key=?`, [k]);
       if (!row) return { targetKey: k, verdict: "COMMENT", body: "", comments: [] };
       return followDraftRenames({ targetKey: k, verdict: row.verdict, body: row.body, comments: JSON.parse(row.comments), ...(row.meta ? JSON.parse(row.meta) : {}) });
     },
-    upsertDraftComment(k, c) {
-      const d = this.getDraft(k);
+    async upsertDraftComment(k, c) {
+      const d = await this.getDraft(k);
       const i = d.comments.findIndex((x) => x.file === c.file && x.line === c.line && x.side === c.side);
       if (i >= 0) d.comments[i] = c; else d.comments.push(c);
-      writeDraft(db, d);
-      const positions = this.diffPositions(k).get(c.file);
+      await writeDraft(sql, d);
+      const positions = (await this.diffPositions(k)).get(c.file);
       const code = positions?.[c.side === "LEFT" ? "left" : "right"].get(c.line) ?? null;
       const startCode = c.startLine === undefined ? null : positions?.[(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
-      db.prepare(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
-        ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`)
-        .run(k, c.file, c.line, c.side, this.patchHash(k), code, startCode);
+      await sql.run(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`,
+        [k, c.file, c.line, c.side, await this.patchHash(k), code, startCode]);
       return d;
     },
-    editDraftComment(k, at, body, severity, evidence, introduced) {
-      const d = this.getDraft(k);
+    async editDraftComment(k, at, body, severity, evidence, introduced) {
+      const d = await this.getDraft(k);
       const comment = d.comments.find((c) => sameLocation(c, at));
       if (!comment) return null;
       comment.body = body;
@@ -674,36 +691,38 @@ export function createStore(bb: BbPluginApi): Store {
       else if (evidence === null) delete comment.evidence;
       if (introduced === false) comment.introduced = false;
       else if (introduced) delete comment.introduced;
-      writeDraft(db, d);
+      await writeDraft(sql, d);
       return d;
     },
-    deleteDraftComment(k, at) {
-      const d = this.getDraft(k);
+    async deleteDraftComment(k, at) {
+      const d = await this.getDraft(k);
       const index = d.comments.findIndex((c) => sameLocation(c, at));
       if (index < 0) return null;
       d.comments.splice(index, 1);
-      writeDraft(db, d);
+      await writeDraft(sql, d);
       return d;
     },
-    setVerdict(k, verdict, body) {
+    async setVerdict(k, verdict, body) {
       // A summary saved unchanged keeps whoever wrote it.
-      const changed = body !== undefined && body !== this.getDraft(k).body;
+      const changed = body !== undefined && body !== (await this.getDraft(k)).body;
       return this.updateSummary(k, { verdict, verdictChosen: true, ...(changed ? { body, bodyAuthor: undefined, written: undefined } : {}) });
     },
-    updateSummary(k, change) {
-      const d = { ...this.getDraft(k), ...change };
-      writeDraft(db, d);
+    async updateSummary(k, change) {
+      const d = { ...await this.getDraft(k), ...change };
+      await writeDraft(sql, d);
       return this.getDraft(k);
     },
-    staleDraftComments(k) {
-      const hash = this.patchHash(k);
-      return this.getDraft(k).comments.filter((c) => {
-        const row = db.prepare(`SELECT patch_hash FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).get(k, c.file, c.line, c.side) as any;
-        return row?.patch_hash !== hash;
-      });
+    async staleDraftComments(k) {
+      const hash = await this.patchHash(k);
+      const stale: DraftComment[] = [];
+      for (const c of (await this.getDraft(k)).comments) {
+        const row = await sql.get<{ patch_hash: string }>(`SELECT patch_hash FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`, [k, c.file, c.line, c.side]);
+        if (row?.patch_hash !== hash) stale.push(c);
+      }
+      return stale;
     },
-    clearSubmittedDraft(submitted) {
-      const current = this.getDraft(submitted.targetKey);
+    async clearSubmittedDraft(submitted) {
+      const current = await this.getDraft(submitted.targetKey);
       // A rebuild during the POST may have moved a submitted comment: one unchanged but for its lines is the same comment.
       const placeless = (c: DraftComment) => JSON.stringify([c.file, c.side, c.startSide, c.body, c.severity, c.introduced, c.author]);
       for (const old of submitted.comments) {
@@ -716,15 +735,17 @@ export function createStore(bb: BbPluginApi): Store {
         current.verdict = "COMMENT";
         delete current.bodyAuthor; delete current.suggestedVerdict; delete current.written; delete current.verdictChosen; delete current.unchecked;
       }
-      writeDraft(db, current);
+      await writeDraft(sql, current);
     },
-    listDiscussions(k) {
+    async listDiscussions(k) {
       // Startup asks of every review: one with no discussion reads no patch.
-      if (!db.prepare(`SELECT 1 FROM discussion_entries WHERE target_key=? UNION ALL SELECT 1 FROM discussion_waits WHERE target_key=? LIMIT 1`).get(k, k)) return [];
-      followRenames(k);
-      const waiting = db.prepare(`SELECT file,line,side FROM discussion_waits WHERE target_key=?`).all(k) as CommentLocation[];
+      if (!await sql.get(`SELECT 1 FROM discussion_entries WHERE target_key=? UNION ALL SELECT 1 FROM discussion_waits WHERE target_key=? LIMIT 1`, [k, k])) return [];
+      await followRenames(k);
+      const waiting = await sql.all<CommentLocation>(`SELECT file, line, side FROM discussion_waits WHERE target_key=? ORDER BY file, line, side`, [k]);
       const discussions: Discussion[] = [];
-      for (const row of db.prepare(`SELECT * FROM discussion_entries WHERE target_key=? ORDER BY id`).all(k) as any[]) {
+      const entries = await sql.all<{ file: string; line: number; side: CommentLocation["side"]; author: DiscussionEntry["author"]; kind: DiscussionEntry["kind"]; body: string; start_line: number | null; created_at: number }>(
+        `SELECT file, line, side, author, kind, body, start_line, created_at FROM discussion_entries WHERE target_key=? ORDER BY id`, [k]);
+      for (const row of entries) {
         const location: CommentLocation = { file: row.file, line: row.line, side: row.side };
         let discussion = discussions.find((d) => sameLocation(d, location));
         if (!discussion) discussions.push(discussion = { ...location, entries: [], waiting: waiting.some((w) => sameLocation(w, location)) });
@@ -733,75 +754,72 @@ export function createStore(bb: BbPluginApi): Store {
       }
       return discussions;
     },
-    addDiscussionMessage(k, location, author, body, startLine) {
-      db.transaction(() => {
-        db.prepare(`INSERT INTO discussion_entries (target_key,file,line,side,author,kind,body,start_line,created_at) VALUES (?,?,?,?,?,'message',?,?,?)`)
-          .run(...at(k, location), author, body, startLine ?? null, Date.now());
-        if (author === "reviewer") db.prepare(`INSERT OR IGNORE INTO discussion_waits VALUES (?,?,?,?)`).run(...at(k, location));
-        else stopWaitingAt(k, location);
-      })();
+    async addDiscussionMessage(k, location, author, body, startLine) {
+      await sql.transaction(async () => {
+        await sql.run(`INSERT INTO discussion_entries (target_key,file,line,side,author,kind,body,start_line,created_at) VALUES (?,?,?,?,?,'message',?,?,?)`,
+          [...at(k, location), author, body, startLine ?? null, Date.now()]);
+        if (author === "reviewer") await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, at(k, location));
+        else await stopWaitingAt(k, location);
+      });
     },
-    noteDiscussionChange(k, location, kind, change) {
-      if (!hasDiscussion(k, location)) return;
-      db.transaction(() => {
-        db.prepare(`INSERT INTO discussion_entries (target_key,file,line,side,author,kind,body,created_at,previous) VALUES (?,?,?,?,'agent',?,?,?,?)`)
-          .run(...at(k, location), kind, change?.body ?? "", Date.now(), change ? JSON.stringify(change.previous) : null);
-        stopWaitingAt(k, location);
-      })();
+    async noteDiscussionChange(k, location, kind, change) {
+      if (!await hasDiscussion(k, location)) return;
+      await sql.transaction(async () => {
+        await sql.run(`INSERT INTO discussion_entries (target_key,file,line,side,author,kind,body,created_at,previous) VALUES (?,?,?,?,'agent',?,?,?,?)`,
+          [...at(k, location), kind, change?.body ?? "", Date.now(), change ? JSON.stringify(change.previous) : null]);
+        await stopWaitingAt(k, location);
+      });
     },
-    lastDiscussionChange(k, location) {
-      const row = db.prepare(`SELECT kind, body, previous FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=? AND kind != 'message' ORDER BY id DESC LIMIT 1`)
-        .get(...at(k, location)) as { kind: string; body: string; previous: string | null } | undefined;
+    async lastDiscussionChange(k, location) {
+      const row = await sql.get<{ kind: string; body: string; previous: string | null }>(
+        `SELECT kind, body, previous FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=? AND kind != 'message' ORDER BY id DESC LIMIT 1`, at(k, location));
       if (!row || row.kind === "restored" || row.previous === null) return null;
       return { kind: row.kind as "added" | "edited" | "removed", body: row.body, previous: JSON.parse(row.previous) };
     },
-    noteDiscussionRestored(k, location) {
-      db.prepare(`INSERT INTO discussion_entries (target_key,file,line,side,author,kind,body,created_at) VALUES (?,?,?,?,'reviewer','restored','',?)`)
-        .run(...at(k, location), Date.now());
+    async noteDiscussionRestored(k, location) {
+      await sql.run(`INSERT INTO discussion_entries (target_key,file,line,side,author,kind,body,created_at) VALUES (?,?,?,?,'reviewer','restored','',?)`,
+        [...at(k, location), Date.now()]);
     },
-    deleteDiscussion(k, location) {
-      db.transaction(() => {
-        db.prepare(`DELETE FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=?`).run(...at(k, location));
-        stopWaitingAt(k, location);
-      })();
+    async deleteDiscussion(k, location) {
+      await sql.transaction(async () => {
+        await sql.run(`DELETE FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=?`, at(k, location));
+        await stopWaitingAt(k, location);
+      });
     },
-    clearDiscussions(k) {
-      db.transaction(() => {
-        db.prepare(`DELETE FROM discussion_entries WHERE target_key=?`).run(k);
-        db.prepare(`DELETE FROM discussion_waits WHERE target_key=?`).run(k);
-      })();
+    async clearDiscussions(k) {
+      await sql.transaction(async () => {
+        await sql.run(`DELETE FROM discussion_entries WHERE target_key=?`, [k]);
+        await sql.run(`DELETE FROM discussion_waits WHERE target_key=?`, [k]);
+      });
     },
-    stopWaiting(k) {
-      return db.prepare(`DELETE FROM discussion_waits WHERE target_key=?`).run(k).changes > 0;
+    async stopWaiting(k) {
+      return (await sql.run(`DELETE FROM discussion_waits WHERE target_key=?`, [k])).changes > 0;
     },
-    getFileViews(k) {
-      followRenames(k);
-      return db
-        .prepare(`SELECT file, hash, viewed_at FROM file_views WHERE target_key=?`)
-        .all(k)
-        .map((r: any) => ({ file: r.file, hash: r.hash, viewedAt: r.viewed_at }));
+    async getFileViews(k) {
+      await followRenames(k);
+      return (await sql.all<{ file: string; hash: string; viewed_at: number }>(`SELECT file, hash, viewed_at FROM file_views WHERE target_key=? ORDER BY file`, [k]))
+        .map((r) => ({ file: r.file, hash: r.hash, viewedAt: r.viewed_at }));
     },
-    setFileViewed(k, file, hash, viewedAt = Date.now()) {
-      db.prepare(
+    async setFileViewed(k, file, hash, viewedAt = Date.now()) {
+      await sql.run(
         `INSERT INTO file_views (target_key,file,hash,viewed_at) VALUES (?,?,?,?)
          ON CONFLICT(target_key,file) DO UPDATE SET hash=excluded.hash, viewed_at=excluded.viewed_at`,
-      ).run(k, file, hash, viewedAt);
+        [k, file, hash, viewedAt],
+      );
     },
-    unsetFileViewed(k, file) {
-      db.prepare(`DELETE FROM file_views WHERE target_key=? AND file=?`).run(k, file);
+    async unsetFileViewed(k, file) {
+      await sql.run(`DELETE FROM file_views WHERE target_key=? AND file=?`, [k, file]);
     },
-    getAgentThread(k) {
-      const row: any = db.prepare(`SELECT thread_id FROM agent_threads WHERE target_key=?`).get(k);
-      return row?.thread_id ?? null;
+    async getAgentThread(k) {
+      return (await sql.get<{ thread_id: string }>(`SELECT thread_id FROM agent_threads WHERE target_key=?`, [k]))?.thread_id ?? null;
     },
-    clearAgentThread(k) {
-      db.prepare(`DELETE FROM agent_threads WHERE target_key=?`).run(k);
+    async clearAgentThread(k) {
+      await sql.run(`DELETE FROM agent_threads WHERE target_key=?`, [k]);
     },
-    listAgentMessages(k) {
-      return db
-        .prepare(`SELECT id, role, text, context, created_at FROM agent_messages WHERE target_key=? ORDER BY id ASC`)
-        .all(k)
-        .map((r: any) => ({
+    async listAgentMessages(k) {
+      return (await sql.all<{ id: number; role: AgentMessage["role"]; text: string; context: string | null; created_at: number }>(
+        `SELECT id, role, text, context, created_at FROM agent_messages WHERE target_key=? ORDER BY id ASC`, [k]))
+        .map((r) => ({
           id: r.id,
           role: r.role,
           text: r.text,
@@ -809,115 +827,123 @@ export function createStore(bb: BbPluginApi): Store {
           createdAt: r.created_at,
         }));
     },
-    clearAgentMessages(k) {
-      db.prepare(`DELETE FROM agent_messages WHERE target_key=?`).run(k);
+    async clearAgentMessages(k) {
+      await sql.run(`DELETE FROM agent_messages WHERE target_key=?`, [k]);
     },
-    getAssistantThread(k) {
-      const row: any = db.prepare(`SELECT thread_id FROM assistant_threads WHERE target_key=?`).get(k);
-      return row?.thread_id ?? null;
+    async getAssistantThread(k) {
+      return (await sql.get<{ thread_id: string }>(`SELECT thread_id FROM assistant_threads WHERE target_key=?`, [k]))?.thread_id ?? null;
     },
-    setAssistantThread(k, threadId) {
-      db.prepare(
+    async setAssistantThread(k, threadId) {
+      await sql.run(
         `INSERT INTO assistant_threads (target_key,thread_id,created_at) VALUES (?,?,?)
          ON CONFLICT(target_key) DO UPDATE SET thread_id=excluded.thread_id, created_at=excluded.created_at`,
-      ).run(k, threadId, Date.now());
+        [k, threadId, Date.now()],
+      );
     },
-    clearAssistantThread(k) {
-      db.prepare(`DELETE FROM assistant_threads WHERE target_key=?`).run(k);
+    async clearAssistantThread(k) {
+      await sql.run(`DELETE FROM assistant_threads WHERE target_key=?`, [k]);
     },
-    listAssistantThreads() {
-      return db.prepare(`SELECT target_key, thread_id FROM assistant_threads`).all()
-        .map((r: any) => ({ targetKey: r.target_key, threadId: r.thread_id }));
+    async listAssistantThreads() {
+      return (await sql.all<{ target_key: string; thread_id: string }>(`SELECT target_key, thread_id FROM assistant_threads ORDER BY target_key`))
+        .map((r) => ({ targetKey: r.target_key, threadId: r.thread_id }));
     },
-    saveSnapshot(k, headSha, patch) {
-      db.prepare(`INSERT INTO review_snapshots VALUES (?,?,?,?) ON CONFLICT(target_key,head_sha) DO UPDATE SET patch=excluded.patch`)
-        .run(k, headSha, patch, Date.now());
+    async saveSnapshot(k, headSha, patch) {
+      await sql.run(`INSERT INTO review_snapshots (target_key,head_sha,patch,created_at) VALUES (?,?,?,?) ON CONFLICT(target_key,head_sha) DO UPDATE SET patch=excluded.patch`,
+        [k, headSha, patch, Date.now()]);
     },
-    getSnapshot(k, headSha) {
-      return (db.prepare(`SELECT patch FROM review_snapshots WHERE target_key=? AND head_sha=?`).get(k, headSha) as { patch: string } | undefined)?.patch ?? null;
+    async getSnapshot(k, headSha) {
+      return (await sql.get<{ patch: string }>(`SELECT patch FROM review_snapshots WHERE target_key=? AND head_sha=?`, [k, headSha]))?.patch ?? null;
     },
-    pruneSnapshots(k, keep) {
-      const rows = db.prepare(`SELECT head_sha FROM review_snapshots WHERE target_key=?`).all(k) as Array<{ head_sha: string }>;
-      for (const { head_sha } of rows) if (!keep.includes(head_sha)) db.prepare(`DELETE FROM review_snapshots WHERE target_key=? AND head_sha=?`).run(k, head_sha);
+    async pruneSnapshots(k, keep) {
+      const rows = await sql.all<{ head_sha: string }>(`SELECT head_sha FROM review_snapshots WHERE target_key=? ORDER BY head_sha`, [k]);
+      for (const { head_sha } of rows) if (!keep.includes(head_sha)) await sql.run(`DELETE FROM review_snapshots WHERE target_key=? AND head_sha=?`, [k, head_sha]);
     },
-    saveFeedbackThreads(k, threads, prUpdatedAt) {
+    async saveFeedbackThreads(k, threads, prUpdatedAt) {
       const now = Date.now();
-      const saved = () => JSON.stringify(db.prepare(`SELECT thread_id, data, resolved_seen_at FROM feedback_threads WHERE target_key=? ORDER BY thread_id`).all(k));
-      return db.transaction(() => {
-        const first = !db.prepare(`SELECT 1 FROM feedback_fetches WHERE target_key=?`).get(k);
-        const before = saved();
-        const previous = new Map((db.prepare(`SELECT thread_id, resolved_seen_at FROM feedback_threads WHERE target_key=?`).all(k) as any[])
-          .map((row) => [row.thread_id as string, row.resolved_seen_at as number | null]));
-        db.prepare(`DELETE FROM feedback_threads WHERE target_key=?`).run(k);
-        const insert = db.prepare(`INSERT INTO feedback_threads VALUES (?,?,?,?)`);
+      const saved = async () => JSON.stringify(await sql.all(`SELECT thread_id, data, resolved_seen_at FROM feedback_threads WHERE target_key=? ORDER BY thread_id`, [k]));
+      return sql.transaction(async () => {
+        const first = !await sql.get(`SELECT 1 FROM feedback_fetches WHERE target_key=?`, [k]);
+        const before = await saved();
+        const previous = new Map((await sql.all<{ thread_id: string; resolved_seen_at: number | null }>(`SELECT thread_id, resolved_seen_at FROM feedback_threads WHERE target_key=? ORDER BY thread_id`, [k]))
+          .map((row) => [row.thread_id, row.resolved_seen_at]));
+        await sql.run(`DELETE FROM feedback_threads WHERE target_key=?`, [k]);
         // When a thread was resolved isn't in GitHub's data; the first time bb saw it resolved stands in.
         // On the first read it was resolved some time before, so its last activity stands in instead.
         const seen = (thread: FeedbackThread) => previous.has(thread.id) ? previous.get(thread.id) ?? now
           : first ? Math.max(thread.createdAt, ...thread.replies.map((r) => r.createdAt)) : now;
-        for (const thread of threads) insert.run(k, thread.id, JSON.stringify(thread), thread.isResolved ? seen(thread) : null);
-        db.prepare(`INSERT INTO feedback_fetches VALUES (?,?,?) ON CONFLICT(target_key) DO UPDATE SET fetched_at=excluded.fetched_at, pr_updated_at=excluded.pr_updated_at`)
-          .run(k, now, prUpdatedAt);
-        return first || saved() !== before;
-      })();
+        for (const thread of threads) {
+          await sql.run(`INSERT INTO feedback_threads (target_key,thread_id,data,resolved_seen_at) VALUES (?,?,?,?)`,
+            [k, thread.id, JSON.stringify(thread), thread.isResolved ? seen(thread) : null]);
+        }
+        await sql.run(`INSERT INTO feedback_fetches (target_key,fetched_at,pr_updated_at) VALUES (?,?,?) ON CONFLICT(target_key) DO UPDATE SET fetched_at=excluded.fetched_at, pr_updated_at=excluded.pr_updated_at`,
+          [k, now, prUpdatedAt]);
+        return first || await saved() !== before;
+      });
     },
-    listFeedbackThreads(k) {
-      return (db.prepare(`SELECT data, resolved_seen_at FROM feedback_threads WHERE target_key=?`).all(k) as any[])
+    async listFeedbackThreads(k) {
+      return (await sql.all<{ data: string; resolved_seen_at: number | null }>(`SELECT data, resolved_seen_at FROM feedback_threads WHERE target_key=? ORDER BY thread_id`, [k]))
         .map((row) => ({ ...(JSON.parse(row.data) as FeedbackThread), resolvedSeenAt: row.resolved_seen_at ?? null }))
         .sort((a, b) => a.createdAt - b.createdAt);
     },
-    clearFeedbackFetches() {
-      db.prepare(`DELETE FROM feedback_fetches`).run();
+    async clearFeedbackFetches() {
+      await sql.run(`DELETE FROM feedback_fetches`);
     },
-    feedbackFetched(k) {
-      const row = db.prepare(`SELECT fetched_at, pr_updated_at FROM feedback_fetches WHERE target_key=?`).get(k) as any;
+    async feedbackFetched(k) {
+      const row = await sql.get<{ fetched_at: number; pr_updated_at: number | null }>(`SELECT fetched_at, pr_updated_at FROM feedback_fetches WHERE target_key=?`, [k]);
       return row ? { fetchedAt: row.fetched_at, prUpdatedAt: row.pr_updated_at ?? null } : null;
     },
-    saveAssessmentItems(k, headSha, items) {
-      const insert = db.prepare(`INSERT INTO assessment_items VALUES (?,?,?,?) ON CONFLICT(target_key,head_sha,item_id) DO UPDATE SET data=excluded.data`);
-      db.transaction(() => { for (const item of items) insert.run(k, headSha, item.id, JSON.stringify(item)); })();
+    async saveAssessmentItems(k, headSha, items) {
+      await sql.transaction(async () => {
+        for (const item of items) {
+          await sql.run(`INSERT INTO assessment_items (target_key,head_sha,item_id,data) VALUES (?,?,?,?) ON CONFLICT(target_key,head_sha,item_id) DO UPDATE SET data=excluded.data`,
+            [k, headSha, item.id, JSON.stringify(item)]);
+        }
+      });
     },
-    saveAssessmentRun(k, run) {
-      db.prepare(`INSERT INTO assessment_runs VALUES (?,?,?,?) ON CONFLICT(target_key,head_sha) DO UPDATE SET data=excluded.data, assessed_at=excluded.assessed_at`)
-        .run(k, run.headSha, JSON.stringify(run), run.assessedAt);
+    async saveAssessmentRun(k, run) {
+      await sql.run(`INSERT INTO assessment_runs (target_key,head_sha,data,assessed_at) VALUES (?,?,?,?) ON CONFLICT(target_key,head_sha) DO UPDATE SET data=excluded.data, assessed_at=excluded.assessed_at`,
+        [k, run.headSha, JSON.stringify(run), run.assessedAt]);
     },
-    getAssessment(k, headSha) {
-      const items = (db.prepare(`SELECT data FROM assessment_items WHERE target_key=? AND head_sha=?`).all(k, headSha) as any[]).map((row) => JSON.parse(row.data) as AssessmentItem);
-      const run = db.prepare(`SELECT data FROM assessment_runs WHERE target_key=? AND head_sha=?`).get(k, headSha) as any;
+    async getAssessment(k, headSha) {
+      const items = (await sql.all<{ data: string }>(`SELECT data FROM assessment_items WHERE target_key=? AND head_sha=? ORDER BY item_id`, [k, headSha]))
+        .map((row) => JSON.parse(row.data) as AssessmentItem);
+      const run = await sql.get<{ data: string }>(`SELECT data FROM assessment_runs WHERE target_key=? AND head_sha=?`, [k, headSha]);
       return { items, run: run ? JSON.parse(run.data) as AssessmentRun : null };
     },
-    latestAssessmentRun(k) {
-      const row = db.prepare(`SELECT data FROM assessment_runs WHERE target_key=? ORDER BY assessed_at DESC LIMIT 1`).get(k) as any;
+    async latestAssessmentRun(k) {
+      const row = await sql.get<{ data: string }>(`SELECT data FROM assessment_runs WHERE target_key=? ORDER BY assessed_at DESC, head_sha LIMIT 1`, [k]);
       return row ? JSON.parse(row.data) as AssessmentRun : null;
     },
-    setReplyDraft(k, threadId, body, author) {
-      db.prepare(`INSERT INTO reply_drafts VALUES (?,?,?,?,?) ON CONFLICT(target_key,thread_id) DO UPDATE SET body=excluded.body, author=excluded.author, updated_at=excluded.updated_at`)
-        .run(k, threadId, body, author, Date.now());
+    async setReplyDraft(k, threadId, body, author) {
+      await sql.run(`INSERT INTO reply_drafts (target_key,thread_id,body,author,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(target_key,thread_id) DO UPDATE SET body=excluded.body, author=excluded.author, updated_at=excluded.updated_at`,
+        [k, threadId, body, author, Date.now()]);
     },
-    listReplyDrafts(k) {
-      return new Map((db.prepare(`SELECT thread_id, body, author, updated_at FROM reply_drafts WHERE target_key=?`).all(k) as any[])
-        .map((row) => [row.thread_id as string, { body: row.body, author: row.author, updatedAt: row.updated_at } as ReplyDraft]));
+    async listReplyDrafts(k) {
+      return new Map((await sql.all<{ thread_id: string; body: string; author: ReplyDraft["author"]; updated_at: number }>(
+        `SELECT thread_id, body, author, updated_at FROM reply_drafts WHERE target_key=? ORDER BY thread_id`, [k]))
+        .map((row) => [row.thread_id, { body: row.body, author: row.author, updatedAt: row.updated_at } as ReplyDraft]));
     },
-    deleteReplyDraft(k, threadId) {
-      db.prepare(`DELETE FROM reply_drafts WHERE target_key=? AND thread_id=?`).run(k, threadId);
+    async deleteReplyDraft(k, threadId) {
+      await sql.run(`DELETE FROM reply_drafts WHERE target_key=? AND thread_id=?`, [k, threadId]);
     },
-    ignoreDiscovery(k) {
-      db.prepare(`INSERT INTO discovery_ignores VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET ignored_at=excluded.ignored_at`).run(k, Date.now());
+    async ignoreDiscovery(k) {
+      await sql.run(`INSERT INTO discovery_ignores (target_key,ignored_at) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET ignored_at=excluded.ignored_at`, [k, Date.now()]);
     },
-    unignoreDiscovery(k) {
-      db.prepare(`DELETE FROM discovery_ignores WHERE target_key=?`).run(k);
+    async unignoreDiscovery(k) {
+      await sql.run(`DELETE FROM discovery_ignores WHERE target_key=?`, [k]);
     },
-    isDiscoveryIgnored(k) {
-      return !!db.prepare(`SELECT 1 FROM discovery_ignores WHERE target_key=?`).get(k);
+    async isDiscoveryIgnored(k) {
+      return !!await sql.get(`SELECT 1 FROM discovery_ignores WHERE target_key=?`, [k]);
     },
-    draftCommentCode(k, { file, line, side }, end = "line") {
-      const row = db.prepare(`SELECT code, start_code FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).get(k, file, line, side) as any;
+    async draftCommentCode(k, { file, line, side }, end = "line") {
+      const row = await sql.get<{ code: string | null; start_code: string | null }>(`SELECT code, start_code FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`, [k, file, line, side]);
       return (end === "start" ? row?.start_code : row?.code) ?? undefined;
     },
-    rebaseDraftComments(k, placements) {
-      const positions = this.diffPositions(k);
-      const hash = this.patchHash(k);
-      db.transaction(() => {
-        const d = this.getDraft(k);
+    async rebaseDraftComments(k, placements) {
+      const positions = await this.diffPositions(k);
+      const hash = await this.patchHash(k);
+      await sql.transaction(async () => {
+        const d = await this.getDraft(k);
         const moves = new Map<DraftComment, number>();
         const starts = new Map<DraftComment, number>();
         for (const { at, line, startLine } of placements) {
@@ -937,24 +963,29 @@ export function createStore(bb: BbPluginApi): Store {
             if (group.length > 1) for (const c of group) if (moves.has(c) && moves.get(c) !== c.line) { moves.delete(c); clash = true; }
           }
         }
-        for (const c of moves.keys()) db.prepare(`DELETE FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`).run(k, c.file, c.line, c.side);
-        this.moveAgentCommentChanges(k, [...moves].map(([c, line]) => ({ at: { file: c.file, line: c.line, side: c.side }, line })));
+        for (const c of moves.keys()) await sql.run(`DELETE FROM draft_comment_revisions WHERE target_key=? AND file=? AND line=? AND side=?`, [k, c.file, c.line, c.side]);
+        await this.moveAgentCommentChanges(k, [...moves].map(([c, line]) => ({ at: { file: c.file, line: c.line, side: c.side }, line })));
         // Each comment's discussion, wait and ask move with it. Rows are found before any move, so comments that swap lines
         // don't merge their discussions.
-        const discussions = [...moves].map(([c, line]) => ({
-          c, line,
-          ids: db.prepare(`SELECT id FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=?`).all(...at(k, c)) as Array<{ id: number }>,
-          waiting: stopWaitingAt(k, c).changes > 0,
-        }));
-        // A range's first line follows the comment's, or shifts with its last.
-        const moveEntry = db.prepare(`UPDATE discussion_entries SET line=?, start_line=CASE WHEN start_line IS NULL THEN NULL ELSE COALESCE(?, start_line + ?) END WHERE id=?`);
-        for (const { c, line, ids, waiting } of discussions) {
-          for (const { id } of ids) moveEntry.run(line, starts.get(c) ?? null, line - c.line, id);
-          if (waiting) db.prepare(`INSERT OR IGNORE INTO discussion_waits VALUES (?,?,?,?)`).run(k, c.file, line, c.side);
+        const discussions: Array<{ c: DraftComment; line: number; ids: Array<{ id: number }>; waiting: boolean }> = [];
+        for (const [c, line] of moves) {
+          discussions.push({
+            c, line,
+            ids: await sql.all<{ id: number }>(`SELECT id FROM discussion_entries WHERE target_key=? AND file=? AND line=? AND side=? ORDER BY id`, at(k, c)),
+            waiting: (await stopWaitingAt(k, c)).changes > 0,
+          });
         }
-        const asks = this.getReview(k)?.commentAsks;
+        for (const { c, line, ids, waiting } of discussions) {
+          // A range's first line follows the comment's, or shifts with its last.
+          for (const { id } of ids) {
+            await sql.run(`UPDATE discussion_entries SET line=?, start_line=CASE WHEN start_line IS NULL THEN NULL ELSE COALESCE(?, start_line + ?) END WHERE id=?`,
+              [line, starts.get(c) ?? null, line - c.line, id]);
+          }
+          if (waiting) await sql.run(`INSERT INTO discussion_waits (target_key,file,line,side) VALUES (?,?,?,?) ON CONFLICT DO NOTHING`, [k, c.file, line, c.side]);
+        }
+        const asks = (await this.getReview(k))?.commentAsks;
         if (asks?.length) {
-          this.setLifecycle(k, { commentAsks: asks.map((entry) => {
+          await this.setLifecycle(k, { commentAsks: asks.map((entry) => {
             const moved = [...moves].find(([c]) => sameLocation(c, entry));
             return moved ? { ...entry, line: moved[1] } : entry;
           }) });
@@ -964,12 +995,12 @@ export function createStore(bb: BbPluginApi): Store {
           if (starts.has(c)) c.startLine = starts.get(c);
           const code = positions.get(c.file)?.[c.side === "LEFT" ? "left" : "right"].get(line) ?? null;
           const startCode = c.startLine === undefined ? null : positions.get(c.file)?.[(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
-          db.prepare(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
-            ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`)
-            .run(k, c.file, line, c.side, hash, code, startCode);
+          await sql.run(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
+            ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`,
+            [k, c.file, line, c.side, hash, code, startCode]);
         }
-        writeDraft(db, d);
-      })();
+        await writeDraft(sql, d);
+      });
     },
   };
 }
@@ -989,15 +1020,10 @@ type Placement = { at: CommentLocation; line: number; startLine?: number };
 
 /**
  * Where each unsent comment's line is in `next`, for rebaseDraftComments, and its range's first line. Comments whose
- * lines are gone are left out, as are ranges that lost an end or would no longer be a range GitHub takes. The store's
- * own restoreGuide calls this; callers of the AsyncStore use reanchorDraft.
+ * lines are gone are left out, as are ranges that lost an end or would no longer be a range GitHub takes. It reads
+ * the draft and each comment's code first.
  */
-export function reanchorAll(store: Store, k: string, previous: string, next: string): Placement[] {
-  return placeComments(store.getDraft(k).comments, (comment, end) => store.draftCommentCode(k, comment, end), previous, next);
-}
-
-/** reanchorAll through the AsyncStore: it reads the draft and each comment's code first. */
-export async function reanchorDraft(store: Pick<AsyncStore, "getDraft" | "draftCommentCode">, k: string, previous: string, next: string): Promise<Placement[]> {
+export async function reanchorDraft(store: Pick<Store, "getDraft" | "draftCommentCode">, k: string, previous: string, next: string): Promise<Placement[]> {
   const { comments } = await store.getDraft(k);
   const codes = new Map<DraftComment, { line?: string; start?: string }>();
   for (const comment of comments) {
@@ -1024,12 +1050,13 @@ function placeComments(comments: DraftComment[], codeOf: (comment: DraftComment,
 
 function patchHash(patch: string) { return createHash("sha256").update(patch).digest("hex"); }
 
-function writeDraft(db: any, d: Draft) {
+async function writeDraft(sql: Sql, d: Draft) {
   const { bodyAuthor, suggestedVerdict, written, verdictChosen, unchecked } = d;
   // JSON leaves out the undefined ones, which a change clears.
   const meta = JSON.stringify({ bodyAuthor, suggestedVerdict, written, verdictChosen, unchecked });
-  db.prepare(
+  await sql.run(
     `INSERT INTO drafts (target_key,verdict,body,comments,meta) VALUES (?,?,?,?,?)
      ON CONFLICT(target_key) DO UPDATE SET verdict=excluded.verdict,body=excluded.body,comments=excluded.comments,meta=excluded.meta`,
-  ).run(d.targetKey, d.verdict, d.body, JSON.stringify(d.comments), meta === "{}" ? null : meta);
+    [d.targetKey, d.verdict, d.body, JSON.stringify(d.comments), meta === "{}" ? null : meta],
+  );
 }

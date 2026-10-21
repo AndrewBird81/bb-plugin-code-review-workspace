@@ -24,13 +24,21 @@ async function views() {
 }
 
 /** What configure reads, from fresh reads of `store`, beside the view's answers. */
-function compare(store: Store, view: Awaited<ReturnType<typeof createConfigureView>>, workers: readonly string[]) {
-  const fresh = (threadId: string) => {
-    const assistant = store.listAssistantThreads().find((thread) => thread.threadId === threadId)?.targetKey ?? null;
-    const writer = store.generationOf(threadId);
+async function compare(store: Store, view: Awaited<ReturnType<typeof createConfigureView>>, workers: readonly string[]) {
+  const assistants = await store.listAssistantThreads();
+  const fresh = async (threadId: string) => {
+    const assistant = assistants.find((thread) => thread.threadId === threadId)?.targetKey ?? null;
+    const writer = await store.generationOf(threadId);
     return { role: assistant ? "assistant" : writer ? "writer" : null, review: assistant ?? writer ?? null };
   };
   const threads = [...ASSISTANTS, ...workers, "stranger"];
+  const freshThreads = [];
+  for (const id of threads) freshThreads.push({ id, ...await fresh(id) });
+  const freshReviews = [];
+  for (const key of KEYS) {
+    const review = await store.getReview(key);
+    freshReviews.push({ key, review, guide: review ? await store.getGuide(key) : null });
+  }
   return {
     view: {
       preferences: view.preferences(),
@@ -38,9 +46,9 @@ function compare(store: Store, view: Awaited<ReturnType<typeof createConfigureVi
       reviews: KEYS.map((key) => ({ key, review: view.review(key), guide: view.review(key) ? view.guide(key) : null })),
     },
     fresh: {
-      preferences: store.getPreferences().preferences,
-      threads: threads.map((id) => ({ id, ...fresh(id) })),
-      reviews: KEYS.map((key) => ({ key, review: store.getReview(key), guide: store.getReview(key) ? store.getGuide(key) : null })),
+      preferences: (await store.getPreferences()).preferences,
+      threads: freshThreads,
+      reviews: freshReviews,
     },
   };
 }
@@ -107,7 +115,7 @@ test.each([1, 2, 3, 4, 5])("after random writes, alone or in blocks, the configu
         return `block: ${writes.join(", ")}`;
       });
     } else done = await randomWrite(r, queued, made);
-    const { view: seen, fresh } = compare(store, view, made.workers);
+    const { view: seen, fresh } = await compare(store, view, made.workers);
     expect({ step, done, ...seen }).toEqual({ step, done, ...fresh });
   }
 });

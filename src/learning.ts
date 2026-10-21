@@ -11,6 +11,7 @@ import { NO_REVIEW, recordFormerWorker } from "./former-workers";
 import { spawningFor } from "./thread-review";
 import { REMOVAL_NOTE_LIMIT, REMOVAL_REASON_WORDS, REMOVAL_REASONS, type RemovalReason, type RemovalReasonId } from "../lib/removal-reasons";
 import type { AsyncStore } from "./store-queue";
+import type { Sql } from "./db/sql";
 
 // Words are kept as GitHub would get them, severity label and all, so a changed severity is an edit.
 
@@ -44,25 +45,23 @@ export interface AgentCommentOutcome {
 }
 
 export interface AgentCommentStore {
-  noteAgentCommentChange(targetKey: string, change: Omit<AgentCommentChange, "id" | "at" | "recorded" | "why">): void;
+  noteAgentCommentChange(targetKey: string, change: Omit<AgentCommentChange, "id" | "at" | "recorded" | "why">): Promise<void>;
   /** Oldest first. */
-  agentCommentChanges(targetKey: string): AgentCommentChange[];
-  forgetAgentCommentChange(targetKey: string, id: number): void;
+  agentCommentChanges(targetKey: string): Promise<AgentCommentChange[]>;
+  forgetAgentCommentChange(targetKey: string, id: number): Promise<void>;
   /** Say why the reviewer removed the comment at `at`, on its latest removal. False when there's none there. */
-  setRemovalReason(targetKey: string, at: CommentLocation, why: RemovalReason): boolean;
+  setRemovalReason(targetKey: string, at: CommentLocation, why: RemovalReason): Promise<boolean>;
   /** The removals the reviewer said why of, in every review, counted in a submitted review's outcomes. Newest first. */
-  reasonedRemovals(): Array<{ file: string; body: string; why: RemovalReason }>;
+  reasonedRemovals(): Promise<Array<{ file: string; body: string; why: RemovalReason }>>;
   /** Move the reviewer's edits of agent comments with the comments a re-review moved, from `at` to `line`. */
-  moveAgentCommentChanges(targetKey: string, moves: ReadonlyArray<{ at: CommentLocation; line: number }>): void;
+  moveAgentCommentChanges(targetKey: string, moves: ReadonlyArray<{ at: CommentLocation; line: number }>): Promise<void>;
   /** Record a submitted review's outcomes, keeping the latest OUTCOMES_KEPT. Its edits are settled and its removals counted. */
-  recordAgentOutcomes(targetKey: string, outcomes: ReadonlyArray<Omit<AgentCommentOutcome, "at">>): void;
+  recordAgentOutcomes(targetKey: string, outcomes: ReadonlyArray<Omit<AgentCommentOutcome, "at">>): Promise<void>;
   /** Newest first. */
-  listAgentOutcomes(): AgentCommentOutcome[];
+  listAgentOutcomes(): Promise<AgentCommentOutcome[]>;
 }
 
 export const OUTCOMES_KEPT = 500;
-
-type Database = ReturnType<BbPluginApi["storage"]["database"]>;
 
 /** The reason column's JSON, as saved: null when there's none, or it isn't one of the reasons. */
 function readReason(text: unknown): RemovalReason | null {
@@ -76,50 +75,51 @@ function readReason(text: unknown): RemovalReason | null {
 }
 
 /** The accessors behind AgentCommentStore, over the tables store.ts creates. */
-export function agentCommentStore(db: Database): AgentCommentStore {
+export function agentCommentStore(sql: Sql): AgentCommentStore {
   return {
-    noteAgentCommentChange(k, { file, line, side, kind, code, body, removed }) {
-      db.prepare(`INSERT INTO agent_comment_changes (target_key,file,line,side,kind,code,body,removed,at) VALUES (?,?,?,?,?,?,?,?,?)`)
-        .run(k, file, line, side, kind, code, body, removed, Date.now());
+    async noteAgentCommentChange(k, { file, line, side, kind, code, body, removed }) {
+      await sql.run(`INSERT INTO agent_comment_changes (target_key,file,line,side,kind,code,body,removed,at) VALUES (?,?,?,?,?,?,?,?,?)`,
+        [k, file, line, side, kind, code, body, removed, Date.now()]);
     },
-    agentCommentChanges(k) {
-      return (db.prepare(`SELECT * FROM agent_comment_changes WHERE target_key=? ORDER BY id`).all(k) as any[]).map((row) => ({
+    async agentCommentChanges(k) {
+      return (await sql.all<any>(`SELECT id, file, line, side, kind, code, body, removed, at, recorded, reason FROM agent_comment_changes WHERE target_key=? ORDER BY id`, [k])).map((row) => ({
         id: row.id, file: row.file, line: row.line, side: row.side, kind: row.kind, code: row.code ?? null,
         body: row.body, removed: row.removed ?? null, at: row.at, recorded: !!row.recorded, why: readReason(row.reason),
       }));
     },
-    forgetAgentCommentChange(k, id) {
-      db.prepare(`DELETE FROM agent_comment_changes WHERE target_key=? AND id=?`).run(k, id);
+    async forgetAgentCommentChange(k, id) {
+      await sql.run(`DELETE FROM agent_comment_changes WHERE target_key=? AND id=?`, [k, id]);
     },
-    setRemovalReason(k, { file, line, side }, why) {
+    async setRemovalReason(k, { file, line, side }, why) {
       // The reason and the reviewer's line, as JSON in one column: 0.7.0 doesn't read it.
-      return db.prepare(`UPDATE agent_comment_changes SET reason=? WHERE id=(SELECT id FROM agent_comment_changes WHERE target_key=? AND file=? AND line=? AND side=? AND kind='removed' ORDER BY id DESC LIMIT 1)`)
-        .run(JSON.stringify(why), k, file, line, side).changes > 0;
+      return (await sql.run(`UPDATE agent_comment_changes SET reason=? WHERE id=(SELECT id FROM agent_comment_changes WHERE target_key=? AND file=? AND line=? AND side=? AND kind='removed' ORDER BY id DESC LIMIT 1)`,
+        [JSON.stringify(why), k, file, line, side])).changes > 0;
     },
-    reasonedRemovals() {
-      return (db.prepare(`SELECT file,body,reason FROM agent_comment_changes WHERE kind='removed' AND recorded=1 AND reason IS NOT NULL ORDER BY id DESC`).all() as any[])
+    async reasonedRemovals() {
+      return (await sql.all<{ file: string; body: string; reason: string | null }>(`SELECT file, body, reason FROM agent_comment_changes WHERE kind='removed' AND recorded=1 AND reason IS NOT NULL ORDER BY id DESC`))
         .flatMap((row) => { const why = readReason(row.reason); return why ? [{ file: row.file, body: row.body, why }] : []; });
     },
-    moveAgentCommentChanges(k, moves) {
+    async moveAgentCommentChanges(k, moves) {
       // Every record is found before any moves, so one moved onto a line isn't moved again from it.
-      const found = moves.map(({ at: { file, line, side }, line: to }) => ({
-        to, rows: db.prepare(`SELECT id FROM agent_comment_changes WHERE target_key=? AND file=? AND line=? AND side=? AND kind='edited'`).all(k, file, line, side) as Array<{ id: number }>,
-      }));
-      const update = db.prepare(`UPDATE agent_comment_changes SET line=? WHERE id=?`);
-      for (const { to, rows } of found) for (const { id } of rows) update.run(to, id);
+      const found: Array<{ to: number; rows: Array<{ id: number }> }> = [];
+      for (const { at: { file, line, side }, line: to } of moves) {
+        found.push({ to, rows: await sql.all<{ id: number }>(`SELECT id FROM agent_comment_changes WHERE target_key=? AND file=? AND line=? AND side=? AND kind='edited' ORDER BY id`, [k, file, line, side]) });
+      }
+      for (const { to, rows } of found) for (const { id } of rows) await sql.run(`UPDATE agent_comment_changes SET line=? WHERE id=?`, [to, id]);
     },
-    recordAgentOutcomes(k, outcomes) {
+    async recordAgentOutcomes(k, outcomes) {
       const now = Date.now();
-      db.transaction(() => {
-        const insert = db.prepare(`INSERT INTO agent_comment_outcomes (repo,file,outcome,body,edited,at) VALUES (?,?,?,?,?,?)`);
-        for (const o of outcomes) insert.run(o.repo, o.file, o.outcome, o.body, o.edited, now);
-        db.prepare(`DELETE FROM agent_comment_outcomes WHERE id <= (SELECT id FROM agent_comment_outcomes ORDER BY id DESC LIMIT 1 OFFSET ?)`).run(OUTCOMES_KEPT);
-        db.prepare(`DELETE FROM agent_comment_changes WHERE target_key=? AND kind='edited'`).run(k);
-        db.prepare(`UPDATE agent_comment_changes SET recorded=1 WHERE target_key=?`).run(k);
-      })();
+      await sql.transaction(async () => {
+        for (const o of outcomes) {
+          await sql.run(`INSERT INTO agent_comment_outcomes (repo,file,outcome,body,edited,at) VALUES (?,?,?,?,?,?)`, [o.repo, o.file, o.outcome, o.body, o.edited, now]);
+        }
+        await sql.run(`DELETE FROM agent_comment_outcomes WHERE id <= (SELECT id FROM agent_comment_outcomes ORDER BY id DESC LIMIT 1 OFFSET ?)`, [OUTCOMES_KEPT]);
+        await sql.run(`DELETE FROM agent_comment_changes WHERE target_key=? AND kind='edited'`, [k]);
+        await sql.run(`UPDATE agent_comment_changes SET recorded=1 WHERE target_key=?`, [k]);
+      });
     },
-    listAgentOutcomes() {
-      return (db.prepare(`SELECT repo,file,outcome,body,edited,at FROM agent_comment_outcomes ORDER BY id DESC`).all() as any[])
+    async listAgentOutcomes() {
+      return (await sql.all<AgentCommentOutcome & { edited: string | null }>(`SELECT repo, file, outcome, body, edited, at FROM agent_comment_outcomes ORDER BY id DESC`))
         .map((row) => ({ repo: row.repo, file: row.file, outcome: row.outcome, body: row.body, edited: row.edited ?? null, at: row.at }));
     },
   };

@@ -5,7 +5,6 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { Guide } from "./guide";
 import type { ReviewPreferences } from "./preferences";
 import type { ReviewMeta, Store } from "./store";
-import type { StoreBackend } from "./store-queue";
 import { spawnsTitled } from "./thread-review";
 import { ASSISTANT_TITLE } from "./agent";
 import { GUIDE_WORKER_TITLE } from "./generate";
@@ -41,7 +40,7 @@ interface Snapshot {
 
 export interface ConfigureView {
   /** `backend`, telling the view of each call that may change it: queue this one, with afterTurn. */
-  backend: StoreBackend;
+  backend: Store;
   /** The queue's afterTurn: bring the view up to date if the turn may have changed it. A failed read is logged and tried again after the next turn. */
   afterTurn(): Promise<void>;
   /**
@@ -57,7 +56,7 @@ export interface ConfigureView {
 }
 
 /** The view read from `backend`, reading again only the guides of `changed` reviews, or every guide. */
-async function load(backend: StoreBackend, previous: Snapshot | null, changed: ReadonlySet<string> | "all"): Promise<Snapshot> {
+async function load(backend: Store, previous: Snapshot | null, changed: ReadonlySet<string> | "all"): Promise<Snapshot> {
   const preferences = (await backend.getPreferences()).preferences;
   const assistants = await backend.listAssistantThreads();
   const workers = await backend.listGenerationWorkers();
@@ -71,7 +70,7 @@ async function load(backend: StoreBackend, previous: Snapshot | null, changed: R
 }
 
 /** The view of `backend`, read now: create it before anything else reaches the store. */
-export async function createConfigureView(bb: BbPluginApi, backend: StoreBackend): Promise<ConfigureView> {
+export async function createConfigureView(bb: BbPluginApi, backend: Store): Promise<ConfigureView> {
   let snapshot = await load(backend, null, "all");
   /** Since the view was last brought up to date: the reviews calls named, or "all" after one naming none. Null when none changed it. */
   let changed: Set<string> | "all" | null = null;
@@ -91,7 +90,7 @@ export async function createConfigureView(bb: BbPluginApi, backend: StoreBackend
   const assistantReview = (threadId: string) => snapshot.assistants.find((thread) => thread.threadId === threadId)?.targetKey ?? null;
   const generationOf = (workerId: string) => snapshot.workers.find((worker) => worker.workerId === workerId)?.targetKey ?? null;
   return {
-    backend: tracked as StoreBackend,
+    backend: tracked as unknown as Store,
     async afterTurn() {
       if (!changed) return;
       const reading = changed;

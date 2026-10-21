@@ -140,7 +140,8 @@ test("diffs of reviews out of play for a month are dropped, keeping the guide, t
     await store.setVerdict(r.targetKey, "APPROVE", "LGTM");
   }
   await store.upsertDraftComment("commented", { file: "a.ts", line: 1, side: "RIGHT", body: "x" });
-  expect(await pruneOldDiffs(store, now)).toEqual(["merged", "closed"]);
+  // Reviews created at once are listed by key.
+  expect(await pruneOldDiffs(store, now)).toEqual(["closed", "merged"]);
   expect(await store.patch("merged")).toBe("");
   expect(await store.hasPatch("merged")).toBe(false);
   // Since your review compares with the diff you reviewed.

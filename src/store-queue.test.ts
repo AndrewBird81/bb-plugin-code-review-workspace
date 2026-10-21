@@ -1,7 +1,7 @@
 import { test, expect } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore, type ReviewMeta } from "./store";
-import { queueStore, StoreDisposedError, type StoreBackend } from "./store-queue";
+import { createStore, type ReviewMeta, type Store } from "./store";
+import { queueStore, StoreDisposedError } from "./store-queue";
 
 const tick = () => new Promise<void>((resolve) => { setTimeout(resolve, 1); });
 
@@ -34,7 +34,7 @@ function slowBackend() {
       throw new Error(`no patch for ${k}`);
     },
   };
-  return { log, store: queueStore(backend as unknown as StoreBackend) };
+  return { log, store: queueStore(backend as unknown as Store) };
 }
 
 const review = (targetKey: string): ReviewMeta => ({ targetKey, kind: "pr", number: 1, status: "ready", createdAt: 1 });
@@ -165,7 +165,7 @@ test("afterTurn runs inside each turn, after its call or block and before its ca
     async saveReview(meta: ReviewMeta) { await tick(); reviews.set(meta.targetKey, meta); log.push(`save ${meta.targetKey}`); },
     getReview(k: string) { log.push(`get ${k}`); return reviews.get(k) ?? null; },
   };
-  const store = queueStore(backend as unknown as StoreBackend, { async afterTurn() { await tick(); log.push(`after, ${reviews.size} saved`); } });
+  const store = queueStore(backend as unknown as Store, { async afterTurn() { await tick(); log.push(`after, ${reviews.size} saved`); } });
   const saved = store.saveReview(review("a")).then(() => log.push("caller resumes"));
   const block = store.exclusive(async (tx) => { await tx.saveReview(review("b")); await tx.getReview("a"); });
   const read = store.getReview("b");
@@ -234,15 +234,15 @@ test("dispose with nothing queued resolves", async () => {
   await expect(store.dispose()).resolves.toBeUndefined();
 });
 
-test("over the synchronous Store, it gives each method's result, its own calls between methods included", async () => {
+test("over the Store, it gives each method's result, its own calls between methods included", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  const sync = createStore(bb);
-  const store = queueStore(sync);
-  for (const name of Object.keys(sync)) expect(typeof (store as unknown as Record<string, unknown>)[name], name).toBe("function");
+  const backend = createStore(bb);
+  const store = queueStore(backend);
+  for (const name of Object.keys(backend)) expect(typeof (store as unknown as Record<string, unknown>)[name], name).toBe("function");
   await store.saveReview(review("pr-1"));
   await store.setLifecycle("pr-1", { name: "Mine" });
-  await expect(store.getReview("pr-1")).resolves.toEqual(sync.getReview("pr-1"));
-  expect(sync.getReview("pr-1")?.name).toBe("Mine");
+  await expect(store.getReview("pr-1")).resolves.toEqual(await backend.getReview("pr-1"));
+  expect((await backend.getReview("pr-1"))?.name).toBe("Mine");
   // saveReviewerNotes finds the review with this.getReview.
   await expect(store.saveReviewerNotes("pr-1", "notes", 0)).resolves.toEqual({ body: "notes", revision: 1 });
   await expect(store.saveReviewerNotes("pr-2", "notes", 0)).rejects.toThrow("Review not found.");

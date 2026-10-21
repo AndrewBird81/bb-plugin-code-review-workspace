@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { runGh } from "./gh";
-import { queueStore, type AsyncStore, type StoreBackend } from "./store-queue";
+import { queueStore, type AsyncStore } from "./store-queue";
 import { startPlugin } from "./plugin-store.test-support";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
@@ -104,7 +104,7 @@ test("each draft tool checks it's still the assistant in the same turn as its ch
   const backend = vi.mocked(queueStore).mock.calls[0][0] as unknown as Record<string, (...args: unknown[]) => unknown>;
   const plugins = vi.mocked(queueStore).mock.results[0].value as AsyncStore;
   const ran: string[] = [];
-  for (const [name, method] of Object.entries(backend)) backend[name] = (...args) => { ran.push(name); return method.apply(backend as unknown as StoreBackend, args); };
+  for (const [name, method] of Object.entries(backend)) backend[name] = (...args) => { ran.push(name); return method.apply(backend, args); };
   const tools = [
     ["list_draft_comments", {}], ["add_draft_comment", { file: "a.ts", line: 3, code: "const c = b * 2;", body: "x" }], ["edit_draft_comment", { file: "a.ts", line: 3, body: "y" }],
     ["set_review_summary", { body: "Fine." }], ["reply_in_discussion", { summary: true, body: "Done." }], ["delete_draft_comment", { file: "a.ts", line: 3 }],
