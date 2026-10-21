@@ -1114,6 +1114,8 @@ export function formatPlan(plan: CodemodPlan): string {
   }
   out.push("", "Functions made async, with each R1 block");
   for (const c of plan.changes.filter((c) => c.kind === "async")) out.push(`  ${c.file}:${c.line}  ${c.name}${c.detail ? `  [${c.detail}]` : ""}`);
+  out.push("", "Closures that take the store as their first parameter now");
+  for (const c of plan.changes.filter((c) => c.kind === "lift")) out.push(`  ${c.file}:${c.line}  ${c.name}: ${c.detail}`);
   out.push("", "Array callbacks rewritten");
   for (const c of plan.changes.filter((c) => c.kind === "loop" || c.kind === "promise-all")) out.push(`  ${c.file}:${c.line}  ${c.kind} ${c.detail}  in ${c.name}`);
   out.push("", "Unhandled, for a hand fix");

@@ -229,6 +229,7 @@ test("a closure over the store that a block calls takes the store as its first p
   expect(unhandled(plan)).toEqual(["a.ts:11 closure in block"]);
   expect(plan.unhandled[0].detail).toBe("plugin > loose (a.ts:5) reaches the store through its closure (`store` at a.ts:3), and the outer store throws inside this block");
   expect(plan.changes.filter((c) => c.kind === "lift").map((c) => c.detail)).toEqual(["takes `store` (a.ts:3) as its first parameter"]);
+  expect(formatPlan(plan)).toContain("Closures that take the store as their first parameter now\n  a.ts:4  plugin > draft: takes `store` (a.ts:3) as its first parameter\n");
 });
 
 test("forEach statements become for…of loops over arrays and Maps, a return a continue; a map or flatMap that only reads becomes Promise.all", () => {
@@ -585,6 +586,8 @@ test("formatPlan prints the counts, each file's changes, the functions made asyn
     ``,
     `Functions made async, with each R1 block`,
     `  a.ts:2  save  [R1 block]`,
+    ``,
+    `Closures that take the store as their first parameter now`,
     ``,
     `Array callbacks rewritten`,
     `  a.ts:3  loop .forEach(…)  in save`,
