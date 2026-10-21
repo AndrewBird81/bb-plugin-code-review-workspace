@@ -28,6 +28,7 @@
     "lib",
     "hooks",
     "src",
+    "scripts",
     "e2e",
     "vitest.config.ts"
   ]

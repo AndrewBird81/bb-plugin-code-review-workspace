@@ -7,7 +7,7 @@ export default defineConfig({
       {
         test: {
           name: "backend",
-          include: ["src/**/*.test.ts"],
+          include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
           environment: "node",
           // No test may run the real gh.
           setupFiles: ["src/real-gh.test-support.ts"],

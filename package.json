@@ -40,6 +40,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cron-parser": "^5.5.0",
+    "eslint": "^10.13.0",
     "hono": "^4.11.9",
     "jsdom": "^25.0.0",
     "playwright": "^1.62.1",
@@ -47,14 +48,17 @@
     "react-dom": "^19.0.0",
     "sonner": "^1.7.4",
     "tailwind-merge": "^3.4.0",
+    "ts-morph": "^27.0.2",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.72.0",
     "vitest": "^3.0.0"
   },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "build": "bb plugin build",
-    "check": "npm test && npm run typecheck && bb plugin types --check && npm run build"
+    "check": "npm test && npm run typecheck && npm run lint && bb plugin types --check && npm run build"
   },
   "description": "A code review workspace for BB: chaptered guides to pull requests and local diffs, a review agent that drafts comments and a verdict you edit, and pull request reviews submitted to GitHub.",
   "keywords": [
