@@ -433,16 +433,16 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
     test("a statement from outside an open transaction waits for it to end, so a rollback doesn't take it", async () => {
       const { sql, add, bodies } = await notes();
       const order: string[] = [];
-      const failing = sql.transaction(async () => {
+      const failing = expect(sql.transaction(async () => {
         await add("rolled back");
         order.push("transaction wrote");
         await sleep(20);
         order.push("transaction throws");
         throw new Error("no");
-      });
+      })).rejects.toThrow("no");
       await sleep(5);
       const outside = add("outside").then(() => { order.push("outside wrote"); });
-      await expect(failing).rejects.toThrow("no");
+      await failing;
       await outside;
       expect(order).toEqual(["transaction wrote", "transaction throws", "outside wrote"]);
       expect(await bodies()).toEqual(["outside"]);
@@ -530,11 +530,11 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
       const schema = await newSchema();
       await connect({ schema }).lockWriter();
       const waiter = connect({ schema, timeouts: { writerLockMs: 10_000 } });
-      const waiting = waiter.lockWriter();
+      const waiting = expect(waiter.lockWriter()).rejects.toThrow("The Postgres connection was closed");
       await sleep(150);
       const started = Date.now();
       await waiter.end();
-      await expect(waiting).rejects.toThrow("The Postgres connection was closed");
+      await waiting;
       expect(Date.now() - started).toBeLessThan(1_000);
     });
   });
@@ -561,11 +561,12 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
       const lost = vi.fn();
       const { sql, add, bodies } = await notes({ onConnectionLost: lost });
       const before = await pid(sql);
-      const sleeping = sql.get(`SELECT pg_sleep(5)`);
+      // Expected before the kill: the call can fail before the kill's own answer arrives.
+      const sleeping = expect(sql.get(`SELECT pg_sleep(5)`)).rejects.toMatchObject({ code: "57P01" });
       await sleep(100);
       await terminate(before);
       // Postgres's FATAL error reaches the call before pg sees the connection close.
-      await expect(sleeping).rejects.toMatchObject({ code: "57P01" });
+      await sleeping;
       expect(lost).toHaveBeenCalledTimes(1);
       await add("after");
       expect(await bodies()).toEqual(["after"]);
