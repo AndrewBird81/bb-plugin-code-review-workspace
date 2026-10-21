@@ -8,6 +8,8 @@ vi.unmock("./store");
 const hooks = vi.hoisted(() => ({
   /** Awaited before each statement run, outside the reads: a test's way to stop a copy at a statement. */
   beforeRun: undefined as ((text: string, params: readonly unknown[]) => Promise<void> | void) | undefined,
+  /** Called once each read's rows are back. */
+  afterAll: undefined as ((text: string) => void) | undefined,
 }));
 
 vi.mock("./db/pg", async (original) => {
@@ -22,6 +24,11 @@ vi.mock("./db/pg", async (original) => {
         async run(text: string, params: readonly import("./db/sql").SqlValue[] = []) {
           await hooks.beforeRun?.(text, params);
           return made.run(text, params);
+        },
+        async all<T>(text: string, params: readonly import("./db/sql").SqlValue[] = []) {
+          const rows = await made.all<T>(text, params);
+          hooks.afterAll?.(text);
+          return rows;
         },
       };
     },
@@ -53,6 +60,7 @@ const schemas: string[] = [];
 
 afterEach(async () => {
   hooks.beforeRun = undefined;
+  hooks.afterAll = undefined;
   vi.useRealTimers();
   vi.restoreAllMocks();
   await Promise.all(ended.splice(0).map((connection) => connection.end()));
@@ -340,6 +348,14 @@ describe.skipIf(!testPgUrl)("bb review storage, moving the reviews (CRW_TEST_PG_
     expect(db.inTransaction).toBe(false);
     expect((await run(harness, "status")).stdout).toContain("storage:owner: sqlite");
 
+    // Cancelled as it reads the last page it checks, once nothing is left to check but the COMMIT.
+    const late = new AbortController();
+    hooks.afterAll = (text) => { if (/^SELECT .* FROM "reviews" ORDER BY .* LIMIT \? OFFSET \?$/.test(text)) late.abort(); };
+    expect(await harness.behavior.runCli(["storage", "migrate"], { signal: late.signal })).toMatchObject({ exitCode: 1, stderr: "Stopped before it finished, as the plugin is reloading or the command was cancelled. Nothing was changed." });
+    hooks.afterAll = undefined;
+    expect(await schemaExists(schema)).toBe(false);
+    expect(await bb.storage.kv.get(STORAGE_OWNER_KEY)).toBeUndefined();
+
     // A reload while it copies.
     const guides = holdAt("guides");
     const copying = run(harness, "migrate");
@@ -382,6 +398,32 @@ describe.skipIf(!testPgUrl)("bb review storage, moving the reviews (CRW_TEST_PG_
     expect(sqliteHasReviews(bb)).toBe(true);
     expect(await connection(schema).get(`SELECT count(*) AS n FROM crw_migrations`)).toEqual({ n: 38 });
     expect(await bb.storage.kv.get(STORAGE_OWNER_KEY)).toBe("postgres");
+  });
+
+  test("migrate and export-sqlite --replace-data-db give up, changing nothing, while another BB holds the writer lock", async () => {
+    const { schema, settings } = postgresSettings();
+    const { bb, harness } = await host(settings);
+    seed(bb);
+    await plugin(bb);
+    const holder = connection(schema);
+    await holder.lockWriter();
+    const held = `Another Code Review Workspace holds the writer lock on Postgres schema "${schema}" (waited 0.4 s). Stop the other BB using this schema, or give this one a schema of its own (postgresSchema). Nothing was changed.`;
+    expect(await run(harness, "migrate")).toEqual({ exitCode: 1, stdout: "", stderr: held });
+    expect(await schemaExists(schema)).toBe(false);
+    expect(await bb.storage.kv.get(STORAGE_OWNER_KEY)).toBeUndefined();
+
+    await holder.end();
+    expect(await run(harness, "migrate")).toMatchObject({ exitCode: 0 });
+    await harness.behavior.setSettings({ storageBackend: "sqlite" });
+    const next = await harness.lifecycle.reload(plugin);
+    const again = connection(schema);
+    await again.lockWriter();
+    const before = tableChecksums(next.bb.storage.database());
+    expect(await run(next.harness, "export-sqlite", "--replace-data-db")).toEqual({ exitCode: 1, stdout: "", stderr: held });
+    expect(readdirSync(dirname(next.bb.storage.database().name)).filter((name) => /^data-(export|backup)-/.test(name))).toEqual([]);
+    expect(tableChecksums(next.bb.storage.database())).toEqual(before);
+    expect(await next.bb.storage.kv.get(STORAGE_OWNER_KEY)).toBe("postgres");
+    await next.harness.lifecycle.dispose();
   });
 
   test("one storage command runs at a time", async () => {
@@ -446,11 +488,15 @@ describe.skipIf(!testPgUrl)("bb review storage, moving the reviews (CRW_TEST_PG_
     const pg = connection(schema);
     await pg.run(`UPDATE patches SET hash = 'other' WHERE target_key = 'huge'`);
     await pg.get(`SELECT setval(pg_get_serial_sequence('agent_messages', 'id'), 5)`);
+    // Bytes that aren't UTF-8 in SQLite, which JavaScript reads as the U+FFFD Postgres has: the same text, not the same bytes.
+    bb.storage.database().prepare(`UPDATE guides SET guide = CAST(x'ff' AS TEXT) WHERE target_key = 'a.ts'`).run();
+    await pg.run(`UPDATE guides SET guide = ? WHERE target_key = 'a.ts'`, ["\uFFFD"]);
     const differ = await run(harness, "verify");
     expect(differ.exitCode).toBe(1);
     expect(differ.stdout).toMatch(/^ {2}patches +4 +4 {2}DIFFERENT$/m);
+    expect(differ.stdout).toMatch(/^ {2}guides +3 +3 {2}DIFFERENT$/m);
     expect(differ.stdout).toMatch(/^ {2}agent_messages next id +1 +6 {2}DIFFERENT$/m);
-    expect(differ.stdout.split("\n").at(-1)).toBe("Different in SQLite and Postgres: patches, agent_messages's next id.");
+    expect(differ.stdout.split("\n").at(-1)).toBe("Different in SQLite and Postgres: guides, patches, agent_messages's next id.");
     expect(differ.stderr).toBe("");
   });
 
