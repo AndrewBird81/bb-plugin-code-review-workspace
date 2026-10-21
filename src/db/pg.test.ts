@@ -199,6 +199,39 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
       }
     });
 
+    test("require refuses a request to sign in again, once SCRAM with channel binding has begun, before pg answers it", async () => {
+      const schema = await newSchema();
+      // What a man in the middle could ask for after offering SCRAM-SHA-256-PLUS: the password itself, an MD5 hash it
+      // chose the salt for, or a second SCRAM exchange.
+      const requests: Array<[string, object, RegExp]> = [
+        ["authenticationCleartextPassword", { name: "authenticationCleartextPassword", length: 8 }, /asked for a cleartext password after signing in had begun/],
+        ["authenticationMD5Password", { name: "authenticationMD5Password", length: 12, salt: Buffer.alloc(4) }, /asked for an MD5 password after signing in had begun/],
+        ["authenticationSASL", { name: "authenticationSASL", length: 23, mechanisms: ["SCRAM-SHA-256-PLUS"] }, /asked for SCRAM-SHA-256-PLUS after signing in had begun/],
+      ];
+      type Sending = pg.Connection & { sendSASLInitialResponseMessage(mechanism: string, response: string): void };
+      const prototype = pg.Connection.prototype as Sending;
+      const initial = prototype.sendSASLInitialResponseMessage;
+      for (const [event, message, refusal] of requests) {
+        const password = vi.fn(() => server.password);
+        let written: ReturnType<typeof vi.fn> | undefined;
+        const sent = vi.spyOn(prototype, "sendSASLInitialResponseMessage").mockImplementationOnce(function (this: Sending, mechanism, response) {
+          initial.call(this, mechanism, response);
+          written = vi.spyOn(this.stream, "write") as unknown as ReturnType<typeof vi.fn>;
+          this.emit(event, message);
+        });
+        try {
+          await expect(connect({ schema, password }).get(`SELECT 1`), event).rejects.toThrow(refusal);
+          // pg hashes the MD5 answer asynchronously.
+          await sleep(50);
+          expect(written, event).toBeDefined();
+          expect(written, event).not.toHaveBeenCalled();
+          expect(password, event).toHaveBeenCalledTimes(1);
+        } finally {
+          sent.mockRestore();
+        }
+      }
+    });
+
     test("a wrong password fails to sign in", async () => {
       const sql = connect({ schema: await newSchema(), password: "wrong" });
       await expect(sql.get(`SELECT 1`)).rejects.toThrow(/password authentication failed/);

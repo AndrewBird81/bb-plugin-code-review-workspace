@@ -209,11 +209,10 @@ function tlsOptions(ssl: PgSsl, caPem: string | undefined): false | ConnectionOp
   }
 }
 
-function unbound(asked: string | undefined) {
+function unbound(serverDid: string) {
   return new Error(
     `With postgresSsl=require the server's certificate isn't checked, so the password only goes to SCRAM with channel `
-    + `binding (${PLUS}), and only a server that completes it is trusted. This server `
-    + `${asked === PLUS ? "didn't complete it" : asked ? `asked for ${asked}` : "let the connection in without a password"}. `
+    + `binding (${PLUS}), and only a server that completes it is trusted. This server ${serverDid}. `
     + "Have the role sign in with SCRAM, or use postgresSsl=verify-full.",
   );
 }
@@ -296,13 +295,15 @@ export function pgSql(options: PgOptions): PgSql {
   }
 
   async function open(): Promise<Session> {
-    // Which sign-in the server asked for, noted before pg answers it, and whether SCRAM completed with channel binding.
+    // With require: the sign-in the server asked for, whether one was refused, and whether SCRAM completed with channel
+    // binding.
     let asked: string | undefined;
+    let refused: Error | undefined;
     let bound = false;
     const client = new pg.Client({
       ...target,
       password: async () => {
-        if (options.ssl === "require" && asked !== PLUS) throw unbound(asked);
+        if (options.ssl === "require" && (refused || asked !== PLUS)) throw refused ?? unbound(`asked for ${asked ?? "a password"}`);
         return typeof options.password === "function" ? options.password() : options.password;
       },
       ssl,
@@ -319,24 +320,40 @@ export function pgSql(options: PgOptions): PgSql {
       types,
     });
     const session: Session = { client, writer: false, tail: Promise.resolve() };
-    client.connection.prependListener("authenticationCleartextPassword", () => { asked = "a cleartext password"; });
-    client.connection.prependListener("authenticationMD5Password", () => { asked = "an MD5 password"; });
-    client.connection.prependListener("authenticationSASL", (message: { mechanisms: string[] }) => {
-      asked = message.mechanisms.includes(PLUS) ? PLUS : `SCRAM without channel binding (${message.mechanisms.join(", ")})`;
-    });
-    // pg checks the server's signature once this returns. Should pg rename its session, require refuses every server.
-    client.connection.prependListener("authenticationSASLFinal", () => {
-      bound = (client as unknown as { saslSession?: { mechanism?: string } }).saslSession?.mechanism === PLUS;
-    });
+    if (options.ssl === "require") {
+      // The one sign-in request require answers is the first, offering SCRAM-SHA-256-PLUS. pg answers any request,
+      // whenever it comes, with the password it kept from the first, so a refused one is refused before pg's own
+      // listener runs: once the stream is destroyed, pg writes nothing to it.
+      const signIn = (method: string) => {
+        const serverDid = asked !== undefined ? `asked for ${method} after signing in had begun` : method !== PLUS ? `asked for ${method}` : undefined;
+        asked ??= method;
+        if (serverDid === undefined) return;
+        refused ??= unbound(serverDid);
+        client.connection.stream.destroy(refused);
+      };
+      client.connection.prependListener("authenticationCleartextPassword", () => { signIn("a cleartext password"); });
+      client.connection.prependListener("authenticationMD5Password", () => { signIn("an MD5 password"); });
+      client.connection.prependListener("authenticationSASL", (message: { mechanisms: string[] }) => {
+        signIn(message.mechanisms.includes(PLUS) ? PLUS : `SCRAM without channel binding (${message.mechanisms.join(", ")})`);
+      });
+      // pg checks the server's signature once this returns. Should pg rename its session, require refuses every server.
+      client.connection.prependListener("authenticationSASLFinal", () => {
+        bound = (client as unknown as { saslSession?: { mechanism?: string } }).saslSession?.mechanism === PLUS;
+      });
+    }
     client.on("error", (error) => { lose(session, error); });
     client.on("end", () => { lose(session, new Error("The connection to Postgres ended")); });
     try {
       await client.connect();
-      // A server that let us in without SCRAM with channel binding, a password or none, proved nothing.
-      if (options.ssl === "require" && !bound) throw unbound(asked);
+      // A server that let us in without SCRAM with channel binding, a password or none, proved nothing. pg goes on
+      // reading what had arrived with a refused request, which may let it finish connecting.
+      if (options.ssl === "require" && (refused || !bound)) {
+        throw refused ?? unbound(asked === PLUS ? "didn't complete it" : "let the connection in without a password");
+      }
     } catch (error) {
       await close(session);
-      throw error;
+      // What pg failed at once the stream was destroyed follows from the refusal.
+      throw refused ?? error;
     }
     return session;
   }
