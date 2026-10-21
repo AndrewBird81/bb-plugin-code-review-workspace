@@ -8,7 +8,7 @@ import { pgSql, PgWriterLockError, type PgOptions, type PgSql, type PgSsl } from
 
 export const STORAGE_OWNER_KEY = "storage:owner";
 
-export type Backend = "sqlite" | "postgres";
+type Backend = "sqlite" | "postgres";
 
 const BACKENDS: readonly Backend[] = ["sqlite", "postgres"];
 
@@ -58,7 +58,7 @@ export type StorageChoice =
   | { kind: "postgres"; status: StorageStatus; settings: StorageSettings; pg: PgSql; schema: string; redact(text: string): string };
 
 /** pgSql's options from the settings, or a plain Error naming the setting that's missing or wrong. */
-export function pgOptions(settings: StorageSettings, onConnectionLost?: PgOptions["onConnectionLost"]): PgOptions {
+function pgOptions(settings: StorageSettings, onConnectionLost?: PgOptions["onConnectionLost"]): PgOptions {
   if (!settings.postgresUrl) throw new Error("postgresUrl is not set: postgres://user@host:port/database");
   if (!settings.postgresPassword) throw new Error("postgresPassword is not set");
   return {
@@ -139,7 +139,7 @@ export interface OpenTiming {
   unreachableGraceMs: number;
 }
 
-export const OPEN_TIMING: OpenTiming = { firstRetryMs: 1_000, maxRetryMs: 60_000, unreachableGraceMs: 60_000 };
+const OPEN_TIMING: OpenTiming = { firstRetryMs: 1_000, maxRetryMs: 60_000, unreachableGraceMs: 60_000 };
 
 /** A promise that settles when `ms` passes or `signal` aborts. */
 function pause(ms: number, signal: AbortSignal): Promise<void> {
