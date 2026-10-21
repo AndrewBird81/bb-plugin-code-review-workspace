@@ -213,8 +213,8 @@ function unbound(asked: string | undefined) {
   return new Error(
     `With postgresSsl=require the server's certificate isn't checked, so the password only goes to SCRAM with channel `
     + `binding (${PLUS}), and only a server that completes it is trusted. This server `
-    + `${asked ? `asked for ${asked}` : "let the connection in without a password"}. Have the role sign in with SCRAM, `
-    + "or use postgresSsl=verify-full.",
+    + `${asked === PLUS ? "didn't complete it" : asked ? `asked for ${asked}` : "let the connection in without a password"}. `
+    + "Have the role sign in with SCRAM, or use postgresSsl=verify-full.",
   );
 }
 
@@ -238,8 +238,17 @@ function usableAfter(error: unknown): boolean {
     && !code.startsWith("08") && !code.startsWith("57P") && code !== "25P03";
 }
 
-/** One connection, and whether it holds the writer lock. */
-interface Session { client: pg.Client; writer: boolean }
+/**
+ * One connection, and whether it holds the writer lock. `tail` settles once the statements sent so far have answered,
+ * and never rejects: a statement is only sent once the one before has answered, since pg@9 drops pg's own queue.
+ */
+interface Session { client: pg.Client; writer: boolean; tail: Promise<unknown> }
+
+function send(session: Session, query: string | pg.QueryConfig): Promise<pg.QueryResult> {
+  const result = session.tail.then(() => session.client.query(query));
+  session.tail = result.then(ignore, ignore);
+  return result;
+}
 
 /** A transaction, or a savepoint in one, while `fn` runs; `failed` is the first statement in it that failed. */
 interface Frame { depth: number; open: boolean; session: Session; failed?: unknown }
@@ -287,8 +296,9 @@ export function pgSql(options: PgOptions): PgSql {
   }
 
   async function open(): Promise<Session> {
-    // Which sign-in the server asked for, noted before pg answers it.
+    // Which sign-in the server asked for, noted before pg answers it, and whether SCRAM completed with channel binding.
     let asked: string | undefined;
+    let bound = false;
     const client = new pg.Client({
       ...target,
       password: async () => {
@@ -308,18 +318,22 @@ export function pgSql(options: PgOptions): PgSql {
       keepAliveInitialDelayMillis: timeouts.keepAliveMs,
       types,
     });
-    const session: Session = { client, writer: false };
+    const session: Session = { client, writer: false, tail: Promise.resolve() };
     client.connection.prependListener("authenticationCleartextPassword", () => { asked = "a cleartext password"; });
     client.connection.prependListener("authenticationMD5Password", () => { asked = "an MD5 password"; });
     client.connection.prependListener("authenticationSASL", (message: { mechanisms: string[] }) => {
       asked = message.mechanisms.includes(PLUS) ? PLUS : `SCRAM without channel binding (${message.mechanisms.join(", ")})`;
     });
+    // pg checks the server's signature once this returns. Should pg rename its session, require refuses every server.
+    client.connection.prependListener("authenticationSASLFinal", () => {
+      bound = (client as unknown as { saslSession?: { mechanism?: string } }).saslSession?.mechanism === PLUS;
+    });
     client.on("error", (error) => { lose(session, error); });
     client.on("end", () => { lose(session, new Error("The connection to Postgres ended")); });
     try {
       await client.connect();
-      // A server that let us in without asking for the password proved nothing.
-      if (options.ssl === "require" && asked !== PLUS) throw unbound(asked);
+      // A server that let us in without SCRAM with channel binding, a password or none, proved nothing.
+      if (options.ssl === "require" && !bound) throw unbound(asked);
     } catch (error) {
       await close(session);
       throw error;
@@ -361,7 +375,7 @@ export function pgSql(options: PgOptions): PgSql {
   async function execute(session: Session, text: string, params: readonly SqlValue[], frame?: Frame) {
     try {
       // The extended protocol for every statement, as a prepared one: one statement per text, as SQLite's prepare takes.
-      return await session.client.query({ text, values: [...params], queryMode: "extended" } as pg.QueryConfig);
+      return await send(session, { text, values: [...params], queryMode: "extended" } as pg.QueryConfig);
     } catch (error) {
       if (frame) frame.failed ??= error;
       if (!usableAfter(error)) lose(session, error);
@@ -382,7 +396,7 @@ export function pgSql(options: PgOptions): PgSql {
   /** End a transaction or savepoint after a failure, which is the error to report: if this fails too, the connection is dropped. */
   async function rollback(session: Session, text: string) {
     try {
-      await session.client.query(text);
+      await send(session, text);
     } catch (error) {
       lose(session, error);
     }

@@ -326,9 +326,11 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
         after = await add("after").catch((error: unknown) => error);
         return "carried on";
       });
-      await expect(failed).rejects.toThrow("Postgres rolled the transaction back: a statement in it failed");
-      await expect(failed.catch((error: Error) => { throw error.cause; })).rejects.toThrow(/violates check constraint/);
-      expect((after as { code?: string }).code).toBe("25P02");
+      const error = await failed.then(() => undefined, (rejection: unknown) => rejection as Error);
+      expect(error?.message).toMatch("Postgres rolled the transaction back: a statement in it failed");
+      // The first failure, a check_violation; what followed it was refused as in_failed_sql_transaction.
+      expect(error?.cause).toMatchObject({ code: "23514" });
+      expect(after).toMatchObject({ code: "25P02" });
       expect(await bodies()).toEqual([]);
     });
 
@@ -347,6 +349,21 @@ describe.skipIf(!testUrl)("against Postgres (CRW_TEST_PG_URL)", () => {
         await add("outer after");
       });
       expect(await bodies()).toEqual(["outer", "outer after"]);
+    });
+
+    test("statements a transaction starts without awaiting each go to Postgres once the one before has answered, in order", async () => {
+      const { sql, add, bodies } = await notes();
+      const warnings = vi.spyOn(process, "emitWarning");
+      try {
+        await sql.transaction(async () => {
+          await Promise.all(["a", "b", "c", "d", "e"].map((body) => add(body)));
+        });
+        // pg warns of a query sent while another runs, which pg@9 won't queue.
+        expect(warnings.mock.calls.map(([warning]) => String(warning))).not.toContainEqual(expect.stringContaining("already executing a query"));
+      } finally {
+        warnings.mockRestore();
+      }
+      expect(await bodies()).toEqual(["a", "b", "c", "d", "e"]);
     });
 
     test("a statement from outside an open transaction waits for it to end, so a rollback doesn't take it", async () => {
