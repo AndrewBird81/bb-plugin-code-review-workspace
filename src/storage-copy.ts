@@ -2,10 +2,11 @@
 // the storage CLI (src/storage-cli.ts) moves the reviews with. Rows go in pages of a few MB, by the size of their text,
 // so a whole patch is held once or twice at a time, never every patch at once.
 //
-// A table's checksum is the SHA-256 of its rows in primary-key order, each row a JSON array of its values in column-name
-// order, tagged with their type as scripts/store-reads.ts tags them (i: integer, t: text), each followed by a newline.
-// Text keys sort by code point on both sides: SQLite's BINARY, Postgres's COLLATE "C". A table with an id that
-// AUTOINCREMENT (Postgres: an identity) hands out is also checked for the next id it would give.
+// A table's checksum is the SHA-256 of its rows in primary-key order, each row its values in column-name order, then a
+// newline. Each value says its type: n; for NULL, i<digits>; for an integer, t<bytes>:<UTF-8> for text (r and b for
+// SQLite's REAL and BLOB, which the Store doesn't keep). Text keys sort by code point on both sides: SQLite's BINARY,
+// Postgres's COLLATE "C". A table with an id that AUTOINCREMENT (Postgres: an identity) hands out is also checked for
+// the next id it would give.
 import { isUtf8 } from "node:buffer";
 import { createHash } from "node:crypto";
 import { setImmediate as nextTurn } from "node:timers/promises";
@@ -245,13 +246,17 @@ function sizeOf(table: Table, length: (column: string) => string): string {
 
 const columnList = (table: Table) => table.columns.map((column) => quote(column.name)).join(", ");
 
-/** A Store table's rows in SQLite, a page at a time, in primary-key order, each as its values in column-name order. */
-function sqliteReader(db: Database, schema: string, table: Table) {
+/**
+ * A Store table's rows in SQLite, a page at a time, in primary-key order, each as its values in column-name order: to
+ * copy, with integers as BigInts, so their type and value come as SQLite holds them; to check, as each value's type
+ * and bytes, so text needn't become a JavaScript string, which would hold it twice over.
+ */
+function sqliteReader(db: Database, schema: string, table: Table, purpose: "copy" | "check") {
   const from = `FROM ${quote(schema)}.${quote(table.name)} ORDER BY ${table.key.map(quote).join(", ")}`;
+  const values = purpose === "copy" ? columnList(table) : table.columns.map(({ name }) => `typeof(${quote(name)}), CAST(${quote(name)} AS BLOB)`).join(", ");
   return {
     sizes: () => (db.prepare(`SELECT ${sizeOf(table, (column) => `length(CAST(${column} AS BLOB))`)} ${from}`).pluck().all() as number[]),
-    // Integers as BigInts, so their type and value come back as SQLite holds them.
-    rows: (offset: number, limit: number) => db.prepare(`SELECT ${columnList(table)} ${from} LIMIT ? OFFSET ?`).raw(true).safeIntegers(true).all(limit, offset) as unknown[][],
+    rows: (offset: number, limit: number) => db.prepare(`SELECT ${values} ${from} LIMIT ? OFFSET ?`).raw(true).safeIntegers(purpose === "copy").all(limit, offset) as unknown[][],
   };
 }
 
@@ -266,30 +271,64 @@ function pgReader(sql: PgSql, table: Table) {
   };
 }
 
-/**
- * A value as scripts/store-reads.ts's checksums tag it. SQLite's integers come as BigInts, and a number is a REAL;
- * Postgres's integer columns, the only numbers it has here, come as numbers.
- */
-function tagged(value: unknown, number: "i" | "r"): string | null {
-  if (value === null) return null;
-  if (typeof value === "bigint") return `i:${value}`;
-  if (typeof value === "number") return `${number}:${value}`;
-  if (typeof value === "string") return `t:${value}`;
-  if (Buffer.isBuffer(value)) return `b:${value.toString("hex")}`;
-  throw new Error(`Unexpected value: ${typeof value}`);
+type Hash = ReturnType<typeof createHash>;
+
+/** A row from SQLite's check reader, each value as its type and bytes, into `hash`. */
+function hashSqliteRow(hash: Hash, row: unknown[]) {
+  for (let i = 0; i < row.length; i += 2) {
+    const type = row[i] as string;
+    const bytes = row[i + 1] as Buffer | null;
+    if (type === "null" || !bytes) {
+      hash.update("n;");
+    } else if (type === "integer" || type === "real") {
+      hash.update(type[0]!);
+      hash.update(bytes);
+      hash.update(";");
+    } else {
+      hash.update(`${type[0]}${bytes.length}:`);
+      hash.update(bytes);
+    }
+  }
+  hash.update("\n");
 }
 
+/** A row from Postgres into `hash`, as hashSqliteRow puts the same row: its integers come as numbers, its text as strings. */
+function hashPgRow(hash: Hash, row: unknown[]) {
+  for (const value of row) {
+    if (value === null) {
+      hash.update("n;");
+    } else if (typeof value === "number") {
+      hash.update(`${Number.isInteger(value) ? "i" : "r"}${value};`);
+    } else if (typeof value === "string") {
+      hash.update(`t${Buffer.byteLength(value)}:`);
+      hash.update(value);
+    } else if (Buffer.isBuffer(value)) {
+      hash.update(`b${value.length}:`);
+      hash.update(value);
+    } else {
+      throw new Error(`Unexpected value from Postgres: ${typeof value}`);
+    }
+  }
+  hash.update("\n");
+}
+
+interface Reader<Sizes, Rows> { sizes(): Sizes; rows(offset: number, limit: number): Rows }
+
 /** Each table's checksum, read a page at a time, letting BB's event loop run between pages. */
-async function checksumsOf(tables: Table[], signal: AbortSignal, number: "i" | "r", reader: (table: Table) => { sizes(): number[] | Promise<number[]>; rows(offset: number, limit: number): unknown[][] | Promise<unknown[][]> }) {
+async function checksumsOf(
+  tables: Table[], signal: AbortSignal,
+  reader: (table: Table) => Reader<number[] | Promise<number[]>, unknown[][] | Promise<unknown[][]>>, hashRow: (hash: Hash, row: unknown[]) => void,
+) {
   const sums = new Map<string, TableSum>();
   for (const table of tables) {
+    stopIfAborted(signal);
     const read = reader(table);
     const hash = createHash("sha256");
     let rows = 0;
     for (const { offset, limit } of pages(await read.sizes(), table.columns.length)) {
       stopIfAborted(signal);
       for (const row of await read.rows(offset, limit)) {
-        hash.update(`${JSON.stringify(row.map((value) => tagged(value, number)))}\n`);
+        hashRow(hash, row);
         rows++;
       }
       await nextTurn();
@@ -299,11 +338,15 @@ async function checksumsOf(tables: Table[], signal: AbortSignal, number: "i" | "
   return sums;
 }
 
-/** The id SQLite's AUTOINCREMENT gives `table`'s next row: past both its highest id and the highest it ever gave. */
+/**
+ * The id SQLite's AUTOINCREMENT gives `table`'s next row: past both its highest id and the highest it ever gave. NaN,
+ * which matches nothing, when sqlite_sequence holds it as anything but an integer.
+ */
 function sqliteNextId(db: Database, schema: string, table: Table & { identity: string }): number {
-  const { seq } = db.prepare(`SELECT max(seq) AS seq FROM ${quote(schema)}.sqlite_sequence WHERE name = ?`).get(table.name) as { seq: number | null };
+  const { seq, other } = db.prepare(`SELECT max(seq) AS seq, count(CASE WHEN typeof(seq) <> 'integer' THEN 1 END) AS other FROM ${quote(schema)}.sqlite_sequence WHERE name = ?`)
+    .get(table.name) as { seq: number | null; other: number };
   const { id } = db.prepare(`SELECT max(${quote(table.identity)}) AS id FROM ${quote(schema)}.${quote(table.name)}`).get() as { id: number | null };
-  return Math.max(seq ?? 0, id ?? 0) + 1;
+  return other ? NaN : Math.max(seq ?? 0, id ?? 0) + 1;
 }
 
 /** `table`'s identity sequence in Postgres, and the id it gives next. */
@@ -318,7 +361,7 @@ const withIdentity = (tables: Table[]) => tables.filter((table): table is Table 
 /** The checksums of the Store's tables in the SQLite database `schema`. */
 export async function sqliteChecksums(db: Database, schema: string, tables: Table[], signal: AbortSignal): Promise<Checksums> {
   return {
-    tables: await checksumsOf(tables, signal, "r", (table) => sqliteReader(db, schema, table)),
+    tables: await checksumsOf(tables, signal, (table) => sqliteReader(db, schema, table, "check"), hashSqliteRow),
     nextIds: new Map(withIdentity(tables).map((table) => [table.name, sqliteNextId(db, schema, table)])),
   };
 }
@@ -327,7 +370,7 @@ export async function sqliteChecksums(db: Database, schema: string, tables: Tabl
 export async function pgChecksums(sql: PgSql, schema: string, tables: Table[], signal: AbortSignal): Promise<Checksums> {
   const nextIds = new Map<string, number>();
   for (const table of withIdentity(tables)) nextIds.set(table.name, (await pgSequence(sql, schema, table)).nextId);
-  return { tables: await checksumsOf(tables, signal, "i", (table) => pgReader(sql, table)), nextIds };
+  return { tables: await checksumsOf(tables, signal, (table) => pgReader(sql, table), hashPgRow), nextIds };
 }
 
 /** The tables, and the next ids, whose checksums differ. */
@@ -348,8 +391,9 @@ export interface Copied { table: string; rows: number; ms: number; nextId?: numb
  */
 export async function copyToPostgres(db: Database, sql: PgSql, schema: string, tables: Table[], signal: AbortSignal, copied: (table: Copied) => void) {
   for (const table of tables) {
+    stopIfAborted(signal);
     const started = performance.now();
-    const read = sqliteReader(db, "main", table);
+    const read = sqliteReader(db, "main", table, "copy");
     const row = `(${table.columns.map(() => "?").join(", ")})`;
     let rows = 0;
     for (const { offset, limit } of pages(read.sizes(), table.columns.length)) {
@@ -383,6 +427,7 @@ export async function copyToSqlite(sql: PgSql, pgSchema: string, db: Database, s
     for (const table of tables) db.prepare(`DELETE FROM ${into(table)}`).run();
   })();
   for (const table of tables) {
+    stopIfAborted(signal);
     const started = performance.now();
     const read = pgReader(sql, table);
     const integer = table.columns.map((column) => column.type !== "text");
@@ -400,9 +445,10 @@ export async function copyToSqlite(sql: PgSql, pgSchema: string, db: Database, s
     let nextId: number | undefined;
     if (table.identity) {
       ({ nextId } = await pgSequence(sql, pgSchema, table as Table & { identity: string }));
+      // An integer, as AUTOINCREMENT writes it: sqlite_sequence's seq has no type, so a number would be kept as REAL.
       db.transaction(() => {
         db.prepare(`DELETE FROM ${quote(schema)}.sqlite_sequence WHERE name = ?`).run(table.name);
-        db.prepare(`INSERT INTO ${quote(schema)}.sqlite_sequence (name, seq) VALUES (?, ?)`).run(table.name, nextId! - 1);
+        db.prepare(`INSERT INTO ${quote(schema)}.sqlite_sequence (name, seq) VALUES (?, ?)`).run(table.name, BigInt(nextId! - 1));
       })();
     }
     copied({ table: table.name, rows, ms: Math.round(performance.now() - started), ...nextId === undefined ? {} : { nextId } });

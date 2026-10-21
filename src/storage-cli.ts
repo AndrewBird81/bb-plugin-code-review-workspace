@@ -44,8 +44,18 @@ const usage = (problem: string): CliResult => ({ exitCode: 2, stderr: `${problem
 // The attached SQLite file export-sqlite writes.
 const EXPORT = "crw_export";
 
-/** An export's or a backup's name: the time to the second, UTC. */
-const stamp = () => new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+/**
+ * The paths of a new export, and of data.db's backup, beside data.db: named for the time to the second, UTC, and
+ * numbered after it when either name is taken.
+ */
+function exportPaths(dir: string) {
+  const at = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  for (let n = 1; ; n++) {
+    const name = n === 1 ? at : `${at}-${n}`;
+    const paths = { exported: join(dir, `data-export-${name}.db`), backup: join(dir, `data-backup-${name}.db`) };
+    if (!existsSync(paths.exported) && !existsSync(paths.backup)) return paths;
+  }
+}
 
 /**
  * `bb review storage …`, for the plugin whose storage `storage` chose. Only one of its commands runs at a time, and a
@@ -217,10 +227,7 @@ export function createStorageCommand(bb: BbPluginApi, storage: StorageChoice) {
   async function exportSqlite(pg: PgSql, replace: boolean, signal: AbortSignal, say: (line: string) => void, progress: (line: string) => void): Promise<number> {
     const schema = settings.postgresSchema;
     const db = migrateSqlite(bb);
-    const at = stamp();
-    const exported = join(dirname(db.name), `data-export-${at}.db`);
-    const backup = join(dirname(db.name), `data-backup-${at}.db`);
-    if (existsSync(exported) || existsSync(backup)) throw new Error(`${existsSync(exported) ? exported : backup} exists already: run it again in a second`);
+    const { exported, backup } = exportPaths(dirname(db.name));
     // The writer lock keeps another BB from writing to Postgres until SQLite holds the reviews.
     if (replace) await pg.lockWriter();
     say(`Copying the reviews from Postgres schema "${schema}" to ${exported}.`);
@@ -245,7 +252,7 @@ export function createStorageCommand(bb: BbPluginApi, storage: StorageChoice) {
         if (!replace) return;
         stopIfAborted(signal);
         db.prepare("VACUUM main INTO ?").run(backup);
-        say(`Backed data.db up to ${backup}.`);
+        progress(`Backed data.db up to ${backup}.`);
         db.exec("BEGIN IMMEDIATE");
         try {
           replaceFromExport(db, tables);
