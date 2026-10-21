@@ -300,8 +300,7 @@ export function pgSql(options: PgOptions): PgSql {
   }
 
   async function open(): Promise<Session> {
-    // With require: the sign-in the server asked for, whether one was refused, and whether SCRAM completed with channel
-    // binding.
+    // With require: what the server asked to sign in with, any refusal, and whether SCRAM completed with channel binding.
     let asked: string | undefined;
     let refused: Error | undefined;
     let bound = false;
