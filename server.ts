@@ -2,10 +2,10 @@
 //
 // Turns a GitHub PR (or local git ref) into an agent-authored chaptered
 // walkthrough, rendered and reviewed in a bb panel, submitted back to GitHub.
-import type { BbPluginApi, PluginAgentToolResult } from "@get-bb/plugin-sdk";
+import type { BbPluginApi, PluginAgentConfiguration, PluginAgentConfigurationContext, PluginAgentToolResult, PluginCliContext, PluginCliResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { rpcContract } from "./src/rpc-contract";
-import { createStore } from "./src/store";
+import { createStore, storeOn, type Store } from "./src/store";
 import { changedFiles, splitPatchByFile } from "./src/patch";
 import { describeReviewFiles, offsetPastEnd, patchPage, stubSkippedFiles } from "./src/review-files";
 import { readPrContext } from "./src/pr-context";
@@ -71,8 +71,11 @@ import { restartInterruptedGuide, retryInterruptedGuides } from "./src/interrupt
 import { automaticReviewPrompt, reReviewCheckPrompt } from "./src/preferences";
 import { createInstructionSuggester, describeRemovals, learningStats, noteReviewerRemoval, noteReviewerSave, recordOutcomes, removalWarning } from "./src/learning";
 import { FORMER_PLUGIN_ID } from "./src/former-install";
-import { queueStore, type AsyncStore } from "./src/store-queue";
+import { queueStore, type AsyncStore, type QueuedStore } from "./src/store-queue";
 import { createConfigureView } from "./src/configure-view";
+import { chooseStorage, openPostgres, unlessAborted } from "./src/storage";
+import { runStorageCommand } from "./src/storage-cli";
+import { migratePg } from "./src/db/pg-migrations";
 
 export { rpcContract } from "./src/rpc-contract";
 
@@ -80,10 +83,85 @@ export { rpcContract } from "./src/rpc-contract";
 // Raise when the review assistant's tools change.
 const ASSISTANT_TOOLS = 9;
 
+/** What the plugin serves from its open store. BB takes services, schedules and the configure and CLI registrations from the factory alone, which hands them on to these. */
+interface Served {
+  store: QueuedStore;
+  configure(context: PluginAgentConfigurationContext): PluginAgentConfiguration;
+  run(argv: string[], ctx: PluginCliContext): Promise<PluginCliResult>;
+  checkUpdates(signal: AbortSignal): Promise<void>;
+  syncReviews(signal: AbortSignal): Promise<void>;
+  pruneOld(): Promise<void>;
+}
+
 export default async function plugin(bb: BbPluginApi) {
+  const storage = await chooseStorage(bb);
+  let served: Served | null = null;
+  let serve: (opened: Served) => void = () => {};
+  const serving = new Promise<Served>((resolve) => { serve = (opened) => { served = opened; resolve(opened); }; });
+  // bb.agents.configure must answer synchronously, every time: until the store is open, it gives no thread anything.
+  bb.agents.configure((context) => served?.configure(context) ?? { tools: [], skills: [] });
+  bb.cli.register({
+    name: "review",
+    summary: "Open a review of a GitHub PR or local git ref in Code Review Workspace, or change its local draft",
+    rendersHelp: true,
+    commands: [
+      { name: "review", summary: "Review a PR or ref", usage: "bb review <pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>] [--context <text>]" },
+      { name: "comment", summary: "List, add, edit, or delete a review's local draft comments; never posts to GitHub", usage: "bb review comment <list | add | edit | delete> <review> [<file>:<line>] [--side LEFT|RIGHT] [--code <text>] [--body <text>] [--severity <severity>] [--evidence <text>] [--pre-existing] [--json]" },
+      { name: "summary", summary: "Show or write a review's local review summary and suggested verdict; never posts to GitHub", usage: "bb review summary <review> [--json] | [--body <text> [--suggest APPROVE|COMMENT|REQUEST_CHANGES]]" },
+      { name: "list", summary: "List your reviews, in Needs review's order, with whose turn it is", usage: "bb review list [--json]" },
+    ],
+    async run(argv, ctx) {
+      // Storage answers in maintenance too, where the reviews move between backends.
+      if (argv[0] === "storage") return runStorageCommand(storage.status, argv.slice(1));
+      if (served) return served.run(argv, ctx);
+      return { exitCode: 1, stderr: storage.status.problem ?? "Code Review Workspace is opening its Postgres storage. Try again in a moment." };
+    },
+  });
+  if (storage.kind === "maintenance") {
+    bb.log.warn(storage.status.problem!);
+    bb.status.needsConfiguration(storage.status.problem!);
+    return;
+  }
+  bb.background.service("plugin-updates", { start: async (signal) => { await (await unlessAborted(serving, signal))?.checkUpdates(signal); } });
+  bb.background.service("review-state", { start: async (signal) => { await (await unlessAborted(serving, signal))?.syncReviews(signal); } });
+  // Once a day, drop the stored diffs of reviews out of play for a month. BB keeps the schedule, so a reload doesn't prune again.
+  bb.background.schedule("prune-old-diffs", "17 4 * * *", async () => { await served?.pruneOld(); });
+  if (storage.kind === "sqlite") {
+    serve(servePlugin(bb, await openStore(bb, createStore(bb))));
+    return;
+  }
+  const { pg, schema } = storage;
+  // Opened at activation, once the instance a reload replaces has closed its connection and let the writer lock go.
+  bb.background.service("storage", {
+    async start(signal) {
+      // Restarted after a crash BB put down to work it started, it finds the store open.
+      if (!served) {
+        const opened = await openPostgres(bb, storage, signal, async () => {
+          await pg.lockWriter();
+          await migratePg(pg, schema);
+          return await openStore(bb, storeOn(pg));
+        });
+        if (!opened) return;
+        serve(servePlugin(bb, opened));
+      }
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) return resolve();
+        signal.addEventListener("abort", () => { resolve(); }, { once: true });
+      });
+    },
+  });
+  bb.onDispose(async () => {
+    // Calls still queued, and later ones, reject; closing the connection lets the writer lock go for the next instance.
+    await served?.store.dispose();
+    await pg.end();
+  });
+}
+
+/** The store over `backend`: configure's view of it, read first, and the guides a reload interrupted, before anything else reaches it. */
+async function openStore(bb: BbPluginApi, backend: Store) {
   // bb.agents.configure must answer synchronously, so it reads a view the queue keeps up to date; everything else
   // takes its turn in the queue.
-  const configured = await createConfigureView(bb, createStore(bb));
+  const configured = await createConfigureView(bb, backend);
   const store = queueStore(configured.backend, { afterTurn: configured.afterTurn });
   const interrupted = await store.exclusive(async (tx) => {
     const interrupted = await tx.interruptGenerations();
@@ -91,6 +169,11 @@ export default async function plugin(bb: BbPluginApi) {
     for (const review of await tx.listReviews()) if (listAsks(review).length) await clearAsks(tx, review.targetKey);
     return interrupted;
   });
+  return { configured, store, interrupted };
+}
+
+/** Register the tools, RPC handlers and events, and start what runs on the open store. Nothing in it awaits. */
+function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaited<ReturnType<typeof openStore>>): Served {
   const submitReview = createReviewSubmitter(store, runGh);
   const deps = { bb, store, gh: { runGh, runGit } };
   const notifications = completionNotifications(bb, store);
@@ -167,26 +250,6 @@ export default async function plugin(bb: BbPluginApi) {
     }
   })().catch((error) => bb.log.warn(`Could not settle reviews waiting on their assistants: ${String(error)}`));
   const updates = createPluginUpdates(bb, () => hasGuideGenerations(bb));
-  bb.background.service("plugin-updates", {
-    async start(signal) {
-      while (!signal.aborted) {
-        await delay(60_000, undefined, { signal }).catch(() => {});
-        if (!signal.aborted) await updates.run(() => notifications.flush(), false).catch(() => {});
-        if (!signal.aborted) await updates.tick().catch(() => {});
-      }
-    },
-  });
-  bb.background.service("review-state", {
-    async start(signal) {
-      while (!signal.aborted) {
-        await updates.run(() => sync.all(), false).catch(() => {});
-        await updates.run(() => retryInterruptedGuides(deps), false).catch(() => {});
-        await delay(60_000, undefined, { signal }).catch(() => {});
-      }
-    },
-  });
-  // Once a day, drop the stored diffs of reviews out of play for a month. BB keeps the schedule, so a reload doesn't prune again.
-  bb.background.schedule("prune-old-diffs", "17 4 * * *", async () => { await pruneOldDiffs(store, Date.now()); });
   bb.onDispose(() => { stopGuideGenerations(bb); });
 
   bb.log.info("code-review-workspace loaded");
@@ -517,7 +580,7 @@ export default async function plugin(bb: BbPluginApi) {
         return { result, refresh };
       });
       // Started after the block, which its reads of the store would wait for.
-      if (refresh) void refreshAssistants(bb, store);
+      if (refresh) void refreshAssistants(bb, store).catch((error) => bb.log.warn(`Could not restart the idle review assistants: ${String(error)}`));
       return result;
     },
     async getAgentDefaults() {
@@ -1421,7 +1484,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   // Tools go only to THIS plugin's own spawned threads, by the role each is recorded with: a thread can retitle
   // itself, so its title chooses only while its spawn is in flight, before its id is recorded.
-  bb.agents.configure((context) => {
+  const configure = (context: PluginAgentConfigurationContext): PluginAgentConfiguration => {
     // Agents in your own threads get the skill for bb review; this plugin's threads get only what their role needs.
     // A guided-review install's threads came over with its reviews; they still get tools only by their recorded role.
     if (context.origin?.pluginId !== bb.pluginId && context.origin?.pluginId !== FORMER_PLUGIN_ID) return { tools: [], skills: configured.preferences().knobs.reviewCommandInThreads ? ["code-review-workspace"] : [] };
@@ -1444,7 +1507,7 @@ export default async function plugin(bb: BbPluginApi) {
       };
     }
     return { tools: [], skills: [] };
-  });
+  };
   // An assistant's runtime keeps the tools it started with. Restart idle ones
   // once, so conversations from before set_review_summary get it.
   void (async () => {
@@ -1453,16 +1516,9 @@ export default async function plugin(bb: BbPluginApi) {
     await bb.storage.kv.set("assistant-tools", ASSISTANT_TOOLS);
   })().catch(() => {});
 
-  bb.cli.register({
-    name: "review",
-    summary: "Open a review of a GitHub PR or local git ref in Code Review Workspace, or change its local draft",
-    rendersHelp: true,
-    commands: [
-      { name: "review", summary: "Review a PR or ref", usage: "bb review <pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>] [--context <text>]" },
-      { name: "comment", summary: "List, add, edit, or delete a review's local draft comments; never posts to GitHub", usage: "bb review comment <list | add | edit | delete> <review> [<file>:<line>] [--side LEFT|RIGHT] [--code <text>] [--body <text>] [--severity <severity>] [--evidence <text>] [--pre-existing] [--json]" },
-      { name: "summary", summary: "Show or write a review's local review summary and suggested verdict; never posts to GitHub", usage: "bb review summary <review> [--json] | [--body <text> [--suggest APPROVE|COMMENT|REQUEST_CHANGES]]" },
-      { name: "list", summary: "List your reviews, in Needs review's order, with whose turn it is", usage: "bb review list [--json]" },
-    ],
+  return {
+    store,
+    configure,
     async run(argv, ctx) {
       const changedDraft = (targetKey: string) => bb.realtime.publish(`draft:${targetKey}`, {});
       return updates.run(async () => {
@@ -1477,5 +1533,20 @@ export default async function plugin(bb: BbPluginApi) {
           : runReviewCommand(deps, argv, ctx, ownReview);
       });
     },
-  });
+    async checkUpdates(signal) {
+      while (!signal.aborted) {
+        await delay(60_000, undefined, { signal }).catch(() => {});
+        if (!signal.aborted) await updates.run(() => notifications.flush(), false).catch(() => {});
+        if (!signal.aborted) await updates.tick().catch(() => {});
+      }
+    },
+    async syncReviews(signal) {
+      while (!signal.aborted) {
+        await updates.run(() => sync.all(), false).catch(() => {});
+        await updates.run(() => retryInterruptedGuides(deps), false).catch(() => {});
+        await delay(60_000, undefined, { signal }).catch(() => {});
+      }
+    },
+    pruneOld: async () => { await pruneOldDiffs(store, Date.now()); },
+  };
 }
