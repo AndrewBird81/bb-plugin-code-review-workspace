@@ -104,8 +104,7 @@ export async function getConversation(bb: BbPluginApi, store: AsyncStore, target
   threadId: string | null; legacy: AgentMessage[]; defaults: AgentChoice | null;
   machine: { name: string; connected: boolean } | null;
 }> {
-  const legacy = await store.listAgentMessages(targetKey);
-  const threadId = await store.getAssistantThread(targetKey);
+  const { legacy, threadId } = await store.exclusive(async (tx) => ({ legacy: await tx.listAgentMessages(targetKey), threadId: await tx.getAssistantThread(targetKey) }));
   if (threadId) {
     try {
       const thread = await bb.sdk.threads.get({ threadId });
@@ -115,13 +114,17 @@ export async function getConversation(bb: BbPluginApi, store: AsyncStore, target
     }
     // Archived, it can still run commands: as a former assistant, only on its own review.
     await recordFormerWorker(bb, threadId, targetKey, "assistant");
-    await store.clearAssistantThread(targetKey);
     // A conversation archived or deleted won't answer, and its turn's end won't reach this review.
-    if (await endAssistantWaits(bb, store, targetKey)) waitsEnded.get(bb)?.(targetKey);
+    if (await store.exclusive(async (tx) => {
+      await tx.clearAssistantThread(targetKey);
+      return await endAssistantWaits(bb, tx, targetKey);
+    })) waitsEnded.get(bb)?.(targetKey);
   }
-  const custom = (await store.getPreferences()).preferences.assistantAgent;
+  const { custom, projectId } = await store.exclusive(async (tx) => {
+    const custom = (await tx.getPreferences()).preferences.assistantAgent;
+    return { custom, projectId: custom ? undefined : (await tx.getReview(targetKey))?.projectId };
+  });
   if (custom) return { threadId: null, legacy, defaults: choice(custom), machine: await machineStatus(bb, custom.hostId) };
-  const projectId = (await store.getReview(targetKey))?.projectId;
   const project = projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }).catch(() => null) : null;
   return { threadId: null, legacy, defaults: project && choice(project), machine: null };
 }
@@ -161,8 +164,8 @@ export async function startConversation(bb: BbPluginApi, store: AsyncStore, args
 async function spawnConversation(bb: BbPluginApi, store: AsyncStore, args: { targetKey: string; text: string; context?: string; agent: AgentChoice }, projectId: string): Promise<{ threadId: string }> {
   const unavailable = await machineUnavailable(bb, args.agent, "review assistant");
   if (unavailable) throw new Error(unavailable);
-  const { assistantAgent } = (await store.getPreferences()).preferences;
-  const legacy = (await store.listAgentMessages(args.targetKey)).slice(-20).map((entry) => `${entry.role}: ${entry.text}`).join("\n\n").slice(-80_000);
+  const { assistantAgent, messages } = await store.exclusive(async (tx) => ({ assistantAgent: (await tx.getPreferences()).preferences.assistantAgent, messages: await tx.listAgentMessages(args.targetKey) }));
+  const legacy = messages.slice(-20).map((entry) => `${entry.role}: ${entry.text}`).join("\n\n").slice(-80_000);
   const title = `${ASSISTANT_TITLE}${args.targetKey}`;
   const placement = await agentPlacement(bb, args.agent, projectId);
   const worker = await spawningFor(bb, title, args.targetKey, async () => {
@@ -209,18 +212,20 @@ export type AutomaticReview = "started" | "sent" | "new-commits" | "off" | "ende
  * `clicked`, for your Run review, sends the review to a conversation already under way, or being started.
  */
 export async function startAutomaticReview(bb: BbPluginApi, store: AsyncStore, targetKey: string, newCommits?: { from: string; to: string }, { clicked = false } = {}): Promise<AutomaticReview> {
-  const preferences = (await store.getPreferences()).preferences;
+  const { preferences, started } = await store.exclusive(async (tx) => ({ preferences: (await tx.getPreferences()).preferences, started: await tx.getReview(targetKey) }));
   const prompt = automaticReviewPrompt(preferences);
   if (!prompt && !newCommits) return "off";
   // A merged or closed PR's drafts can't be submitted, as the review shows: there's nothing to review for.
-  const { startedPrState, prState } = await store.getReview(targetKey) ?? {};
+  const { startedPrState, prState } = started ?? {};
   const state = startedPrState ?? prState;
   if (state === "MERGED" || state === "CLOSED") return "ended";
   const { threadId, defaults } = await getConversation(bb, store, targetKey);
   if (threadId && !clicked) {
     // An untrusted author's new commits reach the conversation once you start agents on them.
-    const review = await store.getReview(targetKey);
-    if (!newCommits || !review || !preferences.knobs.recheckOnNewCommits || !mayRunUnattended(review, preferences, review.headSha) || !(await store.getDraft(targetKey)).comments.some((comment) => comment.author === "agent")) return "conversation";
+    if (!newCommits || !await store.exclusive(async (tx) => {
+      const review = await tx.getReview(targetKey);
+      return !!review && preferences.knobs.recheckOnNewCommits && mayRunUnattended(review, preferences, review.headSha) && (await tx.getDraft(targetKey)).comments.some((comment) => comment.author === "agent");
+    })) return "conversation";
     await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{
       type: "text", mentions: [], visibility: "agent-only",
       text: `New commits: ${newCommits.from.slice(0, 7)}→${newCommits.to.slice(0, 7)}. Re-check your draft comments against the new diff, delete the ones the commits fixed, and review only what changed.`,
@@ -294,8 +299,7 @@ const SELF_REVIEW = "This is the reviewer's own PR, so this is a self-review. Gi
  * default; a conversation on another provider (`providerId`) is at a level unknown here, and stays unchanged.
  */
 async function raisedLevel(bb: BbPluginApi, store: AsyncStore, targetKey: string, wanted: string, providerId?: string): Promise<string | undefined> {
-  const custom = (await store.getPreferences()).preferences.assistantAgent;
-  const projectId = (await store.getReview(targetKey))?.projectId;
+  const { custom, projectId } = await store.exclusive(async (tx) => ({ custom: (await tx.getPreferences()).preferences.assistantAgent, projectId: (await tx.getReview(targetKey))?.projectId }));
   const agent = custom ?? (projectId ? await bb.sdk.projects.defaultExecutionOptions({ projectId }).catch(() => null) : null);
   if (!agent || (providerId && agent.providerId !== providerId)) return undefined;
   const providers = await bb.sdk.providers.list().catch(() => []);
@@ -339,12 +343,14 @@ export async function messageAssistant(bb: BbPluginApi, store: AsyncStore, targe
 
 /** Archive the review's conversation so the next message starts a fresh one. */
 export async function newConversation(bb: BbPluginApi, store: AsyncStore, targetKey: string): Promise<void> {
-  const workers = [await store.getAssistantThread(targetKey), await store.getAgentThread(targetKey)];
+  const workers = await store.exclusive(async (tx) => [await tx.getAssistantThread(targetKey), await tx.getAgentThread(targetKey)]);
   // An archived thread can still run commands: as a former assistant, only on its own review.
   for (const threadId of workers) if (threadId) await recordFormerWorker(bb, threadId, targetKey, "assistant");
-  await store.clearAssistantThread(targetKey);
-  await store.clearAgentThread(targetKey);
-  await store.clearAgentMessages(targetKey);
+  await store.exclusive(async (tx) => {
+    await tx.clearAssistantThread(targetKey);
+    await tx.clearAgentThread(targetKey);
+    await tx.clearAgentMessages(targetKey);
+  });
   for (const threadId of workers) if (threadId) await bb.sdk.threads.archive({ threadId }).catch(() => {});
 }
 

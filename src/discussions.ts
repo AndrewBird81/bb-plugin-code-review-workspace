@@ -60,12 +60,16 @@ export async function discussionMessage(store: AsyncStore, targetKey: string, in
 
 /** Send the reviewer's message to the assistant and add it to the line's discussion. Returns whether a conversation started. */
 export async function askAgent(bb: BbPluginApi, store: AsyncStore, targetKey: string, input: AskInput): Promise<{ started: boolean }> {
-  const refused = unchangeable(await store.getReview(targetKey));
-  if (refused) throw new Error(refused);
-  const { text, context } = await discussionMessage(store, targetKey, input);
-  // An ask on the summary or a comment opens what the reviewer wrote there to the turn that carries it, and only that turn.
-  const before = askAt(await store.getReview(targetKey), input);
-  await setAsk(store, targetKey, input, { threadId: await store.getAssistantThread(targetKey), state: "sending", at: Date.now() });
+  // The message, and the ask it opens, in one turn.
+  const { text, context, before } = await store.exclusive(async (tx) => {
+    const refused = unchangeable(await tx.getReview(targetKey));
+    if (refused) throw new Error(refused);
+    const message = await discussionMessage(tx, targetKey, input);
+    // An ask on the summary or a comment opens what the reviewer wrote there to the turn that carries it, and only that turn.
+    const before = askAt(await tx.getReview(targetKey), input);
+    await setAsk(tx, targetKey, input, { threadId: await tx.getAssistantThread(targetKey), state: "sending", at: Date.now() });
+    return { ...message, before };
+  });
   let result: Awaited<ReturnType<typeof messageAssistant>>;
   try {
     result = await messageAssistant(bb, store, targetKey, text, context);
@@ -73,11 +77,13 @@ export async function askAgent(bb: BbPluginApi, store: AsyncStore, targetKey: st
     await setAsk(store, targetKey, input, before);
     throw error;
   }
-  if (askAt(await store.getReview(targetKey), input)?.state === "sending") {
-    const { threadId, queuedMessageId } = result;
-    await setAsk(store, targetKey, input, queuedMessageId ? { threadId, state: "queued", queuedMessageId, at: Date.now() } : { threadId, state: "running", at: Date.now() });
-  }
-  await store.addDiscussionMessage(targetKey, input, "reviewer", input.body, input.startLine !== input.line ? input.startLine : undefined);
+  await store.exclusive(async (tx) => {
+    if (askAt(await tx.getReview(targetKey), input)?.state === "sending") {
+      const { threadId, queuedMessageId } = result;
+      await setAsk(tx, targetKey, input, queuedMessageId ? { threadId, state: "queued", queuedMessageId, at: Date.now() } : { threadId, state: "running", at: Date.now() });
+    }
+    await tx.addDiscussionMessage(targetKey, input, "reviewer", input.body, input.startLine !== input.line ? input.startLine : undefined);
+  });
   return { started: result.started };
 }
 

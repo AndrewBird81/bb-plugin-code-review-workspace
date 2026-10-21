@@ -50,14 +50,18 @@ export async function deepDiveMessage(store: AsyncStore, targetKey: string, chap
  * can't be dug into, or another deep dive is under way. Returns whether a conversation started.
  */
 export async function digDeeper(bb: BbPluginApi, store: AsyncStore, targetKey: string, chapterId: string): Promise<{ started: boolean }> {
-  const review = await store.getReview(targetKey);
-  const refused = unchangeable(review);
-  if (refused) throw new Error(refused);
-  const { text, context } = await deepDiveMessage(store, targetKey, chapterId);
-  const running = review?.deepDive;
-  if (running && Date.now() - running.ask.at < ASK_LIFETIME) throw new Error("The agent is digging into a chapter already. Dig deeper again once it’s done.");
   const at = { deepDive: chapterId };
-  await setAsk(store, targetKey, at, { threadId: await store.getAssistantThread(targetKey), state: "sending", at: Date.now() });
+  // Checked and recorded in one turn, so a second Dig deeper finds this one.
+  const { text, context } = await store.exclusive(async (tx) => {
+    const review = await tx.getReview(targetKey);
+    const refused = unchangeable(review);
+    if (refused) throw new Error(refused);
+    const message = await deepDiveMessage(tx, targetKey, chapterId);
+    const running = review?.deepDive;
+    if (running && Date.now() - running.ask.at < ASK_LIFETIME) throw new Error("The agent is digging into a chapter already. Dig deeper again once it’s done.");
+    await setAsk(tx, targetKey, at, { threadId: await tx.getAssistantThread(targetKey), state: "sending", at: Date.now() });
+    return message;
+  });
   let result: Awaited<ReturnType<typeof messageAssistant>>;
   try {
     result = await messageAssistant(bb, store, targetKey, text, context, DEEP_DIVE_EFFORT);
@@ -65,9 +69,10 @@ export async function digDeeper(bb: BbPluginApi, store: AsyncStore, targetKey: s
     await setAsk(store, targetKey, at, null);
     throw error;
   }
-  if (askAt(await store.getReview(targetKey), at)?.state === "sending") {
+  await store.exclusive(async (tx) => {
+    if (askAt(await tx.getReview(targetKey), at)?.state !== "sending") return;
     const { threadId, queuedMessageId } = result;
-    await setAsk(store, targetKey, at, queuedMessageId ? { threadId, state: "queued", queuedMessageId, at: Date.now() } : { threadId, state: "running", at: Date.now() });
-  }
+    await setAsk(tx, targetKey, at, queuedMessageId ? { threadId, state: "queued", queuedMessageId, at: Date.now() } : { threadId, state: "running", at: Date.now() });
+  });
   return { started: result.started };
 }

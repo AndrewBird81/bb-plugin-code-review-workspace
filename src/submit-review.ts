@@ -1,6 +1,7 @@
 import { bindGhAccount } from "./gh-identity";
 import { ghErrorMessage, ghPrHeadArgs, ghPrReviewsArgs, ghSubmitReviewArgs, type runGh } from "./gh";
-import { sameComments, toGithubReviewPayload, type DraftComment, type Verdict } from "./draft";
+import { sameComments, toGithubReviewPayload, type Draft, type DraftComment, type Verdict } from "./draft";
+import type { ReviewMeta } from "./store";
 import { requireReviewRevision } from "./review-revision";
 import { invalidComments } from "./review-positions";
 import type { AsyncStore } from "./store-queue";
@@ -44,24 +45,30 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh) {
     if (inFlight.has(targetKey)) return { ok: false, error: "This review is already being submitted." };
     inFlight.add(targetKey);
     try {
-      if (revision) await requireReviewRevision(store, targetKey, revision);
-      const m = await store.getReview(targetKey);
-      if (!m || m.kind !== "pr" || !m.number || !m.repo) return { ok: false, error: "Submitting requires a GitHub PR target." };
-      if (m.prState === "MERGED" || m.prState === "CLOSED") return { ok: false, error: `This PR is ${m.prState.toLowerCase()}. Your draft has been kept.` };
-      if (m.status === "generating") return { ok: false, error: "Wait for the review to finish generating before submitting." };
-      if (!m.headSha) return { ok: false, error: "Rebuild the guide before submitting so the reviewed revision can be verified." };
-      const draft = await store.getDraft(targetKey);
-      if (!sameComments(draft.comments, shown)) return { ok: false, error: "Your draft comments changed since this page showed them, possibly from the assistant. Check them, then submit again." };
-      if (draft.body !== summary.body || draft.verdict !== summary.verdict) return { ok: false, error: "Your review summary or verdict changed since this page showed it, possibly from the assistant or another window. Check them, then submit again." };
-      if (draft.verdict === "COMMENT" && !draft.body.trim() && !draft.comments.length) return { ok: false, error: "Add a summary or at least one comment before submitting a Comment review." };
-      if (draft.verdict === "REQUEST_CHANGES" && !draft.body.trim()) return { ok: false, error: "Add a summary explaining the requested changes before submitting." };
-      if (account && m.author && draft.verdict !== "COMMENT" && account.toLowerCase() === m.author.toLowerCase()) return { ok: false, error: "GitHub allows only a Comment review on your own PR. Choose Comment, then submit again." };
-      if (draft.comments.some((c) => !c.body.trim())) return { ok: false, error: "Draft comments can't be blank." };
-      const stale = await store.staleDraftComments(targetKey);
-      if (stale.length) return { ok: false, error: `The diff changed after these comments were drafted. Edit and save, or remove: ${stale.map((c) => `${c.file}:${c.line}`).join(", ")}` };
-      const patch = await store.patch(targetKey);
-      const bad = invalidComments(patch, draft.comments);
-      if (bad.length) return { ok: false, error: `These comments are outside the current diff: ${bad.map((c) => `${c.file}:${c.line}`).join(", ")}. Remove them and add any replacement comments on lines in the current diff.` };
+      // The review and the draft it checks, in one turn.
+      const checked = await store.exclusive(async (tx): Promise<{ error: string } | { m: ReviewMeta & { number: number; repo: string; headSha: string }; draft: Draft }> => {
+        if (revision) await requireReviewRevision(tx, targetKey, revision);
+        const m = await tx.getReview(targetKey);
+        if (!m || m.kind !== "pr" || !m.number || !m.repo) return { error: "Submitting requires a GitHub PR target." };
+        if (m.prState === "MERGED" || m.prState === "CLOSED") return { error: `This PR is ${m.prState.toLowerCase()}. Your draft has been kept.` };
+        if (m.status === "generating") return { error: "Wait for the review to finish generating before submitting." };
+        if (!m.headSha) return { error: "Rebuild the guide before submitting so the reviewed revision can be verified." };
+        const draft = await tx.getDraft(targetKey);
+        if (!sameComments(draft.comments, shown)) return { error: "Your draft comments changed since this page showed them, possibly from the assistant. Check them, then submit again." };
+        if (draft.body !== summary.body || draft.verdict !== summary.verdict) return { error: "Your review summary or verdict changed since this page showed it, possibly from the assistant or another window. Check them, then submit again." };
+        if (draft.verdict === "COMMENT" && !draft.body.trim() && !draft.comments.length) return { error: "Add a summary or at least one comment before submitting a Comment review." };
+        if (draft.verdict === "REQUEST_CHANGES" && !draft.body.trim()) return { error: "Add a summary explaining the requested changes before submitting." };
+        if (account && m.author && draft.verdict !== "COMMENT" && account.toLowerCase() === m.author.toLowerCase()) return { error: "GitHub allows only a Comment review on your own PR. Choose Comment, then submit again." };
+        if (draft.comments.some((c) => !c.body.trim())) return { error: "Draft comments can't be blank." };
+        const stale = await tx.staleDraftComments(targetKey);
+        if (stale.length) return { error: `The diff changed after these comments were drafted. Edit and save, or remove: ${stale.map((c) => `${c.file}:${c.line}`).join(", ")}` };
+        const patch = await tx.patch(targetKey);
+        const bad = invalidComments(patch, draft.comments);
+        if (bad.length) return { error: `These comments are outside the current diff: ${bad.map((c) => `${c.file}:${c.line}`).join(", ")}. Remove them and add any replacement comments on lines in the current diff.` };
+        return { m: { ...m, number: m.number, repo: m.repo, headSha: m.headSha }, draft };
+      });
+      if ("error" in checked) return { ok: false, error: checked.error };
+      const { m, draft } = checked;
       const authenticatedRun = account ? await bindGhAccount(run, account) : run;
       const head = await authenticatedRun(ghPrHeadArgs(m.number, m.repo));
       if (head.code !== 0) return { ok: false, error: ghErrorMessage(head) };
@@ -79,9 +86,14 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh) {
       if (typeof current !== "string" || !current) return { ok: false, error: "Couldn't verify the PR revision. Your draft has been kept." };
       if (current !== m.headSha) return { ok: false, error: "The PR has new commits. Update the guide for them before submitting. Your draft has been kept." };
       if (typeof base === "string" && base && m.base && base !== m.base) return { ok: false, error: `The PR's base changed to ${base}. Update the guide for it before submitting. Your draft has been kept.` };
-      if ((await store.getReview(targetKey))?.status === "generating" || (await store.getReview(targetKey))?.headSha !== m.headSha) return { ok: false, error: "The review changed during submission. Wait for generation and review the draft again." };
-      if (revision) await requireReviewRevision(store, targetKey, revision);
-      const payload = { ...toGithubReviewPayload(draft, (await store.getPreferences()).preferences.knobs.preExistingFindings), commit_id: m.headSha };
+      // Checked again as it posts, in one turn.
+      const preExistingFindings = await store.exclusive(async (tx) => {
+        if ((await tx.getReview(targetKey))?.status === "generating" || (await tx.getReview(targetKey))?.headSha !== m.headSha) return null;
+        if (revision) await requireReviewRevision(tx, targetKey, revision);
+        return (await tx.getPreferences()).preferences.knobs.preExistingFindings;
+      });
+      if (preExistingFindings === null) return { ok: false, error: "The review changed during submission. Wait for generation and review the draft again." };
+      const payload = { ...toGithubReviewPayload(draft, preExistingFindings), commit_id: m.headSha };
       const attempted = Date.now();
       const result = await authenticatedRun(ghSubmitReviewArgs(m.repo, m.number), { timeoutMs: POST_TIMEOUT_MS, stdin: JSON.stringify(payload) });
       let posted = result.stdout;
@@ -103,8 +115,10 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh) {
         if (typeof receipt?.node_id === "string") reviewId = receipt.node_id;
         if (typeof receipt?.html_url === "string") url = receipt.html_url;
       } catch { /* A successful response still records the submitted verdict. */ }
-      await store.setLifecycle(targetKey, { submittedVerdict: draft.verdict, submittedAt: Date.now(), submittedHeadSha: m.headSha, submittedReviewId: reviewId, ...(reviewer ? { reviewer } : {}) });
-      await store.clearSubmittedDraft(draft);
+      await store.exclusive(async (tx) => {
+        await tx.setLifecycle(targetKey, { submittedVerdict: draft.verdict, submittedAt: Date.now(), submittedHeadSha: m.headSha, submittedReviewId: reviewId, ...(reviewer ? { reviewer } : {}) });
+        await tx.clearSubmittedDraft(draft);
+      });
       return { ok: true, ...(url ? { url } : {}) };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Couldn't submit the review. Your draft has been kept." };

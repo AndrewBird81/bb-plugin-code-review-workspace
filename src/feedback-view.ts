@@ -27,12 +27,17 @@ export const guideBehind = (review: ReviewMeta) =>
  * reconstructed by comparing the base branch with that commit.
  */
 export async function diffAt(store: AsyncStore, run: Run, review: ReviewMeta, sha: string): Promise<string> {
-  const saved = await store.getSnapshot(review.targetKey, sha);
-  if (saved !== null) return saved;
-  if (sha === review.headSha) {
-    const patch = await store.patch(review.targetKey);
-    if (patch) { await store.saveSnapshot(review.targetKey, sha, patch); return patch; }
-  }
+  // Saved, or the review's own diff, saved as that commit's, in one turn.
+  const stored = await store.exclusive(async (tx) => {
+    const saved = await tx.getSnapshot(review.targetKey, sha);
+    if (saved !== null) return saved;
+    if (sha === review.headSha) {
+      const patch = await tx.patch(review.targetKey);
+      if (patch) { await tx.saveSnapshot(review.targetKey, sha, patch); return patch; }
+    }
+    return null;
+  });
+  if (stored !== null) return stored;
   if (!review.repo || !review.number) throw new Error("This review has no GitHub PR.");
   const { repo, number } = review;
   let patch: string | null = null;

@@ -85,9 +85,12 @@ export default async function plugin(bb: BbPluginApi) {
   // takes its turn in the queue.
   const configured = await createConfigureView(bb, createStore(bb));
   const store = queueStore(configured.backend, { afterTurn: configured.afterTurn });
-  const interrupted = await store.interruptGenerations();
-  // An ask on a summary or comment can't know whether its turn ended while the plugin was down; it gives way.
-  for (const review of await store.listReviews()) if (listAsks(review).length) await clearAsks(store, review.targetKey);
+  const interrupted = await store.exclusive(async (tx) => {
+    const interrupted = await tx.interruptGenerations();
+    // An ask on a summary or comment can't know whether its turn ended while the plugin was down; it gives way.
+    for (const review of await tx.listReviews()) if (listAsks(review).length) await clearAsks(tx, review.targetKey);
+    return interrupted;
+  });
   const submitReview = createReviewSubmitter(store, runGh);
   const deps = { bb, store, gh: { runGh, runGit } };
   const notifications = completionNotifications(bb, store);
@@ -129,8 +132,11 @@ export default async function plugin(bb: BbPluginApi) {
         bb.log.warn(`Could not list the guide writers of ${targetKey}: ${String(error)}`);
         return [];
       });
-      const titled: string[] = [];
-      for (const threadId of writers) if (threadId !== workerId && !await store.generationOf(threadId) && !await assistantReview(store, threadId)) titled.push(threadId);
+      const titled = await store.exclusive(async (tx) => {
+        const titled: string[] = [];
+        for (const threadId of writers) if (threadId !== workerId && !await tx.generationOf(threadId) && !await assistantReview(tx, threadId)) titled.push(threadId);
+        return titled;
+      });
       const unrecorded: string[] = [];
       for (const threadId of titled) {
         const kept = await formerWorkerReview(bb, threadId);
@@ -183,16 +189,9 @@ export default async function plugin(bb: BbPluginApi) {
 
   // Reviews leave the server with whose turn they are, how far your feedback got, and their place in a stack.
   // JSON round-trips drop the literal `undefined` fields rowToMeta leaves, which strict rpc output rejects.
-  const decorate = async (review: ReviewMeta | null, options?: TurnOptions, given?: ReturnType<typeof findStacks>) => {
-    // What it reads, it reads in one turn.
-    const read = options && given ? { options, stacks: given } : await store.exclusive(async (tx) => ({
-      stacks: given ?? findStacks(await tx.listReviews()),
-      options: options ?? (review ? turnOptions((await tx.getPreferences()).preferences) : undefined),
-    }));
-    return review && JSON.parse(JSON.stringify({
-      ...review, turn: await sync.turnOf(review, undefined, read.options), progress: feedbackProgress(review), stack: read.stacks.get(review.targetKey) ?? null,
-    }));
-  };
+  const decorate = async (review: ReviewMeta, options: TurnOptions, stacks: ReturnType<typeof findStacks>) => JSON.parse(JSON.stringify({
+    ...review, turn: await sync.turnOf(review, undefined, options), progress: feedbackProgress(review), stack: stacks.get(review.targetKey) ?? null,
+  }));
   // Whether you wrote the PR, before the sync has read it: GitHub allows only a Comment review on your own PR.
   const ownPrUnread = (review: ReviewMeta) => review.kind === "pr" && !!review.author && typeof review.ownPr !== "boolean";
   const ownPrOf = (review: ReviewMeta, login: string | null): ReviewMeta =>
@@ -200,8 +199,7 @@ export default async function plugin(bb: BbPluginApi) {
   const withOwnPr = async (review: ReviewMeta | null) => review && ownPrUnread(review) ? ownPrOf(review, await sync.login()) : review;
   /** Every review, decorated with one read of the settings and the sync's cached login, without the summaries only the assistant reads. */
   const listed = async () => {
-    const options = turnOptions((await store.getPreferences()).preferences);
-    const all = await store.listReviews();
+    const { options, all } = await store.exclusive(async (tx) => ({ options: turnOptions((await tx.getPreferences()).preferences), all: await tx.listReviews() }));
     // The sync reads who you are on its passes; a list load never waits on gh for it.
     const login = all.some(ownPrUnread) ? sync.cachedLogin() : null;
     const reviews = all.map((review) => ownPrOf(review, login));
@@ -218,17 +216,24 @@ export default async function plugin(bb: BbPluginApi) {
     const login = await sync.login();
     if (!login) return;
     const threads = await fetchMyThreads(runGh, review.repo, review.number, login, review.author ?? null);
-    // The review may have been deleted while GitHub answered.
-    if (!await store.getReview(review.targetKey)) return;
-    const threadsChanged = await store.saveFeedbackThreads(review.targetKey, threads, (await store.feedbackFetched(review.targetKey))?.prUpdatedAt ?? null);
-    await store.setLifecycle(review.targetKey, { signals: { ...(await store.getReview(review.targetKey))!.signals, ...threadSignals(await store.listFeedbackThreads(review.targetKey)) } });
+    const threadsChanged = await store.exclusive(async (tx) => {
+      // The review may have been deleted while GitHub answered.
+      if (!await tx.getReview(review.targetKey)) return null;
+      const threadsChanged = await tx.saveFeedbackThreads(review.targetKey, threads, (await tx.feedbackFetched(review.targetKey))?.prUpdatedAt ?? null);
+      await tx.setLifecycle(review.targetKey, { signals: { ...(await tx.getReview(review.targetKey))!.signals, ...threadSignals(await tx.listFeedbackThreads(review.targetKey)) } });
+      return threadsChanged;
+    });
+    if (threadsChanged === null) return;
     // Every open review page reads the threads again when told, so it's told only when they changed.
     if (threadsChanged) bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
   }
   /** A review whose diff pruneOldDiffs dropped reads it again when it's opened; returns why it couldn't. */
   async function rereadPrunedDiff(targetKey: string): Promise<string | undefined> {
-    const review = await store.getReview(targetKey);
-    if (review?.kind !== "pr" || review.status !== "ready" || !review.headSha || await store.hasPatch(targetKey)) return;
+    const review = await store.exclusive(async (tx) => {
+      const review = await tx.getReview(targetKey);
+      return review?.kind !== "pr" || review.status !== "ready" || !review.headSha || await tx.hasPatch(targetKey) ? null : { ...review, headSha: review.headSha };
+    });
+    if (!review) return;
     let patch: string;
     try {
       patch = await diffAt(store, runGh, review, review.headSha);
@@ -242,8 +247,8 @@ export default async function plugin(bb: BbPluginApi) {
     // The page's other reads ran without it. An empty diff changed nothing, and reloading would read it again.
     if (patch) bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
   }
-  /** The review's changed files with CODEOWNERS owners, marking yours. */
-  const reviewOwners = async (review: ReviewMeta) => codeOwners({ runGh, runGit }, review, changedFiles(await store.patch(review.targetKey)),
+  /** The review's changed `files` with CODEOWNERS owners, marking yours. */
+  const reviewOwners = (review: ReviewMeta, files: string[]) => codeOwners({ runGh, runGit }, review, files,
     async () => ({ login: await sync.login(), teams: await sync.teams() }));
   const view = async (store: AsyncStore, targetKey: string) => {
     return store.exclusive(async (tx) => {
@@ -298,9 +303,13 @@ export default async function plugin(bb: BbPluginApi) {
   function turnHandlers() {
     return {
       async snoozeReview({ targetKey, snoozed, until }: { targetKey: string; snoozed: boolean; until?: number | null }) {
-        if (!await store.getReview(targetKey)) return { ok: false, error: "This review no longer exists." };
-        if (snoozed && until != null && until <= Date.now()) return { ok: false, error: "Pick a time in the future." };
-        await store.setLifecycle(targetKey, { snoozedAt: snoozed ? Date.now() : null, snoozedUntil: snoozed ? until ?? null : null });
+        const refused = await store.exclusive(async (tx) => {
+          if (!await tx.getReview(targetKey)) return { ok: false, error: "This review no longer exists." };
+          if (snoozed && until != null && until <= Date.now()) return { ok: false, error: "Pick a time in the future." };
+          await tx.setLifecycle(targetKey, { snoozedAt: snoozed ? Date.now() : null, snoozedUntil: snoozed ? until ?? null : null });
+          return null;
+        });
+        if (refused) return refused;
         if (snoozed) await notifications.dismiss(targetKey);
         await sync.evaluate(targetKey);
         changed(targetKey);
@@ -323,21 +332,28 @@ export default async function plugin(bb: BbPluginApi) {
         return result;
       },
       async runSkipped({ targetKey }: { targetKey: string }) {
-        const review = await store.getReview(targetKey);
-        const skipped = review?.skippedRun;
-        if (!review || !skipped || review.status === "generating") return { ok: true };
-        // What can't run now is refused before agents are approved on the PR's head, and the notice stays.
-        const preferences = (await store.getPreferences()).preferences;
-        const state = review.startedPrState ?? review.prState;
-        if (skipped.run === "review" && !automaticReviewPrompt(preferences)) return { ok: false, error: "The automatic review is off. Turn it on in Review settings." };
-        if (skipped.run === "check" && !reReviewCheckPrompt(preferences)) return { ok: false, error: "The re-review check is off. Turn it on in Review settings." };
-        if (skipped.run === "review" && (state === "MERGED" || state === "CLOSED")) return { ok: false, error: `This PR is ${state === "MERGED" ? "merged" : "closed"}, so its review doesn't run.` };
+        // What it finds, and the approval it records before the run starts, in one turn.
+        const decided = await store.exclusive(async (tx) => {
+          const review = await tx.getReview(targetKey);
+          const skipped = review?.skippedRun;
+          if (!review || !skipped || review.status === "generating") return { result: { ok: true } };
+          // What can't run now is refused before agents are approved on the PR's head, and the notice stays.
+          const preferences = (await tx.getPreferences()).preferences;
+          const state = review.startedPrState ?? review.prState;
+          if (skipped.run === "review" && !automaticReviewPrompt(preferences)) return { result: { ok: false, error: "The automatic review is off. Turn it on in Review settings." } };
+          if (skipped.run === "check" && !reReviewCheckPrompt(preferences)) return { result: { ok: false, error: "The re-review check is off. Turn it on in Review settings." } };
+          if (skipped.run === "review" && (state === "MERGED" || state === "CLOSED")) return { result: { ok: false, error: `This PR is ${state === "MERGED" ? "merged" : "closed"}, so its review doesn't run.` } };
+          // A guide that's missing or behind the PR is built first. Starting it approves its head, so the review or check follows.
+          const rebuild = skipped.run === "guide" || review.status === "tracked" || skipped.run === "check" && guideBehind(review);
+          if (!rebuild) await tx.setLifecycle(targetKey, { ...approve(skipped.run === "check" ? headOf(review) : review.headSha ?? null, Date.now()), skippedRun: null });
+          return { review, skipped, rebuild };
+        });
+        if (decided.result) return decided.result;
+        const { review, skipped } = decided;
         let result: { ok: boolean; error?: string };
-        // A guide that's missing or behind the PR is built first. Starting it approves its head, so the review or check follows.
-        if (skipped.run === "guide" || review.status === "tracked" || skipped.run === "check" && guideBehind(review)) {
+        if (decided.rebuild) {
           result = await rerunReview(deps, targetKey);
         } else {
-          await store.setLifecycle(targetKey, { ...approve(skipped.run === "check" ? headOf(review) : review.headSha ?? null, Date.now()), skippedRun: null });
           try {
             // A conversation under way gets the review, as a message you send it.
             const ran = skipped.run === "review" ? ["started", "sent"].includes(await startAutomaticReview(bb, store, targetKey, undefined, { clicked: true }))
@@ -374,8 +390,10 @@ export default async function plugin(bb: BbPluginApi) {
         return { ok: true };
       },
       async replyToFeedback({ targetKey, threadId, body, account }: { targetKey: string; threadId: string; body: string; account?: string }) {
-        const review = await store.getReview(targetKey);
-        const thread = (await store.listFeedbackThreads(targetKey)).find((t) => t.id === threadId);
+        const { review, thread } = await store.exclusive(async (tx) => ({
+          review: await tx.getReview(targetKey),
+          thread: (await tx.listFeedbackThreads(targetKey)).find((t) => t.id === threadId),
+        }));
         if (!review?.repo || !review.number || !thread) return { ok: false, error: NOT_THIS_REVIEW };
         const gh = await verifiedGh(account, "reply");
         if ("error" in gh) return { ok: false, error: gh.error };
@@ -466,13 +484,18 @@ export default async function plugin(bb: BbPluginApi) {
     },
     async getReviewBundle({ targetKey, knownRevision }) {
       const diffError = await rereadPrunedDiff(targetKey);
-      const revision = await reviewRevision(store, targetKey);
-      const review = await decorate(await withOwnPr(await store.getReview(targetKey)));
-      // Reads of a local review's earlier diff don't count toward its rebuilt one, which the client can't tell apart.
-      if (review?.agentReads && review.agentReads.head !== await agentReadsHead(store, targetKey)) review.agentReads = null;
-      return { review, guide: await store.getGuide(targetKey),
-        patch: revision === knownRevision ? null : await store.patch(targetKey), revision,
-        ...(diffError ? { diffError } : {}) };
+      const { revision, found } = await store.exclusive(async (tx) => ({ revision: await reviewRevision(tx, targetKey), found: await tx.getReview(targetKey) }));
+      const owned = await withOwnPr(found);
+      // What the page shows of it, read in one turn.
+      return store.exclusive(async (tx) => {
+        const stacks = findStacks(await tx.listReviews());
+        const review = owned && await decorate(owned, turnOptions((await tx.getPreferences()).preferences), stacks);
+        // Reads of a local review's earlier diff don't count toward its rebuilt one, which the client can't tell apart.
+        if (review?.agentReads && review.agentReads.head !== await agentReadsHead(tx, targetKey)) review.agentReads = null;
+        return { review, guide: await tx.getGuide(targetKey),
+          patch: revision === knownRevision ? null : await tx.patch(targetKey), revision,
+          ...(diffError ? { diffError } : {}) };
+      });
     },
     async getPreferences() { return await store.getPreferences(); },
     async savePreferences({ preferences, revision }) {
@@ -553,26 +576,36 @@ export default async function plugin(bb: BbPluginApi) {
       return { failures: review ? await readCheckFailures(runGh, review) : [] };
     },
     async getCheckLog({ targetKey, runId }) {
-      if (!(await store.getPreferences()).preferences.knobs.checkFailureActions) return { ok: false, error: "Asking about a failing check is off in Settings." };
-      const review = await store.getReview(targetKey);
-      if (!review) return { ok: false, error: "This review no longer exists." };
-      return readCheckLog(runGh, review, runId);
+      const read = await store.exclusive(async (tx) => (await tx.getPreferences()).preferences.knobs.checkFailureActions ? { review: await tx.getReview(targetKey) } : null);
+      if (!read) return { ok: false, error: "Asking about a failing check is off in Settings." };
+      if (!read.review) return { ok: false, error: "This review no longer exists." };
+      return readCheckLog(runGh, read.review, runId);
     },
     async getGeneratedFiles({ targetKey }) {
-      const review = await store.getReview(targetKey);
-      if (!review) return { files: [] };
-      return { files: await readGeneratedFiles({ runGh, runGit }, review, changedFiles(await store.patch(targetKey))) };
+      const read = await store.exclusive(async (tx) => {
+        const review = await tx.getReview(targetKey);
+        return review && { review, patch: await tx.patch(targetKey) };
+      });
+      if (!read) return { files: [] };
+      return { files: await readGeneratedFiles({ runGh, runGit }, read.review, changedFiles(read.patch)) };
     },
     async getCodeOwners({ targetKey }) {
-      const review = await store.getReview(targetKey);
-      if (!review) return { files: [] };
-      try { return { files: await reviewOwners(review) }; }
+      const read = await store.exclusive(async (tx) => {
+        const review = await tx.getReview(targetKey);
+        return review && { review, patch: await tx.patch(targetKey) };
+      });
+      if (!read) return { files: [] };
+      try { return { files: await reviewOwners(read.review, changedFiles(read.patch)) }; }
       catch (error) { return { files: [], error: error instanceof Error ? error.message : "Couldn’t read CODEOWNERS." }; }
     },
     async getFileContents({ targetKey, file }) {
-      const review = await store.getReview(targetKey);
-      if (!review) return { ok: false as const, error: "This review no longer exists." };
-      const patchFile = splitPatchByFile(await store.patch(targetKey)).find((f) => f.path === file);
+      const read = await store.exclusive(async (tx) => {
+        const review = await tx.getReview(targetKey);
+        return review && { review, patch: await tx.patch(targetKey) };
+      });
+      if (!read) return { ok: false as const, error: "This review no longer exists." };
+      const { review } = read;
+      const patchFile = splitPatchByFile(read.patch).find((f) => f.path === file);
       if (!patchFile) return { ok: false as const, error: `${file} isn’t in this review’s diff.` };
       return readFileContents({ runGh, runGit }, review, patchFile);
     },
@@ -606,10 +639,13 @@ export default async function plugin(bb: BbPluginApi) {
     async checkForUpdates({ targetKey }) {
       // The sync records the PR's head when it reads it, at most a minute ago.
       await sync.one(targetKey);
-      const m = await store.getReview(targetKey);
+      const { m, localDiffChanges } = await store.exclusive(async (tx) => {
+        const m = await tx.getReview(targetKey);
+        return { m, localDiffChanges: m?.kind === "ref" && (await tx.getPreferences()).preferences.knobs.localDiffChanges };
+      });
       // A local review has no commits to read: its diff, run again, says whether its code changed.
       if (m?.kind === "ref") {
-        const changed = (await store.getPreferences()).preferences.knobs.localDiffChanges && await localDiffChanged(deps, m);
+        const changed = localDiffChanges && await localDiffChanged(deps, m);
         return { hasNewCommits: false, ...(changed ? { localChanged: true } : {}) };
       }
       if (!m || m.kind !== "pr" || !m.number || m.archivedAt || !m.latestHeadSha) return { hasNewCommits: false };
@@ -618,11 +654,15 @@ export default async function plugin(bb: BbPluginApi) {
     },
     async rereview({ targetKey }) {
       await sync.one(targetKey, true);
-      // An archived PR keeps the guide it has; one whose first guide stopped or failed can still build it.
-      if ((await store.getReview(targetKey))?.archivedAt && await store.getGuide(targetKey)) return { ok: false, error: "This PR is archived. Its guide and conversation are still available." };
-      // Reading the PR may have started an automatic rebuild already.
-      if ((await store.getReview(targetKey))?.status === "generating") return { ok: true };
-      return rerunReview(deps, targetKey);
+      const answered = await store.exclusive(async (tx) => {
+        // An archived PR keeps the guide it has; one whose first guide stopped or failed can still build it.
+        if ((await tx.getReview(targetKey))?.archivedAt && await tx.getGuide(targetKey)) return { ok: false, error: "This PR is archived. Its guide and conversation are still available." };
+        // Reading the PR may have started an automatic rebuild already.
+        if ((await tx.getReview(targetKey))?.status === "generating") return { ok: true };
+        return null;
+      });
+      // A rebuild that started since is found, in the turn that would begin the guide.
+      return answered ?? rerunReview(deps, targetKey);
     },
     async stopGuide({ targetKey }) {
       if (!(await store.getPreferences()).preferences.knobs.stopGenerating) return { ok: false, error: "Stopping a guide is off in Settings." };
@@ -666,11 +706,15 @@ export default async function plugin(bb: BbPluginApi) {
         bb.log.warn(`Could not list the guide writers of ${targetKey}: ${String(error)}`);
         return [];
       });
-      const writerIds = new Set([await store.generationWorker(targetKey), ...writers]);
-      const threadIds = new Set([await store.getAssistantThread(targetKey), await store.getAgentThread(targetKey), ...writerIds]);
-      await store.deleteReview(targetKey);
-      // Discovery won't add a PR you deleted back to the list; starting it again does.
-      if (review.kind === "pr") await store.ignoreDiscovery(targetKey);
+      // Its threads are read in the turn that deletes it, so a thread recorded meanwhile is stopped with them.
+      const { writerIds, threadIds } = await store.exclusive(async (tx) => {
+        const writerIds = new Set([await tx.generationWorker(targetKey), ...writers]);
+        const threadIds = new Set([await tx.getAssistantThread(targetKey), await tx.getAgentThread(targetKey), ...writerIds]);
+        await tx.deleteReview(targetKey);
+        // Discovery won't add a PR you deleted back to the list; starting it again does.
+        if (review.kind === "pr") await tx.ignoreDiscovery(targetKey);
+        return { writerIds, threadIds };
+      });
       await notifications.dismiss(targetKey).catch(() => {});
       changed(targetKey);
       await notifications.forget(targetKey).catch(() => {});
@@ -812,22 +856,29 @@ export default async function plugin(bb: BbPluginApi) {
     },
     async submitReview({ targetKey, revision, account, comments, body, verdict }) {
       if (!account) return { ok: false, error: "Verify your GitHub account before submitting. Reload this review to check access." };
-      try { await requireReviewRevision(store, targetKey, revision); } catch (error) { return { ok: false, error: (error as Error).message }; }
-      // The draft the submitter reads, before anything awaits.
-      const submitted = await store.getDraft(targetKey);
+      // The draft the submitter checks next. A change between the two reads fails its check against the page's draft.
+      let submitted: Draft;
+      try {
+        submitted = await store.exclusive(async (tx) => {
+          await requireReviewRevision(tx, targetKey, revision);
+          return await tx.getDraft(targetKey);
+        });
+      } catch (error) { return { ok: false, error: (error as Error).message }; }
       const result = await submitReview(targetKey, revision, account, comments, { body, verdict });
       // The discussions were about this draft. The assistant's conversation keeps them.
       if (result.ok) {
-        await recordOutcomes(store, targetKey, submitted);
-        await store.clearDiscussions(targetKey);
-        await clearAsks(store, targetKey);
-        bb.realtime.publish(`draft:${targetKey}`, {});
-        const review = (await store.getReview(targetKey))!;
-        // The diff you reviewed is what "since your review" compares against.
-        if (review.headSha) await store.saveSnapshot(targetKey, review.headSha, await store.patch(targetKey));
-        await pruneDiffs(store, review);
-        // Your review answers whatever turn was holding, and what didn't run on its own for it.
-        await store.setLifecycle(targetKey, { heldTurn: null, skippedRun: null });
+        await store.exclusive(async (tx) => {
+          await recordOutcomes(tx, targetKey, submitted);
+          await tx.clearDiscussions(targetKey);
+          await clearAsks(tx, targetKey);
+          bb.realtime.publish(`draft:${targetKey}`, {});
+          const review = (await tx.getReview(targetKey))!;
+          // The diff you reviewed is what "since your review" compares against.
+          if (review.headSha) await tx.saveSnapshot(targetKey, review.headSha, await tx.patch(targetKey));
+          await pruneDiffs(tx, review);
+          // Your review answers whatever turn was holding, and what didn't run on its own for it.
+          await tx.setLifecycle(targetKey, { heldTurn: null, skippedRun: null });
+        });
         await notifications.dismiss(targetKey).catch(() => {});
         await sync.evaluate(targetKey);
       }
@@ -882,9 +933,12 @@ export default async function plugin(bb: BbPluginApi) {
     },
     async newConversation({ targetKey }) {
       await newConversation(bb, store, targetKey);
-      await clearAsks(store, targetKey);
       // The archived conversation won't answer discussions or a feedback check waiting for it.
-      if (await endAssistantWaits(bb, store, targetKey)) await sync.evaluate(targetKey);
+      const ended = await store.exclusive(async (tx) => {
+        await clearAsks(tx, targetKey);
+        return await endAssistantWaits(bb, tx, targetKey);
+      });
+      if (ended) await sync.evaluate(targetKey);
       return { ok: true };
     },
     startFixThread({ targetKey, comments }) {
@@ -948,19 +1002,21 @@ export default async function plugin(bb: BbPluginApi) {
       const refused = await notOwnReview(threadId, targetKey);
       if (refused) return failed(refused);
       if (file !== undefined) {
-        const files = splitPatchByFile(await store.patch(targetKey));
-        // A renamed file is keyed by its new path; its old one finds it too.
-        const diff = files.find((f) => f.path === file) ?? files.find((f) => f.oldPath === file);
-        if (!diff) return failed(`This review has no diff for ${file}.`);
-        const past = offsetPastEnd(`${file}'s diff`, offset ?? 0, diff.text.length);
-        if (past) return failed(past);
-        await recordAgentReads(store, threadId, targetKey, [diff.path]);
-        const text = diff.text.slice(offset ?? 0, (offset ?? 0) + (limit ?? 200_000));
-        const end = (offset ?? 0) + text.length;
-        return text + (end < diff.text.length ? `\n\n[${end}/${diff.text.length} bytes — call again with offset=${end}]` : "");
+        // The file's diff, and its read recorded, in one turn: a read counts for the diff it read.
+        return store.exclusive(async (tx) => {
+          const files = splitPatchByFile(await tx.patch(targetKey));
+          // A renamed file is keyed by its new path; its old one finds it too.
+          const diff = files.find((f) => f.path === file) ?? files.find((f) => f.oldPath === file);
+          if (!diff) return failed(`This review has no diff for ${file}.`);
+          const past = offsetPastEnd(`${file}'s diff`, offset ?? 0, diff.text.length);
+          if (past) return failed(past);
+          await recordAgentReads(tx, threadId, targetKey, [diff.path]);
+          const text = diff.text.slice(offset ?? 0, (offset ?? 0) + (limit ?? 200_000));
+          const end = (offset ?? 0) + text.length;
+          return text + (end < diff.text.length ? `\n\n[${end}/${diff.text.length} bytes — call again with offset=${end}]` : "");
+        });
       }
-      const patch = await store.patch(targetKey);
-      const review = await store.getReview(targetKey);
+      const { patch, review } = await store.exclusive(async (tx) => ({ patch: await tx.patch(targetKey), review: await tx.getReview(targetKey) }));
       const paged = stubSkippedFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [], { lockfileDigest: (await store.getPreferences()).preferences.knobs.lockfileDigest });
       const past = offsetPastEnd("the diff", offset ?? 0, paged.length);
       if (past) return failed(past);
@@ -982,11 +1038,9 @@ export default async function plugin(bb: BbPluginApi) {
     execute: async ({ targetKey, offset, limit }, { threadId }) => {
       const refused = await notOwnReview(threadId, targetKey);
       if (refused) return failed(refused);
-      const patch = await store.patch(targetKey);
+      const { patch, review, knobs } = await store.exclusive(async (tx) => ({ patch: await tx.patch(targetKey), review: await tx.getReview(targetKey), knobs: (await tx.getPreferences()).preferences.knobs }));
       const count = splitPatchByFile(patch).length;
       if (offset && offset >= count) return failed(`offset ${offset} is past the end of the list (${count} file${count === 1 ? "" : "s"}).`);
-      const review = await store.getReview(targetKey);
-      const { knobs } = (await store.getPreferences()).preferences;
       return describeReviewFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [], { testWeakening: knobs.testWeakening, lockfileDigest: knobs.lockfileDigest }, { offset, limit });
     },
   });
@@ -1079,8 +1133,10 @@ export default async function plugin(bb: BbPluginApi) {
   });
   // Checking your feedback: the review assistant reads it and what changed, then records a verdict per item.
   async function assistantReviewOf(threadId: string): Promise<ReviewMeta | string> {
-    const targetKey = await assistantReview(store, threadId);
-    const review = targetKey ? await store.getReview(targetKey) : null;
+    const review = await store.exclusive(async (tx) => {
+      const targetKey = await assistantReview(tx, threadId);
+      return targetKey ? await tx.getReview(targetKey) : null;
+    });
     if (!review) return "This conversation is no longer a review's assistant.";
     if (review.kind !== "pr") return "This is a local review; there's no GitHub feedback to check.";
     return review;
@@ -1094,7 +1150,7 @@ export default async function plugin(bb: BbPluginApi) {
       const review = await assistantReviewOf(threadId);
       if (typeof review === "string") return failed(review);
       await refreshThreads(review).catch(() => {});
-      return await describeFeedback(store, (await store.getReview(review.targetKey))!);
+      return store.exclusive(async (tx) => await describeFeedback(tx, (await tx.getReview(review.targetKey))!));
     },
   });
   bb.agents.registerTool({
@@ -1116,12 +1172,16 @@ export default async function plugin(bb: BbPluginApi) {
     parameters: z.object({}),
     async execute(_input, { threadId }) {
       const targetKey = await toolThreadReview(bb, store, threadId);
-      const review = targetKey ? await store.getReview(targetKey) : null;
-      if (!review) return failed("There's no review to read the context of.");
-      const files = changedFiles(await store.patch(review.targetKey));
+      const read = await store.exclusive(async (tx) => {
+        const review = targetKey ? await tx.getReview(targetKey) : null;
+        if (!review) return null;
+        const files = changedFiles(await tx.patch(review.targetKey));
+        return { review, files, reviewMd: (await tx.getPreferences()).preferences.knobs.reviewMd, reviewContext: await tx.getReviewContext(review.targetKey) };
+      });
+      if (!read) return failed("There's no review to read the context of.");
+      const { review, files, reviewMd, reviewContext } = read;
       try {
-        const { reviewMd } = (await store.getPreferences()).preferences.knobs;
-        const [{ text: context, author }, owned] = await Promise.all([readPrContext({ runGh, runGit }, review, files, await store.getReviewContext(review.targetKey), { reviewMd }), reviewOwners(review).catch(() => [])]);
+        const [{ text: context, author }, owned] = await Promise.all([readPrContext({ runGh, runGit }, review, files, reviewContext, { reviewMd }), reviewOwners(review, files).catch(() => [])]);
         const ownership = describeOwnership(owned);
         // An untrusted author's text could name a ticket to steer the agent, or to have it read one it shouldn't. Until
         // the sync has read the PR, this read says who wrote it.
@@ -1144,13 +1204,17 @@ export default async function plugin(bb: BbPluginApi) {
     }),
     async execute({ path, ref, startLine, endLine }, { threadId }) {
       // Local reviews too, unlike the feedback tools.
-      const targetKey = await assistantReview(store, threadId);
-      const review = targetKey ? await store.getReview(targetKey) : null;
+      const review = await store.exclusive(async (tx) => {
+        const targetKey = await assistantReview(tx, threadId);
+        return targetKey ? await tx.getReview(targetKey) : null;
+      });
       if (!review) return failed("This conversation is no longer a review's assistant.");
       const read = await readFileAt(runGh, runGit, review, path, ref ?? "current", startLine, endLine);
       if (!read.ok) return failed(read.error);
       // A changed file it got as the change leaves it: what it read through Code Review Workspace. Its base or reviewed commit isn't the change.
-      if ((ref ?? "current") === "current" && changedFiles(await store.patch(review.targetKey)).includes(path)) await recordAgentReads(store, threadId, review.targetKey, [path]);
+      if ((ref ?? "current") === "current") await store.exclusive(async (tx) => {
+        if (changedFiles(await tx.patch(review.targetKey)).includes(path)) await recordAgentReads(tx, threadId, review.targetKey, [path]);
+      });
       return read.text;
     },
   });
@@ -1173,25 +1237,30 @@ export default async function plugin(bb: BbPluginApi) {
     async execute(input, { threadId }) {
       const review = await assistantReviewOf(threadId);
       if (typeof review === "string") return failed(review);
-      const result = await assess(store, review, input);
-      if (!result.ok) return failed(result.error);
-      // The suggestion fills the draft's summary when the rules allow; over the reviewer's own, it waits in Finish review for Use as draft.
-      let note = "";
-      if (input.suggestedBody?.trim()) {
-        const written = await writeSummary(store, review.targetKey, { body: input.suggestedBody, verdict: input.suggestedVerdict }, threadId);
-        const refused = !written.ok && unchangeable(await store.getReview(review.targetKey));
-        note = written.ok ? " Your suggested summary is in the reviewer's draft." : refused ? "" : " The reviewer wrote the draft's summary, so yours waits in Finish review.";
-        // Over the reviewer's summary, the suggested verdict is still marked.
-        if (!written.ok && !refused && input.suggestedVerdict) await store.updateSummary(review.targetKey, { suggestedVerdict: input.suggestedVerdict });
-        if (!refused) bb.realtime.publish(`draft:${review.targetKey}`, {});
-      } else if (input.suggestedVerdict) {
-        await store.updateSummary(review.targetKey, { suggestedVerdict: input.suggestedVerdict });
-        bb.realtime.publish(`draft:${review.targetKey}`, {});
-      }
+      // The verdicts, and the suggestion they come with, in one turn.
+      const recorded = await store.exclusive(async (tx) => {
+        const result = await assess(tx, review, input);
+        if (!result.ok) return result;
+        // The suggestion fills the draft's summary when the rules allow; over the reviewer's own, it waits in Finish review for Use as draft.
+        let note = "";
+        if (input.suggestedBody?.trim()) {
+          const written = await writeSummary(tx, review.targetKey, { body: input.suggestedBody, verdict: input.suggestedVerdict }, threadId);
+          const refused = !written.ok && unchangeable(await tx.getReview(review.targetKey));
+          note = written.ok ? " Your suggested summary is in the reviewer's draft." : refused ? "" : " The reviewer wrote the draft's summary, so yours waits in Finish review.";
+          // Over the reviewer's summary, the suggested verdict is still marked.
+          if (!written.ok && !refused && input.suggestedVerdict) await tx.updateSummary(review.targetKey, { suggestedVerdict: input.suggestedVerdict });
+          if (!refused) bb.realtime.publish(`draft:${review.targetKey}`, {});
+        } else if (input.suggestedVerdict) {
+          await tx.updateSummary(review.targetKey, { suggestedVerdict: input.suggestedVerdict });
+          bb.realtime.publish(`draft:${review.targetKey}`, {});
+        }
+        return { ...result, text: result.text + note };
+      });
+      if (!recorded.ok) return failed(recorded.error);
       bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
       await sync.evaluate(review.targetKey);
       changed(review.targetKey);
-      return result.text + note;
+      return recorded.text;
     },
   });
   bb.agents.registerTool({
@@ -1201,8 +1270,12 @@ export default async function plugin(bb: BbPluginApi) {
     async execute({ threadId: thread, body }, { threadId }) {
       const review = await assistantReviewOf(threadId);
       if (typeof review === "string") return failed(review);
-      if (!(await store.listFeedbackThreads(review.targetKey)).some((t) => t.id === thread)) return failed(`There's no thread ${thread} from the reviewer. Use an id from list_feedback.`);
-      await store.setReplyDraft(review.targetKey, thread, body, "agent");
+      const drafted = await store.exclusive(async (tx) => {
+        if (!(await tx.listFeedbackThreads(review.targetKey)).some((t) => t.id === thread)) return false;
+        await tx.setReplyDraft(review.targetKey, thread, body, "agent");
+        return true;
+      });
+      if (!drafted) return failed(`There's no thread ${thread} from the reviewer. Use an id from list_feedback.`);
       bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
       return "Drafted. The reviewer can edit and send it from Comments.";
     },
