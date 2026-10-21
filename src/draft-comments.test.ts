@@ -3,9 +3,13 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
 import { createStore } from "./store";
 import { runGh } from "./gh";
-import { queueStore } from "./store-queue";
+import { queueStore, type AsyncStore, type StoreBackend } from "./store-queue";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
+vi.mock("./store-queue", async (original) => {
+  const actual = await original<typeof import("./store-queue")>();
+  return { ...actual, queueStore: vi.fn(actual.queueStore) };
+});
 
 const patch = [
   "diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", "@@ -1,3 +1,4 @@",
@@ -93,6 +97,27 @@ test("only a review's current assistant changes its draft, and only while the dr
   expect(error(await add(comment))).toContain("merged");
   expect(error(await call("delete_draft_comment", { file: "a.ts", line: 3 }))).toContain("merged");
   expect((await store.getDraft("pr-1")).comments).toEqual([]);
+});
+
+test("each draft tool checks it's still the assistant in the same turn as its change, so a new assistant queued meanwhile comes after both", async () => {
+  vi.mocked(queueStore).mockClear();
+  const { call } = await host();
+  // The plugin's own queue and the store under it; host() makes its second queue afterwards.
+  const backend = vi.mocked(queueStore).mock.calls[0][0] as unknown as Record<string, (...args: unknown[]) => unknown>;
+  const plugins = vi.mocked(queueStore).mock.results[0].value as AsyncStore;
+  const ran: string[] = [];
+  for (const [name, method] of Object.entries(backend)) backend[name] = (...args) => { ran.push(name); return method.apply(backend as unknown as StoreBackend, args); };
+  const tools = [
+    ["list_draft_comments", {}], ["add_draft_comment", { file: "a.ts", line: 3, code: "const c = b * 2;", body: "x" }], ["edit_draft_comment", { file: "a.ts", line: 3, body: "y" }],
+    ["set_review_summary", { body: "Fine." }], ["reply_in_discussion", { summary: true, body: "Done." }], ["delete_draft_comment", { file: "a.ts", line: 3 }],
+  ] as const;
+  for (const [tool, input] of tools) {
+    ran.length = 0;
+    const result = call(tool, input);
+    await plugins.setAssistantThread("pr-1", "assistant");
+    await result;
+    expect([tool, ran.indexOf("listAssistantThreads"), ran.indexOf("setAssistantThread")]).toEqual([tool, 0, ran.length - 1]);
+  }
 });
 
 test("the panel removes a comment by its location, so an agent's delete can't shift it", async () => {

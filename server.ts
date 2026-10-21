@@ -183,9 +183,13 @@ export default async function plugin(bb: BbPluginApi) {
   // Reviews leave the server with whose turn they are, how far your feedback got, and their place in a stack.
   // JSON round-trips drop the literal `undefined` fields rowToMeta leaves, which strict rpc output rejects.
   const decorate = async (review: ReviewMeta | null, options?: TurnOptions, given?: ReturnType<typeof findStacks>) => {
-    const stacks = given ?? findStacks(await store.listReviews());
+    // What it reads, it reads in one turn.
+    const read = options && given ? { options, stacks: given } : await store.exclusive(async (tx) => ({
+      stacks: given ?? findStacks(await tx.listReviews()),
+      options: options ?? (review ? turnOptions((await tx.getPreferences()).preferences) : undefined),
+    }));
     return review && JSON.parse(JSON.stringify({
-      ...review, turn: await sync.turnOf(review, undefined, options), progress: feedbackProgress(review), stack: stacks.get(review.targetKey) ?? null,
+      ...review, turn: await sync.turnOf(review, undefined, read.options), progress: feedbackProgress(review), stack: read.stacks.get(review.targetKey) ?? null,
     }));
   };
   // Whether you wrote the PR, before the sync has read it: GitHub allows only a Comment review on your own PR.
@@ -986,10 +990,13 @@ export default async function plugin(bb: BbPluginApi) {
     },
   });
 
-  // The review assistant's draft tools act only on its own review's local draft.
-  async function assistantDraft(threadId: string, changes: boolean, act: (targetKey: string) => Promise<DraftResult>): Promise<PluginAgentToolResult> {
-    const targetKey = await assistantReview(store, threadId);
-    const result: DraftResult = targetKey ? await act(targetKey) : { ok: false, error: "This conversation is no longer a review's assistant, so it has no draft." };
+  // The review assistant's draft tools act only on its own review's local draft, checked in the same turn as the change.
+  async function assistantDraft(threadId: string, changes: boolean, act: (tx: AsyncStore, targetKey: string) => Promise<DraftResult>): Promise<PluginAgentToolResult> {
+    const { targetKey, result } = await store.exclusive(async (tx) => {
+      const targetKey = await assistantReview(tx, threadId);
+      const result: DraftResult = targetKey ? await act(tx, targetKey) : { ok: false, error: "This conversation is no longer a review's assistant, so it has no draft." };
+      return { targetKey, result };
+    });
     if (!result.ok) return failed(result.error);
     if (changes) bb.realtime.publish(`draft:${targetKey}`, {});
     return result.text;
@@ -1012,7 +1019,7 @@ export default async function plugin(bb: BbPluginApi) {
     name: "list_draft_comments",
     description: "Show the reviewer's local draft for this review: the review summary and who wrote it (an agent or the reviewer), the verdict the reviewer picked and the one suggested, then each comment's location, who added it, and text, and the agents' comments the reviewer removed.",
     parameters: z.object({}),
-    execute: async (_input, { threadId }) => await assistantDraft(threadId, false, async (targetKey) => store.exclusive(async (tx) => ({ ok: true, text: await describeDraft(tx, targetKey) + await describeRemovals(tx, targetKey) }))),
+    execute: async (_input, { threadId }) => await assistantDraft(threadId, false, async (tx, targetKey) => ({ ok: true, text: await describeDraft(tx, targetKey) + await describeRemovals(tx, targetKey) })),
   });
   bb.agents.registerTool({
     name: "add_draft_comment",
@@ -1027,24 +1034,22 @@ export default async function plugin(bb: BbPluginApi) {
       evidence,
       introduced,
     }),
-    execute: async (input, { threadId }) => await assistantDraft(threadId, true, async (targetKey) => {
-      return store.exclusive(async (tx) => {
-        const added = await addComment(tx, targetKey, input);
-        return added.ok ? { ok: true, text: added.text + await removalWarning(tx, targetKey, input) } : added;
-      });
+    execute: async (input, { threadId }) => await assistantDraft(threadId, true, async (tx, targetKey) => {
+      const added = await addComment(tx, targetKey, input);
+      return added.ok ? { ok: true, text: added.text + await removalWarning(tx, targetKey, input) } : added;
     }),
   });
   bb.agents.registerTool({
     name: "edit_draft_comment",
     description: "Replace the text of the draft comment at a file, line, and side in the reviewer's local draft; line is a range's last line. With startLine and code, it also sets the range's first line, for example to fit a suggestion block. Its last line stays; to move a comment, delete it and add it again. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked on that comment for the change.",
     parameters: z.object({ ...location, ...range, code: z.string().optional().describe("With startLine: the lines' text, one per line, as add_draft_comment takes it."), severity, body, evidence: evidence.describe("Replaces how you confirmed it, under 600 characters; without it, that stays."), introduced: introduced.describe("false when the problem is in code this PR didn't change; true when it's from this PR. Without it, that stays.") }),
-    execute: async (input, { threadId }) => await assistantDraft(threadId, true, async (targetKey) => await editComment(store, targetKey, input, threadId)),
+    execute: async (input, { threadId }) => await assistantDraft(threadId, true, async (tx, targetKey) => await editComment(tx, targetKey, input, threadId)),
   });
   bb.agents.registerTool({
     name: "delete_draft_comment",
     description: "Delete the draft comment at a file, line, and side from the reviewer's local draft. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked on that comment for it.",
     parameters: z.object(location),
-    execute: async (input, { threadId }) => await assistantDraft(threadId, true, async (targetKey) => await deleteComment(store, targetKey, input, threadId)),
+    execute: async (input, { threadId }) => await assistantDraft(threadId, true, async (tx, targetKey) => await deleteComment(tx, targetKey, input, threadId)),
   });
   bb.agents.registerTool({
     name: "set_review_summary",
@@ -1055,7 +1060,7 @@ export default async function plugin(bb: BbPluginApi) {
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional().describe("The verdict you'd suggest; the reviewer picks."),
       unchecked: z.array(z.string().max(120)).max(5).optional().describe("Up to 5 things you didn't read or run, such as files you skipped or tests you couldn't run, each under 120 characters. The reviewer sees them beside your verdict; they're never posted. Without it, what you said before stays."),
     }),
-    execute: async (input, { threadId }) => await assistantDraft(threadId, true, async (targetKey) => await writeSummary(store, targetKey, input, threadId)),
+    execute: async (input, { threadId }) => await assistantDraft(threadId, true, async (tx, targetKey) => await writeSummary(tx, targetKey, input, threadId)),
   });
   bb.agents.registerTool({
     name: "reply_in_discussion",
@@ -1066,10 +1071,10 @@ export default async function plugin(bb: BbPluginApi) {
       file: location.file.optional(), line: location.line.optional(), side: location.side,
       body: z.string().trim().min(1).max(65_000).describe("The reply, in Markdown."),
     }),
-    execute: async ({ summary, file, line, side, body }, { threadId }) => await assistantDraft(threadId, true, async (targetKey) =>
-      store.exclusive(async (tx) => summary ? await replyInDiscussion(tx, targetKey, { ...SUMMARY_AT, body })
+    execute: async ({ summary, file, line, side, body }, { threadId }) => await assistantDraft(threadId, true, async (tx, targetKey) =>
+      summary ? await replyInDiscussion(tx, targetKey, { ...SUMMARY_AT, body })
       : file === undefined || line === undefined ? { ok: false, error: "Give the discussion's file and line, or summary: true for the review summary's discussion." }
-      : await replyInDiscussion(tx, targetKey, { file, line, side, body }))),
+      : await replyInDiscussion(tx, targetKey, { file, line, side, body })),
   });
   // Checking your feedback: the review assistant reads it and what changed, then records a verdict per item.
   async function assistantReviewOf(threadId: string): Promise<ReviewMeta | string> {
