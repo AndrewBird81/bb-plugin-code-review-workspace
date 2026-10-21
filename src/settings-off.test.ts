@@ -11,6 +11,10 @@ vi.mock("./gh", async (importOriginal) => {
       : Promise.resolve({ stdout: JSON.stringify({ headRefOid: "sha1" }), stderr: "", code: 0 }),
   };
 });
+vi.mock("./store-queue", async (original) => {
+  const actual = await original<typeof import("./store-queue")>();
+  return { ...actual, queueStore: vi.fn(actual.queueStore) };
+});
 
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
@@ -27,6 +31,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { toolText } from "./fake-host.test-support";
 import { queueStore, type AsyncStore } from "./store-queue";
+import { startPlugin } from "./plugin-store.test-support";
 
 /** What the reviewer's page shows of the draft, which submitReview takes to check it still matches. */
 const shown = async (store: AsyncStore, targetKey: string) => {
@@ -267,8 +272,7 @@ test("with every toggle off, a review a thread started offers no thread to send 
 
 test("with every toggle off, agents in your threads get no bb review skill, and bb review lists nothing", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate", "code-review-workspace"] });
-  await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = await startPlugin(bb);
   await store.savePreferences({ ...defaultPreferences, knobs: allKnobsOff }, 0);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, title: "Cache rows", status: "ready", createdAt: 1, projectId: "p1" });
   const ordinary = { thread: { id: "mine", title: "Fix it", parentThreadId: null, sourceThreadId: null }, origin: { kind: null, pluginId: null } } as any;

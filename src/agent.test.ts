@@ -9,10 +9,15 @@ import plugin from "../server";
 import { formerWorkerReview } from "./former-workers";
 import { runGh } from "./gh";
 import { queueStore } from "./store-queue";
+import { startPlugin } from "./plugin-store.test-support";
 
 vi.mock("./gh", async (original) => {
   const actual = await original<typeof import("./gh")>();
   return { ...actual, runGh: vi.fn(actual.runGh) };
+});
+vi.mock("./store-queue", async (original) => {
+  const actual = await original<typeof import("./store-queue")>();
+  return { ...actual, queueStore: vi.fn(actual.queueStore) };
 });
 
 const opus = { providerId: "claude-code", model: "opus", reasoningLevel: "high" } as const;
@@ -230,9 +235,10 @@ function reviewAgentContext(pluginMetadata: Record<string, string>): PluginAgent
 }
 
 test("configure answers synchronously for the assistant, a guide writer, a thread of yours, and any other, as BB doesn't await it", async () => {
-  const { bb, store } = await host();
+  const { bb } = await host();
   const configure = vi.spyOn(bb.agents, "configure");
-  await plugin(bb);
+  // Through the plugin's own queue, which keeps configure's view up to date.
+  const store = await startPlugin(bb);
   await store.setAssistantThread("pr-1", "worker");
   const writer = await store.beginGeneration("pr-1");
   await store.setGenerationWorker("pr-1", writer, "writer");
@@ -247,8 +253,8 @@ test("configure answers synchronously for the assistant, a guide writer, a threa
 });
 
 test("the assistant gets its review's current instructions, without private notes, and only the read and draft-comment tools", async () => {
-  const { bb, harness, store } = await host();
-  await plugin(bb);
+  const { bb, harness } = await host();
+  const store = await startPlugin(bb);
   await store.saveReviewerNotes("pr-1", "PRIVATE-SCRATCHPAD", 0);
   await store.savePreferences({ ...defaultPreferences, assistantInstructions: "Focus on security" }, 0);
   await store.saveGuide("pr-1", guide("Old behavior") as any);
@@ -551,8 +557,8 @@ test("with the repo's checks allowed, the instructions say how to run them in a 
 });
 
 test("the review agent may run the repo's checks only when they're on and the PR's author is trusted", async () => {
-  const { bb, harness, store } = await host();
-  await plugin(bb);
+  const { bb, harness } = await host();
+  const store = await startPlugin(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 7, status: "ready", createdAt: 1, projectId: "p1", headSha: "sha1" });
   await store.setAssistantThread("pr-1", "worker");
   const instructions = async () => (await harness.behavior.resolveAgentConfiguration(reviewAgentContext({ targetKey: "pr-1" }))).instructions ?? "";

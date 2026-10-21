@@ -1,14 +1,17 @@
 // Which review a thread of this plugin belongs to: its recorded mapping or worker, or, only while its spawn is in
 // flight, the review its exact title names. Never its title or pluginMetadata alone, which the thread can write.
-import { test, expect } from "vitest";
+import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
-import { createStore } from "./store";
 import { startConversation } from "./agent";
 import { generateGuide } from "./generate";
-import plugin from "../server";
 import { toolFailed, toolText } from "./fake-host.test-support";
-import { queueStore } from "./store-queue";
+import { startPlugin } from "./plugin-store.test-support";
+
+vi.mock("./store-queue", async (original) => {
+  const actual = await original<typeof import("./store-queue")>();
+  return { ...actual, queueStore: vi.fn(actual.queueStore) };
+});
 
 const patch = (file: string, line: string) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n-old\n+${line}\n`;
 const guide = (chapter: string) => ({ title: "T", intent: "I", unplacedFiles: [], sections: [{ id: "s", title: chapter, overview: "o", risk: "high", diffs: [{ file: "a.ts", summary: "s" }] }], hotspots: [] });
@@ -26,8 +29,7 @@ async function host(titles: Record<string, string> = {}) {
     spawn: async ({ title }: { title: string }) => { const id = `spawned-${++spawned}`; titles[id] = title; await whileSpawning(id); return { id }; },
     wait: async () => ({}), archive: async () => ({}), stop: async () => ({}),
   } } as any });
-  await plugin(h.bb);
-  const store = queueStore(createStore(h.bb));
+  const store = await startPlugin(h.bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1, projectId: "p1" });
   await store.savePatch("pr-1", patch("a.ts", "public"));
   await store.saveGuide("pr-1", guide("PUBLIC_CHAPTER") as any);
@@ -167,8 +169,7 @@ test("an unrecorded thread with a plugin title gets no tools outside a spawn", a
 
 test("an agent in one of your own threads gets the bb review skill while its switch is on; this plugin's threads keep their own", async () => {
   const h = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate", "code-review-workspace"] });
-  await plugin(h.bb);
-  const store = queueStore(createStore(h.bb));
+  const store = await startPlugin(h.bb);
   await store.setAssistantThread("pr-1", "assistant-1");
   const resolve = (id: string, pluginId: string | null) => h.harness.behavior.resolveAgentConfiguration({ ...configureContext(id, "anything"), origin: { kind: null, pluginId } } as PluginAgentConfigurationContext);
   expect(await resolve("mine", null)).toMatchObject({ tools: [], skills: ["code-review-workspace"] });

@@ -6,16 +6,20 @@ import { createStore } from "./store";
 import { runGh } from "./gh";
 import { createReviewSubmitter } from "./submit-review";
 import { queueStore } from "./store-queue";
+import { startPlugin } from "./plugin-store.test-support";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn(async () => ({ code: 0, stdout: "x\n", stderr: "" })) }));
+vi.mock("./store-queue", async (original) => {
+  const actual = await original<typeof import("./store-queue")>();
+  return { ...actual, queueStore: vi.fn(actual.queueStore) };
+});
 
 const file = (path: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`;
 const patch = file("a.ts") + file("b.ts") + file("c.ts");
 
 async function host() {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = await startPlugin(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   await store.savePatch("pr-1", patch);
   await store.setAssistantThread("pr-1", "assistant");

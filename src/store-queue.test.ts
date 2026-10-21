@@ -158,6 +158,42 @@ test("a block that throws or rejects releases the queue", async () => {
   await expect(after).resolves.toMatchObject({ targetKey: "a" });
 });
 
+test("afterTurn runs inside each turn, after its call or block and before its caller resumes", async () => {
+  const log: string[] = [];
+  const reviews = new Map<string, ReviewMeta>();
+  const backend = {
+    async saveReview(meta: ReviewMeta) { await tick(); reviews.set(meta.targetKey, meta); log.push(`save ${meta.targetKey}`); },
+    getReview(k: string) { log.push(`get ${k}`); return reviews.get(k) ?? null; },
+  };
+  const store = queueStore(backend as unknown as StoreBackend, { async afterTurn() { await tick(); log.push(`after, ${reviews.size} saved`); } });
+  const saved = store.saveReview(review("a")).then(() => log.push("caller resumes"));
+  const block = store.exclusive(async (tx) => { await tx.saveReview(review("b")); await tx.getReview("a"); });
+  const read = store.getReview("b");
+  await Promise.all([saved, block, read]);
+  expect(log).toEqual([
+    "save a", "after, 1 saved", "caller resumes",
+    "save b", "get a", "after, 2 saved",
+    "get b", "after, 2 saved",
+  ]);
+});
+
+test("afterTurn's throw or rejection leaves the call's own result, and the queue runs on", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  let turns = 0;
+  const store = queueStore(createStore(bb), {
+    afterTurn() {
+      turns++;
+      if (turns === 1) throw new Error("hook threw");
+      if (turns === 2) return Promise.reject(new Error("hook rejected"));
+    },
+  });
+  await expect(store.saveReview(review("a"))).resolves.toBeUndefined();
+  await expect(store.patch("a")).resolves.toBe("");
+  await expect(store.exclusive(() => { throw new Error("the block's own"); })).rejects.toThrow("the block's own");
+  await expect(store.getReview("a")).resolves.toMatchObject({ targetKey: "a" });
+  expect(turns).toBe(4);
+});
+
 test("dispose rejects the queued calls and later ones, after the running call ends", async () => {
   const { log, store } = slowBackend();
   const running = store.saveReview(review("a"));

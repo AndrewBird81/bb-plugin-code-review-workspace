@@ -212,6 +212,8 @@ export interface Store extends AgentCommentStore {
   generationOf(workerId: string): string | null;
   /** The hidden thread writing the review's current generation's guide, if one was recorded. */
   generationWorker(targetKey: string): string | null;
+  /** Every generation's recorded worker, by review: what generationOf answers, for src/configure-view.ts. */
+  listGenerationWorkers(): Array<{ targetKey: string; workerId: string }>;
   /** End the generations a reload interrupted, putting back their previous guides. Returns them, with their workers. */
   interruptGenerations(): Array<{ targetKey: string; workerId: string | null }>;
   getDraft(targetKey: string): Draft;
@@ -590,6 +592,10 @@ export function createStore(bb: BbPluginApi): Store {
     },
     generationWorker(k) {
       return (db.prepare(`SELECT worker_id FROM generations WHERE target_key=?`).get(k) as { worker_id: string | null } | undefined)?.worker_id ?? null;
+    },
+    listGenerationWorkers() {
+      return (db.prepare(`SELECT target_key, worker_id FROM generations WHERE worker_id IS NOT NULL ORDER BY target_key, worker_id`).all() as Array<{ target_key: string; worker_id: string }>)
+        .map((row) => ({ targetKey: row.target_key, workerId: row.worker_id }));
     },
     interruptGenerations() {
       const interrupted = (db.prepare(`SELECT r.target_key, g.worker_id FROM reviews r LEFT JOIN generations g ON g.target_key=r.target_key WHERE r.status='generating'`).all() as Array<{ target_key: string; worker_id: string | null }>)

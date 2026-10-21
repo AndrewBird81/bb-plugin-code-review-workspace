@@ -1,9 +1,8 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import plugin from "../server";
-import { createStore } from "./store";
 import { runGh } from "./gh";
 import { queueStore, type AsyncStore, type StoreBackend } from "./store-queue";
+import { startPlugin } from "./plugin-store.test-support";
 
 vi.mock("./gh", async (original) => ({ ...await original<typeof import("./gh")>(), runGh: vi.fn() }));
 vi.mock("./store-queue", async (original) => {
@@ -18,8 +17,7 @@ const patch = [
 
 async function host() {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
-  await plugin(bb);
-  const store = queueStore(createStore(bb));
+  const store = await startPlugin(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1" });
   await store.savePatch("pr-1", patch);
   await store.setAssistantThread("pr-1", "assistant");
@@ -102,7 +100,7 @@ test("only a review's current assistant changes its draft, and only while the dr
 test("each draft tool checks it's still the assistant in the same turn as its change, so a new assistant queued meanwhile comes after both", async () => {
   vi.mocked(queueStore).mockClear();
   const { call } = await host();
-  // The plugin's own queue and the store under it; host() makes its second queue afterwards.
+  // The plugin's own queue and the store under it.
   const backend = vi.mocked(queueStore).mock.calls[0][0] as unknown as Record<string, (...args: unknown[]) => unknown>;
   const plugins = vi.mocked(queueStore).mock.results[0].value as AsyncStore;
   const ran: string[] = [];

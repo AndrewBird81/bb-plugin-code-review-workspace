@@ -36,13 +36,21 @@ interface Unit { open: boolean; tail: Promise<unknown> }
 
 interface Job { run(): Promise<unknown>; resolve(value: unknown): void; reject(error: unknown): void }
 
+export interface QueueOptions {
+  /**
+   * Runs inside each turn, after its call or block and before its caller resumes, so nothing else reaches the store
+   * meanwhile. It reports its own failures: what it throws is dropped, and the call's own result stands.
+   */
+  afterTurn?(): void | Promise<void>;
+}
+
 const ignore = () => {};
 
 /**
  * The queue over `backend`, whose own calls between its methods (`this.getReview`) don't go through it. `backend`'s
  * methods are its own function properties, as an object literal has them.
  */
-export function queueStore(backend: StoreBackend): QueuedStore {
+export function queueStore(backend: StoreBackend, options: QueueOptions = {}): QueuedStore {
   const names = Object.keys(backend).filter((name) => typeof backend[name as keyof Store] === "function") as Array<keyof Store>;
   const call = (name: keyof Store, args: unknown[]) => (backend[name] as (...args: unknown[]) => unknown).apply(backend, args);
   const units = new AsyncLocalStorage<Unit>();
@@ -61,7 +69,15 @@ export function queueStore(backend: StoreBackend): QueuedStore {
     // A call runs after its caller's synchronous code, as a query would.
     await Promise.resolve();
     for (let job = jobs.shift(); job; job = jobs.shift()) {
-      try { job.resolve(await job.run()); } catch (error) { job.reject(error); }
+      let settle: () => void;
+      try {
+        const value = await job.run();
+        settle = () => job.resolve(value);
+      } catch (error) {
+        settle = () => job.reject(error);
+      }
+      try { await options.afterTurn?.(); } catch { /* the hook reports its own failures */ }
+      settle();
     }
     draining = null;
   }

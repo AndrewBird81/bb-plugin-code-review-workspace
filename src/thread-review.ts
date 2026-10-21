@@ -1,8 +1,5 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { assistantReview } from "./draft-comments";
-import { ASSISTANT_TITLE } from "./agent";
-import { GUIDE_WORKER_TITLE } from "./generate";
-import type { Store } from "./store";
 import type { AsyncStore } from "./store-queue";
 
 /** This plugin's agent threads being spawned, by the title each gets, until its id is recorded. */
@@ -24,6 +21,11 @@ export async function spawningFor<T>(bb: BbPluginApi, title: string, targetKey: 
   }
 }
 
+/** The spawns in flight titled exactly `title`, oldest first. */
+export function spawnsTitled(bb: BbPluginApi, title: string | null): Array<{ title: string; targetKey: string }> {
+  return [...spawning.get(bb) ?? []].filter((pending) => pending.title === title);
+}
+
 /**
  * The review a thread of this plugin belongs to: the one it's recorded as the assistant or guide writer of, or,
  * while a spawn with its exact title is in flight, that spawn's: NO_REVIEW for the Suggest instructions worker's. Never
@@ -33,40 +35,8 @@ export async function threadReview(bb: BbPluginApi, store: AsyncStore, thread: {
   return store.exclusive(async (tx) => {
     const recorded = await assistantReview(tx, thread.id) ?? await tx.generationOf(thread.id);
     if (recorded) return recorded;
-    for (const pending of spawning.get(bb) ?? []) if (pending.title === thread.title) return pending.targetKey;
-    return null;
+    return spawnsTitled(bb, thread.title)[0]?.targetKey ?? null;
   });
-}
-
-// bb.agents.configure must answer synchronously, so it alone reads the sync store under the queue, through the three
-// functions below. P5 replaces them with src/configure-view.ts.
-
-/** threadReview, read from the sync store, for bb.agents.configure only. */
-export function threadReviewForConfigure(bb: BbPluginApi, store: Store, thread: { id: string; title: string | null }): string | null {
-  const recorded = assistantReviewForConfigure(store, thread.id) ?? store.generationOf(thread.id);
-  if (recorded) return recorded;
-  for (const pending of spawning.get(bb) ?? []) if (pending.title === thread.title) return pending.targetKey;
-  return null;
-}
-
-/**
- * What a thread of this plugin is: the assistant or guide writer it's recorded as, whatever its title now, or, only
- * while a spawn with its exact title is in flight, what that title names. Null for any other thread. Read from the sync
- * store, for bb.agents.configure only.
- */
-export function threadRoleForConfigure(bb: BbPluginApi, store: Store, thread: { id: string; title: string | null }): "assistant" | "writer" | null {
-  if (assistantReviewForConfigure(store, thread.id)) return "assistant";
-  if (store.generationOf(thread.id)) return "writer";
-  for (const pending of spawning.get(bb) ?? []) {
-    if (pending.title !== thread.title) continue;
-    if (pending.title.startsWith(GUIDE_WORKER_TITLE)) return "writer";
-    if (pending.title.startsWith(ASSISTANT_TITLE)) return "assistant";
-  }
-  return null;
-}
-
-function assistantReviewForConfigure(store: Store, threadId: string): string | null {
-  return store.listAssistantThreads().find((thread) => thread.threadId === threadId)?.targetKey ?? null;
 }
 
 /** threadReview for a tool call, which has only the thread's id; its title is read only while a spawn is in flight. */

@@ -48,7 +48,7 @@ import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
 import { GUIDE_WORKER_TITLE, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideAsksSinceReview, guideRejected, guideStopped, guideWorkerFailed, guideWriterMode } from "./src/generate";
-import { pluginThreadsTitled, threadReviewForConfigure, threadRoleForConfigure, toolThreadReview } from "./src/thread-review";
+import { pluginThreadsTitled, toolThreadReview } from "./src/thread-review";
 import { formerWorkerReview, recordFormerWorker } from "./src/former-workers";
 import { parseChecks, parseReviewThreads } from "./src/threads";
 import { localDiffChanged, rerunReview } from "./src/rereview";
@@ -72,6 +72,7 @@ import { automaticReviewPrompt, reReviewCheckPrompt } from "./src/preferences";
 import { createInstructionSuggester, describeRemovals, learningStats, noteReviewerRemoval, noteReviewerSave, recordOutcomes, removalWarning } from "./src/learning";
 import { FORMER_PLUGIN_ID } from "./src/former-install";
 import { queueStore, type AsyncStore } from "./src/store-queue";
+import { createConfigureView } from "./src/configure-view";
 
 export { rpcContract } from "./src/rpc-contract";
 
@@ -80,10 +81,10 @@ export { rpcContract } from "./src/rpc-contract";
 const ASSISTANT_TOOLS = 9;
 
 export default async function plugin(bb: BbPluginApi) {
-  const backend = createStore(bb);
-  // Only bb.agents.configure reads the backend directly, as it must answer synchronously; P5 replaces that with
-  // src/configure-view.ts. Everything else goes through the queue.
-  const store = queueStore(backend);
+  // bb.agents.configure must answer synchronously, so it reads a view the queue keeps up to date; everything else
+  // takes its turn in the queue.
+  const configured = await createConfigureView(bb, createStore(bb));
+  const store = queueStore(configured.backend, { afterTurn: configured.afterTurn });
   const interrupted = await store.interruptGenerations();
   // An ask on a summary or comment can't know whether its turn ended while the plugin was down; it gives way.
   for (const review of await store.listReviews()) if (listAsks(review).length) await clearAsks(store, review.targetKey);
@@ -1323,8 +1324,8 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.configure((context) => {
     // Agents in your own threads get the skill for bb review; this plugin's threads get only what their role needs.
     // A guided-review install's threads came over with its reviews; they still get tools only by their recorded role.
-    if (context.origin?.pluginId !== bb.pluginId && context.origin?.pluginId !== FORMER_PLUGIN_ID) return { tools: [], skills: backend.getPreferences().preferences.knobs.reviewCommandInThreads ? ["code-review-workspace"] : [] };
-    const role = context.thread ? threadRoleForConfigure(bb, backend, context.thread) : null;
+    if (context.origin?.pluginId !== bb.pluginId && context.origin?.pluginId !== FORMER_PLUGIN_ID) return { tools: [], skills: configured.preferences().knobs.reviewCommandInThreads ? ["code-review-workspace"] : [] };
+    const role = context.thread ? configured.threadRole(context.thread) : null;
     if (role === "writer") {
       return { tools: ["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"], skills: ["code-review-workspace-generate"] };
     }
@@ -1334,12 +1335,12 @@ export default async function plugin(bb: BbPluginApi) {
     // skill. Its review context arrives as instructions.
     if (role === "assistant") {
       // Its own review, never the metadata its agent can write.
-      const targetKey = threadReviewForConfigure(bb, backend, context.thread!);
-      const review = targetKey ? backend.getReview(targetKey) : null;
+      const targetKey = configured.threadReview(context.thread!);
+      const review = targetKey ? configured.review(targetKey) : null;
       return {
         tools: ["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
           "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"], skills: [],
-        ...(review ? { instructions: assistantInstructions(review.targetKey, backend.getGuide(review.targetKey), backend.getPreferences().preferences, mayRunChecks(review, backend.getPreferences().preferences) ? review.number : undefined) } : {}),
+        ...(review ? { instructions: assistantInstructions(review.targetKey, configured.guide(review.targetKey), configured.preferences(), mayRunChecks(review, configured.preferences()) ? review.number : undefined) } : {}),
       };
     }
     return { tools: [], skills: [] };

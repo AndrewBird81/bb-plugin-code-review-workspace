@@ -7,7 +7,13 @@ import { spawnPrompt, toolFailed, toolText } from "./fake-host.test-support";
 import { generateGuide } from "./generate";
 import { skipRun } from "./agent";
 import { defaultPreferences } from "./preferences";
-import { queueStore } from "./store-queue";
+import { queueStore, type AsyncStore } from "./store-queue";
+import { startPlugin } from "./plugin-store.test-support";
+
+vi.mock("./store-queue", async (original) => {
+  const actual = await original<typeof import("./store-queue")>();
+  return { ...actual, queueStore: vi.fn(actual.queueStore) };
+});
 
 const patch = `diff --git a/a.ts b/a.ts
 --- a/a.ts
@@ -75,8 +81,7 @@ test("read_review_patch and list_review_files read only the calling thread's own
 
 test("read_review_patch and list_review_files say they read your own review, not any target", async () => {
   const writer = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate"] });
-  await plugin(writer.bb);
-  await recordWriter(writer.bb, "thread-1");
+  await recordWriter(await startPlugin(writer.bb), "thread-1");
   const { tools } = await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("code-review-workspace", "Generate guide: pr-1"));
   for (const name of ["read_review_patch", "list_review_files"]) {
     const description = tools.find((tool) => tool.name === name)!.description;
@@ -181,18 +186,17 @@ function baseConfigContext(pluginId: string | null, threadTitle: string | null =
   };
 }
 
-/** Records `threadId` as pr-1's guide writer, the way generateGuide does once its spawn returns. */
-async function recordWriter(bb: Parameters<typeof plugin>[0], threadId: string) {
-  const store = queueStore(createStore(bb));
+/** Records `threadId` as pr-1's guide writer, the way generateGuide does once its spawn returns, through the plugin's `store`. */
+async function recordWriter(store: AsyncStore, threadId: string) {
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "generating", createdAt: 1 });
   await store.setGenerationWorker("pr-1", await store.beginGeneration("pr-1"), threadId);
 }
 
 test("agents.configure exposes tools/skill only to this plugin's own generation thread", async () => {
   const h = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate"] });
-  await plugin(h.bb);
-  await recordWriter(h.bb, "thread-1");
-  await queueStore(createStore(h.bb)).setAssistantThread("pr-1", "assistant-1");
+  const store = await startPlugin(h.bb);
+  await recordWriter(store, "thread-1");
+  await store.setAssistantThread("pr-1", "assistant-1");
 
   const mine = await h.harness.behavior.resolveAgentConfiguration(
     baseConfigContext("code-review-workspace", "Generate guide: pr-1"),
@@ -275,8 +279,7 @@ test("a failed rebuild keeps the guide you had", async () => {
 
 test("generate_review_guide advertises the guide's schema and accepts a guide without unplacedFiles", async () => {
   const writer = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate"] });
-  await plugin(writer.bb);
-  await recordWriter(writer.bb, "thread-1");
+  await recordWriter(await startPlugin(writer.bb), "thread-1");
   const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("code-review-workspace", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
   const schema = JSON.stringify(tool?.inputSchema);
   for (const field of ["intent", "overview", "risk", "focus", "summary", "unplacedFiles", "requirements"]) expect(schema).toContain(`"${field}"`);
@@ -431,8 +434,7 @@ test("the guide-writing skill follows ticket references only from a trusted auth
 
 test("generate_review_guide's description names every rule it enforces, and its instructions say to stop once accepted", async () => {
   const writer = createFakePluginHost({ pluginId: "code-review-workspace", agentSkillIds: ["code-review-workspace-generate"] });
-  await plugin(writer.bb);
-  await recordWriter(writer.bb, "thread-1");
+  await recordWriter(await startPlugin(writer.bb), "thread-1");
   const tool = (await writer.harness.behavior.resolveAgentConfiguration(baseConfigContext("code-review-workspace", "Generate guide: pr-1"))).tools.find((t) => t.name === "generate_review_guide");
   for (const rule of [
     "every problem listed", "each changed file (or each hunk of a split file) is in exactly one chapter", "chapter ids are unique", "unplaced files have no changed lines",
