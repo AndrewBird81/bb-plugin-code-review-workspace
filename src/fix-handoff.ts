@@ -60,9 +60,9 @@ function where(review: ReviewMeta): string {
 /**
  * The fix thread's first message: where to work, each comment with its lines' code, and what not to do. `preExisting`
  * (Settings' Keep pre-existing problems apart): each comment reads as it would post, a problem the PR didn't introduce
- * marked so.
+ * marked so. `guard` adds the GitHub limit, for a new thread; the thread that made the change keeps its own rules.
  */
-export function fixMessage(review: ReviewMeta, comments: readonly FixComment[], patch: string, stale: readonly CommentLocation[], preExisting = false): string {
+export function fixMessage(review: ReviewMeta, comments: readonly FixComment[], patch: string, stale: readonly CommentLocation[], preExisting = false, guard = true): string {
   const items = comments.map((comment) => {
     const cross = comment.startLine !== undefined && (comment.startSide ?? comment.side) !== comment.side;
     const at = `\`${comment.file}:${linesOf(comment)}\`${cross ? ` (old line ${comment.startLine} to new line ${comment.line})` : comment.side === "LEFT" ? " (old line)" : ""}`;
@@ -70,7 +70,7 @@ export function fixMessage(review: ReviewMeta, comments: readonly FixComment[], 
     const code = codeAt(patch, comment);
     return code ? `${at}\n${fenced(code, "diff")}\n${postedBody(comment, preExisting)}` : `${at}\n${postedBody(comment, preExisting)}`;
   });
-  return [where(review), ...items, "Don't push, open or update a PR, or change anything on GitHub unless I ask in this thread."].join("\n\n");
+  return [where(review), ...items, ...(guard ? ["Don't push, open or update a PR, or change anything on GitHub unless I ask in this thread."] : [])].join("\n\n");
 }
 
 /**
@@ -110,7 +110,7 @@ export async function startFixThread(bb: BbPluginApi, store: AsyncStore, targetK
 }
 
 /** What Send to thread asks for after the comments: a reply per comment, and no push. */
-const REPORT_BACK = "Reply in this thread with what you changed for each comment, as `file:line — done` or `not done (why)`. Don't push unless I ask.";
+const REPORT_BACK = "Reply in this thread with what you changed for each comment, as `file:line — done` or `not done (why)`.";
 
 /** The thread `bb review` ran in for the review, as Finish review offers it. */
 export interface SourceThread { threadId: string; title: string | null; state: "open" | "archived" | "gone" }
@@ -151,7 +151,7 @@ export async function sendToSourceThread(bb: BbPluginApi, store: AsyncStore, tar
     const comments = draft.comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
     if (!comments.length) return { comments, text: "" };
     const { message, summary } = extras(draft.body, add);
-    const fix = fixMessage(review, comments, await tx.patch(targetKey), await tx.staleDraftComments(targetKey), (await tx.getPreferences()).preferences.knobs.preExistingFindings);
+    const fix = fixMessage(review, comments, await tx.patch(targetKey), await tx.staleDraftComments(targetKey), (await tx.getPreferences()).preferences.knobs.preExistingFindings, false);
     return { comments, text: [message, fix, summary, REPORT_BACK].filter(Boolean).join("\n\n") };
   });
   if (!comments.length) throw new Error("Those comments are no longer in the draft.");

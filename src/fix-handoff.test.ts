@@ -175,7 +175,9 @@ test("Send to thread sends the comments you chose to the thread that made the ch
   expect(text).toContain("acme/web PR #12 (Retry uploads)");
   expect(text).toContain("Name this better.");
   expect(text).not.toContain("Why change b?");
-  expect(text.endsWith("Reply in this thread with what you changed for each comment, as `file:line — done` or `not done (why)`. Don't push unless I ask.")).toBe(true);
+  expect(text.endsWith("Reply in this thread with what you changed for each comment, as `file:line — done` or `not done (why)`.")).toBe(true);
+  // The thread that made the change keeps its own rules about GitHub.
+  expect(text).not.toContain("Don't push");
   const sent = (await store.getReview("pr-1"))?.sent;
   expect(sent).toMatchObject({ threadId: "coder", title: "Retry uploads", comments: [{ file: "src/a.ts", line: 3, side: "RIGHT", body: "Name this better." }] });
   // Sending another keeps the first marked, each with when it was sent.
