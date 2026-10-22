@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.0 — unreleased
+## 1.3.0 — 2026-10-21
 
 Keep the reviews in Postgres, if you'd rather they weren't on the BB server's disk. SQLite stays the default: an install that changes no setting keeps its reviews in `data.db` and works as before. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.3.0. 1.3.0 adds no SQLite migration, so rolling back to 1.2.0 on SQLite keeps everything; from Postgres, export the reviews to SQLite first. Postgres was rehearsed on BB 0.46.1 with Postgres 18.
 
