@@ -631,7 +631,7 @@ The review agent learns from what you remove.
 
 ## Data and access
 
-Review metadata, patches, generated guides, and drafts are stored in this BB installation's plugin database. Review agents receive the patch and context through your configured BB provider; that provider's data handling applies. This plugin does not add a separate hosted review service.
+Review metadata, patches, generated guides, and drafts are stored in this BB installation's plugin database, or, if the BB operator chose it, in a Postgres database (see [Storage](#storage)). Review agents receive the patch and context through your configured BB provider; that provider's data handling applies. This plugin does not add a separate hosted review service.
 
 ### What the agents can and can't do
 
@@ -700,6 +700,7 @@ The automatic review never starts on a PR already merged or closed. So agents st
 
 ### Storage
 
+- The reviews are kept in SQLite, in the plugin's `data.db` on the BB server, unless the **Storage** setting (`storageBackend`) is Postgres. Then they're in a schema of the Postgres database the plugin's settings name, signed in with a password kept as a BB secret, over TLS by default. Moving them is the BB operator's: see [Storage backends](operations.md#storage-backends). `bb review storage status` says where they are.
 - Reviews of PRs merged or closed for 30 days drop their stored diff to save space; the guide, draft, and notes stay, and opening one reads the diff from GitHub again. Open PRs, local reviews, guides for an earlier head, and drafts with comments keep theirs.
 - New reviews use repository-scoped identifiers, preventing equal PR numbers in different repositories from overwriting each other.
 
@@ -731,6 +732,7 @@ Notes for reviews and pages from before the current releases. New installs can s
 - **A new file is missing from a local review.** Untracked files are never included. Track it with `git add -N <file>`, then **Update guide**. See [What each form reviews](#what-each-form-reviews).
 - **No Needs review group in BB's thread list, or no palette commands.** They need a BB with app overlays, and their switches on (**Show reviews in the thread list**, **Commands in BB's command palette**). A BB update that changes the thread list may hide the group until the plugin catches up.
 - **No alerts.** Install Needs You 0.2.0-beta.3 or later, enable its **Extension activity**, and check **Settings → Notifications**.
+- **"Couldn’t open the review session. The plugin may be updating."** Try again in a moment. If it stays, run `bb review storage status` on the BB server: in maintenance, or while it can't open its Postgres storage, it says why, and so does `bb plugin list`. See [Maintenance mode](operations.md#maintenance-mode).
 - **The updater asks you to close pages after they're all closed.** See [docs/operations.md](operations.md#updates).
 - **Anything else:** `bb plugin logs code-review-workspace` shows the plugin's log.
 
@@ -738,5 +740,5 @@ Notes for reviews and pages from before the current releases. New installs can s
 
 - **One review:** **Delete…** in its **Review actions** (⋯) removes its guide, drafts, private notes, and agent conversation, after confirmation. Nothing changes on GitHub.
 - **Pause the plugin:** `bb plugin disable code-review-workspace` stops it following your PRs and starting agents, and keeps its data.
-- **Remove the plugin:** `bb plugin remove code-review-workspace` can delete its reviews, drafts, and settings. Reviews, replies, and resolves you already posted stay on GitHub.
+- **Remove the plugin:** `bb plugin remove code-review-workspace` can delete its reviews, drafts, and settings. Reviews, replies, and resolves you already posted stay on GitHub. Reviews kept in Postgres stay there until the database's operator drops them; see [Removing the plugin](operations.md#removing-the-plugin).
 - The `gh` sign-in on the BB server is GitHub CLI's own; sign out with `gh auth logout` if nothing else there needs it.

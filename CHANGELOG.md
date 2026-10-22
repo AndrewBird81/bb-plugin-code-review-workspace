@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.3.0 — unreleased
+
+Keep the reviews in Postgres, if you'd rather they weren't on the BB server's disk. SQLite stays the default: an install that changes no setting keeps its reviews in `data.db` and works as before. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.3.0. 1.3.0 adds no SQLite migration, so rolling back to 1.2.0 on SQLite keeps everything; from Postgres, export the reviews to SQLite first. Postgres was rehearsed on BB 0.46.1 with Postgres 18.
+
+### Postgres
+
+- Six settings choose it: **Storage** (`storageBackend`: `sqlite` or `postgres`), `postgresUrl` (`postgres://user@host:port/database`, with no password or query parameters), `postgresPassword` (a BB secret), `postgresSchema` (`code_review_workspace` by default, created if it's missing), `postgresSsl`, and `postgresCaPem`. They apply when the plugin reloads.
+- `postgresSsl` is `require` by default: TLS, signing in only with SCRAM channel binding, and refusing a server that asks for a password any other way. It needs no certificate on the BB server and outlasts a CA's renewal. `verify-full` checks the server's certificate against `postgresCaPem`, or Node's CAs; `disable` is for local development.
+- The plugin holds one connection, and a writer lock on its schema, so one BB writes to a schema at a time; a reload hands over without overlap.
+- If Postgres restarts or the network drops, the call in flight fails and the next one connects again. A plugin starting while Postgres is away keeps trying and serves once it answers; it reports needs-configuration after a minute, or at once for a wrong password, a refused sign-in, or a lock another BB holds.
+- No message or log line shows the URL or the password.
+
+### Moving the reviews
+
+- `bb review storage migrate` copies the reviews from SQLite to an empty Postgres schema, checks every table's rows and next ids on both sides before it commits, and only then marks Postgres as holding them. Nothing is written if a check fails or Postgres goes away mid-copy; run it again.
+- `bb review storage export-sqlite` copies them back to a new, checked `data-export-….db` beside `data.db`; `--replace-data-db` backs `data.db` up and replaces its reviews with the copy.
+- `bb review storage verify` compares SQLite and Postgres table by table, and `bb review storage status` says which backend the settings choose, which holds the reviews, and whether the plugin serves.
+- While the setting and where the reviews are disagree, the plugin is in maintenance: only `bb review storage` answers, nothing writes, and BB shows needs-configuration with what to run. It never falls back to the other backend.
+- `migrate` and `export-sqlite` run from a terminal on the BB server, not from a BB thread.
+
+### Also
+
+- Reviews created in the same millisecond come in order of their key, where they came in the order they were saved.
+
+### Docs
+
+- [docs/operations.md](docs/operations.md#storage-backends) covers Postgres: setting it up, the settings, what each TLS mode guarantees, the single writer, maintenance mode, `bb review storage`, backups, rolling back to SQLite, and what `bb plugin remove` leaves in Postgres.
+- The guide's [Storage](docs/guide.md#storage) says where the reviews are, and Troubleshooting what "Couldn’t open the review session" can mean.
+- [docs/development.md](docs/development.md#backend-tests-on-postgres) says how to run the backend tests, and a copy of a real `data.db`'s round trip, on a throwaway Postgres 18.
+
 ## 1.2.0 — 2026-10-20
 
 Give a review a name of your own. **Rename…** in its ⋯ menu changes what your lists call it, and nothing on GitHub; its Overview keeps the PR's title under the name. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.2.0. Rolling back to 1.1.3 keeps the names, unused, until you update again.

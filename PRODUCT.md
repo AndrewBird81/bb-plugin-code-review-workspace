@@ -36,7 +36,7 @@ Code Review Workspace runs on BB **0.45.0+**, Node **24+**, and plugin SDK **0.6
 
 Git and `gh` run on the BB server. Local review checkouts must exist there; a checkout only on another enrolled machine is unsupported. GitHub features currently support `github.com`. Account switching affects that server’s `gh` credentials, including other consumers; environment-token overrides must be cleared before switching saved accounts.
 
-Metadata, patches, guides, and drafts reside in the installation’s plugin database. Review agents receive context through the configured provider. Sharing a BB server shares its credentials and plugin storage. See [README.md](README.md) for installation, [docs/guide.md](docs/guide.md) for use, and [docs/operations.md](docs/operations.md) for running it.
+Metadata, patches, guides, and drafts reside in the installation’s plugin database, or in a Postgres database its operator chooses. Review agents receive context through the configured provider. Sharing a BB server shares its credentials and plugin storage. See [README.md](README.md) for installation, [docs/guide.md](docs/guide.md) for use, and [docs/operations.md](docs/operations.md) for running it.
 
 ## Updates
 

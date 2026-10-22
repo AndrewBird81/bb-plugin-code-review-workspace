@@ -18,6 +18,7 @@ bb plugin dev
 - The plugin builds and tests against the SDK pinned in devDependencies (0.6.49), and uses only what the SDK floor, 0.6.14, has.
 - Use a Node.js version compatible with the installed `better-sqlite3` package (this release was verified on Node.js 24).
 - BB builds the plugin from source when it installs or updates it, so the build output in `dist/` isn't committed.
+- BB installs a Git plugin's dependencies without dev or optional packages (`--omit=dev --omit=optional`), so whatever the server's bundle takes code from must be a dependency of its own, as `pg-cloudflare` is for `pg`. `src/server-bundle.test.ts` checks every package in the bundle.
 - Keep published tags immutable.
 - The README's icon is two copies of `assets/icon.svg` with GitHub's text colour in place of `currentColor`, which an `<img>` draws black. When the icon changes, regenerate them from the repo root: `sed 's/currentColor/#1f2328/' assets/icon.svg > docs/images/icon-light.svg && sed 's/currentColor/#f0f6fc/' assets/icon.svg > docs/images/icon-dark.svg`.
 
