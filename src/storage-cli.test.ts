@@ -262,7 +262,8 @@ describe.skipIf(!testPgUrl)("bb review storage, moving the reviews (CRW_TEST_PG_
     const lines = stdout.split("\n");
     expect(lines[0]).toBe(`Copying the reviews from SQLite's data.db to Postgres schema "${schema}".`);
     // A line for each table, with its rows, time and next id.
-    expect(lines.filter((line) => /^ {2}\w+ +\d+ rows +\d+ ms/.test(line))).toHaveLength(tables.length);
+    expect(lines.filter((line) => /^ {2}\w+ +\d+ rows? +\d+ ms/.test(line))).toHaveLength(tables.length);
+    expect(stdout).toMatch(/^ {2}review_preferences +1 row +\d+ ms$/m);
     expect(stdout).toMatch(/^ {2}discussion_entries +3 rows +\d+ ms {2}next id 47$/m);
     expect(stdout).toMatch(/^ {2}patches +4 rows +\d+ ms$/m);
     expect(lines.at(-2)).toMatch(new RegExp(`^Copied and checked, the same in SQLite and Postgres: ${tables.length} tables, \\d+ rows, and 4 next ids, in \\d+ ms\\.$`));

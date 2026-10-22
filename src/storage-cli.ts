@@ -308,7 +308,7 @@ function replaceFromExport(db: ReturnType<BbPluginApi["storage"]["database"]>, t
 const width = (tables: Table[]) => Math.max(...tables.map((table) => table.name.length));
 
 function copiedLine(tables: Table[], { table, rows, ms, nextId }: Copied): string {
-  return `  ${table.padEnd(width(tables))}  ${String(rows).padStart(7)} rows  ${String(ms).padStart(6)} ms${nextId === undefined ? "" : `  next id ${nextId}`}`;
+  return `  ${table.padEnd(width(tables))}  ${String(rows).padStart(7)} ${rows === 1 ? "row " : "rows"}  ${String(ms).padStart(6)} ms${nextId === undefined ? "" : `  next id ${nextId}`}`;
 }
 
 /** Each table's rows, and each next id, in SQLite and in Postgres, and whether they're the same. */
