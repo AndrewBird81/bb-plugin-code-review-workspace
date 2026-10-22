@@ -6,6 +6,7 @@ import { patchRows, splitPatchByFile } from "./patch";
 import { spawnExecution } from "./preferences";
 import { assistantReview } from "./draft-comments";
 import { isMissingThread } from "./thread-errors";
+import { reviewRevision } from "./review-revision";
 import type { AsyncStore } from "./store-queue";
 
 const MAX_CODE_LINES = 40;
@@ -129,11 +130,63 @@ export async function sourceThread(bb: BbPluginApi, store: AsyncStore, targetKey
   return { threadId, title: thread.title ?? null, state: thread.archivedAt ? "archived" : "open" };
 }
 
+/** What you add to what Send to thread sends: your own message, and whether the draft's summary goes too. */
+export interface SendExtras { message?: string; includeSummary?: boolean }
+
+/** Your message and the draft's summary, trimmed, as Send to thread adds them; empty ones are left out. */
+function extras(draftBody: string, { message, includeSummary }: SendExtras): { message: string; summary: string } {
+  return { message: message?.trim() ?? "", summary: includeSummary ? draftBody.trim() : "" };
+}
+
 /**
  * Send the draft comments at `picked` to the review's source thread, the one that made the change, after its current
- * turn if it's busy, and record them as sent. Only for your own PR or a local review; the draft stays as it is.
+ * turn if it's busy, and record them as sent. Your message leads, and the summary follows the comments. Only for your
+ * own PR or a local review; the draft stays as it is.
  */
-export async function sendToSourceThread(bb: BbPluginApi, store: AsyncStore, targetKey: string, picked: readonly CommentLocation[]): Promise<{ ok: true; delivery: "sent" | "queued"; title: string | null }> {
+export async function sendToSourceThread(bb: BbPluginApi, store: AsyncStore, targetKey: string, picked: readonly CommentLocation[], add: SendExtras = {}): Promise<{ ok: true; delivery: "sent" | "queued"; title: string | null }> {
+  const { review, source } = await openSourceThread(bb, store, targetKey);
+  // What the message says, read in one turn.
+  const { comments, text } = await store.exclusive(async (tx) => {
+    const draft = await tx.getDraft(targetKey);
+    const comments = draft.comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
+    if (!comments.length) return { comments, text: "" };
+    const { message, summary } = extras(draft.body, add);
+    const fix = fixMessage(review, comments, await tx.patch(targetKey), await tx.staleDraftComments(targetKey), (await tx.getPreferences()).preferences.knobs.preExistingFindings);
+    return { comments, text: [message, fix, summary, REPORT_BACK].filter(Boolean).join("\n\n") };
+  });
+  if (!comments.length) throw new Error("Those comments are no longer in the draft.");
+  const delivery = await sendText(bb, source.threadId, text);
+  const at = Date.now();
+  // Comments sent to this thread before stay marked; one sent again is marked now. Each keeps its words, so an edit unmarks it.
+  const earlier = review.sent?.threadId === source.threadId ? review.sent.comments.filter((comment) => !comments.some((sent) => sameLocation(sent, comment))) : [];
+  // The comments supersede an approval sent before them.
+  await store.setLifecycle(targetKey, { sent: { at, threadId: source.threadId, title: source.title, comments: [...earlier, ...comments.map(({ file, line, side, body }) => ({ file, line, side, body, at }))] }, approvalSent: null });
+  return { ok: true, delivery, title: source.title };
+}
+
+/** An approval says this, then your message and the draft's summary if you add them; what it means is up to the thread that receives it. */
+const APPROVED = "Approved";
+
+/**
+ * Tell the review's source thread you approve the change as is, while the draft has no comments, after its current
+ * turn if it's busy, and record it against the diff you approved, which it tells once. Only for your own PR or a local
+ * review.
+ */
+export async function sendApprovalToSourceThread(bb: BbPluginApi, store: AsyncStore, targetKey: string, add: SendExtras = {}): Promise<{ ok: true; delivery: "sent" | "queued"; title: string | null }> {
+  const { review, source } = await openSourceThread(bb, store, targetKey);
+  const { count, message, summary, revision } = await store.exclusive(async (tx) => {
+    const draft = await tx.getDraft(targetKey);
+    return { count: draft.comments.length, ...extras(draft.body, add), revision: await reviewRevision(tx, targetKey) };
+  });
+  if (count) throw new Error("Your draft has comments. Send them instead.");
+  if (review.approvalSent?.threadId === source.threadId && review.approvalSent.revision === revision) throw new Error(`You already told ${source.title ?? "the thread"} you approve this diff.`);
+  const delivery = await sendText(bb, source.threadId, [APPROVED, message, summary].filter(Boolean).join("\n\n"));
+  await store.setLifecycle(targetKey, { approvalSent: { at: Date.now(), threadId: source.threadId, title: source.title, revision } });
+  return { ok: true, delivery, title: source.title };
+}
+
+/** The review and its source thread, while you may send to it: your own PR or a local review, and the thread open. */
+async function openSourceThread(bb: BbPluginApi, store: AsyncStore, targetKey: string): Promise<{ review: ReviewMeta; source: SourceThread }> {
   const review = await store.getReview(targetKey);
   if (!review) throw new Error("This review no longer exists.");
   if (!(await isOwnChange(review))) throw new Error("Send to thread is only for your own PR or a local review.");
@@ -141,22 +194,15 @@ export async function sendToSourceThread(bb: BbPluginApi, store: AsyncStore, tar
   if (!source) throw new Error("This review has no thread to send to. Run `bb review` in the thread that made the change.");
   if (source.state === "gone") throw new Error("The thread that started this review was deleted.");
   if (source.state === "archived") throw new Error(`${source.title ?? "The thread that started this review"} is archived.`);
-  // What the message says, read in one turn.
-  const { comments, text } = await store.exclusive(async (tx) => {
-    const comments = (await tx.getDraft(targetKey)).comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
-    return { comments, text: comments.length ? [fixMessage(review, comments, await tx.patch(targetKey), await tx.staleDraftComments(targetKey), (await tx.getPreferences()).preferences.knobs.preExistingFindings), REPORT_BACK].join("\n\n") : "" };
-  });
-  if (!comments.length) throw new Error("Those comments are no longer in the draft.");
-  let delivery: "sent" | "queued";
+  return { review, source };
+}
+
+/** Send `text` to the thread after its current turn, if it's busy. */
+async function sendText(bb: BbPluginApi, threadId: string, text: string): Promise<"sent" | "queued"> {
   try {
-    const sent = await bb.sdk.threads.send({ threadId: source.threadId, mode: "queue-if-active", input: [{ type: "text", text, mentions: [] }] });
-    delivery = sent?.delivery === "queued" ? "queued" : "sent";
+    const sent = await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{ type: "text", text, mentions: [] }] });
+    return sent?.delivery === "queued" ? "queued" : "sent";
   } catch (error) {
     throw new Error(`Couldn’t send to the thread: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const at = Date.now();
-  // Comments sent to this thread before stay marked; one sent again is marked now. Each keeps its words, so an edit unmarks it.
-  const earlier = review.sent?.threadId === source.threadId ? review.sent.comments.filter((comment) => !comments.some((sent) => sameLocation(sent, comment))) : [];
-  await store.setLifecycle(targetKey, { sent: { at, threadId: source.threadId, title: source.title, comments: [...earlier, ...comments.map(({ file, line, side, body }) => ({ file, line, side, body, at }))] } });
-  return { ok: true, delivery, title: source.title };
 }

@@ -18,7 +18,7 @@ import { runReviewCommand } from "./src/review-command";
 import { NOT_LISTED, runListCommand } from "./src/list-command";
 import { createPrReview } from "./src/start-review";
 import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startAutomaticReview, startConversation } from "./src/agent";
-import { sendToSourceThread, sourceThread, startFixThread } from "./src/fix-handoff";
+import { sendApprovalToSourceThread, sendToSourceThread, sourceThread, startFixThread } from "./src/fix-handoff";
 import { listMachines, personalProjectId } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
 import { commentsKey, rangeOf, sameLocation, SEVERITIES, severityOf, SUMMARY_AT, type Draft } from "./src/draft";
@@ -1019,9 +1019,15 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       if (!(await store.getPreferences()).preferences.knobs.sendToThread) return { thread: null };
       return { thread: await sourceThread(bb, store, targetKey) };
     },
-    async sendToSourceThread({ targetKey, comments }) {
+    async sendToSourceThread({ targetKey, comments, message, includeSummary }) {
       if (!(await store.getPreferences()).preferences.knobs.sendToThread) throw new Error("Send to thread is off in Review settings.");
-      const result = await sendToSourceThread(bb, store, targetKey, comments);
+      const result = await sendToSourceThread(bb, store, targetKey, comments, { message, includeSummary });
+      changed(targetKey);
+      return result;
+    },
+    async sendApprovalToSourceThread({ targetKey, message, includeSummary }) {
+      if (!(await store.getPreferences()).preferences.knobs.sendToThread) throw new Error("Send to thread is off in Review settings.");
+      const result = await sendApprovalToSourceThread(bb, store, targetKey, { message, includeSummary });
       changed(targetKey);
       return result;
     },

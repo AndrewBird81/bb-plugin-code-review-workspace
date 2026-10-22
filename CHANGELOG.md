@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.0 — unreleased
+
+- With no comments in the draft, Finish review on your own PR or a local review offers **Send approval to ‹thread›**, where it offered nothing: it asks for an optional message and, when the draft has a summary, whether to include it (unchecked), then sends the thread that made the change one message, "Approved", followed by your message and the summary if you add them, and says "Sent to ‹thread›" or "Queued in ‹thread›", with **Open**. It's offered once for each diff; a comment you add goes as before. Nothing goes to GitHub.
+- **Send N comments to ‹thread›** takes the same optional message, sent before the comments, and **Include the summary**, unchecked, which adds the review summary after them. Fix in a new thread is unchanged.
+
 ## 1.3.0 — 2026-10-21
 
 Keep the reviews in Postgres, if you'd rather they weren't on the BB server's disk. SQLite stays the default: an install that changes no setting keeps its reviews in `data.db` and works as before. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.3.0. 1.3.0 adds no SQLite migration, so rolling back to 1.2.0 on SQLite keeps everything; from Postgres, export the reviews to SQLite first. Postgres was rehearsed on BB 0.46.1 with Postgres 18.

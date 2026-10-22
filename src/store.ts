@@ -30,6 +30,8 @@ export interface ReviewLifecycle {
   sourceThreadAt?: number | null;
   /** The draft comments last sent to the source thread, each since when, and the thread's title then. Sending submits nothing. */
   sent?: { at: number; threadId: string; title: string | null; comments: Array<CommentLocation & { at: number; body?: string }> } | null;
+  /** The approval last sent to the source thread with no comments, and the review revision it approved. Sending comments clears it. */
+  approvalSent?: { at: number; threadId: string; title: string | null; revision: string } | null;
   submittedVerdict?: Verdict | null;
   submittedAt?: number | null;
   submittedHeadSha?: string | null;
