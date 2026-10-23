@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.4.1 — unreleased
+## 1.4.1 — 2026-10-23
 
 Fixes from a bug bash of the Postgres storage and the flows around it. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.4.1. 1.4.1 adds no migration, so rolling back to 1.4.0 keeps everything.
 
