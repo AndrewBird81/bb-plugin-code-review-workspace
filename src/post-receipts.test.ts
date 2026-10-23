@@ -37,7 +37,7 @@ import { pgSql } from "./db/pg";
 import { migratePg } from "./db/pg-migrations";
 import { testPgOptions, testPgUrl } from "./db/pg-test.test-support";
 import { runGh } from "./gh";
-import { storeOn } from "./store";
+import { reanchorDraft, storeOn } from "./store";
 import type { AsyncStore } from "./store-queue";
 import { createReviewSubmitter } from "./submit-review";
 import { postDraftedReply, postReceipts } from "./post-receipts";
@@ -196,6 +196,34 @@ test("comments GitHub took on an earlier head leave the draft, and the Submit th
   expect(await store.getDraft("pr-1")).toMatchObject({ comments: [{ body: "and this" }], body: "A nit.", verdict: "COMMENT" });
   expect(await submit()).toEqual({ ok: true, url: "https://github.com/acme/web/pull/1#r2" });
   expect(gh.payloads.map((p) => JSON.parse(p).comments.map((c: { body: string }) => c.body))).toEqual([["nit"], ["and this"]]);
+}, 15_000);
+
+// Review round 2, NIT 2: a file renamed in the new commits moved the posted comment to its new path, where the match
+// that takes posted comments out of the draft missed it, so it stayed in the draft to be posted again.
+test("a comment GitHub took on an earlier head leaves the draft though the new commits renamed its file", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const store = testStore(bb);
+  const before = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1,2 @@\n one\n+two\n";
+  const renamed = "diff --git a/a.ts b/b.ts\nsimilarity index 90%\nrename from a.ts\nrename to b.ts\n--- a/a.ts\n+++ b/b.ts\n@@ -1 +1,2 @@\n one\n+two\n";
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
+  await store.savePatch("pr-1", before);
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "nit" });
+  await store.setVerdict("pr-1", "COMMENT", "A nit.");
+  const posted = await store.getDraft("pr-1");
+  let down = false;
+  gh.onPost = async () => { down = true; };
+  expect(await createReviewSubmitter(failing(store, () => down), runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", posted.comments, posted)).toMatchObject({ ok: false });
+  down = false;
+  gh.onPost = async () => {};
+  // Rebuilt for the new head as rebuildReview does: the comment follows its line into the new diff.
+  await store.savePatch("pr-1", renamed);
+  await rebuilt(store, "sha456");
+  await store.rebaseDraftComments("pr-1", await reanchorDraft(store, "pr-1", before, renamed));
+  const shown = await store.getDraft("pr-1");
+  expect(shown.comments).toMatchObject([{ file: "b.ts", line: 2, body: "nit" }]);
+  expect(await createReviewSubmitter(store, runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", shown.comments, shown)).toEqual({ ok: false, error: "GitHub already has 1 of these comments, from your review of sha123 (https://github.com/acme/web/pull/1#r1), so it was taken out of your draft. Check the draft, then submit again." });
+  expect(gh.posts).toHaveLength(1);
+  expect(await store.getDraft("pr-1")).toMatchObject({ comments: [], body: "A nit." });
 }, 15_000);
 
 /** Has deleting a reply draft fail, on either backend, as on a dropped connection; the returned function undoes it. */

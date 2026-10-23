@@ -767,12 +767,13 @@ export function storeOn(sql: Sql): Store {
     async clearSubmittedDraft(submitted, keepSummary) {
       const current = await this.getDraft(submitted.targetKey);
       const before = current.comments.length;
-      // A rebuild during the POST may have moved a submitted comment, and a save may have changed only the whitespace or line
-      // endings around its text: one otherwise unchanged but for its lines is the same comment.
+      // A rebuild since the POST may have moved a submitted comment, to a file's new path too, and a save may have changed
+      // only the whitespace or line endings around its text: one otherwise unchanged but for its lines is the same comment.
       const placeless = (c: DraftComment) => JSON.stringify([c.file, c.side, c.startSide, receiptText(c.body), c.severity, c.introduced, c.author]);
+      const renamed = await renamesOf(submitted.targetKey);
       for (const old of submitted.comments) {
         let index = current.comments.findIndex((c) => JSON.stringify(c) === JSON.stringify(old));
-        if (index < 0) index = current.comments.findIndex((c) => placeless(c) === placeless(old));
+        if (index < 0) index = current.comments.findIndex((c) => placeless(c) === placeless({ ...old, file: renamed.get(old.file) ?? old.file }));
         if (index >= 0) current.comments.splice(index, 1);
       }
       if (!keepSummary && receiptText(current.body) === receiptText(submitted.body) && current.verdict === submitted.verdict) {
