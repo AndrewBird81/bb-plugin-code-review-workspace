@@ -113,6 +113,48 @@ test("a draft changed since a review GitHub took wasn't recorded is checked agai
   expect(gh.payloads.map((p) => JSON.parse(p).comments.map((c: { body: string }) => c.body))).toEqual([["nit"], ["and this"]]);
 }, 15_000);
 
+// Review round 3, NIT A: on the head the review was for, a Submit whose record took out only the summary GitHub has
+// said the generic "Your review summary or verdict changed", not that GitHub already has it.
+test("a Submit whose record takes only the summary GitHub has out of the draft says so and posts nothing", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
+  await store.savePatch("pr-1", PATCH);
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "nit" });
+  await store.setVerdict("pr-1", "COMMENT", "A nit.");
+  const posted = await store.getDraft("pr-1");
+  let down = false;
+  gh.onPost = async () => { down = true; };
+  expect(await createReviewSubmitter(failing(store, () => down), runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", posted.comments, posted)).toMatchObject({ ok: false });
+  down = false;
+  gh.onPost = async () => {};
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "nit, please" });
+  const submit = async () => { const shown = await store.getDraft("pr-1"); return createReviewSubmitter(store, runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", shown.comments, shown); };
+  expect(await submit()).toEqual({ ok: false, error: "GitHub already has your summary and verdict, from your review of sha123 (https://github.com/acme/web/pull/1#r1), so they were taken out of your draft. Check the draft, then submit again." });
+  expect(gh.posts).toHaveLength(1);
+  expect(await store.getDraft("pr-1")).toMatchObject({ comments: [{ body: "nit, please" }], body: "", verdict: "COMMENT" });
+  expect(await submit()).toEqual({ ok: true, url: "https://github.com/acme/web/pull/1#r2" });
+  expect(gh.payloads.map((p) => JSON.parse(p).comments.map((c: { body: string }) => c.body))).toEqual([["nit"], ["nit, please"]]);
+}, 15_000);
+
+test("a Submit of comments edited since a review GitHub took with no summary wasn't recorded posts them", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
+  await store.savePatch("pr-1", PATCH);
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "nit" });
+  const posted = await store.getDraft("pr-1");
+  let down = false;
+  gh.onPost = async () => { down = true; };
+  expect(await createReviewSubmitter(failing(store, () => down), runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", posted.comments, posted)).toMatchObject({ ok: false });
+  down = false;
+  gh.onPost = async () => {};
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "nit, please" });
+  const shown = await store.getDraft("pr-1");
+  expect(await createReviewSubmitter(store, runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", shown.comments, shown)).toEqual({ ok: true, url: "https://github.com/acme/web/pull/1#r2" });
+  expect(gh.posts).toHaveLength(2);
+}, 15_000);
+
 test("a reply GitHub took whose draft the store couldn't clear is finished by the next Send of it, after a reload too, without posting it again", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = testStore(bb);

@@ -238,9 +238,9 @@ export interface Store extends AgentCommentStore {
   staleDraftComments(targetKey: string): Promise<DraftComment[]>;
   /**
    * Take a submitted review's comments out of the draft, and its summary and verdict unless `keepSummary`. Returns how
-   * many comments it took.
+   * many comments it took, and whether it took the summary and verdict.
    */
-  clearSubmittedDraft(draft: Draft, keepSummary?: boolean): Promise<number>;
+  clearSubmittedDraft(draft: Draft, keepSummary?: boolean): Promise<{ comments: number; summary: boolean }>;
   // Discussions with the review assistant at lines of the diff.
   listDiscussions(targetKey: string): Promise<Discussion[]>;
   /** The reviews with a discussion waiting on the assistant, and when the reviewer last wrote in one: 0 for unknown. */
@@ -776,13 +776,16 @@ export function storeOn(sql: Sql): Store {
         if (index < 0) index = current.comments.findIndex((c) => placeless(c) === placeless({ ...old, file: renamed.get(old.file) ?? old.file }));
         if (index >= 0) current.comments.splice(index, 1);
       }
-      if (!keepSummary && receiptText(current.body) === receiptText(submitted.body) && current.verdict === submitted.verdict) {
+      const posted = !keepSummary && receiptText(current.body) === receiptText(submitted.body) && current.verdict === submitted.verdict;
+      // An empty Comment summary taken out leaves the draft's as it was.
+      const summary = posted && (!!current.body || current.verdict !== "COMMENT");
+      if (posted) {
         current.body = "";
         current.verdict = "COMMENT";
         delete current.bodyAuthor; delete current.suggestedVerdict; delete current.written; delete current.verdictChosen; delete current.unchecked;
       }
       await writeDraft(sql, current);
-      return before - current.comments.length;
+      return { comments: before - current.comments.length, summary };
     },
     async listDiscussions(k) {
       // Startup asks of every review: one with no discussion reads no patch.

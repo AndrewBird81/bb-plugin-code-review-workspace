@@ -44,7 +44,8 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
   const inFlight = new Set<string>();
   /**
    * Record what GitHub took. One on an earlier head than the review's, as after a rebuild, leaves the summary and verdict:
-   * submitted again, they're a review of the new head. Returns how many of its comments left the draft.
+   * submitted again, they're a review of the new head. Returns how many of its comments left the draft, and whether its
+   * summary and verdict did.
    */
   const record = (targetKey: string, receipt: ReviewReceipt, keepSummary = false) => store.exclusive(async (tx) => {
     await tx.setLifecycle(targetKey, { submittedVerdict: receipt.draft.verdict, submittedAt: receipt.submittedAt, submittedHeadSha: receipt.headSha, submittedReviewId: receipt.reviewId, ...(receipt.reviewer ? { reviewer: receipt.reviewer } : {}) });
@@ -60,7 +61,7 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
       const earlier = await receipts.get<ReviewReceipt>(reviewReceiptKey(targetKey));
       if (earlier) {
         let current = false;
-        let taken = 0;
+        let taken = { comments: 0, summary: false };
         try {
           const review = await store.getReview(targetKey);
           current = review?.headSha === earlier.headSha;
@@ -73,7 +74,9 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
         }
         await receipts.drop(reviewReceiptKey(targetKey));
         if (current && sameComments(asReceipted(earlier.draft.comments), asReceipted(shown)) && receiptText(earlier.draft.body) === receiptText(summary.body) && earlier.draft.verdict === summary.verdict) return { ok: true, ...(earlier.url ? { url: earlier.url } : {}) };
-        if (taken) return { ok: false, error: `GitHub already has ${taken} of these comments, from your review of ${earlier.headSha.slice(0, 7)}${earlier.url ? ` (${earlier.url})` : ""}, so ${taken === 1 ? "it was" : "they were"} taken out of your draft. Check the draft, then submit again.` };
+        const from = `from your review of ${earlier.headSha.slice(0, 7)}${earlier.url ? ` (${earlier.url})` : ""}`;
+        if (taken.comments) return { ok: false, error: `GitHub already has ${taken.comments} of these comments, ${from}, so ${taken.comments === 1 ? "it was" : "they were"} taken out of your draft. Check the draft, then submit again.` };
+        if (taken.summary) return { ok: false, error: `GitHub already has your summary and verdict, ${from}, so they were taken out of your draft. Check the draft, then submit again.` };
       }
       // The review and the draft it checks, in one turn.
       const checked = await store.exclusive(async (tx): Promise<{ error: string } | { m: ReviewMeta & { number: number; repo: string; headSha: string }; draft: Draft }> => {
