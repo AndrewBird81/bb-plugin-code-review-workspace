@@ -27,7 +27,7 @@ Fixes from a bug bash of the Postgres storage and the flows around it. Still **B
 ### Docs
 
 - `bb review --help` lists `bb review storage`, and says to give a git ref named `comment`, `summary`, `list` or `storage` as `refs/heads/<name>`. While Postgres is still opening, `export-sqlite`'s refusal says the plugin opens the reviews from it, not that it serves them.
-- [docs/operations.md](docs/operations.md#storage-backends) says that only `export-sqlite --replace-data-db`, not `export-sqlite` alone, changes `storage:owner`; which PG* environment variables pg still reads; that a connection error can show the host, though never the password or the URL as set; that the password is briefly visible in the server's process list while `bb plugin config … set` runs; what's left in progress after a Postgres outage, and how long calls take to fail while Postgres hangs; and, with the guide's Uninstall, to copy `data.db` and the export and backup files off the server before `bb plugin remove`.
+- [docs/operations.md](docs/operations.md#storage-backends) says that only `export-sqlite --replace-data-db`, not `export-sqlite` alone, changes `storage:owner`; which PG* environment variables pg still reads; that a connection error can show the host, though never the password or the URL as set; that the password is briefly visible in the server's process list while `bb plugin config … set` runs; what's left in progress after a Postgres outage, and how long calls take to fail while Postgres hangs; how to restore, or start over, when the schema holding the reviews is lost; and, with the guide's Uninstall, to copy `data.db` and the export and backup files off the server before `bb plugin remove`.
 
 ## 1.4.0 — 2026-10-23
 

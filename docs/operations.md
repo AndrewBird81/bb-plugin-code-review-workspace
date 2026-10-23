@@ -52,7 +52,7 @@ From 1.3.0 the reviews can be kept in Postgres instead of SQLite. Both hold the 
    CREATE DATABASE code_review_workspace OWNER code_review_workspace;
    ```
 
-   `bb review storage migrate` makes the schema (`postgresSchema`) if it's missing, and the tables in it. A schema that exists already needs to be the role's, or one it can create tables in. Once the reviews are in Postgres, the plugin doesn't make a schema: one that holds no reviews, as after a typo in `postgresSchema` or a `postgresUrl` naming another database, is reported as needs-configuration ("… schema "…" holds none: check postgresUrl and postgresSchema"), and nothing is served until the settings are fixed and the plugin reloads.
+   `bb review storage migrate` makes the schema (`postgresSchema`) if it's missing, and the tables in it. A schema that exists already needs to be the role's, or one it can create tables in. Once the reviews are in Postgres, the plugin doesn't make a schema: one that holds no reviews, as after a typo in `postgresSchema` or a `postgresUrl` naming another database, is reported as needs-configuration ("… schema "…" holds none: check postgresUrl and postgresSchema"), and nothing is served until the settings are fixed and the plugin reloads. If the schema itself is gone, see [When the schema is lost](#when-the-schema-is-lost).
 2. Set the [settings](#postgres-settings) on the BB server, `storageBackend` last. Read the password into a variable, so it stays out of your shell's history:
 
    ```sh
@@ -154,6 +154,20 @@ bb plugin reload code-review-workspace          # serving from SQLite, with what
 - **1.3.0 adds no SQLite migrations,** so 1.2.0 reads an exported `data.db` as its own. BB has no downgrade in place for a Git install: remove the plugin (which deletes its settings and password) and install `@v1.2.0`, which pins it. To return, remove it and install `@^1.0.0` again, and set the storage settings again.
 - **Postgres keeps its copy** after an export. Moving to Postgres again needs a schema without reviews, or one holding exactly SQLite's: drop the old schema's tables, or set a new `postgresSchema`.
 - A table whose `sqlite_sequence` had no row comes back from Postgres with a row holding its last id. SQLite hands out the same next id either way.
+
+### When the schema is lost
+
+If the reviews are in Postgres and their schema is gone, because the database was recreated or the schema was dropped, the plugin reports "… holds none: check postgresUrl and postgresSchema" and serves nothing. `migrate` refuses, since `storage:owner` says the reviews are in Postgres already, and `export-sqlite` has no tables to copy. There are two ways out:
+
+- **Restore the schema** from your [backup](#backups), for example with `pg_restore` or `psql` from the `pg_dump`, as the plugin's role or with its tables owned by it. Then run `bb plugin reload code-review-workspace`.
+- **Start over with no reviews.** Make the schema and an empty migrations table as the plugin's role, then reload. The plugin sees a schema it made, and makes its tables, empty:
+
+  ```sql
+  CREATE SCHEMA code_review_workspace;
+  CREATE TABLE code_review_workspace.crw_migrations (id INTEGER PRIMARY KEY, statement_hash TEXT NOT NULL, applied_at BIGINT NOT NULL);
+  ```
+
+  Use your `postgresSchema` if it isn't the default. `data.db` still holds the reviews as they were at the move to Postgres. Copy it aside first: `export-sqlite --replace-data-db` would replace them with the new schema's, which holds none.
 
 ### When Postgres misbehaves
 

@@ -135,6 +135,22 @@ describe.skipIf(!testPgUrl)("the plugin on Postgres storage", () => {
     await harness.lifecycle.dispose();
   });
 
+  // Review round 1, NIT 4: docs/operations.md's way to start over when the schema holding the reviews is lost.
+  test("a schema lost and made again with an empty crw_migrations by hand, as the operations guide says, is served with no reviews", async () => {
+    const { schema, settings } = postgresSettings();
+    const { bb, harness } = await host(settings, undefined, true);
+    const admin = connection("public");
+    await admin.run(`CREATE SCHEMA ${schema}`);
+    await admin.run(`CREATE TABLE ${schema}.crw_migrations (id INTEGER PRIMARY KEY, statement_hash TEXT NOT NULL, applied_at BIGINT NOT NULL)`);
+    await plugin(bb);
+    harness.behavior.runService("storage");
+    await opened(harness);
+    expect(harness.inspection.needsConfigurationMessages).toEqual([]);
+    expect(await harness.behavior.runCli(["list", "--json"])).toMatchObject({ exitCode: 0 });
+    expect((await connection(schema).get<{ n: number }>("SELECT count(*) AS n FROM reviews"))!.n).toBe(0);
+    await harness.lifecycle.dispose();
+  });
+
   test("with the writer lock held elsewhere, only the CLI serves and needsConfiguration says why, until the holder lets it go", async () => {
     const { schema, settings } = postgresSettings();
     const holder = connection(schema);
