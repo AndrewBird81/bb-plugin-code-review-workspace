@@ -118,7 +118,9 @@ export default async function plugin(bb: BbPluginApi) {
       // Storage answers in maintenance too, where the reviews move between backends.
       if (argv[0] === "storage") return storageCommand(argv.slice(1), ctx);
       if (served) return served.run(argv, ctx);
-      return { exitCode: 1, stderr: storage.status.problem ?? "Code Review Workspace is opening its Postgres storage. Try again in a moment." };
+      const { state, problem } = storage.status;
+      if (state === "maintenance") return { exitCode: 1, stderr: problem! };
+      return { exitCode: 1, stderr: `Code Review Workspace is opening its Postgres storage${problem ? ` (latest try: ${problem})` : ""}. Try again in a moment; bb review storage status says more.` };
     },
   });
   if (storage.kind === "maintenance") {

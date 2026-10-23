@@ -170,6 +170,8 @@ describe.skipIf(!testPgUrl)("the plugin on Postgres storage", () => {
       expect(harness.inspection.logEntries.map((entry) => entry.message)).toContainEqual(expect.stringMatching(/^Could not open Code Review Workspace's Postgres storage: .*ECONNREFUSED.*\. Trying again in 1 s\.$/));
     }, { timeout: 5_000, interval: 20 });
     expect(registered(harness)).toEqual({ tools: 0, rpc: 0, events: 0 });
+    // bug bash F8: bb review answered only pg's bare message, which said nothing of Postgres or of opening it.
+    expect(await harness.behavior.runCli(["list"])).toEqual({ exitCode: 1, stdout: "", stderr: expect.stringMatching(/^Code Review Workspace is opening its Postgres storage \(latest try: .*ECONNREFUSED.*\)\. Try again in a moment; bb review storage status says more\.$/) });
 
     const target = new URL(testPgUrl!);
     const sockets = new Set<Socket>();

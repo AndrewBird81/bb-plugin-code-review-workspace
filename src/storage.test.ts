@@ -174,7 +174,7 @@ describe("Postgres, before it's open", () => {
     expect(registered(harness)).toEqual({ ...ONLY_CLI, services: ["plugin-updates", "review-state", "storage"], schedules: ["prune-old-diffs"] });
     expect(harness.inspection.needsConfigurationMessages).toEqual([]);
     expectConfiguresNothing(harness);
-    expect(await harness.behavior.runCli(["list"])).toEqual({ exitCode: 1, stdout: "", stderr: "Code Review Workspace is opening its Postgres storage. Try again in a moment." });
+    expect(await harness.behavior.runCli(["list"])).toEqual({ exitCode: 1, stdout: "", stderr: "Code Review Workspace is opening its Postgres storage. Try again in a moment; bb review storage status says more." });
     expect((await harness.behavior.runCli(["storage", "status"])).stdout).toBe("storageBackend: postgres\nstorage:owner: postgres\nstate: opening Postgres; only bb review storage answers until it's open");
     // The pruning a day brings waits for the store too.
     await harness.behavior.runSchedule("prune-old-diffs");
@@ -201,7 +201,7 @@ describe("Postgres, before it's open", () => {
     expect(registered(harness)).toEqual({ ...ONLY_CLI, services: ["plugin-updates", "review-state", "storage"], schedules: ["prune-old-diffs"] });
     expectConfiguresNothing(harness);
     expect((await harness.behavior.runCli(["storage", "status"])).stdout).toContain(`problem: ${problem}`);
-    expect(await harness.behavior.runCli(["list"])).toEqual({ exitCode: 1, stdout: "", stderr: problem });
+    expect(await harness.behavior.runCli(["list"])).toEqual({ exitCode: 1, stdout: "", stderr: `Code Review Workspace is opening its Postgres storage (latest try: ${problem}). Try again in a moment; bb review storage status says more.` });
     const stopped = Date.now();
     for (const service of [storage, ...waiting]) service.controller.abort();
     await Promise.all([storage.done, ...waiting.map((service) => service.done)]);

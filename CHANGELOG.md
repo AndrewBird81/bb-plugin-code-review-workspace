@@ -18,6 +18,7 @@ Fixes from a bug bash of the Postgres storage and the flows around it. Still **B
 - While Postgres takes connections but answers nothing, as when its node or the network drops packets, the calls waiting behind one that timed out connecting fail at once, where each waited out its own 10 s connect timeout in turn: five took a minute.
 - A call with a number the store can't keep exactly, as a viewed time past 2^53 or with a fraction, or a line past 2^31, is refused as invalid. On Postgres such a time was stored and then broke every read of the review's viewed files, and the rest failed with a server error; SQLite kept them inexactly.
 - On Postgres, a statement timing out, a lock not granted or a deadlock while the plugin opens its storage counts as passing, as Postgres being out of reach does: it's reported as needs-configuration only if it lasts a minute, where it was at once, and BB kept saying so until a reload though the storage opened a second later.
+- While the plugin opens its Postgres storage, `bb review` says so, with the latest try's error, and points to `bb review storage status`, where it printed only pg's error, such as "timeout expired".
 - A failure to clear a review's Needs You alert as it left Needs review is logged, where it was a rejection nothing handled, the kind that ends BB's server.
 
 ## 1.4.0 — 2026-10-23
