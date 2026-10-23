@@ -1,5 +1,5 @@
 import { patchRows } from "../src/patch";
-import { places, rangeProblem, type Place } from "../src/review-positions";
+import { places, type Place } from "../src/review-positions";
 import type { RenderedBlock } from "./markdown-diff";
 
 /** Where a comment on rendered Markdown goes: a line of the diff, or a range of them in one hunk, as GitHub takes it. */
@@ -12,7 +12,6 @@ export interface LineAnchor {
 /** What of a file's diff rendered blocks anchor to. */
 export interface FileLines {
   file: string;
-  patch: string;
   /** Each line a comment may target, by `SIDE:line`: its hunk and row (src/review-positions.ts). */
   places: Map<string, Place>;
   added: Set<number>;
@@ -28,7 +27,7 @@ export function fileLines(patch: string, file: string): FileLines {
     else if (row.kind === "-") { removed.add(row.oldLine); oldToNew.set(row.oldLine, row.newLine); }
     else if (row.kind === " ") oldToNew.set(row.oldLine, row.newLine);
   }
-  return { file, patch, places: places(patch, file), added, removed, oldToNew };
+  return { file, places: places(patch, file), added, removed, oldToNew };
 }
 
 /**
@@ -45,7 +44,8 @@ function linesIn(lines: FileLines, side: "LEFT" | "RIGHT", start: number, end: n
   }
   if (!taken.length) return null;
   const [first, last] = [taken[0], taken[taken.length - 1]];
-  if (first === last || rangeProblem(lines.patch, { file: lines.file, line: last, side, startLine: first })) return { line: last, side };
+  // One hunk, first line first, as rangeProblem asks, read from the places already found: it would walk the whole diff again.
+  if (first === last || lines.places.get(`${side}:${first}`)!.row >= lines.places.get(`${side}:${last}`)!.row) return { line: last, side };
   return { line: last, side, startLine: first };
 }
 
