@@ -49,10 +49,10 @@ export function invalidComments(patch: string | Map<string, FilePositions>, comm
 }
 
 type End = { line: number; side: "LEFT" | "RIGHT" };
-type Place = { hunk: number; row: number };
+export type Place = { hunk: number; row: number };
 
 /** Where each line a comment may target sits in a file's diff: its hunk, and its row; a context line is on both sides. */
-function places(patch: string, file: string): Map<string, Place> {
+export function places(patch: string, file: string): Map<string, Place> {
   const map = new Map<string, Place>();
   const text = splitPatchByFile(patch).find((f) => f.path === file)?.text ?? "";
   let hunk = 0;

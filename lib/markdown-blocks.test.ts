@@ -1,0 +1,55 @@
+import { expect, test } from "vitest";
+import { blockMarkdown, isMarkdownPath, markdownBlocks } from "./markdown-blocks";
+
+const lines = (text: string) => markdownBlocks(text).blocks.map((b) => [b.kind, b.start, b.end]);
+
+test("top-level blocks keep their source lines: headings, paragraphs, lists, tables, and fences", () => {
+  const doc = "# Title\n\nPara one\nline two\n\n- a\n- b\n  - nested\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```mermaid\ngraph TD; A-->B\n```\n";
+  expect(lines(doc)).toEqual([["heading", 1, 1], ["paragraph", 3, 4], ["list", 6, 8], ["table", 10, 12], ["code", 14, 16]]);
+  expect(markdownBlocks(doc).blocks[1].source).toBe("Para one\nline two");
+});
+
+test("frontmatter is one block, shown as a table, and the rest keeps its line numbers", () => {
+  const doc = "---\ntitle: Tokens\nowner: a|b\n---\n# Heading\n";
+  const { blocks } = markdownBlocks(doc);
+  expect(blocks.map((b) => [b.kind, b.start, b.end])).toEqual([["frontmatter", 1, 4], ["heading", 5, 5]]);
+  expect(blockMarkdown(blocks[0], "")).toBe("| title | owner |\n| --- | --- |\n| Tokens | a\\|b |");
+});
+
+test("frontmatter that isn't key: value lines shows as YAML", () => {
+  const { blocks } = markdownBlocks("---\ntags:\n  - a\n---\nText\n");
+  expect(blockMarkdown(blocks[0], "")).toBe("```yaml\ntags:\n  - a\n```");
+});
+
+test("a <details> element with blank lines inside is one block, through its closing tag", () => {
+  expect(lines("Intro\n\n<details><summary>s</summary>\n\nhidden\n\n</details>\n\nAfter\n")).toEqual([["paragraph", 1, 1], ["html", 3, 7], ["paragraph", 9, 9]]);
+});
+
+test("an unclosed element stays the block CommonMark reads", () => {
+  expect(lines("<details>\n\ntext\n")).toEqual([["html", 1, 1], ["paragraph", 3, 3]]);
+});
+
+test("link reference definitions are one block, and every block's slice carries them", () => {
+  const doc = markdownBlocks("See [the docs][d].\n\n[d]: https://example.com/d\n[e]: https://example.com/e\n");
+  expect(doc.blocks.map((b) => [b.kind, b.start, b.end])).toEqual([["paragraph", 1, 1], ["definition", 3, 4]]);
+  expect(doc.definitions).toBe("[d]: https://example.com/d\n[e]: https://example.com/e");
+  expect(blockMarkdown(doc.blocks[0], doc.definitions)).toBe("See [the docs][d].\n\n[d]: https://example.com/d\n[e]: https://example.com/e");
+});
+
+test("a footnote's definition shows its label in bold", () => {
+  const { blocks } = markdownBlocks("Text[^1].\n\n[^1]: The note.\n");
+  expect(blockMarkdown(blocks[1], "")).toBe("**[^1]** The note.");
+});
+
+test("CRLF line endings and a byte order mark leave the line numbers as they are", () => {
+  expect(lines("\uFEFF# A\r\n\r\nB\r\nC\r\n")).toEqual([["heading", 1, 1], ["paragraph", 3, 4]]);
+  expect(markdownBlocks("# A\r\n\r\nB\r\n").blocks[1].source).toBe("B");
+});
+
+test("headings say their depth, setext ones too", () => {
+  expect(markdownBlocks("## Two\n\nThree\n=====\n").blocks.map((b) => b.depth)).toEqual([2, 1]);
+});
+
+test("only .md and .markdown files render", () => {
+  expect(["README.md", "docs/a.MARKDOWN", "x.mdx", "a.md.ts"].map(isMarkdownPath)).toEqual([true, true, false, false]);
+});
