@@ -30,6 +30,13 @@ test("nested <details> are one block, through the outer closing tag", () => {
   expect(lines(doc)).toEqual([["html", 1, 13], ["paragraph", 15, 15]]);
 });
 
+test("many void or unclosed HTML blocks read in linear time", () => {
+  const doc = Array.from({ length: 8000 }, (_, i) => `<img src="a${i}.png">`).join("\n\n") + "\n";
+  const start = performance.now();
+  expect(markdownBlocks(doc).blocks).toHaveLength(8000);
+  expect(performance.now() - start).toBeLessThan(1500);
+});
+
 test("link definitions inside an element still resolve links in other blocks", () => {
   const doc = markdownBlocks("<div>\n\n[x]: http://a\n\n</div>\n\nSee [link][x].\n");
   expect(doc.definitions).toBe("[x]: http://a");

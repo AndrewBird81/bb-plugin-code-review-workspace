@@ -53,6 +53,8 @@ export function markdownBlocks(text: string): MarkdownDoc {
   const tree = fromMarkdown(body.join("\n"), { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
   const nodes = tree.children.flatMap((node) => node.position ? [{ kind: node.type as string, start: node.position.start.line, end: node.position.end.line, html: node.type === "html" ? node.value : null, depth: node.type === "heading" ? node.depth : undefined }] : []);
   const definitions: string[] = [];
+  // The elements some HTML block closes: an <img>, or an element never closed, ends where CommonMark ends it.
+  const closed = new Set(nodes.flatMap((node) => [...node.html?.matchAll(/<\/([A-Za-z][A-Za-z0-9-]*)\s*>/g) ?? []].map((match) => match[1].toLowerCase())));
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
     let end = node.end;
@@ -63,7 +65,7 @@ export function markdownBlocks(text: string): MarkdownDoc {
     // Elements of the same name nest: the block ends where the opening tag's own closing tag does.
     const tag = node.html?.match(OPEN_TAG)?.[1].toLowerCase();
     const opened = (html: string) => (html.match(new RegExp(`<${tag}(?=[\\s/>]|$)`, "gi"))?.length ?? 0) - (html.match(new RegExp(`</${tag}\\s*>`, "gi"))?.length ?? 0);
-    let open = tag ? opened(node.html!) : 0;
+    let open = tag && closed.has(tag) ? opened(node.html!) : 0;
     for (let at = i + 1; open > 0 && at < nodes.length; at++) {
       if (nodes[at].kind === "html") open += opened(nodes[at].html!);
       if (open > 0) continue;
