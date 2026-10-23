@@ -5,6 +5,7 @@
 Fixes from a bug bash of the Postgres storage and the flows around it. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.4.1. 1.4.1 adds no migration, so rolling back to 1.4.0 keeps everything.
 
 - A **Suggest instruction changes** run that a reload, an update or turning the plugin off interrupted could end BB's server process, which BB then restarted. It ends quietly now, and still stops its worker. The update that installs 1.4.1 still runs 1.4.0's shutdown, so apply it while no suggestion is running.
+- A review or reply GitHub took is never posted twice when the plugin's storage fails as it records it. Submit or Send said only that it failed and kept the draft, so trying again posted it a second time. Recording is tried three times; if it still fails, the message says GitHub has it and that Submit or Send again finishes recording it without posting it again, after a reload too.
 - A failure to clear a review's Needs You alert as it left Needs review is logged, where it was a rejection nothing handled, the kind that ends BB's server.
 
 ## 1.4.0 — 2026-10-23

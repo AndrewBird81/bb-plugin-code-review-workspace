@@ -5,6 +5,7 @@ import type { ReviewMeta } from "./store";
 import { requireReviewRevision } from "./review-revision";
 import { invalidComments } from "./review-positions";
 import type { AsyncStore } from "./store-queue";
+import { notRecorded, postReceipts, recordPosted, reviewReceiptKey, type PostReceipts, type ReviewReceipt } from "./post-receipts";
 
 /** Long enough for any review GitHub will take; a POST that hangs past it is checked for, never retried blind. */
 const POST_TIMEOUT_MS = 5 * 60_000;
@@ -38,13 +39,31 @@ function refusal(result: { stdout: string; stderr: string }): string {
   return /pending review/i.test(message) ? "You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft has been kept." : message;
 }
 
-export function createReviewSubmitter(store: AsyncStore, run: typeof runGh) {
+export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, receipts: PostReceipts = postReceipts()) {
   const inFlight = new Set<string>();
+  const record = (targetKey: string, receipt: ReviewReceipt) => store.exclusive(async (tx) => {
+    await tx.setLifecycle(targetKey, { submittedVerdict: receipt.draft.verdict, submittedAt: receipt.submittedAt, submittedHeadSha: receipt.headSha, submittedReviewId: receipt.reviewId, ...(receipt.reviewer ? { reviewer: receipt.reviewer } : {}) });
+    await tx.clearSubmittedDraft(receipt.draft);
+  });
   /** `shown` is the list of comments the reviewer's page displays, and `summary` its summary and verdict; the draft must still match them. */
   return async (targetKey: string, revision: string | undefined, account: string | undefined, shown: Pick<DraftComment, "file" | "line" | "side" | "severity" | "introduced" | "body">[], summary: { body: string; verdict: Verdict }): Promise<{ ok: boolean; error?: string; url?: string }> => {
     if (inFlight.has(targetKey)) return { ok: false, error: "This review is already being submitted." };
     inFlight.add(targetKey);
     try {
+      // A review GitHub took that couldn't be recorded: recorded now, and the same draft isn't posted again.
+      const earlier = await receipts.get<ReviewReceipt>(reviewReceiptKey(targetKey));
+      if (earlier) {
+        const review = await store.getReview(targetKey);
+        if (review && review.submittedAt !== earlier.submittedAt) {
+          try {
+            await record(targetKey, earlier);
+          } catch (error) {
+            return { ok: false, error: notRecorded("review", error, true, earlier.url) };
+          }
+        }
+        await receipts.drop(reviewReceiptKey(targetKey));
+        if (sameComments(earlier.draft.comments, shown) && earlier.draft.body === summary.body && earlier.draft.verdict === summary.verdict) return { ok: true, ...(earlier.url ? { url: earlier.url } : {}) };
+      }
       // The review and the draft it checks, in one turn.
       const checked = await store.exclusive(async (tx): Promise<{ error: string } | { m: ReviewMeta & { number: number; repo: string; headSha: string }; draft: Draft }> => {
         if (revision) await requireReviewRevision(tx, targetKey, revision);
@@ -115,10 +134,14 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh) {
         if (typeof receipt?.node_id === "string") reviewId = receipt.node_id;
         if (typeof receipt?.html_url === "string") url = receipt.html_url;
       } catch { /* A successful response still records the submitted verdict. */ }
-      await store.exclusive(async (tx) => {
-        await tx.setLifecycle(targetKey, { submittedVerdict: draft.verdict, submittedAt: Date.now(), submittedHeadSha: m.headSha, submittedReviewId: reviewId, ...(reviewer ? { reviewer } : {}) });
-        await tx.clearSubmittedDraft(draft);
-      });
+      const receipt: ReviewReceipt = { submittedAt: Date.now(), reviewId, headSha: m.headSha, draft, ...(reviewer ? { reviewer } : {}), ...(url ? { url } : {}) };
+      const durable = await receipts.put(reviewReceiptKey(targetKey), receipt);
+      try {
+        await recordPosted(() => record(targetKey, receipt));
+      } catch (error) {
+        return { ok: false, error: notRecorded("review", error, durable, url) };
+      }
+      await receipts.drop(reviewReceiptKey(targetKey));
       return { ok: true, ...(url ? { url } : {}) };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Couldn't submit the review. Your draft has been kept." };

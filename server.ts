@@ -47,6 +47,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
+import { postDraftedReply, postReceipts } from "./src/post-receipts";
 import { GUIDE_WORKER_TITLE, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideAsksSinceReview, guideRejected, guideStopped, guideWorkerFailed, guideWriterMode } from "./src/generate";
 import { pluginThreadsTitled, toolThreadReview } from "./src/thread-review";
 import { formerWorkerReview, recordFormerWorker } from "./src/former-workers";
@@ -175,7 +176,8 @@ async function openStore(bb: BbPluginApi, backend: Store) {
 
 /** Register the tools, RPC handlers and events, and start what runs on the open store. Nothing in it awaits. */
 function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaited<ReturnType<typeof openStore>>): Served {
-  const submitReview = createReviewSubmitter(store, runGh);
+  const receipts = postReceipts(bb.storage.kv);
+  const submitReview = createReviewSubmitter(store, runGh, receipts);
   const deps = { bb, store, gh: { runGh, runGit } };
   const notifications = completionNotifications(bb, store);
   const suggester = createInstructionSuggester(bb, store, () => bb.realtime.publish("learning", {}));
@@ -468,9 +470,11 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
         if (!review?.repo || !review.number || !thread) return { ok: false, error: NOT_THIS_REVIEW };
         const gh = await verifiedGh(account, "reply");
         if ("error" in gh) return { ok: false, error: gh.error };
-        const r = await gh.run(ghReplyThreadArgs(review.repo, review.number, thread.commentId), { stdin: JSON.stringify({ body }), timeoutMs: 0 });
-        if (r.code !== 0) return { ok: false, error: ghErrorMessage(r) };
-        await store.deleteReplyDraft(targetKey, threadId);
+        const replied = await postDraftedReply(receipts, store, targetKey, threadId, body, async () => {
+          const r = await gh.run(ghReplyThreadArgs(review.repo!, review.number!, thread.commentId), { stdin: JSON.stringify({ body }), timeoutMs: 0 });
+          return r.code !== 0 ? { ok: false, error: ghErrorMessage(r) } : { ok: true };
+        });
+        if (!replied.ok) return replied;
         await refreshThreads(review).catch(() => {});
         return { ok: true, feedback: await view(store, targetKey) };
       },
@@ -692,14 +696,15 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       if (!m || m.kind !== "pr" || !m.number || !m.repo) return { ok: false, error: "Not a PR." };
       const gh = await verifiedGh(account, "reply");
       if ("error" in gh) return { ok: false, error: gh.error };
-      const r = await gh.run(ghReplyThreadArgs(m.repo, m.number, inReplyTo), { stdin: JSON.stringify({ body }), timeoutMs: 0 });
-      if (r.code !== 0) return { ok: false, error: ghErrorMessage(r) };
+      const post = async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+        const r = await gh.run(ghReplyThreadArgs(m.repo!, m.number!, inReplyTo), { stdin: JSON.stringify({ body }), timeoutMs: 0 });
+        return r.code !== 0 ? { ok: false, error: ghErrorMessage(r) } : { ok: true };
+      };
+      if (!threadId) return post();
       // The thread's drafted reply went out as this one.
-      if (threadId) {
-        await store.deleteReplyDraft(targetKey, threadId);
-        bb.realtime.publish(`feedback:${targetKey}`, { ts: Date.now() });
-      }
-      return { ok: true };
+      const replied = await postDraftedReply(receipts, store, targetKey, threadId, body, post);
+      if (replied.ok) bb.realtime.publish(`feedback:${targetKey}`, { ts: Date.now() });
+      return replied;
     },
     async resolveThread({ targetKey, threadId, account }) {
       return updateThread(targetKey, threadId, account, ghResolveThreadArgs(threadId));
