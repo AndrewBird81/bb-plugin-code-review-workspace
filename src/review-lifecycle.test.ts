@@ -10,6 +10,7 @@ import { completionNotifications } from "./completion-notifications";
 import { BATCH_SIZE } from "./github/pr-facts";
 import { queueStore } from "./store-queue";
 import { testSql, testStore } from "./test-store.test-support";
+import { watchCrashes } from "./pg-faults.test-support";
 
 const HOUR = 3_600_000;
 const T0 = Date.parse("2026-10-10T12:00:00Z");
@@ -241,6 +242,24 @@ test("snoozing until the author responds clears the alert, and leaving Needs rev
   await s.sync.evaluate("pr-1");
   await vi.waitFor(() => expect(s.dismissed).toHaveLength(1));
   expect(await s.sync.turnOf((await s.store.getReview("pr-1"))!)).toMatchObject({ group: "waiting", reason: "snoozed" });
+});
+
+// bug bash HC-14: the dismissal ran unawaited with no catch, so its failure, such as kv's once a reload staled the
+// handle, was an unhandled rejection, which BB 0.46.1 exits on outside a service.
+test("a dismissal that fails on leaving Needs review is logged, not left unhandled", async () => {
+  const s = await setup({ reviewed: true });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  vi.mocked(s.actions.prepare).mockResolvedValue(false);
+  s.at(0.2);
+  await s.sync.all(true);
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  vi.spyOn(s.bb.storage.kv, "delete").mockRejectedValue(new Error("stale handle"));
+  await s.store.setLifecycle("pr-1", { snoozedAt: T0 + 0.3 * HOUR });
+  s.at(0.4);
+  const { crashes } = await watchCrashes(async () => { await s.sync.evaluate("pr-1"); });
+  expect(crashes).toEqual([]);
+  expect(s.harness.inspection.logEntries).toContainEqual({ level: "warn", message: expect.stringContaining("stale handle") });
 });
 
 test("a review snoozed until a time alerts again when it wakes, once, but not when it's unsnoozed early", async () => {

@@ -449,7 +449,7 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     };
     /** The group the review is in now, recorded in the caller's block; leaving Needs review clears its alert. */
     const regroup = async (tx: AsyncStore, review: ReviewMeta) => {
-      if (review.turnGroup === "needs" && turn.group !== "needs") void notifications.dismiss(key);
+      if (review.turnGroup === "needs" && turn.group !== "needs") void notifications.dismiss(key).catch((error) => bb.log.warn(`Could not dismiss the Needs You alert of ${key}: ${String(error)}`));
       if (review.turnGroup !== turn.group && await tx.getReview(key)) await tx.setLifecycle(key, { turnGroup: turn.group });
     };
     // An alert waiting for its re-review, the pushes to check, and the group, in one turn, unless the alert goes first.
