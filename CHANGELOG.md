@@ -2,7 +2,7 @@
 
 ## 1.4.0 — unreleased
 
-- With no comments in the draft, Finish review on your own PR or a local review offers **Send approval to ‹thread›**, where it offered nothing: it asks for an optional message and, when the draft has a summary, whether to include it (unchecked), then sends the thread that made the change one message, "Approved", followed by your message and the summary if you add them, and says "Sent to ‹thread›" or "Queued in ‹thread›", with **Open**. It's offered once for each diff; a comment you add goes as before. Nothing goes to GitHub.
+- With no comments in the draft, Finish review on your own PR or a local review offers **Send approval to ‹thread›**, where it offered nothing: it asks for an optional message and, when the draft has a summary, whether to include it (unchecked), then sends the thread that made the change one message, "Approved", followed by your message and the summary if you add them, and says "Sent to ‹thread›" or "Queued in ‹thread›", with **Open**. It's offered once for each diff, and approves only the diff the page shows: if new commits arrived since, or the guide is rebuilding, it sends nothing and asks you to open the latest. A comment you add goes as before. Nothing goes to GitHub.
 - Comments sent to the thread that made the change no longer end with "Don't push … unless I ask": that thread keeps its own rules about GitHub. **Fix in a new thread** still says it.
 - **Send N comments to ‹thread›** takes the same optional message, sent before the comments, and **Include the summary**, unchecked, which adds the review summary after them. Fix in a new thread is unchanged.
 

@@ -86,7 +86,7 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   async function approve(to: SourceThread) {
     setBusy(true); setError(null);
     try {
-      const result = await rpc.call("sendApprovalToSourceThread", { targetKey, ...extras() });
+      const result = await rpc.call("sendApprovalToSourceThread", { targetKey, revision, ...extras() });
       setSent({ threadId: to.threadId, title: result.title, delivery: result.delivery, revision });
       setChoosing(null);
     } catch (failure) {

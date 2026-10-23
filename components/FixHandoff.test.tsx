@@ -145,7 +145,7 @@ test("with no comments, Send to thread offers to tell the thread you approve, on
   expect(form.queryByRole("checkbox")).toBeNull();
   expect(sendApprovalToSourceThread).not.toHaveBeenCalled();
   fireEvent.click(form.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(sendApprovalToSourceThread).toHaveBeenCalledWith({ targetKey: "k" }));
+  await waitFor(() => expect(sendApprovalToSourceThread).toHaveBeenCalledWith({ targetKey: "k", revision: "r1" }));
   const status = await region.findByRole("status");
   expect(status.textContent).toBe("Queued in Retry uploads · Open");
   fireEvent.click(within(status).getByRole("button", { name: "Open" }));
@@ -192,7 +192,7 @@ test("an approval can add your message and, when there is one, the summary, whic
   fireEvent.change(again.getByRole("textbox", { name: "Message (optional)" }), { target: { value: "  Ship it.  " } });
   fireEvent.click(again.getByRole("checkbox", { name: "Include the summary" }));
   fireEvent.click(again.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(sendApprovalToSourceThread).toHaveBeenCalledWith({ targetKey: "k", message: "Ship it.", includeSummary: true }));
+  await waitFor(() => expect(sendApprovalToSourceThread).toHaveBeenCalledWith({ targetKey: "k", revision: "r1", message: "Ship it.", includeSummary: true }));
   expect((await within(slot.getByRole("region", { name: "Send to thread" })).findByRole("status")).textContent).toBe("Sent to Retry uploads · Open");
   expect(slot.queryByRole("group", { name: "Approval to send" })).toBeNull();
   slot.lifecycle.unmount();

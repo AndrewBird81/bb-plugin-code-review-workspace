@@ -1025,9 +1025,9 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       changed(targetKey);
       return result;
     },
-    async sendApprovalToSourceThread({ targetKey, message, includeSummary }) {
+    async sendApprovalToSourceThread({ targetKey, revision, message, includeSummary }) {
       if (!(await store.getPreferences()).preferences.knobs.sendToThread) throw new Error("Send to thread is off in Review settings.");
-      const result = await sendApprovalToSourceThread(bb, store, targetKey, { message, includeSummary });
+      const result = await sendApprovalToSourceThread(bb, store, targetKey, revision, { message, includeSummary });
       changed(targetKey);
       return result;
     },

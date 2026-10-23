@@ -6,7 +6,7 @@ import { patchRows, splitPatchByFile } from "./patch";
 import { spawnExecution } from "./preferences";
 import { assistantReview } from "./draft-comments";
 import { isMissingThread } from "./thread-errors";
-import { reviewRevision } from "./review-revision";
+import { requireReviewRevision } from "./review-revision";
 import type { AsyncStore } from "./store-queue";
 
 const MAX_CODE_LINES = 40;
@@ -169,19 +169,22 @@ const APPROVED = "Approved";
 
 /**
  * Tell the review's source thread you approve the change as is, while the draft has no comments, after its current
- * turn if it's busy, and record it against the diff you approved, which it tells once. Only for your own PR or a local
- * review.
+ * turn if it's busy, and record it against the diff you approved, `revision`, the one your page shows, which it tells
+ * once. Only for your own PR or a local review.
  */
-export async function sendApprovalToSourceThread(bb: BbPluginApi, store: AsyncStore, targetKey: string, add: SendExtras = {}): Promise<{ ok: true; delivery: "sent" | "queued"; title: string | null }> {
+export async function sendApprovalToSourceThread(bb: BbPluginApi, store: AsyncStore, targetKey: string, revision: string | undefined, add: SendExtras = {}): Promise<{ ok: true; delivery: "sent" | "queued"; title: string | null }> {
   const { review, source } = await openSourceThread(bb, store, targetKey);
-  const { count, message, summary, revision } = await store.exclusive(async (tx) => {
+  const { count, message, summary } = await store.exclusive(async (tx) => {
+    // Only the diff you saw, as submit checks it: not one that changed since, or a guide still rebuilding.
+    await requireReviewRevision(tx, targetKey, revision);
     const draft = await tx.getDraft(targetKey);
-    return { count: draft.comments.length, ...extras(draft.body, add), revision: await reviewRevision(tx, targetKey) };
+    return { count: draft.comments.length, ...extras(draft.body, add) };
   });
   if (count) throw new Error("Your draft has comments. Send them instead.");
   if (review.approvalSent?.threadId === source.threadId && review.approvalSent.revision === revision) throw new Error(`You already told ${source.title ?? "the thread"} you approve this diff.`);
   const delivery = await sendText(bb, source.threadId, [APPROVED, message, summary].filter(Boolean).join("\n\n"));
-  await store.setLifecycle(targetKey, { approvalSent: { at: Date.now(), threadId: source.threadId, title: source.title, revision } });
+  // The check passed, so `revision` is set.
+  await store.setLifecycle(targetKey, { approvalSent: { at: Date.now(), threadId: source.threadId, title: source.title, revision: revision! } });
   return { ok: true, delivery, title: source.title };
 }
 

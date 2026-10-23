@@ -298,9 +298,9 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), ...sendExtras }).strict(),
     output: z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable() }),
   },
-  // With no comments in the draft: tells the source thread you approve the change as is.
+  // With no comments in the draft: tells the source thread you approve the change as is, at the revision the page shows.
   sendApprovalToSourceThread: {
-    input: z.object({ targetKey: z.string(), ...sendExtras }).strict(),
+    input: z.object({ targetKey: z.string(), revision: z.string().optional(), ...sendExtras }).strict(),
     output: z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable() }),
   },
 
