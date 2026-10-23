@@ -118,6 +118,33 @@ test("a reply GitHub took whose draft the store couldn't clear is finished by th
   expect(posts).toBe(2);
 }, 15_000);
 
+// The receipt is kept in memory only when kv refuses it, and a reload would forget it: every message about it says so.
+test("a receipt kv refused is kept in memory, and each failed record of it says not to reload, until it's recorded", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  vi.spyOn(bb.storage.kv, "set").mockRejectedValue(new Error("kv is unavailable"));
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
+  await store.savePatch("pr-1", PATCH);
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "nit" });
+  await store.setReplyDraft("pr-1", "T1", "Fixed?", "reviewer");
+  const { comments, body, verdict } = await store.getDraft("pr-1");
+  const receipts = postReceipts(bb.storage.kv);
+  let down = false;
+  gh.onPost = async () => { down = true; };
+  const submit = () => createReviewSubmitter(failing(store, () => down), runGh, receipts)("pr-1", undefined, "casey", comments, { body, verdict });
+  const unsaved = " Until then, don't reload the plugin, which would forget it was posted.";
+  for (let attempt = 0; attempt < 2; attempt++) expect((await submit()).error).toMatch(new RegExp(`^GitHub has your review .*${unsaved}$`));
+  let replies = 0;
+  const post = async () => { replies++; down = true; return { ok: true as const }; };
+  const send = () => postDraftedReply(receipts, failing(store, () => down), "pr-1", "T1", "Fixed?", post);
+  for (let attempt = 0; attempt < 2; attempt++) expect(await send()).toEqual({ ok: false, error: expect.stringMatching(new RegExp(`^GitHub has your reply, .*${unsaved}$`)) });
+  down = false;
+  expect(await submit()).toEqual({ ok: true, url: "https://github.com/acme/web/pull/1#r1" });
+  expect(await send()).toEqual({ ok: true });
+  expect(gh.posts).toHaveLength(1);
+  expect(replies).toBe(1);
+}, 20_000);
+
 async function servedThroughProxy() {
   const proxy = await faultProxy();
   cleanup.push(() => proxy.close());

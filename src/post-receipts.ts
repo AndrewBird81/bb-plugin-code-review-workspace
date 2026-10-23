@@ -67,8 +67,9 @@ export function notRecorded(what: "review" | "reply", error: unknown, durable: b
  */
 export async function postDraftedReply(receipts: PostReceipts, store: AsyncStore, targetKey: string, threadId: string, body: string, post: () => Promise<{ ok: true } | { ok: false; error: string }>): Promise<{ ok: true } | { ok: false; error: string }> {
   const key = `posted-reply:${targetKey}:${threadId}`;
+  const earlier = await receipts.get<{ body: string; at: number }>(key);
   let durable = true;
-  if ((await receipts.get<{ body: string }>(key))?.body !== body) {
+  if (earlier?.body !== body) {
     const posted = await post();
     if (!posted.ok) return posted;
     durable = await receipts.put(key, { body, at: Date.now() });
@@ -76,6 +77,8 @@ export async function postDraftedReply(receipts: PostReceipts, store: AsyncStore
   try {
     await recordPosted(() => store.deleteReplyDraft(targetKey, threadId));
   } catch (error) {
+    // One found again is put in kv again, as it may be in memory alone.
+    if (earlier?.body === body) durable = await receipts.put(key, earlier);
     return { ok: false, error: notRecorded("reply", error, durable) };
   }
   await receipts.drop(key);

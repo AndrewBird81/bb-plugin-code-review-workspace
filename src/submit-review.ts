@@ -53,13 +53,12 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
       // A review GitHub took that couldn't be recorded: recorded now, and the same draft isn't posted again.
       const earlier = await receipts.get<ReviewReceipt>(reviewReceiptKey(targetKey));
       if (earlier) {
-        const review = await store.getReview(targetKey);
-        if (review && review.submittedAt !== earlier.submittedAt) {
-          try {
-            await record(targetKey, earlier);
-          } catch (error) {
-            return { ok: false, error: notRecorded("review", error, true, earlier.url) };
-          }
+        try {
+          const review = await store.getReview(targetKey);
+          if (review && review.submittedAt !== earlier.submittedAt) await record(targetKey, earlier);
+        } catch (error) {
+          // Put in kv again, as it may be in memory alone.
+          return { ok: false, error: notRecorded("review", error, await receipts.put(reviewReceiptKey(targetKey), earlier), earlier.url) };
         }
         await receipts.drop(reviewReceiptKey(targetKey));
         if (sameComments(earlier.draft.comments, shown) && earlier.draft.body === summary.body && earlier.draft.verdict === summary.verdict) return { ok: true, ...(earlier.url ? { url: earlier.url } : {}) };
