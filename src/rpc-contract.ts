@@ -73,10 +73,10 @@ export const rpcContract = defineRpcContract({
   },
   getPreferences: { input: z.null(), output: z.object({ preferences: preferencesSchema, revision: z.number().int() }) },
   savePreferences: {
-    // Pages open from before 0.5.1 send settings without threadListReviews, and from before 0.6.0 without
-    // rereviewShows; the saved value stands. Pages from before knobs send none, and any page may send some: the saved
+    // Pages open from before 0.5.1 send settings without threadListReviews, from before 0.6.0 without rereviewShows,
+    // and from before 1.5.0 without markdownFiles; the saved value stands. Pages from before knobs send none, and any page may send some: the saved
     // ones stand for the rest.
-    input: z.object({ preferences: preferencesSchema.extend({ knobs: knobsSchema.partial().optional() }).partial({ threadListReviews: true, rereviewShows: true }), revision: z.number().int().min(0) }).strict(),
+    input: z.object({ preferences: preferencesSchema.extend({ knobs: knobsSchema.partial().optional() }).partial({ threadListReviews: true, rereviewShows: true, markdownFiles: true }), revision: z.number().int().min(0) }).strict(),
     output: z.object({ preferences: preferencesSchema, revision: z.number().int() }),
   },
   // Seeds a custom agent selection with the panel project's remembered defaults, and a custom guide writer with the

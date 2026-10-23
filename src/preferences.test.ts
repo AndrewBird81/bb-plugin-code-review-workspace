@@ -33,6 +33,16 @@ test("a page from before 0.5.1 saves settings without the thread-list setting, w
   expect((await testStore(bb).getPreferences()).preferences.threadListReviews).toBe(false);
 });
 
+test("a page from before 1.5.0 saves settings without Markdown files, which keeps its saved value", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const rendered = await harness.behavior.callRpc("savePreferences", { preferences: { ...defaultPreferences, markdownFiles: "rendered" }, revision: 0 }) as any;
+  const { markdownFiles: _omitted, ...older } = { ...defaultPreferences, guideDetail: "detailed" as const };
+  const saved = await harness.behavior.callRpc("savePreferences", { preferences: older, revision: rendered.revision }) as any;
+  expect(saved.preferences).toMatchObject({ guideDetail: "detailed", markdownFiles: "rendered" });
+  expect((await testStore(bb).getPreferences()).preferences.markdownFiles).toBe("rendered");
+});
+
 test("a re-review shows what changed since your review unless Settings says All changes, which a page from before 0.6.0 keeps", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
   await plugin(bb);

@@ -619,7 +619,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     async savePreferences({ preferences, revision }) {
       const { result, refresh } = await store.exclusive(async (tx) => {
         const before = (await tx.getPreferences()).preferences;
-        const result = await tx.savePreferences({ ...preferences, threadListReviews: preferences.threadListReviews ?? before.threadListReviews, rereviewShows: preferences.rereviewShows ?? before.rereviewShows, knobs: { ...before.knobs, ...preferences.knobs } }, revision);
+        const result = await tx.savePreferences({ ...preferences, threadListReviews: preferences.threadListReviews ?? before.threadListReviews, rereviewShows: preferences.rereviewShows ?? before.rereviewShows, markdownFiles: preferences.markdownFiles ?? before.markdownFiles, knobs: { ...before.knobs, ...preferences.knobs } }, revision);
         bb.realtime.publish("preferences", {});
         // These are in the assistants' instructions; whether they may run the repo's checks depends on the last two. So
         // are the agent checks the knobs turn on.
