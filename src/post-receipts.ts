@@ -12,6 +12,8 @@ import type { AsyncStore } from "./store-queue";
 export function postReceipts(kv?: BbPluginApi["storage"]["kv"]) {
   const memory = new Map<string, unknown>();
   return {
+    /** Keys of the replies being sent: a second Send of one meanwhile would find no receipt yet, and post it again. */
+    sending: new Set<string>(),
     /** Throws when kv can't be read: taken for no receipt, it would post again what GitHub may have. */
     async get<T>(key: string): Promise<T | undefined> {
       if (memory.has(key)) return memory.get(key) as T;
@@ -88,30 +90,36 @@ export async function forgetPostedReply(receipts: PostReceipts, targetKey: strin
 
 /**
  * Post a reply that answers a drafted one, then clear that draft. A reply GitHub has whose draft couldn't be cleared is
- * finished by the next Send of the same text, without posting it again.
+ * finished by the next Send of the same text, without posting it again. A Send of it while one is sending is refused.
  */
 export async function postDraftedReply(receipts: PostReceipts, store: AsyncStore, targetKey: string, threadId: string, body: string, post: () => Promise<{ ok: true } | { ok: false; error: string }>): Promise<{ ok: true } | { ok: false; error: string }> {
   const key = replyReceiptKey(targetKey, threadId);
-  let earlier: { body: string; at: number } | undefined;
+  if (receipts.sending.has(key)) return { ok: false, error: "This reply is already being sent." };
+  receipts.sending.add(key);
   try {
-    earlier = await receipts.get(key);
-  } catch (error) {
-    return { ok: false, error: (error as Error).message };
+    let earlier: { body: string; at: number } | undefined;
+    try {
+      earlier = await receipts.get(key);
+    } catch (error) {
+      return { ok: false, error: (error as Error).message };
+    }
+    const same = earlier !== undefined && receiptText(earlier.body) === receiptText(body);
+    let durable = true;
+    if (!same) {
+      const posted = await post();
+      if (!posted.ok) return posted;
+      durable = await receipts.put(key, { body: receiptText(body), at: Date.now() });
+    }
+    try {
+      await recordPosted(() => store.deleteReplyDraft(targetKey, threadId));
+    } catch (error) {
+      // One found again is put in kv again, as it may be in memory alone.
+      if (same) durable = await receipts.put(key, earlier);
+      return { ok: false, error: notRecorded("reply", error, durable) };
+    }
+    await receipts.drop(key);
+    return { ok: true };
+  } finally {
+    receipts.sending.delete(key);
   }
-  const same = earlier !== undefined && receiptText(earlier.body) === receiptText(body);
-  let durable = true;
-  if (!same) {
-    const posted = await post();
-    if (!posted.ok) return posted;
-    durable = await receipts.put(key, { body: receiptText(body), at: Date.now() });
-  }
-  try {
-    await recordPosted(() => store.deleteReplyDraft(targetKey, threadId));
-  } catch (error) {
-    // One found again is put in kv again, as it may be in memory alone.
-    if (same) durable = await receipts.put(key, earlier);
-    return { ok: false, error: notRecorded("reply", error, durable) };
-  }
-  await receipts.drop(key);
-  return { ok: true };
 }

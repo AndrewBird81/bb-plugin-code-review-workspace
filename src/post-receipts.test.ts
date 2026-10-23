@@ -291,6 +291,28 @@ test("a reply GitHub took is kept while its draft is saved differing only in lin
   }
 }, 45_000);
 
+// Review round 3, NIT C: two Sends of one reply at once, from two tabs, both found no receipt and both posted.
+test("a second Send of a reply while the first is still sending is refused, and the reply is posted once", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
+  const call = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
+  const send = () => call("replyToThread", { targetKey: "pr-1", inReplyTo: 11, body: "Thanks!", threadId: "T1", account: "casey" });
+  expect(await call("saveReplyDraft", { targetKey: "pr-1", threadId: "T1", body: "Thanks!" })).toEqual({ ok: true });
+  let answer!: () => void;
+  const answered = new Promise<void>((resolve) => { answer = resolve; });
+  // GitHub holds the first POST's answer until the second Send is done.
+  gh.onPost = async () => { if (gh.posts.length === 1) await answered; };
+  const first = send();
+  await vi.waitFor(() => { expect(gh.posts).toHaveLength(1); });
+  expect(await send()).toEqual({ ok: false, error: "This reply is already being sent." });
+  answer();
+  expect(await first).toEqual({ ok: true });
+  expect(gh.posts).toHaveLength(1);
+  expect((await store.listReplyDrafts("pr-1")).size).toBe(0);
+});
+
 test("a review GitHub took is recorded, not posted again, when its summary and comments are saved differing only in line endings or the whitespace around them", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = testStore(bb);
