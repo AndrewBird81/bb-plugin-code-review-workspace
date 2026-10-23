@@ -1434,7 +1434,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   };
   bb.events.on("thread.idle", settle);
   bb.events.on("thread.failed", settle);
-  bb.events.on("thread.failed", ({ thread }) => guideWorkerFailed(bb, thread.id));
+  bb.events.on("thread.failed", ({ thread, error }) => guideWorkerFailed(bb, thread.id, error));
   // A queued ask: its turn comes when its message dispatches, and never if it's deleted from the queue.
   const queuedAsk = async (store: AsyncStore, entry: { id: string; threadId: string }) => {
     return store.exclusive(async (tx) => {

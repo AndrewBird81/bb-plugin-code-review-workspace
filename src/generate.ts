@@ -23,8 +23,8 @@ export function onPrepared(bb: BbPluginApi, listener: (targetKey: string) => voi
 
 const active = new WeakMap<BbPluginApi, Set<AbortController>>();
 const failures = new WeakMap<BbPluginApi, Map<string, AbortController>>();
-/** thread.failed: a guide worker that failed ends its generation now, instead of at the wait's timeout. */
-export function guideWorkerFailed(bb: BbPluginApi, threadId: string) { failures.get(bb)?.get(threadId)?.abort(); }
+/** thread.failed: a guide worker that failed ends its generation now, instead of at the wait's timeout, saying `error`, BB's why. */
+export function guideWorkerFailed(bb: BbPluginApi, threadId: string, error?: string | null) { failures.get(bb)?.get(threadId)?.abort(error || undefined); }
 /**
  * Each running generation, by its id: told when generate_review_guide accepts its guide, why it last refused one, and
  * whether the reviewer stopped it; and whether it asked for sinceReview, as a re-review does.
@@ -237,6 +237,8 @@ export async function beginGuide(
       const watched = failures.get(bb) ?? new Map<string, AbortController>();
       failures.set(bb, watched);
       watched.set(worker.id, failed);
+      /** The writer's thread failed, and why, if BB said: what the reviewer reads, not the wait's abort. */
+      const writerFailed = () => new Error(`the guide writer failed${typeof failed.signal.reason === "string" ? `: ${failed.signal.reason}` : ""}`);
       try {
         const deadline = Date.now() + waitCap((await store.patch(targetKey)).length);
         const signal = AbortSignal.any([controller.signal, failed.signal, accepted.signal]);
@@ -249,6 +251,7 @@ export async function beginGuide(
           } catch (error) {
             // An accepted guide ends the wait: whatever the worker says after it, no one reads.
             if (accepted.signal.aborted) break;
+            if (failed.signal.aborted) throw writerFailed();
             // Only a wait that ran its full time is tried again; any other failure ends the generation.
             if (signal.aborted || Date.now() >= deadline || Date.now() - started < timeoutMs) throw error;
             const thread = await threads!.get({ threadId: worker.id }).catch(() => null);
@@ -262,7 +265,7 @@ export async function beginGuide(
             ? `Your guide wasn't accepted:\n${generation.rejection}\nFix it and call generate_review_guide again with the same targetKey and generationId.`
             : "You haven't submitted the guide. Finish it and call generate_review_guide with the same targetKey and generationId." }] });
         }
-        if (failed.signal.aborted && !accepted.signal.aborted) throw new Error("the guide writer failed");
+        if (failed.signal.aborted && !accepted.signal.aborted) throw writerFailed();
         if (!accepted.signal.aborted && await store.getGuide(targetKey) === null) throw new Error("the guide writer stopped without an accepted guide");
       } finally {
         watched.delete(worker.id);

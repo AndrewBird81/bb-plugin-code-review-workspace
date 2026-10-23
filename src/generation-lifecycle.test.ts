@@ -101,6 +101,29 @@ test("a guide worker that fails ends its generation at once", async () => {
   expect((await store.getReview("target"))?.status).toBe("error");
 });
 
+// bug bash E1: the wait rejected with its signal's reason, as BB's does, and that AbortError was what the reviewer read.
+test("a guide worker whose thread fails says the writer failed, and BB's why, not that an operation was aborted", async () => {
+  const { makeThreadResponse } = await import("@get-bb/plugin-sdk/testing");
+  let waiting = false;
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
+    spawn: async () => ({ id: "worker" }), archive: async () => ({}), stop: async () => ({}),
+    wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+      waiting = true;
+      signal.addEventListener("abort", () => reject(new DOMException("This operation was aborted", "AbortError")), { once: true });
+    }),
+    queuedMessages: { list: async () => [] },
+  } } as any });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "target", kind: "ref", status: "ready", createdAt: 1 });
+  const run = generateGuide(bb, store, "target", "p1");
+  await vi.waitFor(() => expect(waiting).toBe(true));
+  await harness.behavior.emitThreadEvent("thread.failed", { thread: makeThreadResponse({ id: "worker" }), error: "Failed to launch ACP agent \"opencode\": spawn opencode ENOENT" });
+  await run;
+  expect(await store.getReview("target")).toMatchObject({ status: "error", guideError: { text: "The guide writer failed: Failed to launch ACP agent \"opencode\": spawn opencode ENOENT." } });
+  expect(harness.inspection.logEntries).toContainEqual({ level: "warn", message: expect.stringContaining("the guide writer failed: Failed to launch ACP agent") });
+});
+
 test("a guide worker still working when the wait times out is waited for longer", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   const waits: number[] = [];

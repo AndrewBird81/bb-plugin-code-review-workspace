@@ -12,6 +12,7 @@ Fixes from a bug bash of the Postgres storage and the flows around it. Still **B
 - After a reload, an interrupted guide whose restart fails, as when the storage fails mid-rebuild, stays failed saying why, and the guides after it restart. It stopped the rest restarting, and said nothing.
 - What a storage failure left in progress, until a reload, settles on the next review-state pass, once a minute: a guide whose run ended as Postgres went away, which stayed generating (Rebuild did nothing and Delete was refused), fails, saying why, so Rebuild works; and a feedback check ("Checking your feedback…"), a discussion waiting on the assistant, or an ask on the summary or a comment, whose turn ended unheard, stops waiting once it's two minutes old and its assistant has stopped. A guide run's end that couldn't be recorded is logged.
 - On Postgres, a start whose opening of the storage failed part way, as on a statement timeout, and was tried again still stops and archives the guide writers a reload interrupted, and restarts their guides. The next try found none, so they ran on unarchived and their guides never restarted.
+- A guide writer whose thread fails, as when its agent can't launch, leaves the review saying "The guide writer failed:" and BB's reason, in the panel and the log, where it said "This operation was aborted."
 - A failure to clear a review's Needs You alert as it left Needs review is logged, where it was a rejection nothing handled, the kind that ends BB's server.
 
 ## 1.4.0 — 2026-10-23
