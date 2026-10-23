@@ -63,15 +63,16 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
         try {
           const review = await store.getReview(targetKey);
           current = review?.headSha === earlier.headSha;
-          if (review && current && review.submittedAt !== earlier.submittedAt) await record(targetKey, earlier);
-          else if (review && !current) taken = await record(targetKey, earlier, true);
+          // Recorded whole each time, as both writes can be made again: a record can fail between them, and the sync
+          // replaces submittedAt with GitHub's time, so the review's state can't tell what was recorded.
+          if (review) taken = await record(targetKey, earlier, !current);
         } catch (error) {
           // Put in kv again, as it may be in memory alone.
           return { ok: false, error: notRecorded("review", error, await receipts.put(reviewReceiptKey(targetKey), earlier), earlier.url) };
         }
         await receipts.drop(reviewReceiptKey(targetKey));
         if (current && sameComments(earlier.draft.comments, shown) && earlier.draft.body === summary.body && earlier.draft.verdict === summary.verdict) return { ok: true, ...(earlier.url ? { url: earlier.url } : {}) };
-        if (taken) return { ok: false, error: `GitHub already has ${taken} of these comments, from your review of ${earlier.headSha.slice(0, 7)}${earlier.url ? ` (${earlier.url})` : ""}, so ${taken === 1 ? "it was" : "they were"} taken out of your draft. Check the draft, then submit again.` };
+        if (!current && taken) return { ok: false, error: `GitHub already has ${taken} of these comments, from your review of ${earlier.headSha.slice(0, 7)}${earlier.url ? ` (${earlier.url})` : ""}, so ${taken === 1 ? "it was" : "they were"} taken out of your draft. Check the draft, then submit again.` };
       }
       // The review and the draft it checks, in one turn.
       const checked = await store.exclusive(async (tx): Promise<{ error: string } | { m: ReviewMeta & { number: number; repo: string; headSha: string }; draft: Draft }> => {

@@ -41,7 +41,7 @@ import { storeOn } from "./store";
 import type { AsyncStore } from "./store-queue";
 import { createReviewSubmitter } from "./submit-review";
 import { postDraftedReply, postReceipts } from "./post-receipts";
-import { testSql, testStore } from "./test-store.test-support";
+import { failingCall, testSql, testStore } from "./test-store.test-support";
 import { faultProxy, host, opened, postgresSettings } from "./pg-faults.test-support";
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -121,6 +121,26 @@ test("a reply GitHub took whose draft the store couldn't clear is finished by th
   // Another reply on the thread posts.
   expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed?", post)).toEqual({ ok: true });
   expect(posts).toBe(2);
+}, 15_000);
+
+// Review round 1, BLOCKING 2: a record that saved the submitted state but failed to clear the draft was taken for
+// finished, so the next Submit dropped the receipt and left the draft, which the Submit after it posted again.
+test("a review whose record saved the submitted state but not the cleared draft is finished by the next Submit, and never posted twice", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
+  await store.savePatch("pr-1", PATCH);
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "nit" });
+  await store.setVerdict("pr-1", "COMMENT", "A nit.");
+  const shown = await store.getDraft("pr-1");
+  const submit = (on: AsyncStore) => createReviewSubmitter(on, runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", shown.comments, shown);
+  const halfRecorded = failingCall(store, "clearSubmittedDraft");
+  for (let attempt = 0; attempt < 2; attempt++) expect(await submit(halfRecorded)).toMatchObject({ ok: false, error: expect.stringContaining("GitHub has your review") });
+  expect(await store.getReview("pr-1")).toMatchObject({ submittedReviewId: "R1" });
+  expect(await submit(store)).toEqual({ ok: true, url: "https://github.com/acme/web/pull/1#r1" });
+  expect(await store.getDraft("pr-1")).toMatchObject({ comments: [], body: "" });
+  expect(await submit(store)).toMatchObject({ ok: false, error: expect.stringContaining("changed since this page showed") });
+  expect(gh.posts).toHaveLength(1);
 }, 15_000);
 
 /** The review rebuilt for the PR's new head, `head`, as Update does: the draft stays. */
