@@ -1,7 +1,7 @@
-import { diffArrays, diffWordsWithSpace } from "diff";
+import { diffArrays } from "diff";
 import { patchRows } from "../src/patch";
 import { CONFETTI_THRESHOLD } from "./confetti";
-import { markdownBlocks, type MarkdownBlock } from "./markdown-blocks";
+import { blockHolding, markdownBlocks, type MarkdownBlock } from "./markdown-blocks";
 
 /** How a rendered block changed: a block of the new file added, changed, or unchanged, or one of the old file removed. */
 export type BlockStatus = "added" | "changed" | "unchanged" | "removed";
@@ -22,78 +22,138 @@ export interface MarkdownDiff {
   newDefinitions: string;
 }
 
-/** Where a block's change is: the hunk of its first changed line, numbered from 1. */
-type Touched = { block: MarkdownBlock; hunk: number };
+/**
+ * Pairing a run of removed blocks with a run of added ones over this many pairs compares each removed block only with
+ * the added ones about as far along their run, `PAIR_BAND` either side.
+ */
+const PAIR_AREA = 10_000;
+const PAIR_BAND = 25;
 
-const solid = (text: string) => text.replace(/\s/g, "").length;
 const normal = (text: string) => text.replace(/\s+/g, " ").trim();
 
-/** How much of two blocks' text, not counting spaces, their words keep: 1 for the same words, 0 for none in common. */
-export function blockSimilarity(a: string, b: string): number {
-  const total = solid(a) + solid(b);
-  if (!total) return 1;
-  const kept = diffWordsWithSpace(a, b).reduce((n, part) => n + (part.added || part.removed ? 0 : 2 * solid(part.value)), 0);
-  return kept / total;
+/** A block's words, each with how often it's there, and their length together. */
+type Words = { counts: Map<string, number>; length: number };
+function wordsOf(text: string): Words {
+  const counts = new Map<string, number>();
+  let length = 0;
+  // Words, and runs of punctuation, as a word diff splits them.
+  for (const [word] of text.matchAll(/[\p{L}\p{N}_]+|[^\p{L}\p{N}_\s]+/gu)) {
+    counts.set(word, (counts.get(word) ?? 0) + 1);
+    length += word.length;
+  }
+  return { counts, length };
+}
+
+/**
+ * How much of two blocks' text, not counting spaces, is words they have in common, in any order: 1 for the same words, 0
+ * for none in common. Linear in their length, where a word diff was quadratic, and run on every pair of a rewrite.
+ */
+export function blockSimilarity(a: string | Words, b: string | Words): number {
+  const [x, y] = [typeof a === "string" ? wordsOf(a) : a, typeof b === "string" ? wordsOf(b) : b];
+  if (!x.length && !y.length) return 1;
+  const [small, large] = x.counts.size <= y.counts.size ? [x, y] : [y, x];
+  let common = 0;
+  for (const [word, count] of small.counts) common += Math.min(count, large.counts.get(word) ?? 0) * word.length;
+  return (2 * common) / (x.length + y.length);
 }
 
 /**
  * A Markdown file's change, from its old and new contents (null for a file added or deleted whole) and its diff, as
  * GitHub's rich diff shows it: each block of the new file, added, changed or unchanged, with each removed block of the
- * old file before the new blocks that follow where it was. A block changed when the diff adds or removes a line in it, or
- * shares an unchanged line with a block on the other side that did. In each hunk, the old blocks it changes pair with its
- * new ones in order: the same text (by `diffArrays`), or words that keep `CONFETTI_THRESHOLD` of it; a pair is one
- * changed block, and the rest are added and removed. With `hideWhitespace`, a pair that differs only in whitespace is
- * unchanged.
+ * old file before the new blocks that follow where it was.
+ *
+ * A block is touched when the diff adds or removes a line in it, or between it and the block beside it. Blocks on the two
+ * sides that keep a line of each other, where either is touched, are one change, whatever hunks it spans: changed, its
+ * first new block showing the old ones as its version before, or unchanged when one block's text is the same on both
+ * sides. The other touched blocks are all new or all gone: in each hunk, in order, a removed block pairs with the added
+ * one most like it, sharing `CONFETTI_THRESHOLD` of their words, as a changed block, and the rest are added and removed.
+ * With `hideWhitespace`, a pair that differs only in whitespace is unchanged.
  */
 export function markdownDiff(oldText: string | null, newText: string | null, patch: string, hideWhitespace = false): MarkdownDiff {
   const before = oldText === null ? { blocks: [], definitions: "" } : markdownBlocks(oldText);
   const after = newText === null ? { blocks: [], definitions: "" } : markdownBlocks(newText);
   // Each line the diff adds or removes, by hunk, and each line it keeps, by its old and new numbers.
   const changes: { hunk: number; side: "LEFT" | "RIGHT"; line: number; at: number }[] = [];
-  const kept: { hunk: number; old: number; new: number }[] = [];
+  const kept: { old: number; new: number }[] = [];
   let hunk = 0;
   for (const row of patchRows(patch)) {
     if (row.kind === "hunk") hunk++;
     else if (row.kind === "+") changes.push({ hunk, side: "RIGHT", line: row.newLine, at: row.oldLine });
     else if (row.kind === "-") changes.push({ hunk, side: "LEFT", line: row.oldLine, at: row.newLine });
-    else if (row.kind === " ") kept.push({ hunk, old: row.oldLine, new: row.newLine });
+    else if (row.kind === " ") kept.push({ old: row.oldLine, new: row.newLine });
   }
   const holds = (block: MarkdownBlock, line: number) => line >= block.start && line <= block.end;
-  const touchedOn = (blocks: MarkdownBlock[], side: "LEFT" | "RIGHT") => new Map(blocks.flatMap((block): [MarkdownBlock, Touched][] => {
-    const change = changes.find((c) => c.side === side && holds(block, c.line));
-    return change ? [[block, { block, hunk: change.hunk }]] : [];
-  }));
-  const oldTouched = touchedOn(before.blocks, "LEFT");
-  const newTouched = touchedOn(after.blocks, "RIGHT");
-  // A block that keeps a line of a changed block on the other side changed too, as a row added to a table does.
-  const link = (from: Map<MarkdownBlock, Touched>, to: Map<MarkdownBlock, Touched>, blocks: MarkdownBlock[], own: "old" | "new", other: "old" | "new") => {
-    for (const { block, hunk } of [...from.values()]) {
-      for (const line of kept.filter((k) => holds(block, k[own]))) {
-        const match = blocks.find((candidate) => holds(candidate, line[other]));
-        if (match && !to.has(match)) to.set(match, { block: match, hunk });
-      }
-    }
-  };
-  const fromOld = new Map(oldTouched);
-  link(newTouched, oldTouched, before.blocks, "new", "old");
-  link(fromOld, newTouched, after.blocks, "old", "new");
+  const touched = new Map<MarkdownBlock, number>();
+  for (const change of changes) {
+    const blocks = change.side === "LEFT" ? before.blocks : after.blocks;
+    const holding = blockHolding(blocks, change.line);
+    let next = 0;
+    if (!holding) for (let high = blocks.length; next < high;) { const mid = (next + high) >> 1; if (blocks[mid].start > change.line) high = mid; else next = mid + 1; }
+    for (const block of holding ? [holding] : [blocks[next - 1], blocks[next]]) if (block && !touched.has(block)) touched.set(block, change.hunk);
+  }
+  // Each block that keeps a line of a touched one, or is touched and keeps a line, with it: one change.
+  const parent = new Map<MarkdownBlock, MarkdownBlock>();
+  const root = (block: MarkdownBlock): MarkdownBlock => { let at = block; while (parent.get(at) !== at) at = parent.get(at)!; return at; };
+  for (const line of kept) {
+    const [old, now] = [blockHolding(before.blocks, line.old), blockHolding(after.blocks, line.new)];
+    if (!old || !now || !(touched.has(old) || touched.has(now))) continue;
+    for (const block of [old, now]) if (!parent.has(block)) parent.set(block, block);
+    parent.set(root(old), root(now));
+  }
+  const oldSide = new Set(before.blocks);
+  const byStart = (x: MarkdownBlock, y: MarkdownBlock) => x.start - y.start;
+  const groups = new Map<MarkdownBlock, MarkdownBlock[]>();
+  for (const block of parent.keys()) groups.set(root(block), [...groups.get(root(block)) ?? [], block]);
   const statusOf = new Map<MarkdownBlock, { status: BlockStatus; previous?: MarkdownBlock }>();
+  for (const group of groups.values()) {
+    const olds = group.filter((block) => oldSide.has(block)).sort(byStart);
+    const news = group.filter((block) => !oldSide.has(block)).sort(byStart);
+    if (olds.length === 1 && news.length === 1 && (olds[0].source === news[0].source || hideWhitespace && normal(olds[0].source) === normal(news[0].source))) {
+      statusOf.set(news[0], { status: "unchanged" });
+      continue;
+    }
+    // A paragraph split in two, or two joined, shows its old text once, above the first of the new.
+    const previous = olds.length === 1 ? olds[0] : { kind: olds[0].kind, start: olds[0].start, end: olds[olds.length - 1].end, source: olds.map((block) => block.source).join("\n\n") };
+    news.forEach((block, index) => statusOf.set(block, { status: "changed", ...(index === 0 ? { previous } : {}) }));
+  }
   const removed: MarkdownBlock[] = [];
-  for (let h = 1; h <= hunk; h++) {
-    const inHunk = (touched: Map<MarkdownBlock, Touched>) => [...touched.values()].filter((t) => t.hunk === h).map((t) => t.block).sort((x, y) => x.start - y.start);
-    const [olds, news] = [inHunk(oldTouched), inHunk(newTouched)];
-    let [o, n] = [0, 0];
-    const pairRuns = (gone: MarkdownBlock[], come: MarkdownBlock[]) => {
-      let from = 0;
-      for (const old of gone) {
-        const at = come.findIndex((block, index) => index >= from && blockSimilarity(old.source, block.source) >= CONFETTI_THRESHOLD);
-        if (at < 0) { removed.push(old); continue; }
-        for (const added of come.slice(from, at)) statusOf.set(added, { status: "added" });
-        statusOf.set(come[at], { status: "changed", previous: old });
-        from = at + 1;
+  // Pairs blocks of `gone` with blocks of `come`, in order: the most alike pair first, then those before and after it.
+  const pairRuns = (gone: MarkdownBlock[], come: MarkdownBlock[]) => {
+    const words = new Map<MarkdownBlock, Words>();
+    const wordsFor = (block: MarkdownBlock) => words.get(block) ?? words.set(block, wordsOf(block.source)).get(block)!;
+    const known = new Map<number, number>();
+    const similarity = (i: number, j: number) => known.get(i * come.length + j) ?? known.set(i * come.length + j, blockSimilarity(wordsFor(gone[i]), wordsFor(come[j]))).get(i * come.length + j)!;
+    const banded = gone.length * come.length > PAIR_AREA;
+    const match = (g0: number, g1: number, c0: number, c1: number) => {
+      let best: { i: number; j: number; similarity: number } | null = null;
+      for (let i = g0; i < g1; i++) {
+        for (let j = c0; j < c1; j++) {
+          if (banded && Math.abs((i * come.length) / gone.length - j) > PAIR_BAND) continue;
+          const s = similarity(i, j);
+          if (s >= CONFETTI_THRESHOLD && (!best || s > best.similarity)) best = { i, j, similarity: s };
+        }
       }
-      for (const added of come.slice(from)) statusOf.set(added, { status: "added" });
+      if (!best) {
+        removed.push(...gone.slice(g0, g1));
+        for (const block of come.slice(c0, c1)) statusOf.set(block, { status: "added" });
+        return;
+      }
+      match(g0, best.i, c0, best.j);
+      statusOf.set(come[best.j], { status: "changed", previous: gone[best.i] });
+      match(best.i + 1, g1, best.j + 1, c1);
     };
+    match(0, gone.length, 0, come.length);
+  };
+  // The rest, by hunk, in order.
+  const free = (blocks: MarkdownBlock[]) => {
+    const byHunk = new Map<number, MarkdownBlock[]>();
+    for (const block of blocks) if (touched.has(block) && !parent.has(block)) byHunk.set(touched.get(block)!, [...byHunk.get(touched.get(block)!) ?? [], block]);
+    return byHunk;
+  };
+  const [oldFree, newFree] = [free(before.blocks), free(after.blocks)];
+  for (let h = 1; h <= hunk; h++) {
+    const [olds, news] = [oldFree.get(h) ?? [], newFree.get(h) ?? []];
+    let [o, n] = [0, 0];
     let gone: MarkdownBlock[] = [];
     let come: MarkdownBlock[] = [];
     for (const part of diffArrays(olds.map((b) => normal(b.source)), news.map((b) => normal(b.source)))) {
@@ -109,8 +169,8 @@ export function markdownDiff(oldText: string | null, newText: string | null, pat
     }
     pairRuns(gone, come);
   }
-  // Each removed block goes before the first new block at or after where its first removed (or else kept) line was.
-  const placeOf = (block: MarkdownBlock) => changes.find((c) => c.side === "LEFT" && holds(block, c.line))?.at ?? kept.find((k) => holds(block, k.old))?.new ?? Infinity;
+  // Each removed block goes before the first new block at or after where its first removed line was.
+  const placeOf = (block: MarkdownBlock) => changes.find((c) => c.side === "LEFT" && holds(block, c.line))?.at ?? Infinity;
   const queue = removed.map((block) => ({ block, at: placeOf(block) })).sort((a, b) => a.at - b.at || a.block.start - b.block.start);
   const blocks: RenderedBlock[] = [];
   for (const block of after.blocks) {
