@@ -17,7 +17,7 @@ import { hunkCounts } from "./src/hunks";
 import { runReviewCommand } from "./src/review-command";
 import { NOT_LISTED, runListCommand } from "./src/list-command";
 import { createPrReview } from "./src/start-review";
-import { assistantInstructions, assistantMayAnswer, endAssistantWaits, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startAutomaticReview, startConversation } from "./src/agent";
+import { assistantInstructions, assistantMayAnswer, endAssistantWaits, threadMayAnswer, getConversation, isAssistantAnswering, newConversation, onAssistantWaitsEnded, refreshAssistants, startAutomaticReview, startConversation } from "./src/agent";
 import { sendApprovalToSourceThread, sendToSourceThread, sourceThread, startFixThread } from "./src/fix-handoff";
 import { listMachines, personalProjectId } from "./src/machines";
 import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, unchangeable, undoable, undoChange, type DraftResult } from "./src/draft-comments";
@@ -27,7 +27,7 @@ import { describeDraft, writeSummary } from "./src/draft-summary";
 import { summaryLine, withSummaryLine } from "./lib/move-to-summary";
 import { runSummaryCommand } from "./src/summary-command";
 import { askAgent, discussionsWaitingOn, settleDiscussions } from "./src/discussions";
-import { clearAsks, listAsks, setAsk } from "./src/asks";
+import { askAt, clearAsks, listAsks, setAsk } from "./src/asks";
 import { digDeeper } from "./src/deep-dive";
 import { runCommentCommand } from "./src/comment-command";
 import { isMissingThread } from "./src/thread-errors";
@@ -48,7 +48,7 @@ import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
 import { postDraftedReply, postReceipts } from "./src/post-receipts";
-import { GUIDE_WORKER_TITLE, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideAsksSinceReview, guideRejected, guideStopped, guideWorkerFailed, guideWriterMode } from "./src/generate";
+import { GUIDE_WORKER_TITLE, failUnfinishedGuides, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideAsksSinceReview, guideRejected, guideStopped, guideWorkerFailed, guideWriterMode } from "./src/generate";
 import { pluginThreadsTitled, toolThreadReview } from "./src/thread-review";
 import { formerWorkerReview, recordFormerWorker } from "./src/former-workers";
 import { parseChecks, parseReviewThreads } from "./src/threads";
@@ -83,6 +83,8 @@ export { rpcContract } from "./src/rpc-contract";
 
 // Raise when the review assistant's tools change.
 const ASSISTANT_TOOLS = 9;
+/** How long a wait on the assistant, or an ask, stands before a review-state pass checks whether its turn ended unheard. */
+const WAIT_GRACE = 2 * 60_000;
 
 /** What the plugin serves from its open store. BB takes services, schedules and the configure and CLI registrations from the factory alone, which hands them on to these. */
 interface Served {
@@ -238,22 +240,37 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       await restartInterruptedGuide(deps, targetKey);
     })().catch((error) => bb.log.warn(`Could not restart the interrupted guide for ${targetKey}: ${String(error)}`));
   })().catch((error) => bb.log.warn(`Could not restart interrupted guides: ${String(error)}`));
-  // A turn that ended while the plugin was down never settled what waited for it.
-  void (async () => {
+  // A turn that ended while the plugin was down, or while its storage failed as BB told of it, never settled what waited
+  // for it: a feedback check, a discussion, or an ask. Settled at activation, and on each review-state pass, once the
+  // newest has had `grace` to start its turn, as one just asked may not have yet.
+  const settleOutlivedWaits = async (grace: number) => {
+    const before = Date.now() - grace;
+    const asked = new Map((await store.listWaitingDiscussions()).map(({ targetKey, askedAt }) => [targetKey, askedAt]));
     for (const review of await store.listReviews()) {
-      // What waits on its assistant, read in one turn: undefined for nothing.
-      const threadId = await store.exclusive(async (tx) => {
-        if (!review.verifyingSince && !(await tx.listDiscussions(review.targetKey)).some((d) => d.waiting)) return undefined;
-        // A check that left the queue while the plugin was down has had its turn, or is having it.
-        return review.verifyingMessageId ? await tx.getAssistantThread(review.targetKey) : null;
-      });
-      if (threadId === undefined) continue;
-      const queue = threadId ? await bb.sdk.threads.queuedMessages.list({ threadId }).catch(() => null) : null;
-      if (queue && !queue.some((m) => m.id === review.verifyingMessageId)) await store.setLifecycle(review.targetKey, { verifyingMessageId: null });
-      if (await assistantMayAnswer(bb, store, review.targetKey)) continue;
-      if (await endAssistantWaits(bb, store, review.targetKey)) await sync.evaluate(review.targetKey);
+      const k = review.targetKey;
+      if ((review.verifyingSince || asked.has(k)) && Math.max(review.verifyingSince ?? 0, asked.get(k) ?? 0) <= before) {
+        // A check that left the queue while no one heard has had its turn, or is having it.
+        const threadId = review.verifyingMessageId ? await store.getAssistantThread(k) : null;
+        const queue = threadId ? await bb.sdk.threads.queuedMessages.list({ threadId }).catch(() => null) : null;
+        if (queue && !queue.some((m) => m.id === review.verifyingMessageId)) {
+          await store.exclusive(async (tx) => { if ((await tx.getReview(k))?.verifyingMessageId === review.verifyingMessageId) await tx.setLifecycle(k, { verifyingMessageId: null }); });
+        }
+        if (!await assistantMayAnswer(bb, store, k) && await endAssistantWaits(bb, store, k)) await sync.evaluate(k);
+      }
+      // An ask whose turn ended unheard, or whose message left the queue unheard and whose turn has ended since.
+      for (const { at, ask } of listAsks(review)) {
+        if (ask.state === "sending" || !ask.threadId || ask.at > before || await threadMayAnswer(bb, ask.threadId)) continue;
+        const withdrawn = await store.exclusive(async (tx) => {
+          const current = askAt(await tx.getReview(k), at);
+          if (current?.at !== ask.at || current.state !== ask.state) return false;
+          await setAsk(tx, k, at, null);
+          return true;
+        });
+        if (withdrawn) bb.realtime.publish(`review:${k}`, { ts: Date.now() });
+      }
     }
-  })().catch((error) => bb.log.warn(`Could not settle reviews waiting on their assistants: ${String(error)}`));
+  };
+  void settleOutlivedWaits(0).catch((error) => bb.log.warn(`Could not settle reviews waiting on their assistants: ${String(error)}`));
   const updates = createPluginUpdates(bb, () => hasGuideGenerations(bb));
   bb.onDispose(() => { stopGuideGenerations(bb); });
 
@@ -1558,6 +1575,8 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       while (!signal.aborted) {
         await updates.run(() => sync.all(), false).catch(() => {});
         await updates.run(() => retryInterruptedGuides(deps), false).catch(() => {});
+        await updates.run(() => failUnfinishedGuides(bb, store), false).catch(() => {});
+        await updates.run(() => settleOutlivedWaits(WAIT_GRACE), false).catch(() => {});
         await delay(60_000, undefined, { signal }).catch(() => {});
       }
     },

@@ -13,7 +13,7 @@ import { GUIDE_WORKER_TITLE } from "./generate";
 const KEEPS_VIEW = new Set<string>([
   "getPreferences", "getReviewerNotes", "getReview", "listReviews", "getReviewContext", "patch", "hasPatch", "patchHash",
   "diffPositions", "fileHashes", "getGuide", "guideBackupHead", "isCurrentGeneration", "generationOf", "generationWorker",
-  "listGenerationWorkers", "getDraft", "staleDraftComments", "listDiscussions", "lastDiscussionChange", "getFileViews",
+  "listGenerationWorkers", "getDraft", "staleDraftComments", "listDiscussions", "listWaitingDiscussions", "lastDiscussionChange", "getFileViews",
   "getAgentThread", "listAgentMessages", "getAssistantThread", "listAssistantThreads", "getSnapshot", "listFeedbackThreads",
   "feedbackFetched", "getAssessment", "latestAssessmentRun", "listReplyDrafts", "isDiscoveryIgnored", "draftCommentCode",
   "agentCommentChanges", "listAgentOutcomes", "reasonedRemovals",

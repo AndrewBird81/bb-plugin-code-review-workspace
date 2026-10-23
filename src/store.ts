@@ -218,6 +218,8 @@ export interface Store extends AgentCommentStore {
   listGenerationWorkers(): Promise<Array<{ targetKey: string; workerId: string }>>;
   /** End the generations a reload interrupted, putting back their previous guides. Returns them, with their workers. */
   interruptGenerations(): Promise<Array<{ targetKey: string; workerId: string | null }>>;
+  /** interruptGenerations for one review, still generating with no run to finish it. False when it isn't generating. */
+  interruptGeneration(targetKey: string): Promise<boolean>;
   getDraft(targetKey: string): Promise<Draft>;
   upsertDraftComment(targetKey: string, c: DraftComment): Promise<Draft>;
   /**
@@ -236,6 +238,8 @@ export interface Store extends AgentCommentStore {
   clearSubmittedDraft(draft: Draft): Promise<void>;
   // Discussions with the review assistant at lines of the diff.
   listDiscussions(targetKey: string): Promise<Discussion[]>;
+  /** The reviews with a discussion waiting on the assistant, and when the reviewer last wrote in one: 0 for unknown. */
+  listWaitingDiscussions(): Promise<Array<{ targetKey: string; askedAt: number }>>;
   /** A reviewer's message waits for the assistant; the assistant's answers it. */
   addDiscussionMessage(targetKey: string, at: CommentLocation, author: DiscussionEntry["author"], body: string, startLine?: number): Promise<void>;
   /**
@@ -642,6 +646,15 @@ export function storeOn(sql: Sql): Store {
       });
       return interrupted;
     },
+    async interruptGeneration(k) {
+      return sql.transaction(async () => {
+        if ((await this.getReview(k))?.status !== "generating") return false;
+        await this.restoreGuide(k);
+        await sql.run(`DELETE FROM generations WHERE target_key=?`, [k]);
+        await sql.run(`UPDATE reviews SET status='error' WHERE target_key=?`, [k]);
+        return true;
+      });
+    },
     async backupGuide(k) {
       const guide = await this.getGuide(k);
       const review = await this.getReview(k);
@@ -806,6 +819,12 @@ export function storeOn(sql: Sql): Store {
         await sql.run(`DELETE FROM discussion_entries WHERE target_key=?`, [k]);
         await sql.run(`DELETE FROM discussion_waits WHERE target_key=?`, [k]);
       });
+    },
+    async listWaitingDiscussions() {
+      return (await sql.all<{ target_key: string; asked_at: number | null }>(
+        `SELECT w.target_key, max(e.created_at) AS asked_at FROM discussion_waits w
+         LEFT JOIN discussion_entries e ON e.target_key=w.target_key AND e.file=w.file AND e.line=w.line AND e.side=w.side AND e.author='reviewer'
+         GROUP BY w.target_key ORDER BY w.target_key`)).map((row) => ({ targetKey: row.target_key, askedAt: row.asked_at ?? 0 }));
     },
     async stopWaiting(k) {
       return (await sql.run(`DELETE FROM discussion_waits WHERE target_key=?`, [k])).changes > 0;

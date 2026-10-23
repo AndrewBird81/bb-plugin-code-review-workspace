@@ -396,7 +396,11 @@ export async function endAssistantWaits(bb: BbPluginApi, store: AsyncStore, targ
  */
 export async function assistantMayAnswer(bb: BbPluginApi, store: AsyncStore, targetKey: string): Promise<boolean> {
   const threadId = await store.getAssistantThread(targetKey);
-  if (!threadId) return false;
+  return !!threadId && await threadMayAnswer(bb, threadId);
+}
+
+/** Whether thread `threadId` may still answer, as assistantMayAnswer says of a review's assistant. */
+export async function threadMayAnswer(bb: BbPluginApi, threadId: string): Promise<boolean> {
   try {
     const thread = await bb.sdk.threads.get({ threadId });
     if (thread.archivedAt != null || thread.deletedAt != null) return false;

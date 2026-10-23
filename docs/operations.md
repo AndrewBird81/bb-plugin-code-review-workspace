@@ -156,7 +156,7 @@ bb plugin reload code-review-workspace          # serving from SQLite, with what
 
 | What happens | What the plugin does |
 |---|---|
-| Postgres restarts, crashes, or fails over while the plugin serves | It logs "Lost the connection to Postgres: …". The call in flight fails, and nothing is retried, since a write might have committed. The next call connects again, and the plugin serves again by itself. |
+| Postgres restarts, crashes, or fails over while the plugin serves | It logs "Lost the connection to Postgres: …". The call in flight fails, and nothing is retried, since a write might have committed. The next call connects again, and the plugin serves again by itself. A guide, a feedback check, a discussion or an ask that was finishing then can stay in progress until the next review-state pass, once a minute: a guide left generating fails, saying "The guide's run ended, but its end couldn't be saved. Try again.", and a check, discussion or ask asked for at least two minutes before, whose assistant has stopped, stops waiting. A Submit or Send that GitHub took says so, and doing it again only records it. |
 | The network to Postgres drops packets | A call in flight fails after 35 s ("Query read timeout"), and later calls fail on connecting. It recovers by itself. |
 | Postgres can't be reached at a reload or BB's start | Only `bb review storage` answers until it can; see [Maintenance mode](#maintenance-mode). Reload to try at once. |
 | Postgres dies during `migrate` or `export-sqlite` | "… Nothing was changed.": the copy is rolled back or deleted, and the owner stays. Run it again once Postgres is back. |

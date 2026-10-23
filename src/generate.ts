@@ -65,6 +65,31 @@ export async function stopGuide(bb: BbPluginApi, store: AsyncStore, targetKey: s
   return (await store.getReview(targetKey))?.status === "ready" ? "restored" : "stopped";
 }
 
+/** What a review left generating with no run to finish it says, as when its run's end couldn't be recorded. */
+export const GUIDE_UNFINISHED = "The guide's run ended, but its end couldn't be saved. Try again.";
+
+/**
+ * Fail the reviews left generating with no run in this instance to finish them, as when the storage failed as a run
+ * ended: each gets its earlier guide back, as at a reload (interruptGenerations), and says why. A run is in stoppable
+ * from the turn that begins it, which saves the review generating, until it has ended.
+ */
+export async function failUnfinishedGuides(bb: BbPluginApi, store: AsyncStore): Promise<void> {
+  const failed = await store.exclusive(async (tx) => {
+    const failed: string[] = [];
+    for (const review of await tx.listReviews()) {
+      if (review.status !== "generating" || stoppable.get(bb)?.has(review.targetKey) || !await tx.interruptGeneration(review.targetKey)) continue;
+      await tx.setLifecycle(review.targetKey, { guideError: { at: Date.now(), text: GUIDE_UNFINISHED } });
+      failed.push(review.targetKey);
+    }
+    return failed;
+  });
+  for (const targetKey of failed) {
+    bb.log.warn(`The guide for ${targetKey} was left generating with no run to finish it; it failed.`);
+    bb.realtime.publish(`review:${targetKey}`, { ts: Date.now() });
+  }
+  if (failed.length) bb.realtime.publish("reviews", { ts: Date.now() });
+}
+
 /** Why a guide can't start now: the guide writer's machine is offline or removed. */
 export async function guideWriterUnavailable(bb: BbPluginApi, store: AsyncStore): Promise<string | null> {
   return machineUnavailable(bb, (await store.getPreferences()).preferences.guideAgent, "guide writer");
@@ -302,9 +327,10 @@ export async function beginGuide(
       if (!controller.signal.aborted && options.notify !== false) await completionNotifications(bb, store).queue({
         targetKey, generationId: id, projectId, status: ok ? "ready" : "error",
       });
-    } catch {
-      // A plugin reload can dispose storage/realtime while a worker is finishing.
-      // The next factory marks interrupted runs as errors without reusing a guide.
+    } catch (error) {
+      // A plugin reload can dispose storage/realtime while a worker is finishing: the next factory marks interrupted
+      // runs as errors without reusing a guide. A storage failure leaves it to failUnfinishedGuides.
+      bb.log.warn(`Could not record the end of the guide run for ${targetKey}: ${String(error)}`);
     } finally {
       runs.delete(controller);
       if (generationId) generations.get(bb)?.delete(generationId);
