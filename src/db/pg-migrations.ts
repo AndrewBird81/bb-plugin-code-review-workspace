@@ -83,6 +83,11 @@ export const PG_MIGRATIONS: readonly string[] = [
 
 const statementHash = (statement: string) => createHash("sha256").update(statement).digest("hex");
 
+/** Whether migratePg has made `schema`'s tables: for the plugin, only bb review storage migrate does. */
+export async function pgSchemaMigrated(sql: Sql, schema: string): Promise<boolean> {
+  return (await sql.get<{ found: string | null }>(`SELECT to_regclass(?) AS found`, [`${pg.escapeIdentifier(schema)}.crw_migrations`]))?.found != null;
+}
+
 /**
  * Create `schema` if it's missing and apply the statements its crw_migrations doesn't record, all in one transaction
  * under an advisory lock, so instances starting together apply each statement once. As with bb.storage.migrate, a

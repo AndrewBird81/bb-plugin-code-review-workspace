@@ -5,6 +5,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { createFakePluginHost, type FakePluginHarness } from "@get-bb/plugin-sdk/testing";
 import { expect, vi } from "vitest";
 import { pgSql, type PgSql } from "./db/pg";
+import { migratePg } from "./db/pg-migrations";
 import { testPgOptions, testPgUrl, testSchemaName } from "./db/pg-test.test-support";
 import { STORAGE_OWNER_KEY } from "./storage";
 
@@ -86,7 +87,11 @@ export function postgresSettings(port?: number) {
   };
 }
 
+/** A host whose storage:owner says its reviews are in Postgres, in a schema migrate made, as migrate leaves it. */
 export async function host(settings: Record<string, string>, sdk?: object) {
+  const schema = settings.postgresSchema!;
+  const migrating = pgSql(testPgOptions(schema));
+  try { await migratePg(migrating, schema); } finally { await migrating.end(); }
   const { bb, harness } = createFakePluginHost({ pluginId: PLUGIN, settings, ...(sdk ? { sdk } : {}) });
   await bb.storage.kv.set(STORAGE_OWNER_KEY, "postgres");
   return { bb, harness } as { bb: BbPluginApi; harness: FakePluginHarness };

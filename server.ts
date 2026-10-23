@@ -76,7 +76,7 @@ import { queueStore, type AsyncStore, type QueuedStore } from "./src/store-queue
 import { createConfigureView } from "./src/configure-view";
 import { chooseStorage, openPostgres, unlessAborted } from "./src/storage";
 import { createStorageCommand } from "./src/storage-cli";
-import { migratePg } from "./src/db/pg-migrations";
+import { migratePg, pgSchemaMigrated } from "./src/db/pg-migrations";
 
 export { rpcContract } from "./src/rpc-contract";
 
@@ -140,6 +140,8 @@ export default async function plugin(bb: BbPluginApi) {
       if (!served) {
         const opened = await openPostgres(bb, storage, signal, async () => {
           await pg.lockWriter();
+          // The reviews are in Postgres, by storage:owner: a schema without them is the wrong one, not one to make.
+          if (!await pgSchemaMigrated(pg, schema)) throw new Error(`storage:owner says the reviews are in Postgres, but schema "${schema}" holds none: check postgresUrl and postgresSchema, then reload`);
           await migratePg(pg, schema);
           return await openStore(bb, storeOn(pg));
         });

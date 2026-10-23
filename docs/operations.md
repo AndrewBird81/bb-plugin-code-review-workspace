@@ -51,7 +51,7 @@ From 1.3.0 the reviews can be kept in Postgres instead of SQLite. Both hold the 
    CREATE DATABASE code_review_workspace OWNER code_review_workspace;
    ```
 
-   The plugin makes its schema (`postgresSchema`) if it's missing, and its tables in it. A schema that exists already needs to be the role's, or one it can create tables in.
+   `bb review storage migrate` makes the schema (`postgresSchema`) if it's missing, and the tables in it. A schema that exists already needs to be the role's, or one it can create tables in. Once the reviews are in Postgres, the plugin doesn't make a schema: one that holds no reviews, as after a typo in `postgresSchema` or a `postgresUrl` naming another database, is reported as needs-configuration ("… schema "…" holds none: check postgresUrl and postgresSchema"), and nothing is served until the settings are fixed and the plugin reloads.
 2. Set the [settings](#postgres-settings) on the BB server, `storageBackend` last. Read the password into a variable, so it stays out of your shell's history:
 
    ```sh
@@ -73,7 +73,7 @@ Take a [backup](#backups) of `data.db` first. `migrate` leaves `data.db` as it w
 | `storageBackend` | `sqlite` | `sqlite` or `postgres`: where the reviews are kept. |
 | `postgresUrl` | none | `postgres://user@host:port/database`. It takes **no password and no query parameters**: a URL with either is refused, and the message names the setting to use instead. `sslmode` and the like in a URL are refused rather than read, since pg would take a URL's `sslmode=require` as `verify-full`. PG* environment variables (`PGHOST`, `PGSSLMODE`, …) are never read. |
 | `postgresPassword` | none | The role's password, kept as a BB secret. Needed with `postgres`. If the role's password changes, set it again and reload. |
-| `postgresSchema` | `code_review_workspace` | The schema the tables are made in, created if it's missing. Two installs sharing a database need a schema each. |
+| `postgresSchema` | `code_review_workspace` | The schema the tables are in. `bb review storage migrate` creates it if it's missing; the plugin never does. Two installs sharing a database need a schema each. |
 | `postgresSsl` | `require` | `verify-full`, `require`, or `disable`; see [TLS](#tls). |
 | `postgresCaPem` | none | PEM certificates that `verify-full` checks the server's certificate against; without it, Node's CAs. Refused with the other modes. |
 

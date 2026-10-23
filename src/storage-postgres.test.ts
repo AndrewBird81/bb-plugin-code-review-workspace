@@ -55,7 +55,9 @@ function postgresSettings(overrides: { port?: number; password?: string } = {}) 
   };
 }
 
-async function host(settings: Record<string, string>, sdk?: object) {
+/** A host whose storage:owner says its reviews are in Postgres, as migrate leaves it, in a schema migrate made, unless `unmigrated`. */
+async function host(settings: Record<string, string>, sdk?: object, unmigrated = false) {
+  if (!unmigrated) await migratePg(connection(settings.postgresSchema!), settings.postgresSchema!);
   const { bb, harness } = createFakePluginHost({ pluginId: PLUGIN, settings, ...(sdk ? { sdk } : {}) });
   await bb.storage.kv.set(STORAGE_OWNER_KEY, "postgres");
   return { bb, harness };
@@ -114,6 +116,23 @@ describe.skipIf(!testPgUrl)("the plugin on Postgres storage", () => {
     await vi.waitFor(async () => { expect(await pluginConnections(admin, schema)).toBe(0); });
     const next = connection(schema);
     await next.lockWriter();
+  });
+
+  // bug bash E2: a changed postgresSchema or postgresUrl, by a typo, a reinstall or a new database, was given new empty
+  // tables and served as an empty review list, while the reviews sat in the schema used until then.
+  test("a schema migrate didn't make isn't served or made: needsConfiguration says to check postgresUrl and postgresSchema", async () => {
+    const { schema, settings } = postgresSettings();
+    const { bb, harness } = await host(settings, undefined, true);
+    await plugin(bb);
+    harness.behavior.runService("storage");
+    await vi.waitFor(() => {
+      expect(harness.inspection.needsConfigurationMessages).toEqual([
+        `Code Review Workspace can't open its Postgres storage: storage:owner says the reviews are in Postgres, but schema "${schema}" holds none: check postgresUrl and postgresSchema, then reload. It keeps trying, and serves once it gets through; this status stays until the plugin reloads (bb plugin reload code-review-workspace).`,
+      ]);
+    }, { timeout: 5_000, interval: 50 });
+    expect(registered(harness)).toEqual({ tools: 0, rpc: 0, events: 0 });
+    expect(await connection("public").get("SELECT 1 FROM pg_namespace WHERE nspname=?", [schema])).toBeUndefined();
+    await harness.lifecycle.dispose();
   });
 
   test("with the writer lock held elsewhere, only the CLI serves and needsConfiguration says why, until the holder lets it go", async () => {

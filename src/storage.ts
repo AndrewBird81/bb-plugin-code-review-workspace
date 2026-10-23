@@ -25,7 +25,7 @@ function defineStorageSettings(bb: BbPluginApi) {
     postgresPassword: { type: "string", label: "Postgres password", secret: true },
     postgresSchema: {
       type: "string", label: "Postgres schema", default: "code_review_workspace",
-      description: "The schema the tables are made in, created if it's missing.",
+      description: "The schema the tables are in. bb review storage migrate creates it if it's missing; the plugin never does.",
     },
     postgresSsl: {
       type: "select", label: "Postgres TLS", options: ["verify-full", "require", "disable"], default: "require",
