@@ -83,7 +83,7 @@ test("every block's and every selection's anchor is valid on GitHub", () => {
     if (old === now) continue;
     const { patch, lines, items } = setup(old, now, r.pick([0, 1, 3]));
     // Show previous draws a changed block's version before as a removed block.
-    const anchors = items.flatMap((item) => [blockAnchor(lines, item), item.previous ? blockAnchor(lines, { status: "removed", side: "LEFT", block: item.previous }) : null]);
+    const anchors = items.flatMap((item) => [blockAnchor(lines, item), ...(item.previous ?? []).map((old) => blockAnchor(lines, { status: "removed", side: "LEFT", block: old }))]);
     for (let i = 0; i < items.length; i++) for (let j = i; j < items.length; j++) anchors.push(selectionAnchor(lines, items.slice(i, j + 1)));
     for (const anchor of anchors) {
       if (!anchor) continue;

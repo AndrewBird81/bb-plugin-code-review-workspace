@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import type { SelectedLineRange } from "@pierre/diffs";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import type { CommentLocation } from "../src/draft";
@@ -132,11 +132,11 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
       if (!ends[0] || !ends[1]) return;
       const [from, to] = ends.map((end) => Number(end!.dataset.mdIndex));
       // A changed block's version before, above it, is the old file's.
-      const [fromGhost, toGhost] = [range.startContainer, range.endContainer].map((node) => !!(node instanceof Element ? node : node.parentElement)?.closest("[data-md-ghost]"));
-      const ghost = (index: number): RenderedBlock => ({ status: "removed", side: "LEFT", block: items[index].previous! });
+      const [fromGhost, toGhost] = [range.startContainer, range.endContainer].map((node) => (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>("[data-md-ghost]")?.dataset.mdGhost);
+      const ghost = (index: number, at: string): RenderedBlock => ({ status: "removed", side: "LEFT", block: items[index].previous![Number(at)] });
       let picked = items.slice(from, to + 1);
-      if (toGhost) picked = [...picked.slice(0, -1), ghost(to)];
-      if (fromGhost) picked = [ghost(from), ...picked.slice(from === to && toGhost ? 1 : 0)];
+      if (toGhost !== undefined) picked[picked.length - 1] = ghost(to, toGhost);
+      if (fromGhost !== undefined) picked = from === to && toGhost !== undefined ? [...new Set([fromGhost, toGhost])].map((at) => ghost(from, at)) : [ghost(from, fromGhost), ...picked];
       const anchor = selectionAnchor(lines, picked);
       const last = picked[picked.length - 1];
       const side = (anchor?.side ?? last.side) === "LEFT" ? "deletions" : "additions";
@@ -158,20 +158,21 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
   const isPicked = (item: RenderedBlock) => !!selected && item.side === pickedSide
     && item.block.start <= Math.max(selected.start, selected.end) && item.block.end >= Math.min(selected.start, selected.end);
 
-  function blockView(item: RenderedBlock, index: number, first: boolean, ghost = false) {
-    const anchor = ghost ? blockAnchor(lines, item) : anchors[index];
+  /** `ghost`: which of a changed block's versions before it is. */
+  function blockView(item: RenderedBlock, index: number, first: boolean, ghost?: number) {
+    const anchor = ghost !== undefined ? blockAnchor(lines, item) : anchors[index];
     const definitions = item.side === "LEFT" ? diff.oldDefinitions : diff.newDefinitions;
     const said = SAID[item.status];
     return (
       <div
         data-md-block={item.block.kind}
-        data-md-ghost={ghost || undefined}
+        data-md-ghost={ghost}
         data-side={item.side}
         data-start={item.block.start}
         data-end={item.block.end}
-        className={cn("group/block relative flow-root border-l-[3px] pl-4", BAR[item.status], spaceAbove(item.block, first), !ghost && isPicked(item) && "bg-primary/5")}
+        className={cn("group/block relative flow-root border-l-[3px] pl-4", BAR[item.status], spaceAbove(item.block, first), ghost === undefined && isPicked(item) && "bg-primary/5")}
       >
-        {said && <span className="sr-only">{ghost ? "Before the change" : said}, {item.side === "LEFT" ? "old " : ""}{item.block.start === item.block.end ? `line ${item.block.start}` : `lines ${item.block.start}–${item.block.end}`}</span>}
+        {said && <span className="sr-only">{ghost !== undefined ? "Before the change" : said}, {item.side === "LEFT" ? "old " : ""}{item.block.start === item.block.end ? `line ${item.block.start}` : `lines ${item.block.start}–${item.block.end}`}</span>}
         <div className="relative">
           {/* In the gutter left of the bar, where there's a mouse to aim it; a touch screen selects the text instead. */}
           {anchor && onComment && (
@@ -214,7 +215,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
         const showing = previous.has(row.index);
         return (
           <div key={`${item.side}:${item.block.start}`} data-md-index={row.index} data-md-status={item.status}>
-            {showing && item.previous && blockView({ status: "removed", side: "LEFT", block: item.previous }, row.index, at === 0, true)}
+            {showing && item.previous?.map((old, k) => <Fragment key={k}>{blockView({ status: "removed", side: "LEFT", block: old }, row.index, at === 0 && k === 0, k)}</Fragment>)}
             {blockView(item, row.index, at === 0 && !showing)}
             {item.previous && (
               <div className="border-l-[3px] border-warning pl-4">

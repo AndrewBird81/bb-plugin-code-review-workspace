@@ -91,7 +91,7 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     // BB's Markdown drew each block: the table, and the code with its highlighting.
     await rendered.locator("table").waitFor();
     expect(await rendered.locator("[data-md-status]").evaluateAll((units) => units.map((unit) => (unit as HTMLElement).dataset.mdStatus)))
-      .toEqual(["unchanged", "unchanged", "unchanged", "unchanged", "added", "added", "removed", "unchanged", "changed", "changed", "changed"]);
+      .toEqual(["unchanged", "unchanged", "unchanged", "unchanged", "added", "added", "unchanged", "changed", "removed", "changed", "changed"]);
     for (const scheme of ["dark", "light"] as const) {
       await page.emulateMedia({ colorScheme: scheme });
       await page.waitForTimeout(500);

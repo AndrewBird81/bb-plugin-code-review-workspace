@@ -88,7 +88,7 @@ export function selectionAnchor(lines: FileLines, items: RenderedBlock[]): LineA
 export function blockAt(items: RenderedBlock[], lines: FileLines, at: { line: number; side: "LEFT" | "RIGHT" }): number {
   const holds = (start: number, end: number) => at.line >= start && at.line <= end;
   if (at.side === "LEFT") {
-    const old = items.findIndex((item) => item.side === "LEFT" ? holds(item.block.start, item.block.end) : !!item.previous && holds(item.previous.start, item.previous.end));
+    const old = items.findIndex((item) => item.side === "LEFT" ? holds(item.block.start, item.block.end) : !!item.previous?.some((old) => holds(old.start, old.end)));
     if (old >= 0) return old;
     const line = lines.oldToNew.get(at.line);
     if (line === undefined) return items.length - 1;

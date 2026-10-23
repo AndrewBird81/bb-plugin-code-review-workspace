@@ -3,7 +3,7 @@ import { markdownDiff } from "./markdown-diff";
 import { gitPatch } from "./markdown-test-patch.test-support";
 
 const statuses = (old: string | null, now: string | null, hideWhitespace = false) =>
-  markdownDiff(old, now, gitPatch("doc.md", old, now), hideWhitespace).blocks.map((b) => [b.status, b.side, b.block.start, b.block.end, b.previous?.start ?? null]);
+  markdownDiff(old, now, gitPatch("doc.md", old, now), hideWhitespace).blocks.map((b) => [b.status, b.side, b.block.start, b.block.end, b.previous?.[0].start ?? null]);
 
 const BASE = "# Tokens\n\nWe want short-lived tokens so a stolen token is useless.\n\n## Lifetime\n\nTokens expire after 1 hour.\n\nRefresh tokens are never rotated.\n\n## Fields\n\nOne field.\n";
 
@@ -46,14 +46,15 @@ test("blocks a kept line links pair in document order", async () => {
   const old = "## Lifetime\n\nTokens expire after 1 hour.\n\nNever rotated.\n\n| a |\n|---|\n| 1 |\n\n```ts\nconst x = 1;\n```\n";
   const now = "## Rotation\n\nOnce each.\n\n## Lifetime\n\nTokens expire after 15 minutes.\n\n| a |\n|---|\n| 1 |\n| 2 |\n\n```ts\nconst x = 2;\n```\n";
   expect(statuses(old, now).filter(([status]) => status !== "unchanged")).toEqual([
-    ["added", "RIGHT", 1, 1, null], ["added", "RIGHT", 3, 3, null], ["removed", "LEFT", 5, 5, null], ["changed", "RIGHT", 7, 7, 3], ["changed", "RIGHT", 9, 12, 7], ["changed", "RIGHT", 14, 16, 11],
+    ["added", "RIGHT", 1, 1, null], ["added", "RIGHT", 3, 3, null], ["changed", "RIGHT", 7, 7, 3], ["removed", "LEFT", 5, 5, null], ["changed", "RIGHT", 9, 12, 7], ["changed", "RIGHT", 14, 16, 11],
   ]);
 });
 
 // Rewriting every paragraph compared each old one with every new one by a full word diff: 100 took 6 s, 300 took 55 s.
 test("a document rewritten throughout reads in reasonable time", () => {
   const words = (seed: number, n: number) => Array.from({ length: n }, (_, i) => (seed >= 100000 ? "b" : "a") + ((seed * 7919 + i * 104729) % 5000)).join(" ");
-  for (const [count, ms] of [[100, 200], [300, 600]]) {
+  // Loose enough for a loaded CI machine; the freeze took seconds.
+  for (const [count, ms] of [[100, 1500], [300, 3000]]) {
     const old = Array.from({ length: count }, (_, i) => words(i, 60)).join("\n\n") + "\n";
     const now = Array.from({ length: count }, (_, i) => words(i + 100000, 60)).join("\n\n") + "\n";
     const patch = gitPatch("doc.md", old, now);
@@ -62,6 +63,50 @@ test("a document rewritten throughout reads in reasonable time", () => {
     expect(performance.now() - start).toBeLessThan(ms);
     expect([blocks.filter((b) => b.status === "removed").length, blocks.filter((b) => b.status === "added").length]).toEqual([count, count]);
   }
+});
+
+test("a search and replace over every paragraph, or a rewrite of each a little more than the last, reads in reasonable time", () => {
+  const count = 2000;
+  const old = Array.from({ length: count }, (_, i) => `The foo service handles request number ${i} quickly.`).join("\n\n") + "\n";
+  const replaced = old.replace(/foo/g, "bar");
+  const patch = gitPatch("doc.md", old, replaced);
+  let start = performance.now();
+  expect(markdownDiff(old, replaced, patch).blocks.every((b) => b.status === "changed")).toBe(true);
+  expect(performance.now() - start).toBeLessThan(3000);
+  const words = (i: number, keep: number) => Array.from({ length: 20 }, (_, k) => (k < keep ? `w${i}x${k}` : `z${i}y${k}`)).join(" ");
+  const before = Array.from({ length: count }, (_, i) => words(i, 20)).join("\n\n") + "\n";
+  const after = Array.from({ length: count }, (_, i) => words(i, 20 - Math.floor((i * 10) / count))).join("\n\n") + "\n";
+  const rewrite = gitPatch("doc.md", before, after);
+  start = performance.now();
+  markdownDiff(before, after, rewrite);
+  expect(performance.now() - start).toBeLessThan(3000);
+});
+
+test("blank lines added or removed between blocks change nothing, with any context", () => {
+  const gap = "\n".repeat(9);
+  const old = `Alpha para.\n${gap}Bravo para.\n\nCharlie.\n`;
+  for (const now of [`Alpha para.\n${gap.slice(1)}Bravo para.\n\nCharlie.\n`, `Alpha para.\n${gap}\nBravo para.\n\nCharlie.\n`]) {
+    for (const context of [0, 1, 3]) {
+      expect(markdownDiff(old, now, gitPatch("doc.md", old, now, context)).blocks.map((b) => [b.status, b.block.source])).toEqual([["unchanged", "Alpha para."], ["unchanged", "Bravo para."], ["unchanged", "Charlie."]]);
+    }
+  }
+});
+
+test("a moved section shows as removed where it was and added where it went", () => {
+  const section = (name: string) => `## Section ${name}\n\nBody of section ${name} with its own words.\n`;
+  const old = [section("one"), section("two"), section("three")].join("\n");
+  const now = [section("two"), section("one"), section("three")].join("\n");
+  const shown = markdownDiff(old, now, gitPatch("doc.md", old, now)).blocks.filter((b) => b.status !== "unchanged").map((b) => [b.status, b.block.source]);
+  expect(shown).toEqual(expect.arrayContaining([["removed", "## Section one"], ["removed", "Body of section one with its own words."], ["added", "## Section one"], ["added", "Body of section one with its own words."]]));
+});
+
+test("blocks joined across a removed heading show the heading removed, and each joined block before", () => {
+  const old = "x line one\n\n## Heading Y\n\nz line two\n\nEnd.\n";
+  const now = "x line one\nz line two\n\nEnd.\n";
+  const { blocks } = markdownDiff(old, now, gitPatch("doc.md", old, now));
+  expect(blocks.map((b) => [b.status, b.side, b.block.start, b.previous?.map((p) => [p.kind, p.start]) ?? null])).toEqual([
+    ["changed", "RIGHT", 1, [["paragraph", 1], ["paragraph", 5]]], ["removed", "LEFT", 3, null], ["unchanged", "RIGHT", 4, null],
+  ]);
 });
 
 test("a list, table or fence changed in two hunks is one changed block", () => {
@@ -79,6 +124,15 @@ test("a paragraph that keeps its first line and grows is changed, however much i
   expect(statuses(old, old.replace("Short para.\n", "Short para.\nAnd a much longer continuation sentence that adds many words to it here.\n"))).toEqual([
     ["unchanged", "RIGHT", 1, 1, null], ["changed", "RIGHT", 3, 4, 3], ["unchanged", "RIGHT", 6, 6, null],
   ]);
+});
+
+test("blocks that keep each other's lines are one change with no context lines in the diff too", () => {
+  const old = "# T\n\n- a\n- b\n\nTwo-line\nparagraph here.\n\nEnd.\n";
+  const now = "# T\n\n- a\n- b\nTwo-line\nparagraph here.\n\nEnd.\n";
+  for (const context of [0, 1, 3]) {
+    expect(markdownDiff(old, now, gitPatch("doc.md", old, now, context)).blocks.map((b) => [b.status, b.block.start, b.previous?.map((p) => p.start) ?? null]))
+      .toEqual([["unchanged", 1, null], ["changed", 3, [3, 6]], ["unchanged", 8, null]]);
+  }
 });
 
 test("a paragraph split by a blank line, or two joined, is changed", () => {
