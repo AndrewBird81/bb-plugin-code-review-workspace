@@ -41,27 +41,37 @@ function refusal(result: { stdout: string; stderr: string }): string {
 
 export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, receipts: PostReceipts = postReceipts()) {
   const inFlight = new Set<string>();
-  const record = (targetKey: string, receipt: ReviewReceipt) => store.exclusive(async (tx) => {
+  /**
+   * Record what GitHub took. One on an earlier head than the review's, as after a rebuild, leaves the summary and verdict:
+   * submitted again, they're a review of the new head. Returns how many of its comments left the draft.
+   */
+  const record = (targetKey: string, receipt: ReviewReceipt, keepSummary = false) => store.exclusive(async (tx) => {
     await tx.setLifecycle(targetKey, { submittedVerdict: receipt.draft.verdict, submittedAt: receipt.submittedAt, submittedHeadSha: receipt.headSha, submittedReviewId: receipt.reviewId, ...(receipt.reviewer ? { reviewer: receipt.reviewer } : {}) });
-    await tx.clearSubmittedDraft(receipt.draft);
+    return tx.clearSubmittedDraft(receipt.draft, keepSummary);
   });
   /** `shown` is the list of comments the reviewer's page displays, and `summary` its summary and verdict; the draft must still match them. */
   return async (targetKey: string, revision: string | undefined, account: string | undefined, shown: Pick<DraftComment, "file" | "line" | "side" | "severity" | "introduced" | "body">[], summary: { body: string; verdict: Verdict }): Promise<{ ok: boolean; error?: string; url?: string }> => {
     if (inFlight.has(targetKey)) return { ok: false, error: "This review is already being submitted." };
     inFlight.add(targetKey);
     try {
-      // A review GitHub took that couldn't be recorded: recorded now, and the same draft isn't posted again.
+      // A review GitHub took that couldn't be recorded: recorded now. The same draft, on the head it was for, isn't posted
+      // again; on a newer head it's a new review, but the comments GitHub has leave the draft.
       const earlier = await receipts.get<ReviewReceipt>(reviewReceiptKey(targetKey));
       if (earlier) {
+        let current = false;
+        let taken = 0;
         try {
           const review = await store.getReview(targetKey);
-          if (review && review.submittedAt !== earlier.submittedAt) await record(targetKey, earlier);
+          current = review?.headSha === earlier.headSha;
+          if (review && current && review.submittedAt !== earlier.submittedAt) await record(targetKey, earlier);
+          else if (review && !current) taken = await record(targetKey, earlier, true);
         } catch (error) {
           // Put in kv again, as it may be in memory alone.
           return { ok: false, error: notRecorded("review", error, await receipts.put(reviewReceiptKey(targetKey), earlier), earlier.url) };
         }
         await receipts.drop(reviewReceiptKey(targetKey));
-        if (sameComments(earlier.draft.comments, shown) && earlier.draft.body === summary.body && earlier.draft.verdict === summary.verdict) return { ok: true, ...(earlier.url ? { url: earlier.url } : {}) };
+        if (current && sameComments(earlier.draft.comments, shown) && earlier.draft.body === summary.body && earlier.draft.verdict === summary.verdict) return { ok: true, ...(earlier.url ? { url: earlier.url } : {}) };
+        if (taken) return { ok: false, error: `GitHub already has ${taken} of these comments, from your review of ${earlier.headSha.slice(0, 7)}${earlier.url ? ` (${earlier.url})` : ""}, so ${taken === 1 ? "it was" : "they were"} taken out of your draft. Check the draft, then submit again.` };
       }
       // The review and the draft it checks, in one turn.
       const checked = await store.exclusive(async (tx): Promise<{ error: string } | { m: ReviewMeta & { number: number; repo: string; headSha: string }; draft: Draft }> => {
@@ -136,7 +146,7 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
       const receipt: ReviewReceipt = { submittedAt: Date.now(), reviewId, headSha: m.headSha, draft, ...(reviewer ? { reviewer } : {}), ...(url ? { url } : {}) };
       const durable = await receipts.put(reviewReceiptKey(targetKey), receipt);
       try {
-        await recordPosted(() => record(targetKey, receipt));
+        await recordPosted(async () => { await record(targetKey, receipt); });
       } catch (error) {
         return { ok: false, error: notRecorded("review", error, durable, url) };
       }

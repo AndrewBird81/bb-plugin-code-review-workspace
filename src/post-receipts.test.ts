@@ -7,6 +7,10 @@ const gh = vi.hoisted(() => ({
   /** Runs as GitHub takes the POST, before gh answers. */
   onPost: async () => {},
   posts: [] as string[][],
+  /** What each POST sent. */
+  payloads: [] as string[],
+  /** The PR's head, as GitHub reports it. */
+  head: "sha123",
 }));
 
 vi.mock("./gh", async (importOriginal) => {
@@ -14,15 +18,16 @@ vi.mock("./gh", async (importOriginal) => {
   const ok = (stdout: string) => ({ stdout, stderr: "", code: 0 });
   return {
     ...actual,
-    runGh: async (args: string[]) => {
+    runGh: async (args: string[], options?: { stdin?: string }) => {
       if (args[0] === "auth") return ok("test-token");
       if (args[1] === "user") return ok("casey");
       if (args.some((a) => a.includes("/reviews")) || args.some((a) => a.includes("/replies"))) {
         gh.posts.push(args);
+        gh.payloads.push(options?.stdin ?? "");
         await gh.onPost();
         return ok(JSON.stringify({ node_id: `R${gh.posts.length}`, html_url: `https://github.com/acme/web/pull/1#r${gh.posts.length}`, user: { login: "casey" } }));
       }
-      return ok(JSON.stringify({ headRefOid: "sha123", baseRefName: "main" }));
+      return ok(JSON.stringify({ headRefOid: gh.head, baseRefName: "main" }));
     },
   };
 });
@@ -36,11 +41,11 @@ import { storeOn } from "./store";
 import type { AsyncStore } from "./store-queue";
 import { createReviewSubmitter } from "./submit-review";
 import { postDraftedReply, postReceipts } from "./post-receipts";
-import { testStore } from "./test-store.test-support";
+import { testSql, testStore } from "./test-store.test-support";
 import { faultProxy, host, opened, postgresSettings } from "./pg-faults.test-support";
 
 const cleanup: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn().catch(() => {}); gh.posts.length = 0; gh.onPost = async () => {}; });
+afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn().catch(() => {}); gh.posts.length = 0; gh.payloads.length = 0; gh.onPost = async () => {}; gh.head = "sha123"; });
 
 const PATCH = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n";
 
@@ -117,6 +122,101 @@ test("a reply GitHub took whose draft the store couldn't clear is finished by th
   expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed?", post)).toEqual({ ok: true });
   expect(posts).toBe(2);
 }, 15_000);
+
+/** The review rebuilt for the PR's new head, `head`, as Update does: the draft stays. */
+async function rebuilt(store: AsyncStore, head: string) {
+  await store.saveReview({ ...(await store.getReview("pr-1"))!, headSha: head });
+  gh.head = head;
+}
+
+// Review round 1, BLOCKING 1: a receipt Submit never came back for outlived the diff it was for, and the same approval
+// of the new head returned the old review's link without posting.
+test("a review GitHub took on an earlier head doesn't stop the same approval of the new head from posting", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
+  await store.savePatch("pr-1", PATCH);
+  await store.setVerdict("pr-1", "APPROVE");
+  const approval = { body: "", verdict: "APPROVE" as const };
+  let down = false;
+  gh.onPost = async () => { down = true; };
+  expect(await createReviewSubmitter(failing(store, () => down), runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", [], approval)).toMatchObject({ ok: false });
+  down = false;
+  gh.onPost = async () => {};
+  await rebuilt(store, "sha456");
+  expect(await createReviewSubmitter(store, runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", [], approval)).toEqual({ ok: true, url: "https://github.com/acme/web/pull/1#r2" });
+  expect(gh.posts).toHaveLength(2);
+  expect(gh.payloads.map((p) => JSON.parse(p).commit_id)).toEqual(["sha123", "sha456"]);
+  expect(await store.getReview("pr-1")).toMatchObject({ submittedVerdict: "APPROVE", submittedHeadSha: "sha456", submittedReviewId: "R2" });
+  expect(await bb.storage.kv.list("posted-review:")).toEqual([]);
+}, 15_000);
+
+test("comments GitHub took on an earlier head leave the draft, and the Submit that takes them out says so and posts nothing", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
+  await store.savePatch("pr-1", PATCH);
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "nit" });
+  await store.setVerdict("pr-1", "COMMENT", "A nit.");
+  const posted = await store.getDraft("pr-1");
+  let down = false;
+  gh.onPost = async () => { down = true; };
+  expect(await createReviewSubmitter(failing(store, () => down), runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", posted.comments, posted)).toMatchObject({ ok: false });
+  down = false;
+  gh.onPost = async () => {};
+  await rebuilt(store, "sha456");
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "and this" });
+  const submit = async () => { const shown = await store.getDraft("pr-1"); return createReviewSubmitter(store, runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", shown.comments, shown); };
+  expect(await submit()).toEqual({ ok: false, error: "GitHub already has 1 of these comments, from your review of sha123 (https://github.com/acme/web/pull/1#r1), so it was taken out of your draft. Check the draft, then submit again." });
+  expect(gh.posts).toHaveLength(1);
+  expect(await store.getDraft("pr-1")).toMatchObject({ comments: [{ body: "and this" }], body: "A nit.", verdict: "COMMENT" });
+  expect(await submit()).toEqual({ ok: true, url: "https://github.com/acme/web/pull/1#r2" });
+  expect(gh.payloads.map((p) => JSON.parse(p).comments.map((c: { body: string }) => c.body))).toEqual([["nit"], ["and this"]]);
+}, 15_000);
+
+/** Has deleting a reply draft fail, on either backend, as on a dropped connection; the returned function undoes it. */
+async function refuseReplyDraftDeletes(sql: ReturnType<typeof testSql>): Promise<() => Promise<void>> {
+  if (sql.dialect === "sqlite") {
+    await sql.run(`CREATE TRIGGER refuse_reply_delete BEFORE DELETE ON reply_drafts BEGIN SELECT RAISE(ABORT, 'Connection terminated unexpectedly'); END`);
+    return async () => { await sql.run(`DROP TRIGGER refuse_reply_delete`); };
+  }
+  await sql.run(`CREATE FUNCTION refuse_reply_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Connection terminated unexpectedly'; END $$`);
+  await sql.run(`CREATE TRIGGER refuse_reply_delete BEFORE DELETE ON reply_drafts FOR EACH ROW EXECUTE FUNCTION refuse_reply_delete()`);
+  return async () => { await sql.run(`DROP TRIGGER refuse_reply_delete ON reply_drafts`); };
+}
+
+/** The plugin serving pr-1, with a reply GitHub took on thread T1 whose draft couldn't be cleared. */
+async function replyNotRecorded(body: string) {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
+  const call = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
+  const send = () => call("replyToThread", { targetKey: "pr-1", inReplyTo: 11, body, threadId: "T1", account: "casey" });
+  expect(await call("saveReplyDraft", { targetKey: "pr-1", threadId: "T1", body })).toEqual({ ok: true });
+  const allow = await refuseReplyDraftDeletes(testSql(bb));
+  expect(await send()).toMatchObject({ ok: false, error: expect.stringContaining("GitHub has your reply") });
+  await allow();
+  expect(gh.posts).toHaveLength(1);
+  return { bb, call, send };
+}
+
+test("a reply GitHub took whose draft is discarded doesn't stop the same text, drafted and sent again, from posting", async () => {
+  const { call, send } = await replyNotRecorded("Thanks!");
+  expect(await call("discardReplyDraft", { targetKey: "pr-1", threadId: "T1" })).toEqual({ ok: true });
+  expect(await call("saveReplyDraft", { targetKey: "pr-1", threadId: "T1", body: "Thanks!" })).toEqual({ ok: true });
+  expect(await send()).toEqual({ ok: true });
+  expect(gh.posts).toHaveLength(2);
+}, 15_000);
+
+test("a reply GitHub took is forgotten once its draft is saved with other text or cleared, and kept while it's saved unchanged", async () => {
+  for (const [saved, kept] of [["Thanks!", true], ["Thanks, fixed.", false], ["", false]] as const) {
+    const { bb, call } = await replyNotRecorded("Thanks!");
+    expect(await call("saveReplyDraft", { targetKey: "pr-1", threadId: "T1", body: saved })).toEqual({ ok: true });
+    expect((await bb.storage.kv.list("posted-reply:")).length).toBe(kept ? 1 : 0);
+    gh.posts.length = 0;
+  }
+}, 30_000);
 
 // The receipt is kept in memory only when kv refuses it, and a reload would forget it: every message about it says so.
 test("a receipt kv refused is kept in memory, and each failed record of it says not to reload, until it's recorded", async () => {

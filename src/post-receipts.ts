@@ -61,12 +61,20 @@ export function notRecorded(what: "review" | "reply", error: unknown, durable: b
     + (durable ? "" : " Until then, don't reload the plugin, which would forget it was posted.");
 }
 
+export const replyReceiptKey = (targetKey: string, threadId: string) => `posted-reply:${targetKey}:${threadId}`;
+
+/** A reply draft discarded, or saved as `body` other than the reply GitHub took, is no longer that reply: Send posts it. */
+export async function forgetPostedReply(receipts: PostReceipts, targetKey: string, threadId: string, body?: string): Promise<void> {
+  const key = replyReceiptKey(targetKey, threadId);
+  if (body === undefined || (await receipts.get<{ body: string }>(key))?.body !== body) await receipts.drop(key);
+}
+
 /**
  * Post a reply that answers a drafted one, then clear that draft. A reply GitHub has whose draft couldn't be cleared is
  * finished by the next Send of the same text, without posting it again.
  */
 export async function postDraftedReply(receipts: PostReceipts, store: AsyncStore, targetKey: string, threadId: string, body: string, post: () => Promise<{ ok: true } | { ok: false; error: string }>): Promise<{ ok: true } | { ok: false; error: string }> {
-  const key = `posted-reply:${targetKey}:${threadId}`;
+  const key = replyReceiptKey(targetKey, threadId);
   const earlier = await receipts.get<{ body: string; at: number }>(key);
   let durable = true;
   if (earlier?.body !== body) {

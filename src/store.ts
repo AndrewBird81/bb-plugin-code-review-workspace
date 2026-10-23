@@ -235,7 +235,11 @@ export interface Store extends AgentCommentStore {
   /** Change the summary and its verdicts. A field given as undefined is cleared. */
   updateSummary(targetKey: string, change: SummaryChange): Promise<Draft>;
   staleDraftComments(targetKey: string): Promise<DraftComment[]>;
-  clearSubmittedDraft(draft: Draft): Promise<void>;
+  /**
+   * Take a submitted review's comments out of the draft, and its summary and verdict unless `keepSummary`. Returns how
+   * many comments it took.
+   */
+  clearSubmittedDraft(draft: Draft, keepSummary?: boolean): Promise<number>;
   // Discussions with the review assistant at lines of the diff.
   listDiscussions(targetKey: string): Promise<Discussion[]>;
   /** The reviews with a discussion waiting on the assistant, and when the reviewer last wrote in one: 0 for unknown. */
@@ -754,8 +758,9 @@ export function storeOn(sql: Sql): Store {
       }
       return stale;
     },
-    async clearSubmittedDraft(submitted) {
+    async clearSubmittedDraft(submitted, keepSummary) {
       const current = await this.getDraft(submitted.targetKey);
+      const before = current.comments.length;
       // A rebuild during the POST may have moved a submitted comment: one unchanged but for its lines is the same comment.
       const placeless = (c: DraftComment) => JSON.stringify([c.file, c.side, c.startSide, c.body, c.severity, c.introduced, c.author]);
       for (const old of submitted.comments) {
@@ -763,12 +768,13 @@ export function storeOn(sql: Sql): Store {
         if (index < 0) index = current.comments.findIndex((c) => placeless(c) === placeless(old));
         if (index >= 0) current.comments.splice(index, 1);
       }
-      if (current.body === submitted.body && current.verdict === submitted.verdict) {
+      if (!keepSummary && current.body === submitted.body && current.verdict === submitted.verdict) {
         current.body = "";
         current.verdict = "COMMENT";
         delete current.bodyAuthor; delete current.suggestedVerdict; delete current.written; delete current.verdictChosen; delete current.unchecked;
       }
       await writeDraft(sql, current);
+      return before - current.comments.length;
     },
     async listDiscussions(k) {
       // Startup asks of every review: one with no discussion reads no patch.

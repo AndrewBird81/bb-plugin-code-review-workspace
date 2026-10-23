@@ -47,7 +47,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { requireReviewRevision, reviewRevision } from "./src/review-revision";
 import { invalidComments, rangeProblem } from "./src/review-positions";
 import { createReviewSubmitter } from "./src/submit-review";
-import { postDraftedReply, postReceipts } from "./src/post-receipts";
+import { forgetPostedReply, postDraftedReply, postReceipts } from "./src/post-receipts";
 import { GUIDE_WORKER_TITLE, failUnfinishedGuides, stopGuide, stopGuideGenerations, hasGuideGenerations, guideAccepted, guideAsksSinceReview, guideRejected, guideStopped, guideWorkerFailed, guideWriterMode } from "./src/generate";
 import { pluginThreadsTitled, toolThreadReview } from "./src/thread-review";
 import { formerWorkerReview, recordFormerWorker } from "./src/former-workers";
@@ -511,16 +511,19 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
         return { ok: true, feedback: await view(store, targetKey) };
       },
       async saveReplyDraft({ targetKey, threadId, body }: { targetKey: string; threadId: string; body: string }) {
-        return store.exclusive(async (tx) => {
+        const saved = await store.exclusive(async (tx) => {
           // A page saving after another window deleted the review would write what Delete can no longer remove.
           if (!await tx.getReview(targetKey)) return { ok: false };
           if (body.trim()) await tx.setReplyDraft(targetKey, threadId, body, "reviewer");
           else await tx.deleteReplyDraft(targetKey, threadId);
           return { ok: true };
         });
+        if (saved.ok) await forgetPostedReply(receipts, targetKey, threadId, body.trim() ? body : undefined);
+        return saved;
       },
       async discardReplyDraft({ targetKey, threadId }: { targetKey: string; threadId: string }) {
         await store.deleteReplyDraft(targetKey, threadId);
+        await forgetPostedReply(receipts, targetKey, threadId);
         bb.realtime.publish(`feedback:${targetKey}`, { ts: Date.now() });
         return { ok: true };
       },
