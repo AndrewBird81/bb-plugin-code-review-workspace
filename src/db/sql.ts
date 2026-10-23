@@ -21,6 +21,16 @@ export interface Sql {
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }
 
+/** `text` with U+FFFD for each U+0000, which Postgres's text can't hold: as both backends store it, so they keep the same text. */
+export function withoutNul(text: string): string {
+  return text.includes("\u0000") ? text.replaceAll("\u0000", "\uFFFD") : text;
+}
+
+/** `params` as both executors bind them: each string withoutNul. */
+export function boundParams(params: readonly SqlValue[]): SqlValue[] {
+  return params.map((value) => typeof value === "string" ? withoutNul(value) : value);
+}
+
 type Database = ReturnType<BbPluginApi["storage"]["database"]>;
 
 /** A transaction, or a savepoint in one, while `fn` runs. */
@@ -64,15 +74,15 @@ function createSqliteSql(db: Database): Sql {
     async all<T>(text: string, params: readonly SqlValue[] = []) {
       // Inline, not in a helper: the statement must run in the same tick as the check that nothing is open.
       if (outside()) while (running) await running;
-      return db.prepare(text).all(...params) as T[];
+      return db.prepare(text).all(...boundParams(params)) as T[];
     },
     async get<T>(text: string, params: readonly SqlValue[] = []) {
       if (outside()) while (running) await running;
-      return db.prepare(text).get(...params) as T | undefined;
+      return db.prepare(text).get(...boundParams(params)) as T | undefined;
     },
     async run(text: string, params: readonly SqlValue[] = []) {
       if (outside()) while (running) await running;
-      return { changes: db.prepare(text).run(...params).changes };
+      return { changes: db.prepare(text).run(...boundParams(params)).changes };
     },
     async transaction<T>(fn: () => Promise<T>) {
       const parent = frames.getStore();

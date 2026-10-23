@@ -6,7 +6,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ConnectionOptions } from "node:tls";
 import pg from "pg";
-import type { Sql, SqlValue } from "./sql";
+import { boundParams, type Sql, type SqlValue } from "./sql";
 
 /**
  * - verify-full: TLS, with the server's certificate checked against `caPem` (Node's CAs without it) and its name against
@@ -414,9 +414,10 @@ export function pgSql(options: PgOptions): PgSql {
     if (numbered.count !== params.length) {
       return Promise.reject(new RangeError(`The statement has ${numbered.count} ? placeholders, and was given ${params.length} values`));
     }
+    const values = boundParams(params);
     const frame = frames.getStore();
-    if (frame?.open) return execute(frame.session, numbered.text, params, frame);
-    return turn(async () => execute(await connection(), numbered.text, params));
+    if (frame?.open) return execute(frame.session, numbered.text, values, frame);
+    return turn(async () => execute(await connection(), numbered.text, values));
   }
 
   /** End a transaction or savepoint after a failure, which is the error to report: if this fails too, the connection is dropped. */

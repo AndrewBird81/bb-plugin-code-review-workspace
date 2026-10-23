@@ -303,11 +303,25 @@ describe.skipIf(!testPgUrl)("bb review storage, moving the reviews (CRW_TEST_PG_
     expect(await run(harness, "migrate")).toEqual({ exitCode: 1, stdout: "", stderr: "The reviews are in Postgres already (storage:owner)." });
   });
 
-  test("migrate reports every value Postgres can't take, and SQLite's migrations from a newer version, together, and copies nothing", async () => {
+  // bug bash D1: a NUL character, which SQLite kept before 1.4.1, stopped migrate until it was fixed by hand.
+  test("migrate copies a NUL character as U+FFFD, as the store keeps it now, and checks it as copied", async () => {
     const { schema, settings } = postgresSettings();
     const { bb, harness } = await host(settings);
     const { db } = seed(bb);
     db.prepare(`UPDATE reviews SET title = 'a' || char(0) || 'b' WHERE target_key = 'B.ts'`).run();
+    db.prepare(`UPDATE patches SET patch = patch || char(0) WHERE target_key = 'a.ts'`).run();
+    await plugin(bb);
+    expect(await run(harness, "migrate")).toMatchObject({ exitCode: 0, stderr: "" });
+    const pg = connection(schema);
+    expect(await pg.get(`SELECT title FROM reviews WHERE target_key = 'B.ts'`)).toEqual({ title: "a\uFFFDb" });
+    expect((await pg.get<{ patch: string }>(`SELECT patch FROM patches WHERE target_key = 'a.ts'`))!.patch.endsWith("\uFFFD")).toBe(true);
+    expect(await run(harness, "verify")).toMatchObject({ exitCode: 0 });
+  });
+
+  test("migrate reports every value Postgres can't take, and SQLite's migrations from a newer version, together, and copies nothing", async () => {
+    const { schema, settings } = postgresSettings();
+    const { bb, harness } = await host(settings);
+    const { db } = seed(bb);
     db.prepare(`UPDATE guides SET guide = CAST(x'c328' AS TEXT) WHERE target_key = 'a.ts'`).run();
     db.prepare(`UPDATE draft_comment_revisions SET line = 'one' WHERE target_key = 'a.ts'`).run();
     db.prepare(`UPDATE discussion_entries SET line = 2147483648`).run();
@@ -320,7 +334,6 @@ describe.skipIf(!testPgUrl)("bb review storage, moving the reviews (CRW_TEST_PG_
       "  - draft_comment_revisions.line: 1 value isn't an integer, as the column is.",
       "  - file_views.viewed_at: 1 value is outside -9007199254740991 to 9007199254740991, which Postgres's bigint column and the Store hold.",
       "  - guides.guide: 1 value isn't valid UTF-8, which Postgres's text must be.",
-      "  - reviews.title: 1 value holds a NUL character (U+0000), which Postgres's text can't.",
     ].join("\n") });
     expect(await schemaExists(schema)).toBe(false);
     expect(await bb.storage.kv.get(STORAGE_OWNER_KEY)).toBeUndefined();

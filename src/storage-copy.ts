@@ -3,7 +3,8 @@
 // in a page of its own, so only one page's patches are held at a time, never all of them.
 //
 // A table's checksum is the SHA-256 of its rows in primary-key order, each row its values in column-name order, then a
-// newline. Each value says its type: `n;` for NULL, `i<digits>;` for an integer, `t<bytes>:<UTF-8>` for text, and `r`
+// newline. Each value says its type: `n;` for NULL, `i<digits>;` for an integer, `t<bytes>:<UTF-8>` for text, with
+// U+FFFD for each NUL character in SQLite's, as the copy stores it (src/db/sql.ts), and `r`
 // or `b` for SQLite's REAL and BLOB, which the Store doesn't keep. Text keys sort by code point on both sides: SQLite's
 // BINARY, Postgres's COLLATE "C". A table with an id that AUTOINCREMENT (Postgres: an identity) hands out is also
 // checked for the next id it would give.
@@ -194,16 +195,14 @@ export function sqliteValueProblems(db: Database, tables: Table[], types: PgType
     if (!texts.length) continue;
     // Each text's bytes, as SQLite keeps them: JavaScript would read invalid UTF-8 as U+FFFD, and the checksums with it.
     const select = db.prepare(`SELECT ${texts.map((name) => `CASE WHEN typeof(${quote(name)}) = 'text' THEN CAST(${quote(name)} AS BLOB) END`).join(", ")} ${from}`).raw(true);
-    const nul = new Map<string, number>(), invalid = new Map<string, number>();
+    const invalid = new Map<string, number>();
     for (const row of select.iterate() as Iterable<Array<Buffer | null>>) {
       row.forEach((bytes, index) => {
         if (!bytes) return;
         const name = texts[index]!;
-        if (bytes.includes(0)) nul.set(name, (nul.get(name) ?? 0) + 1);
-        else if (!isUtf8(bytes)) invalid.set(name, (invalid.get(name) ?? 0) + 1);
+        if (!isUtf8(bytes)) invalid.set(name, (invalid.get(name) ?? 0) + 1);
       });
     }
-    for (const [name, n] of nul) problems.push(`${table.name}.${name}: ${n} value${n > 1 ? "s hold" : " holds"} a NUL character (U+0000), which Postgres's text can't.`);
     for (const [name, n] of invalid) problems.push(`${table.name}.${name}: ${n} value${n > 1 ? "s aren't" : " isn't"} valid UTF-8, which Postgres's text must be.`);
   }
   return problems;
@@ -273,11 +272,27 @@ function pgReader(sql: PgSql, table: Table) {
 
 type Hash = ReturnType<typeof createHash>;
 
+const REPLACEMENT = Buffer.from("\uFFFD");
+
+/** UTF-8 `bytes` with U+FFFD for each NUL character. */
+function withoutNulBytes(bytes: Buffer): Buffer {
+  if (!bytes.includes(0)) return bytes;
+  const parts: Buffer[] = [];
+  let from = 0;
+  for (let at = bytes.indexOf(0); at >= 0; at = bytes.indexOf(0, from)) {
+    parts.push(bytes.subarray(from, at), REPLACEMENT);
+    from = at + 1;
+  }
+  parts.push(bytes.subarray(from));
+  return Buffer.concat(parts);
+}
+
 /** A row from SQLite's check reader, each value as its type and bytes, into `hash`. */
 function hashSqliteRow(hash: Hash, row: unknown[]) {
   for (let i = 0; i < row.length; i += 2) {
     const type = row[i] as string;
-    const bytes = row[i + 1] as Buffer | null;
+    const stored = row[i + 1] as Buffer | null;
+    const bytes = type === "text" && stored ? withoutNulBytes(stored) : stored;
     if (type === "null" || !bytes) {
       hash.update("n;");
     } else if (type === "integer" || type === "real") {

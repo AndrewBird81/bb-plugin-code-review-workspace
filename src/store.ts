@@ -12,7 +12,7 @@ import { renamedPaths } from "./patch";
 import { fileHashCache, type FileHashes } from "./file-views";
 import { agentCommentStore, type AgentCommentStore } from "./learning";
 import { importFormerInstall } from "./former-install";
-import { sqliteSql, type Sql } from "./db/sql";
+import { sqliteSql, withoutNul, type Sql } from "./db/sql";
 
 export interface ReviewLifecycle {
   prState?: "OPEN" | "CLOSED" | "MERGED";
@@ -554,10 +554,12 @@ export function storeOn(sql: Sql): Store {
       });
     },
     async savePatch(k, patch) {
+      // Hashed as it's stored.
+      const stored = withoutNul(patch);
       await sql.run(
         `INSERT INTO patches (target_key,patch,hash) VALUES (?,?,?)
          ON CONFLICT(target_key) DO UPDATE SET patch=excluded.patch, hash=excluded.hash`,
-        [k, patch, patchHash(patch)],
+        [k, stored, patchHash(stored)],
       );
     },
     patch: patchText,

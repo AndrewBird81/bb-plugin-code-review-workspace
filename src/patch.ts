@@ -58,10 +58,12 @@ export function patchRows(patch: string): PatchRow[] {
 // diffs already have one (with an `index ...` line before `--- a/...`); only
 // header-less inputs need synthesis. Track presence per file block, not by the
 // single previous output line.
+// A NUL character, which git puts in a text diff past a file's first 8,000 bytes, becomes U+FFFD, as the store keeps
+// it (src/db/sql.ts), so a diff compares equal to the one stored from it.
 export function ensureGitHeaders(patch: string): string {
   const out: string[] = [];
   let hasHeader = false;
-  for (const { kind, text: line } of patchRows(patch)) {
+  for (const { kind, text: line } of patchRows(patch.replaceAll("\u0000", "\uFFFD"))) {
     if (kind !== "header") {
       out.push(line);
       continue;

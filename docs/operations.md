@@ -119,7 +119,7 @@ Run these on the BB server, from a terminal. `migrate` and `export-sqlite` refus
 - **`bb review storage status`**: the configured backend (`storageBackend`), the one holding the reviews (`storage:owner`), the state (`serving`, `opening`, or `maintenance`), and what's wrong, if anything.
 - **`bb review storage verify`**: compares every table's rows, row counts, and each next id in `data.db` and in Postgres, and prints a line per table, `same` or `DIFFERENT`. It exits 0 when everything is the same and 1 otherwise, and changes nothing. It runs in any state; while the plugin serves, it says the serving side may have moved on, and after a move it differs as soon as the plugin writes.
 - **`bb review storage migrate`**: in maintenance, with `storageBackend` set to `postgres` and the reviews in SQLite. It brings `data.db` up to date as a load would, takes the writer lock, and copies the reviews to Postgres in one transaction, then compares every table on both sides before it commits, and marks the owner `postgres` after. It prints a line per table with its rows and time. Before copying, it checks, and reports together:
-  - text with NUL bytes, or bytes that aren't UTF-8, which Postgres can't hold;
+  - text with bytes that aren't UTF-8, which Postgres can't hold (a NUL character, which Postgres's text can't hold either, is copied as U+FFFD, as the plugin has stored it on both backends since 1.4.1, and checked as such);
   - integers beyond ±2^53, or a value of the wrong type for its column;
   - SQLite's or Postgres's tables from another version of the plugin;
   - a schema that already holds reviews.
