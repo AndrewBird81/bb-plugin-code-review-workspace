@@ -232,15 +232,16 @@ test("a comment GitHub took on an earlier head leaves the draft though the new c
   expect(await store.getDraft("pr-1")).toMatchObject({ comments: [], body: "A nit." });
 }, 15_000);
 
-/** Has deleting a reply draft fail, on either backend, as on a dropped connection; the returned function undoes it. */
-async function refuseReplyDraftDeletes(sql: ReturnType<typeof testSql>): Promise<() => Promise<void>> {
+/** Has `event` on `table` fail, on either backend, as on a dropped connection; the returned function undoes it. */
+async function refuse(sql: ReturnType<typeof testSql>, event: "INSERT" | "DELETE", table: string): Promise<() => Promise<void>> {
+  const name = `refuse_${event.toLowerCase()}_${table}`;
   if (sql.dialect === "sqlite") {
-    await sql.run(`CREATE TRIGGER refuse_reply_delete BEFORE DELETE ON reply_drafts BEGIN SELECT RAISE(ABORT, 'Connection terminated unexpectedly'); END`);
-    return async () => { await sql.run(`DROP TRIGGER refuse_reply_delete`); };
+    await sql.run(`CREATE TRIGGER ${name} BEFORE ${event} ON ${table} BEGIN SELECT RAISE(ABORT, 'Connection terminated unexpectedly'); END`);
+    return async () => { await sql.run(`DROP TRIGGER ${name}`); };
   }
-  await sql.run(`CREATE FUNCTION refuse_reply_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Connection terminated unexpectedly'; END $$`);
-  await sql.run(`CREATE TRIGGER refuse_reply_delete BEFORE DELETE ON reply_drafts FOR EACH ROW EXECUTE FUNCTION refuse_reply_delete()`);
-  return async () => { await sql.run(`DROP TRIGGER refuse_reply_delete ON reply_drafts`); };
+  await sql.run(`CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Connection terminated unexpectedly'; END $$`);
+  await sql.run(`CREATE TRIGGER ${name} BEFORE ${event} ON ${table} FOR EACH ROW EXECUTE FUNCTION ${name}()`);
+  return async () => { await sql.run(`DROP TRIGGER ${name} ON ${table}`); };
 }
 
 /** The plugin serving pr-1, with a reply GitHub took on thread T1 whose draft couldn't be cleared. */
@@ -252,7 +253,7 @@ async function replyNotRecorded(body: string) {
   const call = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
   const send = () => call("replyToThread", { targetKey: "pr-1", inReplyTo: 11, body, threadId: "T1", account: "casey" });
   expect(await call("saveReplyDraft", { targetKey: "pr-1", threadId: "T1", body })).toEqual({ ok: true });
-  const allow = await refuseReplyDraftDeletes(testSql(bb));
+  const allow = await refuse(testSql(bb), "DELETE", "reply_drafts");
   expect(await send()).toMatchObject({ ok: false, error: expect.stringContaining("GitHub has your reply") });
   await allow();
   expect(gh.posts).toHaveLength(1);
@@ -360,6 +361,27 @@ test("Submit and Send refuse, posting nothing, while kv can't say whether GitHub
   expect(await call("saveReplyDraft", { targetKey: "pr-1", threadId: "T1", body: "Thanks, fixed." })).toEqual({ ok: true });
   expect((await store.listReplyDrafts("pr-1")).get("T1")).toMatchObject({ body: "Thanks, fixed." });
 });
+
+// Review round 3, NIT B: GitHub took the review and it was recorded, then saving what Submit keeps of it failed, so the
+// page heard a failure.
+test("a Submit GitHub took and recorded says so though saving the diff it reviewed fails, and doesn't post again", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
+  await store.savePatch("pr-1", PATCH);
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "nit" });
+  await store.setVerdict("pr-1", "COMMENT", "A nit.");
+  const { comments, body, verdict } = await store.getDraft("pr-1");
+  const call = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
+  const { revision } = await call("getReviewBundle", { targetKey: "pr-1" });
+  await refuse(testSql(bb), "INSERT", "review_snapshots");
+  const submit = () => call("submitReview", { targetKey: "pr-1", revision, account: "casey", comments, body, verdict });
+  expect(await submit()).toEqual({ ok: true, url: "https://github.com/acme/web/pull/1#r1" });
+  expect(await store.getDraft("pr-1")).toMatchObject({ comments: [], body: "" });
+  expect(await submit()).toMatchObject({ ok: false });
+  expect(gh.posts).toHaveLength(1);
+}, 15_000);
 
 async function servedThroughProxy() {
   const proxy = await faultProxy();

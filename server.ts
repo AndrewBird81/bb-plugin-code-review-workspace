@@ -985,21 +985,26 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       } catch (error) { return { ok: false, error: (error as Error).message }; }
       const result = await submitReview(targetKey, revision, account, comments, { body, verdict });
       // The discussions were about this draft. The assistant's conversation keeps them.
+      // GitHub has the review and it's recorded: what follows failing mustn't fail the Submit.
       if (result.ok) {
-        await store.exclusive(async (tx) => {
-          await recordOutcomes(tx, targetKey, submitted);
-          await tx.clearDiscussions(targetKey);
-          await clearAsks(tx, targetKey);
-          bb.realtime.publish(`draft:${targetKey}`, {});
-          const review = (await tx.getReview(targetKey))!;
-          // The diff you reviewed is what "since your review" compares against.
-          if (review.headSha) await tx.saveSnapshot(targetKey, review.headSha, await tx.patch(targetKey));
-          await pruneDiffs(tx, review);
-          // Your review answers whatever turn was holding, and what didn't run on its own for it.
-          await tx.setLifecycle(targetKey, { heldTurn: null, skippedRun: null });
-        });
-        await notifications.dismiss(targetKey).catch(() => {});
-        await sync.evaluate(targetKey);
+        try {
+          await store.exclusive(async (tx) => {
+            await recordOutcomes(tx, targetKey, submitted);
+            await tx.clearDiscussions(targetKey);
+            await clearAsks(tx, targetKey);
+            bb.realtime.publish(`draft:${targetKey}`, {});
+            const review = (await tx.getReview(targetKey))!;
+            // The diff you reviewed is what "since your review" compares against.
+            if (review.headSha) await tx.saveSnapshot(targetKey, review.headSha, await tx.patch(targetKey));
+            await pruneDiffs(tx, review);
+            // Your review answers whatever turn was holding, and what didn't run on its own for it.
+            await tx.setLifecycle(targetKey, { heldTurn: null, skippedRun: null });
+          });
+          await notifications.dismiss(targetKey).catch(() => {});
+          await sync.evaluate(targetKey);
+        } catch (error) {
+          bb.log.warn(`Could not finish recording the review of ${targetKey} GitHub took: ${String(error)}`);
+        }
       }
       changed(targetKey);
       return result;
