@@ -26,9 +26,16 @@ export function withoutNul(text: string): string {
   return text.includes("\u0000") ? text.replaceAll("\u0000", "\uFFFD") : text;
 }
 
-/** `params` as both executors bind them: each string withoutNul. */
+/**
+ * `params` as both executors bind them: each string withoutNul. A number must be a safe integer, as every number column
+ * the store keeps is: SQLite would keep a fraction as REAL, which Postgres refuses, and Postgres one past 2^53, which it
+ * can't then read back exactly.
+ */
 export function boundParams(params: readonly SqlValue[]): SqlValue[] {
-  return params.map((value) => typeof value === "string" ? withoutNul(value) : value);
+  return params.map((value) => {
+    if (typeof value === "number" && !Number.isSafeInteger(value)) throw new RangeError(`${value} isn't an integer the store can keep exactly`);
+    return typeof value === "string" ? withoutNul(value) : value;
+  });
 }
 
 type Database = ReturnType<BbPluginApi["storage"]["database"]>;

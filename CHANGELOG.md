@@ -16,6 +16,7 @@ Fixes from a bug bash of the Postgres storage and the flows around it. Still **B
 - The review-state pass, once a minute, no longer reads every guided review's whole diff again for what agents are configured with: a review's guide is read again only after something that can change it. With more than 8 guided reviews, each pass read them all, a 1.3.0 regression.
 - The review-state pass no longer writes a review's state, or its feedback threads, when they're as they were: it rewrote each PR review's every minute.
 - While Postgres takes connections but answers nothing, as when its node or the network drops packets, the calls waiting behind one that timed out connecting fail at once, where each waited out its own 10 s connect timeout in turn: five took a minute.
+- A call with a number the store can't keep exactly, as a viewed time past 2^53 or with a fraction, or a line past 2^31, is refused as invalid. On Postgres such a time was stored and then broke every read of the review's viewed files, and the rest failed with a server error; SQLite kept them inexactly.
 - A failure to clear a review's Needs You alert as it left Needs review is logged, where it was a rejection nothing handled, the kind that ends BB's server.
 
 ## 1.4.0 — 2026-10-23

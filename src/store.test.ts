@@ -511,3 +511,15 @@ test("a stored guide's chapter with the Overview page's id reads back under an i
   await s.saveGuide("pr-2", { title: "t", intent: "i", unplacedFiles: [], sections: [chapter("overview", "a.ts")] });
   expect((await s.getGuide("pr-2"))?.sections.map((section) => section.id)).toEqual(["overview-chapter"]);
 });
+
+// bug bash D6: a number no store column holds exactly, refused alike by both backends, where SQLite kept a fraction
+// as REAL and Postgres refused it as text, or kept one past 2^53 that it then couldn't read.
+test("a number parameter that isn't a safe integer is refused before it reaches either backend", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const s = testStore(bb);
+  await s.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, status: "ready", createdAt: 1 });
+  for (const viewedAt of [1.5, 2 ** 60, Number.NaN]) {
+    await expect(s.setFileViewed("pr-1", "a.ts", "h", viewedAt)).rejects.toThrow(RangeError);
+  }
+  expect(await s.getFileViews("pr-1")).toEqual([]);
+});

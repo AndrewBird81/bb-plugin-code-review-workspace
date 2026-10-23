@@ -1173,7 +1173,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   }
   const location = {
     file: z.string().describe("Repo-relative path, exactly as the diff shows it."),
-    line: z.number().int().min(1).describe("The line's number in the new file (side RIGHT) or the old file (side LEFT)."),
+    line: z.number().int().min(1).max(2_147_483_647).describe("The line's number in the new file (side RIGHT) or the old file (side LEFT)."),
     side: z.enum(["RIGHT", "LEFT"]).optional().describe("RIGHT, the default, for an added or unchanged line; LEFT for a removed line."),
   };
   // GitHub takes up to 65,536 characters in a comment or review body.
@@ -1182,7 +1182,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   const introduced = z.boolean().optional().describe("false when the problem is in code this PR didn't change.");
   const severity = z.enum([...SEVERITIES, "none"]).optional().describe("How much it matters: blocking, should-fix, question, nit, or none. Without it, a label the body starts with (**Blocking:**, **Should fix:**, **Question:**, **Nit:**) sets it; on edit, it otherwise stays. The label is kept apart from the text, and GitHub shows it in front.");
   const range = {
-    startLine: z.number().int().min(1).optional().describe("For a comment on several lines, the first; line is the last. Both in one hunk of the diff."),
+    startLine: z.number().int().min(1).max(2_147_483_647).optional().describe("For a comment on several lines, the first; line is the last. Both in one hunk of the diff."),
     startSide: z.enum(["RIGHT", "LEFT"]).optional().describe("The first line's side, when it isn't side: LEFT for a range from a removed line to an added one."),
   };
   bb.agents.registerTool({

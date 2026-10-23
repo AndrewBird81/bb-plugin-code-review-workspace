@@ -9,14 +9,20 @@ import { agentChoiceSchema, agentExecutionSchema, knobsSchema, preferencesSchema
 // The RPC data plane between the panel (app.tsx) and the backend (server.ts).
 // app.tsx imports the TYPE of this contract only; the backend module never enters the frontend bundle.
 const targetKey = z.object({ targetKey: z.string() }).strict();
+/** A line, as Postgres's integer column holds it; 0 is the summary's place (src/draft.ts SUMMARY_AT). */
+const lineNumber = z.number().int().min(0).max(2_147_483_647);
+/** A range's first line. */
+const startLine = z.number().int().min(1).max(2_147_483_647);
+/** A time in epoch ms, as the store keeps it: an integer a JavaScript number holds exactly. */
+const epochMs = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 
 const commentShape = z
   .object({
     file: z.string(),
-    line: z.number().int(),
+    line: lineNumber,
     side: z.enum(["LEFT", "RIGHT"]),
     // A range's first line, and its side when it isn't `side` (src/draft.ts DraftComment).
-    startLine: z.number().int().min(1).optional(),
+    startLine: startLine.optional(),
     startSide: z.enum(["LEFT", "RIGHT"]).optional(),
     chapterId: z.string().optional(),
     // Undo after Remove puts an agent's comment back as the agent's.
@@ -31,7 +37,7 @@ const commentShape = z
   })
   .strict();
 
-const location = { file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]) };
+const location = { file: z.string(), line: lineNumber, side: z.enum(["LEFT", "RIGHT"]) };
 // What Send to thread adds to what it sends (src/fix-handoff.ts): your message, as long as a summary may be, and the summary.
 const sendExtras = { message: z.string().max(65_000).optional(), includeSummary: z.boolean().optional() };
 const syncHealth = z.object({
@@ -47,7 +53,7 @@ const discussion = z.object({
 });
 
 // A file's viewed mark as stored: the hash of its diff when you viewed it (src/store.ts FileView).
-const fileView = z.object({ file: z.string(), hash: z.string(), viewedAt: z.number() });
+const fileView = z.object({ file: z.string(), hash: z.string(), viewedAt: epochMs });
 
 // A draft, where its comments were drafted against an older diff, and the discussions at its lines.
 const draftOutput = z.object({
@@ -202,12 +208,12 @@ export const rpcContract = defineRpcContract({
     output: draftOutput,
   },
   removeDraftComment: {
-    input: z.object({ targetKey: z.string(), file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]) }).strict(),
+    input: z.object({ targetKey: z.string(), ...location }).strict(),
     output: draftOutput,
   },
   // A message from a line's discussion, or the summary's (src/draft.ts SUMMARY_AT), to the review assistant, which answers there.
   askAgent: {
-    input: z.object({ targetKey: z.string(), ...location, startLine: z.number().int().min(1).optional(), body: z.string().trim().min(1).max(20_000) }).strict(),
+    input: z.object({ targetKey: z.string(), ...location, startLine: startLine.optional(), body: z.string().trim().min(1).max(20_000) }).strict(),
     output: draftOutput,
   },
   /** Ask the review agent for a closer pass over a medium- or high-risk chapter, at high effort; its comments arrive in the draft. */
@@ -326,7 +332,7 @@ export const rpcContract = defineRpcContract({
   // Whose turn. Reviews carry `turn` (lib/turn.ts Turn) and `progress` from the server.
   /** Snooze until the author responds: back to Waiting on author until a newer signal; with `until` (epoch ms), also until then. snoozed: false undoes it. */
   snoozeReview: {
-    input: z.object({ targetKey: z.string(), snoozed: z.boolean(), until: z.number().nullable().optional() }).strict(),
+    input: z.object({ targetKey: z.string(), snoozed: z.boolean(), until: epochMs.nullable().optional() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   /** The reviewer opened the review: clear its Needs You alert. */

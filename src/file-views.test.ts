@@ -160,3 +160,22 @@ test("reading Viewed marks on a 2,000-file review hashes only the marked files, 
   expect(views.find((view) => view.file === "src/f0.ts")).toMatchObject({ viewed: false, stale: true });
   expect(views.find((view) => view.file === "src/f1.ts")).toMatchObject({ viewed: true, stale: false });
 });
+
+// bug bash D6: Undo's viewedAt was any number. On Postgres one past 2^53 was stored and then refused on every read of
+// the review's file views; a fraction, or a line past Postgres's integer, was an HTTP 500.
+test("numbers the store can't keep exactly are refused at the RPC, and the review's file views still read", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1, headSha: "sha1", projectId: "p1" });
+  await store.savePatch("pr-1", "diff --git a/a.ts b/a.ts\n+one\n");
+  const call = (method: string, input: unknown) => harness.behavior.callRpc(method, input);
+  for (const viewedAt of [2 ** 60, 1792765749803.5, -1]) {
+    await expect(call("setFilesViewed", { targetKey: "pr-1", files: ["a.ts"], viewed: false, previous: [{ file: "a.ts", hash: "h", viewedAt }] })).rejects.toThrow();
+  }
+  await expect(call("snoozeReview", { targetKey: "pr-1", snoozed: true, until: 4102444800000.25 })).rejects.toThrow();
+  for (const method of ["removeDraftComment", "dismissDiscussion", "undoAgentChange"]) {
+    await expect(call(method, { targetKey: "pr-1", file: "a.ts", line: 3_000_000_000, side: "RIGHT" })).rejects.toThrow();
+  }
+  expect(await call("getFileViews", { targetKey: "pr-1" })).toMatchObject({ views: [] });
+});
