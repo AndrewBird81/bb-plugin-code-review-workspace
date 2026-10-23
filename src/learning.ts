@@ -301,6 +301,8 @@ export function createInstructionSuggester(bb: BbPluginApi, store: AsyncStore, c
   const settle = (next: Suggestion) => { suggestion = next; changed(); };
 
   async function run(prompt: string) {
+    // Read while the handle is live: after a dispose, bb.sdk throws, and the finally still stops the worker.
+    const threads = bb.sdk.threads;
     let workerId: string | undefined;
     try {
       const { assistantAgent } = (await store.getPreferences()).preferences;
@@ -312,13 +314,13 @@ export function createInstructionSuggester(bb: BbPluginApi, store: AsyncStore, c
       // It runs at the review agent's permissions with no review of its own: to bb review, every review is another's,
       // from its first command, which may come before its spawn returns.
       const worker = await spawningFor(bb, SUGGESTER_TITLE, NO_REVIEW, async () => {
-        const worker = await bb.sdk.threads.spawn({ ...placement, prompt, title: SUGGESTER_TITLE, visibility: "hidden", ...spawnExecution(assistantAgent) });
+        const worker = await threads.spawn({ ...placement, prompt, title: SUGGESTER_TITLE, visibility: "hidden", ...spawnExecution(assistantAgent) });
         await recordFormerWorker(bb, worker.id, null, "suggester");
         return worker;
       });
       workerId = worker.id;
-      await bb.sdk.threads.wait({ threadId: worker.id, status: "idle", timeoutMs: WAIT_MS, signal: stopped.signal });
-      const { output } = await bb.sdk.threads.output({ threadId: worker.id });
+      await threads.wait({ threadId: worker.id, status: "idle", timeoutMs: WAIT_MS, signal: stopped.signal });
+      const { output } = await threads.output({ threadId: worker.id });
       settle({ state: "ready", at: Date.now(), text: suggestionLines(output ?? "") });
     } catch (error) {
       if (stopped.signal.aborted) return;
@@ -326,8 +328,8 @@ export function createInstructionSuggester(bb: BbPluginApi, store: AsyncStore, c
       settle({ state: "failed", at: Date.now(), error: "The agent couldn’t suggest changes. Try again." });
     } finally {
       if (workerId) {
-        await bb.sdk.threads.archive({ threadId: workerId }).catch(() => {});
-        await bb.sdk.threads.stop({ threadId: workerId }).catch(() => {});
+        try { await threads.archive({ threadId: workerId }); } catch { /* best effort */ }
+        try { await threads.stop({ threadId: workerId }); } catch { /* best effort */ }
       }
     }
   }
@@ -345,7 +347,8 @@ export function createInstructionSuggester(bb: BbPluginApi, store: AsyncStore, c
         return { ok: true, prompt: suggestionPrompt((await tx.getPreferences()).preferences.assistantInstructions, material) };
       });
       // Started after the block, which its reads of the store would wait for.
-      if (prompt !== undefined) void run(prompt);
+      // Started from an RPC, outside any service: a rejection nothing handles would end BB.
+      if (prompt !== undefined) void run(prompt).catch((error) => { if (!stopped.signal.aborted) bb.log.warn(`Suggesting assistant instructions failed: ${String(error)}`); });
       return result;
     },
     /** Forget a finished proposal; one still running carries on. */

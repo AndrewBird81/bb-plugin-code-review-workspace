@@ -16,6 +16,7 @@ import { reanchorDraft } from "./store";
 import { OUTCOMES_KEPT, suggestionLines } from "./learning";
 import { NOT_OWN_REVIEW } from "./review-command";
 import type { AsyncStore } from "./store-queue";
+import { watchCrashes } from "./pg-faults.test-support";
 
 /** What the reviewer's page shows of the draft, which submitReview takes to check it still matches. */
 const shown = async (store: AsyncStore, targetKey: string) => {
@@ -284,4 +285,32 @@ test("the suggester can't change a review's draft while its spawn is still in fl
   await vi.waitFor(() => expect(early).toBeDefined());
   expect(early).toMatchObject({ exitCode: 2, stderr: NOT_OWN_REVIEW });
   expect((await store.getDraft("pr-1")).comments).toEqual([]);
+});
+
+// bug bash F2: after a dispose, bb.sdk throws PluginContextStaleError; read in the run's finally, it rejected the run,
+// which started from an RPC has no service to catch it, and BB 0.46.1 exits on an unhandled rejection.
+test("a suggestion running across a dispose ends without an unhandled rejection, and its worker is still archived and stopped", async () => {
+  let waiting = false;
+  const { harness, store, rpc } = await host({
+    projects: { list: async () => [{ id: "personal", kind: "personal" }] },
+    threads: {
+      spawn: async () => ({ id: "suggester" }),
+      // A long-poll ended by its signal, as an HTTP request is, a moment after the abort.
+      wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+        waiting = true;
+        signal.addEventListener("abort", () => { setTimeout(() => reject(new Error("aborted")), 20); }, { once: true });
+      }),
+      archive: async () => ({}), stop: async () => ({}),
+    },
+  });
+  await store.recordAgentOutcomes("pr-1", [{ repo: "acme/web", file: "a.ts", outcome: "removed", body: "Nit", edited: null }]);
+  const { crashes } = await watchCrashes(async () => {
+    expect(await rpc("suggestAssistantInstructions", null)).toEqual({ ok: true });
+    await vi.waitFor(() => expect(waiting).toBe(true));
+    await harness.lifecycle.dispose();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  expect(crashes).toEqual([]);
+  expect(harness.inspection.sdk.callsTo("threads.archive")).toEqual([[{ threadId: "suggester" }]]);
+  expect(harness.inspection.sdk.callsTo("threads.stop")).toEqual([[{ threadId: "suggester" }]]);
 });

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1 — unreleased
+
+Fixes from a bug bash of the Postgres storage and the flows around it. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.4.1. 1.4.1 adds no migration, so rolling back to 1.4.0 keeps everything.
+
+- A **Suggest instruction changes** run that a reload, an update or turning the plugin off interrupted could end BB's server process, which BB then restarted. It ends quietly now, and still stops its worker. The update that installs 1.4.1 still runs 1.4.0's shutdown, so apply it while no suggestion is running.
+
 ## 1.4.0 — 2026-10-23
 
 Send an approval to the thread that made the change. With no comments in the draft, Finish review on your own PR or a local review can tell it "Approved", and what Send to thread sends can carry your message and the review summary. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.4.0. 1.4.0 adds no migration, so rolling back to 1.3.0 keeps everything; a sent approval's record stays, unused, until you update again.
