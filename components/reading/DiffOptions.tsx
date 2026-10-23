@@ -154,6 +154,12 @@ export function DiffOptions({ threads, compareInBand = false, foldInBand = false
               <Segmented label="New and deleted files" value={display.newFiles} onChange={display.setNewFiles}
                 options={[{ value: "file", label: "As file" }, { value: "diff", label: "As diff" }]} />
             </div>
+            {/* A .md or .markdown file: its diff, or rendered with its changed blocks marked. */}
+            <div className={cn(row, "hover:bg-transparent")}>
+              Markdown files
+              <Segmented label="Markdown files" value={display.markdownFiles} onChange={display.setMarkdownFiles}
+                options={[{ value: "source", label: "Source" }, { value: "rendered", label: "Rendered" }]} />
+            </div>
             <Option label="Wrap long lines" on={display.wrap} onChange={display.setWrap} />
             <Option label="Hide whitespace changes" on={display.hideWhitespace} onChange={display.setHideWhitespace} />
             {isPr && threads && <Option label="GitHub threads in code" on={display.githubThreads} onChange={display.setGithubThreads} />}

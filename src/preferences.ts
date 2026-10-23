@@ -60,6 +60,7 @@ export const preferencesSchema = z.object({
   automaticReview: z.string().max(12000),
   diffLayout: z.enum(["split", "unified"]),
   newFiles: z.enum(["file", "diff"]),
+  markdownFiles: z.enum(["source", "rendered"]),
   rereviewShows: z.enum(["since", "all"]),
   guideAgent: agentExecutionSchema.nullable(),
   assistantAgent: agentExecutionSchema.nullable(),

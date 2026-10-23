@@ -21,13 +21,19 @@ export interface KeptFocus {
   typing?: "nav" | "panel" | "other";
 }
 
+/**
+ * Lines picked in the diff. `askOnly`: lines of rendered Markdown that GitHub takes no comment on, with their source, to
+ * ask the agent about.
+ */
+export interface LineSelection { file: string; range: SelectedLineRange; askOnly?: { code: string } }
+
 export interface Kept {
   navOverlay: boolean;
   panelOverlay: boolean;
   find: string;
   place: LinePlace | null;
   focus: KeptFocus | null;
-  lines: { file: string; range: SelectedLineRange } | null;
+  lines: LineSelection | null;
   /** The layout's last size and window, and the layout itself, for a phone's turn or fold to carry what's open. */
   layout: { width: number; height: number; window: { width: number; height: number }; shown: WorkspaceLayout };
 }

@@ -1,0 +1,222 @@
+// @vitest-environment jsdom
+import { afterEach, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import type { MutableRefObject } from "react";
+import { defaultPreferences } from "../src/preferences";
+import { patchReviewState } from "../lib/panel-state";
+import { gitPatch } from "../lib/markdown-test-patch.test-support";
+import type { MarkdownShow } from "./DiffViewer";
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+// The source view: the lines pierre would put comments under.
+vi.mock("@pierre/diffs/react", () => ({
+  FileDiff: ({ lineAnnotations, renderAnnotation }: any) => (
+    <div data-testid="filediff">
+      {lineAnnotations?.map((annotation: any, index: number) => <div key={index} data-annotation={`${annotation.side}:${annotation.lineNumber}`}>{renderAnnotation?.(annotation)}</div>)}
+    </div>
+  ),
+}));
+
+afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); });
+
+const FILE = "docs/rfc.md";
+const OLD = "# Tokens\n\nWe want short-lived tokens.\n\n## Lifetime\n\nTokens expire after 1 hour.\n\nRefresh tokens are never rotated.\n\n## Fields\n\nOne field.\n";
+const NEW = "# Tokens\n\nWe want short-lived tokens.\n\n## Lifetime\n\nTokens expire after 15 minutes.\n\n## Fields\n\nOne field.\n";
+const PATCH = gitPatch(FILE, OLD, NEW);
+const draftOf = (comments: any[] = []) => ({ targetKey: "k", verdict: "COMMENT", body: "", comments });
+
+async function renderDiff({ rpc = {}, contents = { ok: true, old: OLD, new: NEW } as any, patch = PATCH, markdownFiles = "source" as MarkdownShow, extra = {} as Record<string, unknown>, failures = [] as any[] } = {}) {
+  await loadPluginApp(() => import("../app"));
+  const { DraftTray } = await import("./draft-tray.test-support");
+  const { DiffViewer } = await import("./DiffViewer");
+  const { CheckFailuresContext } = await import("./CheckFailures");
+  const readContents = vi.fn(async () => contents);
+  const onLineSelected = vi.fn();
+  const component = () => (
+    <DraftTray targetKey="k" activeChapterId="c1" activeFiles={[FILE]} reviewRevision="r1" account="reviewer" patch={patch}>
+      <CheckFailuresContext.Provider value={failures}>
+        <DiffViewer patch={patch} files={[FILE]} views={new Map()} onToggleViewed={() => {}} readContents={readContents} markdownFiles={markdownFiles} onLineSelected={onLineSelected} {...extra} />
+      </CheckFailuresContext.Provider>
+    </DraftTray>
+  );
+  const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }), ...rpc } as any });
+  await slot.findByText("Draft saved");
+  const file = () => within(slot.container.querySelector<HTMLElement>(`[data-file="${FILE}"]`)!);
+  return { slot, file, readContents, onLineSelected };
+}
+const switchTo = (file: () => ReturnType<typeof within>, value: "Source" | "Rendered") => fireEvent.click(within(file().getByRole("radiogroup", { name: `How ${FILE} shows` })).getByRole("radio", { name: value }));
+const units = (root: HTMLElement) => Array.from(root.querySelectorAll<HTMLElement>("[data-md-index]"));
+
+test("a Markdown file opens as its source; Rendered draws each block through BB's Markdown, with its change marked", async () => {
+  const { slot, file, readContents } = await renderDiff();
+  expect(file().getByTestId("filediff")).toBeTruthy();
+  switchTo(file, "Rendered");
+  await waitFor(() => expect(file().queryByTestId("filediff")).toBeNull());
+  expect(readContents).toHaveBeenCalledWith(FILE);
+  const shown = units(slot.container).map((unit) => [unit.dataset.mdStatus, within(unit).getAllByTestId("bb-markdown").map((md) => md.textContent)]);
+  expect(shown).toEqual([
+    ["unchanged", ["# Tokens"]], ["unchanged", ["We want short-lived tokens."]], ["unchanged", ["## Lifetime"]],
+    ["changed", ["Tokens expire after 15 minutes."]], ["removed", ["Refresh tokens are never rotated."]],
+    ["unchanged", ["## Fields"]], ["unchanged", ["One field."]],
+  ]);
+  // Each bar's meaning is in words too.
+  expect(within(units(slot.container)[4]).getByText("Removed, old line 9")).toBeTruthy();
+  // Show previous puts the changed block's version before above it, as a removed block.
+  fireEvent.click(within(units(slot.container)[3]).getByRole("button", { name: "Show previous" }));
+  expect(within(units(slot.container)[3]).getAllByTestId("bb-markdown").map((md) => md.textContent)).toEqual(["Tokens expire after 1 hour.", "Tokens expire after 15 minutes."]);
+  switchTo(file, "Source");
+  expect(file().getByTestId("filediff")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("Diff options' Rendered opens a Markdown file rendered, and m switches it back", async () => {
+  const renderToggle: MutableRefObject<((file: string) => boolean) | null> = { current: null };
+  const { slot, file } = await renderDiff({ markdownFiles: "rendered", extra: { renderToggle } });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(7));
+  expect(renderToggle.current?.("src/other.ts")).toBe(false);
+  expect(renderToggle.current?.(FILE)).toBe(true);
+  await file().findByTestId("filediff");
+  slot.lifecycle.unmount();
+});
+
+test("comments and CI failures show after the block holding their line, and + opens the box on a block's lines", async () => {
+  let draft = draftOf([{ file: FILE, line: 7, side: "RIGHT", body: "Why 15?", author: "reviewer" }]);
+  const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = draftOf([...draft.comments, comment]); return { draft, stale: [], discussions: [] }; });
+  const failure = { file: FILE, line: 5, check: "markdownlint", title: null, message: "MD001 heading levels", url: "https://ci.example/1" };
+  const { slot, file } = await renderDiff({ markdownFiles: "rendered", failures: [failure], rpc: { getDraft: () => ({ draft, stale: [], discussions: [] }), saveDraftComment } });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(7));
+  const [, , heading, changed, removed] = units(slot.container);
+  expect(within(changed).getByRole("article", { name: `Draft comment on ${FILE}:7` })).toBeTruthy();
+  expect(within(heading).getByRole("note", { name: `CI failure on ${FILE}:5` })).toBeTruthy();
+  fireEvent.click(within(removed).getByRole("button", { name: "Comment on line 9 (old)" }));
+  const box = await within(removed).findByRole("textbox", { name: "Draft comment" });
+  fireEvent.change(box, { target: { value: "Mobile clients rely on this." } });
+  fireEvent.click(within(removed).getByRole("button", { name: "Add to draft" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: { file: FILE, line: 9, side: "LEFT", chapterId: "c1", body: "Mobile clients rely on this." } })));
+  await within(units(slot.container)[4]).findByRole("article", { name: `Draft comment on ${FILE}:9` });
+  // The same comment, in the source, is under its line.
+  switchTo(file, "Source");
+  const under = await waitFor(() => file().getByRole("article", { name: `Draft comment on ${FILE}:9` }));
+  expect(under.closest("[data-annotation]")?.getAttribute("data-annotation")).toBe("deletions:9");
+  slot.lifecycle.unmount();
+});
+
+test("a block's + takes the lines of it that are in the diff, in one hunk", async () => {
+  const old = "Para one\nline two\nline three\n\nTail.\n";
+  const now = "Para one\nline 2\nline three\n\nTail.\n";
+  const saveDraftComment = vi.fn(async ({ comment }: any) => ({ draft: draftOf([comment]), stale: [], discussions: [] }));
+  const { slot } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now, 1), contents: { ok: true, old, new: now }, rpc: { saveDraftComment } });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(2));
+  fireEvent.click(within(units(slot.container)[0]).getByRole("button", { name: "Comment on lines 1–3" }));
+  fireEvent.change(await slot.findByRole("textbox", { name: "Draft comment" }), { target: { value: "Spell it out." } });
+  fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ line: 3, side: "RIGHT", startLine: 1 }) })));
+  // A block the diff doesn't show takes no comment.
+  expect(within(units(slot.container)[1]).queryByRole("button", { name: /^Comment on/ })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("a file whose contents don't load stays as its source, Rendered off with the reason", async () => {
+  const { slot, file } = await renderDiff({ markdownFiles: "rendered", contents: { ok: false, error: "The file is over 2 MB, so only the diff shows." } });
+  await file().findByText("The file is over 2 MB, so only the diff shows.", { selector: "p" });
+  const rendered = within(file().getByRole("radiogroup", { name: `How ${FILE} shows` })).getByRole("radio", { name: "Rendered" });
+  expect(rendered.getAttribute("aria-disabled")).toBe("true");
+  expect(document.getElementById(rendered.getAttribute("aria-describedby")!)?.textContent).toBe("The file is over 2 MB, so only the diff shows.");
+  expect(file().getByTestId("filediff")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("a file split across chapters shows as its source, and says why it can't render", async () => {
+  const { slot, file, readContents } = await renderDiff({ markdownFiles: "rendered", extra: { splitFiles: new Map([[FILE, { hunks: [1], alsoIn: ["Other"] }]]) } });
+  const rendered = within(file().getByRole("radiogroup", { name: `How ${FILE} shows` })).getByRole("radio", { name: "Rendered" });
+  expect(rendered.getAttribute("aria-disabled")).toBe("true");
+  expect(document.getElementById(rendered.getAttribute("aria-describedby")!)?.textContent).toMatch(/split across chapters/);
+  expect(readContents).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+});
+
+test("a long run of unchanged blocks folds, but for the one beside the change", async () => {
+  const old = `${Array.from({ length: 10 }, (_, i) => `Paragraph ${i} says something.`).join("\n\n")}\n\nThe end is here.\n`;
+  const now = old.replace("end is here", "end is near");
+  const { slot } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now), contents: { ok: true, old, new: now } });
+  const fold = await slot.findByRole("button", { name: "9 unchanged sections · Show" });
+  expect(units(slot.container).map((unit) => unit.dataset.mdStatus)).toEqual(["unchanged", "changed"]);
+  fireEvent.click(fold);
+  expect(units(slot.container)).toHaveLength(11);
+  slot.lifecycle.unmount();
+});
+
+test("an outdated thread shows in the file's fold, as in the source", async () => {
+  const { DiffThreadsContext } = await import("./LineThreads");
+  const thread = { id: "t1", path: FILE, line: null, originalLine: 3, side: "RIGHT", isOutdated: true, isResolved: false, subjectType: "LINE", comments: [] };
+  const { DiffViewer } = await import("./DiffViewer");
+  await loadPluginApp(() => import("../app"));
+  const { DraftTray } = await import("./draft-tray.test-support");
+  const component = () => (
+    <DraftTray targetKey="k" activeChapterId="c1" activeFiles={[FILE]} reviewRevision="r1" account="reviewer" patch={PATCH}>
+      <DiffThreadsContext.Provider value={{ targetKey: "k", threads: [thread as any] }}>
+        <DiffViewer patch={PATCH} files={[FILE]} views={new Map()} onToggleViewed={() => {}} readContents={async () => ({ ok: true, old: OLD, new: NEW })} markdownFiles="rendered" />
+      </DiffThreadsContext.Provider>
+    </DraftTray>
+  );
+  const again = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }) } as any });
+  await waitFor(() => expect(units(again.container)).toHaveLength(7));
+  expect(again.getByRole("button", { name: "Outdated (1)" })).toBeTruthy();
+  again.lifecycle.unmount();
+});
+
+function select(from: Node, to: Node) {
+  const range = document.createRange();
+  range.setStart(from, 0);
+  range.setEnd(to, to.textContent!.length);
+  document.getSelection()!.removeAllRanges();
+  document.getSelection()!.addRange(range);
+  document.dispatchEvent(new Event("selectionchange"));
+}
+
+test("text selected across blocks picks their lines in one hunk; in blocks the diff doesn't show, it offers to ask the agent", async () => {
+  const old = `Intro paragraph.\n\n${Array.from({ length: 4 }, (_, i) => `Filler ${i}.`).join("\n\n")}\n\nTokens expire after 1 hour.\n\nClosing words.\n`;
+  const now = old.replace("1 hour", "15 minutes");
+  const { slot, onLineSelected } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now, 1), contents: { ok: true, old, new: now } });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(7));
+  const text = (index: number) => within(units(slot.container)[index]).getByTestId("bb-markdown").firstChild!;
+  select(text(4), text(5));
+  await waitFor(() => expect(onLineSelected).toHaveBeenLastCalledWith(FILE, { start: 10, end: 11, side: "additions" }, undefined));
+  select(text(0), text(1));
+  await waitFor(() => expect(onLineSelected).toHaveBeenLastCalledWith(FILE, { start: 1, end: 3, side: "additions" }, { code: "Intro paragraph.\n\nFiller 0." }));
+  slot.lifecycle.unmount();
+});
+
+test("lines that take no comment offer Ask agent alone, which asks about their source", async () => {
+  patchReviewState("pr-42", { activeId: "c1" });
+  const old = `Intro paragraph.\n\n${Array.from({ length: 4 }, (_, i) => `Filler ${i}.`).join("\n\n")}\n\nTokens expire after 1 hour.\n`;
+  const now = old.replace("1 hour", "15 minutes");
+  const app = await loadPluginApp(() => import("../app"));
+  const guide = { title: "Guide", intent: "Docs.", unplacedFiles: [] as string[], sections: [{ id: "c1", title: "Docs", overview: "Docs.", diffs: [{ file: FILE, summary: "RFC." }] }] };
+  const rpc = {
+    setReviewPresence: () => ({ ok: true }),
+    getReviewBundle: () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Docs", headSha: "new" }, guide, patch: gitPatch(FILE, old, now, 1), revision: "r1" }),
+    getChecks: () => ({ bucket: "none", checks: [] }),
+    getPreferences: () => ({ preferences: { ...defaultPreferences, markdownFiles: "rendered" }, revision: 0 }),
+    getFileViews: () => ({ views: [] }),
+    checkRepoAccess: () => ({ accessible: true, repo: "acme/web", account: "me" }),
+    checkForUpdates: () => ({ hasNewCommits: false }),
+    getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }),
+    getReviewerNotes: () => ({ body: "", revision: 0 }),
+    getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
+    markSeen: () => ({ ok: true }),
+    getFileContents: () => ({ ok: true, old, new: now }),
+  };
+  const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: rpc as any });
+  await slot.findByRole("main", { name: "Review" });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(6));
+  select(within(units(slot.container)[0]).getByTestId("bb-markdown").firstChild!, within(units(slot.container)[0]).getByTestId("bb-markdown").firstChild!);
+  const bar = within(await slot.findByRole("group", { name: "Selection" }));
+  await bar.findByText("GitHub only takes comments on changed sections");
+  expect(bar.queryByRole("button", { name: "Comment" })).toBeNull();
+  expect(bar.getByText("L1")).toBeTruthy();
+  fireEvent.click(bar.getByRole("button", { name: "Ask agent" }));
+  await slot.findByText("rfc.md:1");
+  slot.lifecycle.unmount();
+});

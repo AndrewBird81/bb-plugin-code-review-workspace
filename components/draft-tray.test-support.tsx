@@ -22,7 +22,7 @@ export function testWorkspace(targetKey: string, over: Partial<WorkspaceApi> = {
     panel: { view: "comments", open: noop, toggle: noop, close: noop },
     files: { views: new Map(), toggleViewed: noop, markChapterViewed: noop, nextUnviewed: noop, foldAll: noop },
     compare: { baseline: null, head: null, from: null, pick: noop, since: null, narrowed: false, setNarrowed: noop, error: null, what: "your review" },
-    display: { layout: "unified", toggleLayout: noop, newFiles: "file", setNewFiles: noop, unifiedOnly: false, wrap: false, setWrap: noop, hideWhitespace: false, setHideWhitespace: noop, githubThreads: true, setGithubThreads: noop, commentsFolded: false, setCommentsFolded: noop },
+    display: { layout: "unified", toggleLayout: noop, newFiles: "file", setNewFiles: noop, markdownFiles: "source", setMarkdownFiles: noop, unifiedOnly: false, wrap: false, setWrap: noop, hideWhitespace: false, setHideWhitespace: noop, githubThreads: true, setGithubThreads: noop, commentsFolded: false, setCommentsFolded: noop },
     reveal: noop, showLocation: noop, followUp: noop, askAgent: noop, openFinish: noop,
     fullscreen: { available: false, on: false, toggle: noop }, leave: later,
     snooze: later, newCommits: false, rebuild: later, reload: later, pinnable: false, showShortcuts: noop, shortcuts: true,

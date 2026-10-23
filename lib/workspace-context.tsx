@@ -76,6 +76,9 @@ export interface WorkspaceApi {
     /** How a new or deleted file draws, saved for every review like the layout. */
     newFiles: ReviewPreferences["newFiles"];
     setNewFiles(show: ReviewPreferences["newFiles"]): void;
+    /** How a Markdown file opens, saved for every review like the layout. */
+    markdownFiles: ReviewPreferences["markdownFiles"];
+    setMarkdownFiles(show: ReviewPreferences["markdownFiles"]): void;
     /** The pane is too narrow for split, so the diff shows unified whatever the layout. */
     unifiedOnly: boolean;
     wrap: boolean;

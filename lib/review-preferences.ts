@@ -22,6 +22,8 @@ export interface ReviewPreferences {
   diffLayout: "split" | "unified";
   /** How a file the PR adds or deletes whole draws: as a file, its code with a rail beside it, or as a diff. */
   newFiles: "file" | "diff";
+  /** How a Markdown file opens: its diff, or rendered as GitHub's rich diff shows it. Each file's row switches it too. */
+  markdownFiles: "source" | "rendered";
   /** What a re-review's diff opens on, once it has changed since your review: only those changes, or all of the PR's. */
   rereviewShows: "since" | "all";
   /** null uses the execution defaults bb remembers for the review's project. */
@@ -63,7 +65,7 @@ export const defaultPreferences: ReviewPreferences = {
     "5. At most 10 comments; keep the most severe.",
     "6. Then set_review_summary: 2–5 bullets, blockers first with file:line, and anything you couldn't check. Suggest APPROVE only if nothing blocks and you read every non-generated file, REQUEST_CHANGES only for a verified blocking issue, otherwise COMMENT.",
   ].join("\n"),
-  diffLayout: "split", newFiles: "file", rereviewShows: "since", guideAgent: null, assistantAgent: null,
+  diffLayout: "split", newFiles: "file", markdownFiles: "source", rereviewShows: "since", guideAgent: null, assistantAgent: null,
   wakeOnReplies: "questions", pushChecks: "off", trackGithubReviews: true, trackTeamRequests: false, autoStartRepos: [],
   verificationPrompt: "Check whether the author properly addressed each piece of my earlier feedback. Start with list_feedback and read_changes_since_review, and read files with read_file when you need context.\nRecord a verdict with one line of evidence for every item with assess_feedback.\nThen look for new problems the fix commits introduce, and add each as an inline draft comment.\nDraft a reply with draft_thread_reply only on open threads where one adds something: what's still missing, or a short thanks naming the fixing commit. Keep everything terse.",
   unattendedAuthors: "members", runRepoChecks: false, threadListReviews: true,

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import type { SelectedLineRange } from "@pierre/diffs";
+import type { LineSelection } from "../../lib/remount";
 import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
@@ -36,10 +36,11 @@ const TEXT_GONE_MS = 300;
  * What's selected in the diff, with what you can do with it: lines picked GitHub-style, with a mouse or by tapping
  * them, or text selected in the code, as a long-press selects it on a phone or iPad (followed with `selectionchange`,
  * which touch selection fires, unlike mouseup). It sits at the bottom of the workspace, at the code's right; on a
- * `phone` the lines' bar takes the dock's place, and the text's sits above it.
+ * `phone` the lines' bar takes the dock's place, and the text's sits above it. Lines GitHub takes no comment on, picked in
+ * rendered Markdown, offer Ask agent alone.
  */
 export function SelectionBar({ lines, phone, onComment, onAskLines, onClear }: {
-  lines: { file: string; range: SelectedLineRange } | null;
+  lines: LineSelection | null;
   phone: boolean;
   onComment: () => void;
   onAskLines: () => void;
@@ -105,8 +106,8 @@ export function SelectionBar({ lines, phone, onComment, onAskLines, onClear }: {
       {at && <span className="shrink-0 rounded bg-primary/10 px-1 text-primary">{at}</span>}
     </span>
   );
-  // On touch, how to make a range: under the bar on a phone, beside the lines elsewhere.
-  const hint = lines && coarse ? "Tap another line to select a range" : null;
+  // Why lines in rendered Markdown take no comment, or on touch how to make a range: under the bar on a phone, beside the lines elsewhere.
+  const hint = lines?.askOnly ? "GitHub only takes comments on changed sections" : lines && coarse ? "Tap another line to select a range" : null;
   const first = lines ? Math.min(lines.range.start, lines.range.end) : 0;
   const last = lines ? Math.max(lines.range.start, lines.range.end) : 0;
   // Beside a docked panel in under 600px of code on touch, as beside Comments on an unfolded iPhone Duo held sideways,
@@ -139,10 +140,10 @@ export function SelectionBar({ lines, phone, onComment, onAskLines, onClear }: {
                 {label(lines.file, `L${first}${last !== first ? `–${last}` : ""}`)}
                 {hint && !phone && <span className="truncate text-[11px] text-muted-foreground">{hint}</span>}
               </span>
-              <Button size="sm" variant="ghost" className={button} onClick={onComment}>
+              {!lines.askOnly && <Button size="sm" variant="ghost" className={button} onClick={onComment}>
                 <Icon name="MessageSquarePlus" className="size-3.5 text-primary" aria-hidden />
                 Comment
-              </Button>
+              </Button>}
               <Button size="sm" variant="ghost" className={button} onClick={onAskLines}>
                 <Icon name="Sparkles" className="size-3.5 text-(--ansi-13)" aria-hidden />
                 Ask agent

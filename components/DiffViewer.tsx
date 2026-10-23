@@ -1,4 +1,4 @@
-import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { z } from "zod";
 import { areSelectionsEqual, parsePatchFiles, processFile } from "@pierre/diffs";
@@ -23,6 +23,8 @@ import { DIFF_CSS, ONE_SIDE_CSS, WHOLE_FILE_CSS, sinceReviewCSS, tokenStyleCSS }
 import { applyOpen, decorate } from "../lib/diff-decorate";
 import { FOLD_ROW, FOLD_ROW_COARSE, longRuns, runsHolding, type LongRun } from "../lib/long-runs";
 import { confettiCSS, confettiRows } from "../lib/confetti";
+import { isMarkdownPath } from "../lib/markdown-blocks";
+import { RenderedMarkdown } from "./RenderedMarkdown";
 import { LongRunFold, LongRunsContext } from "./LongRunFold";
 import { Button } from "./ui/button";
 import { Icon } from "./ui/icon";
@@ -60,6 +62,9 @@ export { sinceReviewCSS } from "../lib/diff-css";
 
 /** How a new or deleted file draws: as a file, its code with a rail beside it, or as a diff. */
 export type NewFilesShow = "file" | "diff";
+
+/** How a Markdown file opens: its diff, or rendered. */
+export type MarkdownShow = "source" | "rendered";
 
 /** A long run of deleted lines' fold row, under the last of its lines that show; `fold` is the run's index in its file. */
 interface FoldAt { fold: number; file: string }
@@ -219,12 +224,13 @@ function DiffDetails({ summary, text, defaultOpen = false, className, theme, the
   );
 }
 
-/** The code row pierre drew for a line with no comment under it. */
+/** The code row pierre drew for a line with no comment under it, or in rendered Markdown the block or fold showing it. */
 function lineRow(fileEl: HTMLElement, at: CommentLocation): HTMLElement | undefined {
   const shadow = fileEl.querySelector("diffs-container")?.shadowRoot;
   const [own, other, column] = at.side === "LEFT" ? ["change-deletion", "change-addition", "[data-deletions]"] : ["change-addition", "change-deletion", "[data-additions]"];
   return (shadow?.querySelector<HTMLElement>(`[data-line-type="${own}"][data-line="${at.line}"]`)
-    ?? shadow?.querySelector<HTMLElement>(`:is(${column},[data-unified]) [data-line="${at.line}"]:not([data-line-type="${other}"])`)) ?? undefined;
+    ?? shadow?.querySelector<HTMLElement>(`:is(${column},[data-unified]) [data-line="${at.line}"]:not([data-line-type="${other}"])`))
+    ?? Array.from(fileEl.querySelectorAll<HTMLElement>("[data-md-block], [data-md-fold]")).find((el) => el.dataset.side === at.side && Number(el.dataset.start) <= at.line && Number(el.dataset.end) >= at.line);
 }
 
 /**
@@ -234,6 +240,12 @@ function lineRow(fileEl: HTMLElement, at: CommentLocation): HTMLElement | undefi
 function changeStops(root: HTMLElement | null): { row: HTMLElement; card: HTMLElement; top: number; line: number; old: boolean }[] {
   const stops: { row: HTMLElement; card: HTMLElement; top: number; line: number; old: boolean }[] = [];
   for (const card of Array.from(root?.querySelectorAll<HTMLElement>("[data-file]") ?? [])) {
+    // Rendered Markdown: each run of changed blocks.
+    for (const unit of Array.from(card.querySelectorAll<HTMLElement>("[data-md-status]:not([data-md-status=unchanged])"))) {
+      if (unit.previousElementSibling?.matches("[data-md-status]:not([data-md-status=unchanged])")) continue;
+      const block = unit.querySelector<HTMLElement>("[data-md-block]")!;
+      stops.push({ row: block, card, top: Math.round(block.getBoundingClientRect().top), line: Number(block.dataset.start), old: block.dataset.side === "LEFT" });
+    }
     const tops = new Set<number>();
     for (const cell of Array.from(card.querySelector("diffs-container")?.shadowRoot?.querySelectorAll<HTMLElement>('[data-column-number][data-line-type^="change"]') ?? [])) {
       // A comment under a changed line doesn't start another change.
@@ -454,12 +466,18 @@ export const DiffViewer = memo(function DiffViewer({
   prUrl,
   newFiles = "file",
   onNewFiles,
+  markdownFiles = "source",
+  renderToggle,
   changeStep,
 }: {
   diffLayout?: "split" | "unified";
   /** How a new or deleted file draws, which its row's Show as diff switches for every review (`onNewFiles`). */
   newFiles?: NewFilesShow;
   onNewFiles?: (show: NewFilesShow) => void;
+  /** How a Markdown file opens, which its row's Source and Rendered switch for that file. */
+  markdownFiles?: MarkdownShow;
+  /** Set to switch a Markdown file between Source and Rendered (m): false for a file that isn't one. */
+  renderToggle?: MutableRefObject<((file: string) => boolean) | null>;
   /** Set to step to the next or previous change in the code drawn (⇧J, ⇧K): false when there's none that way. */
   changeStep?: MutableRefObject<((direction: 1 | -1) => boolean) | null>;
   /** Wrap long lines instead of scrolling them sideways. */
@@ -476,7 +494,8 @@ export const DiffViewer = memo(function DiffViewer({
   views: Map<string, FileViewFlags>;
   onToggleViewed: (file: string, viewed: boolean) => void;
   registerFileEl?: (file: string, el: HTMLElement | null) => void;
-  onLineSelected?: (file: string, range: SelectedLineRange | null) => void;
+  /** `askOnly`: lines of rendered Markdown GitHub takes no comment on, with their source to ask the agent about. */
+  onLineSelected?: (file: string, range: SelectedLineRange | null, askOnly?: { code: string }) => void;
   /** The lines picked in the diff, highlighted until cleared. */
   selectedLines?: { file: string; range: SelectedLineRange } | null;
   /** Scroll to a comment's line, opening its file if it's collapsed; with `focus`, as a key asked, the focus goes there. */
@@ -615,6 +634,21 @@ export const DiffViewer = memo(function DiffViewer({
   }, [perFile, contents]);
   const removed = useMemo(() => (filtering && showRemoved ? [...since!.values()].filter((f) => f.status === "removed") : []), [since, filtering, showRemoved]);
 
+  // Markdown files switched between Source and Rendered, by file; unset, a file opens as Diff options say.
+  const [rendered, setRendered] = useState<Record<string, boolean>>({});
+  const wantsRendered = (path: string) => rendered[path] ?? markdownFiles === "rendered";
+  // Why a Markdown file shows only its source, or null when it can render; undefined for a file that isn't Markdown.
+  // Rendered draws the PR's whole change from the file's contents.
+  const renderOff = (f: (typeof perFile)[number]): string | null | undefined => {
+    if (!isMarkdownPath(f.path) || !readContents || !f.fileDiff?.hunks.length) return undefined;
+    if (filtering) return `Rendered shows the whole change, not what changed since ${sinceWhat}.`;
+    if (f.split) return "Rendered shows a file whole, and this one is split across chapters.";
+    if (!f.source) return undefined;
+    const loaded = contentsFor(f.path, f.source);
+    return typeof loaded === "object" && !loaded.ok ? loaded.error : null;
+  };
+  const offId = useId();
+
   // Side-by-side needs room: squeezed between the chapters and the review panel, each side would clip its code. Measured
   // before the first paint, and until then no file draws its code: a narrow pane never draws side by side first.
   const [narrow, setNarrow] = useState<boolean | null>(null);
@@ -680,6 +714,25 @@ export const DiffViewer = memo(function DiffViewer({
     if (foldViewed && flipped.length) setCollapsed((c) => ({ ...c, ...Object.fromEntries(flipped.map((file) => [file, views.get(file)?.viewed ?? false])) }));
   }, [views, foldViewed]);
 
+  // A Markdown file to show rendered loads its contents once it opens and nears the screen.
+  const toRender = perFile.filter((f) => renderOff(f) === null && wantsRendered(f.path) && !isCollapsed(f.path) && draws(f.path) && contentsFor(f.path, f.source) === undefined);
+  const renderKey = toRender.map((f) => f.path).join("\0");
+  useEffect(() => { for (const f of toRender) void expand(f.path, f.source!.text); }, [renderKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // m: the current file's switch, or why it can't render.
+  const renderable = useRef(new Map<string, string | null>());
+  renderable.current = new Map(perFile.flatMap((f) => { const off = renderOff(f); return off === undefined ? [] : [[f.path, off] as const]; }));
+  useEffect(() => {
+    if (!renderToggle) return;
+    renderToggle.current = (file) => {
+      if (!renderable.current.has(file)) return false;
+      const off = renderable.current.get(file);
+      if (off) toast.info(off);
+      else setRendered((shown) => ({ ...shown, [file]: !(shown[file] ?? markdownFiles === "rendered") }));
+      return true;
+    };
+    return () => { renderToggle.current = null; };
+  }, [renderToggle, markdownFiles]);
+
   // GitHub threads and CI failures go under their lines when this diff shows them; the rest of the threads are outdated.
   const fromGitHub = useMemo(() => {
     const byFile = new Map<string, { placed: CommentLocation[]; outdated: ReviewThread[] }>();
@@ -732,6 +785,8 @@ export const DiffViewer = memo(function DiffViewer({
     previous.current = next;
     return next;
   }, [files, draft?.comments, draft?.discussions, draft?.composer, fromGitHub, inPart, runsOf]);
+  // The same lines, for rendered Markdown, which shows them after their blocks.
+  const locations = useMemo(() => new Map([...annotations].map(([path, { list }]) => [path, list.flatMap((a) => "fold" in a.metadata ? [] : [a.metadata])])), [annotations]);
 
   // Long runs of deleted lines opened or closed, by file. Unset, a run starts open when a comment, the comment box, a CI
   // failure, or the lines picked are in it. A new diff starts over.
@@ -896,7 +951,7 @@ export const DiffViewer = memo(function DiffViewer({
       {narrowedStatus}
       {changeStep && <span role="status" className="sr-only">{changeSaid}</span>}
       {compareSwitch}
-      {perFile.map(({ path, oldPath, stats, chosen, fileDiff, whitespaceOnly, source, change, changedHere, kind, runs, split, first, dropped, noisy: noise, weakening, digest, bare, bidi }) => {
+      {perFile.map(({ path, oldPath, stats, chosen, fileDiff, whitespaceOnly, source, change, changedHere, kind, runs, split, first, dropped, noisy: noise, weakening, digest, bare, bidi }, index) => {
         const asFile = !!kind && newFiles === "file";
         const lines = kind === "deleted" ? stats.del : stats.add;
         const opened = openRuns.get(path) ?? NO_FOLDS;
@@ -910,6 +965,8 @@ export const DiffViewer = memo(function DiffViewer({
         const commentLabel = [count?.notSubmitted && `${count.notSubmitted} not submitted`, count?.onGitHub && `${count.onGitHub} on GitHub`].filter(Boolean).join(" · ");
         const loaded = contentsFor(path, source);
         const loading = loaded === "loading";
+        const off = renderOff(perFile[index]);
+        const showsRendered = off === null && wantsRendered(path);
         const full = expanded.get(path);
         const owned = owners?.get(path);
         const summary = summaries?.get(path);
@@ -922,7 +979,7 @@ export const DiffViewer = memo(function DiffViewer({
         // A local review's file that's still in its checkout opens in an editor.
         const inEditor = !!editor && fileDiff?.type !== "deleted";
         // Hidden bidirectional Unicode is said on a folded file too.
-        const details = detailed && (summary || bare || oldPath || split || owned || stale || tagged || showDiff || readContents && source && !folded || inEditor) || bidi;
+        const details = detailed && (summary || bare || oldPath || split || owned || stale || tagged || showDiff || readContents && source && !folded || off !== undefined && !folded || inEditor) || bidi;
         return (
           <div
             key={path}
@@ -1025,7 +1082,15 @@ export const DiffViewer = memo(function DiffViewer({
                   {showDiff && (
                     <Button variant="ghost" size="sm" aria-label={`Show diff of ${path}`} className={cn("h-6 shrink-0 px-2 text-[11px]", TOUCH_COMPACT)} onClick={() => toggleCollapsed(path)}>Show diff</Button>
                   )}
-                  {readContents && source && !folded && (full ? (
+                  {/* A Markdown file: its diff, or rendered; why it can't render, as the choice's tooltip. */}
+                  {off !== undefined && !folded && (
+                    <span className="flex" title={off ?? undefined}>
+                      <Segmented label={`How ${path} shows`} value={showsRendered ? "rendered" : "source"} onChange={(value) => setRendered((shown) => ({ ...shown, [path]: value === "rendered" }))}
+                        options={[{ value: "source", label: "Source" }, { value: "rendered", label: "Rendered", disabled: !!off, reason: off ? `${offId}-${index}` : undefined }]} />
+                      {off && <span id={`${offId}-${index}`} className="sr-only">{off}</span>}
+                    </span>
+                  )}
+                  {readContents && source && !folded && !showsRendered && (full ? (
                     <Button variant="ghost" size="sm" aria-label={`Whole file ${path}`} aria-pressed={!!wholeFile[path]} className={cn("h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground aria-pressed:text-primary", TOUCH_COMPACT)} onClick={() => setWholeFile((w) => ({ ...w, [path]: !w[path] }))}>
                       <Icon name="FileText" className="size-3" aria-hidden />Whole file
                     </Button>
@@ -1052,7 +1117,27 @@ export const DiffViewer = memo(function DiffViewer({
             {!folded && fileDiff && !draws(path) && (
               <div data-pending-diff aria-hidden style={{ ...PENDING_ROWS, height: drawnHeight(full?.fileDiff ?? fileDiff, kind ? "unified" : diffStyle, runs.reduce((hidden, run, index) => hidden + (opened.has(index) ? 0 : run.count), 0), runs.length, coarse ? FOLD_ROW_COARSE : FOLD_ROW) }} />
             )}
-            {!folded && fileDiff && draws(path) && (
+            {!folded && showsRendered && loading && (
+              <p role="status" className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
+                <Icon name="Loading" className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden />Loading the file to render it…
+              </p>
+            )}
+            {!folded && fileDiff && draws(path) && showsRendered && typeof loaded === "object" && loaded.ok && (
+              <ErrorBoundary resetKey={loaded} fallback={(retry) => <FileError path={path} prUrl={prUrl} onRetry={retry} />}>
+                <RenderedMarkdown
+                  path={path}
+                  patch={source!.text}
+                  old={loaded.old}
+                  now={loaded.new}
+                  hideWhitespace={hideWhitespace}
+                  locations={locations.get(path) ?? []}
+                  selected={selectedLines?.file === path ? selectedLines.range : null}
+                  onComment={draft?.editable ? draft.open : undefined}
+                  onLineSelected={onLineSelected}
+                />
+              </ErrorBoundary>
+            )}
+            {!folded && fileDiff && draws(path) && !(showsRendered && typeof loaded === "object" && loaded.ok) && (
               <ErrorBoundary resetKey={full?.fileDiff ?? fileDiff} fallback={(retry) => <FileError path={path} prUrl={prUrl} onRetry={retry} />}>
               <FileBody
                 path={path}

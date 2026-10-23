@@ -627,7 +627,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   // The diff shows the draft's comments and discussions, and the comment box while it's open there.
   const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting });
   latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting };
-  const open = useCallback((at: CommentLocation, start?: CommentStart) => latest.current.openComposer(at, true, false, start), []);
+  const open = useCallback((at: CommentLocation & { startLine?: number }, start?: CommentStart) => latest.current.openComposer(at, true, false, start), []);
   const ask = useCallback((at: CommentLocation) => latest.current.openComposer(at, true, true), []);
   const remove = useCallback((comment: DraftComment) => { void latest.current.removeComment(comment); }, []);
   const dismiss = useCallback((at: CommentLocation) => { void latest.current.dismissDiscussion(at); }, []);

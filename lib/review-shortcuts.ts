@@ -19,6 +19,7 @@ export const SHORTCUTS = [
   { group: "Panels", keys: ["Escape"], label: "Close what's over the code, leave full screen, or clear the lines selected" },
   { group: "View", keys: ["d"], label: "Since your review or All changes, on a re-review" },
   { group: "View", keys: ["i"], label: "Fold or unfold comments in code" },
+  { group: "View", keys: ["m"], label: "Rendered or source, for a Markdown file" },
   { group: "View", keys: ["F"], label: "Full screen on or off" },
   { group: "View", keys: ["?"], label: "Show these shortcuts" },
   { group: "Comment", keys: ["e"], label: "Edit the comment ] or [ landed on" },

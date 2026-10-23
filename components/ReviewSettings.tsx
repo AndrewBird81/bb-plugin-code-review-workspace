@@ -444,7 +444,7 @@ export function ReviewSettings({ onBack, back }: { onBack?: () => void; back?: s
           {dirty && <Button variant="ghost" className={TOUCH_CONTROL} disabled={busy || updating} onClick={() => { setRecord({ ...record, preferences: JSON.parse(baseline) }); setNumberText({}); setError(""); saveButton.current?.focus(); }}>Discard edits</Button>}
           <span role="status" className="text-xs text-muted-foreground">{saved ? "Settings saved" : dirty ? "Unsaved changes" : ""}</span>
           {/* The diff layout isn't on this page: the review's Diff options set it. */}
-          <Button variant="ghost" size="sm" className={`ml-auto ${TOUCH_CONTROL}`} disabled={busy || updating} onClick={() => { setSaved(false); setNumberText({}); setRecord({ ...record, preferences: { ...defaultPreferences, knobs: { ...defaultKnobs }, diffLayout: record.preferences.diffLayout, newFiles: record.preferences.newFiles } }); }}>Restore defaults</Button>
+          <Button variant="ghost" size="sm" className={`ml-auto ${TOUCH_CONTROL}`} disabled={busy || updating} onClick={() => { setSaved(false); setNumberText({}); setRecord({ ...record, preferences: { ...defaultPreferences, knobs: { ...defaultKnobs }, diffLayout: record.preferences.diffLayout, newFiles: record.preferences.newFiles, markdownFiles: record.preferences.markdownFiles } }); }}>Restore defaults</Button>
         </div>
       </>}
     </div>

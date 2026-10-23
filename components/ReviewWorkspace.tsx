@@ -18,7 +18,7 @@ import { useKeyboardInset } from "../lib/use-keyboard-inset";
 import { useFold } from "../lib/use-fold";
 import { useSafeArea } from "../lib/use-safe-area";
 import { flipPlace, goToFlipPlace, goToPlace, linePlace, useScrollAnchor, type FlipPlace } from "../lib/use-scroll-anchor";
-import { carried, keep, present, type KeptFocus } from "../lib/remount";
+import { carried, keep, present, type KeptFocus, type LineSelection } from "../lib/remount";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { Button } from "./ui/button";
@@ -142,6 +142,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const [preferences, setPreferences] = useState<{ preferences: ReviewPreferences; revision: number } | null>(null);
   const diffLayout = preferences?.preferences.diffLayout ?? defaultPreferences.diffLayout;
   const newFiles = preferences?.preferences.newFiles ?? defaultPreferences.newFiles;
+  const markdownFiles = preferences?.preferences.markdownFiles ?? defaultPreferences.markdownFiles;
   const [loading, setLoading] = useState(true);
   const [generatingReplacement, setGeneratingReplacement] = useState(false);
   const hasDisplayedGuide = useRef(false);
@@ -189,7 +190,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [targetKey]);
   // A review opens on no file, until its chapter's files show.
   useLayoutEffect(() => storeCurrentFile(targetKey, undefined), [targetKey]);
-  const [lineSel, setLineSel] = useState<{ file: string; range: SelectedLineRange } | null>(null);
+  const [lineSel, setLineSel] = useState<LineSelection | null>(null);
   const [draftPrefill, setDraftPrefill] = useState<CommentPrefill | undefined>();
   const [showDraft, setShowDraft] = useState<{ at: number; replaced?: boolean } | undefined>();
   // What changed since what the diff compares with, or why that couldn't be read, with the comparison it's for.
@@ -394,11 +395,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   // Below about 960px the diff shows unified whatever the layout, so the toggle can't apply there.
   const [unifiedOnly, setUnifiedOnly] = useState(false);
   // The layout shows at once; each toggle saves after the one before it, on the revision that save returned, so two
-  // quick toggles keep the second. So does how new and deleted files draw.
+  // quick toggles keep the second. So do how new and deleted files and Markdown files draw.
   const shownPreferences = useRef(preferences);
   shownPreferences.current = preferences;
   const layoutSaves = useRef({ queue: Promise.resolve(), pending: 0 });
-  const saveReading = useCallback((change: Pick<Partial<ReviewPreferences>, "diffLayout" | "newFiles">, failed: string) => {
+  const saveReading = useCallback((change: Pick<Partial<ReviewPreferences>, "diffLayout" | "newFiles" | "markdownFiles">, failed: string) => {
     const shown = shownPreferences.current;
     if (!shown) return;
     shownPreferences.current = { ...shown, preferences: { ...shown.preferences, ...change } };
@@ -427,6 +428,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [saveReading, unifiedOnly]);
   const changeNewFiles = useCallback((show: ReviewPreferences["newFiles"]) => {
     if (shownPreferences.current?.preferences.newFiles !== show) saveReading({ newFiles: show }, "Couldn’t save how new and deleted files show.");
+  }, [saveReading]);
+  const changeMarkdownFiles = useCallback((show: ReviewPreferences["markdownFiles"]) => {
+    if (shownPreferences.current?.preferences.markdownFiles !== show) saveReading({ markdownFiles: show }, "Couldn’t save how Markdown files show.");
   }, [saveReading]);
   // Saved once the first load has picked the page, so the saved chapter isn't lost before it's read.
   useEffect(() => { if (activeId) patchReviewState(targetKey, { activeId }); }, [targetKey, activeId]);
@@ -1195,13 +1199,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   }, [connection]);
   const readContents = useCallback((file: string) => rpc.call("getFileContents", { targetKey, file }), [rpc, targetKey]);
 
-  // GitHub-style line selection in the diff (via pierre) → comment / ask agent.
-  const onLineSelected = useCallback((file: string, range: SelectedLineRange | null) => {
-    setLineSel(range ? { file, range } : null);
+  // GitHub-style line selection in the diff (via pierre), or text selected in rendered Markdown → comment / ask agent.
+  const onLineSelected = useCallback((file: string, range: SelectedLineRange | null, askOnly?: { code: string }) => {
+    setLineSel(range ? { file, range, ...(askOnly ? { askOnly } : {}) } : null);
   }, []);
 
   function commentOnLines(ask = false) {
-    if (!lineSel) return;
+    if (!lineSel || lineSel.askOnly) return;
     const { file, range } = lineSel;
     const side = (range.endSide ?? range.side) === "deletions" ? "LEFT" : "RIGHT";
     setDraftPrefill({ file, line: range.end, side, startLine: range.start, ...(range.side ? { startSide: range.side === "deletions" ? "LEFT" : "RIGHT" } : {}), ask, nonce: Date.now() });
@@ -1212,12 +1216,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
 
   // Asking opens a box at the lines, and the agent answers there. An archived
   // review's draft can't change, so its lines are quoted into the chat instead.
+  // Lines GitHub takes no comment on go to the agent with their source: its quote would find none of them in the diff.
   function askAboutLines() {
     if (!lineSel) return;
-    if (review?.prState !== "MERGED" && review?.prState !== "CLOSED") return commentOnLines(true);
-    const { file, range } = lineSel;
+    if (!lineSel.askOnly && review?.prState !== "MERGED" && review?.prState !== "CLOSED") return commentOnLines(true);
+    const { file, range, askOnly } = lineSel;
     const side = (range.endSide ?? range.side) === "deletions" ? "deletions" : "additions";
-    ask({ file, startLine: range.start, endLine: range.end, side, chapterId });
+    ask({ file, startLine: range.start, endLine: range.end, side, chapterId, ...(askOnly ? { code: askOnly.code } : {}) });
     setLineSel(null);
   }
 
@@ -1228,6 +1233,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const lastLine = useRef<CommentLocation | null>(null);
   // The diff's step to its next or previous change, which it sets while it shows.
   const changeStep = useRef<((direction: 1 | -1) => boolean) | null>(null);
+  // The diff's switch between a Markdown file's source and its rendered view.
+  const renderToggle = useRef<((file: string) => boolean) | null>(null);
   const shortcut = useRef<(key: string) => boolean>(() => false);
   shortcut.current = (key) => {
     const currentFile = currentFileOf(targetKey);
@@ -1325,6 +1332,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         return true;
       }
       case "i": changeCommentsFolded(!commentsFolded); return true;
+      case "m": {
+        const file = shown[Math.max(at, 0)];
+        return inChapter && !!file && !!renderToggle.current?.(file);
+      }
       case "F": {
         if (canFullscreen) toggleFullscreen();
         return canFullscreen;
@@ -1377,12 +1388,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     panel: { view: shownPanel, open: openPanel, toggle: togglePanel, close: closePanel },
     files: { views, toggleViewed, markChapterViewed, nextUnviewed, foldAll: foldAllFiles },
     compare: { baseline: baselineSha, head: review?.headSha ?? null, from: compareFrom, pick: pickCompare, since, narrowed: sinceOnly, setNarrowed: flip, error: sinceError, what: sinceWhat },
-    display: { layout: diffLayout, toggleLayout, newFiles, setNewFiles: changeNewFiles, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads, commentsFolded, setCommentsFolded: changeCommentsFolded },
+    display: { layout: diffLayout, toggleLayout, newFiles, setNewFiles: changeNewFiles, markdownFiles, setMarkdownFiles: changeMarkdownFiles, unifiedOnly, wrap: wrapLines, setWrap: changeWrap, hideWhitespace, setHideWhitespace: changeHideWhitespace, githubThreads: showThreads, setGithubThreads: setShowThreads, commentsFolded, setCommentsFolded: changeCommentsFolded },
     reveal: showComment, showLocation, followUp, askAgent, openFinish: showDraftSummary,
     fullscreen: { available: canFullscreen, on: fullscreen, toggle: toggleFullscreen }, leave,
     snooze, newCommits, rebuild, reload: load, pinnable: preferences?.preferences.threadListReviews === true, showShortcuts,
     shortcuts: shortcutsOn,
-  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn]);
+  } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn]);
 
   if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");
@@ -1481,8 +1492,10 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 switchSlot={switchSlot}
                 prUrl={isPr ? review?.url ?? undefined : undefined}
                 newFiles={newFiles}
+                markdownFiles={markdownFiles}
                 onNewFiles={changeNewFiles}
                 changeStep={changeStep}
+                renderToggle={renderToggle}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>

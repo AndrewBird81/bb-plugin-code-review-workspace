@@ -39,8 +39,8 @@ export interface InlineDraft {
   composer: (CommentLocation & { startLine?: number; editing: boolean; asking: boolean }) | null;
   /** The line whose comment the box is open on, in the diff or the panel. */
   editingAt: CommentLocation | null;
-  /** Open the comment box at a line, on the line's comment if it has one; a new comment starts with `start`. */
-  open(at: CommentLocation, start?: CommentStart): void;
+  /** Open the comment box at a line, or lines from `startLine`, on the line's comment if it has one; a new comment starts with `start`. */
+  open(at: CommentLocation & { startLine?: number }, start?: CommentStart): void;
   /** Open a box at a line for a message to the review assistant. */
   ask(at: CommentLocation): void;
   remove(comment: DraftComment): void;

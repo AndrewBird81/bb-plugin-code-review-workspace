@@ -222,6 +222,27 @@ test("Diff options' New and deleted files, or a file's Show as diff, draws a new
   slot.lifecycle.unmount();
 });
 
+test("Diff options' Markdown files opens Markdown rendered, saved for every review, and m switches the current file", async () => {
+  const doc = "diff --git a/docs/a.md b/docs/a.md\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-Old words.\n+New words.\n";
+  const sections = [{ id: "c1", title: "Docs", overview: "Docs.", diffs: [{ file: "docs/a.md", summary: "Words." }] }, guide.sections[1]];
+  const getReviewBundle = () => ({ review: { targetKey: "pr-42", kind: "pr", status: "ready", createdAt: 1, title: "Parse rows", headSha: "new" }, guide: { ...structuredClone(guide), sections }, patch: patch + doc, revision: "r1" });
+  const savePreferences = vi.fn(({ preferences, revision }: any) => ({ preferences, revision: revision + 1 }));
+  const getFileContents = vi.fn(() => ({ ok: true, old: "Old words.\n", new: "New words.\n" }));
+  const { slot } = await renderWorkspace({ rpc: { getReviewBundle, savePreferences, getFileContents } });
+  const file = () => slot.container.querySelector<HTMLElement>('[data-file="docs/a.md"]')!;
+  await waitFor(() => expect(file().querySelector("[data-md-rendered]")).toBeNull());
+  fireEvent.click(within(slot.getByRole("main")).getByRole("button", { name: "Diff options" }));
+  const choices = within(await slot.findByRole("radiogroup", { name: "Markdown files" }));
+  expect(choices.getByRole("radio", { name: "Source" }).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(choices.getByRole("radio", { name: "Rendered" }));
+  await waitFor(() => expect(file().querySelector("[data-md-rendered]")).toBeTruthy());
+  expect(savePreferences).toHaveBeenCalledWith({ preferences: { ...defaultPreferences, markdownFiles: "rendered" }, revision: 0 });
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  fireEvent.keyDown(document.body, { key: "m" });
+  await waitFor(() => expect(file().querySelector("[data-md-rendered]")).toBeNull());
+  slot.lifecycle.unmount();
+});
+
 test("two quick Layout toggles save one after the other, and the second's layout stays", async () => {
   const { toast } = await import("sonner");
   // A slow server that, like the real one, refuses a save on a revision it has moved past.
