@@ -59,11 +59,11 @@ export async function recordPosted(record: () => Promise<void>): Promise<void> {
   }
 }
 
-/** Why what GitHub took isn't recorded, and that sending it again finishes it. */
+/** Why what GitHub took isn't recorded, and that sending it again, unchanged, finishes it. */
 export function notRecorded(what: "review" | "reply", error: unknown, durable: boolean, url?: string): string {
   const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
   const again = what === "review" ? "Submit" : "Send";
-  return `GitHub has your ${what}${url ? ` (${url})` : ""}, but it couldn't be recorded here: ${reason}. ${again} again to finish recording it: it won't be posted again.`
+  return `GitHub has your ${what}${url ? ` (${url})` : ""}, but it couldn't be recorded here: ${reason}. ${again} again without changing the draft to finish recording it: it won't be posted again.`
     + (durable ? "" : " Until then, don't reload the plugin, which would forget it was posted.");
 }
 

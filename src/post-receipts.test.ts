@@ -71,7 +71,7 @@ test("a review GitHub took that the store couldn't record is recorded by the nex
   let down = false;
   gh.onPost = async () => { down = true; };
   const first = await createReviewSubmitter(failing(store, () => down), runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", comments, { body, verdict });
-  expect(first).toEqual({ ok: false, error: "GitHub has your review (https://github.com/acme/web/pull/1#r1), but it couldn't be recorded here: Connection terminated unexpectedly. Submit again to finish recording it: it won't be posted again." });
+  expect(first).toEqual({ ok: false, error: "GitHub has your review (https://github.com/acme/web/pull/1#r1), but it couldn't be recorded here: Connection terminated unexpectedly. Submit again without changing the draft to finish recording it: it won't be posted again." });
   down = false;
   expect((await store.getDraft("pr-1")).comments).toHaveLength(1);
   // A reload's submitter has only what kv kept.
@@ -83,7 +83,9 @@ test("a review GitHub took that the store couldn't record is recorded by the nex
   expect(await bb.storage.kv.list("posted-review:")).toEqual([]);
 }, 15_000);
 
-test("a draft changed since a review GitHub took wasn't recorded is checked again, not taken for the posted one", async () => {
+// Review round 2, NIT 1: on the head the review was for, a draft changed since got the generic "Your draft comments
+// changed" message, not that GitHub already has the comments it took out.
+test("a draft changed since a review GitHub took wasn't recorded is checked again, not taken for the posted one, and the Submit that takes out the posted comments says so", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
   const store = testStore(bb);
   await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
@@ -96,11 +98,13 @@ test("a draft changed since a review GitHub took wasn't recorded is checked agai
   down = false;
   gh.onPost = async () => {};
   await store.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "and this" });
-  const shown = await store.getDraft("pr-1");
-  // The posted comment is recorded and leaves the draft, so the page's two no longer match it.
-  expect(await createReviewSubmitter(store, runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", shown.comments, shown)).toMatchObject({ ok: false, error: expect.stringContaining("Your draft comments changed") });
+  const submit = async () => { const shown = await store.getDraft("pr-1"); return createReviewSubmitter(store, runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", shown.comments, shown); };
+  // The posted comment is recorded and leaves the draft, and nothing is posted.
+  expect(await submit()).toEqual({ ok: false, error: "GitHub already has 1 of these comments, from your review of sha123 (https://github.com/acme/web/pull/1#r1), so it was taken out of your draft. Check the draft, then submit again." });
   expect((await store.getDraft("pr-1")).comments.map((c) => c.body)).toEqual(["and this"]);
   expect(gh.posts).toHaveLength(1);
+  expect(await submit()).toEqual({ ok: true, url: "https://github.com/acme/web/pull/1#r2" });
+  expect(gh.payloads.map((p) => JSON.parse(p).comments.map((c: { body: string }) => c.body))).toEqual([["nit"], ["and this"]]);
 }, 15_000);
 
 test("a reply GitHub took whose draft the store couldn't clear is finished by the next Send of it, after a reload too, without posting it again", async () => {
@@ -112,7 +116,7 @@ test("a reply GitHub took whose draft the store couldn't clear is finished by th
   let posts = 0;
   const post = async () => { posts++; down = true; return { ok: true as const }; };
   expect(await postDraftedReply(postReceipts(bb.storage.kv), failing(store, () => down), "pr-1", "T1", "Fixed?", post)).toEqual({
-    ok: false, error: "GitHub has your reply, but it couldn't be recorded here: Connection terminated unexpectedly. Send again to finish recording it: it won't be posted again.",
+    ok: false, error: "GitHub has your reply, but it couldn't be recorded here: Connection terminated unexpectedly. Send again without changing the draft to finish recording it: it won't be posted again.",
   });
   down = false;
   expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed?", post)).toEqual({ ok: true });

@@ -56,7 +56,7 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
     inFlight.add(targetKey);
     try {
       // A review GitHub took that couldn't be recorded: recorded now. The same draft, on the head it was for, isn't posted
-      // again; on a newer head it's a new review, but the comments GitHub has leave the draft.
+      // again; a changed one, or one on a newer head, is a new review, but the comments GitHub has leave the draft first.
       const earlier = await receipts.get<ReviewReceipt>(reviewReceiptKey(targetKey));
       if (earlier) {
         let current = false;
@@ -73,7 +73,7 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
         }
         await receipts.drop(reviewReceiptKey(targetKey));
         if (current && sameComments(asReceipted(earlier.draft.comments), asReceipted(shown)) && receiptText(earlier.draft.body) === receiptText(summary.body) && earlier.draft.verdict === summary.verdict) return { ok: true, ...(earlier.url ? { url: earlier.url } : {}) };
-        if (!current && taken) return { ok: false, error: `GitHub already has ${taken} of these comments, from your review of ${earlier.headSha.slice(0, 7)}${earlier.url ? ` (${earlier.url})` : ""}, so ${taken === 1 ? "it was" : "they were"} taken out of your draft. Check the draft, then submit again.` };
+        if (taken) return { ok: false, error: `GitHub already has ${taken} of these comments, from your review of ${earlier.headSha.slice(0, 7)}${earlier.url ? ` (${earlier.url})` : ""}, so ${taken === 1 ? "it was" : "they were"} taken out of your draft. Check the draft, then submit again.` };
       }
       // The review and the draft it checks, in one turn.
       const checked = await store.exclusive(async (tx): Promise<{ error: string } | { m: ReviewMeta & { number: number; repo: string; headSha: string }; draft: Draft }> => {
