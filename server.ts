@@ -511,7 +511,12 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
         });
         if (!replied.ok) return replied;
         await refreshThreads(review).catch(() => {});
-        return { ok: true, feedback: await view(store, targetKey) };
+        // GitHub has the reply: a store that can't be read now mustn't fail the Send, or the page drafts it to post again.
+        const feedback = await view(store, targetKey).catch((error) => {
+          bb.log.warn(`Could not read the feedback on ${targetKey} after your reply: ${String(error)}`);
+          return undefined;
+        });
+        return { ok: true, ...(feedback !== undefined ? { feedback } : {}) };
       },
       async saveReplyDraft({ targetKey, threadId, body }: { targetKey: string; threadId: string; body: string }) {
         const saved = await store.exclusive(async (tx) => {

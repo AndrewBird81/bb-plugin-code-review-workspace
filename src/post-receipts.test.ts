@@ -6,6 +6,8 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 const gh = vi.hoisted(() => ({
   /** Runs as GitHub takes the POST, before gh answers. */
   onPost: async () => {},
+  /** Runs as the plugin reads your threads on a PR, before gh answers. */
+  onThreads: async () => {},
   posts: [] as string[][],
   /** What each POST sent. */
   payloads: [] as string[],
@@ -21,6 +23,10 @@ vi.mock("./gh", async (importOriginal) => {
     runGh: async (args: string[], options?: { stdin?: string }) => {
       if (args[0] === "auth") return ok("test-token");
       if (args[1] === "user") return ok("casey");
+      if (args[1] === "graphql" && args.some((a) => a.includes("reviewThreads"))) {
+        await gh.onThreads();
+        return ok(JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } } } } }));
+      }
       if (args.some((a) => a.includes("/reviews")) || args.some((a) => a.includes("/replies"))) {
         gh.posts.push(args);
         gh.payloads.push(options?.stdin ?? "");
@@ -45,7 +51,7 @@ import { failingCall, testSql, testStore } from "./test-store.test-support";
 import { faultProxy, host, opened, postgresSettings } from "./pg-faults.test-support";
 
 const cleanup: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn().catch(() => {}); gh.posts.length = 0; gh.payloads.length = 0; gh.onPost = async () => {}; gh.head = "sha123"; });
+afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn().catch(() => {}); gh.posts.length = 0; gh.payloads.length = 0; gh.onPost = async () => {}; gh.onThreads = async () => {}; gh.head = "sha123"; });
 
 const PATCH = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n";
 
@@ -427,6 +433,26 @@ describe.skipIf(!testPgUrl)("on Postgres, through a proxy that goes down as GitH
     expect([...(await seed.listReplyDrafts("pr-1")).keys()]).toEqual(["T1"]);
     await reload();
     expect(await call("replyToFeedback", { targetKey: "pr-1", threadId: "T1", body: "Fixed in the next push?", account: "casey" })).toMatchObject({ ok: true });
+    expect(gh.posts).toHaveLength(1);
+    expect((await seed.listReplyDrafts("pr-1")).size).toBe(0);
+  }, 60_000);
+
+  // Review round 3, BLOCKING 1: after GitHub took the reply and its draft was cleared, the store went down while the
+  // plugin read your threads again, so reading the feedback to return failed the Send, the page saved the reply as its
+  // draft again, and the next Send posted it a second time.
+  test("replyToFeedback: a Send GitHub took says so though the store goes down as it reads your threads again", async () => {
+    const { proxy, call, seed } = await servedThroughProxy();
+    await seed.setLifecycle("pr-1", { submittedAt: 1, submittedHeadSha: "sha123", submittedVerdict: "COMMENT" });
+    await seed.saveFeedbackThreads("pr-1", [{
+      id: "T1", commentId: 11, reviewId: null, path: "a.ts", line: 1, originalLine: 1, startLine: null, side: "RIGHT", subjectType: "LINE",
+      body: "nit", createdAt: 1, isResolved: false, resolvedBy: null, isOutdated: false, replies: [], status: "open", replyAt: null,
+    }], null);
+    await seed.setReplyDraft("pr-1", "T1", "Fixed in the next push?", "reviewer");
+    gh.onPost = async () => { gh.onThreads = () => proxy.mode("down"); };
+    const sent = await call("replyToFeedback", { targetKey: "pr-1", threadId: "T1", body: "Fixed in the next push?", account: "casey" });
+    gh.onThreads = async () => {};
+    await proxy.mode("forward");
+    expect(sent).toEqual({ ok: true });
     expect(gh.posts).toHaveLength(1);
     expect((await seed.listReplyDrafts("pr-1")).size).toBe(0);
   }, 60_000);
