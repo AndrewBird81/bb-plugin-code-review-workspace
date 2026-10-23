@@ -5,7 +5,7 @@ import { generateGuide } from "./generate";
 import { defaultPreferences } from "./preferences";
 import { formerWorkerReview, NO_REVIEW, recordFormerWorker } from "./former-workers";
 import { runGh } from "./gh";
-import { testStore } from "./test-store.test-support";
+import { testSql, testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (original) => ({
   ...await original<typeof import("./gh")>(),
@@ -214,4 +214,41 @@ test("an interrupted guide whose machine stays offline past 10 minutes says why 
   controller.abort();
   await done;
   expect((await store.getReview("pr-1"))?.guideError?.text).toContain("FloMac is offline");
+});
+
+// bug bash D2: the restarts ran in one loop with one catch, so a restart that threw, as rerunReview does when the store
+// fails mid-rebuild, ended it: the guides after it never restarted, and it was left with no reason.
+test("after a reload, every interrupted guide restarts past one whose restart throws, which stays failed, saying why", async () => {
+  const reads = vi.mocked(runGh).getMockImplementation();
+  const diff = (line: string) => `diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+${line}\n`;
+  vi.mocked(runGh).mockImplementation(async (args: string[]) => args[1] === "diff" ? { code: 0, stderr: "", stdout: diff("new") }
+    : args[1] === "view" ? { code: 0, stderr: "", stdout: JSON.stringify({ title: "T", baseRefName: "main", headRefName: "h", url: "u", headRefOid: `sha-${args[2]}` }) }
+    : { code: 1, stderr: "", stdout: "" });
+  try {
+    const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
+      spawn: async () => ({ id: "new-worker" }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
+    } } as any });
+    const store = testStore(bb);
+    // Two guides were building when the plugin stopped; interruptGenerations orders them by key, pr-1 first.
+    for (const number of [1, 2]) {
+      const key = `pr-${number}`;
+      await store.saveReview({ targetKey: key, kind: "pr", number, repo: "acme/web", status: "generating", createdAt: 1, projectId: "p1", headSha: "sha0" });
+      await store.setLifecycle(key, { authorAssociation: "MEMBER" });
+      await store.savePatch(key, diff("old"));
+    }
+    // pr-1's new diff fails to save.
+    const sql = testSql(bb);
+    if (sql.dialect === "sqlite") {
+      await sql.run(`CREATE TRIGGER refuse_pr1 BEFORE UPDATE ON patches WHEN NEW.target_key = 'pr-1' BEGIN SELECT RAISE(ABORT, 'Connection terminated unexpectedly'); END`);
+    } else {
+      await sql.run(`CREATE FUNCTION refuse_pr1() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Connection terminated unexpectedly'; END $$`);
+      await sql.run(`CREATE TRIGGER refuse_pr1 BEFORE UPDATE ON patches FOR EACH ROW WHEN (NEW.target_key = 'pr-1') EXECUTE FUNCTION refuse_pr1()`);
+    }
+    await plugin(bb);
+    await vi.waitFor(async () => expect(await store.getReview("pr-2")).toMatchObject({ status: "generating", headSha: "sha-2" }));
+    await vi.waitFor(async () => expect(await store.getReview("pr-1")).toMatchObject({ status: "error", guideError: { text: expect.stringContaining("Connection terminated unexpectedly") } }));
+    expect(harness.inspection.logEntries).toContainEqual({ level: "warn", message: expect.stringContaining("The interrupted guide for pr-1 didn't restart") });
+  } finally {
+    vi.mocked(runGh).mockImplementation(reads!);
+  }
 });

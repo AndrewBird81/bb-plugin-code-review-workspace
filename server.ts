@@ -212,7 +212,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   // so each writer is recorded now: as a former writer, it can still run commands only on its own review.
   for (const { targetKey, workerId } of interrupted) if (workerId) void recordFormerWorker(bb, workerId, targetKey, "writer");
   void (async () => {
-    for (const { targetKey, workerId } of interrupted) {
+    for (const { targetKey, workerId } of interrupted) await (async () => {
       // A writer whose spawn the reload interrupted has no recorded id, so it's found by its exact title, before the
       // restart spawns another, and kept to its review too. One a generation since records is that generation's. A title
       // is the thread's own to write, so an assistant, or a former worker kept to another review or to none, stays as it is.
@@ -236,7 +236,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
         await bb.sdk.threads.stop({ threadId }).catch(() => {});
       }
       await restartInterruptedGuide(deps, targetKey);
-    }
+    })().catch((error) => bb.log.warn(`Could not restart the interrupted guide for ${targetKey}: ${String(error)}`));
   })().catch((error) => bb.log.warn(`Could not restart interrupted guides: ${String(error)}`));
   // A turn that ended while the plugin was down never settled what waited for it.
   void (async () => {

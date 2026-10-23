@@ -18,7 +18,9 @@ const RESTART_WAIT = 10 * 60_000;
  * reason, as GitHub not answering, it stays failed, saying why, until Try again.
  */
 export async function restartInterruptedGuide(deps: Deps, targetKey: string, since = Date.now()): Promise<void> {
-  const restarted = await rerunReview(deps, targetKey, { notify: false, unattended: true });
+  // One that throws, as when the store fails mid-rebuild, fails as one that couldn't restart does.
+  const restarted = await rerunReview(deps, targetKey, { notify: false, unattended: true })
+    .catch((error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }));
   if (restarted.ok) return;
   const exists = !!await deps.store.getReview(targetKey);
   const waiting = exists && !!await guideWriterUnavailable(deps.bb, deps.store).catch(() => null);
