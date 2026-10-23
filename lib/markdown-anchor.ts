@@ -80,6 +80,22 @@ export function selectionAnchor(lines: FileLines, items: RenderedBlock[]): LineA
   return null;
 }
 
+/** An end of a text selection: the block it's in, by its index, and which of the block's versions before, if one. */
+export interface SelectionEnd { index: number; ghost?: number }
+
+/**
+ * The blocks text selected from `from` to `to` is in, in order. A changed block's versions before show above it, so a
+ * selection starting in one takes it and the block itself; one ending in one takes it, not the block after it.
+ */
+export function selectedBlocks(items: RenderedBlock[], from: SelectionEnd, to: SelectionEnd): RenderedBlock[] {
+  const ghost = ({ index, ghost }: SelectionEnd): RenderedBlock => ({ status: "removed", side: "LEFT", block: items[index].previous![ghost!] });
+  const picked = items.slice(from.index, to.index + 1);
+  if (to.ghost !== undefined) picked[picked.length - 1] = ghost(to);
+  if (from.ghost === undefined) return picked;
+  if (from.index !== to.index || to.ghost === undefined) return [ghost(from), ...picked];
+  return from.ghost === to.ghost ? [ghost(from)] : [ghost(from), ghost(to)];
+}
+
 /**
  * The block a comment, thread, or CI failure at a line shows after: the block holding the line, on its side; an old line
  * in a changed block's version before goes with that block, and any other old line with the new line it is or comes

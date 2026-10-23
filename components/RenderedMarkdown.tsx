@@ -4,7 +4,7 @@ import { Markdown } from "@get-bb/plugin-sdk/app";
 import type { CommentLocation } from "../src/draft";
 import { blockMarkdown, type MarkdownBlock } from "../lib/markdown-blocks";
 import { markdownDiff, type BlockStatus, type RenderedBlock } from "../lib/markdown-diff";
-import { blockAnchor, blockAt, fileLines, selectionAnchor, type LineAnchor } from "../lib/markdown-anchor";
+import { blockAnchor, blockAt, fileLines, selectedBlocks, selectionAnchor, type LineAnchor, type SelectionEnd } from "../lib/markdown-anchor";
 import { linkImages } from "../lib/link-images";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
@@ -130,13 +130,12 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
       // Text in a comment or the comment box isn't the document's.
       const ends = [range.startContainer, range.endContainer].map((node) => (node instanceof Element ? node : node.parentElement)?.closest("[data-md-notes]") ? null : blockOf(node));
       if (!ends[0] || !ends[1]) return;
-      const [from, to] = ends.map((end) => Number(end!.dataset.mdIndex));
-      // A changed block's version before, above it, is the old file's.
-      const [fromGhost, toGhost] = [range.startContainer, range.endContainer].map((node) => (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>("[data-md-ghost]")?.dataset.mdGhost);
-      const ghost = (index: number, at: string): RenderedBlock => ({ status: "removed", side: "LEFT", block: items[index].previous![Number(at)] });
-      let picked = items.slice(from, to + 1);
-      if (toGhost !== undefined) picked[picked.length - 1] = ghost(to, toGhost);
-      if (fromGhost !== undefined) picked = from === to && toGhost !== undefined ? [...new Set([fromGhost, toGhost])].map((at) => ghost(from, at)) : [ghost(from, fromGhost), ...picked];
+      // A changed block's versions before, above it, are the old file's.
+      const [from, to] = [range.startContainer, range.endContainer].map((node, at): SelectionEnd => {
+        const ghost = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>("[data-md-ghost]")?.dataset.mdGhost;
+        return { index: Number(ends[at]!.dataset.mdIndex), ...(ghost !== undefined ? { ghost: Number(ghost) } : {}) };
+      });
+      const picked = selectedBlocks(items, from, to);
       const anchor = selectionAnchor(lines, picked);
       const last = picked[picked.length - 1];
       const side = (anchor?.side ?? last.side) === "LEFT" ? "deletions" : "additions";

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { invalidComments, rangeProblem } from "../src/review-positions";
 import { rng } from "../src/fuzz-gen.test-support";
-import { blockAnchor, blockAt, fileLines, selectionAnchor } from "./markdown-anchor";
+import { blockAnchor, blockAt, fileLines, selectedBlocks, selectionAnchor } from "./markdown-anchor";
 import { markdownDiff, type RenderedBlock } from "./markdown-diff";
 import { gitPatch } from "./markdown-test-patch.test-support";
 
@@ -55,6 +55,24 @@ test("threads and drafts show after the block holding their line", () => {
   expect(at(9, "LEFT")).toEqual(["changed", 5]);
   expect(at(7, "LEFT")).toEqual(["unchanged", 3]);
   expect(at(4, "RIGHT")).toEqual(["unchanged", 3]);
+});
+
+test("a selection's blocks take a changed block's version before where an end of it is in one", () => {
+  const block = (start: number) => ({ kind: "paragraph", start, end: start, source: `P${start}` });
+  const items: RenderedBlock[] = [
+    { status: "unchanged", side: "RIGHT", block: block(1) },
+    { status: "changed", side: "RIGHT", block: block(3), previous: [block(3), block(5)] },
+    { status: "added", side: "RIGHT", block: block(7) },
+  ];
+  const shown = (from: { index: number; ghost?: number }, to: { index: number; ghost?: number }) => selectedBlocks(items, from, to).map((item) => `${item.side}:${item.block.start}`);
+  expect(shown({ index: 0 }, { index: 2 })).toEqual(["RIGHT:1", "RIGHT:3", "RIGHT:7"]);
+  // From its first version before into the block itself, or on to the next.
+  expect(shown({ index: 1, ghost: 0 }, { index: 1 })).toEqual(["LEFT:3", "RIGHT:3"]);
+  expect(shown({ index: 1, ghost: 1 }, { index: 2 })).toEqual(["LEFT:5", "RIGHT:3", "RIGHT:7"]);
+  // Ending in one: not the block after it.
+  expect(shown({ index: 0 }, { index: 1, ghost: 1 })).toEqual(["RIGHT:1", "LEFT:5"]);
+  expect(shown({ index: 1, ghost: 0 }, { index: 1, ghost: 1 })).toEqual(["LEFT:3", "LEFT:5"]);
+  expect(shown({ index: 1, ghost: 1 }, { index: 1, ghost: 1 })).toEqual(["LEFT:5"]);
 });
 
 // Every anchor the rendered view makes is one GitHub takes: its line in the diff, a range in one hunk in order, and a
