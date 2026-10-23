@@ -698,17 +698,20 @@ export function storeOn(sql: Sql): Store {
       return followDraftRenames({ targetKey: k, verdict: row.verdict, body: row.body, comments: JSON.parse(row.comments), ...(row.meta ? JSON.parse(row.meta) : {}) });
     },
     async upsertDraftComment(k, c) {
-      const d = await this.getDraft(k);
-      const i = d.comments.findIndex((x) => x.file === c.file && x.line === c.line && x.side === c.side);
-      if (i >= 0) d.comments[i] = c; else d.comments.push(c);
-      await writeDraft(sql, d);
-      const positions = (await this.diffPositions(k)).get(c.file);
-      const code = positions?.[c.side === "LEFT" ? "left" : "right"].get(c.line) ?? null;
-      const startCode = c.startLine === undefined ? null : positions?.[(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
-      await sql.run(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
-        ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`,
-        [k, c.file, c.line, c.side, await this.patchHash(k), code, startCode]);
-      return d;
+      // The comment and the diff it was drafted on, together: Postgres refuses a revisions row for a path past about 2.7 KB.
+      return sql.transaction(async () => {
+        const d = await this.getDraft(k);
+        const i = d.comments.findIndex((x) => x.file === c.file && x.line === c.line && x.side === c.side);
+        if (i >= 0) d.comments[i] = c; else d.comments.push(c);
+        await writeDraft(sql, d);
+        const positions = (await this.diffPositions(k)).get(c.file);
+        const code = positions?.[c.side === "LEFT" ? "left" : "right"].get(c.line) ?? null;
+        const startCode = c.startLine === undefined ? null : positions?.[(c.startSide ?? c.side) === "LEFT" ? "left" : "right"].get(c.startLine) ?? null;
+        await sql.run(`INSERT INTO draft_comment_revisions (target_key,file,line,side,patch_hash,code,start_code) VALUES (?,?,?,?,?,?,?)
+          ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`,
+          [k, c.file, c.line, c.side, await this.patchHash(k), code, startCode]);
+        return d;
+      });
     },
     async editDraftComment(k, at, body, severity, evidence, introduced) {
       const d = await this.getDraft(k);

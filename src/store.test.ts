@@ -523,3 +523,32 @@ test("a number parameter that isn't a safe integer is refused before it reaches 
   }
   expect(await s.getFileViews("pr-1")).toEqual([]);
 });
+
+/** Has `table` refuse rows written to it, on either backend, as Postgres refuses a key past its btree's limit. */
+async function refuseWrites(sql: Sql, table: string) {
+  if (sql.dialect === "sqlite") {
+    for (const event of ["INSERT", "UPDATE"]) await sql.run(`CREATE TRIGGER refuse_${table}_${event} BEFORE ${event} ON ${table} BEGIN SELECT RAISE(ABORT, 'index row size exceeds btree maximum'); END`);
+  } else {
+    await sql.run(`CREATE FUNCTION refuse_${table}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'index row size exceeds btree maximum'; END $$`);
+    await sql.run(`CREATE TRIGGER refuse_${table} BEFORE INSERT OR UPDATE ON ${table} FOR EACH ROW EXECUTE FUNCTION refuse_${table}()`);
+  }
+}
+
+// bug bash D5: the draft was written before the comment's revisions row, which Postgres refuses for a path past about
+// 2.7 KB, so a failed save left the comment in the draft with no record of the diff it was drafted on.
+test("a comment whose revisions row is refused leaves the draft as it was, and a draft that can't be written leaves the revisions", async () => {
+  const PATCH = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1,2 @@\n one\n+two\n";
+  for (const refused of ["draft_comment_revisions", "drafts"]) {
+    const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+    const s = testStore(bb);
+    await s.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1 });
+    await s.savePatch("pr-1", PATCH);
+    await s.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "Kept" });
+    const sql = testSql(bb);
+    const revisions = () => sql.all(`SELECT file, line, side, patch_hash, code FROM draft_comment_revisions ORDER BY line`);
+    const before = { draft: await s.getDraft("pr-1"), revisions: await revisions() };
+    await refuseWrites(sql, refused);
+    await expect(s.upsertDraftComment("pr-1", { file: "a.ts", line: 2, side: "RIGHT", body: "Not saved" })).rejects.toThrow("index row size exceeds btree maximum");
+    expect({ draft: await s.getDraft("pr-1"), revisions: await revisions() }).toEqual(before);
+  }
+});
