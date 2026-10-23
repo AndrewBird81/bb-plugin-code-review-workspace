@@ -25,6 +25,16 @@ test("a <details> element with blank lines inside is one block, through its clos
   expect(lines("Intro\n\n<details><summary>s</summary>\n\nhidden\n\n</details>\n\nAfter\n")).toEqual([["paragraph", 1, 1], ["html", 3, 7], ["paragraph", 9, 9]]);
 });
 
+test("nested <details> are one block, through the outer closing tag", () => {
+  const doc = "<details>\n<summary>A</summary>\n\n<details>\n<summary>B</summary>\n\nInner.\n\n</details>\n\nOuter tail.\n\n</details>\n\nEnd.\n";
+  expect(lines(doc)).toEqual([["html", 1, 13], ["paragraph", 15, 15]]);
+});
+
+test("link definitions inside an element still resolve links in other blocks", () => {
+  const doc = markdownBlocks("<div>\n\n[x]: http://a\n\n</div>\n\nSee [link][x].\n");
+  expect(doc.definitions).toBe("[x]: http://a");
+});
+
 test("an unclosed element stays the block CommonMark reads", () => {
   expect(lines("<details>\n\ntext\n")).toEqual([["html", 1, 1], ["paragraph", 3, 3]]);
 });

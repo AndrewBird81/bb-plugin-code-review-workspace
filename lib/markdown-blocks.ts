@@ -60,15 +60,33 @@ export function markdownBlocks(text: string): MarkdownDoc {
       while (nodes[i + 1]?.kind === "definition") end = nodes[++i].end;
       definitions.push(slice(node.start, end));
     }
+    // Elements of the same name nest: the block ends where the opening tag's own closing tag does.
     const tag = node.html?.match(OPEN_TAG)?.[1].toLowerCase();
-    if (tag && !new RegExp(`</${tag}\\s*>`, "i").test(node.html!)) {
-      const close = new RegExp(`</${tag}\\s*>`, "i");
-      const at = nodes.findIndex((later, index) => index > i && later.kind === "html" && close.test(later.html!));
-      if (at > 0) { end = nodes[at].end; i = at; }
+    const opened = (html: string) => (html.match(new RegExp(`<${tag}(?=[\\s/>]|$)`, "gi"))?.length ?? 0) - (html.match(new RegExp(`</${tag}\\s*>`, "gi"))?.length ?? 0);
+    let open = tag ? opened(node.html!) : 0;
+    for (let at = i + 1; open > 0 && at < nodes.length; at++) {
+      if (nodes[at].kind === "html") open += opened(nodes[at].html!);
+      if (open > 0) continue;
+      // Its definitions still resolve links in the rest of the document.
+      for (const inside of nodes.slice(i + 1, at)) if (inside.kind === "definition") definitions.push(slice(inside.start, inside.end));
+      end = nodes[at].end;
+      i = at;
     }
     blocks.push({ kind: node.kind, start: node.start, end, source: slice(node.start, end), ...(node.depth ? { depth: node.depth } : {}) });
   }
   return { blocks, definitions: definitions.join("\n") };
+}
+
+/** The block of `blocks`, in order, that holds `line`. */
+export function blockHolding(blocks: MarkdownBlock[], line: number): MarkdownBlock | undefined {
+  let [low, high] = [0, blocks.length - 1];
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (blocks[mid].end < line) low = mid + 1;
+    else if (blocks[mid].start > line) high = mid - 1;
+    else return blocks[mid];
+  }
+  return undefined;
 }
 
 /** A block as BB's Markdown draws it alone: with the document's definitions, frontmatter as a table. */
