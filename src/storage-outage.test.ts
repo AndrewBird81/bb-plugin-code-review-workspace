@@ -14,7 +14,8 @@ vi.mock("./gh", async (original) => ({
 import plugin from "../server";
 import { GUIDE_UNFINISHED } from "./generate";
 import type { FakePluginHarness } from "@get-bb/plugin-sdk/testing";
-import { testSql, testStore } from "./test-store.test-support";
+import { endPgTestSql } from "./db/pg-test.test-support";
+import { testOnPostgres, testSql, testStore } from "./test-store.test-support";
 
 /** One review-state pass: the service's first, which runs at once. */
 async function reviewStatePass(harness: FakePluginHarness, settled: () => Promise<void>) {
@@ -93,6 +94,9 @@ test("a guide run a reload stops logs nothing about recording its end", async ()
     },
     projects: { defaultExecutionOptions: async () => null }, providers: { list: async () => [] },
   } as never });
+  // The host closes its SQLite database after the plugin's dispose hooks, as a reload does; the Postgres the tests
+  // share stays open unless closed there too, as the plugin's own Postgres is.
+  if (testOnPostgres) bb.onDispose(() => endPgTestSql(bb));
   await plugin(bb);
   const store = testStore(bb);
   await store.saveReview({ targetKey: "local:feature", kind: "ref", gitRef: "main...feature", cwd: process.cwd(), status: "ready", createdAt: 1, projectId: "p1" });

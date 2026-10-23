@@ -39,6 +39,11 @@ export function pgTestSql(bb: BbPluginApi): Sql {
   return entry.sql;
 }
 
+/** Close the connection of `bb`'s schema, as the host closes its SQLite database; dropPgTestSchemas still drops it. */
+export async function endPgTestSql(bb: BbPluginApi): Promise<void> {
+  await schemas.get(bb.storage.database().name)?.pg.end();
+}
+
 /** `pg`, with migratePg run once before the first call. */
 function afterMigrating(pg: PgSql, schema: string): Sql {
   let migrated: Promise<void> | null = null;
