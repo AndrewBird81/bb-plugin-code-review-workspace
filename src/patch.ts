@@ -6,7 +6,7 @@ export type PatchRow =
   | { kind: "header" | "hunk" | "other"; text: string }
   | { kind: "+" | "-" | " "; text: string; oldLine: number; newLine: number };
 
-const HUNK = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+export const HUNK = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
 /**
  * Classify a diff's lines. Inside a hunk, its header's counts say how many lines are left, so a

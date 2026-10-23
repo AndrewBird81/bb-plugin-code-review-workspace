@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { markdownDiff } from "./markdown-diff";
 import { gitPatch } from "./markdown-test-patch.test-support";
+import { blockAnchor, fileLines } from "./markdown-anchor";
 
 const statuses = (old: string | null, now: string | null, hideWhitespace = false) =>
   markdownDiff(old, now, gitPatch("doc.md", old, now), hideWhitespace).blocks.map((b) => [b.status, b.side, b.block.start, b.block.end, b.previous?.[0].start ?? null]);
@@ -146,6 +147,29 @@ test("a rewritten block pairs with the one most like it", () => {
   expect(statuses("A para.\n\nB para.\n\nC para.\n\nD para.\n", "A para.\n\nC para changed.\n\nD para.\n")).toEqual([
     ["unchanged", "RIGHT", 1, 1, null], ["removed", "LEFT", 3, 3, null], ["changed", "RIGHT", 3, 3, 5], ["unchanged", "RIGHT", 5, 5, null],
   ]);
+});
+
+// Lined up by text alone, a moved section's `---` matched another copy than git's: a removed `---` with no removed line.
+test("a block the diff keeps doesn't show as removed for matching another copy of its text", () => {
+  const section = (n: number) => `## Step ${n}\n\nDo the thing number ${n} carefully.\n\n---\n`;
+  const doc = (order: number[]) => `# Guide\n\n${order.map(section).join("\n")}`;
+  const [old, now] = [doc([1, 2, 3, 4, 5]), doc([1, 4, 2, 3, 5])];
+  // git diff's own (myers), which keeps every `---` where it was.
+  const patch = ["diff --git a/doc.md b/doc.md", "--- a/doc.md", "+++ b/doc.md", "@@ -6,21 +6,21 @@ Do the thing number 1 carefully.", " ", " ---", " ",
+    ...[[2, 4], [3, 2], [4, 3]].flatMap(([was, is]) => [`-## Step ${was}`, `+## Step ${is}`, " ", `-Do the thing number ${was} carefully.`, `+Do the thing number ${is} carefully.`, " ", " ---", " "]), ""].join("\n");
+  const { blocks } = markdownDiff(old, now, patch);
+  const lines = fileLines(patch, "doc.md");
+  expect(blocks.filter((b) => b.side === "LEFT" && !blockAnchor(lines, b))).toEqual([]);
+  expect(blocks.filter((b) => b.block.source === "---").map((b) => b.status)).toEqual(["unchanged", "unchanged", "unchanged", "unchanged", "unchanged"]);
+});
+
+// Past jsdiff's edit cap, a run paired nothing: every paragraph showed twice, removed and added.
+test("a run with more edits than the pairing's cap still pairs its blocks in order", () => {
+  const paragraphs = Array.from({ length: 200 }, (_, i) => `The foo service handles request number ${i} quickly.`);
+  const old = paragraphs.join("\n\n") + "\n";
+  const now = paragraphs.flatMap((p, i) => [p.replace("foo", "bar"), ...(i < 120 ? [`Brand new note ${i} about zebras.`] : [])]).join("\n\n") + "\n";
+  const counts = markdownDiff(old, now, gitPatch("doc.md", old, now)).blocks.reduce<Record<string, number>>((n, b) => ({ ...n, [b.status]: (n[b.status] ?? 0) + 1 }), {});
+  expect(counts).toEqual({ changed: 200, added: 120 });
 });
 
 test("a new file is all added, a deleted one all removed", () => {
