@@ -1,6 +1,7 @@
 import { test, expect, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { reanchorDraft } from "./store";
+import { createStore, reanchorDraft, storeOn } from "./store";
+import type { Sql } from "./db/sql";
 import { renamedPaths } from "./patch";
 import { askAt, setAsk } from "./asks";
 import { createHash } from "node:crypto";
@@ -215,6 +216,47 @@ test("feedback threads remember when bb first saw each one resolved", async () =
   // Unresolving forgets it.
   await s.saveFeedbackThreads("pr-1", [thread("t2", false)], 30);
   expect((await s.listFeedbackThreads("pr-1"))[0].resolvedSeenAt).toBeNull();
+});
+
+/** A Store over the test backend's tables, counting the statements that write `table`. */
+function countingWrites(table: string) {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  // Migrated by the Store's own open; counted from here.
+  createStore(bb);
+  const sql = testSql(bb);
+  const counts = { writes: 0 };
+  const counted: Sql = {
+    dialect: sql.dialect,
+    all: (text, params) => sql.all(text, params),
+    get: (text, params) => sql.get(text, params),
+    run: (text, params) => { if (new RegExp(`^(INSERT INTO|DELETE FROM|UPDATE) ${table}\\b`).test(text)) counts.writes++; return sql.run(text, params); },
+    transaction: (fn) => sql.transaction(fn),
+  };
+  return { s: storeOn(counted), counts };
+}
+
+// bug bash H-prod-1: production's review-state poll rewrote unchanged review_lifecycle rows, 55 in 4 minutes, and
+// deleted and inserted again unchanged feedback threads.
+test("a lifecycle change that changes nothing writes nothing", async () => {
+  const { s, counts } = countingWrites("review_lifecycle");
+  await s.setLifecycle("pr-1", { turnGroup: "waiting", pushCheckTriedAt: 5 });
+  expect(counts.writes).toBe(1);
+  await s.setLifecycle("pr-1", { turnGroup: "waiting" });
+  await s.setLifecycle("pr-1", {});
+  expect(counts.writes).toBe(1);
+  await s.setLifecycle("pr-1", { turnGroup: "needs" });
+  expect(counts.writes).toBe(2);
+});
+
+test("feedback threads saved unchanged aren't written again, though the fetch is recorded", async () => {
+  const { s, counts } = countingWrites("feedback_threads");
+  expect(await s.saveFeedbackThreads("pr-1", [thread("t1", false), thread("t2", true)], 10)).toBe(true);
+  const writes = counts.writes;
+  expect(await s.saveFeedbackThreads("pr-1", [thread("t1", false), thread("t2", true)], 20)).toBe(false);
+  expect(counts.writes).toBe(writes);
+  expect(await s.feedbackFetched("pr-1")).toMatchObject({ prUpdatedAt: 20 });
+  expect(await s.saveFeedbackThreads("pr-1", [thread("t2", true)], 30)).toBe(true);
+  expect((await s.listFeedbackThreads("pr-1")).map((t) => t.id)).toEqual(["t2"]);
 });
 
 test("snapshots, assessments, and reply drafts round-trip", async () => {

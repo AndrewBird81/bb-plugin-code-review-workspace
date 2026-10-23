@@ -541,9 +541,11 @@ export function storeOn(sql: Sql): Store {
       await sql.run(`UPDATE reviews SET status=? WHERE target_key=?`, [status, k]);
     },
     async setLifecycle(k, state) {
-      const previous = JSON.parse((await sql.get<{ state: string }>(`SELECT state FROM review_lifecycle WHERE target_key=?`, [k]))?.state ?? "{}");
-      await sql.run(`INSERT INTO review_lifecycle (target_key,state) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET state=excluded.state`,
-        [k, JSON.stringify({ ...previous, ...state })]);
+      const stored = (await sql.get<{ state: string }>(`SELECT state FROM review_lifecycle WHERE target_key=?`, [k]))?.state;
+      const next = JSON.stringify({ ...JSON.parse(stored ?? "{}"), ...state });
+      // The review-state pass sets each review's facts every minute, mostly as they were.
+      if (next === stored) return;
+      await sql.run(`INSERT INTO review_lifecycle (target_key,state) VALUES (?,?) ON CONFLICT(target_key) DO UPDATE SET state=excluded.state`, [k, next]);
     },
     async getReviewContext(k) {
       return (await sql.get<{ text: string }>(`SELECT text FROM review_context WHERE target_key=?`, [k]))?.text ?? null;
@@ -900,14 +902,17 @@ export function storeOn(sql: Sql): Store {
         const before = await saved();
         const previous = new Map((await sql.all<{ thread_id: string; resolved_seen_at: number | null }>(`SELECT thread_id, resolved_seen_at FROM feedback_threads WHERE target_key=? ORDER BY thread_id`, [k]))
           .map((row) => [row.thread_id, row.resolved_seen_at]));
-        await sql.run(`DELETE FROM feedback_threads WHERE target_key=?`, [k]);
         // When a thread was resolved isn't in GitHub's data; the first time bb saw it resolved stands in.
         // On the first read it was resolved some time before, so its last activity stands in instead.
         const seen = (thread: FeedbackThread) => previous.has(thread.id) ? previous.get(thread.id) ?? now
           : first ? Math.max(thread.createdAt, ...thread.replies.map((r) => r.createdAt)) : now;
-        for (const thread of threads) {
-          await sql.run(`INSERT INTO feedback_threads (target_key,thread_id,data,resolved_seen_at) VALUES (?,?,?,?)`,
-            [k, thread.id, JSON.stringify(thread), thread.isResolved ? seen(thread) : null]);
+        const rows = threads.map((thread) => ({ thread_id: thread.id, data: JSON.stringify(thread), resolved_seen_at: thread.isResolved ? seen(thread) : null }));
+        // Threads read again as they were aren't written again: the review-state pass reads them every few minutes.
+        if (JSON.stringify([...rows].sort((a, b) => a.thread_id < b.thread_id ? -1 : a.thread_id > b.thread_id ? 1 : 0)) !== before) {
+          await sql.run(`DELETE FROM feedback_threads WHERE target_key=?`, [k]);
+          for (const row of rows) {
+            await sql.run(`INSERT INTO feedback_threads (target_key,thread_id,data,resolved_seen_at) VALUES (?,?,?,?)`, [k, row.thread_id, row.data, row.resolved_seen_at]);
+          }
         }
         await sql.run(`INSERT INTO feedback_fetches (target_key,fetched_at,pr_updated_at) VALUES (?,?,?) ON CONFLICT(target_key) DO UPDATE SET fetched_at=excluded.fetched_at, pr_updated_at=excluded.pr_updated_at`,
           [k, now, prUpdatedAt]);
