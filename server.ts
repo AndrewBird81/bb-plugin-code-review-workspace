@@ -135,6 +135,9 @@ export default async function plugin(bb: BbPluginApi) {
     return;
   }
   const { pg, schema } = storage;
+  // The guides a reload interrupted, kept across tries of the open: a try that fails after interrupting them leaves the
+  // next none to find.
+  const interrupted: Interrupted[] = [];
   // Opened at activation, once the instance a reload replaces has closed its connection and let the writer lock go.
   bb.background.service("storage", {
     async start(signal) {
@@ -145,7 +148,7 @@ export default async function plugin(bb: BbPluginApi) {
           // The reviews are in Postgres, by storage:owner: a schema without them is the wrong one, not one to make.
           if (!await pgSchemaMigrated(pg, schema)) throw new Error(`storage:owner says the reviews are in Postgres, but schema "${schema}" holds none: check postgresUrl and postgresSchema, then reload`);
           await migratePg(pg, schema);
-          return await openStore(bb, storeOn(pg));
+          return await openStore(bb, storeOn(pg), interrupted);
         });
         if (!opened) return;
         serve(servePlugin(bb, opened));
@@ -163,17 +166,21 @@ export default async function plugin(bb: BbPluginApi) {
   });
 }
 
-/** The store over `backend`: configure's view of it, read first, and the guides a reload interrupted, before anything else reaches it. */
-async function openStore(bb: BbPluginApi, backend: Store) {
+type Interrupted = Awaited<ReturnType<Store["interruptGenerations"]>>[number];
+
+/**
+ * The store over `backend`: configure's view of it, read first, and the guides a reload interrupted, before anything
+ * else reaches it. They're added to `interrupted`, which an open tried again passes again.
+ */
+async function openStore(bb: BbPluginApi, backend: Store, interrupted: Interrupted[] = []) {
   // bb.agents.configure must answer synchronously, so it reads a view the queue keeps up to date; everything else
   // takes its turn in the queue.
   const configured = await createConfigureView(bb, backend);
   const store = queueStore(configured.backend, { afterTurn: configured.afterTurn });
-  const interrupted = await store.exclusive(async (tx) => {
-    const interrupted = await tx.interruptGenerations();
+  await store.exclusive(async (tx) => {
+    for (const found of await tx.interruptGenerations()) if (!interrupted.some((known) => known.targetKey === found.targetKey)) interrupted.push(found);
     // An ask on a summary or comment can't know whether its turn ended while the plugin was down; it gives way.
     for (const review of await tx.listReviews()) if (listAsks(review).length) await clearAsks(tx, review.targetKey);
-    return interrupted;
   });
   return { configured, store, interrupted };
 }
