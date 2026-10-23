@@ -115,9 +115,10 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
       await recordPrState(tx, key, prState);
       run = await rebuildReview(deps, tx, meta, patch, { unattended });
     } else {
+      // The diff first: a review saved generating without one would stay so.
+      await tx.savePatch(key, ensureGitHeaders(patch));
       await tx.saveReview(meta);
       await recordPrState(tx, key, prState);
-      await tx.savePatch(key, ensureGitHeaders(patch));
       await tx.unignoreDiscovery(key);
       // The panel refetches on the realtime signal.
       run = await beginGuide(deps.bb, tx, deps.store, key, ctx.projectId!, { unattended });

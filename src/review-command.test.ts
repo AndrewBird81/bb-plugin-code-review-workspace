@@ -1,5 +1,5 @@
 import { test, expect, vi } from "vitest";
-import { testStore } from "./test-store.test-support";
+import { failingCall, testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (orig) => {
   const real = await orig<any>();
@@ -432,4 +432,17 @@ test("bb review records whether gh says the PR is merged or closed", async () =>
   } finally {
     vi.mocked(gh.runGh).mockImplementation(base);
   }
+});
+
+// bug bash D1: as createPrReview's, bb review's first start saved the review generating before its diff.
+test("bb review whose diff fails to save leaves no review generating, and running it again builds it", async () => {
+  const { bb } = createFakePluginHost({
+    pluginId: "code-review-workspace",
+    sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } },
+  });
+  const store = testStore(bb);
+  await expect(runReviewCommand({ bb, store: failingCall(store, "savePatch"), gh }, ["7"], { projectId: "p1", cwd: process.cwd() })).rejects.toThrow("Connection terminated");
+  expect(await store.getReview(key)).toBeNull();
+  expect(await runReviewCommand({ bb, store, gh }, ["7"], { projectId: "p1", cwd: process.cwd() })).toMatchObject({ exitCode: 0 });
+  expect(await store.patch(key)).toContain("diff --git a/a.ts");
 });

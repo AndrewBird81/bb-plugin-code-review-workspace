@@ -92,9 +92,10 @@ export async function createPrReview(
         run = await rebuildReview(deps, tx, meta, patch);
         return { key, told: true };
       }
+      // The diff first: a review saved generating without one would stay so.
+      await tx.savePatch(key, ensureGitHeaders(patch));
       await tx.saveReview(meta);
       await recordPrState(tx, key, pr.state);
-      await tx.savePatch(key, ensureGitHeaders(patch));
       // Starting a PR again brings it back into discovery after a delete.
       await tx.unignoreDiscovery(key);
       // The panel refetches on the realtime signal.

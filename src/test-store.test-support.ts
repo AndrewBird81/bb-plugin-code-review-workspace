@@ -5,7 +5,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { pgTestSql, testPgUrl } from "./db/pg-test.test-support";
 import { sqliteSql, type Sql } from "./db/sql";
 import { createStore } from "./store";
-import { queueStore, type QueuedStore } from "./store-queue";
+import { queueStore, type AsyncStore, type QueuedStore } from "./store-queue";
 
 /** Whether the backend tests run on Postgres. */
 export const testOnPostgres = !!testPgUrl;
@@ -18,4 +18,15 @@ export function testStore(bb: BbPluginApi): QueuedStore {
 /** The Sql the Store on `bb` runs its statements through, for a test's own reads and writes of its tables. */
 export function testSql(bb: BbPluginApi): Sql {
   return testOnPostgres ? pgTestSql(bb) : sqliteSql(bb.storage.database());
+}
+
+/** `store`, and each block's tx, with `method` failing as a call fails on a dropped connection. */
+export function failingCall(store: AsyncStore, method: keyof AsyncStore): AsyncStore {
+  return new Proxy(store, {
+    get(target, name, receiver) {
+      if (name === method) return () => Promise.reject(new Error("Connection terminated unexpectedly"));
+      if (name === "exclusive") return <T>(fn: (tx: AsyncStore) => Promise<T>) => target.exclusive((tx) => fn(failingCall(tx, method)));
+      return Reflect.get(target, name, receiver);
+    },
+  });
 }

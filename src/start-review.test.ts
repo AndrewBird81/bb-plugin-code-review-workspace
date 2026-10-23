@@ -1,5 +1,5 @@
 import { test, expect, vi } from "vitest";
-import { testStore } from "./test-store.test-support";
+import { failingCall, testStore } from "./test-store.test-support";
 
 vi.mock("./gh", async (orig) => {
   const real = await orig<any>();
@@ -213,4 +213,18 @@ test("starting a review from All reviews says so when bb can't name a project to
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { projects: { list: async () => { throw new Error("Connection unavailable"); } } } as any });
   await plugin(bb);
   expect(await harness.behavior.callRpc("startReview", { input: "https://github.com/acme/web/pull/7" })).toEqual({ ok: false, error: "Couldn't resolve a project to run generation." });
+});
+
+// bug bash D1: the review was saved generating before its diff, so a diff that failed to save left it generating with
+// none, which Rebuild and starting it again only opened, and Delete refused.
+test("a start whose diff fails to save leaves no review generating, and starting again builds it", async () => {
+  const { bb } = createFakePluginHost({
+    pluginId: "code-review-workspace",
+    sdk: { threads: { spawn: async () => ({ id: "th_1" }), wait: async () => {}, archive: async () => {}, stop: async () => {} } },
+  });
+  const store = testStore(bb);
+  await expect(createPrReview({ bb, store: failingCall(store, "savePatch"), gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).rejects.toThrow("Connection terminated");
+  expect(await store.getReview(key)).toBeNull();
+  expect(await createPrReview({ bb, store, gh }, { input: "https://github.com/acme/web/pull/7", projectId: "p1" })).toEqual({ ok: true, targetKey: key });
+  expect(await store.patch(key)).toContain("diff --git a/a.ts");
 });
