@@ -332,6 +332,29 @@ test("a receipt kv refused is kept in memory, and each failed record of it says 
   expect(replies).toBe(1);
 }, 20_000);
 
+// Review round 2, NIT 3: a receipt kv couldn't read was taken for none, so Submit or Send posted what GitHub may have.
+test("Submit and Send refuse, posting nothing, while kv can't say whether GitHub already has the review or reply", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
+  await store.savePatch("pr-1", PATCH);
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "nit" });
+  const shown = await store.getDraft("pr-1");
+  const call = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
+  expect(await call("saveReplyDraft", { targetKey: "pr-1", threadId: "T1", body: "Thanks!" })).toEqual({ ok: true });
+  vi.spyOn(bb.storage.kv, "get").mockRejectedValue(new Error("kv is unavailable"));
+  const unchecked = { ok: false, error: "Couldn't check whether GitHub already has this; try again." };
+  expect(await createReviewSubmitter(store, runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", shown.comments, shown)).toEqual(unchecked);
+  expect(await call("replyToThread", { targetKey: "pr-1", inReplyTo: 11, body: "Thanks!", threadId: "T1", account: "casey" })).toEqual(unchecked);
+  expect(gh.posts).toHaveLength(0);
+  expect((await store.getDraft("pr-1")).comments).toHaveLength(1);
+  expect([...(await store.listReplyDrafts("pr-1")).keys()]).toEqual(["T1"]);
+  // Saving the reply draft still saves it.
+  expect(await call("saveReplyDraft", { targetKey: "pr-1", threadId: "T1", body: "Thanks, fixed." })).toEqual({ ok: true });
+  expect((await store.listReplyDrafts("pr-1")).get("T1")).toMatchObject({ body: "Thanks, fixed." });
+});
+
 async function servedThroughProxy() {
   const proxy = await faultProxy();
   cleanup.push(() => proxy.close());

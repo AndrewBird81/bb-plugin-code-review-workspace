@@ -12,8 +12,14 @@ import type { AsyncStore } from "./store-queue";
 export function postReceipts(kv?: BbPluginApi["storage"]["kv"]) {
   const memory = new Map<string, unknown>();
   return {
+    /** Throws when kv can't be read: taken for no receipt, it would post again what GitHub may have. */
     async get<T>(key: string): Promise<T | undefined> {
-      return (memory.get(key) as T | undefined) ?? await kv?.get<T>(key).catch(() => undefined);
+      if (memory.has(key)) return memory.get(key) as T;
+      try {
+        return await kv?.get<T>(key);
+      } catch {
+        throw new Error("Couldn't check whether GitHub already has this; try again.");
+      }
     },
     /** False when only memory holds it. */
     async put(key: string, value: unknown): Promise<boolean> {
@@ -69,10 +75,15 @@ export function notRecorded(what: "review" | "reply", error: unknown, durable: b
 
 export const replyReceiptKey = (targetKey: string, threadId: string) => `posted-reply:${targetKey}:${threadId}`;
 
-/** A reply draft discarded, or saved as `body` other than the reply GitHub took, is no longer that reply: Send posts it. */
+/**
+ * A reply draft discarded, or saved as `body` other than the reply GitHub took, is no longer that reply: Send posts it.
+ * One kv can't read is kept, as Send matches it to the reply before taking it for the one GitHub has.
+ */
 export async function forgetPostedReply(receipts: PostReceipts, targetKey: string, threadId: string, body?: string): Promise<void> {
   const key = replyReceiptKey(targetKey, threadId);
-  if (body === undefined || receiptText((await receipts.get<{ body: string }>(key))?.body ?? "") !== receiptText(body)) await receipts.drop(key);
+  if (body === undefined) return receipts.drop(key);
+  const posted = await receipts.get<{ body: string }>(key).catch(() => undefined);
+  if (posted && receiptText(posted.body) !== receiptText(body)) await receipts.drop(key);
 }
 
 /**
@@ -81,7 +92,12 @@ export async function forgetPostedReply(receipts: PostReceipts, targetKey: strin
  */
 export async function postDraftedReply(receipts: PostReceipts, store: AsyncStore, targetKey: string, threadId: string, body: string, post: () => Promise<{ ok: true } | { ok: false; error: string }>): Promise<{ ok: true } | { ok: false; error: string }> {
   const key = replyReceiptKey(targetKey, threadId);
-  const earlier = await receipts.get<{ body: string; at: number }>(key);
+  let earlier: { body: string; at: number } | undefined;
+  try {
+    earlier = await receipts.get(key);
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
   const same = earlier !== undefined && receiptText(earlier.body) === receiptText(body);
   let durable = true;
   if (!same) {
