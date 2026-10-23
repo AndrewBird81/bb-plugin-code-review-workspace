@@ -82,6 +82,28 @@ test("a review-state pass leaves a guide that's still running be", async () => {
   expect(await store.getReview("local:feature")).toMatchObject({ status: "generating", guideError: null });
 });
 
+// Review round 1, NIT 2: a reload or update while a guide ran logged that its end couldn't be recorded, though the
+// storage closing then is expected, and the next instance ends the run.
+test("a guide run a reload stops logs nothing about recording its end", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
+    threads: {
+      spawn: async () => ({ id: "writer" }),
+      wait: ({ signal }: { signal: AbortSignal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("This operation was aborted")), { once: true })),
+      archive: async () => ({}), stop: async () => ({}), list: async () => ({ threads: [], nextCursor: null }),
+    },
+    projects: { defaultExecutionOptions: async () => null }, providers: { list: async () => [] },
+  } as never });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "local:feature", kind: "ref", gitRef: "main...feature", cwd: process.cwd(), status: "ready", createdAt: 1, projectId: "p1" });
+  await store.savePatch("local:feature", PATCH);
+  expect(await harness.behavior.callRpc("rereview", { targetKey: "local:feature" })).toEqual({ ok: true });
+  await vi.waitFor(() => expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1));
+  await harness.lifecycle.dispose();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(harness.inspection.logEntries.filter((entry) => entry.message.includes("Could not record the end of the guide run"))).toEqual([]);
+});
+
 const MINUTE = 60_000;
 
 /** A served review whose assistant is `status` with nothing queued, after activation's own settling. */

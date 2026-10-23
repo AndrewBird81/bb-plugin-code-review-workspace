@@ -332,8 +332,8 @@ export async function beginGuide(
       });
     } catch (error) {
       // A plugin reload can dispose storage/realtime while a worker is finishing: the next factory marks interrupted
-      // runs as errors without reusing a guide. A storage failure leaves it to failUnfinishedGuides.
-      bb.log.warn(`Could not record the end of the guide run for ${targetKey}: ${String(error)}`);
+      // runs as errors without reusing a guide, so that's expected. A storage failure leaves it to failUnfinishedGuides.
+      if (stopped || !controller.signal.aborted) bb.log.warn(`Could not record the end of the guide run for ${targetKey}: ${String(error)}`);
     } finally {
       runs.delete(controller);
       if (generationId) generations.get(bb)?.delete(generationId);
