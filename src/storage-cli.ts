@@ -81,7 +81,7 @@ export function createStorageCommand(bb: BbPluginApi, storage: StorageChoice) {
       return null;
     }
     if (status.owner === "sqlite") return `The reviews are in SQLite already (storage:owner).`;
-    if (status.state !== "maintenance") return `The plugin serves the reviews from ${where}. To copy them to SQLite, set storageBackend to sqlite, reload (${reload}), then run bb review storage export-sqlite.`;
+    if (status.state !== "maintenance") return `The plugin ${status.state === "opening" ? "opens" : "serves"} the reviews from ${where}. To copy them to SQLite, set storageBackend to sqlite, reload (${reload}), then run bb review storage export-sqlite.`;
     if (replace && status.configured !== "sqlite") return `--replace-data-db makes SQLite hold the reviews, so it runs with storageBackend set to sqlite: set it, reload (${reload}), then run it again.`;
     return null;
   }

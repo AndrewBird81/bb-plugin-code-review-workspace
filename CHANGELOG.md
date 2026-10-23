@@ -5,6 +5,7 @@
 Fixes from a bug bash of the Postgres storage and the flows around it. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.4.1. 1.4.1 adds no migration, so rolling back to 1.4.0 keeps everything.
 
 - A **Suggest instruction changes** run that a reload, an update or turning the plugin off interrupted could end BB's server process, which BB then restarted. It ends quietly now, and still stops its worker. The update that installs 1.4.1 still runs 1.4.0's shutdown, so apply it while no suggestion is running.
+- A failure to clear a review's Needs You alert as it left Needs review is logged, where it was a rejection nothing handled, the kind that ends BB's server.
 - A review or reply GitHub took is never posted twice when the plugin's storage fails as it records it. Submit or Send said only that it failed and kept the draft, so trying again posted it a second time. Recording is tried three times; if it still fails, the message says GitHub has it and that Submit or Send again finishes recording it without posting it again, after a reload too.
 - With the reviews in Postgres, a `postgresSchema` or `postgresUrl` that names a schema without them, as after a typo or with another database, is reported as needs-configuration ("… holds none: check postgresUrl and postgresSchema") and nothing is served. The plugin made empty tables there and served an empty review list, so every review seemed gone and new ones went to the wrong schema. Only `bb review storage migrate` makes a schema now.
 - A NUL character, which git puts in a text diff past a file's first 8,000 bytes and an agent's or your text can carry, is stored as U+FFFD (�) on both backends. On Postgres, which can't hold it, such a diff left a new review building for good, failed every rebuild of it, and an agent comment holding one couldn't be edited or removed, or recorded after Submit. `bb review storage migrate` copies one in `data.db` as U+FFFD too, where it refused to copy anything.
@@ -22,7 +23,11 @@ Fixes from a bug bash of the Postgres storage and the flows around it. Still **B
 - With `postgresSsl` set to `verify-full`, a server certificate the CA in `postgresCaPem` didn't sign, one that doesn't name the host, or one that has expired is reported as such, naming the setting to check, where Node's message suggested running Node with `--use-system-ca`.
 - A draft comment Postgres refuses to save, as on a file whose path is past about 2.7 KB, leaves the draft as it was, where it could keep the comment with no record of the diff it was drafted on. [docs/operations.md](docs/operations.md#storage-backends) says what such a path can't do on Postgres.
 - The **Storage** setting says that changing it alone stops the plugin at its next load, until `bb review storage` moves the reviews or it's set back.
-- A failure to clear a review's Needs You alert as it left Needs review is logged, where it was a rejection nothing handled, the kind that ends BB's server.
+
+### Docs
+
+- `bb review --help` lists `bb review storage`, and says to give a git ref named `comment`, `summary`, `list` or `storage` as `refs/heads/<name>`. While Postgres is still opening, `export-sqlite`'s refusal says the plugin opens the reviews from it, not that it serves them.
+- [docs/operations.md](docs/operations.md#storage-backends) says that only `export-sqlite --replace-data-db`, not `export-sqlite` alone, changes `storage:owner`; which PG* environment variables pg still reads; that a connection error can show the host, though never the password or the URL as set; that the password is briefly visible in the server's process list while `bb plugin config … set` runs; what's left in progress after a Postgres outage, and how long calls take to fail while Postgres hangs; and, with the guide's Uninstall, to copy `data.db` and the export and backup files off the server before `bb plugin remove`.
 
 ## 1.4.0 — 2026-10-23
 

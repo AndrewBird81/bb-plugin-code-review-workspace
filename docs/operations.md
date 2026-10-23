@@ -38,9 +38,9 @@ From 1.3.0 the reviews can be kept in Postgres instead of SQLite. Both hold the 
 
 - **SQLite**, the default: `data.db` in the plugin's data directory (`~/.bb/plugins/code-review-workspace/`), through BB's own SQLite. Nothing to set up.
 - **Postgres**: the same tables in a schema of a Postgres database, reached over one connection from the BB server. Choose it to keep the reviews off the BB server's disk, in a database that's backed up with others. It was tested on Postgres 18, and rehearsed on BB 0.46.1.
-- **Which one serves** depends on two things that must agree: the `storageBackend` setting, and the `storage:owner` marker in BB's key-value rows, which names the backend holding the reviews. An install from before 1.3.0 has no marker, which means SQLite. Only `bb review storage migrate` and `export-sqlite` change the marker, once their copy checks out. While the two disagree, the plugin is in [maintenance](#maintenance-mode); it never falls back to the other backend.
+- **Which one serves** depends on two things that must agree: the `storageBackend` setting, and the `storage:owner` marker in BB's key-value rows, which names the backend holding the reviews. An install from before 1.3.0 has no marker, which means SQLite. Only `bb review storage migrate` and `export-sqlite --replace-data-db` change the marker, once their copy checks out. While the two disagree, the plugin is in [maintenance](#maintenance-mode); it never falls back to the other backend.
 - **Storage settings apply when the plugin loads.** Changing one logs "Storage settings changed: they apply once the plugin reloads"; `bb plugin reload code-review-workspace` applies them.
-- **Very long paths:** Postgres caps a key at about 2.7 KB, after compression, and a changed file's path is in the keys of its viewed mark, its draft comments and its discussions. On Postgres, marking such a file viewed, commenting on it or asking about it fails, and changes nothing; a reviewed PR's paths are far shorter. `migrate` refuses a `data.db` holding one, and changes nothing.
+- **Very long paths:** Postgres caps a key at about 2.7 KB, after compression, and a changed file's path is in the keys of its viewed mark, its draft comments and its discussions. On Postgres, marking such a file viewed, commenting on it or asking about it fails, and changes nothing; a reviewed PR's paths are far shorter. `migrate` stops on one, and changes nothing ("… Nothing was changed.").
 - **Speed:** each store call is a round trip to Postgres. In the rehearsal, at about 1.3 ms a round trip, the heaviest call, opening a review with a 15.6 MB diff, took about 37 ms (17 ms on SQLite), and other calls 2–17 ms.
 
 ### Setting up Postgres
@@ -61,6 +61,8 @@ From 1.3.0 the reviews can be kept in Postgres instead of SQLite. Both hold the 
    bb plugin config code-review-workspace set storageBackend postgres
    ```
 
+   While `bb plugin config … set postgresPassword` runs, the password is an argument of its process, which anyone who can list the server's processes sees for that moment; BB's CLI has no way to read it from standard input. Set it from a session no one else shares.
+
 3. Run `bb plugin reload code-review-workspace`. The reviews are still in SQLite, so the plugin goes into maintenance, which stops every write.
 4. Run `bb review storage migrate` from a terminal on the BB server. It copies the reviews, checks the copy, and marks Postgres as holding them.
 5. Run `bb plugin reload code-review-workspace` again. `bb review storage status` says `state: serving`.
@@ -72,13 +74,13 @@ Take a [backup](#backups) of `data.db` first. `migrate` leaves `data.db` as it w
 | Setting | Default | What it is |
 |---|---|---|
 | `storageBackend` | `sqlite` | `sqlite` or `postgres`: where the reviews are kept. |
-| `postgresUrl` | none | `postgres://user@host:port/database`. It takes **no password and no query parameters**: a URL with either is refused, and the message names the setting to use instead. `sslmode` and the like in a URL are refused rather than read, since pg would take a URL's `sslmode=require` as `verify-full`. PG* environment variables (`PGHOST`, `PGSSLMODE`, …) are never read. |
+| `postgresUrl` | none | `postgres://user@host:port/database`. It takes **no password and no query parameters**: a URL with either is refused, and the message names the setting to use instead. `sslmode` and the like in a URL are refused rather than read, since pg would take a URL's `sslmode=require` as `verify-full`. The plugin passes every connection setting itself, so PG* environment variables (`PGHOST`, `PGSSLMODE`, …) don't change them; pg still reads only `PGBINARY`, `PGCLIENT_ENCODING` and `PGREPLICATION`, which a BB server doesn't set. |
 | `postgresPassword` | none | The role's password, kept as a BB secret. Needed with `postgres`. If the role's password changes, set it again and reload. |
 | `postgresSchema` | `code_review_workspace` | The schema the tables are in. `bb review storage migrate` creates it if it's missing; the plugin never does. Two installs sharing a database need a schema each. |
 | `postgresSsl` | `require` | `verify-full`, `require`, or `disable`; see [TLS](#tls). |
 | `postgresCaPem` | none | PEM certificates that `verify-full` checks the server's certificate against; without it, Node's CAs. Refused with the other modes. |
 
-No message or log line the plugin writes shows the URL or the password. The connection's `application_name` is `code-review-workspace`, and `code-review-workspace storage` for a storage command's own. Statements time out after 30 s, and a transaction left idle after 60 s; a connection attempt gives up after 10 s.
+No message or log line the plugin writes shows the password, or the URL as set; the host and port can appear in a connection error, as in `getaddrinfo ENOTFOUND <host>` or `connect ECONNREFUSED <address>:5432`. The connection's `application_name` is `code-review-workspace`, and `code-review-workspace storage` for a storage command's own. Statements time out after 30 s, and a transaction left idle after 60 s; a connection attempt gives up after 10 s.
 
 ### TLS
 
@@ -163,6 +165,8 @@ bb plugin reload code-review-workspace          # serving from SQLite, with what
 | Postgres dies during `migrate` or `export-sqlite` | "… Nothing was changed.": the copy is rolled back or deleted, and the owner stays. Run it again once Postgres is back. |
 
 ### Removing the plugin
+
+Before removing, copy `data.db`, and the `data-export-…` and `data-backup-…` files beside it, off the server if you may want them: another BB version may delete them with the plugin.
 
 `bb plugin remove code-review-workspace` never touches Postgres: the schema, its tables, the role, and the database stay until you drop them. On BB 0.46, removing also keeps `data.db`, the export and backup files beside it, and the key-value rows, `storage:owner` included, but deletes the plugin's settings, the Postgres password among them. Installed again, with the reviews still marked as in Postgres, the plugin starts in maintenance until the storage settings are set again.
 

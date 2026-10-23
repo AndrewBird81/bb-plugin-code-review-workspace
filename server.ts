@@ -113,6 +113,7 @@ export default async function plugin(bb: BbPluginApi) {
       { name: "comment", summary: "List, add, edit, or delete a review's local draft comments; never posts to GitHub", usage: "bb review comment <list | add | edit | delete> <review> [<file>:<line>] [--side LEFT|RIGHT] [--code <text>] [--body <text>] [--severity <severity>] [--evidence <text>] [--pre-existing] [--json]" },
       { name: "summary", summary: "Show or write a review's local review summary and suggested verdict; never posts to GitHub", usage: "bb review summary <review> [--json] | [--body <text> [--suggest APPROVE|COMMENT|REQUEST_CHANGES]]" },
       { name: "list", summary: "List your reviews, in Needs review's order, with whose turn it is", usage: "bb review list [--json]" },
+      { name: "storage", summary: "Show where the reviews are kept, and move them between SQLite and Postgres", usage: "bb review storage <status | verify | migrate | export-sqlite [--replace-data-db]>" },
     ],
     async run(argv, ctx) {
       // Storage answers in maintenance too, where the reviews move between backends.

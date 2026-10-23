@@ -30,7 +30,9 @@ const usage = (list: boolean) => [
   "       bb review comment <list | add | edit | delete> …   (see bb review comment --help)",
   "       bb review summary <review> [--body <text>] …        (see bb review summary --help)",
   ...list ? ["       bb review list [--json]                             (see bb review list --help)"] : [],
+  "       bb review storage <status | verify | migrate | export-sqlite>  (see bb review storage --help)",
   "",
+  "  A git ref named comment, summary, list or storage is given as refs/heads/<name>.",
   "  --context  text for the assistant's automatic review, such as the ticket the change implements. It's kept with the review; '' removes it.",
 ].join("\n");
 const CONTEXT_LIMIT = 12_000;

@@ -741,5 +741,5 @@ Notes for reviews and pages from before the current releases. New installs can s
 
 - **One review:** **Delete…** in its **Review actions** (⋯) removes its guide, drafts, private notes, and agent conversation, after confirmation. Nothing changes on GitHub.
 - **Pause the plugin:** `bb plugin disable code-review-workspace` stops it following your PRs and starting agents, and keeps its data.
-- **Remove the plugin:** `bb plugin remove code-review-workspace` can delete its reviews, drafts, and settings. Reviews, replies, and resolves you already posted stay on GitHub. Reviews kept in Postgres stay there until the database's operator drops them; see [Removing the plugin](operations.md#removing-the-plugin).
+- **Remove the plugin:** `bb plugin remove code-review-workspace` deletes its settings, and can delete its reviews and drafts: BB 0.46 keeps `data.db`, but to keep them for sure, copy `data.db`, and any `data-export-…` or `data-backup-…` files beside it, off the server first. Reviews, replies, and resolves you already posted stay on GitHub. Reviews kept in Postgres stay there until the database's operator drops them; see [Removing the plugin](operations.md#removing-the-plugin).
 - The `gh` sign-in on the BB server is GitHub CLI's own; sign out with `gh auth logout` if nothing else there needs it.
