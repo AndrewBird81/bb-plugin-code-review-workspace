@@ -552,3 +552,20 @@ test("a comment whose revisions row is refused leaves the draft as it was, and a
     expect({ draft: await s.getDraft("pr-1"), revisions: await revisions() }).toEqual(before);
   }
 });
+
+// Review round 1, NIT 1: renames followed inside the comment's transaction were marked followed though it rolled back,
+// so the review's rows stayed at the old path until its cache entry went.
+test("renames a refused comment's save rolled back are still followed by the next read", async () => {
+  const PATCH = "diff --git a/old.ts b/new.ts\nsimilarity index 90%\nrename from old.ts\nrename to new.ts\n--- a/old.ts\n+++ b/new.ts\n@@ -1 +1,2 @@\n a\n+b\n";
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const seed = testStore(bb);
+  await seed.saveReview({ targetKey: "pr-1", kind: "pr", status: "ready", createdAt: 1 });
+  await seed.savePatch("pr-1", PATCH);
+  await seed.upsertDraftComment("pr-1", { file: "new.ts", line: 1, side: "RIGHT", body: "Kept" });
+  await seed.addDiscussionMessage("pr-1", { file: "old.ts", line: 2, side: "RIGHT" }, "reviewer", "Why?");
+  // A store that hasn't followed this diff's renames yet, as after a reload.
+  const s = testStore(bb);
+  await refuseWrites(testSql(bb), "draft_comment_revisions");
+  await expect(s.upsertDraftComment("pr-1", { file: "new.ts", line: 2, side: "RIGHT", body: "Not saved" })).rejects.toThrow("index row size exceeds btree maximum");
+  expect((await s.listDiscussions("pr-1")).map((d) => d.file)).toEqual(["new.ts"]);
+});

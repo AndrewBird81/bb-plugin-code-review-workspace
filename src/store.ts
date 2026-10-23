@@ -715,6 +715,11 @@ export function storeOn(sql: Sql): Store {
           ON CONFLICT(target_key,file,line,side) DO UPDATE SET patch_hash=excluded.patch_hash, code=excluded.code, start_code=excluded.start_code`,
           [k, c.file, c.line, c.side, await this.patchHash(k), code, startCode]);
         return d;
+      }).catch((error: unknown) => {
+        // Renames it followed were rolled back with it.
+        const entry = parsed.get(k);
+        if (entry) entry.followed = false;
+        throw error;
       });
     },
     async editDraftComment(k, at, body, severity, evidence, introduced) {
