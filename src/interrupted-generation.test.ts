@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server";
-import { generateGuide } from "./generate";
+import { GUIDE_WORKER_TITLE, generateGuide } from "./generate";
 import { defaultPreferences } from "./preferences";
 import { formerWorkerReview, NO_REVIEW, recordFormerWorker } from "./former-workers";
 import { runGh } from "./gh";
@@ -251,4 +251,22 @@ test("after a reload, every interrupted guide restarts past one whose restart th
   } finally {
     vi.mocked(runGh).mockImplementation(reads!);
   }
+});
+
+// Review round 1, NIT 3 (D2): a restart that threw before rebuilding, as on finding its writers, was only logged, and
+// the review stayed failed with no reason shown.
+test("after a reload, an interrupted guide whose restart throws before rebuilding stays failed, saying why", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
+    spawn: async () => ({ id: "new-worker" }), wait: () => new Promise(() => {}), archive: async () => ({}), stop: async () => ({}),
+    list: async () => [{ id: "stray-writer", originPluginId: "code-review-workspace", title: `${GUIDE_WORKER_TITLE}pr-1` }],
+  } } as any });
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "generating", createdAt: 1, projectId: "p1", headSha: "sha0" });
+  // Which review a writer it finds belonged to can't be read.
+  const get = bb.storage.kv.get.bind(bb.storage.kv);
+  vi.spyOn(bb.storage.kv, "get").mockImplementation(async (key: string) => key === "former-workers" ? Promise.reject(new Error("kv is unavailable")) : get(key));
+  await plugin(bb);
+  await vi.waitFor(async () => expect(await store.getReview("pr-1")).toMatchObject({ status: "error", guideError: { text: "kv is unavailable" } }));
+  expect(harness.inspection.logEntries).toContainEqual({ level: "warn", message: expect.stringContaining("Could not restart the interrupted guide for pr-1: Error: kv is unavailable") });
+  expect(harness.inspection.sdk.callsTo("threads.spawn")).toEqual([]);
 });

@@ -29,6 +29,12 @@ export async function restartInterruptedGuide(deps: Deps, targetKey: string, sin
   deps.bb.log.warn(`The interrupted guide for ${targetKey} didn't restart${waiting ? " yet" : ""}: ${restarted.error}`);
 }
 
+/** An interrupted guide whose restart threw outside rerunReview, as on finding its writers, stays failed, saying why. */
+export async function interruptedGuideThrew(deps: Deps, targetKey: string, error: unknown): Promise<void> {
+  if ((await deps.store.getReview(targetKey))?.status !== "error") return;
+  await failed(deps, targetKey, error instanceof Error ? error.message : String(error));
+}
+
 /** The interrupted guide stays failed, its page saying `why`. */
 async function failed(deps: Deps, targetKey: string, why: string, now = Date.now()) {
   await deps.store.setLifecycle(targetKey, { guideError: { at: now, text: why } });

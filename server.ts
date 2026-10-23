@@ -68,7 +68,7 @@ import { fetchMyThreads } from "./src/github/threads";
 import type { ReviewMeta } from "./src/store";
 import { threadSignals, turnOptions } from "./src/turn-signals";
 import { approve, mayRunChecks, trustedAuthor } from "./lib/trust";
-import { restartInterruptedGuide, retryInterruptedGuides } from "./src/interrupted-guides";
+import { interruptedGuideThrew, restartInterruptedGuide, retryInterruptedGuides } from "./src/interrupted-guides";
 import { automaticReviewPrompt, reReviewCheckPrompt } from "./src/preferences";
 import { createInstructionSuggester, describeRemovals, learningStats, noteReviewerRemoval, noteReviewerSave, recordOutcomes, removalWarning } from "./src/learning";
 import { FORMER_PLUGIN_ID } from "./src/former-install";
@@ -251,7 +251,10 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
         await bb.sdk.threads.stop({ threadId }).catch(() => {});
       }
       await restartInterruptedGuide(deps, targetKey);
-    })().catch((error) => bb.log.warn(`Could not restart the interrupted guide for ${targetKey}: ${String(error)}`));
+    })().catch(async (error) => {
+      bb.log.warn(`Could not restart the interrupted guide for ${targetKey}: ${String(error)}`);
+      await interruptedGuideThrew(deps, targetKey, error).catch(() => {});
+    });
   })().catch((error) => bb.log.warn(`Could not restart interrupted guides: ${String(error)}`));
   // A turn that ended while the plugin was down, or while its storage failed as BB told of it, never settled what waited
   // for it: a feedback check, a discussion, or an ask. Settled at activation, and on each review-state pass, once the
