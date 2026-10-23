@@ -112,16 +112,19 @@ export async function chooseStorage(bb: BbPluginApi): Promise<StorageChoice> {
   return { kind: "postgres", status, settings, pg: connection, schema: settings.postgresSchema, redact };
 }
 
-/** Errors that say only that Postgres can't be reached yet: from the network, or from a server starting or stopping. */
-const UNREACHABLE = new Set(["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH", "EPIPE"]);
+/**
+ * Errors that say only that Postgres can't be reached yet: from the network, or from a server starting or stopping; or
+ * that a statement waited on something that passes: its timeout (57014), a lock (55P03), or a deadlock (40P01).
+ */
+const UNREACHABLE = new Set(["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH", "EPIPE", "57014", "55P03", "40P01"]);
 
 export function unreachable(error: unknown): boolean {
   if (error instanceof AggregateError && error.errors.length) return error.errors.every(unreachable);
   if (!(error instanceof Error)) return false;
   const code = (error as { code?: unknown }).code;
   if (typeof code === "string" && (UNREACHABLE.has(code) || code.startsWith("08") || code.startsWith("57P"))) return true;
-  // pg's own: its connect timeout, and a server that closed the connection.
-  return error.message === "timeout expired" || error.message === "Connection terminated unexpectedly";
+  // pg's own: its connect timeout, its timeout for a statement's answer, and a server that closed the connection.
+  return error.message === "timeout expired" || error.message === "Query read timeout" || error.message === "Connection terminated unexpectedly";
 }
 
 export function describe(error: unknown): string {

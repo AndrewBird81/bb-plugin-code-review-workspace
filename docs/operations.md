@@ -110,7 +110,7 @@ In maintenance the plugin registers `bb review` and nothing else: no panel calls
 
 The panel shows only "Couldn’t open the review session. The plugin may be updating. Try again."; `bb review storage status` says why.
 
-On Postgres the plugin also starts with only `bb review storage` answering, while it opens its storage (`state: opening`): normally well under a second. If Postgres can't be reached, it keeps trying, after 1 s and then twice as long each time up to a minute, and serves once it gets through, with no reload. A wrong password, a refused TLS sign-in, a missing database or permission, or the writer lock still held is reported as needs-configuration at once; Postgres simply being out of reach only after a minute, so a BB that starts before its database doesn't need attention. **BB keeps a needs-configuration status until the next reload**, even once the plugin serves; the message says so.
+On Postgres the plugin also starts with only `bb review storage` answering, while it opens its storage (`state: opening`): normally well under a second. If Postgres can't be reached, it keeps trying, after 1 s and then twice as long each time up to a minute, and serves once it gets through, with no reload. A wrong password, a refused TLS sign-in, a missing database or permission, or the writer lock still held is reported as needs-configuration at once; Postgres simply being out of reach, or a statement timing out or waiting on a lock, only after a minute, so a BB that starts before its database, or a moment's lock, doesn't need attention. **BB keeps a needs-configuration status until the next reload**, even once the plugin serves; the message says so.
 
 ### Moving the reviews: `bb review storage`
 

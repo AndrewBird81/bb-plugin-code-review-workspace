@@ -312,6 +312,13 @@ test("only a failure to reach Postgres, or a server starting or stopping, counts
   }
 });
 
+// bug bash F7: a statement timeout or a lock wait at activation, which passes a moment later, was reported as
+// needs-configuration at once, and BB kept saying so until a reload.
+test("a statement cancelled by its timeout, a lock not granted, a deadlock, and pg's own read timeout count as passing", () => {
+  const database = (code: string) => Object.assign(new pg.DatabaseError("from the server", 0, "error"), { code });
+  for (const error of [database("57014"), database("55P03"), database("40P01"), new Error("Query read timeout")]) expect(unreachable(error)).toBe(true);
+});
+
 test("a failed restart of the idle review assistants after a Settings change is logged, not left unhandled", async () => {
   const { bb, harness } = await host();
   const store = await startPlugin(bb);

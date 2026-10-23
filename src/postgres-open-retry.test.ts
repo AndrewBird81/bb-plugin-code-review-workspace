@@ -97,6 +97,8 @@ describe.skipIf(!testPgUrl)("activation's open of Postgres storage, tried again 
     await vi.waitFor(() => {
       expect(harness.inspection.logEntries.map((entry) => entry.message)).toContainEqual(expect.stringMatching(/^Could not open Code Review Workspace's Postgres storage: Postgres answered: canceling statement due to statement timeout/));
     }, { timeout: 10_000, interval: 50 });
+    // bug bash F7: a statement timeout passes; it isn't a setting to fix.
+    expect(harness.inspection.needsConfigurationMessages).toEqual([]);
     release();
     await opened(harness);
     await vi.waitFor(() => { expect(spawned).toHaveBeenCalledTimes(1); }, { timeout: 5_000 });
