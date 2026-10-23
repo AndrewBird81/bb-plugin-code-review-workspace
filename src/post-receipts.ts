@@ -36,6 +36,12 @@ export function postReceipts(kv?: BbPluginApi["storage"]["kv"]) {
 
 export type PostReceipts = ReturnType<typeof postReceipts>;
 
+/**
+ * Text as a receipt keeps and matches it: with \n line endings and without the whitespace around it, as Send trims a
+ * reply and the page saves the draft as typed. Every comparison of a draft's text with a receipt's goes through it.
+ */
+export const receiptText = (text: string) => text.replace(/\r\n?/g, "\n").trim();
+
 /** A submitted review not yet recorded: how to record it, and the draft it posted, which recording clears. */
 export interface ReviewReceipt { submittedAt: number; reviewId: string | null; headSha: string; reviewer?: string; url?: string; draft: Draft }
 
@@ -66,7 +72,7 @@ export const replyReceiptKey = (targetKey: string, threadId: string) => `posted-
 /** A reply draft discarded, or saved as `body` other than the reply GitHub took, is no longer that reply: Send posts it. */
 export async function forgetPostedReply(receipts: PostReceipts, targetKey: string, threadId: string, body?: string): Promise<void> {
   const key = replyReceiptKey(targetKey, threadId);
-  if (body === undefined || (await receipts.get<{ body: string }>(key))?.body !== body) await receipts.drop(key);
+  if (body === undefined || receiptText((await receipts.get<{ body: string }>(key))?.body ?? "") !== receiptText(body)) await receipts.drop(key);
 }
 
 /**
@@ -76,17 +82,18 @@ export async function forgetPostedReply(receipts: PostReceipts, targetKey: strin
 export async function postDraftedReply(receipts: PostReceipts, store: AsyncStore, targetKey: string, threadId: string, body: string, post: () => Promise<{ ok: true } | { ok: false; error: string }>): Promise<{ ok: true } | { ok: false; error: string }> {
   const key = replyReceiptKey(targetKey, threadId);
   const earlier = await receipts.get<{ body: string; at: number }>(key);
+  const same = earlier !== undefined && receiptText(earlier.body) === receiptText(body);
   let durable = true;
-  if (earlier?.body !== body) {
+  if (!same) {
     const posted = await post();
     if (!posted.ok) return posted;
-    durable = await receipts.put(key, { body, at: Date.now() });
+    durable = await receipts.put(key, { body: receiptText(body), at: Date.now() });
   }
   try {
     await recordPosted(() => store.deleteReplyDraft(targetKey, threadId));
   } catch (error) {
     // One found again is put in kv again, as it may be in memory alone.
-    if (earlier?.body === body) durable = await receipts.put(key, earlier);
+    if (same) durable = await receipts.put(key, earlier);
     return { ok: false, error: notRecorded("reply", error, durable) };
   }
   await receipts.drop(key);

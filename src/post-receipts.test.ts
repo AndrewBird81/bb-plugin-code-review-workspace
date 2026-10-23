@@ -238,6 +238,41 @@ test("a reply GitHub took is forgotten once its draft is saved with other text o
   }
 }, 30_000);
 
+// Review round 2, BLOCKING: Send posts the reply trimmed, and the page saves the draft it failed to send as typed, so
+// a trailing newline, or \r\n for \n, dropped the receipt and the next Send posted the reply again.
+test("a reply GitHub took is kept while its draft is saved differing only in line endings or the whitespace around it, and never posted twice", async () => {
+  for (const [sent, saved] of [["Thanks!", "Thanks!\n"], ["Thanks!\r\nCasey", "Thanks!\nCasey\r\n"], ["Thanks!\nCasey", "  Thanks!\r\nCasey"]] as const) {
+    const { bb, call } = await replyNotRecorded(sent);
+    expect(await call("saveReplyDraft", { targetKey: "pr-1", threadId: "T1", body: saved })).toEqual({ ok: true });
+    expect((await bb.storage.kv.list("posted-reply:")).length).toBe(1);
+    // The page sends the saved draft trimmed.
+    expect(await call("replyToThread", { targetKey: "pr-1", inReplyTo: 11, body: saved.trim(), threadId: "T1", account: "casey" })).toEqual({ ok: true });
+    expect(gh.posts).toHaveLength(1);
+    gh.posts.length = 0;
+  }
+}, 45_000);
+
+test("a review GitHub took is recorded, not posted again, when its summary and comments are saved differing only in line endings or the whitespace around them", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 1, status: "ready", createdAt: 1, headSha: "sha123" });
+  await store.savePatch("pr-1", PATCH);
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "A nit:\r\nrename it." });
+  await store.setVerdict("pr-1", "COMMENT", "Looks fine\napart from the nit.");
+  const posted = await store.getDraft("pr-1");
+  let down = false;
+  gh.onPost = async () => { down = true; };
+  expect(await createReviewSubmitter(failing(store, () => down), runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", posted.comments, posted)).toMatchObject({ ok: false });
+  down = false;
+  gh.onPost = async () => {};
+  await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "A nit:\nrename it.\n" });
+  await store.setVerdict("pr-1", "COMMENT", "Looks fine\r\napart from the nit.\n");
+  const shown = await store.getDraft("pr-1");
+  expect(await createReviewSubmitter(store, runGh, postReceipts(bb.storage.kv))("pr-1", undefined, "casey", shown.comments, shown)).toEqual({ ok: true, url: "https://github.com/acme/web/pull/1#r1" });
+  expect(gh.posts).toHaveLength(1);
+  expect(await store.getDraft("pr-1")).toMatchObject({ comments: [], body: "" });
+}, 15_000);
+
 // The receipt is kept in memory only when kv refuses it, and a reload would forget it: every message about it says so.
 test("a receipt kv refused is kept in memory, and each failed record of it says not to reload, until it's recorded", async () => {
   const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });

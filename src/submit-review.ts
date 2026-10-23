@@ -5,13 +5,14 @@ import type { ReviewMeta } from "./store";
 import { requireReviewRevision } from "./review-revision";
 import { invalidComments } from "./review-positions";
 import type { AsyncStore } from "./store-queue";
-import { notRecorded, postReceipts, recordPosted, reviewReceiptKey, type PostReceipts, type ReviewReceipt } from "./post-receipts";
+import { notRecorded, postReceipts, receiptText, recordPosted, reviewReceiptKey, type PostReceipts, type ReviewReceipt } from "./post-receipts";
 
 /** Long enough for any review GitHub will take; a POST that hangs past it is checked for, never retried blind. */
 const POST_TIMEOUT_MS = 5 * 60_000;
 /** How far GitHub's clock may run behind this server's when a review is matched to the attempt that posted it. */
 const CLOCK_SKEW_MS = 60_000;
 const STATES: Record<Verdict, string> = { APPROVE: "APPROVED", REQUEST_CHANGES: "CHANGES_REQUESTED", COMMENT: "COMMENTED" };
+const asReceipted = <T extends { body: string }>(comments: readonly T[]) => comments.map((c) => ({ ...c, body: receiptText(c.body) }));
 
 /**
  * After a POST that failed or timed out: the review GitHub created from it anyway, as `viewer`, on this commit, with
@@ -71,7 +72,7 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
           return { ok: false, error: notRecorded("review", error, await receipts.put(reviewReceiptKey(targetKey), earlier), earlier.url) };
         }
         await receipts.drop(reviewReceiptKey(targetKey));
-        if (current && sameComments(earlier.draft.comments, shown) && earlier.draft.body === summary.body && earlier.draft.verdict === summary.verdict) return { ok: true, ...(earlier.url ? { url: earlier.url } : {}) };
+        if (current && sameComments(asReceipted(earlier.draft.comments), asReceipted(shown)) && receiptText(earlier.draft.body) === receiptText(summary.body) && earlier.draft.verdict === summary.verdict) return { ok: true, ...(earlier.url ? { url: earlier.url } : {}) };
         if (!current && taken) return { ok: false, error: `GitHub already has ${taken} of these comments, from your review of ${earlier.headSha.slice(0, 7)}${earlier.url ? ` (${earlier.url})` : ""}, so ${taken === 1 ? "it was" : "they were"} taken out of your draft. Check the draft, then submit again.` };
       }
       // The review and the draft it checks, in one turn.
