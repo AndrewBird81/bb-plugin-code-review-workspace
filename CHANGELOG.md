@@ -21,6 +21,7 @@ Fixes from a bug bash of the Postgres storage and the flows around it. Still **B
 - While the plugin opens its Postgres storage, `bb review` says so, with the latest try's error, and points to `bb review storage status`, where it printed only pg's error, such as "timeout expired".
 - With `postgresSsl` set to `verify-full`, a server certificate the CA in `postgresCaPem` didn't sign, one that doesn't name the host, or one that has expired is reported as such, naming the setting to check, where Node's message suggested running Node with `--use-system-ca`.
 - A draft comment Postgres refuses to save, as on a file whose path is past about 2.7 KB, leaves the draft as it was, where it could keep the comment with no record of the diff it was drafted on. [docs/operations.md](docs/operations.md#storage-backends) says what such a path can't do on Postgres.
+- The **Storage** setting says that changing it alone stops the plugin at its next load, until `bb review storage` moves the reviews or it's set back.
 - A failure to clear a review's Needs You alert as it left Needs review is logged, where it was a rejection nothing handled, the kind that ends BB's server.
 
 ## 1.4.0 — 2026-10-23

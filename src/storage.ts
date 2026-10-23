@@ -16,7 +16,7 @@ function defineStorageSettings(bb: BbPluginApi) {
   return bb.settings.define({
     storageBackend: {
       type: "select", label: "Storage", options: ["sqlite", "postgres"], default: "sqlite",
-      description: "Where the reviews are kept: SQLite, in BB's data directory, or Postgres. The reviews move with bb review storage, then a reload.",
+      description: "Where the reviews are kept: SQLite, in BB's data directory, or Postgres. Changing this alone stops the plugin at its next load, until bb review storage migrate (or export-sqlite --replace-data-db) moves the reviews, or it's set back.",
     },
     postgresUrl: {
       type: "string", label: "Postgres URL",
