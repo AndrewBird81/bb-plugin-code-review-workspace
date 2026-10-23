@@ -2,7 +2,9 @@
 // of the store would, and during a block it still answers as before the block.
 import { expect, test } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { createStore, type ReviewMeta, type Store } from "./store";
+import { createStore, storeOn, type ReviewMeta, type Store } from "./store";
+import type { Sql } from "./db/sql";
+import { testSql } from "./test-store.test-support";
 import { createConfigureView } from "./configure-view";
 import { queueStore, type AsyncStore } from "./store-queue";
 import { defaultPreferences } from "./preferences";
@@ -149,4 +151,42 @@ test("a read that fails while the view catches up is logged, leaves the call's r
   // A read is a turn too: the view catches up after it.
   await expect(queued.getAssistantThread("pr-1")).resolves.toBe("assistant-1");
   expect(view.threadRole({ id: "assistant-1", title: null })).toBe("assistant");
+});
+
+/** `sql`, counting the statements that read a whole patch. */
+function countingPatchReads(sql: Sql) {
+  const counts = { patchReads: 0 };
+  const counted: Sql = {
+    dialect: sql.dialect,
+    all: (text, params) => sql.all(text, params),
+    get: (text, params) => { if (text.startsWith("SELECT patch FROM patches")) counts.patchReads++; return sql.get(text, params); },
+    run: (text, params) => sql.run(text, params),
+    transaction: (fn) => sql.transaction(fn),
+  };
+  return { counted, counts };
+}
+
+// bug bash HC-3: any call naming a review, as each review-state poll's lifecycle writes do, had the view read its
+// guide again, which reads its whole patch for renames whenever more than 8 reviews cycle through the parsed-patch cache.
+test("turns that can't change a guide, as the review-state poll's lifecycle writes, don't read its review's patch again", async () => {
+  const { bb } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  // Migrated by the Store's own open; counted from here.
+  createStore(bb);
+  const { counted, counts } = countingPatchReads(testSql(bb));
+  const backend = storeOn(counted);
+  const keys = Array.from({ length: 10 }, (_, i) => `pr-${i}`);
+  for (const [i, key] of keys.entries()) {
+    await backend.saveReview({ targetKey: key, kind: "pr", repo: "acme/web", number: i + 1, status: "ready", createdAt: i, projectId: "p1" });
+    await backend.savePatch(key, patchOf(true));
+    await backend.saveGuide(key, guideOf("T") as never);
+  }
+  const view = await createConfigureView(bb, backend);
+  const store = queueStore(view.backend, { afterTurn: view.afterTurn });
+  const before = counts.patchReads;
+  for (const poll of [0, 1]) for (const [i, key] of keys.entries()) await store.exclusive(async (tx) => { await tx.setLifecycle(key, { turnGroup: poll ? "waiting" : "needs", pushCheckTriedAt: i }); });
+  expect(counts.patchReads - before).toBe(0);
+  expect(view.review("pr-3")?.turnGroup).toBe("waiting");
+  // A guide saved is read again, with its renames.
+  await store.saveGuide("pr-3", guideOf("New") as never);
+  expect(view.guide("pr-3")).toMatchObject({ title: "New", sections: [{ diffs: [{ file: "new.ts" }] }] });
 });

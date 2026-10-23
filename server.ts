@@ -131,7 +131,7 @@ export default async function plugin(bb: BbPluginApi) {
   // Once a day, drop the stored diffs of reviews out of play for a month. BB keeps the schedule, so a reload doesn't prune again.
   bb.background.schedule("prune-old-diffs", "17 4 * * *", async () => { await served?.pruneOld(); });
   if (storage.kind === "sqlite") {
-    serve(servePlugin(bb, await openStore(bb, createStore(bb))));
+    serve(servePlugin(bb, await openStore(bb, createStore(bb)), true));
     return;
   }
   const { pg, schema } = storage;
@@ -185,8 +185,11 @@ async function openStore(bb: BbPluginApi, backend: Store, interrupted: Interrupt
   return { configured, store, interrupted };
 }
 
-/** Register the tools, RPC handlers and events, and start what runs on the open store. Nothing in it awaits. */
-function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaited<ReturnType<typeof openStore>>): Served {
+/**
+ * Register the tools, RPC handlers and events, and start what runs on the open store. Nothing in it awaits.
+ * `sharedWithReplaced`: the instance a reload replaces can still write to the store, as on SQLite.
+ */
+function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaited<ReturnType<typeof openStore>>, sharedWithReplaced = false): Served {
   const receipts = postReceipts(bb.storage.kv);
   const submitReview = createReviewSubmitter(store, runGh, receipts);
   const deps = { bb, store, gh: { runGh, runGit } };
@@ -1579,6 +1582,9 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       }
     },
     async syncReviews(signal) {
+      // On SQLite, the instance a reload replaces shares data.db, and may write after this one read configure's view,
+      // which reads a guide again only when a call can change it: it's all read again once, after the first pass's first turn.
+      if (sharedWithReplaced) configured.readAllAfterNextTurn();
       while (!signal.aborted) {
         await updates.run(() => sync.all(), false).catch(() => {});
         await updates.run(() => retryInterruptedGuides(deps), false).catch(() => {});
