@@ -130,8 +130,13 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
       // Text in a comment or the comment box isn't the document's.
       const ends = [range.startContainer, range.endContainer].map((node) => (node instanceof Element ? node : node.parentElement)?.closest("[data-md-notes]") ? null : blockOf(node));
       if (!ends[0] || !ends[1]) return;
-      const [from, to] = ends.map((end) => Number(end!.dataset.mdIndex)).sort((a, b) => a - b);
-      const picked = items.slice(from, to + 1);
+      const [from, to] = ends.map((end) => Number(end!.dataset.mdIndex));
+      // A changed block's version before, above it, is the old file's.
+      const [fromGhost, toGhost] = [range.startContainer, range.endContainer].map((node) => !!(node instanceof Element ? node : node.parentElement)?.closest("[data-md-ghost]"));
+      const ghost = (index: number): RenderedBlock => ({ status: "removed", side: "LEFT", block: items[index].previous! });
+      let picked = items.slice(from, to + 1);
+      if (toGhost) picked = [...picked.slice(0, -1), ghost(to)];
+      if (fromGhost) picked = [ghost(from), ...picked.slice(from === to && toGhost ? 1 : 0)];
       const anchor = selectionAnchor(lines, picked);
       const last = picked[picked.length - 1];
       const side = (anchor?.side ?? last.side) === "LEFT" ? "deletions" : "additions";
@@ -146,6 +151,8 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
     document.addEventListener("selectionchange", changed);
     return () => { clearTimeout(rest); document.removeEventListener("selectionchange", changed); };
   }, []);
+  // Lines cleared, as with Esc or ✕: the same text selected again picks them again.
+  useEffect(() => { if (!selected) sent.current = null; }, [selected]);
 
   const pickedSide = selected && ((selected.endSide ?? selected.side) === "deletions" ? "LEFT" : "RIGHT");
   const isPicked = (item: RenderedBlock) => !!selected && item.side === pickedSide
@@ -158,6 +165,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
     return (
       <div
         data-md-block={item.block.kind}
+        data-md-ghost={ghost || undefined}
         data-side={item.side}
         data-start={item.block.start}
         data-end={item.block.end}

@@ -2,7 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
-import type { MutableRefObject } from "react";
+import { useState, type MutableRefObject } from "react";
 import { defaultPreferences } from "../src/preferences";
 import { patchReviewState } from "../lib/panel-state";
 import { gitPatch } from "../lib/markdown-test-patch.test-support";
@@ -185,6 +185,43 @@ test("text selected across blocks picks their lines in one hunk; in blocks the d
   await waitFor(() => expect(onLineSelected).toHaveBeenLastCalledWith(FILE, { start: 10, end: 11, side: "additions" }, undefined));
   select(text(0), text(1));
   await waitFor(() => expect(onLineSelected).toHaveBeenLastCalledWith(FILE, { start: 1, end: 3, side: "additions" }, { code: "Intro paragraph.\n\nFiller 0." }));
+  slot.lifecycle.unmount();
+});
+
+test("text selected in a changed block's version before picks its old lines", async () => {
+  const { slot, onLineSelected } = await renderDiff({ markdownFiles: "rendered" });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(7));
+  fireEvent.click(within(units(slot.container)[3]).getByRole("button", { name: "Show previous" }));
+  const ghost = within(units(slot.container)[3]).getAllByTestId("bb-markdown")[0].firstChild!;
+  expect(ghost.textContent).toBe("Tokens expire after 1 hour.");
+  select(ghost, ghost);
+  await waitFor(() => expect(onLineSelected).toHaveBeenLastCalledWith(FILE, { start: 7, end: 7, side: "deletions" }, undefined));
+  slot.lifecycle.unmount();
+});
+
+test("the same text selected again, after its lines were cleared, picks them again", async () => {
+  await loadPluginApp(() => import("../app"));
+  const { DraftTray } = await import("./draft-tray.test-support");
+  const { DiffViewer } = await import("./DiffViewer");
+  const picked = vi.fn();
+  function Picking() {
+    const [lines, setLines] = useState<any>(null);
+    return <>
+      <button type="button" onClick={() => setLines(null)}>Clear selection</button>
+      <DiffViewer patch={PATCH} files={[FILE]} views={new Map()} onToggleViewed={() => {}} readContents={async () => ({ ok: true, old: OLD, new: NEW })} markdownFiles="rendered"
+        selectedLines={lines} onLineSelected={(file, range) => { picked(range); setLines(range ? { file, range } : null); }} />
+    </>;
+  }
+  const component = () => <DraftTray targetKey="k" activeChapterId="c1" activeFiles={[FILE]} reviewRevision="r1" account="reviewer" patch={PATCH}><Picking /></DraftTray>;
+  const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft: draftOf(), stale: [], discussions: [] }) } as any });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(7));
+  const text = within(units(slot.container)[3]).getByTestId("bb-markdown").firstChild!;
+  select(text, text);
+  await waitFor(() => expect(picked).toHaveBeenCalledTimes(1));
+  fireEvent.click(slot.getByRole("button", { name: "Clear selection" }));
+  select(text, text);
+  await waitFor(() => expect(picked).toHaveBeenCalledTimes(2));
+  expect(picked).toHaveBeenLastCalledWith({ start: 7, end: 7, side: "additions" });
   slot.lifecycle.unmount();
 });
 

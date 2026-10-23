@@ -243,7 +243,8 @@ function changeStops(root: HTMLElement | null): { row: HTMLElement; card: HTMLEl
     // Rendered Markdown: each run of changed blocks.
     for (const unit of Array.from(card.querySelectorAll<HTMLElement>("[data-md-status]:not([data-md-status=unchanged])"))) {
       if (unit.previousElementSibling?.matches("[data-md-status]:not([data-md-status=unchanged])")) continue;
-      const block = unit.querySelector<HTMLElement>("[data-md-block]")!;
+      // The block itself, not its version before above it.
+      const block = unit.querySelector<HTMLElement>("[data-md-block]:not([data-md-ghost])")!;
       stops.push({ row: block, card, top: Math.round(block.getBoundingClientRect().top), line: Number(block.dataset.start), old: block.dataset.side === "LEFT" });
     }
     const tops = new Set<number>();
