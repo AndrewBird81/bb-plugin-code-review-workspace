@@ -1,6 +1,8 @@
 # Changelog
 
-## 1.4.0 — unreleased
+## 1.4.0 — 2026-10-23
+
+Send an approval to the thread that made the change. With no comments in the draft, Finish review on your own PR or a local review can tell it "Approved", and what Send to thread sends can carry your message and the review summary. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.4.0. 1.4.0 adds no migration, so rolling back to 1.3.0 keeps everything; a sent approval's record stays, unused, until you update again.
 
 - With no comments in the draft, Finish review on your own PR or a local review offers **Send approval to ‹thread›**, where it offered nothing: it asks for an optional message and, when the draft has a summary, whether to include it (unchecked), then sends the thread that made the change one message, "Approved", followed by your message and the summary if you add them, and says "Sent to ‹thread›" or "Queued in ‹thread›", with **Open**. It's offered once for each diff, and approves only the diff the page shows: if new commits arrived since, or the guide is rebuilding, it sends nothing and asks you to open the latest. A comment you add goes as before. Nothing goes to GitHub.
 - Comments sent to the thread that made the change no longer end with "Don't push … unless I ask": that thread keeps its own rules about GitHub. **Fix in a new thread** still says it.
