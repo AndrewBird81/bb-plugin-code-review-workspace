@@ -67,6 +67,10 @@ const SERVER_KEEPALIVE_COUNT = 3;
 const WRITER_LOCK_POLL_MS = 100;
 // How long closing waits for the server's goodbye, which a dead peer never sends.
 const CLOSE_WAIT_MS = 5_000;
+// After a failed connect, new connections fail at once with its error for this long, doubling after each failure up to
+// the most: the calls queued behind one that waited out the connect timeout needn't each wait it out too.
+const RECONNECT_WAIT_MS = 1_000;
+const RECONNECT_WAIT_MOST_MS = 15_000;
 
 export interface PgSql extends Sql {
   readonly dialect: "postgres";
@@ -268,6 +272,8 @@ export function pgSql(options: PgOptions): PgSql {
   // ends, so nothing else reaches its connection meanwhile.
   let lane: Promise<unknown> = Promise.resolve();
   let current: Session | null = null;
+  /** The latest failed connect's error, which new connections fail with until `until`, and the wait it began. */
+  let unreachable: { error: unknown; until: number; waitMs: number } | null = null;
   let holdWriterLock = false;
   let closed = false;
   let ended: Promise<void> | null = null;
@@ -369,7 +375,16 @@ export function pgSql(options: PgOptions): PgSql {
 
   async function connection(): Promise<Session> {
     if (current) return current;
-    const session = await open();
+    if (unreachable && Date.now() < unreachable.until) throw unreachable.error;
+    let session: Session;
+    try {
+      session = await open();
+    } catch (error) {
+      const waitMs = unreachable ? Math.min(unreachable.waitMs * 2, RECONNECT_WAIT_MOST_MS) : RECONNECT_WAIT_MS;
+      unreachable = { error, until: Date.now() + waitMs, waitMs };
+      throw error;
+    }
+    unreachable = null;
     if (holdWriterLock) {
       try {
         await takeWriterLock(session);

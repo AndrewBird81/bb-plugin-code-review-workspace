@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { createServer, type Socket } from "node:net";
 import type { TLSSocket } from "node:tls";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
@@ -36,6 +37,30 @@ test("a connection is dropped after an error that ends its session, told by SQLS
   expect(usableAfter(failure("57014", "FEHLER"))).toBe(true);
   expect(usableAfter(new RangeError("Postgres returned 9007199254740993, which a JavaScript number can't hold exactly"))).toBe(true);
   expect(usableAfter(new Error("Query read timeout"))).toBe(false);
+});
+
+// bug bash HC-4: while Postgres accepted connections and answered nothing, as a dropped network or a paused server does,
+// each queued call waited out its own connect timeout, one after another.
+test("calls queued while Postgres accepts and answers nothing fail once the first connect times out, and connecting is tried again later", async () => {
+  const held: Socket[] = [];
+  const server = createServer((socket) => { held.push(socket); });
+  await new Promise<void>((resolve) => { server.listen(0, "127.0.0.1", resolve); });
+  const { port } = server.address() as { port: number };
+  const sql = pgSql({ url: `postgres://crw@127.0.0.1:${port}/crw`, password: "secret", schema: "s", ssl: "disable", timeouts: { connectMs: 300 } });
+  try {
+    const started = performance.now();
+    const settled = await Promise.all(Array.from({ length: 5 }, () => sql.get("SELECT 1").then(() => "answered", (error: Error) => error.message)));
+    expect(settled).toEqual(Array(5).fill("timeout expired"));
+    expect(performance.now() - started).toBeLessThan(900);
+    expect(held).toHaveLength(1);
+    await sleep(1_100);
+    await expect(sql.get("SELECT 1")).rejects.toThrow("timeout expired");
+    expect(held).toHaveLength(2);
+  } finally {
+    await sql.end();
+    for (const socket of held) socket.destroy();
+    await new Promise<void>((resolve) => { server.close(() => resolve()); });
+  }
 });
 
 describe("the options, checked before anything connects", () => {
