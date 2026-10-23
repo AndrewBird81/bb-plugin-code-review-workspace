@@ -172,6 +172,7 @@ Syntax-highlighted diffs and viewed-file tracking.
 
 - Changed lines are marked + and −, not by color alone, with a bar beside them, dashed for deletions.
 - A new file shows as a file, its code with a rail beside it, under **New file** and its length; a deleted file starts folded ("Deleted · 65 lines"); **Show as diff**, or Diff options' **New and deleted files**, shows them as diffs, in every review.
+- A Markdown file (`.md`, `.markdown`) switches between **Source** and **Rendered** in its row, or with `m`; Diff options' **Markdown files** picks which it opens as, in every review. Rendered draws it through BB's Markdown a block at a time, with a bar beside each added (green) or changed (amber) block, each removed block dimmed with a dashed red bar where it was, and **Show previous** on a changed block; long runs of unchanged blocks fold. Comments, threads and CI failures show after the block holding their line. A block the diff shows takes a comment from the button left of its bar, on its lines in the diff; selected text picks its blocks' lines for **Comment** or **Ask agent**, or, outside the diff, **Ask agent** alone. Rendered is off, saying why, on a re-review's Since your review, for a file split across chapters, or when the file can't load.
 - Unified diffs show old and new line numbers in their own columns, unchanged stretches name the function after them and expand 20 lines a click, 40 or more deleted lines in a row fold after their first three ("Show 174 more deleted lines", opening where a comment or your selection is in them), and lines new since your review are marked beside their numbers.
 - Only a slim row sticks above each file's code: its path, "New since your review" or "Changed since your review" on a re-review, its comment count (drafts and unresolved GitHub threads), its additions and deletions, and **Viewed**.
 - Under it, a row that scrolls away holds:
@@ -267,6 +268,7 @@ A review is pinned to the PR snapshot it was generated from. If the PR gets new 
 | Esc | Close what's over the code, leave full screen, or clear the lines selected |
 | d | Since your review or All changes, on a re-review |
 | i | Fold or unfold comments in the code |
+| m | Rendered or source, for a Markdown file |
 | ⇧F | Full screen on or off |
 | ? | Show these shortcuts |
 
