@@ -19,10 +19,10 @@ const comments = [
   { file: "src/b.ts", line: 9, side: "LEFT", body: "Keep the check." },
 ];
 
-async function renderTray(rpc: Record<string, unknown>, props: Record<string, unknown>, options: Record<string, unknown> = {}) {
+async function renderTray(rpc: Record<string, unknown>, props: Record<string, unknown>, options: Record<string, unknown> = {}, drafted: readonly unknown[] = comments, body = "") {
   await loadPluginApp(() => import("../app"));
   const DraftTray = await draftTray();
-  const draft = { targetKey: "k", verdict: "COMMENT", body: "", comments };
+  const draft = { targetKey: "k", verdict: "COMMENT", body, comments: drafted };
   const component = () => <DraftTray targetKey="k" activeChapterId="c1" activeFiles={["src/a.ts"]} reviewRevision="r1" account="reviewer" {...props} />;
   const slot = renderSlot({ component }, {}, { rpc: { setReviewPresence: () => ({ ok: true }), getReviewerNotes: () => ({ body: "", revision: 0 }), getDraft: () => ({ draft, stale: [], discussions: [] }), setVerdict: () => ({ draft }), ...rpc } as any, ...options });
   await slot.findByText("Draft saved");
@@ -129,4 +129,100 @@ test("a source thread that's archived or gone leaves Fix in a new thread, and sa
   expect(none.getByRole("button", { name: "Fix in a new thread" })).toBeTruthy();
   expect(getSourceThread).not.toHaveBeenCalled();
   none.lifecycle.unmount();
+});
+
+test("with no comments, Send to thread offers to tell the thread you approve, once for the diff you reviewed", async () => {
+  const getSourceThread = vi.fn(() => ({ thread: { threadId: "coder", title: "Retry uploads", state: "open" } }));
+  const sendApprovalToSourceThread = vi.fn(async () => ({ ok: true, delivery: "queued", title: "Retry uploads" }));
+  const slot = await renderTray({ getSourceThread, sendApprovalToSourceThread }, local, {}, []);
+  const region = within(await slot.findByRole("region", { name: "Send to thread" }));
+  expect(region.getByText(/Tells it “Approved”, with your message and the summary if you add them, after what it’s doing\. Nothing goes to GitHub/)).toBeTruthy();
+  expect(region.queryByRole("button", { name: "Fix in a new thread" })).toBeNull();
+  fireEvent.click(region.getByRole("button", { name: "Send approval to Retry uploads" }));
+  // It asks first, with nothing more to add than a message: the draft has no summary.
+  const form = within(slot.getByRole("group", { name: "Approval to send" }));
+  expect(form.getByRole("textbox", { name: "Message (optional)" })).toBeTruthy();
+  expect(form.queryByRole("checkbox")).toBeNull();
+  expect(sendApprovalToSourceThread).not.toHaveBeenCalled();
+  fireEvent.click(form.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(sendApprovalToSourceThread).toHaveBeenCalledWith({ targetKey: "k", revision: "r1" }));
+  const status = await region.findByRole("status");
+  expect(status.textContent).toBe("Queued in Retry uploads · Open");
+  fireEvent.click(within(status).getByRole("button", { name: "Open" }));
+  expect(slot.inspection.navigateCalls).toContainEqual({ method: "toThread", threadId: "coder" });
+  expect(region.queryByRole("button", { name: /^Send approval/ })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("an approval already sent for this diff isn't offered again, one for an older diff is, and a failed one says why", async () => {
+  const getSourceThread = () => ({ thread: { threadId: "coder", title: "Retry uploads", state: "open" } });
+  const approved = (revision: string) => ({ ...local, review: { ...local.review, approvalSent: { at: 1, threadId: "coder", title: "Retry uploads", revision } } });
+  const same = await renderTray({ getSourceThread }, approved("r1"), {}, []);
+  const status = await within(await same.findByRole("region", { name: "Send to thread" })).findByRole("status");
+  expect(status.textContent).toBe("Sent to Retry uploads · Open");
+  expect(same.queryByRole("button", { name: /^Send approval/ })).toBeNull();
+  same.lifecycle.unmount();
+  const sendApprovalToSourceThread = vi.fn(async () => { throw new Error("Couldn’t send to the thread: The machine is offline."); });
+  const older = await renderTray({ getSourceThread, sendApprovalToSourceThread }, approved("r0"), {}, []);
+  fireEvent.click(await older.findByRole("button", { name: "Send approval to Retry uploads" }));
+  fireEvent.click(older.getByRole("button", { name: "Send" }));
+  expect((await older.findByRole("alert")).textContent).toBe("Couldn’t send to the thread: The machine is offline.");
+  older.lifecycle.unmount();
+  // With comments, they go as before.
+  const commented = await renderTray({ getSourceThread }, approved("r1"), {}, comments);
+  expect(await commented.findByRole("button", { name: "Send 2 comments to Retry uploads" })).toBeTruthy();
+  expect(commented.queryByRole("button", { name: /^Send approval/ })).toBeNull();
+  commented.lifecycle.unmount();
+});
+
+test("an approval can add your message and, when there is one, the summary, which isn't included until you check it", async () => {
+  const getSourceThread = () => ({ thread: { threadId: "coder", title: "Retry uploads", state: "open" } });
+  const sendApprovalToSourceThread = vi.fn(async () => ({ ok: true, delivery: "sent", title: "Retry uploads" }));
+  const slot = await renderTray({ getSourceThread, sendApprovalToSourceThread }, local, {}, [], "No blocking issues.");
+  fireEvent.click(await slot.findByRole("button", { name: "Send approval to Retry uploads" }));
+  const form = within(slot.getByRole("group", { name: "Approval to send" }));
+  expect(form.getByRole("checkbox", { name: "Include the summary" })).toHaveProperty("checked", false);
+  // Cancel puts the button back, and opening it again starts afresh.
+  fireEvent.change(form.getByRole("textbox", { name: "Message (optional)" }), { target: { value: "Draft words" } });
+  fireEvent.click(form.getByRole("button", { name: "Cancel" }));
+  expect(slot.queryByRole("group", { name: "Approval to send" })).toBeNull();
+  fireEvent.click(slot.getByRole("button", { name: "Send approval to Retry uploads" }));
+  const again = within(slot.getByRole("group", { name: "Approval to send" }));
+  expect(again.getByRole("textbox", { name: "Message (optional)" })).toHaveProperty("value", "");
+  fireEvent.change(again.getByRole("textbox", { name: "Message (optional)" }), { target: { value: "  Ship it.  " } });
+  fireEvent.click(again.getByRole("checkbox", { name: "Include the summary" }));
+  fireEvent.click(again.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(sendApprovalToSourceThread).toHaveBeenCalledWith({ targetKey: "k", revision: "r1", message: "Ship it.", includeSummary: true }));
+  expect((await within(slot.getByRole("region", { name: "Send to thread" })).findByRole("status")).textContent).toBe("Sent to Retry uploads · Open");
+  expect(slot.queryByRole("group", { name: "Approval to send" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("sending comments to the source thread can add your message and the summary; Fix in a new thread can't", async () => {
+  const getSourceThread = () => ({ thread: { threadId: "coder", title: "Retry uploads", state: "open" } });
+  const sendToSourceThread = vi.fn(async () => ({ ok: true, delivery: "sent", title: "Retry uploads" }));
+  const slot = await renderTray({ getSourceThread, sendToSourceThread }, local, {}, comments, "Mostly fine.");
+  const region = within(await slot.findByRole("region", { name: "Send to thread" }));
+  fireEvent.click(region.getByRole("button", { name: "Fix in a new thread" }));
+  const fix = within(slot.getByRole("group", { name: "Comments to fix" }));
+  expect(fix.queryByRole("textbox")).toBeNull();
+  expect(fix.queryByRole("checkbox", { name: "Include the summary" })).toBeNull();
+  fireEvent.click(fix.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(region.getByRole("button", { name: "Send 2 comments to Retry uploads" }));
+  const picks = within(slot.getByRole("group", { name: "Comments to send" }));
+  expect(picks.getByRole("checkbox", { name: "Include the summary" })).toHaveProperty("checked", false);
+  fireEvent.change(picks.getByRole("textbox", { name: "Message (optional)" }), { target: { value: "Do these first." } });
+  fireEvent.click(picks.getByRole("checkbox", { name: "Include the summary" }));
+  fireEvent.click(picks.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(sendToSourceThread).toHaveBeenCalledWith({ targetKey: "k", comments: [{ file: "src/a.ts", line: 2, side: "RIGHT" }, { file: "src/b.ts", line: 9, side: "LEFT" }], message: "Do these first.", includeSummary: true }));
+  slot.lifecycle.unmount();
+});
+
+test("with no comments and no open source thread, there's nothing to send", async () => {
+  const getSourceThread = vi.fn(() => ({ thread: { threadId: "coder", title: "Old work", state: "archived" } }));
+  const archived = await renderTray({ getSourceThread }, local, {}, []);
+  await waitFor(() => expect(getSourceThread).toHaveBeenCalled());
+  expect(archived.queryByRole("region", { name: "Send to thread" })).toBeNull();
+  expect(archived.queryByRole("button", { name: /^Send approval/ })).toBeNull();
+  archived.lifecycle.unmount();
 });

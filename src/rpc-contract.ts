@@ -32,6 +32,8 @@ const commentShape = z
   .strict();
 
 const location = { file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]) };
+// What Send to thread adds to what it sends (src/fix-handoff.ts): your message, as long as a summary may be, and the summary.
+const sendExtras = { message: z.string().max(65_000).optional(), includeSummary: z.boolean().optional() };
 const syncHealth = z.object({
   lastReadAt: z.number().nullable(),
   error: z.object({ kind: z.enum(["auth", "rate-limit", "partial", "teams", "gh-missing", "other"]), at: z.number(), count: z.number().optional(), retryAt: z.number().optional() }).nullable(),
@@ -293,7 +295,12 @@ export const rpcContract = defineRpcContract({
     output: z.object({ thread: z.object({ threadId: z.string(), title: z.string().nullable(), state: z.enum(["open", "archived", "gone"]) }).nullable() }),
   },
   sendToSourceThread: {
-    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1) }).strict(),
+    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), ...sendExtras }).strict(),
+    output: z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable() }),
+  },
+  // With no comments in the draft: tells the source thread you approve the change as is, at the revision the page shows.
+  sendApprovalToSourceThread: {
+    input: z.object({ targetKey: z.string(), revision: z.string().optional(), ...sendExtras }).strict(),
     output: z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable() }),
   },
 

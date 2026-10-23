@@ -5,10 +5,11 @@ import { testStore } from "./test-store.test-support";
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh }));
 
-import { fixMessage, sendToSourceThread, sourceThread, startFixThread } from "./fix-handoff";
+import { fixMessage, sendApprovalToSourceThread, sendToSourceThread, sourceThread, startFixThread } from "./fix-handoff";
 import plugin from "../server";
 import { defaultPreferences } from "./preferences";
 import type { AsyncStore } from "./store-queue";
+import { reviewRevision } from "./review-revision";
 
 const PATCH = [
   "diff --git a/src/a.ts b/src/a.ts", "--- a/src/a.ts", "+++ b/src/a.ts", "@@ -1,3 +1,4 @@",
@@ -174,7 +175,9 @@ test("Send to thread sends the comments you chose to the thread that made the ch
   expect(text).toContain("acme/web PR #12 (Retry uploads)");
   expect(text).toContain("Name this better.");
   expect(text).not.toContain("Why change b?");
-  expect(text.endsWith("Reply in this thread with what you changed for each comment, as `file:line — done` or `not done (why)`. Don't push unless I ask.")).toBe(true);
+  expect(text.endsWith("Reply in this thread with what you changed for each comment, as `file:line — done` or `not done (why)`.")).toBe(true);
+  // The thread that made the change keeps its own rules about GitHub.
+  expect(text).not.toContain("Don't push");
   const sent = (await store.getReview("pr-1"))?.sent;
   expect(sent).toMatchObject({ threadId: "coder", title: "Retry uploads", comments: [{ file: "src/a.ts", line: 3, side: "RIGHT", body: "Name this better." }] });
   // Sending another keeps the first marked, each with when it was sent.
@@ -182,6 +185,21 @@ test("Send to thread sends the comments you chose to the thread that made the ch
   expect((await store.getReview("pr-1"))?.sent?.comments.map(({ line, at }) => ({ line, at: typeof at }))).toEqual([{ line: 3, at: "number" }, { line: 2, at: "number" }]);
   // Sending submits nothing: the draft is as it was.
   expect(await store.getDraft("pr-1")).toEqual(before);
+});
+
+test("Send to thread puts your message before the comments and the summary after them, when you add them", async () => {
+  const { bb, store, sends } = sendHost({ coder: { title: "Retry uploads" } });
+  await ownPr(store, { sourceThreadId: "coder" });
+  await store.setVerdict("pr-1", "COMMENT", "  Mostly fine.  ");
+  const at = [{ file: "src/a.ts", line: 3, side: "RIGHT" as const }];
+  await sendToSourceThread(bb, store, "pr-1", at);
+  await sendToSourceThread(bb, store, "pr-1", at, { message: "  Do these first.  ", includeSummary: true });
+  await sendToSourceThread(bb, store, "pr-1", at, { message: " ", includeSummary: false });
+  const [plain, added, blank] = sends().map((send) => send.input[0].text as string);
+  expect(plain).not.toContain("Mostly fine.");
+  expect(blank).toBe(plain);
+  const [fix, reportBack] = [plain.slice(0, plain.lastIndexOf("\n\n")), plain.slice(plain.lastIndexOf("\n\n") + 2)];
+  expect(added).toBe(["Do these first.", fix, "Mostly fine.", reportBack].join("\n\n"));
 });
 
 test("Send to thread refuses someone else's PR, a review no thread started, and a thread that's gone or archived", async () => {
@@ -215,5 +233,109 @@ test("sendToSourceThread tells the review's page, and with Send to thread off ne
   await store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, sendToThread: false } }, (await store.getPreferences()).revision);
   expect(await harness.behavior.callRpc("getSourceThread", { targetKey: "pr-1" })).toEqual({ thread: null });
   await expect(harness.behavior.callRpc("sendToSourceThread", { targetKey: "pr-1", comments })).rejects.toThrow("Send to thread is off in Review settings.");
+  expect(sends()).toHaveLength(1);
+});
+
+/** The own PR of ownPr, with no draft comments. */
+async function approvablePr(store: AsyncStore, over: Record<string, unknown> = {}) {
+  await ownPr(store, { sourceThreadId: "coder", ...over });
+  for (const { file, line, side } of (await store.getDraft("pr-1")).comments) await store.deleteDraftComment("pr-1", { file, line, side });
+}
+
+/** Approve the review at the revision it's at now, as a page showing it would. */
+async function approve(bb: Parameters<typeof sendApprovalToSourceThread>[0], store: AsyncStore, targetKey = "pr-1", add?: Parameters<typeof sendApprovalToSourceThread>[4]) {
+  return sendApprovalToSourceThread(bb, store, targetKey, await reviewRevision(store, targetKey), add);
+}
+
+test("with no comments, Send to thread tells the thread that made the change \"Approved\", once for that diff", async () => {
+  const { bb, store, sends } = sendHost({ coder: { title: "Retry uploads" } }, "queued");
+  await approvablePr(store);
+  expect(await approve(bb, store)).toEqual({ ok: true, delivery: "queued", title: "Retry uploads" });
+  const [send] = sends();
+  expect(send).toMatchObject({ threadId: "coder", mode: "queue-if-active" });
+  expect(send.input[0].text).toBe("Approved");
+  expect((await store.getReview("pr-1"))?.approvalSent).toMatchObject({ threadId: "coder", title: "Retry uploads", revision: await reviewRevision(store, "pr-1"), at: expect.any(Number) });
+  // The same diff isn't approved twice; a new commit can be.
+  await expect(approve(bb, store)).rejects.toThrow("You already told Retry uploads you approve this diff.");
+  await store.saveReview({ ...(await store.getReview("pr-1"))!, headSha: "fedcba9876543" });
+  await approve(bb, store);
+  expect(sends()).toHaveLength(2);
+  // Sending comments after it supersedes the approval.
+  await store.upsertDraftComment("pr-1", { file: "src/a.ts", line: 3, side: "RIGHT", body: "Name this better." });
+  await sendToSourceThread(bb, store, "pr-1", [{ file: "src/a.ts", line: 3, side: "RIGHT" }]);
+  expect((await store.getReview("pr-1"))?.approvalSent).toBeNull();
+});
+
+test("an approval is for the diff the page shows: not one that changed since, nor while the guide rebuilds", async () => {
+  const { bb, store, sends } = sendHost({ coder: { title: "Retry uploads" } });
+  await approvablePr(store);
+  const shown = await reviewRevision(store, "pr-1");
+  // The source thread pushes again, so the review has a diff the page hasn't shown.
+  await store.saveReview({ ...(await store.getReview("pr-1"))!, headSha: "fedcba9876543" });
+  await expect(sendApprovalToSourceThread(bb, store, "pr-1", shown)).rejects.toThrow("This review changed in another window.");
+  await expect(sendApprovalToSourceThread(bb, store, "pr-1", undefined)).rejects.toThrow("This review changed in another window.");
+  await store.saveReview({ ...(await store.getReview("pr-1"))!, status: "generating" });
+  await expect(sendApprovalToSourceThread(bb, store, "pr-1", await reviewRevision(store, "pr-1"))).rejects.toThrow("The guide is rebuilding for new commits");
+  expect(sends()).toHaveLength(0);
+  expect((await store.getReview("pr-1"))?.approvalSent).toBeUndefined();
+  // Once it's ready and the page shows it, that's the diff approved.
+  await store.saveReview({ ...(await store.getReview("pr-1"))!, status: "ready" });
+  const current = await reviewRevision(store, "pr-1");
+  await sendApprovalToSourceThread(bb, store, "pr-1", current);
+  expect((await store.getReview("pr-1"))?.approvalSent?.revision).toBe(current);
+  expect(current).not.toBe(shown);
+});
+
+test("an approval says \"Approved\", then your message and the draft's summary only if you add them", async () => {
+  const sent = async (add?: Parameters<typeof sendApprovalToSourceThread>[4]) => {
+    const { bb, store, sends } = sendHost({ coder: { title: "Retry uploads" } });
+    await approvablePr(store);
+    await store.setVerdict("pr-1", "APPROVE", "  No blocking issues.\n\n- Tests cover every case.  ");
+    await approve(bb, store, "pr-1", add);
+    return sends()[0].input[0].text;
+  };
+  expect(await sent()).toBe("Approved");
+  expect(await sent({ includeSummary: false, message: " \n " })).toBe("Approved");
+  expect(await sent({ message: "  Ship it, then rebase onto main.  " })).toBe("Approved\n\nShip it, then rebase onto main.");
+  expect(await sent({ includeSummary: true })).toBe("Approved\n\nNo blocking issues.\n\n- Tests cover every case.");
+  expect(await sent({ message: "Ship it.", includeSummary: true })).toBe("Approved\n\nShip it.\n\nNo blocking issues.\n\n- Tests cover every case.");
+});
+
+test("a local review's approval is the same message", async () => {
+  const { bb, store, sends } = sendHost({ coder: { title: "Retry uploads" } });
+  await store.saveReview({ targetKey: "ref-1", kind: "ref", gitRef: "main...feature", status: "ready", createdAt: 1, projectId: "p1", cwd: "/repo" } as any);
+  await store.setLifecycle("ref-1", { sourceThreadId: "coder" });
+  await store.savePatch("ref-1", PATCH);
+  await approve(bb, store, "ref-1");
+  expect(sends()[0].input[0].text).toBe("Approved");
+});
+
+test("approving refuses a draft with comments, someone else's PR, a review no thread started, and a thread that's gone or archived", async () => {
+  const { bb, store, sends } = sendHost({ coder: { title: "Retry uploads" }, old: { title: "Old work", archivedAt: 5 } });
+  await ownPr(store, { sourceThreadId: "coder" });
+  await expect(approve(bb, store)).rejects.toThrow("Your draft has comments. Send them instead.");
+  await approvablePr(store, { ownPr: false });
+  await expect(approve(bb, store)).rejects.toThrow("Send to thread is only for your own PR or a local review.");
+  await approvablePr(store, { sourceThreadId: null });
+  await expect(approve(bb, store)).rejects.toThrow("This review has no thread to send to.");
+  await approvablePr(store, { sourceThreadId: "deleted" });
+  await expect(approve(bb, store)).rejects.toThrow("The thread that started this review was deleted.");
+  await approvablePr(store, { sourceThreadId: "old" });
+  await expect(approve(bb, store)).rejects.toThrow("Old work is archived.");
+  await expect(approve(bb, store, "none")).rejects.toThrow("This review no longer exists.");
+  expect(sends()).toHaveLength(0);
+  expect((await store.getReview("pr-1"))?.approvalSent).toBeUndefined();
+});
+
+test("sendApprovalToSourceThread tells the review's page, and with Send to thread off sends nothing", async () => {
+  const { bb, harness, store, sends } = sendHost({ coder: { title: "Retry uploads" } });
+  await plugin(bb);
+  await approvablePr(store);
+  expect(await harness.behavior.callRpc("sendApprovalToSourceThread", { targetKey: "pr-1", revision: await reviewRevision(store, "pr-1"), message: "Ship it.", includeSummary: true })).toEqual({ ok: true, delivery: "sent", title: "Retry uploads" });
+  expect(sends()[0].input[0].text).toBe("Approved\n\nShip it.");
+  expect(harness.inspection.realtimeSignals.map((signal) => signal.channel)).toContain("review:pr-1");
+  await store.saveReview({ ...(await store.getReview("pr-1"))!, headSha: "fedcba9876543" });
+  await store.savePreferences({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, sendToThread: false } }, (await store.getPreferences()).revision);
+  await expect(harness.behavior.callRpc("sendApprovalToSourceThread", { targetKey: "pr-1", revision: await reviewRevision(store, "pr-1") })).rejects.toThrow("Send to thread is off in Review settings.");
   expect(sends()).toHaveLength(1);
 });

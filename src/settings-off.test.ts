@@ -267,6 +267,7 @@ test("with every toggle off, a review a thread started offers no thread to send 
   await store.upsertDraftComment("pr-1", { file: "a.ts", line: 1, side: "RIGHT", body: "Fix it." });
   expect(await harness.behavior.callRpc("getSourceThread", { targetKey: "pr-1" })).toEqual({ thread: null });
   await expect(harness.behavior.callRpc("sendToSourceThread", { targetKey: "pr-1", comments: [{ file: "a.ts", line: 1, side: "RIGHT" }] })).rejects.toThrow("Send to thread is off");
+  await expect(harness.behavior.callRpc("sendApprovalToSourceThread", { targetKey: "pr-1" })).rejects.toThrow("Send to thread is off");
   expect(harness.inspection.sdk.callsTo("threads.send")).toHaveLength(0);
 });
 
