@@ -11,7 +11,7 @@ import { createFakePluginHost, makePluginAgentConfigurationContext, type FakePlu
 import pg from "pg";
 import plugin from "../server";
 import { PgWriterLockError } from "./db/pg";
-import { chooseStorage, openPostgres, STORAGE_OWNER_KEY, unreachable, type StorageChoice } from "./storage";
+import { chooseStorage, describe as describeProblem, openPostgres, STORAGE_OWNER_KEY, unreachable, type StorageChoice } from "./storage";
 import { startPlugin } from "./plugin-store.test-support";
 
 const PLUGIN = "code-review-workspace";
@@ -317,6 +317,16 @@ test("only a failure to reach Postgres, or a server starting or stopping, counts
 test("a statement cancelled by its timeout, a lock not granted, a deadlock, and pg's own read timeout count as passing", () => {
   const database = (code: string) => Object.assign(new pg.DatabaseError("from the server", 0, "error"), { code });
   for (const error of [database("57014"), database("55P03"), database("40P01"), new Error("Query read timeout")]) expect(unreachable(error)).toBe(true);
+});
+
+// bug bash F9
+test("verify-full's refusals of the server's certificate say which setting to check, not Node's options", () => {
+  const tls = (code: string, message: string) => Object.assign(new Error(message), { code });
+  expect(describeProblem(tls("SELF_SIGNED_CERT_IN_CHAIN", "self-signed certificate in certificate chain; if the root CA is installed locally, try running Node.js with --use-system-ca")))
+    .toBe("verify-full: the server's certificate isn't signed by the CA in postgresCaPem, or by one of Node's CAs when it's empty (SELF_SIGNED_CERT_IN_CHAIN)");
+  expect(describeProblem(tls("ERR_TLS_CERT_ALTNAME_INVALID", "Hostname/IP does not match certificate's altnames: Host: db. is not in the cert's altnames: DNS:localhost")))
+    .toBe("verify-full: the server's certificate doesn't name the host in postgresUrl (ERR_TLS_CERT_ALTNAME_INVALID)");
+  expect(describeProblem(tls("CERT_HAS_EXPIRED", "certificate has expired"))).toBe("verify-full: the server's certificate isn't valid now (CERT_HAS_EXPIRED)");
 });
 
 test("a failed restart of the idle review assistants after a Settings change is logged, not left unhandled", async () => {

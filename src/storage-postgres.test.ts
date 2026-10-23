@@ -188,6 +188,19 @@ describe.skipIf(!testPgUrl)("the plugin on Postgres storage", () => {
     await harness.lifecycle.dispose();
   });
 
+  // bug bash F9: Node's message, which suggests running Node with --use-system-ca, was passed on as it was.
+  test("verify-full against a certificate no CA it trusts signed names postgresCaPem in needsConfiguration", async () => {
+    const { settings } = postgresSettings();
+    const { bb, harness } = await host({ ...settings, postgresSsl: "verify-full" });
+    await plugin(bb);
+    harness.behavior.runService("storage");
+    await vi.waitFor(() => expect(harness.inspection.needsConfigurationMessages).toHaveLength(1), { timeout: 5_000, interval: 20 });
+    const [message] = harness.inspection.needsConfigurationMessages;
+    expect(message).toMatch(/^Code Review Workspace can't open its Postgres storage: verify-full: the server's certificate isn't signed by the CA in postgresCaPem, or by one of Node's CAs when it's empty \([A-Z_]+\)\./);
+    expect(message).not.toContain("--use-system-ca");
+    await harness.lifecycle.dispose();
+  });
+
   test("a wrong password is told to needsConfiguration at once, without the URL or password", async () => {
     const password = "not-the-password-p10";
     const { settings } = postgresSettings({ password });

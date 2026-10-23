@@ -127,8 +127,16 @@ export function unreachable(error: unknown): boolean {
   return error.message === "timeout expired" || error.message === "Query read timeout" || error.message === "Connection terminated unexpectedly";
 }
 
+/** Node's codes for a server certificate that no CA verify-full trusts signed. */
+const UNSIGNED = new Set(["DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY", "UNABLE_TO_GET_ISSUER_CERT"]);
+
 export function describe(error: unknown): string {
   if (error instanceof pg.DatabaseError) return `Postgres answered: ${error.message} (SQLSTATE ${error.code})`;
+  // Node's own messages suggest Node's options; what to check is the plugin's settings.
+  const code = error instanceof Error ? (error as { code?: unknown }).code : undefined;
+  if (typeof code === "string" && UNSIGNED.has(code)) return `verify-full: the server's certificate isn't signed by the CA in postgresCaPem, or by one of Node's CAs when it's empty (${code})`;
+  if (code === "ERR_TLS_CERT_ALTNAME_INVALID") return `verify-full: the server's certificate doesn't name the host in postgresUrl (${code})`;
+  if (code === "CERT_HAS_EXPIRED" || code === "CERT_NOT_YET_VALID") return `verify-full: the server's certificate isn't valid now (${code})`;
   if (error instanceof PgWriterLockError) return `${error.message}. Stop the other BB using this schema, or give this one a schema of its own (postgresSchema)`;
   if (error instanceof AggregateError && error.errors.length) return error.errors.map(describe).join("; ");
   return error instanceof Error ? error.message : String(error);
