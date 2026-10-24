@@ -114,9 +114,9 @@ function pairBySimilarity(olds: MarkdownBlock[], news: MarkdownBlock[]): [number
 /**
  * A run's last step: its blocks in reading order, each `removed` one where it was in the old file, before the first new
  * block that was after it: a changed block's place is its version before's; one whose version before is `shared` with
- * the block before it is with that one, so nothing goes before it (-Infinity); an added one takes the place of the next block with a version before,
- * or comes after every removed block (Infinity), as a diff shows removed lines before added ones. A block paired with one
- * of the same text, as one moved past a copy of it, is unchanged.
+ * the block before it is with that one, so nothing goes before it (-Infinity); an added one takes the place of the next
+ * block with a version before, or comes after every removed block (Infinity), as a diff shows removed lines before added
+ * ones. A block paired with one of the same text, as one moved past a copy of it, is unchanged.
  */
 function placeRun(removed: MarkdownBlock[], come: MarkdownBlock[], previous: Map<MarkdownBlock, MarkdownBlock[]>, shared: Set<MarkdownBlock>, same: (old: MarkdownBlock, now: MarkdownBlock) => boolean): RenderedBlock[] {
   const blocks: RenderedBlock[] = [];
