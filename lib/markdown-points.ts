@@ -3,6 +3,25 @@ import type { MarkdownBlock } from "./markdown-blocks";
 /** How many words around a point in prose find its line in the source. */
 const WORDS_AROUND = 3;
 
+/**
+ * The text a block draws before a point and after it, as a reader sees it: without deleted words, which aren't in the new
+ * source, or what's there for screen readers alone.
+ */
+function drawnText(el: Element, node: Node, offset: number): [before: string, after: string] {
+  const point = document.createRange();
+  point.setStart(node, offset);
+  let [before, after] = ["", ""];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    if (text.parentElement?.closest("del, .sr-only")) continue;
+    const value = text.textContent ?? "";
+    if (text === node) { before += value.slice(0, offset); after += value.slice(offset); }
+    else if (point.comparePoint(text, 0) < 0) before += value;
+    else after += value;
+  }
+  return [before, after];
+}
+
 const textBetween = (el: Element, node: Node, offset: number, toEnd: boolean): string => {
   const range = document.createRange();
   if (toEnd) { range.setStart(node, offset); range.setEnd(el, el.childNodes.length); } else { range.setStart(el, 0); range.setEnd(node, offset); }
@@ -12,9 +31,9 @@ const textBetween = (el: Element, node: Node, offset: number, toEnd: boolean): s
 /**
  * The source line of a point in a block as BB's Markdown drew it, `el`, where a selection starts (`edge` "start") or
  * ends. Read from the drawing, never changing it: in a table, its row's (`tr`, in the order they draw); in code, its
- * line's, by the highlighter's line spans or its newlines; in prose, the line of the words around the point, found once in
- * the source. Otherwise, as where a table draws other rows than its source has, or the words show more than once, the
- * block's edge on that side.
+ * line's, by the highlighter's line spans or its newlines; in prose, the line of the words around the point as drawn,
+ * found once in the source and once in the drawing. Otherwise, as where a table draws other rows than its source has,
+ * or the words show more than once, the block's edge on that side.
  */
 export function pointLine(block: MarkdownBlock, el: Element, node: Node, offset: number, edge: "start" | "end"): number {
   const fallback = edge === "start" ? block.start : block.end;
@@ -35,12 +54,14 @@ export function pointLine(block: MarkdownBlock, el: Element, node: Node, offset:
     const fenced = /^ {0,3}(?:```|~~~)/.test(block.source);
     return Math.min(block.start + (fenced ? 1 : 0) + line, block.end - (fenced ? 1 : 0));
   }
-  const text = textBetween(el, node, offset, edge === "start");
-  const words = [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((match) => match[0]);
+  const [before, after] = drawnText(el, node, offset);
+  const words = [...(edge === "start" ? after : before).matchAll(/[\p{L}\p{N}]+/gu)].map((match) => match[0]);
   const around = edge === "start" ? words.slice(0, WORDS_AROUND) : words.slice(-WORDS_AROUND);
   if (!around.length) return fallback;
-  const found = [...block.source.matchAll(new RegExp(around.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^\\p{L}\\p{N}]+"), "gu"))];
-  if (found.length !== 1) return fallback;
+  // Once in the source, and once as drawn: else it may be other words that read the same, as a link's around its URL.
+  const pattern = new RegExp(around.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[^\\p{L}\\p{N}]+"), "gu");
+  const found = [...block.source.matchAll(pattern)];
+  if (found.length !== 1 || [...(before + after).matchAll(pattern)].length !== 1) return fallback;
   const index = edge === "start" ? found[0].index : found[0].index + found[0][0].length - 1;
   return block.start + (block.source.slice(0, index).match(/\n/g)?.length ?? 0);
 }

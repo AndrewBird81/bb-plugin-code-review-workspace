@@ -54,6 +54,23 @@ test("a point in prose is the line holding the words around it, found in the sou
   expect(pointLine(block, el, bold, 2, "end")).toBe(1);
 });
 
+// The words around the point are the drawn text's: a link's URL is in the source between them, not in what draws.
+test("words found once in the source but more than once as drawn give the block's edge", () => {
+  const doc = "click [see docs](https://x.io/a) now please\nmore text here\nalso see docs now please\n";
+  const { block, el } = drawn(doc, 0, '<p>click <a href="https://x.io/a">see docs</a> now please\nmore text here\nalso see docs now please</p>');
+  expect(pointLine(block, el, ...textIn(el, "see docs"), "start")).toBe(1);
+});
+
+test("words around the point are read without deleted words or the block's words for screen readers", () => {
+  const doc = "Tokens expire after 15 minutes,\nwhich keeps a stolen token useful briefly.\n";
+  const { block, el } = drawn(doc, 0, '<span class="sr-only">Changed, lines 1–2</span><p>Tokens expire after <del>1 hour</del><ins>15 minutes</ins>,\nwhich keeps a stolen token useful briefly.</p>');
+  const [node, at] = textIn(el, "15 minutes");
+  expect(pointLine(block, el, node, at + 2, "end")).toBe(1);
+  expect(pointLine(block, el, ...textIn(el, "Tokens"), "start")).toBe(1);
+  const [which] = textIn(el, "which keeps");
+  expect(pointLine(block, el, which, 0, "start")).toBe(2);
+});
+
 test("words found more than once, or not at all, give the block's edge", () => {
   const doc = "Same words here.\nSame words here.\n";
   const { block, el } = drawn(doc, 0, "<p>Same words here.\nSame words here.</p>");
