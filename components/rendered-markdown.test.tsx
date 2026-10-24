@@ -23,7 +23,7 @@ vi.mock("@pierre/diffs/react", () => ({
 // Each content it's given is kept, with when. Drawn again only for new content: React 19 sets innerHTML on every render.
 // A table draws as BB's does, a thead and a tbody of rows, so the view can read its rows.
 const markdown = vi.hoisted(() => ({
-  strip: false, loadsAt: 0, given: [] as { content: string; at: number }[], extraRow: false,
+  strip: false as boolean | "del", loadsAt: 0, given: [] as { content: string; at: number }[], extraRow: false,
   tables: (content: string) => {
     if (!content.startsWith("|")) return content;
     const [head, , ...body] = content.split("\n").filter((line) => line.startsWith("|"));
@@ -43,7 +43,7 @@ vi.mock("@get-bb/plugin-sdk/app", async (importOriginal) => {
         const wait = setTimeout(() => setLoaded(true), markdown.loadsAt - Date.now());
         return () => clearTimeout(wait);
       }, [loaded]);
-      const html = markdown.strip || !loaded ? content.replace(/<\/?(?:del|ins)>/g, "") : content;
+      const html = markdown.strip === "del" ? content.replace(/<\/?del>/g, "") : markdown.strip || !loaded ? content.replace(/<\/?(?:del|ins)>/g, "") : content;
       return <div data-testid="bb-markdown" dangerouslySetInnerHTML={{ __html: markdown.tables(html) }} />;
     }),
   };
@@ -126,7 +126,7 @@ test("a BB whose Markdown drops raw HTML never draws marked words: changed block
   expect(within(units(slot.container)[3]).getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after 15 minutes.");
   expect(units(slot.container)[3].querySelector("[data-md-words]")).toBeNull();
   expect(within(units(slot.container)[3]).getByRole("button", { name: "Show previous" })).toBeTruthy();
-  expect(markdown.given.filter(({ content }) => content.includes("<del>"))).toEqual([]);
+  expect(markdown.given.filter(({ content }) => content.includes("<del>") && content !== "a<del>b</del><ins>c</ins>")).toEqual([]);
   slot.lifecycle.unmount();
 });
 
@@ -137,8 +137,17 @@ test("once BB's Markdown has drawn marks, a file drawn after marks its words fro
   markdown.given = [];
   const { slot } = await renderDiff({ markdownFiles: "rendered" });
   await waitFor(() => expect(units(slot.container)).toHaveLength(7));
-  expect(markdown.given.map(({ content }) => content)).not.toContain("a<ins>b</ins>");
+  expect(markdown.given.map(({ content }) => content)).not.toContain("a<del>b</del><ins>c</ins>");
   expect(markdown.given.find(({ content }) => content.startsWith("Tokens expire after"))?.content).toBe("Tokens expire after <del>1 hour</del><ins>15 minutes</ins>.");
+  slot.lifecycle.unmount();
+});
+
+test("a BB whose Markdown keeps <ins> but drops <del> draws no marked words either", async () => {
+  markdown.strip = "del";
+  const { slot } = await renderDiff({ markdownFiles: "rendered" });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(7));
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(units(slot.container)[3].querySelector("[data-md-words]")).toBeNull();
   slot.lifecycle.unmount();
 });
 
@@ -149,7 +158,7 @@ test("words are marked once BB's Markdown has drawn HTML, however long that take
   await waitFor(() => expect(units(slot.container)).toHaveLength(7));
   expect(within(units(slot.container)[3]).getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after 15 minutes.");
   await waitFor(() => expect(within(units(slot.container)[3]).getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after <del>1 hour</del><ins>15 minutes</ins>."), { timeout: 5000 });
-  const marked = markdown.given.filter(({ content }) => content.includes("<del>"));
+  const marked = markdown.given.filter(({ content }) => content.includes("<del>") && content !== "a<del>b</del><ins>c</ins>");
   expect(marked.length).toBeGreaterThan(0);
   expect(marked.every(({ at }) => at >= markdown.loadsAt)).toBe(true);
   slot.lifecycle.unmount();

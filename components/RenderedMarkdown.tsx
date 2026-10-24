@@ -21,23 +21,23 @@ const UNCHANGED_RUN = 6;
 const REMOVED_RUN = 3;
 /** How long a text selection rests before it picks its blocks' lines. */
 const SELECTION_REST_MS = 150;
-/** What a probe of BB's Markdown draws: marked words show only once it draws this with an `<ins>` element. */
-const PROBE = "a<ins>b</ins>";
+/** What a probe of BB's Markdown draws: marked words show only once it draws this with `<del>` and `<ins>` elements. */
+const PROBE = "a<del>b</del><ins>c</ins>";
 
-// Set by the first probe that draws an <ins>: every file after marks its words from the start. Never kept past the page.
+// Set by the first probe that draws a <del> and an <ins>: every file after marks its words from the start. Never kept past the page.
 let marksDrawn = false;
 export function resetMarksForTests() { marksDrawn = false; }
 
 /**
  * A hidden probe of BB's Markdown, which today draws sanitized `<del>` and `<ins>` though its contract doesn't promise
- * it: `onDrawn` once it draws the probe's `<ins>`. While its HTML loads, the first time, it draws without; a BB that drops
- * raw HTML never does, so words are never marked.
+ * it: `onDrawn` once it draws the probe's `<del>` and `<ins>`. While its HTML loads, the first time, it draws without; a BB
+ * that drops raw HTML, or either tag, never does, so words are never marked.
  */
 function WordsProbe({ onDrawn }: { onDrawn: () => void }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = box.current!;
-    const look = () => { if (el.querySelector("ins")) { observer.disconnect(); marksDrawn = true; onDrawn(); } };
+    const look = () => { if (el.querySelector("del") && el.querySelector("ins")) { observer.disconnect(); marksDrawn = true; onDrawn(); } };
     const observer = new MutationObserver(look);
     observer.observe(el, { subtree: true, childList: true });
     look();
