@@ -230,6 +230,19 @@ test("a file split across chapters shows as its source, and says why it can't re
   slot.lifecycle.unmount();
 });
 
+test("three or more removed blocks in a row show the first, and fold the rest", async () => {
+  const old = "Kept intro.\n\nGone one.\n\nGone two.\n\nGone three.\n\nGone four.\n\nKept end.\n";
+  const now = "Kept intro.\n\nKept end.\n";
+  const { slot } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now), contents: { ok: true, old, new: now } });
+  const fold = await slot.findByRole("button", { name: "Show 3 more removed sections" });
+  expect(units(slot.container).map((unit) => [unit.dataset.mdStatus, within(unit).getByTestId("bb-markdown").innerHTML])).toEqual([
+    ["unchanged", "Kept intro."], ["removed", "Gone one."], ["unchanged", "Kept end."],
+  ]);
+  fireEvent.click(fold);
+  expect(units(slot.container).map((unit) => unit.dataset.mdStatus)).toEqual(["unchanged", "removed", "removed", "removed", "removed", "unchanged"]);
+  slot.lifecycle.unmount();
+});
+
 test("a long run of unchanged blocks folds, but for the one beside the change", async () => {
   const old = `${Array.from({ length: 10 }, (_, i) => `Paragraph ${i} says something.`).join("\n\n")}\n\nThe end is here.\n`;
   const now = old.replace("end is here", "end is near");
