@@ -7,6 +7,7 @@ import { markdownDiff, type BlockStatus, type RenderedBlock } from "../lib/markd
 import { blockAnchor, blockAt, fileLines, selectedBlocks, selectionAnchor, type LineAnchor, type SelectionEnd } from "../lib/markdown-anchor";
 import { linkImages } from "../lib/link-images";
 import { blockWords } from "../lib/markdown-words";
+import { pointLine, textLines } from "../lib/markdown-points";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
 import { TOUCH_COMPACT } from "./touch";
@@ -177,11 +178,16 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
         return { index: Number(ends[at]!.dataset.mdIndex), ...(ghost !== undefined ? { ghost: Number(ghost) } : {}) };
       });
       const picked = selectedBlocks(items, from, to);
-      const anchor = selectionAnchor(lines, picked);
-      const last = picked[picked.length - 1];
+      const [first, last] = [picked[0], picked[picked.length - 1]];
+      // The lines the selection starts and ends on: a table's row, a code line, or the line of the words around each end.
+      const drawnAt = (node: Node) => (node instanceof Element ? node : node.parentElement)!.closest("[data-md-block]")!;
+      const start = pointLine(first.block, drawnAt(range.startContainer), range.startContainer, range.startOffset, "start");
+      const end = pointLine(last.block, drawnAt(range.endContainer), range.endContainer, range.endOffset, "end");
+      const anchor = selectionAnchor(lines, picked, start, end);
       const side = (anchor?.side ?? last.side) === "LEFT" ? "deletions" : "additions";
-      const lineRange: SelectedLineRange = anchor ? { start: anchor.startLine ?? anchor.line, end: anchor.line, side } : { start: picked[0].block.start, end: last.block.end, side };
-      const askOnly = anchor ? undefined : { code: picked.map((item) => item.block.source).join("\n\n") };
+      const oneSide = picked.every((item) => item.side === last.side);
+      const lineRange: SelectedLineRange = anchor ? { start: anchor.startLine ?? anchor.line, end: anchor.line, side } : oneSide ? { start, end, side } : { start: first.block.start, end: last.block.end, side };
+      const askOnly = anchor ? undefined : { code: oneSide ? textLines(picked.map((item) => item.block), start, end) : picked.map((item) => item.block.source).join("\n\n") };
       const key = JSON.stringify([path, lineRange, !!askOnly]);
       if (key === sent.current) return;
       sent.current = key;

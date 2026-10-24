@@ -300,6 +300,23 @@ test("the same text selected again, after its lines were cleared, picks them aga
   slot.lifecycle.unmount();
 });
 
+test("text selected in part of a paragraph picks only the lines it's on", async () => {
+  const old = "An intro to the rule.\n\nFirst line of the rule,\nsecond line of the rule,\nthird line of the rule.\n";
+  const now = old.replace("An intro", "A short intro");
+  const { slot, onLineSelected } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now), contents: { ok: true, old, new: now } });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(2));
+  const text = within(units(slot.container)[1]).getByTestId("bb-markdown").firstChild!;
+  const range = document.createRange();
+  const at = text.textContent!.indexOf("second");
+  range.setStart(text, at);
+  range.setEnd(text, at + "second line".length);
+  document.getSelection()!.removeAllRanges();
+  document.getSelection()!.addRange(range);
+  document.dispatchEvent(new Event("selectionchange"));
+  await waitFor(() => expect(onLineSelected).toHaveBeenLastCalledWith(FILE, { start: 4, end: 4, side: "additions" }, undefined));
+  slot.lifecycle.unmount();
+});
+
 test("lines that take no comment offer Ask agent alone, which asks about their source", async () => {
   patchReviewState("pr-42", { activeId: "c1" });
   const old = `Intro paragraph.\n\n${Array.from({ length: 4 }, (_, i) => `Filler ${i}.`).join("\n\n")}\n\nTokens expire after 1 hour.\n`;
