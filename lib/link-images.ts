@@ -23,18 +23,23 @@ export function linkImages(markdown: string): string {
   return mark + escapeHtml(outsideCode(text, (prose) => withoutComments(linkMarkdownImages(linkHtmlMedia(prose), labels))));
 }
 
+const REPO = "https://repository.invalid/";
+
 /** Where a file's relative links go: a tree on GitHub (`root`, a commit's blob URL) and the file's path in it. */
 export interface LinkTree { root: string; path: string }
 
 /**
  * `markdown` with its relative links' URLs, inline and in its link definitions (as the parser reads them, never a line
  * that only looks like one, or a footnote's), made the files they name in `tree`, as GitHub's rich diff resolves them: a
- * path from the file's folder, or from the root with a leading `/`. A URL with a scheme, `//`, or only a `#` fragment
- * stays, as does anything in code. Run after `linkImages`, so an image is already a link.
+ * path from the file's folder, or from the root with a leading `/`, never above it; a query or fragment alone, the file
+ * itself. A URL with a scheme, or `//`, stays, as does anything in code. Run after `linkImages`, so an image is already a
+ * link. Known gap: `linkImages` escapes the `<` of an angle-bracketed destination, `[a](<my file.md>)`, first.
  */
 export function resolveLinks(markdown: string, tree: LinkTree): string {
-  const resolve = (url: string) => /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(url) ? url
-    : url.startsWith("/") ? tree.root + url.slice(1) : new URL(url, tree.root + tree.path.slice(0, tree.path.lastIndexOf("/") + 1)).href;
+  // From the file, each part of its path encoded, so a folder named C# is one; on a host of its own, so ../ stops at the
+  // repository's root, as a root-relative /path does.
+  const file = new URL(tree.path.split("/").map(encodeURIComponent).join("/"), REPO);
+  const resolve = (url: string) => /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(url) ? url : tree.root + new URL(url, file).href.slice(REPO.length);
   const destination = (url: string) => (url.startsWith("<") ? `<${resolve(url.slice(1, -1))}>` : resolve(url));
   // Definitions first, by their places, from the last: each one's destination follows its label.
   let text = markdown;

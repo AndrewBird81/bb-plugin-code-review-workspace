@@ -395,7 +395,7 @@ test("a relative link's URL, and its definition's, go to the file's folder in th
   const tree = { root: "https://github.com/acme/web/blob/abc123/", path: "docs/auth/rfc-auth.md" };
   expect(resolveLinks("See [the RFC](rfc.md#goals), [setup](../setup.md 'Setup'), [root](/README.md), and [x][x].\n\n[x]: ./x.md", tree))
     .toBe("See [the RFC](https://github.com/acme/web/blob/abc123/docs/auth/rfc.md#goals), [setup](https://github.com/acme/web/blob/abc123/docs/setup.md 'Setup'), [root](https://github.com/acme/web/blob/abc123/README.md), and [x][x].\n\n[x]: https://github.com/acme/web/blob/abc123/docs/auth/x.md");
-  expect(resolveLinks("[web](https://x.io), [mail](mailto:a@b.c), [here](#goals), [proto](//cdn.io/a)", tree)).toBe("[web](https://x.io), [mail](mailto:a@b.c), [here](#goals), [proto](//cdn.io/a)");
+  expect(resolveLinks("[web](https://x.io), [mail](mailto:a@b.c), [proto](//cdn.io/a)", tree)).toBe("[web](https://x.io), [mail](mailto:a@b.c), [proto](//cdn.io/a)");
   expect(resolveLinks("Write `[code](rel.md)` here.\n\n```md\n[code](rel.md)\n```", tree)).toBe("Write `[code](rel.md)` here.\n\n```md\n[code](rel.md)\n```");
   // An image already a link to it keeps the rule: it loads nothing until clicked, from the tree.
   expect(resolveLinks(linkImages("![chart](img/chart.png)"), tree)).toBe("[Image: chart](https://github.com/acme/web/blob/abc123/docs/auth/img/chart.png)");
@@ -405,4 +405,10 @@ test("only a real link definition's URL is resolved, not a line that looks like 
   const tree = { root: "https://github.com/acme/web/blob/abc123/", path: "docs/guide.md" };
   expect(resolveLinks("Read this.\n[Note]: this is important\n\n[^1]: Footnote text.\n\n[x]: x.md", tree))
     .toBe("Read this.\n[Note]: this is important\n\n[^1]: Footnote text.\n\n[x]: https://github.com/acme/web/blob/abc123/docs/x.md");
+});
+
+test("a query or fragment alone goes to the file itself, a folder's # is its name, and ../ stops at the repository's root", () => {
+  const tree = { root: "https://github.com/acme/web/blob/abc123/", path: "docs/C#/guide.md" };
+  expect(resolveLinks("[raw](?plain=1), [goals](#goals), [next](next.md), [up](../../../x.md)", tree))
+    .toBe("[raw](https://github.com/acme/web/blob/abc123/docs/C%23/guide.md?plain=1), [goals](https://github.com/acme/web/blob/abc123/docs/C%23/guide.md#goals), [next](https://github.com/acme/web/blob/abc123/docs/C%23/next.md), [up](https://github.com/acme/web/blob/abc123/x.md)");
 });
