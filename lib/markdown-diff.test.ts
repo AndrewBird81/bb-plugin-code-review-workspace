@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
-import { markdownDiff } from "./markdown-diff";
+import { markdownDiff, rowChanges } from "./markdown-diff";
 import { gitPatch } from "./markdown-test-patch.test-support";
+import { markdownBlocks } from "./markdown-blocks";
 import { blockAnchor, fileLines } from "./markdown-anchor";
 
 const statuses = (old: string | null, now: string | null, hideWhitespace = false) =>
@@ -199,6 +200,15 @@ test("an ordered list's items renumbered by an insertion are unchanged", () => {
 
 test("a block reworded with a word's case changed is changed, not removed and added", () => {
   expect(statuses("## Goals\n\nText.\n", "## Design goals\n\nText.\n")).toEqual([["changed", "RIGHT", 1, 1, 1], ["unchanged", "RIGHT", 3, 3, null]]);
+});
+
+test("a changed table's rows say whether each is new or changed, against its version before", () => {
+  const { blocks: [old] } = markdownBlocks("| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |\n");
+  const { blocks: [now] } = markdownBlocks("| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 9 |\n| 7 | 8 |\n| 5 | 6 |\n");
+  expect(rowChanges(old, now)).toEqual([null, null, "changed", "added", null]);
+  // The header too; a table with no version before has none.
+  const { blocks: [header] } = markdownBlocks("| a | c |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |\n");
+  expect(rowChanges(old, header)).toEqual(["changed", null, null, null]);
 });
 
 test("a new file is all added, a deleted one all removed", () => {

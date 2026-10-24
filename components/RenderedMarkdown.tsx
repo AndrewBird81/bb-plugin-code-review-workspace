@@ -1,10 +1,10 @@
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SelectedLineRange } from "@pierre/diffs";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import type { CommentLocation } from "../src/draft";
 import { blockMarkdown, type MarkdownBlock } from "../lib/markdown-blocks";
-import { markdownDiff, type BlockStatus, type RenderedBlock } from "../lib/markdown-diff";
-import { blockAnchor, blockAt, fileLines, selectedBlocks, selectionAnchor, type LineAnchor, type SelectionEnd } from "../lib/markdown-anchor";
+import { markdownDiff, rowChanges, type BlockStatus, type RenderedBlock } from "../lib/markdown-diff";
+import { blockAnchor, blockAt, fileLines, rangeAnchor, selectedBlocks, selectionAnchor, type FileLines, type LineAnchor, type SelectionEnd } from "../lib/markdown-anchor";
 import { linkImages } from "../lib/link-images";
 import { blockWords } from "../lib/markdown-words";
 import { pointLine, textLines } from "../lib/markdown-points";
@@ -74,6 +74,61 @@ function spaceAbove(block: MarkdownBlock, before: MarkdownBlock | undefined): st
 // A list item draws as a list of one, whose bottom margin would hold its items apart: the next block's padding spaces it.
 const ONE_ITEM = "[&_:is(ul,ol):not(li_*)]:mb-0";
 
+const ROW_TINT = { added: "color-mix(in oklab, var(--diff-added) 12%, transparent)", changed: "color-mix(in oklab, var(--warning) 15%, transparent)" };
+
+/** A comment button in the gutter, for `anchor`'s lines, `top` px down its block: shown on hover or keyboard focus. */
+function CommentButton({ anchor, onComment, top = 0, shown = false }: { anchor: LineAnchor; onComment: (at: LineAnchor) => void; top?: number; shown?: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-label={`Comment on ${linesSaid(anchor)}`}
+      style={{ top }}
+      className={cn("absolute -left-[43px] hidden size-5 items-center justify-center rounded-md bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity focus-visible:opacity-100 any-pointer-fine:flex", shown ? "opacity-100" : "group-hover/block:opacity-100")}
+      onClick={() => onComment(anchor)}
+    >
+      <Icon name="MessageSquarePlus" className="size-3" aria-hidden />
+    </button>
+  );
+}
+
+/**
+ * A table's comment buttons, one beside each row a comment can take, shown as the pointer is over it: measured from the
+ * rows BB's Markdown drew (`tr`, in order), never changing them. Where it drew other rows than the source has, `whole`.
+ */
+function TableRows({ block, side, lines, onComment, whole }: { block: MarkdownBlock; side: "LEFT" | "RIGHT"; lines: FileLines; onComment: (at: LineAnchor) => void; whole: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [tops, setTops] = useState<number[] | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const drawn = box.current!.parentElement!;
+    const rows = () => Array.from(drawn.querySelectorAll("tr"));
+    const measure = () => {
+      const found = rows();
+      const at = drawn.getBoundingClientRect().top;
+      const next = found.length === block.rows!.length ? found.map((row) => Math.round(row.getBoundingClientRect().top - at)) : null;
+      setTops((was) => (JSON.stringify(was) === JSON.stringify(next) ? was : next));
+    };
+    const move = (event: PointerEvent) => { const row = (event.target as Element).closest?.("tr"); setOver(row ? rows().indexOf(row) : null); };
+    const leave = () => setOver(null);
+    measure();
+    const changes = new MutationObserver(measure);
+    changes.observe(drawn, { subtree: true, childList: true });
+    const sizes = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    sizes?.observe(drawn);
+    drawn.addEventListener("pointermove", move);
+    drawn.addEventListener("pointerleave", leave);
+    return () => { changes.disconnect(); sizes?.disconnect(); drawn.removeEventListener("pointermove", move); drawn.removeEventListener("pointerleave", leave); };
+  }, [block]);
+  return (
+    <div ref={box} className="contents">
+      {tops ? block.rows!.map((line, row) => {
+        const anchor = rangeAnchor(lines, side, line, line);
+        return anchor && <CommentButton key={line} anchor={anchor} onComment={onComment} top={tops[row]} shown={over === row} />;
+      }) : whole}
+    </div>
+  );
+}
+
 const linesSaid = (anchor: LineAnchor) => `${anchor.startLine !== undefined ? `lines ${anchor.startLine}–${anchor.line}` : `line ${anchor.line}`}${anchor.side === "LEFT" ? " (old)" : ""}`;
 
 /** What shows in order: a block with what goes after it, or a fold of the blocks between `from` and `to`. */
@@ -105,6 +160,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
   const diff = useMemo(() => markdownDiff(old, now, patch, hideWhitespace), [old, now, patch, hideWhitespace]);
   const lines = useMemo(() => fileLines(patch, path), [patch, path]);
   const items = diff.blocks;
+  const id = useId();
   const anchors = useMemo(() => items.map((item) => blockAnchor(lines, item)), [items, lines]);
   // Each changed block's Markdown with its changed words marked, where they can be: drawn once BB's Markdown draws marks.
   const words = useMemo(() => new Map(items.flatMap((item, index) => {
@@ -210,6 +266,10 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
     const definitions = item.side === "LEFT" ? diff.oldDefinitions : diff.newDefinitions;
     const said = SAID[item.status];
     const marked = ghost === undefined && marks ? words.get(index) : undefined;
+    // A changed table's new and changed rows, tinted from a style of its own: BB's Markdown draws the rows.
+    const scope = `${id}-${index}`;
+    const rowStates = ghost === undefined && item.block.rows && item.previous?.length === 1 && item.previous[0].rows ? rowChanges(item.previous[0], item.block) : [];
+    const tints = rowStates.flatMap((state, row) => state ? [`[data-md-rows="${scope}"] ${row ? `tbody tr:nth-child(${row})` : "thead tr:first-child"} { background-color: ${ROW_TINT[state]}; }`] : []).join("\n");
     return (
       <div
         data-md-block={item.block.kind}
@@ -222,18 +282,14 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
       >
         {said && <span className="sr-only">{ghost !== undefined ? "Before the change" : said}, {item.side === "LEFT" ? "old " : ""}{item.block.start === item.block.end ? `line ${item.block.start}` : `lines ${item.block.start}–${item.block.end}`}</span>}
         <div className="relative">
-          {/* In the gutter left of the bar, where there's a mouse to aim it; a touch screen selects the text instead. */}
-          {anchor && onComment && (
-            <button
-              type="button"
-              aria-label={`Comment on ${linesSaid(anchor)}`}
-              className="absolute -left-[43px] top-0 hidden size-5 items-center justify-center rounded-md bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity focus-visible:opacity-100 group-hover/block:opacity-100 any-pointer-fine:flex"
-              onClick={() => onComment({ file: path, line: anchor.line, side: anchor.side, ...(anchor.startLine !== undefined ? { startLine: anchor.startLine } : {}) })}
-            >
-              <Icon name="MessageSquarePlus" className="size-3" aria-hidden />
-            </button>
-          )}
-          <div className={cn(item.status === "removed" && "opacity-60")}>
+          {/* In the gutter left of the bar, where there's a mouse to aim it; a touch screen selects the text instead. A table
+              has one for each row, or else, where it draws other rows than its source has, this one. */}
+          {item.block.rows && onComment ? (
+            <TableRows block={item.block} side={item.side} lines={lines} onComment={(at) => onComment({ file: path, ...at })}
+              whole={anchor && <CommentButton anchor={anchor} onComment={(at) => onComment({ file: path, ...at })} />} />
+          ) : anchor && onComment && <CommentButton anchor={anchor} onComment={(at) => onComment({ file: path, ...at })} />}
+          {tints && <style>{tints}</style>}
+          <div data-md-rows={tints ? scope : undefined} className={cn(item.status === "removed" && "opacity-60")}>
             <Markdown content={marked ?? linkImages(blockMarkdown(item.block, definitions))} />
           </div>
         </div>

@@ -176,3 +176,19 @@ export function markdownDiff(oldText: string | null, newText: string | null, pat
   flush();
   return { blocks, oldDefinitions: before.definitions, newDefinitions: after.definitions };
 }
+
+/**
+ * A changed table's rows, each new (`added`), changed from a row of its version before (`changed`), or as it was (null),
+ * header first: its rows lined up by their text, and in each run of removed and added rows, the first added ones changed.
+ */
+export function rowChanges(previous: MarkdownBlock, block: MarkdownBlock): ("added" | "changed" | null)[] {
+  const rowsOf = (table: MarkdownBlock) => (table.rows ?? []).map((line) => normal(table.source.split("\n")[line - table.start]));
+  const changes: ("added" | "changed" | null)[] = [];
+  let removed = 0;
+  for (const part of diffArrays(rowsOf(previous), rowsOf(block))) {
+    if (part.removed) { removed += part.count!; continue; }
+    for (let k = 0; k < part.count!; k++) changes.push(part.added ? (k < removed ? "changed" : "added") : null);
+    removed = 0;
+  }
+  return changes;
+}

@@ -21,7 +21,16 @@ vi.mock("@pierre/diffs/react", () => ({
 // BB's Markdown, as far as its HTML goes: the content as HTML, so <del> and <ins> are elements; as a BB whose Markdown
 // drops raw HTML (`strip`), without them; or, until `loadsAt`, as BB's draws it while its HTML loads, without them too.
 // Each content it's given is kept, with when. Drawn again only for new content: React 19 sets innerHTML on every render.
-const markdown = vi.hoisted(() => ({ strip: false, loadsAt: 0, given: [] as { content: string; at: number }[] }));
+// A table draws as BB's does, a thead and a tbody of rows, so the view can read its rows.
+const markdown = vi.hoisted(() => ({
+  strip: false, loadsAt: 0, given: [] as { content: string; at: number }[],
+  tables: (content: string) => {
+    if (!content.startsWith("|")) return content;
+    const [head, , ...body] = content.split("\n").filter((line) => line.startsWith("|"));
+    const cells = (line: string, tag: string) => line.split("|").slice(1, -1).map((cell) => `<${tag}>${cell.trim()}</${tag}>`).join("");
+    return `<table><thead><tr>${cells(head, "th")}</tr></thead><tbody>${body.map((line) => `<tr>${cells(line, "td")}</tr>`).join("")}</tbody></table>`;
+  },
+}));
 vi.mock("@get-bb/plugin-sdk/app", async (importOriginal) => {
   const { memo, useEffect, useState } = await import("react");
   return {
@@ -34,7 +43,8 @@ vi.mock("@get-bb/plugin-sdk/app", async (importOriginal) => {
         const wait = setTimeout(() => setLoaded(true), markdown.loadsAt - Date.now());
         return () => clearTimeout(wait);
       }, [loaded]);
-      return <div data-testid="bb-markdown" dangerouslySetInnerHTML={{ __html: markdown.strip || !loaded ? content.replace(/<\/?(?:del|ins)>/g, "") : content }} />;
+      const html = markdown.strip || !loaded ? content.replace(/<\/?(?:del|ins)>/g, "") : content;
+      return <div data-testid="bb-markdown" dangerouslySetInnerHTML={{ __html: markdown.tables(html) }} />;
     }),
   };
 });
@@ -314,6 +324,28 @@ test("text selected in part of a paragraph picks only the lines it's on", async 
   document.getSelection()!.addRange(range);
   document.dispatchEvent(new Event("selectionchange"));
   await waitFor(() => expect(onLineSelected).toHaveBeenLastCalledWith(FILE, { start: 4, end: 4, side: "additions" }, undefined));
+  slot.lifecycle.unmount();
+});
+
+test("a changed table tints its new and changed rows, and each row it shows takes a comment of its own", async () => {
+  const old = "| Field | Type |\n|---|---|\n| exp | int |\n| iat | int |\n";
+  const now = "| Field | Type |\n|---|---|\n| exp | int |\n| iat | long |\n| nbf | int |\n";
+  let draft = draftOf();
+  const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = draftOf([comment]); return { draft, stale: [], discussions: [] }; });
+  const { slot } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now, 0), contents: { ok: true, old, new: now }, rpc: { getDraft: () => ({ draft, stale: [], discussions: [] }), saveDraftComment } });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(1));
+  const table = units(slot.container)[0];
+  const scope = table.querySelector<HTMLElement>("[data-md-rows]")!.dataset.mdRows;
+  expect(table.querySelector("style")!.textContent).toBe([
+    `[data-md-rows="${scope}"] tbody tr:nth-child(2) { background-color: color-mix(in oklab, var(--warning) 15%, transparent); }`,
+    `[data-md-rows="${scope}"] tbody tr:nth-child(3) { background-color: color-mix(in oklab, var(--diff-added) 12%, transparent); }`,
+  ].join("\n"));
+  // With no context in the diff, only its changed rows take one.
+  expect(within(table).getAllByRole("button", { name: /^Comment on/ }).map((button) => button.getAttribute("aria-label"))).toEqual(["Comment on line 4", "Comment on line 5"]);
+  fireEvent.click(within(table).getByRole("button", { name: "Comment on line 5" }));
+  fireEvent.change(await slot.findByRole("textbox", { name: "Draft comment" }), { target: { value: "Why nbf?" } });
+  fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ line: 5, side: "RIGHT" }) })));
   slot.lifecycle.unmount();
 });
 
