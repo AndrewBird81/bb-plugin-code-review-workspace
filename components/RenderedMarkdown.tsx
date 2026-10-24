@@ -77,16 +77,17 @@ const ONE_ITEM = "[&_:is(ul,ol):not(li_*)]:mb-0";
 const ROW_TINT = { added: "color-mix(in oklab, var(--diff-added) 12%, transparent)", changed: "color-mix(in oklab, var(--warning) 15%, transparent)" };
 
 /**
- * A comment button in the gutter, for `anchor`'s lines, `top` px down its block: shown on hover or keyboard focus. Where
+ * A comment button in the gutter, for `anchor`'s lines, `top` px down its block: shown on keyboard focus, and while its
+ * block is hovered, or as `shown` says. Where
  * there's no mouse to aim it, a tap passes through it, to select the text, and the keyboard still reaches it.
  */
-function CommentButton({ anchor, onComment, top = 0, shown = false }: { anchor: LineAnchor; onComment: (at: LineAnchor) => void; top?: number; shown?: boolean }) {
+function CommentButton({ anchor, onComment, top = 0, shown }: { anchor: LineAnchor; onComment: (at: LineAnchor) => void; top?: number; shown?: boolean }) {
   return (
     <button
       type="button"
       aria-label={`Comment on ${linesSaid(anchor)}`}
       style={{ top }}
-      className={cn("absolute -left-[43px] flex size-5 items-center justify-center rounded-md bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity focus-visible:opacity-100 [@media_not_(any-pointer:fine)]:pointer-events-none", shown ? "opacity-100" : "group-hover/block:opacity-100")}
+      className={cn("absolute -left-[43px] flex size-5 items-center justify-center rounded-md bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity focus-visible:opacity-100 [@media_not_(any-pointer:fine)]:pointer-events-none", shown === undefined ? "group-hover/block:opacity-100" : shown && "opacity-100")}
       onClick={() => onComment(anchor)}
     >
       <Icon name="MessageSquarePlus" className="size-3" aria-hidden />

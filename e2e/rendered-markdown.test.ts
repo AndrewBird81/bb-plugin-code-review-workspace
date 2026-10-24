@@ -36,12 +36,14 @@ export const LIFETIME = 3600;
 \`\`\`
 
 > Rotate the signing keys every year.
+
+See [the threat model](threats.md) for why.
 `;
 const NEW = OLD.replace("1 hour", "15 minutes").replace("Refresh tokens are never rotated.\n\n", "")
   .replace("| exp   | int  |", "| exp   | int  |\n| iat   | int  |").replace("3600", "900")
   .replace("## Lifetime", "## Rotation\n\nEach refresh token works once.\n\n## Lifetime")
   .replace("- Refresh tokens rotate.", "- Refresh tokens rotate on every use.\n- Sessions end at logout.")
-  .replace("## Goals", "## Goals and limits").replace("every year", "every month");
+  .replace("## Goals", "## Goals and limits").replace("every year", "every month").replace("(threats.md)", "(security/threats.md)");
 
 // The running BB supplies the real app shell, BB's own Markdown, and the built plugin; its RPCs go through the
 // official test host, with GitHub mocked. A Markdown file shown rendered takes comments on its blocks, which submit at
@@ -95,7 +97,7 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     // BB's Markdown drew each block: the table, and the code with its highlighting.
     await rendered.locator("table").waitFor();
     expect(await rendered.locator("[data-md-status]").evaluateAll((units) => units.map((unit) => (unit as HTMLElement).dataset.mdStatus)))
-      .toEqual(["unchanged", "unchanged", "changed", "unchanged", "changed", "added", "added", "added", "unchanged", "changed", "removed", "changed", "changed", "changed"]);
+      .toEqual(["unchanged", "unchanged", "changed", "unchanged", "changed", "added", "added", "added", "unchanged", "changed", "removed", "changed", "changed", "changed", "changed"]);
     // BB's Markdown draws the changed words marked, in a heading, a list item, a paragraph and a quote; the table's and
     // the code's changes cross their syntax, so they show whole.
     const changedBlock = (n: number) => rendered.locator('[data-md-status="changed"]').nth(n);
@@ -108,6 +110,33 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     expect(await marks(3)).toEqual([[], []]);
     expect(await marks(4)).toEqual([[], []]);
     expect(await marks(5)).toEqual([["year"], ["month"]]);
+    // The link whose URL changed is said under its block.
+    expect(await changedBlock(6).getByRole("note", { name: "Link changed" }).textContent()).toBe("Link changed: the threat modelthreats.md to security/threats.md");
+    // The table tints its new row, from a style of its own, and each row takes a comment: the new row's here.
+    const table = changedBlock(3);
+    expect(await table.locator("tbody tr").nth(1).evaluate((row) => getComputedStyle(row).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    await table.locator("tbody tr").nth(1).hover();
+    await table.getByRole("button", { name: "Comment on line 22" }).click();
+    await page.getByRole("textbox", { name: "Draft comment", exact: true }).fill("Is iat needed?");
+    await page.getByRole("button", { name: "Add to draft", exact: true }).click();
+    await table.getByRole("article").waitFor();
+    // Text selected in the code picks its line: the fence's next.
+    await changedBlock(4).evaluate((block) => {
+      const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const at = node.textContent!.indexOf("LIFETIME");
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + "LIFETIME".length);
+        getSelection()!.removeAllRanges();
+        getSelection()!.addRange(range);
+        return;
+      }
+    });
+    await page.getByRole("group", { name: "Selection" }).getByText("L25", { exact: true }).waitFor();
+    await page.getByRole("group", { name: "Selection" }).getByRole("button", { name: "Clear selection" }).click();
+    await page.evaluate(() => getSelection()!.removeAllRanges());
     for (const scheme of ["dark", "light"] as const) {
       await page.emulateMedia({ colorScheme: scheme });
       await page.waitForTimeout(500);
