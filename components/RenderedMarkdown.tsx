@@ -10,6 +10,7 @@ import { blockWords, changedLinks } from "../lib/markdown-words";
 import { elementOf, pointLine, textLines } from "../lib/markdown-points";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
+import { Hint } from "./ui/hint";
 import { TOUCH_COMPACT, TOUCH_TARGET } from "./touch";
 import { InlineLocation, locationKey } from "./InlineDraft";
 import { LineThreads } from "./LineThreads";
@@ -321,6 +322,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
     const said = SAID[item.status];
     const marked = ghost === undefined && marks ? words.get(index) : undefined;
     const commentAt = onComment && ((at: LineAnchor) => onComment({ file: path, ...at }));
+    const showing = previous.has(index);
     // A changed table's new and changed rows, tinted from a style of its own, once BB's Markdown has drawn its rows.
     const scope = `${id}-${index}`;
     const rowStates = ghost === undefined && item.block.rows && item.previous?.length === 1 && item.previous[0].rows ? rowChanges(item.previous[0], item.block) : [];
@@ -347,6 +349,19 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
             <TableRows block={item.block} side={item.side} lines={lines} tints={tints} onComment={commentAt}
               whole={anchor && commentAt && <CommentButton anchor={anchor} onComment={commentAt} />} />
           ) : anchor && commentAt && <CommentButton anchor={anchor} onComment={commentAt} />}
+          {/* Under the comment button, in the gutter, clear of the block's words and BB's own controls, as a code block's
+              Copy: shown as it is, on hover or keyboard focus, and while the version before shows; on a touch screen, where
+              there's no hover and it's the only way to the version before, always, at the block's top, where the comment
+              button it would sit under doesn't show. */}
+          {ghost === undefined && item.previous && (
+            <Hint label={showing ? "Hide previous" : "Show previous"}>
+              <button type="button" aria-label={showing ? "Hide previous" : "Show previous"} aria-expanded={showing}
+                className={cn("absolute -left-[43px] top-6 flex size-5 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-xs transition-opacity hover:bg-state-hover hover:text-foreground focus-visible:opacity-100 group-hover/block:opacity-100 [@media_not_(any-pointer:fine)]:top-0 [@media_not_(any-pointer:fine)]:opacity-100", showing ? "opacity-100 text-foreground" : "opacity-0", TOUCH_TARGET)}
+                onClick={() => setPrevious((shown) => { const next = new Set(shown); if (!next.delete(index)) next.add(index); return next; })}>
+                <Icon name="History" className="size-3" aria-hidden />
+              </button>
+            </Hint>
+          )}
           <div data-md-rows={tints ? scope : undefined} className={cn(item.status === "removed" && "opacity-60")}>
             <Markdown content={marked ?? prepare(blockMarkdown(item.block, definitions))} />
           </div>
@@ -380,16 +395,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
         const before = above?.kind === "block" ? items[above.index].block : undefined;
         const ghosts = showing ? item.previous ?? [] : [];
         return (
-          <div key={`${item.side}:${item.block.start}`} data-md-index={row.index} data-md-status={item.status} className="group/unit relative">
-            {/* At the block's top right, shown as its comment button is: on hover or keyboard focus, and on a touch screen,
-                where there's no hover, always; and while its version before shows. Under every changed block, it was noise. */}
-            {item.previous && (
-              <button type="button" aria-expanded={showing}
-                className={cn("absolute right-0 top-0 z-[1] h-6 rounded-md bg-card px-1.5 text-[11px] text-muted-foreground shadow-xs transition-opacity hover:bg-state-hover hover:text-foreground focus-visible:opacity-100 group-hover/unit:opacity-100 [@media_not_(any-pointer:fine)]:opacity-100", showing ? "opacity-100" : "opacity-0", TOUCH_TARGET)}
-                onClick={() => setPrevious((shown) => { const next = new Set(shown); if (!next.delete(row.index)) next.add(row.index); return next; })}>
-                {showing ? "Hide previous" : "Show previous"}
-              </button>
-            )}
+          <div key={`${item.side}:${item.block.start}`} data-md-index={row.index} data-md-status={item.status} >
             {ghosts.map((old, k) => <Fragment key={k}>{blockView({ status: "removed", side: "LEFT", block: old }, row.index, k ? ghosts[k - 1] : before, k)}</Fragment>)}
             {blockView(item, row.index, ghosts.at(-1) ?? before)}
             {links.has(row.index) && (

@@ -164,6 +164,22 @@ test("words are marked once BB's Markdown has drawn HTML, however long that take
   slot.lifecycle.unmount();
 });
 
+test("Show previous is a button the keyboard reaches, that says it opens the version before and, open, closes it", async () => {
+  const { slot } = await renderDiff({ markdownFiles: "rendered" });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(7));
+  const toggle = within(units(slot.container)[3]).getByRole("button", { name: "Show previous" });
+  toggle.focus();
+  expect(document.activeElement).toBe(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(toggle);
+  const open = within(units(slot.container)[3]).getByRole("button", { name: "Hide previous" });
+  expect(open.getAttribute("aria-expanded")).toBe("true");
+  expect(within(units(slot.container)[3]).getAllByTestId("bb-markdown")).toHaveLength(2);
+  fireEvent.click(open);
+  expect(within(units(slot.container)[3]).getAllByTestId("bb-markdown")).toHaveLength(1);
+  slot.lifecycle.unmount();
+});
+
 test("Diff options' Rendered opens a Markdown file rendered, and m switches it back", async () => {
   const renderToggle: MutableRefObject<((file: string) => boolean) | null> = { current: null };
   const { slot, file } = await renderDiff({ markdownFiles: "rendered", extra: { renderToggle } });
