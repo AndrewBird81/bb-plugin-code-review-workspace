@@ -39,7 +39,10 @@ vi.mock("@get-bb/plugin-sdk/app", async (importOriginal) => {
   };
 });
 
-afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); Object.assign(markdown, { strip: false, loadsAt: 0, given: [] }); });
+afterEach(async () => {
+  cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); Object.assign(markdown, { strip: false, loadsAt: 0, given: [] });
+  (await import("./RenderedMarkdown")).resetMarksForTests();
+});
 
 const FILE = "docs/rfc.md";
 const OLD = "# Tokens\n\nWe want short-lived tokens.\n\n## Lifetime\n\nTokens expire after 1 hour.\n\nRefresh tokens are never rotated.\n\n## Fields\n\nOne field.\n";
@@ -114,6 +117,18 @@ test("a BB whose Markdown drops raw HTML never draws marked words: changed block
   expect(units(slot.container)[3].querySelector("[data-md-words]")).toBeNull();
   expect(within(units(slot.container)[3]).getByRole("button", { name: "Show previous" })).toBeTruthy();
   expect(markdown.given.filter(({ content }) => content.includes("<del>"))).toEqual([]);
+  slot.lifecycle.unmount();
+});
+
+test("once BB's Markdown has drawn marks, a file drawn after marks its words from the start, with no probe of its own", async () => {
+  const first = await renderDiff({ markdownFiles: "rendered" });
+  await waitFor(() => expect(first.slot.container.querySelector("[data-md-words]")).toBeTruthy());
+  first.slot.lifecycle.unmount();
+  markdown.given = [];
+  const { slot } = await renderDiff({ markdownFiles: "rendered" });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(7));
+  expect(markdown.given.map(({ content }) => content)).not.toContain("a<ins>b</ins>");
+  expect(markdown.given.find(({ content }) => content.startsWith("Tokens expire after"))?.content).toBe("Tokens expire after <del>1 hour</del><ins>15 minutes</ins>.");
   slot.lifecycle.unmount();
 });
 
