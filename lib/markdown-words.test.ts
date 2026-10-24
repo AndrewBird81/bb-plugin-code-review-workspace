@@ -159,6 +159,11 @@ test("a block with strikethrough, or <del> or <ins> of its own, marks no words",
   expect(blockWords(block("paragraph", "Use <ins>v2</ins> now."), block("paragraph", "Use <ins>v3</ins> now."), "")).toBeNull();
 });
 
+test("a block with a tilde that isn't strikethrough marks its words", () => {
+  expect(blockWords(block("paragraph", "It takes ~5 minutes."), block("paragraph", "It takes ~10 minutes."), "")).toBe("It takes ~<del>5</del><ins>10</ins> minutes.");
+  expect(blockWords(block("paragraph", "Edit `~/.config/app.toml` first."), block("paragraph", "Edit `~/.config/app.toml` now."), "")).toBe("Edit `~/.config/app.toml` <del>first</del><ins>now</ins>.");
+});
+
 test("an ordered list's item marks its words, numbered as it draws now", () => {
   const list = { marker: ".", loose: false };
   expect(blockWords(block("listItem", "2. Run the old tests.", { list: { ...list, number: 2 } }), block("listItem", "2. Run the new tests.", { list: { ...list, number: 3 } }), ""))

@@ -79,14 +79,17 @@ function drawn(tree: Nodes, keep?: "ins" | "del"): string {
   return JSON.stringify(walk(tree));
 }
 
+const struck = (node: Nodes): boolean => node.type === "delete" || ("children" in node && node.children.some(struck));
+
 /**
- * Whether `marked` draws as `now` without its deletions, and as `old` without its insertions. The atoms keep marks out of
- * syntax they know; this is the safety net for what they don't, where CommonMark reads raw HTML otherwise: emphasis
- * inside a word (and so in CJK), a shortcut reference's label, a code span over two lines, indented code.
+ * Whether `marked` draws as `now` without its deletions, and as `old` without its insertions, and neither has
+ * strikethrough, which would read as a mark. The atoms keep marks out of syntax they know; this is the safety net for
+ * what they don't, where CommonMark reads raw HTML otherwise: emphasis inside a word (and so in CJK), a shortcut
+ * reference's label, a code span over two lines, indented code.
  */
 function drawsAsBoth(marked: string, old: string, now: string): boolean {
-  const tree = parseMarkdown(marked);
-  return drawn(tree, "ins") === drawn(parseMarkdown(now)) && drawn(tree, "del") === drawn(parseMarkdown(old));
+  const [tree, before, after] = [parseMarkdown(marked), parseMarkdown(old), parseMarkdown(now)];
+  return !struck(before) && !struck(after) && drawn(tree, "ins") === drawn(after) && drawn(tree, "del") === drawn(before);
 }
 
 const solid = (text: string) => text.replace(/\s/g, "").length;
@@ -152,8 +155,8 @@ export function markWords(old: string, now: string): string | null {
  * math, strikethrough or a `<del>` or `<ins>` of its own, or changed kind.
  */
 export function blockWords(previous: MarkdownBlock, block: MarkdownBlock, definitions: string): string | null {
-  // Code and math draw their text as written. Strikethrough, or a <del> or <ins> of the author's, would read as a mark.
-  const unsafe = (source: string) => /^[ \t>]*(?:```|~~~)|\$\$|~|<\/?(?:del|ins)\b/im.test(source);
+  // Code and math draw their text as written. A <del> or <ins> of the author's would read as a mark.
+  const unsafe = (source: string) => /^[ \t>]*(?:```|~~~)|\$\$|<\/?(?:del|ins)\b/im.test(source);
   if (!PROSE.has(block.kind) || previous.kind !== block.kind || previous.depth !== block.depth || unsafe(previous.source) || unsafe(block.source)) return null;
   const drawn = (from: MarkdownBlock) => linkImages(blockMarkdown({ ...from, ...(block.list ? { list: block.list } : {}) }, definitions));
   return markWords(drawn(previous), drawn(block));
