@@ -146,6 +146,14 @@ test("a block marks words only where its kind is prose, with its images as links
   expect(blockWords(block("paragraph", "Old words."), block("heading", "# New words."), "")).toBeNull();
 });
 
+// A <del> of the author's would take the tint of a deletion, as would GFM's strikethrough.
+test("a block with strikethrough, or <del> or <ins> of its own, marks no words", () => {
+  expect(blockWords(block("paragraph", "Use ~~v1~~ v2 now."), block("paragraph", "Use ~~v1~~ v3 now."), "")).toBeNull();
+  expect(blockWords(block("paragraph", "Use v2 now."), block("paragraph", "Use ~~v2~~ v3 now."), "")).toBeNull();
+  expect(blockWords(block("paragraph", "Use <del>v1</del> v2 now."), block("paragraph", "Use <del>v1</del> v3 now."), "")).toBeNull();
+  expect(blockWords(block("paragraph", "Use <ins>v2</ins> now."), block("paragraph", "Use <ins>v3</ins> now."), "")).toBeNull();
+});
+
 test("an ordered list's item marks its words, numbered as it draws now", () => {
   const list = { marker: ".", loose: false };
   expect(blockWords(block("listItem", "2. Run the old tests.", { list: { ...list, number: 2 } }), block("listItem", "2. Run the new tests.", { list: { ...list, number: 3 } }), ""))

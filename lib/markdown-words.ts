@@ -148,11 +148,12 @@ export function markWords(old: string, now: string): string | null {
 /**
  * A changed block's Markdown to draw, its changed words marked (`markWords`), from `previous`, its version before: both
  * with their images as links (lib/link-images.ts) and the new document's `definitions`, which mark nothing; an ordered
- * list's item numbered as it draws now. Null for a block whose words aren't marked: one that isn't prose, or holds code
- * or math, or changed kind.
+ * list's item numbered as it draws now. Null for a block whose words aren't marked: one that isn't prose, holds code,
+ * math, strikethrough or a `<del>` or `<ins>` of its own, or changed kind.
  */
 export function blockWords(previous: MarkdownBlock, block: MarkdownBlock, definitions: string): string | null {
-  const unsafe = (source: string) => /^[ \t>]*(?:```|~~~)|\$\$/m.test(source);
+  // Code and math draw their text as written. Strikethrough, or a <del> or <ins> of the author's, would read as a mark.
+  const unsafe = (source: string) => /^[ \t>]*(?:```|~~~)|\$\$|~|<\/?(?:del|ins)\b/im.test(source);
   if (!PROSE.has(block.kind) || previous.kind !== block.kind || previous.depth !== block.depth || unsafe(previous.source) || unsafe(block.source)) return null;
   const drawn = (from: MarkdownBlock) => linkImages(blockMarkdown({ ...from, ...(block.list ? { list: block.list } : {}) }, definitions));
   return markWords(drawn(previous), drawn(block));
