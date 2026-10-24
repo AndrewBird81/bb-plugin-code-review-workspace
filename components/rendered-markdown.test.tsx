@@ -346,8 +346,10 @@ test("a changed table tints its new and changed rows, and each row it shows take
   const table = units(slot.container)[0];
   const scope = table.querySelector<HTMLElement>("[data-md-rows]")!.dataset.mdRows;
   expect(table.querySelector("style")!.textContent).toBe([
-    `[data-md-rows="${scope}"] tbody tr:nth-child(2) { background-color: color-mix(in oklab, var(--warning) 15%, transparent); }`,
+    `[data-md-rows="${scope}"] tbody tr:nth-child(2) { background-color: color-mix(in oklab, var(--warning) 10%, transparent); }`,
+    `[data-md-rows="${scope}"] tbody tr:nth-child(2) > :first-child { box-shadow: inset 2px 0 var(--warning); }`,
     `[data-md-rows="${scope}"] tbody tr:nth-child(3) { background-color: color-mix(in oklab, var(--diff-added) 12%, transparent); }`,
+    `[data-md-rows="${scope}"] tbody tr:nth-child(3) > :first-child { box-shadow: inset 2px 0 var(--diff-added); }`,
   ].join("\n"));
   // With no context in the diff, only its changed rows take one.
   const buttons = within(table).getAllByRole("button", { name: /^Comment on/ });

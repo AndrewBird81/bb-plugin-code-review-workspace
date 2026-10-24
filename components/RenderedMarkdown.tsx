@@ -74,7 +74,9 @@ function spaceAbove(block: MarkdownBlock, before: MarkdownBlock | undefined): st
 // A list item draws as a list of one, whose bottom margin would hold its items apart: the next block's padding spaces it.
 const ONE_ITEM = "[&_:is(ul,ol):not(li_*)]:mb-0";
 
-const ROW_TINT = { added: "color-mix(in oklab, var(--diff-added) 12%, transparent)", changed: "color-mix(in oklab, var(--warning) 15%, transparent)" };
+// A table's new and changed rows: a tint, and an edge on the row's first cell, so a changed row reads as marked, not as a
+// fill of another color, as a 15% amber read beside a deleted word's red.
+const ROW_MARK = { added: { tint: "color-mix(in oklab, var(--diff-added) 12%, transparent)", edge: "var(--diff-added)" }, changed: { tint: "color-mix(in oklab, var(--warning) 10%, transparent)", edge: "var(--warning)" } };
 
 /**
  * A comment button in the gutter, for `anchor`'s lines, `top` px down its block: shown on keyboard focus, and while its
@@ -320,7 +322,11 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
     // A changed table's new and changed rows, tinted from a style of its own, once BB's Markdown has drawn its rows.
     const scope = `${id}-${index}`;
     const rowStates = ghost === undefined && item.block.rows && item.previous?.length === 1 && item.previous[0].rows ? rowChanges(item.previous[0], item.block) : [];
-    const tints = rowStates.flatMap((state, row) => state ? [`[data-md-rows="${scope}"] ${row ? `tbody tr:nth-child(${row})` : "thead tr:first-child"} { background-color: ${ROW_TINT[state]}; }`] : []).join("\n");
+    const tints = rowStates.flatMap((state, row) => {
+      if (!state) return [];
+      const at = `[data-md-rows="${scope}"] ${row ? `tbody tr:nth-child(${row})` : "thead tr:first-child"}`;
+      return [`${at} { background-color: ${ROW_MARK[state].tint}; }`, `${at} > :first-child { box-shadow: inset 2px 0 ${ROW_MARK[state].edge}; }`];
+    }).join("\n");
     return (
       <div
         data-md-block={item.block.kind}
