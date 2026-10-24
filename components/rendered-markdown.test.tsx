@@ -416,7 +416,8 @@ test("lines that take no comment offer Ask agent alone, which asks about their s
     checkForUpdates: () => ({ hasNewCommits: false }),
     getDraft: () => ({ draft: { targetKey: "pr-42", verdict: "COMMENT", body: "", comments: [] }, stale: [] }),
     getReviewerNotes: () => ({ body: "", revision: 0 }),
-    getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
+    getConversation: () => ({ threadId: null, legacy: [], defaults: { providerId: "codex", model: "gpt-6-astra", reasoningLevel: "low", serviceTier: "default" } }),
+    startConversation: vi.fn(async (_input: { text: string }) => ({ threadId: "th-1" })),
     markSeen: () => ({ ok: true }),
     getFileContents: () => ({ ok: true, old, new: now }),
   };
@@ -430,5 +431,12 @@ test("lines that take no comment offer Ask agent alone, which asks about their s
   expect(bar.getByText("L1")).toBeTruthy();
   fireEvent.click(bar.getByRole("button", { name: "Ask agent" }));
   await slot.findByText("rfc.md:1");
+  // The lines aren't in the diff, so the question quotes their source.
+  const box = await slot.findByRole("textbox", { name: "Ask the agent" });
+  fireEvent.change(box, { target: { value: "Why this?" } });
+  fireEvent.keyDown(box, { key: "Enter" });
+  fireEvent.keyDown(box, { key: "Enter" });
+  await waitFor(() => expect(rpc.startConversation).toHaveBeenCalled());
+  expect(rpc.startConversation.mock.calls[0][0].text).toBe("Why this?\n\nIn `docs/rfc.md` line 1:\n```\nIntro paragraph.\n```");
   slot.lifecycle.unmount();
 });
