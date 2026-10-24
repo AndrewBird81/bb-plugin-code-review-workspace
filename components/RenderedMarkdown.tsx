@@ -76,14 +76,17 @@ const ONE_ITEM = "[&_:is(ul,ol):not(li_*)]:mb-0";
 
 const ROW_TINT = { added: "color-mix(in oklab, var(--diff-added) 12%, transparent)", changed: "color-mix(in oklab, var(--warning) 15%, transparent)" };
 
-/** A comment button in the gutter, for `anchor`'s lines, `top` px down its block: shown on hover or keyboard focus. */
+/**
+ * A comment button in the gutter, for `anchor`'s lines, `top` px down its block: shown on hover or keyboard focus. Where
+ * there's no mouse to aim it, a tap passes through it, to select the text, and the keyboard still reaches it.
+ */
 function CommentButton({ anchor, onComment, top = 0, shown = false }: { anchor: LineAnchor; onComment: (at: LineAnchor) => void; top?: number; shown?: boolean }) {
   return (
     <button
       type="button"
       aria-label={`Comment on ${linesSaid(anchor)}`}
       style={{ top }}
-      className={cn("absolute -left-[43px] hidden size-5 items-center justify-center rounded-md bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity focus-visible:opacity-100 any-pointer-fine:flex", shown ? "opacity-100" : "group-hover/block:opacity-100")}
+      className={cn("absolute -left-[43px] flex size-5 items-center justify-center rounded-md bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity focus-visible:opacity-100 [@media_not_(any-pointer:fine)]:pointer-events-none", shown ? "opacity-100" : "group-hover/block:opacity-100")}
       onClick={() => onComment(anchor)}
     >
       <Icon name="MessageSquarePlus" className="size-3" aria-hidden />
@@ -282,8 +285,8 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
       >
         {said && <span className="sr-only">{ghost !== undefined ? "Before the change" : said}, {item.side === "LEFT" ? "old " : ""}{item.block.start === item.block.end ? `line ${item.block.start}` : `lines ${item.block.start}–${item.block.end}`}</span>}
         <div className="relative">
-          {/* In the gutter left of the bar, where there's a mouse to aim it; a touch screen selects the text instead. A table
-              has one for each row, or else, where it draws other rows than its source has, this one. */}
+          {/* In the gutter left of the bar. A table has one for each row, or else, where it draws other rows than its source
+              has, this one. */}
           {item.block.rows && onComment ? (
             <TableRows block={item.block} side={item.side} lines={lines} onComment={(at) => onComment({ file: path, ...at })}
               whole={anchor && <CommentButton anchor={anchor} onComment={(at) => onComment({ file: path, ...at })} />} />

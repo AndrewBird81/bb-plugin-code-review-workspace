@@ -27,6 +27,8 @@ import { isMarkdownPath } from "../lib/markdown-blocks";
 import { RenderedMarkdown } from "./RenderedMarkdown";
 import { LongRunFold, LongRunsContext } from "./LongRunFold";
 import { Button } from "./ui/button";
+import { Hint } from "./ui/hint";
+import { keyHint } from "../lib/review-shortcuts";
 import { Icon } from "./ui/icon";
 import { Badge } from "./ui/badge";
 import { DiffStat } from "./ui/diff-stat";
@@ -543,6 +545,7 @@ export const DiffViewer = memo(function DiffViewer({
   const foldGenerated = useKnob("foldGeneratedFiles");
   const flagWeakTests = useKnob("testWeakening");
   const digestLockfiles = useKnob("lockfileDigest");
+  const shortcuts = useKnob("singleKeyShortcuts");
   const { perFile, unchanged, changed } = useMemo(() => {
     // In the guide's order, which reads the chapter's files on purpose.
     const order = new Map(fileKey.split("\0").map((path, index) => [path, index]));
@@ -1085,11 +1088,13 @@ export const DiffViewer = memo(function DiffViewer({
                   )}
                   {/* A Markdown file: its diff, or rendered; why it can't render, as the choice's tooltip. */}
                   {off !== undefined && !folded && (
-                    <span className="flex" title={off ?? undefined}>
-                      <Segmented label={`How ${path} shows`} value={showsRendered ? "rendered" : "source"} onChange={(value) => setRendered((shown) => ({ ...shown, [path]: value === "rendered" }))}
-                        options={[{ value: "source", label: "Source" }, { value: "rendered", label: "Rendered", disabled: !!off, reason: off ? `${offId}-${index}` : undefined }]} />
-                      {off && <span id={`${offId}-${index}`} className="sr-only">{off}</span>}
-                    </span>
+                    <Hint label={off ?? keyHint("Source or rendered", "m", shortcuts)}>
+                      <span className="flex">
+                        <Segmented label={`How ${path} shows`} value={showsRendered ? "rendered" : "source"} onChange={(value) => setRendered((shown) => ({ ...shown, [path]: value === "rendered" }))}
+                          options={[{ value: "source", label: "Source" }, { value: "rendered", label: "Rendered", disabled: !!off, reason: off ? `${offId}-${index}` : undefined }]} />
+                        {off && <span id={`${offId}-${index}`} className="sr-only">{off}</span>}
+                      </span>
+                    </Hint>
                   )}
                   {readContents && source && !folded && !showsRendered && (full ? (
                     <Button variant="ghost" size="sm" aria-label={`Whole file ${path}`} aria-pressed={!!wholeFile[path]} className={cn("h-6 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground aria-pressed:text-primary", TOUCH_COMPACT)} onClick={() => setWholeFile((w) => ({ ...w, [path]: !w[path] }))}>
