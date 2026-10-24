@@ -79,23 +79,30 @@ test("a selection's blocks take a changed block's version before where an end of
 // removed block's only on lines the diff removes.
 test("every block's and every selection's anchor is valid on GitHub", () => {
   const r = rng(20261023);
-  const pool = ["# Heading", "## Sub", "Short paragraph.", "Two-line\nparagraph here.", "- a\n- b\n- c", "1. one\n2. two", "| a | b |\n|---|---|\n| 1 | 2 |", "```ts\nconst x = 1;\nconst y = 2;\n```", "> quote", "---", "<details>\n\nhidden\n\n</details>", "[d]: https://example.com"];
+  const pool = ["# Heading", "## Sub", "Short paragraph.", "Two-line\nparagraph here.", "- a\n- b\n- c", "1. one\n2. two", "| a | b |\n|---|---|\n| 1 | 2 |", "```ts\nconst x = 1;\nconst y = 2;\n```", "> quote", "---", "<details>\n\nhidden\n\n</details>", "[d]: https://example.com",
+    "- [ ] task one\n- [x] task two", "* loose one\n\n* loose two", "- a\n  - nested\n- b", "3. three\n1. four"];
   const words = ["token", "rotation", "expires", "client", "gateway", "refresh"];
   const doc = () => Array.from({ length: r.int(3, 14) }, () => r.pick(pool)).join("\n\n") + "\n";
   const edit = (text: string) => {
     const blocks = text.trimEnd().split("\n\n");
     for (let i = r.int(1, 4); i > 0; i--) {
       const at = r.int(0, blocks.length - 1);
-      const kind = r.int(0, 3);
+      const kind = r.int(0, 6);
+      // A line of the block: a list's item, as often as not.
+      const lines = blocks[at].split("\n");
+      const line = r.int(0, lines.length - 1);
       if (kind === 0) blocks.splice(at, 1);
       else if (kind === 1) blocks.splice(at, 0, r.pick(pool));
       else if (kind === 2) blocks[at] = blocks[at].replace(/\w+/, r.pick(words));
-      else blocks[at] = `${blocks[at]}\n${r.pick(words)} line`;
+      else if (kind === 3) blocks[at] = `${blocks[at]}\n${r.pick(words)} line`;
+      else if (kind === 4) { lines[line] = lines[line].replace(/\w+$/, r.pick(words)); blocks[at] = lines.join("\n"); }
+      else if (kind === 5) { lines.splice(line, 0, `- ${r.pick(words)}`); blocks[at] = lines.join("\n"); }
+      else if (lines.length > 1) { lines.splice(line, 1); blocks[at] = lines.join("\n"); }
     }
     return blocks.join("\n\n") + "\n";
   };
   let checked = 0;
-  for (let run = 0; run < 300; run++) {
+  for (let run = 0; run < 400; run++) {
     const old = r.bool(0.1) ? null : doc();
     const now = old === null ? doc() : r.bool(0.05) ? null : edit(old);
     if (old === now) continue;

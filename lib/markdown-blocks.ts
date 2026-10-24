@@ -1,11 +1,12 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfm } from "micromark-extension-gfm";
 import { gfmFromMarkdown } from "mdast-util-gfm";
+import type { RootContent } from "mdast";
 
 /**
  * A Markdown document's top-level block: its kind (mdast's node type, or `frontmatter`), its first and last line
- * (1-based), and its source lines. A rendered review draws each block through BB's Markdown and anchors comments to its
- * lines.
+ * (1-based), and its source lines; a list is a `listItem` block for each of its top-level items. A rendered review draws
+ * each block through BB's Markdown and anchors comments to its lines.
  */
 export interface MarkdownBlock {
   kind: string;
@@ -14,6 +15,11 @@ export interface MarkdownBlock {
   source: string;
   /** A heading's level, 1 to 6. */
   depth?: number;
+  /**
+   * A list item's list: its marker (`-`, `*` or `+`, or an ordered list's `.` or `)`), which a list keeps throughout;
+   * whether it's loose, its items apart; and an ordered item's number in it.
+   */
+  list?: { marker: string; loose: boolean; number?: number };
 }
 
 /** A document's blocks, and its link reference definitions, which each block's slice needs to resolve its links. */
@@ -51,7 +57,17 @@ export function markdownBlocks(text: string): MarkdownDoc {
     body = lines.map((line, index) => (index < end ? "" : line));
   }
   const tree = fromMarkdown(body.join("\n"), { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
-  const nodes = tree.children.flatMap((node) => node.position ? [{ kind: node.type as string, start: node.position.start.line, end: node.position.end.line, html: node.type === "html" ? node.value : null, depth: node.type === "heading" ? node.depth : undefined }] : []);
+  const node = (from: RootContent, extra: Pick<MarkdownBlock, "depth" | "list"> = {}) => ({ kind: from.type as string, start: from.position!.start.line, end: from.position!.end.line, html: from.type === "html" ? from.value : null, ...extra });
+  const nodes = tree.children.flatMap((child) => {
+    if (!child.position) return [];
+    if (child.type === "heading") return [node(child, { depth: child.depth })];
+    if (child.type !== "list") return [node(child)];
+    // Each top-level item, its list's marker read from its source.
+    return child.children.map((item, index) => {
+      const marker = lines[item.position!.start.line - 1].match(/^\s*(?:([-*+])|\d{1,9}([.)]))/)?.slice(1).find(Boolean) ?? "-";
+      return node(item, { list: { marker, loose: !!child.spread || child.children.some((each) => !!each.spread), ...(child.ordered ? { number: (child.start ?? 1) + index } : {}) } });
+    });
+  });
   const definitions: string[] = [];
   // The elements some HTML block closes: an <img>, or an element never closed, ends where CommonMark ends it.
   const closed = new Set(nodes.flatMap((node) => [...node.html?.matchAll(/<\/([A-Za-z][A-Za-z0-9-]*)\s*>/g) ?? []].map((match) => match[1].toLowerCase())));
@@ -74,7 +90,7 @@ export function markdownBlocks(text: string): MarkdownDoc {
       end = nodes[at].end;
       i = at;
     }
-    blocks.push({ kind: node.kind, start: node.start, end, source: slice(node.start, end), ...(node.depth ? { depth: node.depth } : {}) });
+    blocks.push({ kind: node.kind, start: node.start, end, source: slice(node.start, end), ...(node.depth ? { depth: node.depth } : {}), ...(node.list ? { list: node.list } : {}) });
   }
   return { blocks, definitions: definitions.join("\n") };
 }
@@ -91,12 +107,19 @@ export function blockHolding(blocks: MarkdownBlock[], line: number): MarkdownBlo
   return undefined;
 }
 
-/** A block as BB's Markdown draws it alone: with the document's definitions, frontmatter as a table. */
+/** A list item's source with `number` for its ordinal, which alone it takes as its list's start. */
+export const withNumber = (source: string, number: number) => source.replace(/^( {0,3})\d{1,9}(?=[.)])/, `$1${number}`);
+
+/**
+ * A block as BB's Markdown draws it alone: with the document's definitions, frontmatter as a table, and an ordered list's
+ * item with its number in the list.
+ */
 export function blockMarkdown(block: MarkdownBlock, definitions: string): string {
   if (block.kind === "frontmatter") return frontmatterTable(block.source);
   if (block.kind === "definition") return codeFence(block.source);
   // A footnote's definition renders nothing without a reference: its label shows as text, in bold.
-  const source = block.kind === "footnoteDefinition" ? block.source.replace(/^ {0,3}\[\^([^\]]+)\]:/, (_all, label: string) => `**[^${label}]**`) : block.source;
+  const source = block.kind === "footnoteDefinition" ? block.source.replace(/^ {0,3}\[\^([^\]]+)\]:/, (_all, label: string) => `**[^${label}]**`)
+    : block.list?.number !== undefined ? withNumber(block.source, block.list.number) : block.source;
   return definitions ? `${source}\n\n${definitions}` : source;
 }
 

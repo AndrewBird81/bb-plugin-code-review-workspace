@@ -1,7 +1,7 @@
 import { diffArrays } from "diff";
 import { HUNK, patchRows } from "../src/patch";
 import { CONFETTI_THRESHOLD } from "./confetti";
-import { blockHolding, markdownBlocks, type MarkdownBlock } from "./markdown-blocks";
+import { blockHolding, markdownBlocks, withNumber, type MarkdownBlock } from "./markdown-blocks";
 
 /** How a rendered block changed: a block of the new file added, changed, or unchanged, or one of the old file removed. */
 export type BlockStatus = "added" | "changed" | "unchanged" | "removed";
@@ -28,6 +28,8 @@ const PAIR_EDITS = 100;
 const PAIR_AHEAD = 10;
 
 const normal = (text: string) => text.replace(/\s+/g, " ").trim();
+/** A block's text to compare: an ordered list's item draws with its number in the list, not the one its source gives. */
+const textOf = (block: MarkdownBlock) => (block.list?.number !== undefined ? withNumber(block.source, 0) : block.source);
 
 /** A block's words and runs of punctuation, as a word diff splits them, each with how often it's there; and their length. */
 type Words = { counts: Map<string, number>; length: number };
@@ -106,7 +108,8 @@ export function markdownDiff(oldText: string | null, newText: string | null, pat
     }
     const olds = gone.filter((old) => !taken.has(old));
     const news = come.filter((now) => !linked.has(now));
-    const words = new Map([...olds, ...news].map((block) => [block, wordsOf(block.source)]));
+    // A list item's words are its text's, without the marker every item has.
+    const words = new Map([...olds, ...news].map((block) => [block, wordsOf(block.list ? block.source.replace(/^\s*(?:[-*+]|\d{1,9}[.)])/, "") : block.source)]));
     const alike = (old: MarkdownBlock, now: MarkdownBlock) => blockSimilarity(words.get(old)!, words.get(now)!) >= CONFETTI_THRESHOLD;
     // Pairs of indexes into olds and news, in order.
     const paired: [number, number][] = [];
@@ -149,23 +152,24 @@ export function markdownDiff(oldText: string | null, newText: string | null, pat
       while (removed.length && removed[0].start < wasAt.get(now)!) blocks.push({ status: "removed", side: "LEFT", block: removed.shift()! });
       const [only, ...more] = previous.get(now) ?? [];
       // Paired with a block of the same text, as one moved past a copy of it, it's unchanged.
-      if (only && !more.length && (only.source === now.source || hideWhitespace && normal(only.source) === normal(now.source))) blocks.push({ status: "unchanged", side: "RIGHT", block: now });
+      if (only && !more.length && same(only, now)) blocks.push({ status: "unchanged", side: "RIGHT", block: now });
       else blocks.push(previous.has(now) ? { status: "changed", side: "RIGHT", block: now, previous: previous.get(now)! } : { status: linked.has(now) ? "changed" : "added", side: "RIGHT", block: now });
     }
     for (const old of removed) blocks.push({ status: "removed", side: "LEFT", block: old });
     gone = [];
     come = [];
   };
+  const same = (old: MarkdownBlock, now: MarkdownBlock) => textOf(old) === textOf(now) || hideWhitespace && normal(textOf(old)) === normal(textOf(now));
   // A block the diff removes or adds whole is gone or new, whatever other block has its text: it lines up with none.
   const whole = (block: MarkdownBlock, lines: Set<number>) => { for (let line = block.start; line <= block.end; line++) if (!lines.has(line)) return false; return true; };
-  const key = (block: MarkdownBlock, lines: Set<number>, side: string) => (whole(block, lines) ? `${side}:${block.start}` : normal(block.source));
+  const key = (block: MarkdownBlock, lines: Set<number>, side: string) => (whole(block, lines) ? `${side}:${block.start}` : normal(textOf(block)));
   for (const part of diffArrays(before.blocks.map((b) => key(b, removedLines, "LEFT")), after.blocks.map((b) => key(b, addedLines, "RIGHT")))) {
     if (part.removed) { gone = gone.concat(before.blocks.slice(o, o += part.count!)); continue; }
     if (part.added) { come = come.concat(after.blocks.slice(n, n += part.count!)); continue; }
     flush();
     for (let k = 0; k < part.count!; k++, o++, n++) {
       const [old, now] = [before.blocks[o], after.blocks[n]];
-      blocks.push(old.source === now.source || hideWhitespace ? { status: "unchanged", side: "RIGHT", block: now } : { status: "changed", side: "RIGHT", block: now, previous: [old] });
+      blocks.push(same(old, now) || hideWhitespace ? { status: "unchanged", side: "RIGHT", block: now } : { status: "changed", side: "RIGHT", block: now, previous: [old] });
     }
   }
   flush();

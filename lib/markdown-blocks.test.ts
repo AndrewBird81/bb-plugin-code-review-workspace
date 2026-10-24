@@ -5,7 +5,7 @@ const lines = (text: string) => markdownBlocks(text).blocks.map((b) => [b.kind, 
 
 test("top-level blocks keep their source lines: headings, paragraphs, lists, tables, and fences", () => {
   const doc = "# Title\n\nPara one\nline two\n\n- a\n- b\n  - nested\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```mermaid\ngraph TD; A-->B\n```\n";
-  expect(lines(doc)).toEqual([["heading", 1, 1], ["paragraph", 3, 4], ["list", 6, 8], ["table", 10, 12], ["code", 14, 16]]);
+  expect(lines(doc)).toEqual([["heading", 1, 1], ["paragraph", 3, 4], ["listItem", 6, 6], ["listItem", 7, 8], ["table", 10, 12], ["code", 14, 16]]);
   expect(markdownBlocks(doc).blocks[1].source).toBe("Para one\nline two");
 });
 
@@ -65,6 +65,20 @@ test("CRLF line endings and a byte order mark leave the line numbers as they are
 
 test("headings say their depth, setext ones too", () => {
   expect(markdownBlocks("## Two\n\nThree\n=====\n").blocks.map((b) => b.depth)).toEqual([2, 1]);
+});
+
+test("a list is a block for each of its top-level items, nested lists in theirs", () => {
+  const { blocks } = markdownBlocks("- a\n- b\n  - nested\n\n* other\n\n1. one\n\n   more\n2. two\n");
+  expect(blocks.map((b) => [b.start, b.end, b.list])).toEqual([
+    [1, 1, { marker: "-", loose: false }], [2, 3, { marker: "-", loose: false }], [5, 5, { marker: "*", loose: false }],
+    [7, 9, { marker: ".", loose: true, number: 1 }], [10, 10, { marker: ".", loose: true, number: 2 }],
+  ]);
+  expect(blocks[1].source).toBe("- b\n  - nested");
+});
+
+test("an ordered list's item draws with its number in the list, however the source numbers it", () => {
+  const { blocks } = markdownBlocks("3. three\n1. four\n1. five\n");
+  expect(blocks.map((b) => blockMarkdown(b, ""))).toEqual(["3. three", "4. four", "5. five"]);
 });
 
 test("only .md and .markdown files render", () => {

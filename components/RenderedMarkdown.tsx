@@ -31,14 +31,19 @@ const BAR: Record<BlockStatus, string> = {
 const SAID: Record<BlockStatus, string | null> = { added: "Added", changed: "Changed", removed: "Removed", unchanged: null };
 
 /**
- * The room above a block, as BB's Markdown spaces a whole document: it draws one block alone with no margin above its
- * first element or below its last. Padding, not margin, so the bars of blocks next to each other join.
+ * The room above a block, after the block drawn `before` it, as BB's Markdown spaces a whole document: it draws one block
+ * alone with no margin above its first element or below its last. Padding, not margin, so the bars of blocks next to
+ * each other join. A list's items sit together, a loose list's a paragraph's space apart.
  */
-function spaceAbove(block: MarkdownBlock, first: boolean): string {
-  if (first) return "";
+function spaceAbove(block: MarkdownBlock, before: MarkdownBlock | undefined): string {
+  if (!before) return "";
   if (block.kind === "heading") return block.depth! <= 2 ? "pt-4" : "pt-3";
+  if (block.list && before.list?.marker === block.list.marker && !block.list.loose) return "";
   return "pt-2";
 }
+
+// A list item draws as a list of one, whose bottom margin would hold its items apart: the next block's padding spaces it.
+const ONE_ITEM = "[&_:is(ul,ol):not(li_*)]:mb-0";
 
 const linesSaid = (anchor: LineAnchor) => `${anchor.startLine !== undefined ? `lines ${anchor.startLine}–${anchor.line}` : `line ${anchor.line}`}${anchor.side === "LEFT" ? " (old)" : ""}`;
 
@@ -158,7 +163,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
     && item.block.start <= Math.max(selected.start, selected.end) && item.block.end >= Math.min(selected.start, selected.end);
 
   /** `ghost`: which of a changed block's versions before it is. */
-  function blockView(item: RenderedBlock, index: number, first: boolean, ghost?: number) {
+  function blockView(item: RenderedBlock, index: number, before: MarkdownBlock | undefined, ghost?: number) {
     const anchor = ghost !== undefined ? blockAnchor(lines, item) : anchors[index];
     const definitions = item.side === "LEFT" ? diff.oldDefinitions : diff.newDefinitions;
     const said = SAID[item.status];
@@ -169,7 +174,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
         data-side={item.side}
         data-start={item.block.start}
         data-end={item.block.end}
-        className={cn("group/block relative flow-root border-l-[3px] pl-4", BAR[item.status], spaceAbove(item.block, first), ghost === undefined && isPicked(item) && "bg-primary/5")}
+        className={cn("group/block relative flow-root border-l-[3px] pl-4", BAR[item.status], spaceAbove(item.block, before), item.block.list && ONE_ITEM, ghost === undefined && isPicked(item) && "bg-primary/5")}
       >
         {said && <span className="sr-only">{ghost !== undefined ? "Before the change" : said}, {item.side === "LEFT" ? "old " : ""}{item.block.start === item.block.end ? `line ${item.block.start}` : `lines ${item.block.start}–${item.block.end}`}</span>}
         <div className="relative">
@@ -212,10 +217,13 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
         const item = items[row.index];
         const notes = placed.get(row.index) ?? [];
         const showing = previous.has(row.index);
+        const above = rows[at - 1];
+        const before = above?.kind === "block" ? items[above.index].block : undefined;
+        const ghosts = showing ? item.previous ?? [] : [];
         return (
           <div key={`${item.side}:${item.block.start}`} data-md-index={row.index} data-md-status={item.status}>
-            {showing && item.previous?.map((old, k) => <Fragment key={k}>{blockView({ status: "removed", side: "LEFT", block: old }, row.index, at === 0 && k === 0, k)}</Fragment>)}
-            {blockView(item, row.index, at === 0 && !showing)}
+            {ghosts.map((old, k) => <Fragment key={k}>{blockView({ status: "removed", side: "LEFT", block: old }, row.index, k ? ghosts[k - 1] : before, k)}</Fragment>)}
+            {blockView(item, row.index, ghosts.at(-1) ?? before)}
             {item.previous && (
               <div className="border-l-[3px] border-warning pl-4">
                 <button type="button" aria-expanded={showing} className={cn("h-6 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-state-hover hover:text-foreground", TOUCH_COMPACT)}

@@ -110,10 +110,11 @@ test("blocks joined across a removed heading show the heading removed, and each 
   ]);
 });
 
-test("a list, table or fence changed in two hunks is one changed block", () => {
+test("a table or fence changed in two hunks is one changed block; a list's items change on their own", () => {
   const items = (n: number, line: (i: number) => string) => Array.from({ length: n }, (_, i) => line(i)).join("\n");
   const list = `# T\n\n${items(20, (i) => `- item ${i}`)}\n`;
-  expect(statuses(list, list.replace("- item 0\n", "- item 0\n- new item\n").replace("- item 18\n", ""))).toEqual([["unchanged", "RIGHT", 1, 1, null], ["changed", "RIGHT", 3, 22, 3]]);
+  expect(statuses(list, list.replace("- item 0\n", "- item 0\n- new item\n").replace("- item 18\n", "")).filter(([status]) => status !== "unchanged"))
+    .toEqual([["added", "RIGHT", 4, 4, null], ["removed", "LEFT", 21, 21, null]]);
   const table = `| a | b |\n|---|---|\n${items(20, (i) => `| r${i} | v |`)}\n`;
   expect(statuses(table, table.replace("| r1 | v |\n", "| r1 | v |\n| new | v |\n").replace("| r17 | v |\n", ""))).toEqual([["changed", "RIGHT", 1, 22, 1]]);
   const fence = `\`\`\`js\n${items(20, (i) => `let x${i} = ${i};`)}\n\`\`\`\n`;
@@ -132,7 +133,7 @@ test("blocks that keep each other's lines are one change with no context lines i
   const now = "# T\n\n- a\n- b\nTwo-line\nparagraph here.\n\nEnd.\n";
   for (const context of [0, 1, 3]) {
     expect(markdownDiff(old, now, gitPatch("doc.md", old, now, context)).blocks.map((b) => [b.status, b.block.start, b.previous?.map((p) => p.start) ?? null]))
-      .toEqual([["unchanged", 1, null], ["changed", 3, [3, 6]], ["unchanged", 8, null]]);
+      .toEqual([["unchanged", 1, null], ["unchanged", 3, null], ["changed", 4, [4, 6]], ["unchanged", 8, null]]);
   }
 });
 
@@ -170,6 +171,21 @@ test("a run with more edits than the pairing's cap still pairs its blocks in ord
   const now = paragraphs.flatMap((p, i) => [p.replace("foo", "bar"), ...(i < 120 ? [`Brand new note ${i} about zebras.`] : [])]).join("\n\n") + "\n";
   const counts = markdownDiff(old, now, gitPatch("doc.md", old, now)).blocks.reduce<Record<string, number>>((n, b) => ({ ...n, [b.status]: (n[b.status] ?? 0) + 1 }), {});
   expect(counts).toEqual({ changed: 200, added: 120 });
+});
+
+test("a list's added, changed and removed items each show as such", () => {
+  const old = "Steps:\n\n- Install the CLI.\n- Sign in with your token.\n- Run the tests.\n- Clean up.\n";
+  const now = "Steps:\n\n- Install the CLI.\n- Sign in with your SSO account.\n- Configure the project.\n- Run the tests.\n";
+  expect(statuses(old, now)).toEqual([
+    ["unchanged", "RIGHT", 1, 1, null], ["unchanged", "RIGHT", 3, 3, null], ["changed", "RIGHT", 4, 4, 4], ["added", "RIGHT", 5, 5, null],
+    ["unchanged", "RIGHT", 6, 6, null], ["removed", "LEFT", 6, 6, null],
+  ]);
+});
+
+test("an ordered list's items renumbered by an insertion are unchanged", () => {
+  const old = "1. one\n2. two\n3. three\n";
+  const now = "1. one\n2. new\n3. two\n4. three\n";
+  expect(statuses(old, now)).toEqual([["unchanged", "RIGHT", 1, 1, null], ["added", "RIGHT", 2, 2, null], ["unchanged", "RIGHT", 3, 3, null], ["unchanged", "RIGHT", 4, 4, null]]);
 });
 
 test("a new file is all added, a deleted one all removed", () => {
