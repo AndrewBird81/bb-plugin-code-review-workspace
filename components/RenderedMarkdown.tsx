@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { SelectedLineRange } from "@pierre/diffs";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import type { CommentLocation } from "../src/draft";
@@ -6,6 +6,7 @@ import { blockMarkdown, type MarkdownBlock } from "../lib/markdown-blocks";
 import { markdownDiff, type BlockStatus, type RenderedBlock } from "../lib/markdown-diff";
 import { blockAnchor, blockAt, fileLines, selectedBlocks, selectionAnchor, type LineAnchor, type SelectionEnd } from "../lib/markdown-anchor";
 import { linkImages } from "../lib/link-images";
+import { blockWords } from "../lib/markdown-words";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
 import { TOUCH_COMPACT } from "./touch";
@@ -19,6 +20,28 @@ const UNCHANGED_RUN = 6;
 const REMOVED_RUN = 3;
 /** How long a text selection rests before it picks its blocks' lines. */
 const SELECTION_REST_MS = 150;
+/** How long the document rests, drawn, before its marked words are checked: BB's Markdown loads its HTML lazily. */
+const WORDS_CHECK_MS = 2000;
+
+/**
+ * Whether this tab marks changed words. BB's Markdown draws `<del>` and `<ins>` today, which its contract doesn't
+ * promise: once it draws a block's marked words without them, words are no longer marked here, and changed blocks show
+ * whole, with Show previous. In sessionStorage, or here when that's refused.
+ */
+const WORDS_OFF = "gr:md-words-off";
+const wordsListeners = new Set<() => void>();
+let wordsOffHere = false;
+function wordsOff(): boolean {
+  try { return wordsOffHere || sessionStorage.getItem(WORDS_OFF) === "1"; } catch { return wordsOffHere; }
+}
+function turnWordsOff() {
+  try { sessionStorage.setItem(WORDS_OFF, "1"); } catch { wordsOffHere = true; }
+  for (const listener of wordsListeners) listener();
+}
+const onWordsOff = (listener: () => void) => { wordsListeners.add(listener); return () => { wordsListeners.delete(listener); }; };
+
+// Marked words as GitHub's rich diff shows them: deleted ones struck on a red tint, inserted ones underlined on a green.
+const WORDS = "[&_del]:rounded-sm [&_del]:bg-diff-removed/15 [&_del]:line-through [&_del]:decoration-diff-removed [&_ins]:rounded-sm [&_ins]:bg-diff-added/15 [&_ins]:underline [&_ins]:decoration-diff-added";
 
 // The bar at a block's left edge, as the code's gutter bar: solid for added and changed, dashed for removed; its words
 // for screen readers.
@@ -53,7 +76,8 @@ type Row = { kind: "block"; index: number } | { kind: "fold"; key: string; from:
 /**
  * A Markdown file's change, rendered as GitHub's rich diff shows it, with the review's comments: each block of the new
  * file drawn by BB's Markdown, its images as links, with a bar for added or changed, and each removed block from the old
- * file, dimmed with a dashed bar, where it was. A changed block can show its version before above it. Runs of unchanged
+ * file, dimmed with a dashed bar, where it was. A changed block marks its changed words, struck or underlined, where its
+ * Markdown lets it (lib/markdown-words.ts), and can show its version before above it. Runs of unchanged
  * blocks fold. Threads, drafts, CI failures and the comment box show after the block holding their line. A block the
  * diff shows has a "+" that opens the comment box on its lines; selecting text picks the lines of the blocks it's in, as
  * picking lines in the code does, or, in blocks GitHub takes no comment on, offers to ask the agent about them.
@@ -76,6 +100,12 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
   const lines = useMemo(() => fileLines(patch, path), [patch, path]);
   const items = diff.blocks;
   const anchors = useMemo(() => items.map((item) => blockAnchor(lines, item)), [items, lines]);
+  // Each changed block's Markdown with its changed words marked, where they can be.
+  const off = useSyncExternalStore(onWordsOff, wordsOff);
+  const words = useMemo(() => new Map(off ? [] : items.flatMap((item, index) => {
+    const marked = item.status === "changed" && item.previous?.length === 1 ? blockWords(item.previous[0], item.block, diff.newDefinitions) : null;
+    return marked ? [[index, marked] as const] : [];
+  })), [items, diff, off]);
   const placed = useMemo(() => {
     const byBlock = new Map<number, CommentLocation[]>();
     if (!items.length) return byBlock;
@@ -158,6 +188,19 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
   // Lines cleared, as with Esc or ✕: the same text selected again picks them again.
   useEffect(() => { if (!selected) sent.current = null; }, [selected]);
 
+  // Once the document rests drawn, a block whose marked words BB's Markdown drew without them turns marking off.
+  useEffect(() => {
+    const el = root.current;
+    if (!el || !words.size) return;
+    let rest = setTimeout(check, WORDS_CHECK_MS);
+    function check() {
+      if (Array.from(el!.querySelectorAll("[data-md-words]")).some((block) => block.textContent?.trim() && !block.querySelector("del, ins"))) turnWordsOff();
+    }
+    const observer = new MutationObserver(() => { clearTimeout(rest); rest = setTimeout(check, WORDS_CHECK_MS); });
+    observer.observe(el, { subtree: true, childList: true, characterData: true });
+    return () => { clearTimeout(rest); observer.disconnect(); };
+  }, [words]);
+
   const pickedSide = selected && ((selected.endSide ?? selected.side) === "deletions" ? "LEFT" : "RIGHT");
   const isPicked = (item: RenderedBlock) => !!selected && item.side === pickedSide
     && item.block.start <= Math.max(selected.start, selected.end) && item.block.end >= Math.min(selected.start, selected.end);
@@ -167,14 +210,16 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
     const anchor = ghost !== undefined ? blockAnchor(lines, item) : anchors[index];
     const definitions = item.side === "LEFT" ? diff.oldDefinitions : diff.newDefinitions;
     const said = SAID[item.status];
+    const marked = ghost === undefined ? words.get(index) : undefined;
     return (
       <div
         data-md-block={item.block.kind}
         data-md-ghost={ghost}
+        data-md-words={marked !== undefined || undefined}
         data-side={item.side}
         data-start={item.block.start}
         data-end={item.block.end}
-        className={cn("group/block relative flow-root border-l-[3px] pl-4", BAR[item.status], spaceAbove(item.block, before), item.block.list && ONE_ITEM, ghost === undefined && isPicked(item) && "bg-primary/5")}
+        className={cn("group/block relative flow-root border-l-[3px] pl-4", BAR[item.status], spaceAbove(item.block, before), item.block.list && ONE_ITEM, marked !== undefined && WORDS, ghost === undefined && isPicked(item) && "bg-primary/5")}
       >
         {said && <span className="sr-only">{ghost !== undefined ? "Before the change" : said}, {item.side === "LEFT" ? "old " : ""}{item.block.start === item.block.end ? `line ${item.block.start}` : `lines ${item.block.start}–${item.block.end}`}</span>}
         <div className="relative">
@@ -190,7 +235,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
             </button>
           )}
           <div className={cn(item.status === "removed" && "opacity-60")}>
-            <Markdown content={linkImages(blockMarkdown(item.block, definitions))} />
+            <Markdown content={marked ?? linkImages(blockMarkdown(item.block, definitions))} />
           </div>
         </div>
       </div>

@@ -18,7 +18,18 @@ vi.mock("@pierre/diffs/react", () => ({
   ),
 }));
 
-afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); });
+// BB's Markdown, as far as its HTML goes: the content as HTML, so <del> and <ins> are elements; or, as a BB whose Markdown
+// dropped raw HTML, with them taken out. Drawn again only for new content: React 19 sets innerHTML on every render.
+const markdown = vi.hoisted(() => ({ strip: false }));
+vi.mock("@get-bb/plugin-sdk/app", async (importOriginal) => {
+  const { memo } = await import("react");
+  return {
+    ...await importOriginal<typeof import("@get-bb/plugin-sdk/app")>(),
+    Markdown: memo(({ content }: { content: string }) => <div data-testid="bb-markdown" dangerouslySetInnerHTML={{ __html: markdown.strip ? content.replace(/<\/?(?:del|ins)>/g, "") : content }} />),
+  };
+});
+
+afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); markdown.strip = false; });
 
 const FILE = "docs/rfc.md";
 const OLD = "# Tokens\n\nWe want short-lived tokens.\n\n## Lifetime\n\nTokens expire after 1 hour.\n\nRefresh tokens are never rotated.\n\n## Fields\n\nOne field.\n";
@@ -54,19 +65,57 @@ test("a Markdown file opens as its source; Rendered draws each block through BB'
   switchTo(file, "Rendered");
   await waitFor(() => expect(file().queryByTestId("filediff")).toBeNull());
   expect(readContents).toHaveBeenCalledWith(FILE);
-  const shown = units(slot.container).map((unit) => [unit.dataset.mdStatus, within(unit).getAllByTestId("bb-markdown").map((md) => md.textContent)]);
+  const shown = units(slot.container).map((unit) => [unit.dataset.mdStatus, within(unit).getAllByTestId("bb-markdown").map((md) => md.innerHTML)]);
   expect(shown).toEqual([
     ["unchanged", ["# Tokens"]], ["unchanged", ["We want short-lived tokens."]], ["unchanged", ["## Lifetime"]],
-    ["changed", ["Tokens expire after 15 minutes."]], ["removed", ["Refresh tokens are never rotated."]],
+    ["changed", ["Tokens expire after <del>1 hour</del><ins>15 minutes</ins>."]], ["removed", ["Refresh tokens are never rotated."]],
     ["unchanged", ["## Fields"]], ["unchanged", ["One field."]],
   ]);
   // Each bar's meaning is in words too.
   expect(within(units(slot.container)[4]).getByText("Removed, old line 9")).toBeTruthy();
   // Show previous puts the changed block's version before above it, as a removed block.
   fireEvent.click(within(units(slot.container)[3]).getByRole("button", { name: "Show previous" }));
-  expect(within(units(slot.container)[3]).getAllByTestId("bb-markdown").map((md) => md.textContent)).toEqual(["Tokens expire after 1 hour.", "Tokens expire after 15 minutes."]);
+  expect(within(units(slot.container)[3]).getAllByTestId("bb-markdown").map((md) => md.innerHTML)).toEqual(["Tokens expire after 1 hour.", "Tokens expire after <del>1 hour</del><ins>15 minutes</ins>."]);
   switchTo(file, "Source");
   expect(file().getByTestId("filediff")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("a list's items show added, changed and removed on their own, a changed item's words marked", async () => {
+  const old = "Steps:\n\n- Install the CLI.\n- Sign in with your token.\n- Clean up.\n";
+  const now = "Steps:\n\n- Install the CLI.\n- Sign in with your SSO account.\n- Configure the project.\n";
+  const { slot } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now), contents: { ok: true, old, new: now } });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(5));
+  expect(units(slot.container).map((unit) => [unit.dataset.mdStatus, within(unit).getByTestId("bb-markdown").innerHTML])).toEqual([
+    ["unchanged", "Steps:"], ["unchanged", "- Install the CLI."], ["changed", "- Sign in with your <del>token</del><ins>SSO account</ins>."],
+    ["removed", "- Clean up."], ["added", "- Configure the project."],
+  ]);
+  slot.lifecycle.unmount();
+});
+
+test("a BB whose Markdown draws marked words without their marks turns marking off for the tab: changed blocks show whole", async () => {
+  markdown.strip = true;
+  const { slot } = await renderDiff({ markdownFiles: "rendered" });
+  const changed = () => within(units(slot.container)[3]);
+  await waitFor(() => expect(changed().getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after 1 hour15 minutes."));
+  await waitFor(() => expect(changed().getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after 15 minutes."), { timeout: 5000 });
+  expect(units(slot.container)[3].querySelector("[data-md-words]")).toBeNull();
+  // Show previous still shows what it was.
+  expect(changed().getByRole("button", { name: "Show previous" })).toBeTruthy();
+  slot.lifecycle.unmount();
+  // Another file, or the same one again, starts with its words unmarked.
+  markdown.strip = false;
+  const again = await renderDiff({ markdownFiles: "rendered" });
+  await waitFor(() => expect(units(again.slot.container)).toHaveLength(7));
+  expect(within(units(again.slot.container)[3]).getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after 15 minutes.");
+  again.slot.lifecycle.unmount();
+});
+
+test("words BB's Markdown draws marked stay marked once the document rests", async () => {
+  const { slot } = await renderDiff({ markdownFiles: "rendered" });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(7));
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  expect(within(units(slot.container)[3]).getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after <del>1 hour</del><ins>15 minutes</ins>.");
   slot.lifecycle.unmount();
 });
 
