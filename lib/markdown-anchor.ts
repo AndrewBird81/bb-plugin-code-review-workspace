@@ -67,12 +67,26 @@ export function blockAnchor(lines: FileLines, item: RenderedBlock): LineAnchor |
 }
 
 /**
- * Where a comment on text selected across `items`, in order, goes: the lines of the side the selection ends on, from its
- * first block there to its last, in the hunk of the last of them that takes a comment. Null when none does.
+ * Where a comment on the lines from `start` to `end` on `side` goes, as a table's row, a code block's lines, or part of a
+ * block: those of them a comment can take, in the hunk of the last. Null when none does.
  */
-export function selectionAnchor(lines: FileLines, items: RenderedBlock[]): LineAnchor | null {
+export function rangeAnchor(lines: FileLines, side: "LEFT" | "RIGHT", start: number, end: number): LineAnchor | null {
+  for (let line = end; line >= start; line--) {
+    const place = lines.places.get(`${side}:${line}`);
+    if (place && (side === "RIGHT" || lines.removed.has(line))) return linesIn(lines, side, start, end, place.hunk);
+  }
+  return null;
+}
+
+/**
+ * Where a comment on text selected across `items`, in order, goes: the lines of the side the selection ends on, from its
+ * first block there to its last, in the hunk of the last of them that takes a comment. Null when none does. Given the
+ * lines the selection starts and ends on, `from` and `to`, only those of them: in the hunk of the last that takes one.
+ */
+export function selectionAnchor(lines: FileLines, items: RenderedBlock[], from?: number, to?: number): LineAnchor | null {
   const side = items[items.length - 1].side;
   const own = items.filter((item) => item.side === side);
+  if (from !== undefined || to !== undefined) return rangeAnchor(lines, side, from !== undefined && items[0].side === side ? from : own[0].block.start, to ?? own[own.length - 1].block.end);
   for (let i = own.length - 1; i >= 0; i--) {
     const anchor = blockAnchor(lines, own[i]);
     if (anchor) return linesIn(lines, side, own[0].block.start, own[own.length - 1].block.end, lines.places.get(`${side}:${anchor.line}`)!.hunk);

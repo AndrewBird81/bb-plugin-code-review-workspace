@@ -20,6 +20,8 @@ export interface MarkdownBlock {
    * whether it's loose, its items apart; and an ordered item's number in it.
    */
   list?: { marker: string; loose: boolean; number?: number };
+  /** A table's rows' lines: its header's, then its body's, as they draw. */
+  rows?: number[];
 }
 
 /** A document's blocks, and its link reference definitions, which each block's slice needs to resolve its links. */
@@ -63,10 +65,11 @@ export function markdownBlocks(text: string): MarkdownDoc {
     body = lines.map((line, index) => (index < end ? "" : line));
   }
   const tree = parseMarkdown(body.join("\n"));
-  const node = (from: RootContent, extra: Pick<MarkdownBlock, "depth" | "list"> = {}) => ({ kind: from.type as string, start: from.position!.start.line, end: from.position!.end.line, html: from.type === "html" ? from.value : null, ...extra });
+  const node = (from: RootContent, extra: Pick<MarkdownBlock, "depth" | "list" | "rows"> = {}) => ({ kind: from.type as string, start: from.position!.start.line, end: from.position!.end.line, html: from.type === "html" ? from.value : null, ...extra });
   const nodes = tree.children.flatMap((child) => {
     if (!child.position) return [];
     if (child.type === "heading") return [node(child, { depth: child.depth })];
+    if (child.type === "table") return [node(child, { rows: child.children.map((row) => row.position!.start.line) })];
     if (child.type !== "list") return [node(child)];
     // Each top-level item, its list's marker read from its source.
     return child.children.map((item, index) => {
@@ -97,7 +100,7 @@ export function markdownBlocks(text: string): MarkdownDoc {
       end = nodes[at].end;
       i = at;
     }
-    blocks.push({ kind: node.kind, start: node.start, end, source: slice(node.start, end), ...(node.depth ? { depth: node.depth } : {}), ...(node.list ? { list: node.list } : {}) });
+    blocks.push({ kind: node.kind, start: node.start, end, source: slice(node.start, end), ...(node.depth ? { depth: node.depth } : {}), ...(node.list ? { list: node.list } : {}), ...(node.rows ? { rows: node.rows } : {}) });
   }
   return { blocks, definitions: definitions.join("\n") };
 }

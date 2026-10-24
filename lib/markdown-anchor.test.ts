@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { invalidComments, rangeProblem } from "../src/review-positions";
 import { rng } from "../src/fuzz-gen.test-support";
-import { blockAnchor, blockAt, fileLines, selectedBlocks, selectionAnchor } from "./markdown-anchor";
+import { blockAnchor, blockAt, fileLines, rangeAnchor, selectedBlocks, selectionAnchor } from "./markdown-anchor";
 import { markdownDiff, type RenderedBlock } from "./markdown-diff";
 import { gitPatch } from "./markdown-test-patch.test-support";
 
@@ -45,6 +45,20 @@ test("a selection's comment runs from its first block to its last on the side it
   expect(selectionAnchor(lines, [find(items, "unchanged", 15), find(items, "unchanged", 17)])).toBeNull();
 });
 
+test("a table row's, a code line's, or part of a block's comment takes those lines, in the hunk of their end", () => {
+  const old = "| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\n```ts\nconst x = 1;\nconst y = 2;\nconst z = 3;\n```\n";
+  const now = old.replace("| 3 | 4 |", "| 3 | 5 |").replace("const y = 2;", "const y = 3;");
+  const { lines, items } = setup(old, now, 1);
+  // A row the diff shows, and one it doesn't.
+  expect(rangeAnchor(lines, "RIGHT", 4, 4)).toEqual({ line: 4, side: "RIGHT" });
+  expect(rangeAnchor(lines, "RIGHT", 1, 1)).toBeNull();
+  // Lines across two hunks keep to the end's.
+  expect(rangeAnchor(lines, "RIGHT", 3, 8)).toEqual({ line: 8, side: "RIGHT", startLine: 7 });
+  // A selection from a line of the table to a line of the code.
+  expect(selectionAnchor(lines, items, 4, 8)).toEqual({ line: 8, side: "RIGHT", startLine: 7 });
+  expect(selectionAnchor(lines, items.slice(0, 1), 3, 4)).toEqual({ line: 4, side: "RIGHT", startLine: 3 });
+});
+
 test("threads and drafts show after the block holding their line", () => {
   const old = `# Tokens\n\n${PARA}\n\nAlpha beta gamma.\n\nDelta epsilon zeta.\n`;
   const { items, lines } = setup(old, old.replace(`${PARA}\n\n`, "").replace("zeta", "eta"));
@@ -80,7 +94,8 @@ test("a selection's blocks take a changed block's version before where an end of
 test("every block's and every selection's anchor is valid on GitHub", () => {
   const r = rng(20261023);
   const pool = ["# Heading", "## Sub", "Short paragraph.", "Two-line\nparagraph here.", "- a\n- b\n- c", "1. one\n2. two", "| a | b |\n|---|---|\n| 1 | 2 |", "```ts\nconst x = 1;\nconst y = 2;\n```", "> quote", "---", "<details>\n\nhidden\n\n</details>", "[d]: https://example.com",
-    "- [ ] task one\n- [x] task two", "* loose one\n\n* loose two", "- a\n  - nested\n- b", "3. three\n1. four"];
+    "- [ ] task one\n- [x] task two", "* loose one\n\n* loose two", "- a\n  - nested\n- b", "3. three\n1. four",
+    "| h | i |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |", "```sh\nnpm ci\nnpm test\nnpm run build\n```"];
   const words = ["token", "rotation", "expires", "client", "gateway", "refresh"];
   const doc = () => Array.from({ length: r.int(3, 14) }, () => r.pick(pool)).join("\n\n") + "\n";
   const edit = (text: string) => {
@@ -110,6 +125,14 @@ test("every block's and every selection's anchor is valid on GitHub", () => {
     // Show previous draws a changed block's version before as a removed block.
     const anchors = items.flatMap((item) => [blockAnchor(lines, item), ...(item.previous ?? []).map((old) => blockAnchor(lines, { status: "removed", side: "LEFT", block: old }))]);
     for (let i = 0; i < items.length; i++) for (let j = i; j < items.length; j++) anchors.push(selectionAnchor(lines, items.slice(i, j + 1)));
+    // A table's rows, and any line or lines within blocks, as a row's comment, a code line's, or part of a selection.
+    for (const item of items) for (const row of item.block.rows ?? []) anchors.push(rangeAnchor(lines, item.side, row, row));
+    for (let k = 0; k < 20 && items.length; k++) {
+      const i = r.int(0, items.length - 1), j = r.int(i, Math.min(items.length - 1, i + 3));
+      const from = r.int(items[i].block.start, items[i].block.end), to = r.int(items[j].block.start, items[j].block.end);
+      anchors.push(selectionAnchor(lines, items.slice(i, j + 1), from, j === i ? Math.max(from, to) : to));
+      anchors.push(rangeAnchor(lines, items[i].side, from, items[i].block.end));
+    }
     for (const anchor of anchors) {
       if (!anchor) continue;
       const comment = { file: FILE, body: "x", ...anchor };

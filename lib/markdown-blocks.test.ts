@@ -81,6 +81,11 @@ test("an ordered list's item draws with its number in the list, however the sour
   expect(blocks.map((b) => blockMarkdown(b, ""))).toEqual(["3. three", "4. four", "5. five"]);
 });
 
+test("a table knows each row's line: the header's, then the body's", () => {
+  const { blocks } = markdownBlocks("Intro.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n");
+  expect(blocks[1].rows).toEqual([3, 5, 6]);
+});
+
 test("only .md and .markdown files render", () => {
   expect(["README.md", "docs/a.MARKDOWN", "x.mdx", "a.md.ts"].map(isMarkdownPath)).toEqual([true, true, false, false]);
 });
