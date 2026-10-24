@@ -197,6 +197,10 @@ test("an ordered list's items renumbered by an insertion are unchanged", () => {
   expect(statuses(old, now)).toEqual([["unchanged", "RIGHT", 1, 1, null], ["added", "RIGHT", 2, 2, null], ["unchanged", "RIGHT", 3, 3, null], ["unchanged", "RIGHT", 4, 4, null]]);
 });
 
+test("a block reworded with a word's case changed is changed, not removed and added", () => {
+  expect(statuses("## Goals\n\nText.\n", "## Design goals\n\nText.\n")).toEqual([["changed", "RIGHT", 1, 1, 1], ["unchanged", "RIGHT", 3, 3, null]]);
+});
+
 test("a new file is all added, a deleted one all removed", () => {
   expect(statuses(null, "# A\n\nB\n")).toEqual([["added", "RIGHT", 1, 1, null], ["added", "RIGHT", 3, 3, null]]);
   expect(statuses("# A\n\nB\n", null)).toEqual([["removed", "LEFT", 1, 1, null], ["removed", "LEFT", 3, 3, null]]);

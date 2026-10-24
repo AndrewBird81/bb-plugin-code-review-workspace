@@ -36,7 +36,8 @@ type Words = { counts: Map<string, number>; length: number };
 function wordsOf(text: string): Words {
   const counts = new Map<string, number>();
   let length = 0;
-  for (const [word] of text.matchAll(/[\p{L}\p{N}_]+|[^\p{L}\p{N}_\s]+/gu)) {
+  // In any case: "Goals" is "goals" with a word put before it.
+  for (const [word] of text.toLowerCase().matchAll(/[\p{L}\p{N}_]+|[^\p{L}\p{N}_\s]+/gu)) {
     counts.set(word, (counts.get(word) ?? 0) + 1);
     length += word.length;
   }
