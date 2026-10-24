@@ -400,6 +400,19 @@ test("a new Markdown file shown rendered offers no Show as diff, which it wouldn
   slot.lifecycle.unmount();
 });
 
+test("a paragraph split in two shows each half with the paragraph it was, its words unmarked", async () => {
+  const old = "Tokens expire quickly,\nso a stolen one is useless soon.\n";
+  const now = "Tokens expire quickly,\n\nso a stolen one is useless soon.\n";
+  const { slot } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now), contents: { ok: true, old, new: now } });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(2));
+  for (const unit of units(slot.container)) {
+    expect(unit.querySelector("[data-md-words]")).toBeNull();
+    fireEvent.click(within(unit).getByRole("button", { name: "Show previous" }));
+    expect(within(unit).getAllByTestId("bb-markdown")[0].innerHTML).toBe("Tokens expire quickly,\nso a stolen one is useless soon.");
+  }
+  slot.lifecycle.unmount();
+});
+
 test("lines that take no comment offer Ask agent alone, which asks about their source", async () => {
   patchReviewState("pr-42", { activeId: "c1" });
   const old = `Intro paragraph.\n\n${Array.from({ length: 4 }, (_, i) => `Filler ${i}.`).join("\n\n")}\n\nTokens expire after 1 hour.\n`;

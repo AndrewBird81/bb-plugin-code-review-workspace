@@ -147,8 +147,8 @@ test("blocks that keep each other's lines are one change with no context lines i
   }
 });
 
-test("a paragraph split by a blank line, or two joined, is changed", () => {
-  expect(statuses("Line one of para.\nLine two of para.\n", "Line one of para.\n\nLine two of para.\n")).toEqual([["changed", "RIGHT", 1, 1, 1], ["changed", "RIGHT", 3, 3, null]]);
+test("a paragraph split by a blank line, or two joined, is changed, each half with the paragraph it was", () => {
+  expect(statuses("Line one of para.\nLine two of para.\n", "Line one of para.\n\nLine two of para.\n")).toEqual([["changed", "RIGHT", 1, 1, 1], ["changed", "RIGHT", 3, 3, 1]]);
   expect(statuses("Line one.\n\nLine two.\n", "Line one.\nLine two.\n")).toEqual([["changed", "RIGHT", 1, 2, 1]]);
   // A blank line added between blocks changes nothing that renders.
   expect(statuses("A.\n\nB.\n", "A.\n\n\nB.\n")).toEqual([["unchanged", "RIGHT", 1, 1, null], ["unchanged", "RIGHT", 4, 4, null]]);

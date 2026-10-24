@@ -203,10 +203,16 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
   const id = useId();
   const anchors = useMemo(() => items.map((item) => blockAnchor(lines, item)), [items, lines]);
   // Each changed block's Markdown with its changed words marked, where they can be: drawn once BB's Markdown draws marks.
-  const words = useMemo(() => new Map(items.flatMap((item, index) => {
-    const marked = item.status === "changed" && item.previous?.length === 1 ? blockWords(item.previous[0], item.block, diff.newDefinitions, prepare) : null;
-    return marked ? [[index, marked] as const] : [];
-  })), [items, diff, prepare]);
+  // Not a block whose version before is another's too, as a paragraph's halves once split: each would mark the other's
+  // words deleted.
+  const words = useMemo(() => {
+    const seen = new Set<MarkdownBlock>(), shared = new Set<MarkdownBlock>();
+    for (const old of items.flatMap((item) => item.previous ?? [])) (seen.has(old) ? shared : seen).add(old);
+    return new Map(items.flatMap((item, index) => {
+      const marked = item.status === "changed" && item.previous?.length === 1 && !shared.has(item.previous[0]) ? blockWords(item.previous[0], item.block, diff.newDefinitions, prepare) : null;
+      return marked ? [[index, marked] as const] : [];
+    }));
+  }, [items, diff, prepare]);
   const [marks, setMarks] = useState(() => marksDrawn);
   // Each changed block's links that now go elsewhere, which its marks can't show: their words are the same.
   const links = useMemo(() => new Map(items.flatMap((item, index) => {
