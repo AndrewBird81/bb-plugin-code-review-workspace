@@ -114,7 +114,7 @@ Some changes look harmless in a diff. The plugin marks them where you'll see the
 - A test file whose diff removes assertions or skips tests says so: "3 assertions removed · 1 test skipped". The agents are asked to check it.
 - Hidden bidirectional Unicode in a path or an added line gets a warning: it can make code read differently than it runs.
 - CI failures with annotations show under the line that failed, with **Comment** and **Ask agent**.
-- A Markdown file can show **Rendered**, as GitHub's rich diff does, with added, changed, and removed blocks marked, and comments on its blocks that post to the lines GitHub takes.
+- A Markdown file can show **Rendered**, as GitHub's rich diff does: added, changed, and removed blocks and list items marked, changed words struck and underlined, and comments on its blocks that post to the lines GitHub takes.
 
 <img src="docs/screenshots/lockfile-flags-dark.webp" alt="A chapter shows an agent draft about a hidden right-to-left override character, and a collapsed package-lock.json flagged +1 package and Downloads from downloads.example.com.">
 
