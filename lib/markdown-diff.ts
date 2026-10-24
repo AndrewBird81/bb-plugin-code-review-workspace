@@ -55,6 +55,89 @@ function blockSimilarity(a: string | Words, b: string | Words): number {
 }
 
 /**
+ * A run's first step: each added block that keeps lines of removed ones, by the diff, is changed from them, as a paragraph
+ * that grows, splits or joins, or a table that gains a row. Lines the diff keeps say more than any likeness of words. Each
+ * removed block is the version before (`previous`) of the first added block keeping a line of it; an added block keeping
+ * lines only of blocks an earlier one took is `linked`, changed with no version of its own. The rest, `olds` and `news`,
+ * share no line.
+ */
+function linkByKeptLines(gone: MarkdownBlock[], come: MarkdownBlock[], keptIn: Map<MarkdownBlock, MarkdownBlock[]>) {
+  const previous = new Map<MarkdownBlock, MarkdownBlock[]>();
+  const [run, taken, linked] = [new Set(gone), new Set<MarkdownBlock>(), new Set<MarkdownBlock>()];
+  for (const now of come) {
+    const olds = (keptIn.get(now) ?? []).filter((old) => run.has(old));
+    if (!olds.length) continue;
+    linked.add(now);
+    const own = olds.filter((old) => !taken.has(old)).sort((x, y) => x.start - y.start);
+    own.forEach((old) => taken.add(old));
+    if (own.length) previous.set(now, own);
+  }
+  return { previous, linked, olds: gone.filter((old) => !taken.has(old)), news: come.filter((now) => !linked.has(now)) };
+}
+
+/**
+ * A run's second step: pairs of removed and added blocks that share no line but `CONFETTI_THRESHOLD` of their words, by
+ * index into `olds` and `news`, in order, as a rewritten paragraph is one block changed, not one removed and one added.
+ * jsdiff's alignment, with likeness for sameness, keeps them in order; past `PAIR_EDITS` it gives up, and they pair
+ * greedily instead, each removed block with the first alike added one in the next `PAIR_AHEAD`.
+ */
+function pairBySimilarity(olds: MarkdownBlock[], news: MarkdownBlock[]): [number, number][] {
+  // A list item's words are its text's, without the marker every item has.
+  const words = new Map([...olds, ...news].map((block) => [block, wordsOf(block.list ? block.source.replace(LIST_MARKER, "") : block.source)]));
+  const alike = (old: MarkdownBlock, now: MarkdownBlock) => blockSimilarity(words.get(old)!, words.get(now)!) >= CONFETTI_THRESHOLD;
+  const paired: [number, number][] = [];
+  const parts = diffArrays(olds, news, { comparator: alike, maxEditLength: PAIR_EDITS });
+  if (parts) {
+    let [i, j] = [0, 0];
+    for (const part of parts) {
+      if (part.removed) i += part.count!;
+      else if (part.added) j += part.count!;
+      else for (let k = 0; k < part.count!; k++) paired.push([i++, j++]);
+    }
+  } else {
+    for (let i = 0, j = 0; i < olds.length && j < news.length; i++) {
+      const at = news.slice(j, j + PAIR_AHEAD).findIndex((now) => alike(olds[i], now));
+      if (at >= 0) { paired.push([i, j + at]); j += at + 1; }
+    }
+  }
+  // jsdiff pairs an added block with the first alike removed one; a later one, before the next pair's, may be more alike,
+  // as "C para changed." is to "C para." than to "B para.": it takes that one instead.
+  const similarity = (old: number, now: number) => blockSimilarity(words.get(olds[old])!, words.get(news[now])!);
+  paired.forEach((pair, at) => {
+    const end = at + 1 < paired.length ? paired[at + 1][0] : olds.length;
+    for (let other = pair[0] + 1; other < end; other++) if (similarity(other, pair[1]) > similarity(pair[0], pair[1])) pair[0] = other;
+  });
+  return paired;
+}
+
+/**
+ * A run's last step: its blocks in reading order, each `removed` one where it was in the old file, before the first new
+ * block that was after it: a changed block's place is its version before's; one `linked` to others' versions before is
+ * with them, so nothing goes before it (-Infinity); an added one takes the place of the next block with a version before,
+ * or comes after every removed block (Infinity), as a diff shows removed lines before added ones. A block paired with one
+ * of the same text, as one moved past a copy of it, is unchanged.
+ */
+function placeRun(removed: MarkdownBlock[], come: MarkdownBlock[], previous: Map<MarkdownBlock, MarkdownBlock[]>, linked: Set<MarkdownBlock>, same: (old: MarkdownBlock, now: MarkdownBlock) => boolean): RenderedBlock[] {
+  const blocks: RenderedBlock[] = [];
+  const wasAt = new Map<MarkdownBlock, number>();
+  let next = Infinity;
+  for (const now of [...come].reverse()) {
+    const own = previous.get(now)?.[0].start;
+    wasAt.set(now, own ?? (linked.has(now) ? -Infinity : next));
+    if (own !== undefined) next = own;
+  }
+  const left = [...removed];
+  for (const now of come) {
+    while (left.length && left[0].start < wasAt.get(now)!) blocks.push({ status: "removed", side: "LEFT", block: left.shift()! });
+    const [only, ...more] = previous.get(now) ?? [];
+    if (only && !more.length && same(only, now)) blocks.push({ status: "unchanged", side: "RIGHT", block: now });
+    else blocks.push(previous.has(now) ? { status: "changed", side: "RIGHT", block: now, previous: previous.get(now)! } : { status: linked.has(now) ? "changed" : "added", side: "RIGHT", block: now });
+  }
+  for (const old of left) blocks.push({ status: "removed", side: "LEFT", block: old });
+  return blocks;
+}
+
+/**
  * A Markdown file's change, from its old and new contents (null for a file added or deleted whole) and its diff, as
  * GitHub's rich diff shows it: the new file's blocks, added, changed or unchanged, each removed block of the old file
  * where it was among them.
@@ -95,68 +178,13 @@ export function markdownDiff(oldText: string | null, newText: string | null, pat
   let [o, n] = [0, 0];
   let gone: MarkdownBlock[] = [];
   let come: MarkdownBlock[] = [];
+  // A run of removed blocks (gone) and added ones (come) between blocks on both sides: link, pair, then place them.
   const flush = () => {
-    const previous = new Map<MarkdownBlock, MarkdownBlock[]>();
-    const [run, taken, linked] = [new Set(gone), new Set<MarkdownBlock>(), new Set<MarkdownBlock>()];
-    // Each removed block is the version before of the first added block that keeps a line of it.
-    for (const now of come) {
-      const olds = (keptIn.get(now) ?? []).filter((old) => run.has(old));
-      if (!olds.length) continue;
-      linked.add(now);
-      const own = olds.filter((old) => !taken.has(old)).sort((x, y) => x.start - y.start);
-      own.forEach((old) => taken.add(old));
-      if (own.length) previous.set(now, own);
-    }
-    const olds = gone.filter((old) => !taken.has(old));
-    const news = come.filter((now) => !linked.has(now));
-    // A list item's words are its text's, without the marker every item has.
-    const words = new Map([...olds, ...news].map((block) => [block, wordsOf(block.list ? block.source.replace(LIST_MARKER, "") : block.source)]));
-    const alike = (old: MarkdownBlock, now: MarkdownBlock) => blockSimilarity(words.get(old)!, words.get(now)!) >= CONFETTI_THRESHOLD;
-    // Pairs of indexes into olds and news, in order.
-    const paired: [number, number][] = [];
-    const parts = diffArrays(olds, news, { comparator: alike, maxEditLength: PAIR_EDITS });
-    if (parts) {
-      let [i, j] = [0, 0];
-      for (const part of parts) {
-        if (part.removed) i += part.count!;
-        else if (part.added) j += part.count!;
-        else for (let k = 0; k < part.count!; k++) paired.push([i++, j++]);
-      }
-    } else {
-      for (let i = 0, j = 0; i < olds.length && j < news.length; i++) {
-        const at = news.slice(j, j + PAIR_AHEAD).findIndex((now) => alike(olds[i], now));
-        if (at >= 0) { paired.push([i, j + at]); j += at + 1; }
-      }
-    }
-    // In order, an added block pairs with the first alike removed block; a later one, before the next pair's, may be more
-    // alike: it takes that one instead.
-    const similarity = (old: number, now: number) => blockSimilarity(words.get(olds[old])!, words.get(news[now])!);
-    paired.forEach((pair, at) => {
-      const end = at + 1 < paired.length ? paired[at + 1][0] : olds.length;
-      for (let other = pair[0] + 1; other < end; other++) if (similarity(other, pair[1]) > similarity(pair[0], pair[1])) pair[0] = other;
-    });
+    const { previous, linked, olds, news } = linkByKeptLines(gone, come, keptIn);
+    const paired = pairBySimilarity(olds, news);
     for (const [old, now] of paired) previous.set(news[now], [olds[old]]);
-    // Each removed block shows before the first new block that was after it in the old file: where a changed block's
-    // version before was. A block that keeps lines only of others' versions before is with them, so none goes before it;
-    // an added block is where the next block with a version before was, or else after every removed block, as a diff
-    // shows removed lines before added ones.
     const shown = new Set(paired.map(([old]) => olds[old]));
-    const removed = olds.filter((old) => !shown.has(old));
-    const wasAt = new Map<MarkdownBlock, number>();
-    let next = Infinity;
-    for (const now of [...come].reverse()) {
-      const own = previous.get(now)?.[0].start;
-      wasAt.set(now, own ?? (linked.has(now) ? -Infinity : next));
-      if (own !== undefined) next = own;
-    }
-    for (const now of come) {
-      while (removed.length && removed[0].start < wasAt.get(now)!) blocks.push({ status: "removed", side: "LEFT", block: removed.shift()! });
-      const [only, ...more] = previous.get(now) ?? [];
-      // Paired with a block of the same text, as one moved past a copy of it, it's unchanged.
-      if (only && !more.length && same(only, now)) blocks.push({ status: "unchanged", side: "RIGHT", block: now });
-      else blocks.push(previous.has(now) ? { status: "changed", side: "RIGHT", block: now, previous: previous.get(now)! } : { status: linked.has(now) ? "changed" : "added", side: "RIGHT", block: now });
-    }
-    for (const old of removed) blocks.push({ status: "removed", side: "LEFT", block: old });
+    blocks.push(...placeRun(olds.filter((old) => !shown.has(old)), come, previous, linked, same));
     gone = [];
     come = [];
   };
