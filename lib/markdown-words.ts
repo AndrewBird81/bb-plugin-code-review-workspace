@@ -6,10 +6,11 @@ import { blockMarkdown, parseMarkdown, type MarkdownBlock } from "./markdown-blo
 
 /**
  * A piece of a block's Markdown that changes whole: a run of whitespace, a word or a mark of punctuation, a code span, a
- * link (`link`), or Markdown's syntax (`syntax`): a line's list marker, task box, quote or heading marker, an HTML tag, or
- * a mark of emphasis, strikethrough, a table or math. A change that adds or removes syntax would cross it.
+ * link's `[` (`open`) and its `](url)` or `][label]` (`close`), with its words between them, an image, an autolink or a
+ * bare URL (`link`), or Markdown's syntax (`syntax`): a line's list marker, task box, quote or heading marker, an HTML tag,
+ * or a mark of emphasis, strikethrough, a table or math. A change that adds or removes syntax would cross it.
  */
-interface Atom { kind: "space" | "word" | "link" | "syntax"; text: string }
+interface Atom { kind: "space" | "word" | "open" | "close" | "link" | "syntax"; text: string }
 
 /** Past this many atoms added and removed, a block's words share too little to mark: it stays changed as a whole. */
 const WORD_EDITS = 200;
@@ -21,10 +22,14 @@ const PROSE = new Set(["paragraph", "heading", "listItem", "blockquote"]);
 // line, when it underlines a heading.
 const UNDERLINE = /[ \t]*(?:=+|-+)[ \t]*(?=\n|$)/y;
 const LINE_START = /[ \t]*(?:>[ \t]?)*[ \t]*(?:#{1,6}(?=[ \t\n]|$)|(?:[-*+]|\d{1,9}[.)])(?=[ \t\n]|$)(?:[ \t]+\[[ xX]\](?=[ \t\n]|$))?)?[ \t]*/y;
+// A link, inline or by reference, and its words.
+const LINK = /\[(?:[^[\]\n\\]|\\.)*\](?:\((?:[^()\n\\]|\\.)*\)|\[[^[\]\n]*\])/y;
+const LINK_WORDS = /(?<=^\[)(?:[^[\]\n\\]|\\.)*/;
 // The rest of a line, first match first.
 const ATOMS: [RegExp, Atom["kind"]][] = [
   [/(`+)(?!`)[^\n]*?[^`\n]\1(?!`)/y, "word"],
-  [/!?\[(?:[^[\]\n\\]|\\.)*\](?:\((?:[^()\n\\]|\\.)*\)|\[[^[\]\n]*\])/y, "link"],
+  [/!\[(?:[^[\]\n\\]|\\.)*\](?:\((?:[^()\n\\]|\\.)*\)|\[[^[\]\n]*\])/y, "link"],
+  [LINK, "open"],
   [/<(?:https?|mailto|ftp):[^\s<>]*>|(?:https?:\/\/|www\.)[^\s<]*[^\s<.,;:!?'")\]]/y, "link"],
   [/<\/?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?\/?>|<!--/y, "syntax"],
   [/&(?:#\d{1,7}|#[xX][\da-fA-F]{1,6}|[A-Za-z][A-Za-z\d]{0,31});|\\[!-/:-@[-`{-~]/y, "word"],
@@ -34,18 +39,22 @@ const ATOMS: [RegExp, Atom["kind"]][] = [
   [/\S/uy, "word"],
 ];
 
-function atomsOf(text: string): Atom[] {
+function atomsOf(text: string, lines = true): Atom[] {
   const atoms: Atom[] = [];
   const take = (pattern: RegExp, at: number) => { pattern.lastIndex = at; return pattern.exec(text)?.[0] ?? ""; };
   for (let at = 0; at < text.length;) {
-    if (at === 0 || text[at - 1] === "\n") {
+    if (lines && (at === 0 || text[at - 1] === "\n")) {
       const start = take(UNDERLINE, at) || take(LINE_START, at);
       if (start) { atoms.push({ kind: "syntax", text: start }); at += start.length; continue; }
     }
     for (const [pattern, kind] of ATOMS) {
       const found = take(pattern, at);
       if (!found) continue;
-      atoms.push({ kind, text: found });
+      // A link's words are words, between its brackets.
+      if (kind === "open") {
+        const words = found.match(LINK_WORDS)![0];
+        atoms.push({ kind: "open", text: "[" }, ...atomsOf(words, false), { kind: "close", text: found.slice(words.length + 1) });
+      } else atoms.push({ kind, text: found });
       at += found.length;
       break;
     }
@@ -128,6 +137,14 @@ function mark(old: string, now: string): string | null {
   const change = (): boolean => {
     if (!gone.length && !come.length) return true;
     if ([...gone, ...come].some((atom) => atom.kind === "syntax") || gone.some((atom) => atom.kind === "link") && come.some((atom) => atom.kind === "link")) return false;
+    // A link added or removed whole, its brackets with it, or its words: never one of its brackets alone, as a URL that
+    // changed is, which marked would show its words twice.
+    const whole = (atoms: Atom[]) => {
+      let open = 0;
+      for (const atom of atoms) if ((open += atom.kind === "open" ? 1 : atom.kind === "close" ? -1 : 0) < 0) return false;
+      return open === 0;
+    };
+    if (!whole(gone) || !whole(come)) return false;
     const removed = join(gone).replace(/\s+/g, " ");
     if (removed.trim()) {
       out += `${/\s$/.test(out) || !/^\s/.test(removed) ? "" : " "}<del>${removed.trim()}</del>${/\s$/.test(removed) && !come.length ? " " : ""}`;
@@ -173,4 +190,34 @@ export function blockWords(previous: MarkdownBlock, block: MarkdownBlock, defini
   if (!PROSE.has(block.kind) || previous.kind !== block.kind || previous.depth !== block.depth || unsafe(previous.source) || unsafe(block.source)) return null;
   const drawn = (from: MarkdownBlock) => linkImages(blockMarkdown({ ...from, ...(block.list ? { list: block.list } : {}) }, definitions));
   return markWords(drawn(previous), drawn(block));
+}
+
+/** A link a block keeps, by its words, whose URL changed. */
+export interface ChangedLink { text: string; from: string; to: string }
+
+/**
+ * The links of `now` whose words `old` has once too, as a link to another URL, inline or by reference to a definition in
+ * the text: what marking can't show, as its words are the same.
+ */
+export function changedLinks(old: string, now: string): ChangedLink[] {
+  const linksOf = (markdown: string) => {
+    const definitions = new Map<string, string>();
+    const links: { text: string; url?: string; label?: string }[] = [];
+    const textOf = (node: Nodes): string => ("value" in node ? node.value : "children" in node ? node.children.map(textOf).join("") : "");
+    const walk = (node: Nodes) => {
+      if (node.type === "definition") definitions.set(node.identifier, node.url);
+      if (node.type === "link") links.push({ text: textOf(node), url: node.url });
+      if (node.type === "linkReference") links.push({ text: textOf(node), label: node.identifier });
+      if ("children" in node) node.children.forEach(walk);
+    };
+    walk(parseMarkdown(markdown));
+    // A reference's URL is its definition's, wherever that is in the text.
+    return links.map(({ text, url, label }) => ({ text, url: url ?? definitions.get(label!) }));
+  };
+  const [before, after] = [linksOf(old), linksOf(now)];
+  const once = (links: { text: string }[], text: string) => links.filter((link) => link.text === text).length === 1;
+  return after.flatMap(({ text, url }) => {
+    const was = before.find((link) => link.text === text);
+    return was && url !== undefined && was.url !== undefined && was.url !== url && once(before, text) && once(after, text) ? [{ text, from: was.url, to: url }] : [];
+  });
 }

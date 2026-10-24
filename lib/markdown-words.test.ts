@@ -4,7 +4,7 @@ import { gfm } from "micromark-extension-gfm";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import type { Nodes } from "mdast";
 import { rng } from "../src/fuzz-gen.test-support";
-import { blockWords, markWords } from "./markdown-words";
+import { blockWords, changedLinks, markWords } from "./markdown-words";
 import { parseMarkdown } from "./markdown-blocks";
 
 // Passed through, to count the parses the check makes.
@@ -38,6 +38,23 @@ test("words and a code span added and removed across a paragraph are each marked
 test("a changed link's URL isn't marked", () => {
   const old = "Get more info about [Keyboard Shortcuts editor](/docs/getstarted/keybindings.md#keyboard-shortcuts-editor).";
   expect(markWords(old, old.replace("getstarted", "editor"))).toBeNull();
+});
+
+test("a link's changed words are marked inside it while its URL stays; a link added or removed whole is marked whole", () => {
+  expect(markWords("Read [the old guide](https://x.io/g) first.", "Read [the new guide](https://x.io/g) first.")).toBe("Read [the <del>old</del><ins>new</ins> guide](https://x.io/g) first.");
+  expect(markWords("See [the docs][d] now.\n\n[d]: https://d.io", "See [the full docs][d] now.\n\n[d]: https://d.io")).toBe("See [the <ins>full</ins> docs][d] now.\n\n[d]: https://d.io");
+  expect(markWords("Read the guide first.", "Read [the guide](https://x.io/g) first.")).toBeNull();
+  expect(markWords("Read the guide first.", "Read the guide and [its FAQ](https://x.io/f) first.")).toBe("Read the guide <ins>and [its FAQ](https://x.io/f)</ins> first.");
+  // Its URL and its words changed together: not marked, as a URL change alone isn't.
+  expect(markWords("Read [the old guide](https://x.io/g) first.", "Read [the new guide](https://x.io/h) first.")).toBeNull();
+});
+
+test("a link whose URL changed is said, with its words and both URLs; one whose words changed too is not", () => {
+  const defs = "\n\n[k]: /docs/getstarted/keybindings.md";
+  expect(changedLinks("Get more info about [Keyboard Shortcuts editor](/docs/getstarted/keybindings.md#editor) and [k].", "Get more info about [Keyboard Shortcuts editor](/docs/editor/keybindings.md#editor) and [k]."  + defs.replace("getstarted", "editor")))
+    .toEqual([{ text: "Keyboard Shortcuts editor", from: "/docs/getstarted/keybindings.md#editor", to: "/docs/editor/keybindings.md#editor" }]);
+  expect(changedLinks("See [k]." + defs, "See [k]." + defs.replace("getstarted", "editor"))).toEqual([{ text: "k", from: "/docs/getstarted/keybindings.md", to: "/docs/editor/keybindings.md" }]);
+  expect(changedLinks("Read [old](https://a) and [x](https://b).", "Read [new](https://c) and [x](https://b).")).toEqual([]);
 });
 
 test("a change across emphasis, a task's box, a heading's level, or an HTML tag isn't marked", () => {

@@ -6,7 +6,7 @@ import { blockMarkdown, type MarkdownBlock } from "../lib/markdown-blocks";
 import { markdownDiff, rowChanges, type BlockStatus, type RenderedBlock } from "../lib/markdown-diff";
 import { blockAnchor, blockAt, fileLines, rangeAnchor, selectedBlocks, selectionAnchor, type FileLines, type LineAnchor, type SelectionEnd } from "../lib/markdown-anchor";
 import { linkImages } from "../lib/link-images";
-import { blockWords } from "../lib/markdown-words";
+import { blockWords, changedLinks } from "../lib/markdown-words";
 import { pointLine, textLines } from "../lib/markdown-points";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
@@ -171,6 +171,11 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
     return marked ? [[index, marked] as const] : [];
   })), [items, diff]);
   const [marks, setMarks] = useState(() => marksDrawn);
+  // Each changed block's links that now go elsewhere, which its marks can't show: their words are the same.
+  const links = useMemo(() => new Map(items.flatMap((item, index) => {
+    const changed = item.status === "changed" && item.previous?.length === 1 ? changedLinks(blockMarkdown(item.previous[0], diff.oldDefinitions), blockMarkdown(item.block, diff.newDefinitions)) : [];
+    return changed.length ? [[index, changed] as const] : [];
+  })), [items, diff]);
   const drawsMarks = useCallback(() => setMarks(true), []);
   const placed = useMemo(() => {
     const byBlock = new Map<number, CommentLocation[]>();
@@ -330,6 +335,14 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
             {blockView(item, row.index, ghosts.at(-1) ?? before)}
             {item.previous && (
               <div className="border-l-[3px] border-warning pl-4">
+                {links.get(row.index)?.map((link, k) => (
+                  <p key={k} role="note" aria-label="Link changed" className="flex min-w-0 flex-wrap items-center gap-x-1.5 px-1.5 pt-1 text-[11px] text-muted-foreground">
+                    <span>Link changed: <span className="text-foreground">{link.text}</span></span>
+                    <span className="min-w-0 truncate font-mono line-through decoration-diff-removed" title={link.from}>{link.from}</span>
+                    <Icon name="ArrowRight" className="size-3 shrink-0" aria-hidden /><span className="sr-only"> to </span>
+                    <span className="min-w-0 truncate font-mono" title={link.to}>{link.to}</span>
+                  </p>
+                ))}
                 <button type="button" aria-expanded={showing} className={cn("h-6 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-state-hover hover:text-foreground", TOUCH_COMPACT)}
                   onClick={() => setPrevious((shown) => { const next = new Set(shown); if (!next.delete(row.index)) next.add(row.index); return next; })}>
                   {showing ? "Hide previous" : "Show previous"}

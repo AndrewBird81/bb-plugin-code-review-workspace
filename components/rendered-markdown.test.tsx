@@ -349,6 +349,16 @@ test("a changed table tints its new and changed rows, and each row it shows take
   slot.lifecycle.unmount();
 });
 
+test("a changed block says which of its links now go elsewhere", async () => {
+  const old = "Get more info about [Keyboard Shortcuts editor](/docs/getstarted/keybindings.md).\n";
+  const now = "Get more info about [Keyboard Shortcuts editor](/docs/editor/keybindings.md).\n";
+  const { slot } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now), contents: { ok: true, old, new: now } });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(1));
+  const said = within(units(slot.container)[0]).getByRole("note", { name: "Link changed" });
+  expect(said.textContent).toBe("Link changed: Keyboard Shortcuts editor/docs/getstarted/keybindings.md to /docs/editor/keybindings.md");
+  slot.lifecycle.unmount();
+});
+
 test("lines that take no comment offer Ask agent alone, which asks about their source", async () => {
   patchReviewState("pr-42", { activeId: "c1" });
   const old = `Intro paragraph.\n\n${Array.from({ length: 4 }, (_, i) => `Filler ${i}.`).join("\n\n")}\n\nTokens expire after 1 hour.\n`;
