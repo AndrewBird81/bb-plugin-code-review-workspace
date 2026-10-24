@@ -116,7 +116,7 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     const table = changedBlock(3);
     expect(await table.locator("tbody tr").nth(1).evaluate((row) => getComputedStyle(row).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
     await table.locator("tbody tr").nth(1).hover();
-    await table.getByRole("button", { name: "Comment on line 22" }).click();
+    await table.getByRole("button", { name: "Comment on table row 2 (line 22)" }).click();
     await page.getByRole("textbox", { name: "Draft comment", exact: true }).fill("Is iat needed?");
     await page.getByRole("button", { name: "Add to draft", exact: true }).click();
     await table.getByRole("article").waitFor();

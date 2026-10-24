@@ -23,12 +23,12 @@ vi.mock("@pierre/diffs/react", () => ({
 // Each content it's given is kept, with when. Drawn again only for new content: React 19 sets innerHTML on every render.
 // A table draws as BB's does, a thead and a tbody of rows, so the view can read its rows.
 const markdown = vi.hoisted(() => ({
-  strip: false, loadsAt: 0, given: [] as { content: string; at: number }[],
+  strip: false, loadsAt: 0, given: [] as { content: string; at: number }[], extraRow: false,
   tables: (content: string) => {
     if (!content.startsWith("|")) return content;
     const [head, , ...body] = content.split("\n").filter((line) => line.startsWith("|"));
     const cells = (line: string, tag: string) => line.split("|").slice(1, -1).map((cell) => `<${tag}>${cell.trim()}</${tag}>`).join("");
-    return `<table><thead><tr>${cells(head, "th")}</tr></thead><tbody>${body.map((line) => `<tr>${cells(line, "td")}</tr>`).join("")}</tbody></table>`;
+    return `<table><thead><tr>${cells(head, "th")}</tr></thead><tbody>${body.map((line) => `<tr>${cells(line, "td")}</tr>`).join("")}${markdown.extraRow ? "<tr><td>x</td></tr>" : ""}</tbody></table>`;
   },
 }));
 vi.mock("@get-bb/plugin-sdk/app", async (importOriginal) => {
@@ -50,7 +50,7 @@ vi.mock("@get-bb/plugin-sdk/app", async (importOriginal) => {
 });
 
 afterEach(async () => {
-  cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); Object.assign(markdown, { strip: false, loadsAt: 0, given: [] });
+  cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); Object.assign(markdown, { strip: false, loadsAt: 0, given: [], extraRow: false });
   (await import("./RenderedMarkdown")).resetMarksForTests();
 });
 
@@ -341,8 +341,15 @@ test("a changed table tints its new and changed rows, and each row it shows take
     `[data-md-rows="${scope}"] tbody tr:nth-child(3) { background-color: color-mix(in oklab, var(--diff-added) 12%, transparent); }`,
   ].join("\n"));
   // With no context in the diff, only its changed rows take one.
-  expect(within(table).getAllByRole("button", { name: /^Comment on/ }).map((button) => button.getAttribute("aria-label"))).toEqual(["Comment on line 4", "Comment on line 5"]);
-  fireEvent.click(within(table).getByRole("button", { name: "Comment on line 5" }));
+  const buttons = within(table).getAllByRole("button", { name: /^Comment on/ });
+  expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual(["Comment on table row 2 (line 4)", "Comment on table row 3 (line 5)"]);
+  // One stop for the keyboard, the arrow keys moving between rows.
+  expect(buttons.map((button) => button.tabIndex)).toEqual([0, -1]);
+  buttons[0].focus();
+  fireEvent.keyDown(buttons[0], { key: "ArrowDown" });
+  expect(document.activeElement).toBe(buttons[1]);
+  expect(buttons.map((button) => button.tabIndex)).toEqual([-1, 0]);
+  fireEvent.click(within(table).getByRole("button", { name: "Comment on table row 3 (line 5)" }));
   fireEvent.change(await slot.findByRole("textbox", { name: "Draft comment" }), { target: { value: "Why nbf?" } });
   fireEvent.click(slot.getByRole("button", { name: "Add to draft" }));
   await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith(expect.objectContaining({ comment: expect.objectContaining({ line: 5, side: "RIGHT" }) })));
@@ -368,6 +375,17 @@ test("a PR's relative links go to their files at its head on GitHub, in marked w
     "See [the setup](https://github.com/acme/web/blob/abc/setup.md) <del>first</del><ins>now</ins>.",
     "[Image: chart](https://github.com/acme/web/blob/abc/docs/img/a.png)",
   ]);
+  slot.lifecycle.unmount();
+});
+
+test("a table drawn with other rows than its source has tints none, and takes one comment for the whole table", async () => {
+  markdown.extraRow = true;
+  const old = "| Field | Type |\n|---|---|\n| exp | int |\n| iat | int |\n";
+  const now = "| Field | Type |\n|---|---|\n| exp | int |\n| iat | long |\n| nbf | int |\n";
+  const { slot } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now, 0), contents: { ok: true, old, new: now } });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(1));
+  expect(units(slot.container)[0].querySelector("style")).toBeNull();
+  expect(within(units(slot.container)[0]).getAllByRole("button", { name: /^Comment on/ }).map((button) => button.getAttribute("aria-label"))).toEqual(["Comment on lines 4–5"]);
   slot.lifecycle.unmount();
 });
 

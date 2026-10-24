@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { SelectedLineRange } from "@pierre/diffs";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import type { CommentLocation } from "../src/draft";
@@ -81,11 +81,24 @@ const ROW_TINT = { added: "color-mix(in oklab, var(--diff-added) 12%, transparen
  * block is hovered, or as `shown` says. Where
  * there's no mouse to aim it, a tap passes through it, to select the text, and the keyboard still reaches it.
  */
-function CommentButton({ anchor, onComment, top = 0, shown }: { anchor: LineAnchor; onComment: (at: LineAnchor) => void; top?: number; shown?: boolean }) {
+function CommentButton({ anchor, onComment, top = 0, shown, label, tabIndex, onKeyDown, ref }: {
+  anchor: LineAnchor;
+  onComment: (at: LineAnchor) => void;
+  top?: number;
+  shown?: boolean;
+  /** What it's on, else its lines. */
+  label?: string;
+  tabIndex?: number;
+  onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void;
+  ref?: (el: HTMLButtonElement | null) => void;
+}) {
   return (
     <button
+      ref={ref}
       type="button"
-      aria-label={`Comment on ${linesSaid(anchor)}`}
+      aria-label={`Comment on ${label ?? linesSaid(anchor)}`}
+      tabIndex={tabIndex}
+      onKeyDown={onKeyDown}
       style={{ top }}
       className={cn("absolute -left-[43px] flex size-5 items-center justify-center rounded-md bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity focus-visible:opacity-100 [@media_not_(any-pointer:fine)]:pointer-events-none", shown === undefined ? "group-hover/block:opacity-100" : shown && "opacity-100")}
       onClick={() => onComment(anchor)}
@@ -96,13 +109,17 @@ function CommentButton({ anchor, onComment, top = 0, shown }: { anchor: LineAnch
 }
 
 /**
- * A table's comment buttons, one beside each row a comment can take, shown as the pointer is over it: measured from the
- * rows BB's Markdown drew (`tr`, in order), never changing them. Where it drew other rows than the source has, `whole`.
+ * A table's comment buttons, one beside each row a comment can take, shown as the pointer is over it, and its rows'
+ * `tints`: measured from the rows BB's Markdown drew (`tr`, in order), never changing them. Where it drew other rows than
+ * the source has, no tints, and `whole`. The buttons are one stop for the keyboard, the arrow keys moving between rows,
+ * as a segmented control's choices are.
  */
-function TableRows({ block, side, lines, onComment, whole }: { block: MarkdownBlock; side: "LEFT" | "RIGHT"; lines: FileLines; onComment: (at: LineAnchor) => void; whole: ReactNode }) {
+function TableRows({ block, side, lines, onComment, whole, tints }: { block: MarkdownBlock; side: "LEFT" | "RIGHT"; lines: FileLines; onComment?: (at: LineAnchor) => void; whole: ReactNode; tints: string }) {
   const box = useRef<HTMLDivElement>(null);
   const [tops, setTops] = useState<number[] | null>(null);
   const [over, setOver] = useState<number | null>(null);
+  const [current, setCurrent] = useState(0);
+  const buttons = useRef(new Map<number, HTMLButtonElement>());
   useLayoutEffect(() => {
     const drawn = box.current!.parentElement!;
     const rows = () => Array.from(drawn.querySelectorAll("tr"));
@@ -123,12 +140,24 @@ function TableRows({ block, side, lines, onComment, whole }: { block: MarkdownBl
     drawn.addEventListener("pointerleave", leave);
     return () => { changes.disconnect(); sizes?.disconnect(); drawn.removeEventListener("pointermove", move); drawn.removeEventListener("pointerleave", leave); };
   }, [block]);
+  const rows = block.rows!.flatMap((line, row) => { const anchor = rangeAnchor(lines, side, line, line); return anchor ? [{ row, anchor }] : []; });
+  const stop = Math.min(current, rows.length - 1);
+  const step = (event: KeyboardEvent<HTMLButtonElement>, at: number) => {
+    const to = event.key === "ArrowDown" ? at + 1 : event.key === "ArrowUp" ? at - 1 : event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : -1;
+    if (to < 0 || to >= rows.length) return;
+    event.preventDefault();
+    setCurrent(to);
+    buttons.current.get(rows[to].row)?.focus();
+  };
   return (
     <div ref={box} className="contents">
-      {tops ? block.rows!.map((line, row) => {
-        const anchor = rangeAnchor(lines, side, line, line);
-        return anchor && <CommentButton key={line} anchor={anchor} onComment={onComment} top={tops[row]} shown={over === row} />;
-      }) : whole}
+      {tops && tints && <style>{tints}</style>}
+      {!onComment ? null : tops ? rows.map(({ row, anchor }, at) => (
+        <CommentButton key={row} anchor={anchor} onComment={onComment} top={tops[row]} shown={over === row}
+          label={`${row ? `table row ${row}` : "the table's header"} (${linesSaid(anchor)})`}
+          tabIndex={at === stop ? 0 : -1} onKeyDown={(event) => step(event, at)}
+          ref={(el) => { if (el) buttons.current.set(row, el); else buttons.current.delete(row); }} />
+      )) : whole}
     </div>
   );
 }
@@ -282,7 +311,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
     const definitions = item.side === "LEFT" ? diff.oldDefinitions : diff.newDefinitions;
     const said = SAID[item.status];
     const marked = ghost === undefined && marks ? words.get(index) : undefined;
-    // A changed table's new and changed rows, tinted from a style of its own: BB's Markdown draws the rows.
+    // A changed table's new and changed rows, tinted from a style of its own, once BB's Markdown has drawn its rows.
     const scope = `${id}-${index}`;
     const rowStates = ghost === undefined && item.block.rows && item.previous?.length === 1 && item.previous[0].rows ? rowChanges(item.previous[0], item.block) : [];
     const tints = rowStates.flatMap((state, row) => state ? [`[data-md-rows="${scope}"] ${row ? `tbody tr:nth-child(${row})` : "thead tr:first-child"} { background-color: ${ROW_TINT[state]}; }`] : []).join("\n");
@@ -300,11 +329,10 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
         <div className="relative">
           {/* In the gutter left of the bar. A table has one for each row, or else, where it draws other rows than its source
               has, this one. */}
-          {item.block.rows && onComment ? (
-            <TableRows block={item.block} side={item.side} lines={lines} onComment={(at) => onComment({ file: path, ...at })}
-              whole={anchor && <CommentButton anchor={anchor} onComment={(at) => onComment({ file: path, ...at })} />} />
+          {item.block.rows ? (
+            <TableRows block={item.block} side={item.side} lines={lines} tints={tints} onComment={onComment && ((at) => onComment({ file: path, ...at }))}
+              whole={anchor && onComment && <CommentButton anchor={anchor} onComment={(at) => onComment({ file: path, ...at })} />} />
           ) : anchor && onComment && <CommentButton anchor={anchor} onComment={(at) => onComment({ file: path, ...at })} />}
-          {tints && <style>{tints}</style>}
           <div data-md-rows={tints ? scope : undefined} className={cn(item.status === "removed" && "opacity-60")}>
             <Markdown content={marked ?? prepare(blockMarkdown(item.block, definitions))} />
           </div>
