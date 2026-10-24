@@ -33,6 +33,9 @@ const FRONTMATTER = /^---\n([\s\S]*?\n)?(?:---|\.\.\.)[ \t]*(?:\n|$)/;
 /** An HTML block's opening tag, whose element may hold Markdown blocks up to its closing tag, as `<details>` does. */
 const OPEN_TAG = /^ {0,3}<([A-Za-z][A-Za-z0-9-]*)(?=[\s/>]|$)/;
 
+/** `text`'s syntax tree, as GitHub's Markdown (CommonMark and GFM) reads it. */
+export const parseMarkdown = (text: string) => fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
+
 /** `text` read as Markdown: without a byte order mark, its line endings `\n`. Line numbers stay as they were. */
 export const normalMarkdown = (text: string) => text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
 
@@ -56,7 +59,7 @@ export function markdownBlocks(text: string): MarkdownDoc {
     blocks.push({ kind: "frontmatter", start: 1, end, source: slice(1, end) });
     body = lines.map((line, index) => (index < end ? "" : line));
   }
-  const tree = fromMarkdown(body.join("\n"), { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
+  const tree = parseMarkdown(body.join("\n"));
   const node = (from: RootContent, extra: Pick<MarkdownBlock, "depth" | "list"> = {}) => ({ kind: from.type as string, start: from.position!.start.line, end: from.position!.end.line, html: from.type === "html" ? from.value : null, ...extra });
   const nodes = tree.children.flatMap((child) => {
     if (!child.position) return [];

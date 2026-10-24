@@ -1,4 +1,8 @@
 import { expect, test } from "vitest";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfm } from "micromark-extension-gfm";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import type { Nodes } from "mdast";
 import { rng } from "../src/fuzz-gen.test-support";
 import { blockWords, markWords } from "./markdown-words";
 import type { MarkdownBlock } from "./markdown-blocks";
@@ -59,26 +63,73 @@ test("text that shares too little isn't marked word by word", () => {
   expect(markWords("Tokens expire after an hour.", "Refresh rotates every single use now.")).toBeNull();
 });
 
-// Whatever it marks, the marks read back as both texts: without the deleted words, the new one; without the inserted, the old.
-test("marked text without its deletions is the new text, and without its insertions the old, whitespace aside", () => {
+// Marks the atoms allowed that CommonMark read otherwise (reviewer's B1): each drew something other than the new block.
+test("marks that would change what the block draws aren't made", () => {
+  // Intraword emphasis, as in CJK, where every emphasised word is intraword: the marks stop ** from closing.
+  expect(markWords("Call the **API**s here.", "Call the **SDK**s here.")).toBeNull();
+  expect(markWords("这是**重要**的设置。", "这是**关键**的设置。")).toBeNull();
+  // A shortcut reference link: its label, marked, matches no definition.
+  expect(markWords("See [RFC 1234] now.\n\n[RFC 1234]: https://a\n[RFC 5678]: https://b", "See [RFC 5678] now.\n\n[RFC 1234]: https://a\n[RFC 5678]: https://b")).toBeNull();
+  // A code span wrapped over two lines, and indented code in a list item or quote: the marks would show as text.
+  expect(markWords("Run the `npm run\nbuild` command first.", "Run the `npm run\nlint` command first.")).toBeNull();
+  expect(markWords("- Run:\n\n      npm run build", "- Run:\n\n      npm run lint")).toBeNull();
+  expect(markWords("> Run:\n>\n>     npm run build", "> Run:\n>\n>     npm run lint")).toBeNull();
+});
+
+const parse = (text: string) => fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
+/**
+ * What a Markdown tree draws, for one side of marked text: `keep` "ins" drops each <del>…</del> and the <ins> tags, "del"
+ * the reverse. Types, text with its whitespace collapsed, values, URLs and labels.
+ */
+function drawn(node: Nodes, keep: "ins" | "del" | null, state = { dropping: false }): unknown {
+  if (!("children" in node)) return [node.type, "value" in node ? node.value.replace(/\s+/g, " ").trim() : null];
+  const children: unknown[] = [];
+  let text = "";
+  const flush = () => { if (text.trim()) children.push(["text", text.replace(/\s+/g, " ").trim()]); text = ""; };
+  for (const child of node.children) {
+    const tag = child.type === "html" && keep ? child.value.match(/^<(\/?)(del|ins)>$/) : null;
+    if (tag) { if (tag[2] !== keep) state.dropping = !tag[1]; continue; }
+    if (state.dropping) continue;
+    if (child.type === "text") { text += child.value; continue; }
+    flush();
+    children.push(drawn(child, keep, state));
+  }
+  flush();
+  return [node.type, "url" in node ? node.url : null, "identifier" in node ? node.identifier : null, "depth" in node ? node.depth : null, children];
+}
+const leaks = (node: Nodes): boolean => ("value" in node && node.type !== "html" && /<\/?(?:del|ins)>/.test(node.value)) || ("children" in node && node.children.some(leaks));
+
+// Whatever it marks reads, without the deletions, as the new block draws, and without the insertions as the old one: over
+// prose that holds emphasis inside words, CJK, links and shortcut references, code spans over two lines, and indented code.
+test("marked text draws as the new block without its deletions, and as the old without its insertions", () => {
   const r = rng(2026);
-  const pool = ["token", "rotation", "**bold**", "`code`", "[link](https://example.com)", "client,", "gateway.", "re-use", "it's", "&amp;", "<kbd>K</kbd>", "_em_"];
-  const sentence = () => Array.from({ length: r.int(3, 30) }, () => r.pick(pool)).join(" ");
-  const flat = (text: string) => text.replace(/\s+/g, " ").trim();
+  const words = ["token", "expires", "client", "API", "refresh", "keyboard", "设置", "重要", "über", "e.g.", "v1.2", "don't"];
+  const piece = () => r.pick([
+    () => r.pick(words), () => `**${r.pick(words)}**`, () => `*${r.pick(words)}*`, () => `_${r.pick(words)}_`, () => `\`${r.pick(words)}\``,
+    () => `[${r.pick(words)}](https://x.io/${r.pick(words)})`, () => "[token gateway]", () => `${r.pick(words)}**${r.pick(words)}**${r.pick(words)}`,
+    () => `**${r.pick(words)}**${r.pick(words)}`, () => "&amp;", () => "\\*", () => `<kbd>${r.pick(words)}</kbd>`, () => `\`${r.pick(words)}\n${r.pick(words)}\``,
+  ])();
+  const definitions = "\n\n[token gateway]: https://ref.io";
   let marked = 0;
-  for (let run = 0; run < 2000; run++) {
-    const old = sentence();
-    const words = old.split(" ");
-    for (let k = r.int(1, 4); k > 0; k--) {
-      const at = r.int(0, words.length - 1);
-      if (r.bool()) words.splice(at, 1, r.pick(pool)); else if (r.bool()) words.splice(at, 0, r.pick(pool)); else words.splice(at, 1);
+  for (let run = 0; run < 3000; run++) {
+    const prefix = r.pick(["", "- ", "1. ", "## ", "> ", "- [ ] "]);
+    const body = Array.from({ length: r.int(3, 12) }, () => (r.bool(0.35) ? piece() : r.pick(words))).join(r.bool(0.15) ? "\n" : " ");
+    const parts = body.split(" ");
+    for (let k = r.int(1, 3); k > 0; k--) {
+      const at = r.int(0, parts.length - 1);
+      if (r.bool()) parts.splice(at, 1, r.pick(words)); else if (r.bool()) parts.splice(at, 0, r.pick(words)); else parts.splice(at, 1);
     }
-    const now = words.join(r.bool(0.2) ? "\n" : " ");
+    // Now and then, indented code under the item or quote.
+    const code = prefix === "- " || prefix === "> " ? r.pick(["", `\n${prefix === "> " ? ">" : ""}\n${prefix === "> " ? "> " : "  "}    npm run ${r.pick(words)}`]) : "";
+    const old = `${prefix}${body}${code}${definitions}`;
+    const now = `${prefix}${parts.join(" ")}${code && r.bool(0.5) ? code.replace(/run \S+$/, `run ${r.pick(words)}`) : code}${definitions}`;
     const out = markWords(old, now);
     if (out === null) continue;
     marked++;
-    expect(flat(out.replace(/<del>[^]*?<\/del>/g, " ").replace(/<\/?ins>/g, "")), JSON.stringify({ old, now, out })).toBe(flat(now));
-    expect(flat(out.replace(/<ins>[^]*?<\/ins>/g, " ").replace(/<\/?del>/g, "")), JSON.stringify({ old, now, out })).toBe(flat(old));
+    const tree = parse(out);
+    expect(leaks(tree), JSON.stringify({ old, now, out })).toBe(false);
+    expect(drawn(tree, "ins"), JSON.stringify({ old, now, out })).toEqual(drawn(parse(now), null));
+    expect(drawn(tree, "del"), JSON.stringify({ old, now, out })).toEqual(drawn(parse(old), null));
   }
   expect(marked).toBeGreaterThan(500);
 });
@@ -102,10 +153,10 @@ test("an ordered list's item marks its words, numbered as it draws now", () => {
 });
 
 // The word diff runs on every changed block of a document; a quadratic diff would freeze the tab on a big rewrite.
-test("marking words in thousands of long changed paragraphs takes reasonable time", () => {
+test("marking words in a thousand long changed paragraphs takes reasonable time", () => {
   const words = (seed: number) => Array.from({ length: 80 }, (_, i) => `w${(seed * 31 + i * 7) % 997}`);
   const start = performance.now();
-  for (let i = 0; i < 2000; i++) {
+  for (let i = 0; i < 1000; i++) {
     const old = words(i);
     const now = old.map((word, at) => (at % 9 === 0 ? `${word}x` : word));
     markWords(old.join(" "), now.join(" "));

@@ -1,7 +1,8 @@
 import { diffArrays } from "diff";
 import { CONFETTI_THRESHOLD } from "./confetti";
 import { linkImages } from "./link-images";
-import { blockMarkdown, type MarkdownBlock } from "./markdown-blocks";
+import type { Nodes } from "mdast";
+import { blockMarkdown, parseMarkdown, type MarkdownBlock } from "./markdown-blocks";
 
 /**
  * A piece of a block's Markdown that changes whole: a run of whitespace, a word or a mark of punctuation, a code span, a
@@ -52,6 +53,42 @@ function atomsOf(text: string): Atom[] {
   return atoms;
 }
 
+/**
+ * What a syntax tree draws, as a string to compare: each node's type, text with its whitespace collapsed, value, URL,
+ * reference label and heading depth. Read as one side of marked text, `keep` "ins" drops each `<del>`…`</del>` and the
+ * `<ins>` tags, and "del" the reverse.
+ */
+function drawn(tree: Nodes, keep?: "ins" | "del"): string {
+  let dropping = false;
+  const walk = (node: Nodes): unknown => {
+    if (!("children" in node)) return [node.type, "value" in node ? node.value.replace(/\s+/g, " ").trim() : null];
+    const children: unknown[] = [];
+    let text = "";
+    const flush = () => { if (text.trim()) children.push(text.replace(/\s+/g, " ").trim()); text = ""; };
+    for (const child of node.children) {
+      const tag = keep && child.type === "html" ? child.value.match(/^<(\/?)(del|ins)>$/) : null;
+      if (tag) { if (tag[2] !== keep) dropping = !tag[1]; continue; }
+      if (dropping) continue;
+      if (child.type === "text") { text += child.value; continue; }
+      flush();
+      children.push(walk(child));
+    }
+    flush();
+    return [node.type, "url" in node ? node.url : null, "identifier" in node ? node.identifier : null, "depth" in node ? node.depth : null, children];
+  };
+  return JSON.stringify(walk(tree));
+}
+
+/**
+ * Whether `marked` draws as `now` without its deletions, and as `old` without its insertions. The atoms keep marks out of
+ * syntax they know; this is the safety net for what they don't, where CommonMark reads raw HTML otherwise: emphasis
+ * inside a word (and so in CJK), a shortcut reference's label, a code span over two lines, indented code.
+ */
+function drawsAsBoth(marked: string, old: string, now: string): boolean {
+  const tree = parseMarkdown(marked);
+  return drawn(tree, "ins") === drawn(parseMarkdown(now)) && drawn(tree, "del") === drawn(parseMarkdown(old));
+}
+
 const solid = (text: string) => text.replace(/\s/g, "").length;
 const join = (atoms: Atom[]) => atoms.map((atom) => atom.text).join("");
 
@@ -60,7 +97,7 @@ const join = (atoms: Atom[]) => atoms.map((atom) => atom.text).join("");
  * change's removed words as `<del>`, then its added ones as `<ins>`. Any two whitespaces are alike, so rewrapped lines
  * mark nothing, and changes a space apart are one. Null when there's nothing to mark, or marking would mislead or break
  * the Markdown: a change that crosses its syntax, changes a link (its words would show twice), shares under
- * `CONFETTI_THRESHOLD` of its text, or is too large to diff.
+ * `CONFETTI_THRESHOLD` of its text, is too large to diff, or marked, would draw something else (`drawsAsBoth`).
  */
 export function markWords(old: string, now: string): string | null {
   const parts = diffArrays(atomsOf(old), atomsOf(now), { comparator: (a, b) => a.text === b.text || a.kind === "space" && b.kind === "space", maxEditLength: WORD_EDITS });
@@ -104,7 +141,8 @@ export function markWords(old: string, now: string): string | null {
     }
   }
   if (!change() || !marked) return null;
-  return (2 * kept) / (solid(old) + solid(now) || 1) < CONFETTI_THRESHOLD ? null : out;
+  if ((2 * kept) / (solid(old) + solid(now) || 1) < CONFETTI_THRESHOLD) return null;
+  return drawsAsBoth(out, old, now) ? out : null;
 }
 
 /**
