@@ -126,6 +126,22 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     expect(await marks(3)).toEqual([[], []]);
     expect(await marks(4)).toEqual([[], []]);
     expect(await marks(5)).toEqual([["year"], ["month"]]);
+    // With a mouse, a one-line block's gutter buttons are its own, on its line: Show previous on a list item, and on the
+    // last block, opens its version before, and its comment button opens its own comment box, never the next block's.
+    for (const block of [changedBlock(1), changedBlock(8)]) {
+      await block.hover();
+      await block.getByRole("button", { name: "Show previous" }).click();
+      await block.getByRole("button", { name: "Hide previous" }).waitFor();
+      expect(await block.locator("[data-md-ghost]").count()).toBe(1);
+      expect(await page.getByRole("textbox", { name: "Draft comment", exact: true }).count()).toBe(0);
+      await block.getByRole("button", { name: "Hide previous" }).click();
+    }
+    const item = changedBlock(1);
+    await item.locator("[data-md-block]").hover();
+    await item.getByRole("button", { name: "Comment on line 8" }).click();
+    await item.getByRole("textbox", { name: "Draft comment", exact: true }).waitFor();
+    await item.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("textbox", { name: "Draft comment", exact: true }).waitFor({ state: "detached" });
     // An ordered list's item draws with its number in the list, though its source numbers it 1, as BB's <ol start> reads it.
     expect(await changedBlock(8).locator("ol").getAttribute("start")).toBe("2");
     expect(await marks(8)).toEqual([[], ["today"]]);
@@ -217,8 +233,8 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     const payload = JSON.parse(submission![1]!.stdin!);
     expect(payload.comments.map(({ path, line, side }: any) => ({ path, line, side }))).toEqual(expect.arrayContaining([{ path: FILE, line: 17, side: "RIGHT" }, { path: FILE, line: 14, side: "LEFT" }]));
     expect(errors).toEqual([]);
-    // On a touch screen at a tablet's width, Show previous always shows, still beside its block.
-    const touch = await browser.newPage({ viewport: { width: 820, height: 1600 }, hasTouch: true });
+    // On a phone's touch screen, Show previous always shows, still beside its block.
+    const touch = await browser.newPage({ viewport: { width: 390, height: 1600 }, hasTouch: true, isMobile: true });
     touch.setDefaultTimeout(10_000);
     await serve(touch);
     await touch.goto(`${base}/plugins/code-review-workspace/review/${key}`);
