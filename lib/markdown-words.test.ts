@@ -64,6 +64,11 @@ test("text that shares too little isn't marked word by word", () => {
 });
 
 // Marks the atoms allowed that CommonMark read otherwise (reviewer's B1): each drew something other than the new block.
+test("words added or removed before punctuation are marked", () => {
+  expect(markWords("- Refresh tokens rotate.", "- Refresh tokens rotate on every use.")).toBe("- Refresh tokens rotate <ins>on every use</ins>.");
+  expect(markWords("Rotate them on every use.", "Rotate them.")).toBe("Rotate them <del>on every use</del>.");
+});
+
 test("marks that would change what the block draws aren't made", () => {
   // Intraword emphasis, as in CJK, where every emphasised word is intraword: the marks stop ** from closing.
   expect(markWords("Call the **API**s here.", "Call the **SDK**s here.")).toBeNull();
@@ -79,13 +84,13 @@ test("marks that would change what the block draws aren't made", () => {
 const parse = (text: string) => fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
 /**
  * What a Markdown tree draws, for one side of marked text: `keep` "ins" drops each <del>…</del> and the <ins> tags, "del"
- * the reverse. Types, text with its whitespace collapsed, values, URLs and labels.
+ * the reverse. Types, text and values without whitespace, URLs and labels.
  */
 function drawn(node: Nodes, keep: "ins" | "del" | null, state = { dropping: false }): unknown {
-  if (!("children" in node)) return [node.type, "value" in node ? node.value.replace(/\s+/g, " ").trim() : null];
+  if (!("children" in node)) return [node.type, "value" in node ? node.value.replace(/\s+/g, "") : null];
   const children: unknown[] = [];
   let text = "";
-  const flush = () => { if (text.trim()) children.push(["text", text.replace(/\s+/g, " ").trim()]); text = ""; };
+  const flush = () => { if (text.trim()) children.push(["text", text.replace(/\s+/g, "")]); text = ""; };
   for (const child of node.children) {
     const tag = child.type === "html" && keep ? child.value.match(/^<(\/?)(del|ins)>$/) : null;
     if (tag) { if (tag[2] !== keep) state.dropping = !tag[1]; continue; }

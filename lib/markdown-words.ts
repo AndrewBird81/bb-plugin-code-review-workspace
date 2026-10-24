@@ -54,17 +54,17 @@ function atomsOf(text: string): Atom[] {
 }
 
 /**
- * What a syntax tree draws, as a string to compare: each node's type, text with its whitespace collapsed, value, URL,
- * reference label and heading depth. Read as one side of marked text, `keep` "ins" drops each `<del>`…`</del>` and the
+ * What a syntax tree draws, as a string to compare: each node's type, text and value without whitespace (a mark taken
+ * out leaves the spaces around it), URL, reference label and heading depth. Read as one side of marked text, `keep` "ins" drops each `<del>`…`</del>` and the
  * `<ins>` tags, and "del" the reverse.
  */
 function drawn(tree: Nodes, keep?: "ins" | "del"): string {
   let dropping = false;
   const walk = (node: Nodes): unknown => {
-    if (!("children" in node)) return [node.type, "value" in node ? node.value.replace(/\s+/g, " ").trim() : null];
+    if (!("children" in node)) return [node.type, "value" in node ? node.value.replace(/\s+/g, "") : null];
     const children: unknown[] = [];
     let text = "";
-    const flush = () => { if (text.trim()) children.push(text.replace(/\s+/g, " ").trim()); text = ""; };
+    const flush = () => { if (text.trim()) children.push(text.replace(/\s+/g, "")); text = ""; };
     for (const child of node.children) {
       const tag = keep && child.type === "html" ? child.value.match(/^<(\/?)(del|ins)>$/) : null;
       if (tag) { if (tag[2] !== keep) dropping = !tag[1]; continue; }
