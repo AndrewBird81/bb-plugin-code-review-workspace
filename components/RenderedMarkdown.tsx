@@ -10,7 +10,7 @@ import { blockWords, changedLinks } from "../lib/markdown-words";
 import { elementOf, pointLine, textLines } from "../lib/markdown-points";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
-import { TOUCH_COMPACT } from "./touch";
+import { TOUCH_COMPACT, TOUCH_TARGET } from "./touch";
 import { InlineLocation, locationKey } from "./InlineDraft";
 import { LineThreads } from "./LineThreads";
 import { LineChecks } from "./CheckFailures";
@@ -385,7 +385,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
                 where there's no hover, always; and while its version before shows. Under every changed block, it was noise. */}
             {item.previous && (
               <button type="button" aria-expanded={showing}
-                className={cn("absolute right-0 top-0 z-[1] h-6 rounded-md bg-card px-1.5 text-[11px] text-muted-foreground shadow-xs transition-opacity hover:bg-state-hover hover:text-foreground focus-visible:opacity-100 group-hover/unit:opacity-100 [@media_not_(any-pointer:fine)]:opacity-100", showing ? "opacity-100" : "opacity-0", TOUCH_COMPACT)}
+                className={cn("absolute right-0 top-0 z-[1] h-6 rounded-md bg-card px-1.5 text-[11px] text-muted-foreground shadow-xs transition-opacity hover:bg-state-hover hover:text-foreground focus-visible:opacity-100 group-hover/unit:opacity-100 [@media_not_(any-pointer:fine)]:opacity-100", showing ? "opacity-100" : "opacity-0", TOUCH_TARGET)}
                 onClick={() => setPrevious((shown) => { const next = new Set(shown); if (!next.delete(row.index)) next.add(row.index); return next; })}>
                 {showing ? "Hide previous" : "Show previous"}
               </button>
