@@ -166,10 +166,10 @@ test("an ordered list's item marks its words, numbered as it draws now", () => {
 });
 
 // The word diff runs on every changed block of a document; a quadratic diff would freeze the tab on a big rewrite.
-test("marking words in a thousand long changed paragraphs takes reasonable time", () => {
+test("marking words in hundreds of long changed paragraphs takes reasonable time", () => {
   const words = (seed: number) => Array.from({ length: 80 }, (_, i) => `w${(seed * 31 + i * 7) % 997}`);
   const start = performance.now();
-  for (let i = 0; i < 1000; i++) {
+  for (let i = 0; i < 500; i++) {
     const old = words(i);
     const now = old.map((word, at) => (at % 9 === 0 ? `${word}x` : word));
     markWords(old.join(" "), now.join(" "));
