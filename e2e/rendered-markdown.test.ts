@@ -38,12 +38,15 @@ export const LIFETIME = 3600;
 > Rotate the signing keys every year.
 
 See [the threat model](threats.md) for why.
+
+Rotation is checked
+nightly by the audit job.
 `;
 const NEW = OLD.replace("1 hour", "15 minutes").replace("Refresh tokens are never rotated.\n\n", "")
   .replace("| exp   | int  |", "| exp   | int  |\n| iat   | int  |").replace("3600", "900")
   .replace("## Lifetime", "## Rotation\n\nEach refresh token works once.\n\n## Lifetime")
   .replace("- Refresh tokens rotate.", "- Refresh tokens rotate on every use.\n- Sessions end at logout.")
-  .replace("## Goals", "## Goals and limits").replace("every year", "every month").replace("(threats.md)", "(security/threats.md)");
+  .replace("## Goals", "## Goals and limits").replace("every year", "every month").replace("(threats.md)", "(security/threats.md)").replace("nightly by", "hourly by");
 
 // The running BB supplies the real app shell, BB's own Markdown, and the built plugin; its RPCs go through the
 // official test host, with GitHub mocked. A Markdown file shown rendered takes comments on its blocks, which submit at
@@ -97,7 +100,7 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     // BB's Markdown drew each block: the table, and the code with its highlighting.
     await rendered.locator("table").waitFor();
     expect(await rendered.locator("[data-md-status]").evaluateAll((units) => units.map((unit) => (unit as HTMLElement).dataset.mdStatus)))
-      .toEqual(["unchanged", "unchanged", "changed", "unchanged", "changed", "added", "added", "added", "unchanged", "changed", "removed", "changed", "changed", "changed", "changed"]);
+      .toEqual(["unchanged", "unchanged", "changed", "unchanged", "changed", "added", "added", "added", "unchanged", "changed", "removed", "changed", "changed", "changed", "changed", "changed"]);
     // BB's Markdown draws the changed words marked, in a heading, a list item, a paragraph and a quote; the table's and
     // the code's changes cross their syntax, so they show whole.
     const changedBlock = (n: number) => rendered.locator('[data-md-status="changed"]').nth(n);
@@ -135,6 +138,23 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
       }
     });
     await page.getByRole("group", { name: "Selection" }).getByText("L25", { exact: true }).waitFor();
+    await page.getByRole("group", { name: "Selection" }).getByRole("button", { name: "Clear selection" }).click();
+    await page.evaluate(() => getSelection()!.removeAllRanges());
+    // Words selected on a paragraph's second line pick that line, read past the marked words before them.
+    await changedBlock(7).evaluate((block) => {
+      const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const at = node.textContent!.indexOf("the audit");
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + "the audit".length);
+        getSelection()!.removeAllRanges();
+        getSelection()!.addRange(range);
+        return;
+      }
+    });
+    await page.getByRole("group", { name: "Selection" }).getByText("L33", { exact: true }).waitFor();
     await page.getByRole("group", { name: "Selection" }).getByRole("button", { name: "Clear selection" }).click();
     await page.evaluate(() => getSelection()!.removeAllRanges());
     for (const scheme of ["dark", "light"] as const) {
