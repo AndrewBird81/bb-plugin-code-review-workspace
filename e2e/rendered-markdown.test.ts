@@ -37,7 +37,8 @@ export const LIFETIME = 3600;
 `;
 const NEW = OLD.replace("1 hour", "15 minutes").replace("Refresh tokens are never rotated.\n\n", "")
   .replace("| exp   | int  |", "| exp   | int  |\n| iat   | int  |").replace("3600", "900")
-  .replace("## Lifetime", "## Rotation\n\nEach refresh token works once.\n\n## Lifetime");
+  .replace("## Lifetime", "## Rotation\n\nEach refresh token works once.\n\n## Lifetime")
+  .replace("- Refresh tokens rotate.", "- Refresh tokens rotate on every use.\n- Sessions end at logout.");
 
 // The running BB supplies the real app shell, BB's own Markdown, and the built plugin; its RPCs go through the
 // official test host, with GitHub mocked. A Markdown file shown rendered takes comments on its blocks, which submit at
@@ -91,14 +92,22 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     // BB's Markdown drew each block: the table, and the code with its highlighting.
     await rendered.locator("table").waitFor();
     expect(await rendered.locator("[data-md-status]").evaluateAll((units) => units.map((unit) => (unit as HTMLElement).dataset.mdStatus)))
-      .toEqual(["unchanged", "unchanged", "unchanged", "unchanged", "added", "added", "unchanged", "changed", "removed", "changed", "changed"]);
+      .toEqual(["unchanged", "unchanged", "unchanged", "unchanged", "changed", "added", "added", "added", "unchanged", "changed", "removed", "changed", "changed"]);
+    // BB's Markdown draws the changed words marked, and they stay so once the document rests: the self-check passes.
+    const paragraph = rendered.locator('[data-md-status="changed"]').nth(1);
+    await page.waitForTimeout(3000);
+    expect(await paragraph.locator("del").allTextContents()).toEqual(["1 hour"]);
+    expect(await paragraph.locator("ins").allTextContents()).toEqual(["15 minutes"]);
+    expect(await rendered.locator('[data-md-status="changed"]').first().locator("ins").allTextContents()).toEqual(["on every use"]);
+    // The table's and the code's changes cross their syntax: they show whole.
+    expect(await rendered.locator('[data-md-status="changed"]').nth(2).locator("del, ins").count()).toBe(0);
     for (const scheme of ["dark", "light"] as const) {
       await page.emulateMedia({ colorScheme: scheme });
       await page.waitForTimeout(500);
       await file.screenshot({ animations: "disabled", path: `${dir}/rendered-${scheme}.png` });
     }
     // + on the changed paragraph, then on the removed one: their lines, new and old.
-    const changed = rendered.locator('[data-md-status="changed"]').first();
+    const changed = paragraph;
     await changed.hover();
     await changed.getByRole("button", { name: /^Comment on line/ }).click();
     await page.getByRole("textbox", { name: "Draft comment", exact: true }).fill("Is 15 minutes enough for mobile?");
@@ -115,11 +124,11 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     await page.waitForTimeout(500);
     await file.screenshot({ animations: "disabled", path: `${dir}/rendered-comments-dark.png` });
     // The table's version before, above it, and a block's + in the gutter.
-    await rendered.locator('[data-md-status="changed"]').nth(1).getByRole("button", { name: "Show previous", exact: true }).click();
-    await rendered.locator('[data-md-status="changed"]').nth(1).hover();
+    await rendered.locator('[data-md-status="changed"]').nth(2).getByRole("button", { name: "Show previous", exact: true }).click();
+    await rendered.locator('[data-md-status="changed"]').nth(2).hover();
     await file.screenshot({ animations: "disabled", path: `${dir}/rendered-previous-dark.png` });
     const comments = (await store.getDraft(key)).comments.map(({ line, side, startLine }) => ({ line, side, startLine }));
-    expect(comments).toEqual(expect.arrayContaining([{ line: 16, side: "RIGHT", startLine: undefined }, { line: 14, side: "LEFT", startLine: undefined }]));
+    expect(comments).toEqual(expect.arrayContaining([{ line: 17, side: "RIGHT", startLine: undefined }, { line: 14, side: "LEFT", startLine: undefined }]));
     // Submitted, they go to GitHub at those lines.
     const commands = page.getByRole("group", { name: "Review commands" });
     await commands.getByRole("button", { name: /^Finish review:/ }).click();
@@ -128,7 +137,7 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     await page.getByRole("region", { name: "Submitted review" }).waitFor();
     const submission = vi.mocked(runGh).mock.calls.find(([args]) => args.includes("POST"));
     const payload = JSON.parse(submission![1]!.stdin!);
-    expect(payload.comments.map(({ path, line, side }: any) => ({ path, line, side }))).toEqual(expect.arrayContaining([{ path: FILE, line: 16, side: "RIGHT" }, { path: FILE, line: 14, side: "LEFT" }]));
+    expect(payload.comments.map(({ path, line, side }: any) => ({ path, line, side }))).toEqual(expect.arrayContaining([{ path: FILE, line: 17, side: "RIGHT" }, { path: FILE, line: 14, side: "LEFT" }]));
     expect(errors).toEqual([]);
   } finally {
     await browser.close();
