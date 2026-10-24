@@ -471,6 +471,7 @@ export const DiffViewer = memo(function DiffViewer({
   onNewFiles,
   markdownFiles = "source",
   renderToggle,
+  linkRoot,
   changeStep,
 }: {
   diffLayout?: "split" | "unified";
@@ -479,6 +480,8 @@ export const DiffViewer = memo(function DiffViewer({
   onNewFiles?: (show: NewFilesShow) => void;
   /** How a Markdown file opens, which its row's Source and Rendered switch for that file. */
   markdownFiles?: MarkdownShow;
+  /** A PR's tree at its head on GitHub (`…/blob/<sha>/`), where a rendered Markdown file's relative links go. */
+  linkRoot?: string;
   /** Set to switch a Markdown file between Source and Rendered (m): false for a file that isn't one. */
   renderToggle?: MutableRefObject<((file: string) => boolean) | null>;
   /** Set to step to the next or previous change in the code drawn (⇧J, ⇧K): false when there's none that way. */
@@ -1140,6 +1143,7 @@ export const DiffViewer = memo(function DiffViewer({
                   selected={selectedLines?.file === path ? selectedLines.range : null}
                   onComment={draft?.editable ? draft.open : undefined}
                   onLineSelected={onLineSelected}
+                  linkRoot={linkRoot}
                 />
               </ErrorBoundary>
             )}

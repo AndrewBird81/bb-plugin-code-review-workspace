@@ -1496,6 +1496,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
                 onNewFiles={changeNewFiles}
                 changeStep={changeStep}
                 renderToggle={renderToggle}
+                linkRoot={isPr && review?.url && review.headSha ? review.url.replace(/\/pull\/\d+.*$/, `/blob/${review.headSha}/`) : undefined}
               />
               </DiffThreadsContext.Provider>
               </CheckFailuresContext.Provider>

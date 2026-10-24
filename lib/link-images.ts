@@ -20,6 +20,22 @@ export function linkImages(markdown: string): string {
   return mark + escapeHtml(outsideCode(text, (prose) => withoutComments(linkMarkdownImages(linkHtmlMedia(prose), labels))));
 }
 
+/** Where a file's relative links go: a tree on GitHub (`root`, a commit's blob URL) and the file's folder in it. */
+export interface LinkTree { root: string; folder: string }
+
+/**
+ * `markdown` with its relative links' URLs, inline and in definitions, made the files they name in `tree`, as GitHub's
+ * rich diff resolves them: a path from the file's folder, or from the root with a leading `/`. A URL with a scheme, `//`,
+ * or only a `#` fragment stays, as does anything in code. Run after `linkImages`, so an image is already a link.
+ */
+export function resolveLinks(markdown: string, tree: LinkTree): string {
+  const resolve = (url: string) => /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(url) ? url
+    : url.startsWith("/") ? tree.root + url.slice(1) : new URL(url, tree.root + tree.folder).href;
+  return outsideCode(markdown, (prose) => prose
+    .replace(/(\]\(\s*)(<[^<>\n]*>|[^\s()<>]+)/g, (_all, before: string, url: string) => before + (url.startsWith("<") ? `<${resolve(url.slice(1, -1))}>` : resolve(url)))
+    .replace(/^( {0,3}\[[^\]\n]+\]:[ \t]*)(<[^<>\n]*>|\S+)/gm, (_all, before: string, url: string) => before + (url.startsWith("<") ? `<${resolve(url.slice(1, -1))}>` : resolve(url))));
+}
+
 /**
  * `text` without its complete HTML comments: a PR template's or a bot's hidden notes. What's left is judged after, so
  * a tag the removal joins, as `<im<!-- -->g`, shows as text; an unclosed `<!--` shows too.

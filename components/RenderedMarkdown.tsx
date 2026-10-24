@@ -5,7 +5,7 @@ import type { CommentLocation } from "../src/draft";
 import { blockMarkdown, type MarkdownBlock } from "../lib/markdown-blocks";
 import { markdownDiff, rowChanges, type BlockStatus, type RenderedBlock } from "../lib/markdown-diff";
 import { blockAnchor, blockAt, fileLines, rangeAnchor, selectedBlocks, selectionAnchor, type FileLines, type LineAnchor, type SelectionEnd } from "../lib/markdown-anchor";
-import { linkImages } from "../lib/link-images";
+import { linkImages, resolveLinks } from "../lib/link-images";
 import { blockWords, changedLinks } from "../lib/markdown-words";
 import { pointLine, textLines } from "../lib/markdown-points";
 import { cn } from "../lib/utils";
@@ -146,8 +146,10 @@ type Row = { kind: "block"; index: number } | { kind: "fold"; key: string; from:
  * diff shows has a "+" that opens the comment box on its lines; selecting text picks the lines of the blocks it's in, as
  * picking lines in the code does, or, in blocks GitHub takes no comment on, offers to ask the agent about them.
  */
-export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, old, now, hideWhitespace, locations, selected, onComment, onLineSelected }: {
+export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, old, now, hideWhitespace, locations, selected, onComment, onLineSelected, linkRoot }: {
   path: string;
+  /** Where its relative links go, a PR's tree at its head on GitHub (`…/blob/<sha>/`); without it they stay as written. */
+  linkRoot?: string;
   /** The file's diff. */
   patch: string;
   /** Its contents before and after; null for a file added or deleted whole. */
@@ -163,13 +165,18 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
   const diff = useMemo(() => markdownDiff(old, now, patch, hideWhitespace), [old, now, patch, hideWhitespace]);
   const lines = useMemo(() => fileLines(patch, path), [patch, path]);
   const items = diff.blocks;
+  // Images as links, and relative links to their files in the PR's tree, both sides at its head.
+  const prepare = useCallback((markdown: string) => {
+    const linked = linkImages(markdown);
+    return linkRoot ? resolveLinks(linked, { root: linkRoot, folder: path.slice(0, path.lastIndexOf("/") + 1) }) : linked;
+  }, [linkRoot, path]);
   const id = useId();
   const anchors = useMemo(() => items.map((item) => blockAnchor(lines, item)), [items, lines]);
   // Each changed block's Markdown with its changed words marked, where they can be: drawn once BB's Markdown draws marks.
   const words = useMemo(() => new Map(items.flatMap((item, index) => {
-    const marked = item.status === "changed" && item.previous?.length === 1 ? blockWords(item.previous[0], item.block, diff.newDefinitions) : null;
+    const marked = item.status === "changed" && item.previous?.length === 1 ? blockWords(item.previous[0], item.block, diff.newDefinitions, prepare) : null;
     return marked ? [[index, marked] as const] : [];
-  })), [items, diff]);
+  })), [items, diff, prepare]);
   const [marks, setMarks] = useState(() => marksDrawn);
   // Each changed block's links that now go elsewhere, which its marks can't show: their words are the same.
   const links = useMemo(() => new Map(items.flatMap((item, index) => {
@@ -298,7 +305,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
           ) : anchor && onComment && <CommentButton anchor={anchor} onComment={(at) => onComment({ file: path, ...at })} />}
           {tints && <style>{tints}</style>}
           <div data-md-rows={tints ? scope : undefined} className={cn(item.status === "removed" && "opacity-60")}>
-            <Markdown content={marked ?? linkImages(blockMarkdown(item.block, definitions))} />
+            <Markdown content={marked ?? prepare(blockMarkdown(item.block, definitions))} />
           </div>
         </div>
       </div>

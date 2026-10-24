@@ -359,6 +359,18 @@ test("a changed block says which of its links now go elsewhere", async () => {
   slot.lifecycle.unmount();
 });
 
+test("a PR's relative links go to their files at its head on GitHub, in marked words too", async () => {
+  const old = "See [the setup](../setup.md) first.\n\n![chart](img/a.png)\n";
+  const now = "See [the setup](../setup.md) now.\n\n![chart](img/a.png)\n";
+  const { slot } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now), contents: { ok: true, old, new: now }, extra: { linkRoot: "https://github.com/acme/web/blob/abc/" } });
+  await waitFor(() => expect(slot.container.querySelector("[data-md-words]")).toBeTruthy());
+  expect(units(slot.container).map((unit) => within(unit).getByTestId("bb-markdown").innerHTML)).toEqual([
+    "See [the setup](https://github.com/acme/web/blob/abc/setup.md) <del>first</del><ins>now</ins>.",
+    "[Image: chart](https://github.com/acme/web/blob/abc/docs/img/a.png)",
+  ]);
+  slot.lifecycle.unmount();
+});
+
 test("lines that take no comment offer Ask agent alone, which asks about their source", async () => {
   patchReviewState("pr-42", { activeId: "c1" });
   const old = `Intro paragraph.\n\n${Array.from({ length: 4 }, (_, i) => `Filler ${i}.`).join("\n\n")}\n\nTokens expire after 1 hour.\n`;
