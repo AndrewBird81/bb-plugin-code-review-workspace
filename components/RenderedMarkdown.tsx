@@ -372,12 +372,21 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
         const before = above?.kind === "block" ? items[above.index].block : undefined;
         const ghosts = showing ? item.previous ?? [] : [];
         return (
-          <div key={`${item.side}:${item.block.start}`} data-md-index={row.index} data-md-status={item.status}>
+          <div key={`${item.side}:${item.block.start}`} data-md-index={row.index} data-md-status={item.status} className="group/unit relative">
+            {/* At the block's top right, shown as its comment button is: on hover or keyboard focus, and on a touch screen,
+                where there's no hover, always; and while its version before shows. Under every changed block, it was noise. */}
+            {item.previous && (
+              <button type="button" aria-expanded={showing}
+                className={cn("absolute right-0 top-0 z-[1] h-6 rounded-md bg-card px-1.5 text-[11px] text-muted-foreground shadow-xs transition-opacity hover:bg-state-hover hover:text-foreground focus-visible:opacity-100 group-hover/unit:opacity-100 [@media_not_(any-pointer:fine)]:opacity-100", showing ? "opacity-100" : "opacity-0", TOUCH_COMPACT)}
+                onClick={() => setPrevious((shown) => { const next = new Set(shown); if (!next.delete(row.index)) next.add(row.index); return next; })}>
+                {showing ? "Hide previous" : "Show previous"}
+              </button>
+            )}
             {ghosts.map((old, k) => <Fragment key={k}>{blockView({ status: "removed", side: "LEFT", block: old }, row.index, k ? ghosts[k - 1] : before, k)}</Fragment>)}
             {blockView(item, row.index, ghosts.at(-1) ?? before)}
-            {item.previous && (
+            {links.has(row.index) && (
               <div className="border-l-[3px] border-warning pl-4">
-                {links.get(row.index)?.map((link, k) => (
+                {links.get(row.index)!.map((link, k) => (
                   <p key={k} role="note" aria-label="Link changed" className="flex min-w-0 flex-wrap items-center gap-x-1.5 px-1.5 pt-1 text-[11px] text-muted-foreground">
                     <span>Link changed: <span className="text-foreground">{link.text}</span></span>
                     <span className="min-w-0 truncate font-mono line-through decoration-diff-removed" title={link.from}>{link.from}</span>
@@ -385,10 +394,6 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
                     <span className="min-w-0 truncate font-mono" title={link.to}>{link.to}</span>
                   </p>
                 ))}
-                <button type="button" aria-expanded={showing} className={cn("h-6 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-state-hover hover:text-foreground", TOUCH_COMPACT)}
-                  onClick={() => setPrevious((shown) => { const next = new Set(shown); if (!next.delete(row.index)) next.add(row.index); return next; })}>
-                  {showing ? "Hide previous" : "Show previous"}
-                </button>
               </div>
             )}
             {notes.length > 0 && (
