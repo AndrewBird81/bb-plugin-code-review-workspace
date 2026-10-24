@@ -169,7 +169,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
   // Images as links, and relative links to their files in the PR's tree, both sides at its head.
   const prepare = useCallback((markdown: string) => {
     const linked = linkImages(markdown);
-    return linkRoot ? resolveLinks(linked, { root: linkRoot, folder: path.slice(0, path.lastIndexOf("/") + 1) }) : linked;
+    return linkRoot ? resolveLinks(linked, { root: linkRoot, path }) : linked;
   }, [linkRoot, path]);
   const id = useId();
   const anchors = useMemo(() => items.map((item) => blockAnchor(lines, item)), [items, lines]);

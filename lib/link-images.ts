@@ -1,3 +1,6 @@
+import type { Nodes } from "mdast";
+import { parseMarkdown } from "./markdown-blocks";
+
 // GitHub shows the images in its comments through its own proxy. BB's Markdown would load them from wherever they point,
 // telling that server who read the text and when. So the text of others and of agents shows each image as a link to
 // it, and its HTML as text but for a few formatting tags: rewriting each tag that loads something always missed one.
@@ -20,20 +23,31 @@ export function linkImages(markdown: string): string {
   return mark + escapeHtml(outsideCode(text, (prose) => withoutComments(linkMarkdownImages(linkHtmlMedia(prose), labels))));
 }
 
-/** Where a file's relative links go: a tree on GitHub (`root`, a commit's blob URL) and the file's folder in it. */
-export interface LinkTree { root: string; folder: string }
+/** Where a file's relative links go: a tree on GitHub (`root`, a commit's blob URL) and the file's path in it. */
+export interface LinkTree { root: string; path: string }
 
 /**
- * `markdown` with its relative links' URLs, inline and in definitions, made the files they name in `tree`, as GitHub's
- * rich diff resolves them: a path from the file's folder, or from the root with a leading `/`. A URL with a scheme, `//`,
- * or only a `#` fragment stays, as does anything in code. Run after `linkImages`, so an image is already a link.
+ * `markdown` with its relative links' URLs, inline and in its link definitions (as the parser reads them, never a line
+ * that only looks like one, or a footnote's), made the files they name in `tree`, as GitHub's rich diff resolves them: a
+ * path from the file's folder, or from the root with a leading `/`. A URL with a scheme, `//`, or only a `#` fragment
+ * stays, as does anything in code. Run after `linkImages`, so an image is already a link.
  */
 export function resolveLinks(markdown: string, tree: LinkTree): string {
   const resolve = (url: string) => /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(url) ? url
-    : url.startsWith("/") ? tree.root + url.slice(1) : new URL(url, tree.root + tree.folder).href;
-  return outsideCode(markdown, (prose) => prose
-    .replace(/(\]\(\s*)(<[^<>\n]*>|[^\s()<>]+)/g, (_all, before: string, url: string) => before + (url.startsWith("<") ? `<${resolve(url.slice(1, -1))}>` : resolve(url)))
-    .replace(/^( {0,3}\[[^\]\n]+\]:[ \t]*)(<[^<>\n]*>|\S+)/gm, (_all, before: string, url: string) => before + (url.startsWith("<") ? `<${resolve(url.slice(1, -1))}>` : resolve(url))));
+    : url.startsWith("/") ? tree.root + url.slice(1) : new URL(url, tree.root + tree.path.slice(0, tree.path.lastIndexOf("/") + 1)).href;
+  const destination = (url: string) => (url.startsWith("<") ? `<${resolve(url.slice(1, -1))}>` : resolve(url));
+  // Definitions first, by their places, from the last: each one's destination follows its label.
+  let text = markdown;
+  const definitions: { start: number; end: number }[] = [];
+  const walk = (node: Nodes) => {
+    if (node.type === "definition" && node.position) definitions.push({ start: node.position.start.offset!, end: node.position.end.offset! });
+    if ("children" in node) node.children.forEach(walk);
+  };
+  walk(parseMarkdown(markdown));
+  for (const { start, end } of definitions.reverse()) {
+    text = text.slice(0, start) + text.slice(start, end).replace(/^(\s*\[(?:[^\]\\]|\\.)+\]:\s*)(<[^<>\n]*>|\S+)/, (_all, label: string, url: string) => label + destination(url)) + text.slice(end);
+  }
+  return outsideCode(text, (prose) => prose.replace(/(\]\(\s*)(<[^<>\n]*>|[^\s()<>]+)/g, (_all, before: string, url: string) => before + destination(url)));
 }
 
 /**
