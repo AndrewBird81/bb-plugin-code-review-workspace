@@ -80,7 +80,7 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
   page.on("pageerror", (error) => errors.push(error.message));
   const dir = "docs/verification/rendered-markdown";
   await mkdir(dir, { recursive: true });
-  await page.route("**/api/v1/plugins/code-review-workspace/rpc/*", async (route) => {
+  const serve = (to: typeof page) => to.route("**/api/v1/plugins/code-review-workspace/rpc/*", async (route) => {
     const method = new URL(route.request().url()).pathname.split("/").pop()!;
     const helpers: Record<string, unknown> = {
       getSetupStatus: { account: "reviewer", githubCli: true, agentAvailable: true, projectAvailable: true },
@@ -93,6 +93,16 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
       await route.fulfill({ json: { ok: true, result } });
     } catch (error) { await route.fulfill({ status: 500, json: { ok: false, error: { message: String(error) } } }); }
   });
+  await serve(page);
+  // Show previous sits in the gutter, left of its block: never over its words, nor over a code block's own buttons.
+  const besideBlocks = async (file: ReturnType<typeof page.locator>) => {
+    const toggles = await file.getByRole("button", { name: /^(Show|Hide) previous$/ }).all();
+    expect(toggles.length).toBeGreaterThan(0);
+    for (const toggle of toggles) {
+      const [right, left] = await toggle.evaluate((el) => [el.getBoundingClientRect().right, el.closest("[data-md-block]")!.getBoundingClientRect().left]);
+      expect(right).toBeLessThanOrEqual(left);
+    }
+  };
   try {
     await page.goto(`${base}/plugins/code-review-workspace/review/${key}`);
     await page.getByRole("button", { name: /^Start reading: The RFC/ }).click();
@@ -163,11 +173,17 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     await page.getByRole("group", { name: "Selection" }).getByText("L33", { exact: true }).waitFor();
     await page.getByRole("group", { name: "Selection" }).getByRole("button", { name: "Clear selection" }).click();
     await page.evaluate(() => getSelection()!.removeAllRanges());
+    await besideBlocks(file);
     for (const scheme of ["dark", "light"] as const) {
       await page.emulateMedia({ colorScheme: scheme });
       await page.waitForTimeout(500);
       await file.screenshot({ animations: "disabled", path: `${dir}/rendered-${scheme}.png` });
+      // A changed code block hovered: its comment button and Show previous in the gutter, BB's Copy and Wrap clear.
+      await changedBlock(4).hover();
+      const code = (await changedBlock(4).boundingBox())!;
+      await page.screenshot({ animations: "disabled", path: `${dir}/rendered-code-hover-${scheme}.png`, clip: { x: code.x - 56, y: code.y - 8, width: code.width + 64, height: code.height + 16 } });
     }
+    await page.mouse.move(0, 0);
     // + on the changed paragraph, then on the removed one: their lines, new and old.
     const changed = paragraph;
     await changed.hover();
@@ -201,6 +217,22 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     const payload = JSON.parse(submission![1]!.stdin!);
     expect(payload.comments.map(({ path, line, side }: any) => ({ path, line, side }))).toEqual(expect.arrayContaining([{ path: FILE, line: 17, side: "RIGHT" }, { path: FILE, line: 14, side: "LEFT" }]));
     expect(errors).toEqual([]);
+    // On a touch screen at a tablet's width, Show previous always shows, still beside its block.
+    const touch = await browser.newPage({ viewport: { width: 820, height: 1600 }, hasTouch: true });
+    touch.setDefaultTimeout(10_000);
+    await serve(touch);
+    await touch.goto(`${base}/plugins/code-review-workspace/review/${key}`);
+    const touchFile = touch.locator(`[data-file="${FILE}"]`);
+    await touchFile.locator("[data-md-rendered]").or(touch.getByRole("button", { name: /^(Start reading|Continue|Review changes)/ })).first().waitFor();
+    if (!(await touchFile.locator("[data-md-rendered]").count())) await touch.getByRole("button", { name: /^(Start reading|Continue|Review changes)/ }).first().click();
+    if (!(await touchFile.locator("[data-md-rendered]").count())) await touchFile.getByRole("radiogroup", { name: `How ${FILE} shows` }).getByRole("radio", { name: "Rendered" }).click();
+    await touchFile.locator("[data-md-rendered] del").first().waitFor();
+    await besideBlocks(touchFile);
+    for (const scheme of ["light", "dark"] as const) {
+      await touch.emulateMedia({ colorScheme: scheme });
+      await touch.waitForTimeout(500);
+      await touchFile.screenshot({ animations: "disabled", path: `${dir}/rendered-touch-${scheme}.png` });
+    }
   } finally {
     await browser.close();
   }
