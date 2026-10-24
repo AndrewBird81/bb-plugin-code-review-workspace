@@ -1035,7 +1035,7 @@ export const DiffViewer = memo(function DiffViewer({
               {kind
                 ? <span className="hidden shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground @min-[700px]/review:inline">{lines.toLocaleString()} line{lines === 1 ? "" : "s"}</span>
                 : <DiffStat add={stats.add} del={stats.del} className="hidden @min-[700px]/review:inline-flex" />}
-              {kind && !folded && onNewFiles && (
+              {kind && !folded && onNewFiles && !showsRendered && (
                 <Button variant="ghost" size="sm" aria-pressed={!asFile} className={cn("hidden h-6 shrink-0 px-2 text-[11px] text-muted-foreground aria-pressed:text-primary @min-[700px]/review:inline-flex", TOUCH_COMPACT)} onClick={() => onNewFiles(asFile ? "diff" : "file")}>
                   Show as diff
                 </Button>

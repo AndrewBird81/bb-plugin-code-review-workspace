@@ -389,6 +389,17 @@ test("a table drawn with other rows than its source has tints none, and takes on
   slot.lifecycle.unmount();
 });
 
+test("a new Markdown file shown rendered offers no Show as diff, which it wouldn't show", async () => {
+  const now = "# New doc\n\nIts words.\n";
+  const onNewFiles = vi.fn();
+  const { slot, file } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, null, now), contents: { ok: true, old: null, new: now }, extra: { onNewFiles } });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(2));
+  expect(file().queryByRole("button", { name: "Show as diff" })).toBeNull();
+  switchTo(file, "Source");
+  expect(file().getByRole("button", { name: "Show as diff" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("lines that take no comment offer Ask agent alone, which asks about their source", async () => {
   patchReviewState("pr-42", { activeId: "c1" });
   const old = `Intro paragraph.\n\n${Array.from({ length: 4 }, (_, i) => `Filler ${i}.`).join("\n\n")}\n\nTokens expire after 1 hour.\n`;
