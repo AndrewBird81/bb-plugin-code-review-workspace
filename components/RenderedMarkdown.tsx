@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SelectedLineRange } from "@pierre/diffs";
 import { Markdown } from "@get-bb/plugin-sdk/app";
 import type { CommentLocation } from "../src/draft";
@@ -20,25 +20,26 @@ const UNCHANGED_RUN = 6;
 const REMOVED_RUN = 3;
 /** How long a text selection rests before it picks its blocks' lines. */
 const SELECTION_REST_MS = 150;
-/** How long the document rests, drawn, before its marked words are checked: BB's Markdown loads its HTML lazily. */
-const WORDS_CHECK_MS = 2000;
+/** What a probe of BB's Markdown draws: marked words show only once it draws this with an `<ins>` element. */
+const PROBE = "a<ins>b</ins>";
 
 /**
- * Whether this tab marks changed words. BB's Markdown draws `<del>` and `<ins>` today, which its contract doesn't
- * promise: once it draws a block's marked words without them, words are no longer marked here, and changed blocks show
- * whole, with Show previous. In sessionStorage, or here when that's refused.
+ * A hidden probe of BB's Markdown, which today draws sanitized `<del>` and `<ins>` though its contract doesn't promise
+ * it: `onDrawn` once it draws the probe's `<ins>`. While its HTML loads, the first time, it draws without; a BB that drops
+ * raw HTML never does, so words are never marked.
  */
-const WORDS_OFF = "gr:md-words-off";
-const wordsListeners = new Set<() => void>();
-let wordsOffHere = false;
-function wordsOff(): boolean {
-  try { return wordsOffHere || sessionStorage.getItem(WORDS_OFF) === "1"; } catch { return wordsOffHere; }
+function WordsProbe({ onDrawn }: { onDrawn: () => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = box.current!;
+    const look = () => { if (el.querySelector("ins")) { observer.disconnect(); onDrawn(); } };
+    const observer = new MutationObserver(look);
+    observer.observe(el, { subtree: true, childList: true });
+    look();
+    return () => observer.disconnect();
+  }, [onDrawn]);
+  return <div ref={box} hidden aria-hidden><Markdown content={PROBE} /></div>;
 }
-function turnWordsOff() {
-  try { sessionStorage.setItem(WORDS_OFF, "1"); } catch { wordsOffHere = true; }
-  for (const listener of wordsListeners) listener();
-}
-const onWordsOff = (listener: () => void) => { wordsListeners.add(listener); return () => { wordsListeners.delete(listener); }; };
 
 // Marked words as GitHub's rich diff shows them: deleted ones struck on a red tint, inserted ones underlined on a green.
 const WORDS = "[&_del]:rounded-sm [&_del]:bg-diff-removed/15 [&_del]:line-through [&_del]:decoration-diff-removed [&_ins]:rounded-sm [&_ins]:bg-diff-added/15 [&_ins]:underline [&_ins]:decoration-diff-added";
@@ -100,12 +101,13 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
   const lines = useMemo(() => fileLines(patch, path), [patch, path]);
   const items = diff.blocks;
   const anchors = useMemo(() => items.map((item) => blockAnchor(lines, item)), [items, lines]);
-  // Each changed block's Markdown with its changed words marked, where they can be.
-  const off = useSyncExternalStore(onWordsOff, wordsOff);
-  const words = useMemo(() => new Map(off ? [] : items.flatMap((item, index) => {
+  // Each changed block's Markdown with its changed words marked, where they can be: drawn once BB's Markdown draws marks.
+  const words = useMemo(() => new Map(items.flatMap((item, index) => {
     const marked = item.status === "changed" && item.previous?.length === 1 ? blockWords(item.previous[0], item.block, diff.newDefinitions) : null;
     return marked ? [[index, marked] as const] : [];
-  })), [items, diff, off]);
+  })), [items, diff]);
+  const [marks, setMarks] = useState(false);
+  const drawsMarks = useCallback(() => setMarks(true), []);
   const placed = useMemo(() => {
     const byBlock = new Map<number, CommentLocation[]>();
     if (!items.length) return byBlock;
@@ -188,19 +190,6 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
   // Lines cleared, as with Esc or ✕: the same text selected again picks them again.
   useEffect(() => { if (!selected) sent.current = null; }, [selected]);
 
-  // Once the document rests drawn, a block whose marked words BB's Markdown drew without them turns marking off.
-  useEffect(() => {
-    const el = root.current;
-    if (!el || !words.size) return;
-    let rest = setTimeout(check, WORDS_CHECK_MS);
-    function check() {
-      if (Array.from(el!.querySelectorAll("[data-md-words]")).some((block) => block.textContent?.trim() && !block.querySelector("del, ins"))) turnWordsOff();
-    }
-    const observer = new MutationObserver(() => { clearTimeout(rest); rest = setTimeout(check, WORDS_CHECK_MS); });
-    observer.observe(el, { subtree: true, childList: true, characterData: true });
-    return () => { clearTimeout(rest); observer.disconnect(); };
-  }, [words]);
-
   const pickedSide = selected && ((selected.endSide ?? selected.side) === "deletions" ? "LEFT" : "RIGHT");
   const isPicked = (item: RenderedBlock) => !!selected && item.side === pickedSide
     && item.block.start <= Math.max(selected.start, selected.end) && item.block.end >= Math.min(selected.start, selected.end);
@@ -210,7 +199,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
     const anchor = ghost !== undefined ? blockAnchor(lines, item) : anchors[index];
     const definitions = item.side === "LEFT" ? diff.oldDefinitions : diff.newDefinitions;
     const said = SAID[item.status];
-    const marked = ghost === undefined ? words.get(index) : undefined;
+    const marked = ghost === undefined && marks ? words.get(index) : undefined;
     return (
       <div
         data-md-block={item.block.kind}
@@ -245,6 +234,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
   if (!items.length) return <p className="px-3 py-6 text-center text-xs text-muted-foreground">Nothing to render.</p>;
   return (
     <div ref={root} data-md-rendered className="py-3 pl-9 pr-4">
+      {words.size > 0 && !marks && <WordsProbe onDrawn={drawsMarks} />}
       {rows.map((row, at) => {
         if (row.kind === "fold") {
           const count = row.to - row.from;

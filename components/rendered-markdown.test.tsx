@@ -18,18 +18,28 @@ vi.mock("@pierre/diffs/react", () => ({
   ),
 }));
 
-// BB's Markdown, as far as its HTML goes: the content as HTML, so <del> and <ins> are elements; or, as a BB whose Markdown
-// dropped raw HTML, with them taken out. Drawn again only for new content: React 19 sets innerHTML on every render.
-const markdown = vi.hoisted(() => ({ strip: false }));
+// BB's Markdown, as far as its HTML goes: the content as HTML, so <del> and <ins> are elements; as a BB whose Markdown
+// drops raw HTML (`strip`), without them; or, until `loadsAt`, as BB's draws it while its HTML loads, without them too.
+// Each content it's given is kept, with when. Drawn again only for new content: React 19 sets innerHTML on every render.
+const markdown = vi.hoisted(() => ({ strip: false, loadsAt: 0, given: [] as { content: string; at: number }[] }));
 vi.mock("@get-bb/plugin-sdk/app", async (importOriginal) => {
-  const { memo } = await import("react");
+  const { memo, useEffect, useState } = await import("react");
   return {
     ...await importOriginal<typeof import("@get-bb/plugin-sdk/app")>(),
-    Markdown: memo(({ content }: { content: string }) => <div data-testid="bb-markdown" dangerouslySetInnerHTML={{ __html: markdown.strip ? content.replace(/<\/?(?:del|ins)>/g, "") : content }} />),
+    Markdown: memo(function Markdown({ content }: { content: string }) {
+      const [loaded, setLoaded] = useState(() => Date.now() >= markdown.loadsAt);
+      useEffect(() => { markdown.given.push({ content, at: Date.now() }); }, [content]);
+      useEffect(() => {
+        if (loaded) return;
+        const wait = setTimeout(() => setLoaded(true), markdown.loadsAt - Date.now());
+        return () => clearTimeout(wait);
+      }, [loaded]);
+      return <div data-testid="bb-markdown" dangerouslySetInnerHTML={{ __html: markdown.strip || !loaded ? content.replace(/<\/?(?:del|ins)>/g, "") : content }} />;
+    }),
   };
 });
 
-afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); markdown.strip = false; });
+afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); Object.assign(markdown, { strip: false, loadsAt: 0, given: [] }); });
 
 const FILE = "docs/rfc.md";
 const OLD = "# Tokens\n\nWe want short-lived tokens.\n\n## Lifetime\n\nTokens expire after 1 hour.\n\nRefresh tokens are never rotated.\n\n## Fields\n\nOne field.\n";
@@ -65,6 +75,8 @@ test("a Markdown file opens as its source; Rendered draws each block through BB'
   switchTo(file, "Rendered");
   await waitFor(() => expect(file().queryByTestId("filediff")).toBeNull());
   expect(readContents).toHaveBeenCalledWith(FILE);
+  // Marked once BB's Markdown has drawn the probe's <ins>.
+  await waitFor(() => expect(slot.container.querySelector("[data-md-words]")).toBeTruthy());
   const shown = units(slot.container).map((unit) => [unit.dataset.mdStatus, within(unit).getAllByTestId("bb-markdown").map((md) => md.innerHTML)]);
   expect(shown).toEqual([
     ["unchanged", ["# Tokens"]], ["unchanged", ["We want short-lived tokens."]], ["unchanged", ["## Lifetime"]],
@@ -85,7 +97,7 @@ test("a list's items show added, changed and removed on their own, a changed ite
   const old = "Steps:\n\n- Install the CLI.\n- Sign in with your token.\n- Clean up.\n";
   const now = "Steps:\n\n- Install the CLI.\n- Sign in with your SSO account.\n- Configure the project.\n";
   const { slot } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now), contents: { ok: true, old, new: now } });
-  await waitFor(() => expect(units(slot.container)).toHaveLength(5));
+  await waitFor(() => expect(slot.container.querySelector("[data-md-words]")).toBeTruthy());
   expect(units(slot.container).map((unit) => [unit.dataset.mdStatus, within(unit).getByTestId("bb-markdown").innerHTML])).toEqual([
     ["unchanged", "Steps:"], ["unchanged", "- Install the CLI."], ["changed", "- Sign in with your <del>token</del><ins>SSO account</ins>."],
     ["removed", "- Clean up."], ["added", "- Configure the project."],
@@ -93,29 +105,28 @@ test("a list's items show added, changed and removed on their own, a changed ite
   slot.lifecycle.unmount();
 });
 
-test("a BB whose Markdown draws marked words without their marks turns marking off for the tab: changed blocks show whole", async () => {
+test("a BB whose Markdown drops raw HTML never draws marked words: changed blocks show whole, never old and new run together", async () => {
   markdown.strip = true;
   const { slot } = await renderDiff({ markdownFiles: "rendered" });
-  const changed = () => within(units(slot.container)[3]);
-  await waitFor(() => expect(changed().getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after 1 hour15 minutes."));
-  await waitFor(() => expect(changed().getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after 15 minutes."), { timeout: 5000 });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(7));
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(within(units(slot.container)[3]).getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after 15 minutes.");
   expect(units(slot.container)[3].querySelector("[data-md-words]")).toBeNull();
-  // Show previous still shows what it was.
-  expect(changed().getByRole("button", { name: "Show previous" })).toBeTruthy();
+  expect(within(units(slot.container)[3]).getByRole("button", { name: "Show previous" })).toBeTruthy();
+  expect(markdown.given.filter(({ content }) => content.includes("<del>"))).toEqual([]);
   slot.lifecycle.unmount();
-  // Another file, or the same one again, starts with its words unmarked.
-  markdown.strip = false;
-  const again = await renderDiff({ markdownFiles: "rendered" });
-  await waitFor(() => expect(units(again.slot.container)).toHaveLength(7));
-  expect(within(units(again.slot.container)[3]).getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after 15 minutes.");
-  again.slot.lifecycle.unmount();
 });
 
-test("words BB's Markdown draws marked stay marked once the document rests", async () => {
+// BB's Markdown draws content without its HTML while that loads, the first time: marked words would read run together.
+test("words are marked once BB's Markdown has drawn HTML, however long that takes, and never before", async () => {
+  markdown.loadsAt = Date.now() + 2500;
   const { slot } = await renderDiff({ markdownFiles: "rendered" });
   await waitFor(() => expect(units(slot.container)).toHaveLength(7));
-  await new Promise((resolve) => setTimeout(resolve, 2500));
-  expect(within(units(slot.container)[3]).getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after <del>1 hour</del><ins>15 minutes</ins>.");
+  expect(within(units(slot.container)[3]).getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after 15 minutes.");
+  await waitFor(() => expect(within(units(slot.container)[3]).getByTestId("bb-markdown").innerHTML).toBe("Tokens expire after <del>1 hour</del><ins>15 minutes</ins>."), { timeout: 5000 });
+  const marked = markdown.given.filter(({ content }) => content.includes("<del>"));
+  expect(marked.length).toBeGreaterThan(0);
+  expect(marked.every(({ at }) => at >= markdown.loadsAt)).toBe(true);
   slot.lifecycle.unmount();
 });
 
