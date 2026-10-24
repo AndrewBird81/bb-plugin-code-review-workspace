@@ -103,8 +103,9 @@ function CommentButton({ anchor, onComment, top = 0, shown, label, tabIndex, onK
       tabIndex={tabIndex}
       onKeyDown={onKeyDown}
       style={{ top }}
-      // 43px left of the block's content: past its own 16px (pl-4) and 3px bar, into the 36px gutter (pl-9) before it.
-      className={cn("absolute -left-[43px] flex size-5 items-center justify-center rounded-md bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity focus-visible:opacity-100 [@media_not_(any-pointer:fine)]:pointer-events-none", shown === undefined ? "group-hover/block:opacity-100" : shown && "opacity-100")}
+      // 43px left of the block's content: past its own 16px (pl-4) and 3px bar, into the 48px gutter (pl-12) before it,
+      // on its first line. Hidden, it takes no pointer, so it can't take a click meant for the block above it.
+      className={cn("pointer-events-none absolute -left-[43px] flex size-5 items-center justify-center rounded-md bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity focus-visible:opacity-100 [@media_not_(any-pointer:fine)]:pointer-events-none", shown === undefined ? "group-hover/block:pointer-events-auto group-hover/block:opacity-100" : shown && "pointer-events-auto opacity-100")}
       onClick={() => onComment(anchor)}
     >
       <Icon name="MessageSquarePlus" className="size-3" aria-hidden />
@@ -133,7 +134,11 @@ function TableRows({ block, side, lines, onComment, whole, tints }: { block: Mar
       const next = found.length === block.rows!.length ? found.map((row) => Math.round(row.getBoundingClientRect().top - at)) : null;
       setTops((was) => (JSON.stringify(was) === JSON.stringify(next) ? was : next));
     };
-    const move = (event: PointerEvent) => { const row = (event.target as Element).closest?.("tr"); setOver(row ? rows().indexOf(row) : null); };
+    // The row at the pointer's height, in the row or in the gutter beside it, where its button is.
+    const move = (event: PointerEvent) => {
+      const row = rows().findIndex((tr) => { const { top, bottom } = tr.getBoundingClientRect(); return event.clientY >= top && event.clientY < bottom; });
+      setOver(row >= 0 ? row : null);
+    };
     const leave = () => setOver(null);
     measure();
     const changes = new MutationObserver(measure);
@@ -343,20 +348,22 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
       >
         {said && <span className="sr-only">{ghost !== undefined ? "Before the change" : said}, {item.side === "LEFT" ? "old " : ""}{item.block.start === item.block.end ? `line ${item.block.start}` : `lines ${item.block.start}–${item.block.end}`}</span>}
         <div className="relative">
+          {/* The block's gutter, where its buttons are: hovering it is hovering the block, to the block's own height. */}
+          <span aria-hidden className="absolute inset-y-0 -left-[67px] w-[67px]" />
           {/* In the gutter left of the bar. A table has one for each row, or else, where it draws other rows than its source
               has, this one. */}
           {item.block.rows ? (
             <TableRows block={item.block} side={item.side} lines={lines} tints={tints} onComment={commentAt}
               whole={anchor && commentAt && <CommentButton anchor={anchor} onComment={commentAt} />} />
           ) : anchor && commentAt && <CommentButton anchor={anchor} onComment={commentAt} />}
-          {/* Under the comment button, in the gutter, clear of the block's words and BB's own controls, as a code block's
-              Copy: shown as it is, on hover or keyboard focus, and while the version before shows; on a touch screen, where
-              there's no hover and it's the only way to the version before, always, at the block's top, where the comment
-              button it would sit under doesn't show. */}
+          {/* Left of the comment button, on the block's first line, in the gutter: clear of the block's words, BB's own
+              controls, as a code block's Copy, and the block after it, however short the block. Shown as it is, on hover or
+              keyboard focus, and while the version before shows; on a touch screen, where there's no hover and it's the only
+              way to the version before, always. Hidden, it takes no pointer. */}
           {ghost === undefined && item.previous && (
             <Hint label={showing ? "Hide previous" : "Show previous"}>
               <button type="button" aria-label={showing ? "Hide previous" : "Show previous"} aria-expanded={showing}
-                className={cn("absolute -left-[43px] top-6 flex size-5 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-xs transition-opacity hover:bg-state-hover hover:text-foreground focus-visible:opacity-100 group-hover/block:opacity-100 [@media_not_(any-pointer:fine)]:top-0 [@media_not_(any-pointer:fine)]:opacity-100", showing ? "opacity-100 text-foreground" : "opacity-0", TOUCH_TARGET)}
+                className={cn("absolute -left-[65px] top-0 flex size-5 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-xs transition-opacity hover:bg-state-hover hover:text-foreground focus-visible:opacity-100 group-hover/block:pointer-events-auto group-hover/block:opacity-100 [@media_not_(any-pointer:fine)]:pointer-events-auto [@media_not_(any-pointer:fine)]:opacity-100", showing ? "opacity-100 text-foreground" : "pointer-events-none opacity-0", TOUCH_TARGET)}
                 onClick={() => setPrevious((shown) => { const next = new Set(shown); if (!next.delete(index)) next.add(index); return next; })}>
                 <Icon name="History" className="size-3" aria-hidden />
               </button>
@@ -372,7 +379,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
 
   if (!items.length) return <p className="px-3 py-6 text-center text-xs text-muted-foreground">Nothing to render.</p>;
   return (
-    <div ref={root} data-md-rendered className="py-3 pl-9 pr-4">
+    <div ref={root} data-md-rendered className="py-3 pl-12 pr-4">
       {words.size > 0 && !marks && <WordsProbe onDrawn={drawsMarks} />}
       {rows.map((row, at) => {
         if (row.kind === "fold") {
