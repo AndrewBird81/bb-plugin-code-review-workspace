@@ -1,10 +1,17 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfm } from "micromark-extension-gfm";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import type { Nodes } from "mdast";
 import { rng } from "../src/fuzz-gen.test-support";
 import { blockWords, markWords } from "./markdown-words";
+import { parseMarkdown } from "./markdown-blocks";
+
+// Passed through, to count the parses the check makes.
+vi.mock("./markdown-blocks", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./markdown-blocks")>();
+  return { ...actual, parseMarkdown: vi.fn(actual.parseMarkdown) };
+});
 import type { MarkdownBlock } from "./markdown-blocks";
 
 // From microsoft/vscode-docs 90c4efb ("Align keyboard shortcuts terminology"), which GitHub's rich diff marks word by word.
@@ -64,6 +71,15 @@ test("text that shares too little isn't marked word by word", () => {
 });
 
 // Marks the atoms allowed that CommonMark read otherwise (reviewer's B1): each drew something other than the new block.
+// A file's marks are worked out again as it folds and unfolds, or its chapter opens again: the same blocks aren't parsed again.
+test("the same block's words are marked once", () => {
+  vi.mocked(parseMarkdown).mockClear();
+  const old = "Marking this sentence once is enough for anyone.";
+  const now = "Marking this sentence twice is enough for anyone.";
+  expect(markWords(old, now)).toBe(markWords(old, now));
+  expect(vi.mocked(parseMarkdown)).toHaveBeenCalledTimes(3);
+});
+
 test("words added or removed before punctuation are marked", () => {
   expect(markWords("- Refresh tokens rotate.", "- Refresh tokens rotate on every use.")).toBe("- Refresh tokens rotate <ins>on every use</ins>.");
   expect(markWords("Rotate them on every use.", "Rotate them.")).toBe("Rotate them <del>on every use</del>.");

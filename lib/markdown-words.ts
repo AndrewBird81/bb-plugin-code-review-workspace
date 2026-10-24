@@ -103,6 +103,19 @@ const join = (atoms: Atom[]) => atoms.map((atom) => atom.text).join("");
  * `CONFETTI_THRESHOLD` of its text, is too large to diff, or marked, would draw something else (`drawsAsBoth`).
  */
 export function markWords(old: string, now: string): string | null {
+  // A file's marks are worked out again as it unfolds, or its chapter opens again: the same blocks' are kept, a few hundred.
+  const key = `${old}\0${now}`;
+  if (marks.has(key)) return marks.get(key)!;
+  if (marks.size >= MARKS_KEPT) marks.delete(marks.keys().next().value!);
+  const marked = mark(old, now);
+  marks.set(key, marked);
+  return marked;
+}
+
+const MARKS_KEPT = 500;
+const marks = new Map<string, string | null>();
+
+function mark(old: string, now: string): string | null {
   const parts = diffArrays(atomsOf(old), atomsOf(now), { comparator: (a, b) => a.text === b.text || a.kind === "space" && b.kind === "space", maxEditLength: WORD_EDITS });
   if (!parts) return null;
   let out = "";
