@@ -66,21 +66,30 @@ test("a document rewritten throughout reads in reasonable time", () => {
   }
 });
 
-test("a search and replace over every paragraph, or a rewrite of each a little more than the last, reads in reasonable time", () => {
-  const count = 2000;
-  const old = Array.from({ length: count }, (_, i) => `The foo service handles request number ${i} quickly.`).join("\n\n") + "\n";
-  const replaced = old.replace(/foo/g, "bar");
-  const patch = gitPatch("doc.md", old, replaced);
-  let start = performance.now();
-  expect(markdownDiff(old, replaced, patch).blocks.every((b) => b.status === "changed")).toBe(true);
-  expect(performance.now() - start).toBeLessThan(3000);
-  const words = (i: number, keep: number) => Array.from({ length: 20 }, (_, k) => (k < keep ? `w${i}x${k}` : `z${i}y${k}`)).join(" ");
-  const before = Array.from({ length: count }, (_, i) => words(i, 20)).join("\n\n") + "\n";
-  const after = Array.from({ length: count }, (_, i) => words(i, 20 - Math.floor((i * 10) / count))).join("\n\n") + "\n";
-  const rewrite = gitPatch("doc.md", before, after);
-  start = performance.now();
-  markdownDiff(before, after, rewrite);
-  expect(performance.now() - start).toBeLessThan(3000);
+// Timed as a ratio, which load slows on both sides: from 250 to 1,000 paragraphs the time grows 4 to 6 times, where the
+// pairing that recursed, cubic, grew 20 to 30 times.
+test("a search and replace over every paragraph, or a rewrite of each a little more than the last, takes time near in proportion", () => {
+  const replace = (count: number) => {
+    const old = Array.from({ length: count }, (_, i) => `The foo service handles request number ${i} quickly.`).join("\n\n") + "\n";
+    return [old, old.replace(/foo/g, "bar")] as const;
+  };
+  const rewrite = (count: number) => {
+    const words = (i: number, keep: number) => Array.from({ length: 20 }, (_, k) => (k < keep ? `w${i}x${k}` : `z${i}y${k}`)).join(" ");
+    return [Array.from({ length: count }, (_, i) => words(i, 20)).join("\n\n") + "\n", Array.from({ length: count }, (_, i) => words(i, 20 - Math.floor((i * 10) / count))).join("\n\n") + "\n"] as const;
+  };
+  for (const make of [replace, rewrite]) {
+    // The median of three runs.
+    const time = (count: number) => {
+      const [old, now] = make(count);
+      const patch = gitPatch("doc.md", old, now);
+      return [0, 1, 2].map(() => { const start = performance.now(); markdownDiff(old, now, patch); return performance.now() - start; }).sort((a, b) => a - b)[1];
+    };
+    const [small, large] = [time(250), time(1000)];
+    expect(large / small).toBeLessThan(10);
+    expect(large).toBeLessThan(10_000);
+  }
+  const [old, now] = replace(200);
+  expect(markdownDiff(old, now, gitPatch("doc.md", old, now)).blocks.every((b) => b.status === "changed")).toBe(true);
 });
 
 test("blank lines added or removed between blocks change nothing, with any context", () => {
