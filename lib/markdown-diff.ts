@@ -1,7 +1,7 @@
 import { diffArrays } from "diff";
 import { HUNK, patchRows } from "../src/patch";
 import { CONFETTI_THRESHOLD } from "./confetti";
-import { blockHolding, markdownBlocks, withNumber, type MarkdownBlock } from "./markdown-blocks";
+import { blockHolding, LIST_MARKER, markdownBlocks, withNumber, type MarkdownBlock } from "./markdown-blocks";
 
 /** How a rendered block changed: a block of the new file added, changed, or unchanged, or one of the old file removed. */
 export type BlockStatus = "added" | "changed" | "unchanged" | "removed";
@@ -109,7 +109,7 @@ export function markdownDiff(oldText: string | null, newText: string | null, pat
     const olds = gone.filter((old) => !taken.has(old));
     const news = come.filter((now) => !linked.has(now));
     // A list item's words are its text's, without the marker every item has.
-    const words = new Map([...olds, ...news].map((block) => [block, wordsOf(block.list ? block.source.replace(/^\s*(?:[-*+]|\d{1,9}[.)])/, "") : block.source)]));
+    const words = new Map([...olds, ...news].map((block) => [block, wordsOf(block.list ? block.source.replace(LIST_MARKER, "") : block.source)]));
     const alike = (old: MarkdownBlock, now: MarkdownBlock) => blockSimilarity(words.get(old)!, words.get(now)!) >= CONFETTI_THRESHOLD;
     // Pairs of indexes into olds and news, in order.
     const paired: [number, number][] = [];

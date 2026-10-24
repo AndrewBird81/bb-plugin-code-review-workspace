@@ -33,6 +33,9 @@ const FRONTMATTER = /^---\n([\s\S]*?\n)?(?:---|\.\.\.)[ \t]*(?:\n|$)/;
 /** An HTML block's opening tag, whose element may hold Markdown blocks up to its closing tag, as `<details>` does. */
 const OPEN_TAG = /^ {0,3}<([A-Za-z][A-Za-z0-9-]*)(?=[\s/>]|$)/;
 
+/** A list item's marker at its start: its indent, then a bullet (`-`, `*`, `+`), or a number and its `.` or `)`. */
+export const LIST_MARKER = /^(\s*)(?:([-*+])|(\d{1,9})([.)]))/;
+
 /** `text`'s syntax tree, as GitHub's Markdown (CommonMark and GFM) reads it. */
 export const parseMarkdown = (text: string) => fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
 
@@ -67,7 +70,8 @@ export function markdownBlocks(text: string): MarkdownDoc {
     if (child.type !== "list") return [node(child)];
     // Each top-level item, its list's marker read from its source.
     return child.children.map((item, index) => {
-      const marker = lines[item.position!.start.line - 1].match(/^\s*(?:([-*+])|\d{1,9}([.)]))/)?.slice(1).find(Boolean) ?? "-";
+      const found = lines[item.position!.start.line - 1].match(LIST_MARKER);
+      const marker = found?.[2] ?? found?.[4] ?? "-";
       return node(item, { list: { marker, loose: !!child.spread || child.children.some((each) => !!each.spread), ...(child.ordered ? { number: (child.start ?? 1) + index } : {}) } });
     });
   });
@@ -111,7 +115,7 @@ export function blockHolding(blocks: MarkdownBlock[], line: number): MarkdownBlo
 }
 
 /** A list item's source with `number` for its ordinal, which alone it takes as its list's start. */
-export const withNumber = (source: string, number: number) => source.replace(/^( {0,3})\d{1,9}(?=[.)])/, `$1${number}`);
+export const withNumber = (source: string, number: number) => source.replace(LIST_MARKER, (marker, indent: string, bullet?: string, _n?: string, end?: string) => (bullet ? marker : `${indent}${number}${end}`));
 
 /**
  * A block as BB's Markdown draws it alone: with the document's definitions, frontmatter as a table, and an ordered list's

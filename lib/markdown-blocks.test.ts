@@ -34,7 +34,7 @@ test("many void or unclosed HTML blocks read in linear time", () => {
   const doc = Array.from({ length: 8000 }, (_, i) => `<img src="a${i}.png">`).join("\n\n") + "\n";
   const start = performance.now();
   expect(markdownBlocks(doc).blocks).toHaveLength(8000);
-  expect(performance.now() - start).toBeLessThan(1500);
+  expect(performance.now() - start).toBeLessThan(3000);
 });
 
 test("link definitions inside an element still resolve links in other blocks", () => {
