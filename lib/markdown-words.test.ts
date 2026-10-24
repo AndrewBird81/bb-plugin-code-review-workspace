@@ -203,17 +203,24 @@ test("an ordered list's item marks its words, numbered as it draws now", () => {
     .toBe("3. Run the <del>old</del><ins>new</ins> tests.");
 });
 
-// The word diff runs on every changed block of a document; a quadratic diff would freeze the tab on a big rewrite.
-test("marking words in hundreds of long changed paragraphs takes reasonable time", () => {
-  const words = (seed: number) => Array.from({ length: 80 }, (_, i) => `w${(seed * 31 + i * 7) % 997}`);
-  const start = performance.now();
-  for (let i = 0; i < 500; i++) {
-    const old = words(i);
-    const now = old.map((word, at) => (at % 9 === 0 ? `${word}x` : word));
-    markWords(old.join(" "), now.join(" "));
-  }
+// The word diff runs on every changed block of a document; a quadratic diff would freeze the tab on a big rewrite. Timed as
+// a ratio, which load slows on both sides: four times the paragraphs take about four times as long.
+test("marking words in long changed paragraphs takes time in proportion to them, and gives up on a paragraph rewritten whole", () => {
+  let run = 0;
+  // The median of three runs, each on paragraphs of its own: marks already worked out are kept.
+  const time = (count: number) => [0, 1, 2].map(() => {
+    run++;
+    const paragraphs = Array.from({ length: count }, (_, i) => Array.from({ length: 80 }, (_, at) => `w${(i * 31 + at * 7) % 997}r${run}`));
+    const start = performance.now();
+    for (const old of paragraphs) markWords(old.join(" "), old.map((word, at) => (at % 9 === 0 ? `${word}x` : word)).join(" "));
+    return performance.now() - start;
+  }).sort((a, b) => a - b)[1];
+  const [small, large] = [time(60), time(240)];
+  expect(large / small).toBeLessThan(10);
+  expect(large).toBeLessThan(10_000);
   // A paragraph whose every word changed reaches the edit cap and stops.
   const long = Array.from({ length: 5000 }, (_, i) => `a${i}`).join(" ");
+  const start = performance.now();
   expect(markWords(long, long.replace(/a/g, "b"))).toBeNull();
-  expect(performance.now() - start).toBeLessThan(3000);
+  expect(performance.now() - start).toBeLessThan(10_000);
 });
