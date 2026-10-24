@@ -205,7 +205,7 @@ test("an ordered list's item marks its words, numbered as it draws now", () => {
 
 // The word diff runs on every changed block of a document; a quadratic diff would freeze the tab on a big rewrite. Timed as
 // a ratio, which load slows on both sides: four times the paragraphs take about four times as long.
-test("marking words in long changed paragraphs takes time in proportion to them, and gives up on a paragraph rewritten whole", () => {
+test("marking words in long changed paragraphs takes time in proportion to them", () => {
   let run = 0;
   // The median of three runs, each on paragraphs of its own: marks already worked out are kept.
   const time = (count: number) => [0, 1, 2].map(() => {
@@ -218,9 +218,11 @@ test("marking words in long changed paragraphs takes time in proportion to them,
   const [small, large] = [time(60), time(240)];
   expect(large / small).toBeLessThan(10);
   expect(large).toBeLessThan(10_000);
-  // A paragraph whose every word changed reaches the edit cap and stops.
-  const long = Array.from({ length: 5000 }, (_, i) => `a${i}`).join(" ");
-  const start = performance.now();
-  expect(markWords(long, long.replace(/a/g, "b"))).toBeNull();
-  expect(performance.now() - start).toBeLessThan(10_000);
+});
+
+// No timing: a paragraph that keeps most of its words but has more edits than the cap marks nothing, which only the cap
+// decides. Without it, the diff runs on, quadratic in the paragraph's length, and marks all 500 edits.
+test("a long paragraph with more scattered edits than the cap marks no words", () => {
+  const words = Array.from({ length: 5000 }, (_, i) => `w${i}`);
+  expect(markWords(words.join(" "), words.map((word, i) => (i % 10 === 0 ? `${word}x` : word)).join(" "))).toBeNull();
 });
