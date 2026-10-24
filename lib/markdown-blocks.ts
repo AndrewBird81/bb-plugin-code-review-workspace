@@ -42,7 +42,7 @@ export const LIST_MARKER = /^(\s*)(?:([-*+])|(\d{1,9})([.)]))/;
 export const parseMarkdown = (text: string) => fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
 
 /** `text` read as Markdown: without a byte order mark, its line endings `\n`. Line numbers stay as they were. */
-export const normalMarkdown = (text: string) => text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+const normalMarkdown = (text: string) => text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
 
 /** Whether a file is Markdown that renders: `.md` and `.markdown`. MDX has components BB's Markdown can't run. */
 export const isMarkdownPath = (path: string) => /\.(md|markdown)$/i.test(path);

@@ -1,5 +1,8 @@
 import type { MarkdownBlock } from "./markdown-blocks";
 
+/** The element a point in the DOM is in: itself, or a text node's parent. */
+export const elementOf = (node: Node): Element | null => (node instanceof Element ? node : node.parentElement);
+
 /** How many words around a point in prose find its line in the source. */
 const WORDS_AROUND = 3;
 
@@ -37,7 +40,7 @@ const textBetween = (el: Element, node: Node, offset: number, toEnd: boolean): s
  */
 export function pointLine(block: MarkdownBlock, el: Element, node: Node, offset: number, edge: "start" | "end"): number {
   const fallback = edge === "start" ? block.start : block.end;
-  const at = node instanceof Element ? node : node.parentElement;
+  const at = elementOf(node);
   if (!at || !el.contains(at)) return fallback;
   if (block.rows) {
     const rows = Array.from(el.querySelectorAll("tr"));

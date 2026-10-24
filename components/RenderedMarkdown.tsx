@@ -7,7 +7,7 @@ import { markdownDiff, rowChanges, type BlockStatus, type RenderedBlock } from "
 import { blockAnchor, blockAt, fileLines, rangeAnchor, selectedBlocks, selectionAnchor, type FileLines, type LineAnchor, type SelectionEnd } from "../lib/markdown-anchor";
 import { linkImages, resolveLinks } from "../lib/link-images";
 import { blockWords, changedLinks } from "../lib/markdown-words";
-import { pointLine, textLines } from "../lib/markdown-points";
+import { elementOf, pointLine, textLines } from "../lib/markdown-points";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
 import { TOUCH_COMPACT } from "./touch";
@@ -102,6 +102,7 @@ function CommentButton({ anchor, onComment, top = 0, shown, label, tabIndex, onK
       tabIndex={tabIndex}
       onKeyDown={onKeyDown}
       style={{ top }}
+      // 43px left of the block's content: past its own 16px (pl-4) and 3px bar, into the 36px gutter (pl-9) before it.
       className={cn("absolute -left-[43px] flex size-5 items-center justify-center rounded-md bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity focus-visible:opacity-100 [@media_not_(any-pointer:fine)]:pointer-events-none", shown === undefined ? "group-hover/block:opacity-100" : shown && "opacity-100")}
       onClick={() => onComment(anchor)}
     >
@@ -266,7 +267,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
   latest.current = { items, lines, path, onLineSelected };
   useEffect(() => {
     let rest: ReturnType<typeof setTimeout> | undefined;
-    const blockOf = (node: Node) => (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>("[data-md-index]");
+    const blockOf = (node: Node) => elementOf(node)?.closest<HTMLElement>("[data-md-index]");
     const update = () => {
       const { items, lines, path, onLineSelected } = latest.current;
       const selection = document.getSelection();
@@ -279,17 +280,17 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
         return;
       }
       // Text in a comment or the comment box isn't the document's.
-      const ends = [range.startContainer, range.endContainer].map((node) => (node instanceof Element ? node : node.parentElement)?.closest("[data-md-notes]") ? null : blockOf(node));
+      const ends = [range.startContainer, range.endContainer].map((node) => elementOf(node)?.closest("[data-md-notes]") ? null : blockOf(node));
       if (!ends[0] || !ends[1]) return;
       // A changed block's versions before, above it, are the old file's.
       const [from, to] = [range.startContainer, range.endContainer].map((node, at): SelectionEnd => {
-        const ghost = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>("[data-md-ghost]")?.dataset.mdGhost;
+        const ghost = elementOf(node)?.closest<HTMLElement>("[data-md-ghost]")?.dataset.mdGhost;
         return { index: Number(ends[at]!.dataset.mdIndex), ...(ghost !== undefined ? { ghost: Number(ghost) } : {}) };
       });
       const picked = selectedBlocks(items, from, to);
       const [first, last] = [picked[0], picked[picked.length - 1]];
       // The lines the selection starts and ends on: a table's row, a code line, or the line of the words around each end.
-      const drawnAt = (node: Node) => (node instanceof Element ? node : node.parentElement)!.closest("[data-md-block]")!;
+      const drawnAt = (node: Node) => elementOf(node)!.closest("[data-md-block]")!;
       const start = pointLine(first.block, drawnAt(range.startContainer), range.startContainer, range.startOffset, "start");
       const end = pointLine(last.block, drawnAt(range.endContainer), range.endContainer, range.endOffset, "end");
       const anchor = selectionAnchor(lines, picked, start, end);
@@ -319,6 +320,7 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
     const definitions = item.side === "LEFT" ? diff.oldDefinitions : diff.newDefinitions;
     const said = SAID[item.status];
     const marked = ghost === undefined && marks ? words.get(index) : undefined;
+    const commentAt = onComment && ((at: LineAnchor) => onComment({ file: path, ...at }));
     // A changed table's new and changed rows, tinted from a style of its own, once BB's Markdown has drawn its rows.
     const scope = `${id}-${index}`;
     const rowStates = ghost === undefined && item.block.rows && item.previous?.length === 1 && item.previous[0].rows ? rowChanges(item.previous[0], item.block) : [];
@@ -342,9 +344,9 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
           {/* In the gutter left of the bar. A table has one for each row, or else, where it draws other rows than its source
               has, this one. */}
           {item.block.rows ? (
-            <TableRows block={item.block} side={item.side} lines={lines} tints={tints} onComment={onComment && ((at) => onComment({ file: path, ...at }))}
-              whole={anchor && onComment && <CommentButton anchor={anchor} onComment={(at) => onComment({ file: path, ...at })} />} />
-          ) : anchor && onComment && <CommentButton anchor={anchor} onComment={(at) => onComment({ file: path, ...at })} />}
+            <TableRows block={item.block} side={item.side} lines={lines} tints={tints} onComment={commentAt}
+              whole={anchor && commentAt && <CommentButton anchor={anchor} onComment={commentAt} />} />
+          ) : anchor && commentAt && <CommentButton anchor={anchor} onComment={commentAt} />}
           <div data-md-rows={tints ? scope : undefined} className={cn(item.status === "removed" && "opacity-60")}>
             <Markdown content={marked ?? prepare(blockMarkdown(item.block, definitions))} />
           </div>
