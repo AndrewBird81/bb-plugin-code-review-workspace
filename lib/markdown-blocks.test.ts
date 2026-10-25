@@ -46,11 +46,24 @@ test("an unclosed element stays the block CommonMark reads", () => {
   expect(lines("<details>\n\ntext\n")).toEqual([["html", 1, 1], ["paragraph", 3, 3]]);
 });
 
-test("link reference definitions are one block, and every block's slice carries them", () => {
+test("link reference definitions are one block, and each block's slice carries those it may use", () => {
   const doc = markdownBlocks("See [the docs][d].\n\n[d]: https://example.com/d\n[e]: https://example.com/e\n");
   expect(doc.blocks.map((b) => [b.kind, b.start, b.end])).toEqual([["paragraph", 1, 1], ["definition", 3, 4]]);
   expect(doc.definitions).toBe("[d]: https://example.com/d\n[e]: https://example.com/e");
-  expect(blockMarkdown(doc.blocks[0], doc.definitions)).toBe("See [the docs][d].\n\n[d]: https://example.com/d\n[e]: https://example.com/e");
+  expect(blockMarkdown(doc.blocks[0], doc.definitions)).toBe("See [the docs][d].\n\n[d]: https://example.com/d");
+});
+
+test("a block carries the definitions its labels match as CommonMark matches them, in any case and spacing", () => {
+  const doc = markdownBlocks("Read [The  Guide] and ![Logo], not [x](y).\n\nOther.\n\n[the guide]: https://g.io\n[LOGO]: logo.png\n[unused]: https://u.io\n");
+  expect(blockMarkdown(doc.blocks[0], doc.definitions)).toBe("Read [The  Guide] and ![Logo], not [x](y).\n\n[the guide]: https://g.io\n[LOGO]: logo.png");
+  expect(blockMarkdown(doc.blocks[1], doc.definitions)).toBe("Other.");
+});
+
+test("a Keep a Changelog file's versions each carry their own definition, not every version's", () => {
+  const versions = Array.from({ length: 300 }, (_, i) => `1.${300 - i}.0`);
+  const doc = markdownBlocks(`${versions.map((v) => `## [${v}]\n\n- A change in ${v}.`).join("\n\n")}\n\n${versions.map((v) => `[${v}]: https://github.com/o/r/compare/v${v}`).join("\n")}\n`);
+  expect(blockMarkdown(doc.blocks[0], doc.definitions)).toBe("## [1.300.0]\n\n[1.300.0]: https://github.com/o/r/compare/v1.300.0");
+  expect(blockMarkdown(doc.blocks[1], doc.definitions)).toBe("- A change in 1.300.0.");
 });
 
 test("a footnote's definition shows its label in bold", () => {

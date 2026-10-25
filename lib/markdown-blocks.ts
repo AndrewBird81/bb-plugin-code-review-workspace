@@ -121,8 +121,8 @@ export function blockHolding(blocks: MarkdownBlock[], line: number): MarkdownBlo
 export const withNumber = (source: string, number: number) => source.replace(LIST_MARKER, (marker, indent: string, bullet?: string, _n?: string, end?: string) => (bullet ? marker : `${indent}${number}${end}`));
 
 /**
- * A block as BB's Markdown draws it alone: with the document's definitions, frontmatter as a table, and an ordered list's
- * item with its number in the list.
+ * A block as BB's Markdown draws it alone: with the document's definitions it may use, frontmatter as a table, and an
+ * ordered list's item with its number in the list.
  */
 export function blockMarkdown(block: MarkdownBlock, definitions: string): string {
   if (block.kind === "frontmatter") return frontmatterTable(block.source);
@@ -130,7 +130,34 @@ export function blockMarkdown(block: MarkdownBlock, definitions: string): string
   // A footnote's definition renders nothing without a reference: its label shows as text, in bold.
   const source = block.kind === "footnoteDefinition" ? block.source.replace(/^ {0,3}\[\^([^\]]+)\]:/, (_all, label: string) => `**[^${label}]**`)
     : block.list?.number !== undefined ? withNumber(block.source, block.list.number) : block.source;
-  return definitions ? `${source}\n\n${definitions}` : source;
+  const used = definitionsFor(source, definitions);
+  return used ? `${source}\n\n${used}` : source;
+}
+
+/**
+ * The definitions of `definitions` whose labels `source` holds in brackets: those its links and images may use. Every
+ * block drew every definition, so a file of many, as a changelog's version links, drew them all once a block: seconds
+ * to show. Labels match as CommonMark matches them, and as mdast's `identifier` reads them: in any case, each run of
+ * whitespace one space, and none at either end.
+ */
+function definitionsFor(source: string, definitions: string): string {
+  if (!definitions) return "";
+  const bracketed = [...source.matchAll(/\[((?:[^[\]\\]|\\.)*)\]/g)];
+  const labels = new Set(bracketed.map((match) => match[1].replace(/[\t\n\r ]+/g, " ").replace(/^ | $/g, "").toLowerCase().toUpperCase().toLowerCase()));
+  return definitionList(definitions).filter((definition) => labels.has(definition.label)).map((definition) => definition.source).join("\n");
+}
+
+/** Each document's definitions, read once: a file's blocks each take their own of them. */
+const definitionLists = new Map<string, { label: string; source: string }[]>();
+
+function definitionList(definitions: string): { label: string; source: string }[] {
+  const kept = definitionLists.get(definitions);
+  if (kept) return kept;
+  if (definitionLists.size >= 8) definitionLists.delete(definitionLists.keys().next().value!);
+  const list = parseMarkdown(definitions).children.flatMap((node) => node.type === "definition" && node.position
+    ? [{ label: node.identifier, source: definitions.slice(node.position.start.offset, node.position.end.offset) }] : []);
+  definitionLists.set(definitions, list);
+  return list;
 }
 
 /** Frontmatter's `key: value` lines as a table, as GitHub shows them; any other YAML as code. */

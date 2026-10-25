@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1 — unreleased
+
+Fixes from a bug bash of rendered Markdown. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.5.1. 1.5.1 adds no migration, so rolling back to 1.5.0 keeps everything.
+
+- A rendered block draws with the link definitions its links use, where it drew every definition in the file. A file of many, as a changelog whose versions link to their comparisons, froze the page for seconds as it showed: 7 s to show the 1,798 unchanged sections of a changelog of 300 versions, now under half a second.
+
 ## 1.5.0 — 2026-10-24
 
 Read a Markdown file rendered, as GitHub's rich diff shows it, and comment on it there. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.5.0. 1.5.0 adds no migration, so rolling back to 1.4.1 keeps everything; a Markdown file then opens as its source, and saving settings on 1.4.1 drops the Markdown files choice, which reads as Source once you update again.
