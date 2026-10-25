@@ -296,7 +296,8 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
       const picked = selectedBlocks(items, from, to);
       const [first, last] = [picked[0], picked[picked.length - 1]];
       // The lines the selection starts and ends on: a table's row, a code line, or the line of the words around each end.
-      const drawnAt = (node: Node) => elementOf(node)!.closest("[data-md-block]")!;
+      // An end outside the block's drawing, as in its Link changed note or at its row's edge, is at the block's edge.
+      const drawnAt = (node: Node) => elementOf(node)?.closest("[data-md-block]") ?? null;
       const start = pointLine(first.block, drawnAt(range.startContainer), range.startContainer, range.startOffset, "start");
       const end = pointLine(last.block, drawnAt(range.endContainer), range.endContainer, range.endOffset, "end");
       const anchor = selectionAnchor(lines, picked, start, end);

@@ -406,6 +406,30 @@ test("a changed block says which of its links now go elsewhere", async () => {
   slot.lifecycle.unmount();
 });
 
+test("text selected into a block's Link changed note, or to its row's edge, picks the block's lines", async () => {
+  const old = "Intro.\n\nGet more info about [Keyboard Shortcuts editor](/docs/getstarted/keybindings.md).\n";
+  const now = "Intro.\n\nGet more info about [Keyboard Shortcuts editor](/docs/editor/keybindings.md).\n";
+  const { slot, onLineSelected } = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now), contents: { ok: true, old, new: now } });
+  await waitFor(() => expect(units(slot.container)).toHaveLength(2));
+  const unit = units(slot.container)[1];
+  const text = within(unit).getByTestId("bb-markdown").firstChild!;
+  const note = document.createTreeWalker(within(unit).getByRole("note", { name: "Link changed" }), NodeFilter.SHOW_TEXT).nextNode()!;
+  select(text, note);
+  await waitFor(() => expect(onLineSelected).toHaveBeenLastCalledWith(FILE, { start: 3, end: 3, side: "additions" }, undefined));
+  document.getSelection()!.collapse(text, 0);
+  document.dispatchEvent(new Event("selectionchange"));
+  await waitFor(() => expect(onLineSelected).toHaveBeenLastCalledWith(FILE, null));
+  // As a triple-click's selection can end: after the row's last child.
+  const range = document.createRange();
+  range.setStart(text, 0);
+  range.setEnd(unit, unit.childNodes.length);
+  document.getSelection()!.removeAllRanges();
+  document.getSelection()!.addRange(range);
+  document.dispatchEvent(new Event("selectionchange"));
+  await waitFor(() => expect(onLineSelected).toHaveBeenLastCalledWith(FILE, { start: 3, end: 3, side: "additions" }, undefined));
+  slot.lifecycle.unmount();
+});
+
 test("a PR's relative links go to their files at its head on GitHub, in marked words too", async () => {
   const old = "See [the setup](../setup.md) first.\n\n![chart](img/a.png)\n";
   const now = "See [the setup](../setup.md) now.\n\n![chart](img/a.png)\n";

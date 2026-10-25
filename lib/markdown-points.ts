@@ -36,12 +36,12 @@ const textBetween = (el: Element, node: Node, offset: number, toEnd: boolean): s
  * ends. Read from the drawing, never changing it: in a table, its row's (`tr`, in the order they draw); in code, its
  * line's, by the highlighter's line spans or its newlines; in prose, the line of the words around the point as drawn,
  * found once in the source and once in the drawing. Otherwise, as where a table draws other rows than its source has,
- * or the words show more than once, the block's edge on that side.
+ * the words show more than once, or the point is outside the drawing (`el` null), the block's edge on that side.
  */
-export function pointLine(block: MarkdownBlock, el: Element, node: Node, offset: number, edge: "start" | "end"): number {
+export function pointLine(block: MarkdownBlock, el: Element | null, node: Node, offset: number, edge: "start" | "end"): number {
   const fallback = edge === "start" ? block.start : block.end;
   const at = elementOf(node);
-  if (!at || !el.contains(at)) return fallback;
+  if (!at || !el?.contains(at)) return fallback;
   if (block.rows) {
     const rows = Array.from(el.querySelectorAll("tr"));
     const row = at.closest("tr");
