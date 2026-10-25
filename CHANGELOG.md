@@ -2,10 +2,11 @@
 
 ## 1.5.1 — unreleased
 
-Fixes from a bug bash of rendered Markdown. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.5.1. 1.5.1 adds no migration, so rolling back to 1.5.0 keeps everything.
+Fixes from a bug bash of rendered Markdown, and for updates that left the plugin not loaded. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.5.1. 1.5.1 adds no migration, so rolling back to 1.5.0 keeps everything.
 
 - A rendered block draws with the link definitions its links use, where it drew every definition in the file. A file of many, as a changelog whose versions link to their comparisons, froze the page for seconds as it showed: 7 s to show the 1,798 unchanged sections of a changelog of 300 versions, now under half a second.
 - Text selected from a block into its "Link changed" note, or to the edge of its row, picks the block's lines. It threw an error in the page and picked nothing, so only Ask agent about the text was offered.
+- An update or reload that came while the plugin's update check or a Needs You alert still waited on the network left the plugin degraded and not loaded, and `bb review` unknown, until `bb plugin reload code-review-workspace`: its updates service stopped only once that call returned, past the 5 s BB gives it. It stops at once now, and an update the interrupted check finds isn't applied. The update that installs 1.5.1 still runs 1.5.0's shutdown; if the plugin shows degraded after it, run `bb plugin reload code-review-workspace`.
 
 ## 1.5.0 — 2026-10-24
 

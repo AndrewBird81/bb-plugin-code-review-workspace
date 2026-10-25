@@ -1596,8 +1596,10 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     async checkUpdates(signal) {
       while (!signal.aborted) {
         await delay(60_000, undefined, { signal }).catch(() => {});
-        if (!signal.aborted) await updates.run(() => notifications.flush(), false).catch(() => {});
-        if (!signal.aborted) await updates.tick().catch(() => {});
+        // Stop at once when BB stops the plugin: past 5 s it's degraded and the new instance doesn't load. What still
+        // waits on the network settles unheard.
+        if (!signal.aborted) await unlessAborted(updates.run(() => notifications.flush(), false), signal).catch(() => {});
+        if (!signal.aborted) await unlessAborted(updates.tick(signal), signal).catch(() => {});
       }
     },
     async syncReviews(signal) {

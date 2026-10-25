@@ -91,13 +91,14 @@ export function createPluginUpdates(bb: BbPluginApi, backgroundBusy: () => boole
       throw error;
     } finally { current.updating = false; }
   }
-  async function tick() {
+  async function tick(signal?: AbortSignal) {
     if (!read().automatic || current.updating || idleReason() || now() - lastWork < IDLE || now() < read().next_attempt) return;
     db.prepare("UPDATE plugin_updates SET next_attempt=? WHERE id=1").run(now() + HOUR);
     const latest = await check();
     // Check opt-in and activity again after the network wait. Turning updates
-    // off or opening a review during that wait must take effect immediately.
-    if (!read().automatic || idleReason() || now() - lastWork < IDLE || latest.outcome !== "update-available") return;
+    // off or opening a review during that wait must take effect immediately,
+    // as must BB stopping this instance.
+    if (signal?.aborted || !read().automatic || idleReason() || now() - lastWork < IDLE || latest.outcome !== "update-available") return;
     try { await apply(undefined, latest.candidateVersion ?? undefined); } catch { /* retained in status, retry next hour */ }
   }
   return { status, check, apply, presence, setAutomatic, run, tick };
