@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.5.1 — unreleased
+## 1.5.1 — 2026-10-25
 
 Fixes from a bug bash of rendered Markdown, and for updates that left the plugin not loaded. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.5.1. 1.5.1 adds no migration, so rolling back to 1.5.0 keeps everything.
 
