@@ -131,6 +131,20 @@ test("with nothing for you, Needs review says so and how many wait on their auth
   slot.lifecycle.unmount();
 });
 
+test("a row shows its PR's labels after the title, three at most, each with its GitHub color, and counts the rest", async () => {
+  const labels = ["bug", "ui", "performance", "dependencies", "docs"].map((name, i) => ({ name, color: i === 0 ? "d73a4a" : "" }));
+  const { slot } = await inbox([{ targetKey: "a", kind: "pr", title: "Labeled change", status: "ready", prLabels: labels }]);
+  const row = (await slot.findByText("Labeled change")).closest("button")!;
+  for (const name of ["bug", "ui", "performance"]) expect(within(row).getByTitle(name)).toBeTruthy();
+  expect(within(row).queryByTitle("dependencies")).toBeNull();
+  expect(within(row).getByText("+2").getAttribute("title")).toBe("dependencies, docs");
+  expect((within(row).getByTitle("bug").firstElementChild as HTMLElement).style.backgroundColor).toBe("rgb(215, 58, 74)");
+  // A label without a usable color has no dot.
+  expect(within(row).getByTitle("ui").children).toHaveLength(1);
+  expect(row.textContent).toContain("Labels: bugui");
+  slot.lifecycle.unmount();
+});
+
 test("a row's status line says what changes whether to open it: checks GitHub expects, your own PR, a PR GitHub can't read", async () => {
   const { slot } = await inbox([
     { targetKey: "a", kind: "pr", title: "Expected change", status: "ready", signals: { ci: "expected" } },

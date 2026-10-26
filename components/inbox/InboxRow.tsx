@@ -15,6 +15,9 @@ import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
+/** The PR's labels a row shows after its title; the rest are counted. */
+const MAX_LABELS = 3;
+
 /**
  * A review in the inbox, on two lines: its title (your name for it, with the PR's title on hover), repository and
  * number, and age (in Needs review, how long it's been your turn; elsewhere, its last activity), then its status line.
@@ -53,6 +56,7 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   }
   const moving = async (action: Promise<boolean>) => { const from = document.activeElement; if (await action) keepFocus(from); };
   const title = reviewName(review);
+  const labels = review.prLabels ?? [];
   const where = review.repo ? `${review.repo}${review.number ? ` #${review.number}` : ""}` : review.gitRef && title !== review.gitRef ? review.gitRef : null;
   const when = age(turn.group === "needs" ? turn.at ?? review.createdAt : lastActivity(review));
   // Only the reviewer's own archive can be undone, and a review already in Archive can't be archived.
@@ -69,6 +73,14 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
             <InlineCode text={title} />
             {pinnable && review.pinnedAt && <Icon name="Pin" className="ml-1.5 inline size-3.5 align-[-2px] text-muted-foreground" aria-label="Pinned" />}
           </span>
+          {labels.length > 0 && <span className="hidden max-w-[45%] shrink-0 items-center gap-1 overflow-hidden @min-[560px]/inbox:flex">
+            <span className="sr-only">Labels: </span>
+            {labels.slice(0, MAX_LABELS).map((label) => <span key={label.name} title={label.name} className="inline-flex min-w-0 max-w-40 items-center gap-1 rounded-full border border-border px-1.5 text-[11px] leading-4 text-muted-foreground">
+              {/^[0-9a-f]{6}$/i.test(label.color) && <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: `#${label.color}` }} />}
+              <span className="truncate">{label.name}</span>
+            </span>)}
+            {labels.length > MAX_LABELS && <span title={labels.slice(MAX_LABELS).map((label) => label.name).join(", ")} className="shrink-0 text-[11px] text-subtle-foreground">+{labels.length - MAX_LABELS}</span>}
+          </span>}
           {where && <span className="hidden shrink-0 font-mono text-[11px] text-subtle-foreground @min-[720px]/inbox:inline">{where}</span>}
           {when && <span className="w-7 shrink-0 text-right text-xs tabular-nums text-subtle-foreground">{when}</span>}
         </span>
