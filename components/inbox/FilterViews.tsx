@@ -49,10 +49,10 @@ export function ViewTabs({ views, active, onPick, onRename, onDelete }: {
     <Button variant="ghost" size="sm" aria-pressed={!active} className={tab(!active)} onClick={() => onPick(null)}>All</Button>
     {views.map((view) => view.id !== active?.id
       ? <Button key={view.id} variant="ghost" size="sm" aria-pressed={false} className={tab(false)} onClick={() => onPick(view)}>{view.name}</Button>
-      : <div key={view.id} className="relative flex shrink-0 items-center rounded-md bg-accent">
-        <Button variant="ghost" size="sm" aria-pressed className={cn("h-7 rounded-md pl-2.5 pr-1 text-xs text-foreground hover:bg-transparent", TOUCH_CONTROL)} onClick={() => onPick(view)}>{view.name}</Button>
+      : <div key={view.id} className="relative flex shrink-0 items-center rounded-md bg-state-active">
+        <Button variant="ghost" size="sm" aria-pressed className={cn("h-7 rounded-md pl-2.5 pr-1 text-xs text-foreground hover:bg-transparent aria-pressed:bg-transparent aria-pressed:hover:bg-transparent", TOUCH_CONTROL)} onClick={() => onPick(view)}>{view.name}</Button>
         <Pop label={`Rename ${view.name}`} hint="Rename view" title="Rename view" trigger={<Icon name="Edit" className="size-3" aria-hidden />}
-          className={cn("h-7 rounded-md px-1.5 text-muted-foreground hover:bg-transparent hover:text-foreground", TOUCH_CONTROL)}>
+          className={cn("h-7 rounded-md px-1.5 text-muted-foreground hover:bg-transparent hover:text-foreground data-[state=open]:bg-transparent data-[state=open]:hover:bg-transparent", TOUCH_CONTROL)}>
           {(close) => <NameForm views={views} initial={view.name} except={view.id} submit="Rename" onSave={(name) => { onRename(view, name); close(); }} />}
         </Pop>
         <Hint label="Delete view">
