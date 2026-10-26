@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 — 2026-10-26
+
+Filter All reviews as Linear does. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.6.0. 1.6.0 adds no migration, so rolling back to 1.5.2 keeps everything.
 
 - All reviews has filters, as Linear's: **Filter**, or `f`, picks a field (Status, Author, Reviewers, GitHub team reviewers, GitHub labels, Repository owner or name, Kind, Checks, Your verdict, or the Added, Updated, Merged or Closed date), then its values or a span of days. Each shows as a chip whose match flips between is and is not, or in the last and more than, and whose values open to change. Reviews must match every filter, and the sections open to show them. The list keeps its filters when you come back from a review, as it keeps the box's words, until the tab closes. Reviewers are everyone asked to review or who has, comments alone too; a team stays once a member reviews for it; Closed is closed without merging. The sync now reads each PR's labels, requested teams, reviewers, and when GitHub updated, merged or closed it, which fill in as it next reads each PR; a merged PR, which it no longer reads, is read once more for them.
 
