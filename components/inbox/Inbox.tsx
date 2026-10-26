@@ -293,9 +293,9 @@ export function Inbox() {
         {!firstRun && (searchInline || phoneBox) && <div className={searchInline ? "px-1.5 pb-2 pt-4" : "sticky top-0 z-20 bg-background px-1.5 py-2"}>{omnibox}</div>}
         {!firstRun && !searchInline && !phoneBox && ownControls && <div className="flex justify-end py-1"><ListTitleBar placement="page" /></div>}
         {showFilters && <div className={cn("px-1.5 pb-2", !searchInline && !phoneBox && "pt-2")}>
-          {views.length > 0 && <div className="pb-1.5"><ViewTabs views={views} active={activeView} onPick={pickView} onRename={renameView} onDelete={deleteView} /></div>}
+          {views.length > 0 && <div className="pb-1.5"><ViewTabs views={views} active={activeView} onPick={pickView} /></div>}
           <FilterBar filters={filters} onFilters={setFilters} reviews={reviews} menuOpen={filterMenuOpen} onMenuOpen={setFilterMenuOpen}
-            trailing={<SaveView views={views} active={activeView} changed={viewChanged} hasFilters={filters.length > 0} onCreate={createView} onUpdate={updateView} />} />
+            trailing={<SaveView views={views} active={activeView} changed={viewChanged} hasFilters={filters.length > 0} onCreate={createView} onUpdate={updateView} onRename={renameView} onDelete={deleteView} />} />
         </div>}
         {!syncError && problem && <p role="status" className={cn("mx-1.5 mb-2 flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning-text", firstRun && "mt-4")}><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />{problem}</p>}
         {syncError && <p role="alert" className={cn("mx-1.5 mb-2 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text", firstRun && "mt-4")}><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />Couldn’t refresh GitHub status. Saved reviews are still available; try Refresh again.</p>}
