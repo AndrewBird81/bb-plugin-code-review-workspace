@@ -198,7 +198,7 @@ export interface ChangedLink { text: string; from: string; to: string }
 
 /**
  * The links of `now` whose words `old` has once too, as a link to another URL, inline or by reference to a definition in
- * the text: what marking can't show, as its words are the same.
+ * the text, or an HTML `<a>`: what marking can't show, as its words are the same.
  */
 export function changedLinks(old: string, now: string): ChangedLink[] {
   const linksOf = (markdown: string) => {
@@ -212,6 +212,12 @@ export function changedLinks(old: string, now: string): ChangedLink[] {
       if ("children" in node) node.children.forEach(walk);
     };
     walk(parseMarkdown(markdown));
+    // A rendered file's HTML links, which it keeps (lib/link-images.ts): their words, an image's as its alt says.
+    for (const [, attributes, inner] of markdown.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)) {
+      const href = attributes.match(/\shref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i);
+      const words = inner.replace(/<img\b[^>]*>/gi, (tag) => { const alt = tag.match(/\salt\s*=\s*(?:"([^"]*)"|'([^']*)')/i); return alt ? `Image: ${alt[1] ?? alt[2]}` : "Image"; });
+      if (href) links.push({ text: words.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim(), url: (href[1] ?? href[2] ?? href[3]).replace(/&amp;/gi, "&") });
+    }
     // A reference's URL is its definition's, wherever that is in the text.
     return links.map(({ text, url, label }) => ({ text, url: url ?? definitions.get(label!) }));
   };

@@ -57,6 +57,14 @@ test("a link whose URL changed is said, with its words and both URLs; one whose 
   expect(changedLinks("Read [old](https://a) and [x](https://b).", "Read [new](https://c) and [x](https://b).")).toEqual([]);
 });
 
+test("a rendered file's HTML link whose URL changed is said too, by its words, inline or in an HTML block", () => {
+  expect(changedLinks('Get <a href="https://acme.dev/start" target="_blank">the <b>guide</b></a> here.', "Get <a href='https://evil.test/start'>the <b>guide</b></a> here."))
+    .toEqual([{ text: "the guide", from: "https://acme.dev/start", to: "https://evil.test/start" }]);
+  expect(changedLinks('<p align="center">\n  <a href="https://acme.dev/?a=1&amp;b=2"><img src="logo.png" alt="Acme"></a>\n</p>', '<p align="center">\n  <a href="https://acme.dev/?a=1&b=3"><img src="logo.png" alt="Acme"></a>\n</p>'))
+    .toEqual([{ text: "Image: Acme", from: "https://acme.dev/?a=1&b=2", to: "https://acme.dev/?a=1&b=3" }]);
+  expect(changedLinks('Use <a href="https://a.test">x</a>.', 'Use <a href="https://a.test" rel="noopener">x</a>.')).toEqual([]);
+});
+
 test("a change across emphasis, a task's box, a heading's level, or an HTML tag isn't marked", () => {
   expect(markWords("Use **bold** here.", "Use bold here.")).toBeNull();
   expect(markWords("Use bold here.", "Use _bold_ here.")).toBeNull();
