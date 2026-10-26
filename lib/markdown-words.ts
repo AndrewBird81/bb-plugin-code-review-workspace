@@ -1,6 +1,6 @@
 import { diffArrays } from "diff";
 import { CONFETTI_THRESHOLD } from "./confetti";
-import { linkImages } from "./link-images";
+import { codeRanges, linkImages } from "./link-images";
 import type { Nodes } from "mdast";
 import { blockMarkdown, parseMarkdown, type MarkdownBlock } from "./markdown-blocks";
 
@@ -193,6 +193,39 @@ export function blockWords(previous: MarkdownBlock, block: MarkdownBlock, defini
   return markWords(drawn(previous), drawn(block));
 }
 
+/**
+ * A rendered file's HTML links outside its code, which it keeps (lib/link-images.ts): each `<a …>…</a>`'s href as
+ * written, `&amp;` as `&`, and its words, an image's as its alt says. In one pass: each tag's `>`, and the `</a>` after
+ * it, looked for once, as a pattern that looked from each `<a` to the text's end for its `</a>` took seconds.
+ */
+export function htmlLinks(markdown: string): { text: string; url: string }[] {
+  let prose = "";
+  let from = 0;
+  for (const [start, end] of codeRanges(markdown, true)) {
+    prose += markdown.slice(from, start) + " ".repeat(end - start);
+    from = end;
+  }
+  prose += markdown.slice(from);
+  const links: { text: string; url: string }[] = [];
+  const [open, close] = [/<a(?=[\s/>])/gi, /<\/a\s*>/gi];
+  // The next `</a>`, or null once none is left.
+  let closing: RegExpExecArray | null | undefined;
+  for (let match; (match = open.exec(prose));) {
+    const end = prose.indexOf(">", open.lastIndex);
+    if (end < 0) break;
+    if (closing === undefined || (closing && closing.index <= end)) {
+      close.lastIndex = end + 1;
+      closing = close.exec(prose);
+    }
+    if (!closing) break;
+    const href = prose.slice(open.lastIndex, end).match(/\shref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i);
+    const words = prose.slice(end + 1, closing.index).replace(/<img\b[^<>]*>/gi, (tag) => { const alt = tag.match(/\salt\s*=\s*(?:"([^"]*)"|'([^']*)')/i); return alt ? `Image: ${alt[1] ?? alt[2]}` : "Image"; });
+    if (href) links.push({ text: words.replace(/<[^<>]*>/g, "").replace(/\s+/g, " ").trim(), url: (href[1] ?? href[2] ?? href[3]).replace(/&amp;/gi, "&") });
+    open.lastIndex = closing.index + closing[0].length;
+  }
+  return links;
+}
+
 /** A link a block keeps, by its words, whose URL changed. */
 export interface ChangedLink { text: string; from: string; to: string }
 
@@ -212,12 +245,7 @@ export function changedLinks(old: string, now: string): ChangedLink[] {
       if ("children" in node) node.children.forEach(walk);
     };
     walk(parseMarkdown(markdown));
-    // A rendered file's HTML links, which it keeps (lib/link-images.ts): their words, an image's as its alt says.
-    for (const [, attributes, inner] of markdown.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi)) {
-      const href = attributes.match(/\shref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i);
-      const words = inner.replace(/<img\b[^>]*>/gi, (tag) => { const alt = tag.match(/\salt\s*=\s*(?:"([^"]*)"|'([^']*)')/i); return alt ? `Image: ${alt[1] ?? alt[2]}` : "Image"; });
-      if (href) links.push({ text: words.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim(), url: (href[1] ?? href[2] ?? href[3]).replace(/&amp;/gi, "&") });
-    }
+    links.push(...htmlLinks(markdown));
     // A reference's URL is its definition's, wherever that is in the text.
     return links.map(({ text, url, label }) => ({ text, url: url ?? definitions.get(label!) }));
   };

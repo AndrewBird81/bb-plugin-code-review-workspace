@@ -4,7 +4,7 @@ import { gfm } from "micromark-extension-gfm";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import type { Nodes } from "mdast";
 import { rng } from "../src/fuzz-gen.test-support";
-import { blockWords, changedLinks, markWords } from "./markdown-words";
+import { blockWords, changedLinks, htmlLinks, markWords } from "./markdown-words";
 import { parseMarkdown } from "./markdown-blocks";
 
 // Passed through, to count the parses the check makes.
@@ -63,7 +63,17 @@ test("a rendered file's HTML link whose URL changed is said too, by its words, i
   expect(changedLinks('<p align="center">\n  <a href="https://acme.dev/?a=1&amp;b=2"><img src="logo.png" alt="Acme"></a>\n</p>', '<p align="center">\n  <a href="https://acme.dev/?a=1&b=3"><img src="logo.png" alt="Acme"></a>\n</p>'))
     .toEqual([{ text: "Image: Acme", from: "https://acme.dev/?a=1&b=2", to: "https://acme.dev/?a=1&b=3" }]);
   expect(changedLinks('Use <a href="https://a.test">x</a>.', 'Use <a href="https://a.test" rel="noopener">x</a>.')).toEqual([]);
+  // In code, an <a> is its text: no link to say.
+  expect(changedLinks('Write `<a href="https://a.test">x</a>`.', 'Write `<a href="https://b.test">x</a>`.')).toEqual([]);
 });
+
+test("HTML links are found in linear time, however their tags are left open", () => {
+  for (const text of ["<a>".repeat(130_000), "<a ".repeat(130_000), `<a href="x">${"<".repeat(400_000)}</a>`, `<a href="x">${"<img ".repeat(80_000)}</a>`, `${"<a href='x'>".repeat(30_000)}</a>`]) {
+    const started = performance.now();
+    htmlLinks(text);
+    expect(performance.now() - started).toBeLessThan(250);
+  }
+}, 60_000);
 
 test("a change across emphasis, a task's box, a heading's level, or an HTML tag isn't marked", () => {
   expect(markWords("Use **bold** here.", "Use bold here.")).toBeNull();
