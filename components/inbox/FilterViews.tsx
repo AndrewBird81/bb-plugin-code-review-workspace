@@ -16,7 +16,7 @@ function NameForm({ views, initial = "", except, submit, onSave }: { views: read
   const [tried, setTried] = useState(false);
   const problem = viewNameProblem(views, name, except);
   return <form className="space-y-2 p-1.5" onSubmit={(event) => { event.preventDefault(); setTried(true); if (!problem) onSave(name.trim()); }}>
-    <Input autoFocus value={name} maxLength={VIEW_NAME_LIMIT} onChange={(event) => setName(event.target.value)} aria-label="View name" placeholder="View name, as Live 4 Project"
+    <Input autoFocus value={name} maxLength={VIEW_NAME_LIMIT} onChange={(event) => setName(event.target.value)} aria-label="View name" placeholder="View name"
       aria-invalid={tried && !!problem} className={cn("h-8 text-sm", TOUCH_CONTROL)} />
     {tried && problem && <p role="alert" className="text-xs text-destructive-text">{problem}</p>}
     <Button type="submit" size="sm" className={cn("w-full", TOUCH_CONTROL)}>{submit}</Button>
