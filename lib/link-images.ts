@@ -12,21 +12,81 @@ import { parseMarkdown } from "./markdown-blocks";
  * them. Then every `<` that doesn't begin one of the FORMATTING tags, or an autolink, shows as text. Code spans and
  * fenced code stay as written where the Markdown around them leaves no doubt they're code (`structure`); elsewhere
  * code is changed too.
+ *
+ * With `links`, as for a file the review renders, its own HTML links stay links: each `<a>` keeps its href alone, where
+ * `anchorHref` keeps one, and an HTML image or video is an `<a>` to it, which draws inside an HTML block as a Markdown
+ * link wouldn't. Nothing loads still, and the comments of others and agents never take `links`.
  */
-export function linkImages(markdown: string): string {
+export function linkImages(markdown: string, links?: HtmlLinks): string {
   if (!/<|!\[/.test(markdown)) return markdown;
   // BB's Markdown drops one leading byte order mark, so what follows it may begin an HTML block. The text is read
   // without it, and it's kept, so that BB drops it and not a second one.
   const mark = markdown.startsWith("\uFEFF") ? "\uFEFF" : "";
   const text = markdown.slice(mark.length).replace(/\r\n?/g, "\n");
   const labels = new Set([...text.matchAll(/^ {0,3}\[([^\]\n]+)\]:/gm)].map((match) => normalLabel(match[1])));
-  return mark + escapeHtml(outsideCode(text, (prose) => withoutComments(linkMarkdownImages(linkHtmlMedia(prose), labels))));
+  return mark + escapeHtml(outsideCode(text, (prose) => withoutComments(linkMarkdownImages(linkHtmlMedia(prose, links), labels)), !!links), links);
 }
 
 const REPO = "https://repository.invalid/";
 
 /** Where a file's relative links go: a tree on GitHub (`root`, a commit's blob URL) and the file's path in it. */
 export interface LinkTree { root: string; path: string }
+
+/** A rendered file's own links kept (`linkImages`), its relative ones to their files in `tree`, or, without one, none. */
+export interface HtmlLinks { tree: LinkTree | null }
+
+/**
+ * `url`, relative, as the file it names in `tree`, as GitHub's rich diff resolves it: a path from the file's folder, or
+ * from the root with a leading `/`, never above it; a query or fragment alone, the file itself.
+ */
+function inTree(url: string, tree: LinkTree): string {
+  // From the file, each part of its path encoded, so a folder named C# is one; on a host of its own, so ../ stops at the
+  // repository's root, as a root-relative /path does.
+  const file = new URL(tree.path.split("/").map(encodeURIComponent).join("/"), REPO);
+  return tree.root + new URL(url, file).href.slice(REPO.length);
+}
+
+/** What a rendered file's `<a>` may link to: the web, and email. */
+const LINK_SCHEMES = new Set(["http:", "https:", "mailto:"]);
+
+/**
+ * `value`, an `<a>`'s href in a rendered file, as the link it keeps, or null for none: an http, https or mailto URL, or
+ * a relative one as the file it names in `tree` (none without one, where it would open a page of BB's own). Read as a
+ * browser reads it once `&amp;` is `&`: any other character reference stays as written, so none spells a scheme. A
+ * user and password are dropped, as `https://github.com@evil.test` hides its host behind one. Written with nothing an
+ * attribute, Markdown or `resolveLinks` reads otherwise: `&` as `&amp;`, and quotes, parentheses, brackets, backticks
+ * and spaces percent-encoded.
+ */
+function anchorHref(value: string, tree: LinkTree | null): string | null {
+  // As a URL parser takes it: without tabs or line breaks anywhere, nor controls or spaces at either end.
+  const raw = value.replace(/&amp;/gi, "&").replace(/[\t\n\r]/g, "").replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, "");
+  // A protocol-relative URL would take BB's own protocol: few files write one.
+  if (!raw || /^[\\/]{2}/.test(raw)) return null;
+  let url: URL;
+  try {
+    if (/^[A-Za-z][A-Za-z\d+.-]*:/.test(raw)) url = new URL(raw);
+    else if (tree) url = new URL(inTree(raw, tree));
+    else return null;
+  } catch { return null; }
+  if (!LINK_SCHEMES.has(url.protocol)) return null;
+  url.username = "";
+  url.password = "";
+  // The origin as the parser wrote it, an IPv6 host's brackets too; the rest of its ASCII, made plain.
+  const head = url.protocol === "mailto:" ? url.protocol : url.origin;
+  return head + url.href.slice(head.length).replace(/[^\w\-.~:/?#@!$&*+,;=%]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`).replace(/&/g, "&amp;");
+}
+
+/**
+ * The `<a>` or `</a>` at `start` in a rendered file's text, as `links` keeps it: with its href alone, where `anchorHref`
+ * keeps one, else none, so it draws as its words. Null for any other tag.
+ */
+function linkTag(text: string, start: number, links: HtmlLinks): string | null {
+  const tag = formattingTag(text, start, true);
+  if (tag?.name !== "a") return null;
+  if (tag.close) return "</a>";
+  const href = tag.href === undefined ? null : anchorHref(tag.href, links.tree);
+  return href ? `<a href="${href}">` : "<a>";
+}
 
 /**
  * `markdown` with its relative links' URLs, inline and in its link definitions (as the parser reads them, never a line
@@ -36,10 +96,7 @@ export interface LinkTree { root: string; path: string }
  * link. Known gap: `linkImages` escapes the `<` of an angle-bracketed destination, `[a](<my file.md>)`, first.
  */
 export function resolveLinks(markdown: string, tree: LinkTree): string {
-  // From the file, each part of its path encoded, so a folder named C# is one; on a host of its own, so ../ stops at the
-  // repository's root, as a root-relative /path does.
-  const file = new URL(tree.path.split("/").map(encodeURIComponent).join("/"), REPO);
-  const resolve = (url: string) => /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(url) ? url : tree.root + new URL(url, file).href.slice(REPO.length);
+  const resolve = (url: string) => /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(url) ? url : inTree(url, tree);
   const destination = (url: string) => (url.startsWith("<") ? `<${resolve(url.slice(1, -1))}>` : resolve(url));
   // Definitions first, by their places, from the last: each one's destination follows its label.
   let text = markdown;
@@ -52,7 +109,8 @@ export function resolveLinks(markdown: string, tree: LinkTree): string {
   for (const { start, end } of definitions.reverse()) {
     text = text.slice(0, start) + text.slice(start, end).replace(/^(\s*\[(?:[^\]\\]|\\.)+\]:\s*)(<[^<>\n]*>|\S+)/, (_all, label: string, url: string) => label + destination(url)) + text.slice(end);
   }
-  return outsideCode(text, (prose) => prose.replace(/(\]\(\s*)(<[^<>\n]*>|[^\s()<>]+)/g, (_all, before: string, url: string) => before + destination(url)));
+  // Read as linkImages left it, with a rendered file's links: their hrefs hold no `](`.
+  return outsideCode(text, (prose) => prose.replace(/(\]\(\s*)(<[^<>\n]*>|[^\s()<>]+)/g, (_all, before: string, url: string) => before + destination(url)), true);
 }
 
 /**
@@ -109,18 +167,26 @@ function endsInBang(parts: string[]): boolean {
 
 /**
  * Each `<img>`, `<video>` and `<source>` in `text` as links to what it would load, the media BB's HTML allows. A video
- * is replaced even without a url, so the links of its `<source>`s show rather than sit in a player as fallback.
+ * is replaced even without a url, so the links of its `<source>`s show rather than sit in a player as fallback. With
+ * `links`, a `<picture>` is its `<img>` alone, its `<source>`s the same image again; and media inside an `<a>` are
+ * their words, as a link can't hold one.
  */
-function linkHtmlMedia(text: string): string {
+function linkHtmlMedia(text: string, links?: HtmlLinks): string {
   const parts: string[] = [];
   let from = 0;
-  const head = /<(img|video|source)\b/gi;
+  const head = links ? /<(\/?picture|img|video|source)\b/gi : /<(img|video|source)\b/gi;
+  // The <picture>s and <a>s open, by their tags so far: read once, up to `read`.
+  let [picture, link, read] = [0, 0, 0];
   for (let match; (match = head.exec(text));) {
     // A tag runs to the first `>`; when none follows, no later tag closes either.
     const close = text.indexOf(">", head.lastIndex);
     if (close < 0) break;
+    if (links) for (const [, end] of text.slice(read, match.index).matchAll(/<(\/?)a(?=[\s/>])/gi)) link = Math.max(link + (end ? -1 : 1), 0);
+    read = close + 1;
     if (match.index > from) parts.push(text.slice(from, match.index));
-    pushLink(parts, htmlMediaLink(match[1].toLowerCase(), text.slice(match.index, close + 1)));
+    const name = match[1].toLowerCase();
+    if (name.endsWith("picture")) picture = Math.max(picture + (name === "picture" ? 1 : -1), 0);
+    else if (!picture || name !== "source") pushLink(parts, htmlMediaLink(name, text.slice(match.index, close + 1), links, link > 0));
     from = head.lastIndex = close + 1;
   }
   parts.push(text.slice(from));
@@ -129,14 +195,19 @@ function linkHtmlMedia(text: string): string {
 
 /**
  * `<img … src="url" alt="…">` as a link to its url, one without a url as its words alone; `<video>` as links to its
- * src and poster, or its word; `<source>` as a link to its src or srcset's first url, or nothing.
+ * src and poster, or its word; `<source>` as a link to its src or srcset's first url, or nothing. With `links`, each
+ * link an `<a>` that `anchorHref` keeps, else its words, as it is `inLink`.
  */
-function htmlMediaLink(name: string, tag: string): string {
+function htmlMediaLink(name: string, tag: string, links?: HtmlLinks, inLink = false): string {
   const attribute = (attributeName: string) => {
     const match = new RegExp(`\\s${attributeName}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i").exec(tag);
     return match ? (match[1] ?? match[2] ?? match[3]).replace(/&amp;/g, "&") : "";
   };
-  const link = (label: string, url: string) => `[${label}](${destination(url)})`;
+  const link = (label: string, url: string) => {
+    if (!links) return `[${label}](${destination(url)})`;
+    const href = inLink ? null : anchorHref(url, links.tree);
+    return href ? `<a href="${href}">${label.replace(/</g, "&lt;")}</a>` : label;
+  };
   const src = attribute("src") || attribute("srcset").trim().split(/\s+/)[0] || "";
   if (name === "source") return src && link("Media", src);
   if (name === "video") {
@@ -329,26 +400,32 @@ const BLOCK_TAGS = new Set(["details", "summary", "p", "div", "h1", "h2", "h3", 
 /**
  * The FORMATTING tag at `at` in `text`, open or closing: on one line, each attribute one its tag allows, with a value
  * free of quotes, `<`, `>` and backticks, so CommonMark and an HTML parser read it alike and it holds no code span's
- * backtick.
+ * backtick. Where a rendered file's links are kept (`anchors`), an `<a>` too, with any attributes written so: its first
+ * `href`, as an HTML parser takes the first, is read, for `linkTag` to keep alone.
  */
-function formattingTag(text: string, at: number): { name: string; close: boolean; end: number } | null {
+function formattingTag(text: string, at: number, anchors = false): { name: string; close: boolean; end: number; href?: string } | null {
   const head = /<(\/?)([A-Za-z][A-Za-z0-9]*)/y;
   head.lastIndex = at;
   const match = head.exec(text);
-  const allowed = match && FORMATTING.get(match[2].toLowerCase());
-  if (!match || !allowed) return null;
+  if (!match) return null;
   const name = match[2].toLowerCase();
+  const link = anchors && name === "a";
+  const allowed = FORMATTING.get(name);
+  if (!allowed && !link) return null;
   let end = head.lastIndex;
+  let href: string | undefined;
   if (!match[1]) {
-    const attribute = /[ \t]+([A-Za-z][A-Za-z0-9-]*)(?:[ \t]*=[ \t]*(?:"[^"'<>`\n]*"|'[^"'<>`\n]*'|[^\s"'=<>`]+))?/y;
+    const attribute = /[ \t]+([A-Za-z][A-Za-z0-9-]*)(?:[ \t]*=[ \t]*("[^"'<>`\n]*"|'[^"'<>`\n]*'|[^\s"'=<>`]+))?/y;
     for (let found; (attribute.lastIndex = end, found = attribute.exec(text));) {
-      if (!allowed.includes(found[1].toLowerCase())) return null;
+      const attributeName = found[1].toLowerCase();
+      if (!link && !allowed!.includes(attributeName)) return null;
+      if (link && attributeName === "href" && href === undefined) href = (found[2] ?? "").replace(/^(["'])([\s\S]*)\1$/, "$2");
       end = attribute.lastIndex;
     }
   }
   const close = match[1] ? /[ \t]*>/y : /[ \t]*\/?>/y;
   close.lastIndex = end;
-  return close.exec(text) ? { name, close: !!match[1], end: close.lastIndex } : null;
+  return close.exec(text) ? { name, close: !!match[1], end: close.lastIndex, ...(href !== undefined ? { href } : {}) } : null;
 }
 
 /** A url or email autolink, or a link destination in angle brackets with a scheme: neither is ever an HTML tag. */
@@ -358,8 +435,8 @@ const AUTOLINK = /<(?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\n`]*|[A-Za-z0-9.!#$%&'*+
  * The end of what the `<` at `at` begins that's left as written: a FORMATTING tag, or on an inline line an autolink
  * (in an HTML block it would be a tag); or -1.
  */
-function keptEnd(text: string, at: number, inline: boolean): number {
-  const tag = formattingTag(text, at);
+function keptEnd(text: string, at: number, inline: boolean, anchors = false): number {
+  const tag = formattingTag(text, at, anchors);
   if (tag) return tag.end;
   AUTOLINK.lastIndex = at;
   return inline && AUTOLINK.test(text) ? AUTOLINK.lastIndex : -1;
@@ -370,10 +447,12 @@ const PUNCTUATION = /[!-/:-@[-`{-~]/;
 /**
  * `text` with every `<` outside code that isn't kept (`keptEnd`) as `&lt;`, and any `![` left outside code as `\![`.
  * Each `<` is judged in `text` as given, so escaping one can't make a tag of what's around it. On inline text `\<`
- * is `&lt;` too: it shows the same, and is text still if BB reads the line as HTML.
+ * is `&lt;` too: it shows the same, and is text still if BB reads the line as HTML. With `links`, each `<a>` and `</a>`
+ * is kept as `linkTag` writes it, a tag where one was, so the text reads as it did.
  */
-function escapeHtml(text: string): string {
-  const { lines, spans } = structure(text);
+function escapeHtml(text: string, links?: HtmlLinks): string {
+  const anchors = !!links;
+  const { lines, spans } = structure(text, anchors);
   let out = "";
   let span = 0;
   for (const { start, end, kind } of lines) {
@@ -390,8 +469,8 @@ function escapeHtml(text: string): string {
         out += text.slice(i, i + 2);
         i += 2;
       } else if (char === "<") {
-        const kept = keptEnd(text, i, kind === "inline");
-        out += kept > 0 ? keptText(text, i, kept) : "&lt;";
+        const kept = keptEnd(text, i, kind === "inline", anchors);
+        out += kept > 0 ? (links && linkTag(text, i, links)) || keptText(text, i, kept, anchors) : "&lt;";
         i = kept > 0 ? kept : i + 1;
       } else {
         out += char === "!" && text[i + 1] === "[" ? "\\!" : char;
@@ -407,23 +486,26 @@ function escapeHtml(text: string): string {
  * The kept `<…>` from `start` to `end` in `text`, as written but where BB can't read it as an autolink, which holds no
  * space or control character: then its `![`s, which BB reads as images, show as text too.
  */
-function keptText(text: string, start: number, end: number): string {
+function keptText(text: string, start: number, end: number, anchors = false): string {
   const kept = text.slice(start, end);
-  if (!/[\x00-\x20\x7f]/.test(kept) || formattingTag(text, start)) return kept;
+  if (!/[\x00-\x20\x7f]/.test(kept) || formattingTag(text, start, anchors)) return kept;
   return kept.replace(/\\[!-/:-@[-`{-~]|!(?=\[)/g, (match) => match === "!" ? "\\!" : match);
 }
 
-/** Where `markdown`'s code is, as linkImages reads it: the lines of its fenced code, and its code spans, in order. */
-export function codeRanges(markdown: string): Array<readonly [number, number]> {
-  const { lines, spans } = structure(markdown);
+/**
+ * Where `markdown`'s code is, as linkImages reads it: the lines of its fenced code, and its code spans, in order. With
+ * `anchors`, as it reads a rendered file's, whose `<a>` tags are kept.
+ */
+export function codeRanges(markdown: string, anchors = false): Array<readonly [number, number]> {
+  const { lines, spans } = structure(markdown, anchors);
   return [...lines.filter((line) => line.kind === "fence").map(({ start, end }) => [start, end] as const), ...spans].sort((a, b) => a[0] - b[0]);
 }
 
 /** `text` with `change` made to each stretch between its code. */
-function outsideCode(text: string, change: (prose: string) => string): string {
+function outsideCode(text: string, change: (prose: string) => string, anchors = false): string {
   let out = "";
   let from = 0;
-  for (const [start, end] of codeRanges(text)) {
+  for (const [start, end] of codeRanges(text, anchors)) {
     out += change(text.slice(from, start)) + text.slice(start, end);
     from = end;
   }
@@ -436,18 +518,18 @@ interface Line { start: number; end: number; kind: LineKind }
 /**
  * Each line of `text` as CommonMark with GFM reads it once `escapeHtml` has run, so only FORMATTING tags can begin an
  * HTML block: a fenced code block's, inline text (a paragraph's or a heading's), a GFM table's row, or anything else;
- * and the code spans in inline text and rows. See `lineKinds` and `codeSpans`.
+ * and the code spans in inline text and rows. See `lineKinds` and `codeSpans`. With `anchors`, an `<a>` is a tag too.
  */
-function structure(text: string): { lines: Line[]; spans: Array<[number, number]> } {
+function structure(text: string, anchors = false): { lines: Line[]; spans: Array<[number, number]> } {
   const rows = text.split("\n");
-  const kinds = lineKinds(rows);
+  const kinds = lineKinds(rows, anchors);
   const lines: Line[] = [];
   let start = 0;
   rows.forEach((row, index) => {
     lines.push({ start, end: start + row.length, kind: kinds[index] });
     start += row.length + 1;
   });
-  return { lines, spans: codeSpans(text, lines) };
+  return { lines, spans: codeSpans(text, lines, anchors) };
 }
 
 type Container = { quote: true } | { quote: false; offset: number; filled: boolean };
@@ -468,7 +550,7 @@ const spaces = (text: string, at = 0) => /^ */.exec(text.slice(at))![0].length;
  * outside its quote or list item ends; a table, or a paragraph that may be a link definition, that a block interrupts
  * or a lazy row continues. Readers other than CommonMark's, or GFM's, may read those otherwise.
  */
-function lineKinds(rows: string[]): LineKind[] {
+function lineKinds(rows: string[], anchors = false): LineKind[] {
   const kinds = rows.map((): LineKind => "raw");
   const stack: Container[] = [];
   let leaf: Leaf | null = null;
@@ -571,7 +653,7 @@ function lineKinds(rows: string[]): LineKind[] {
         fill();
         return "fence";
       }
-      const html = htmlBlock(tail);
+      const html = htmlBlock(tail, anchors);
       // CommonMark goes on with the paragraph; marked, and maybe others, starts an HTML block.
       if (html === 7 && continues) return null;
       if (html && (html !== 7 || !continues)) {
@@ -639,8 +721,8 @@ function mayDefine(text: string): boolean {
 }
 
 /** The CommonMark HTML block (1, 6 or 7) that `text`, a row from its indent, begins once `escapeHtml` has run, or 0. */
-function htmlBlock(text: string): 0 | 1 | 6 | 7 {
-  const tag = text[0] === "<" ? formattingTag(text, 0) : null;
+function htmlBlock(text: string, anchors = false): 0 | 1 | 6 | 7 {
+  const tag = text[0] === "<" ? formattingTag(text, 0, anchors) : null;
   if (!tag) return 0;
   if (!tag.close && tag.name === "pre" && text[4] !== "/") return 1;
   if (BLOCK_TAGS.has(tag.name)) return 6;
@@ -654,7 +736,7 @@ function htmlBlock(text: string): 0 | 1 | 6 | 7 {
  * label or a definition may hold), the run's later backticks are text. Math begins at `$$`: BB reads no single `$` as
  * math.
  */
-function codeSpans(text: string, lines: Line[]): Array<[number, number]> {
+function codeSpans(text: string, lines: Line[], anchors = false): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
   let paired = true;
   for (const { start, end, kind } of lines) {
@@ -664,17 +746,17 @@ function codeSpans(text: string, lines: Line[]): Array<[number, number]> {
       continue;
     }
     if (!paired) continue;
-    const found = lineSpans(line, kind === "inline");
+    const found = lineSpans(line, kind === "inline", anchors);
     paired = found.paired;
     // A table's row, which BB may read as a paragraph's line or as cells: only a span that's one both ways.
-    const cells = kind === "row" && new Set(tableCells(line).flatMap(([from, to]) => lineSpans(line.slice(from, to), false).spans.map(([a, b]) => `${from + a} ${from + b}`)));
+    const cells = kind === "row" && new Set(tableCells(line).flatMap(([from, to]) => lineSpans(line.slice(from, to), false, anchors).spans.map(([a, b]) => `${from + a} ${from + b}`)));
     for (const [a, b] of found.spans) if (kind === "inline" || (cells && cells.has(`${a} ${b}`))) spans.push([start + a, start + b]);
   }
   return spans;
 }
 
 /** The code spans in `line` (see `codeSpans`) up to a backtick that may go uncounted, and whether there was none. */
-function lineSpans(line: string, inline: boolean): { spans: Array<[number, number]>; paired: boolean } {
+function lineSpans(line: string, inline: boolean, anchors = false): { spans: Array<[number, number]>; paired: boolean } {
   const spans: Array<[number, number]> = [];
   // Where the word at `i` begins: an autolink literal runs to a space.
   let word = 0;
@@ -685,7 +767,7 @@ function lineSpans(line: string, inline: boolean): { spans: Array<[number, numbe
     if (char === "\\" && PUNCTUATION.test(next)) i += 2;
     else if (char === " " || char === "\t") word = ++i;
     else if (char === "<") {
-      const kept = keptEnd(line, i, inline);
+      const kept = keptEnd(line, i, inline, anchors);
       i = kept > 0 ? (word = kept) : i + 1;
     } else if (char === "`") {
       const length = /^`+/.exec(line.slice(i))![0].length;

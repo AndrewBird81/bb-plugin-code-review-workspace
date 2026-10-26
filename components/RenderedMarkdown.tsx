@@ -204,10 +204,12 @@ export const RenderedMarkdown = memo(function RenderedMarkdown({ path, patch, ol
   const diff = useMemo(() => markdownDiff(old, now, patch, hideWhitespace), [old, now, patch, hideWhitespace]);
   const lines = useMemo(() => fileLines(patch, path), [patch, path]);
   const items = diff.blocks;
-  // Images as links, and relative links to their files in the PR's tree, both sides at its head.
+  // Images as links, the file's own HTML links kept, and relative links to their files in the PR's tree, both sides at
+  // its head.
   const prepare = useCallback((markdown: string) => {
-    const linked = linkImages(markdown);
-    return linkRoot ? resolveLinks(linked, { root: linkRoot, path }) : linked;
+    const tree = linkRoot ? { root: linkRoot, path } : null;
+    const linked = linkImages(markdown, { tree });
+    return tree ? resolveLinks(linked, tree) : linked;
   }, [linkRoot, path]);
   const id = useId();
   const anchors = useMemo(() => items.map((item) => blockAnchor(lines, item)), [items, lines]);

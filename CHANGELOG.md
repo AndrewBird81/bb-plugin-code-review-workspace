@@ -1,6 +1,12 @@
 # Changelog
 
-## 1.5.1 — 2026-10-25
+## 1.5.2 — unreleased
+
+A rendered Markdown file's own HTML links work. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.5.2. 1.5.2 adds no migration, so rolling back to 1.5.1 keeps everything.
+
+- A Markdown file shown rendered keeps its HTML links, as a README's centred logo or `<a href>` has, where they showed as their tags in text: `<a href="https://…">[Image: Logo](logo.png)</a>`. Each opens in a new tab, as a Markdown link does, and keeps only where it goes: a web page or an email address, or on a PR a file in its tree at its head; any other, as `javascript:`, or a relative one in a local review, shows as its words. An HTML image is a link to it, or its words inside a link, and loads nothing still. Others' comments and the agents' words show HTML links as text, as before.
+- A changed block whose HTML link now goes elsewhere says so under it, "Link changed", as for a Markdown link.
+
 
 Fixes from a bug bash of rendered Markdown, and for updates that left the plugin not loaded. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.5.1. 1.5.1 adds no migration, so rolling back to 1.5.0 keeps everything.
 

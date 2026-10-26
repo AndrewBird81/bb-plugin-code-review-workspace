@@ -442,6 +442,20 @@ test("a PR's relative links go to their files at its head on GitHub, in marked w
   slot.lifecycle.unmount();
 });
 
+test("a file's own HTML links stay links, an image's to it, relative ones to the PR's head; in a local review those are words", async () => {
+  const old = '<p align="center">\n  <a href="https://acme.dev" target="_blank"><img src="logo.svg" alt="Acme"></a>\n</p>\n\nSee <a href="setup.md" onclick="x()">setup</a> and <a href="javascript:alert(1)">this</a> first.\n';
+  const now = old.replace("first", "now");
+  const links = (root: HTMLElement) => Array.from(root.querySelectorAll("[data-md-rendered] a")).map((a) => [a.textContent, ...Array.from(a.attributes).map((at) => `${at.name}=${at.value}`)]);
+  const pr = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now), contents: { ok: true, old, new: now }, extra: { linkRoot: "https://github.com/acme/web/blob/abc/" } });
+  await waitFor(() => expect(pr.slot.container.querySelector("[data-md-words]")).toBeTruthy());
+  expect(links(pr.slot.container)).toEqual([["Image: Acme", "href=https://acme.dev/"], ["setup", "href=https://github.com/acme/web/blob/abc/docs/setup.md"], ["this"]]);
+  pr.slot.lifecycle.unmount();
+  const local = await renderDiff({ markdownFiles: "rendered", patch: gitPatch(FILE, old, now), contents: { ok: true, old, new: now } });
+  await waitFor(() => expect(local.slot.container.querySelector("[data-md-words]")).toBeTruthy());
+  expect(links(local.slot.container)).toEqual([["Image: Acme", "href=https://acme.dev/"], ["setup"], ["this"]]);
+  local.slot.lifecycle.unmount();
+});
+
 test("a table drawn with other rows than its source has tints none, and takes one comment for the whole table", async () => {
   markdown.extraRow = true;
   const old = "| Field | Type |\n|---|---|\n| exp | int |\n| iat | int |\n";
