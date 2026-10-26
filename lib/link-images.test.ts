@@ -275,6 +275,14 @@ test("long runs of openers that close nothing, and of images, are read in linear
   }
 }, 60_000);
 
+test("in a rendered file, a link's or an image's URL with long runs of spaces inside is read in linear time", () => {
+  for (const html of [(url: string) => `<a href="${url}">z</a>`, (url: string) => `<img src="${url}">`]) {
+    const started = performance.now();
+    linkImages(html(`x${" ".repeat(64_000)}y`), { tree: TREE });
+    expect(performance.now() - started).toBeLessThan(250);
+  }
+}, 60_000);
+
 test("an image in an image's alt text is its words, however deep", () => {
   expect(linkImages("![a ![b](u) c](v)")).toBe("[Image: a Image: b c](v)");
   expect(linkImages("[![a ![b][] c](v)](w)")).toBe("[Image: a Image: b c](w)");
@@ -460,6 +468,8 @@ test("a rendered file's <a> to anything but the web or email, or relative with n
   expect(linkImages('<a href="javascript&#58;alert(1)">x</a>', { tree: TREE })).toBe('<a href="https://github.com/acme/web/blob/abc123/docs/javascript&amp;#58;alert%281%29">x</a>');
   expect(linkImages('<a href="guide.md">guide</a> <a href="#top">top</a> <a name="top"></a> <a href="https://acme.dev/">site</a>', { tree: null }))
     .toBe('<a>guide</a> <a>top</a> <a></a> <a href="https://acme.dev/">site</a>');
+  // In a table's row, GFM splits the cells at a `|` before it reads any tag: an <a> holding one isn't one, and shows as text.
+  expect(linkImages('| a | b |\n|---|---|\n| <a title="x|y" href="https://ok.test">t</a> | z |', { tree: TREE })).toBe('| a | b |\n|---|---|\n| &lt;a title="x|y" href="https://ok.test">t</a> | z |');
   // A tag that isn't plainly one, as one that a line break or a quote or backtick in its value splits, shows as text.
   expect(linkImages('<a href="https://a.example"\n>x</a> <a href=\'a"b\'>y</a> <a href="`">z</a>', { tree: TREE })).toBe('&lt;a href="https://a.example"\n>x</a> &lt;a href=\'a"b\'>y</a> &lt;a href="`">z</a>');
 });
@@ -477,6 +487,12 @@ test("a rendered file's HTML image is a link to it, its words inside a link, and
 test("resolveLinks leaves a rendered file's kept links alone, and resolves its Markdown links", () => {
   const kept = linkImages('<a href="https://x.io/a](b)">x</a> and [the guide](guide.md)', { tree: TREE });
   expect(resolveLinks(kept, TREE)).toBe('<a href="https://x.io/a%5D%28b%29">x</a> and [the guide](https://github.com/acme/web/blob/abc123/docs/guide.md)');
+  // A kept tag's attribute that reads like a link's end stays as written: its closing quote went into the URL.
+  expect(resolveLinks(linkImages('<p align="a](b">x</p> then " title="t', { tree: TREE }), TREE)).toBe('<p align="a](b">x</p> then " title="t');
+});
+
+test("resolveLinks keeps a destination it can't resolve as written, as one the URL parser reads as a host", () => {
+  for (const url of ["\\\\a:99999/b", "\\\\evil.test/x", "/\\evil.test/x"]) expect(resolveLinks(`[x](${url})`, TREE)).toBe(`[x](${url})`);
 });
 
 /**

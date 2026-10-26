@@ -58,8 +58,13 @@ const LINK_SCHEMES = new Set(["http:", "https:", "mailto:"]);
  * and spaces percent-encoded.
  */
 function anchorHref(value: string, tree: LinkTree | null): string | null {
-  // As a URL parser takes it: without tabs or line breaks anywhere, nor controls or spaces at either end.
-  const raw = value.replace(/&amp;/gi, "&").replace(/[\t\n\r]/g, "").replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, "");
+  // As a URL parser takes it: without tabs or line breaks anywhere, nor controls or spaces at either end, trimmed by
+  // hand, as a pattern's trailing trim retried each space of a long run inside it.
+  const unbroken = value.replace(/&amp;/gi, "&").replace(/[\t\n\r]/g, "");
+  let [from, to] = [0, unbroken.length];
+  while (from < to && unbroken.charCodeAt(from) <= 0x20) from++;
+  while (to > from && unbroken.charCodeAt(to - 1) <= 0x20) to--;
+  const raw = unbroken.slice(from, to);
   // A protocol-relative URL would take BB's own protocol: few files write one.
   if (!raw || /^[\\/]{2}/.test(raw)) return null;
   let url: URL;
@@ -96,7 +101,11 @@ function linkTag(text: string, start: number, links: HtmlLinks): string | null {
  * link. Known gap: `linkImages` escapes the `<` of an angle-bracketed destination, `[a](<my file.md>)`, first.
  */
 export function resolveLinks(markdown: string, tree: LinkTree): string {
-  const resolve = (url: string) => /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(url) ? url : inTree(url, tree);
+  // A URL with a scheme, or one the URL parser reads as a host, as `//host` or `\\host`, stays, as does one it can't read.
+  const resolve = (url: string) => {
+    if (/^(?:[a-z][a-z\d+.-]*:|[\\/]{2})/i.test(url)) return url;
+    try { return inTree(url, tree); } catch { return url; }
+  };
   const destination = (url: string) => (url.startsWith("<") ? `<${resolve(url.slice(1, -1))}>` : resolve(url));
   // Definitions first, by their places, from the last: each one's destination follows its label.
   let text = markdown;
@@ -109,8 +118,9 @@ export function resolveLinks(markdown: string, tree: LinkTree): string {
   for (const { start, end } of definitions.reverse()) {
     text = text.slice(0, start) + text.slice(start, end).replace(/^(\s*\[(?:[^\]\\]|\\.)+\]:\s*)(<[^<>\n]*>|\S+)/, (_all, label: string, url: string) => label + destination(url)) + text.slice(end);
   }
-  // Read as linkImages left it, with a rendered file's links: their hrefs hold no `](`.
-  return outsideCode(text, (prose) => prose.replace(/(\]\(\s*)(<[^<>\n]*>|[^\s()<>]+)/g, (_all, before: string, url: string) => before + destination(url)), true);
+  // Read as linkImages left it, with a rendered file's links, where each `<` left is a kept tag or an autolink, all of
+  // it on its line: they stay as written, so an attribute's `](` isn't a link's, whose quote would go into its URL.
+  return outsideCode(text, (prose) => prose.replace(/<[^<>\n]*>|(\]\(\s*)(<[^<>\n]*>|[^\s()<>]+)/g, (all, before?: string, url?: string) => (before === undefined ? all : before + destination(url!))), true);
 }
 
 /**
@@ -470,8 +480,12 @@ function escapeHtml(text: string, links?: HtmlLinks): string {
         i += 2;
       } else if (char === "<") {
         const kept = keptEnd(text, i, kind === "inline", anchors);
-        out += kept > 0 ? (links && linkTag(text, i, links)) || keptText(text, i, kept, anchors) : "&lt;";
-        i = kept > 0 ? kept : i + 1;
+        // In a table's row, GFM splits cells at a `|` before it reads a tag: an <a> holding one would be a tag only as
+        // written again without it, so it shows as text.
+        const link = links && kept > 0 ? linkTag(text, i, links) : null;
+        const split = link !== null && kind === "row" && text.slice(i, kept).includes("|");
+        out += kept > 0 && !split ? link ?? keptText(text, i, kept, anchors) : "&lt;";
+        i = kept > 0 && !split ? kept : i + 1;
       } else {
         out += char === "!" && text[i + 1] === "[" ? "\\!" : char;
         i++;
