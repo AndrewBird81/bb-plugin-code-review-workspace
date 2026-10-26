@@ -202,12 +202,15 @@ export function Inbox() {
     return () => clearTimeout(timer);
   }, []);
   const ownControls = waited && !titleBar;
+  const link = parsePrLink(query);
+  // The filters show over a list there is to filter: not on the first run, nor for a pasted link.
+  const showFilters = !firstRun && !loading && !loadError && !link;
   // / finds a review and F adds a filter, from anywhere on the page but a text box, while single-key shortcuts are on.
   const shortcuts = useKnob("singleKeyShortcuts");
   useEffect(() => {
     if (!shortcuts) return;
     function onKeyDown(event: KeyboardEvent) {
-      if ((event.key !== "/" && event.key !== "f") || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+      if ((event.key !== "/" && (event.key !== "f" || !showFilters)) || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
       const target = event.target as HTMLElement;
       if (target !== document.body && !pageEl?.contains(target)) return;
       if (target.isContentEditable || target.closest("input, textarea, select")) return;
@@ -218,12 +221,18 @@ export function Inbox() {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [pageEl, searchInline, openSearch, shortcuts]);
+  }, [pageEl, searchInline, openSearch, shortcuts, showFilters]);
 
-  const link = parsePrLink(query);
   const searching = !!query.trim();
-  // Filters narrow the list as words do, but stay, so the sections keep how you left them open.
   const filtering = searching || filters.length > 0;
+  // A date filter's span moves with the clock: the list is filtered again each minute while one is set.
+  const [minute, setMinute] = useState(0);
+  const dated = filters.some((filter) => "days" in filter);
+  useEffect(() => {
+    if (!dated) return;
+    const timer = setInterval(() => setMinute((n) => n + 1), 60_000);
+    return () => clearInterval(timer);
+  }, [dated]);
   const sections = useMemo(() => {
     const now = Date.now();
     const found = link ? reviews.filter((review) => review.repo?.toLowerCase() === link.repo && review.number === link.number)
@@ -234,9 +243,13 @@ export function Inbox() {
     // The rest: the latest activity first.
     for (const group of ["waiting", "reviewed", "archive"] as const) groups[group].sort((a, b) => (lastActivity(b) ?? 0) - (lastActivity(a) ?? 0));
     return groups;
-  }, [reviews, query, link?.url, searching, filters]);
-  const isCollapsed = (group: TurnGroup) => !searching && (collapsed[group] ?? COLLAPSED[group]);
+  }, [reviews, query, link?.url, searching, filters, minute]);
+  // Filters open the sections, as words do, to show what they found; one you close stays closed until they change.
+  const [closedWhileFiltering, setClosedWhileFiltering] = useState<Collapsed>({});
+  useEffect(() => setClosedWhileFiltering({}), [filters]);
+  const isCollapsed = (group: TurnGroup) => !searching && (filters.length ? !!closedWhileFiltering[group] : collapsed[group] ?? COLLAPSED[group]);
   function toggle(group: TurnGroup) {
+    if (filters.length && !searching) { setClosedWhileFiltering({ ...closedWhileFiltering, [group]: !isCollapsed(group) }); return; }
     const next = { ...collapsed, [group]: !isCollapsed(group) };
     setCollapsed(next);
     try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(next)); } catch { /* best-effort */ }
@@ -261,7 +274,7 @@ export function Inbox() {
             text and its focus. */}
         {!firstRun && (searchInline || phoneBox) && <div className={searchInline ? "px-1.5 pb-2 pt-4" : "sticky top-0 z-20 bg-background px-1.5 py-2"}>{omnibox}</div>}
         {!firstRun && !searchInline && !phoneBox && ownControls && <div className="flex justify-end py-1"><ListTitleBar placement="page" /></div>}
-        {!firstRun && !loading && !loadError && !link && <div className={cn("px-1.5 pb-2", !searchInline && !phoneBox && "pt-2")}>
+        {showFilters && <div className={cn("px-1.5 pb-2", !searchInline && !phoneBox && "pt-2")}>
           <FilterBar filters={filters} onFilters={setFilters} reviews={reviews} menuOpen={filterMenuOpen} onMenuOpen={setFilterMenuOpen} />
         </div>}
         {!syncError && problem && <p role="status" className={cn("mx-1.5 mb-2 flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning-text", firstRun && "mt-4")}><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />{problem}</p>}
@@ -273,7 +286,7 @@ export function Inbox() {
             : loadError ? <div role="alert" className="px-4 py-10 text-center"><h2 className="font-medium">Couldn’t load your reviews</h2><p className="mt-2 text-sm text-muted-foreground">Your saved reviews haven’t been removed. Check the connection and try again.</p><Button variant="outline" className={cn("mt-4", TOUCH_CONTROL)} onClick={() => setReload((n) => n + 1)}>Try again</Button></div>
             : filtering && SECTIONS.every(({ group }) => !sections[group].length) ? (link ? null : <div className="px-4 py-10 text-center">
               <h2 className="text-sm font-medium text-foreground">{searching ? <>No reviews match “{query.trim()}”</> : "No reviews match these filters"}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{filters.length ? "Try fewer words or filters." : "Try fewer words, or paste a PR link to review it."}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{!filters.length ? "Try fewer words, or paste a PR link to review it." : searching ? "Try fewer words or filters." : "Try fewer filters."}</p>
               {filters.length > 0 && <Button variant="outline" size="sm" className={cn("mt-3", TOUCH_CONTROL)} onClick={() => setFilters([])}>Clear filters</Button>}
             </div>)
             : <div className="space-y-1 pt-1">

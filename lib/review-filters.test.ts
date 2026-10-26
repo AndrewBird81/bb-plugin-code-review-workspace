@@ -15,7 +15,7 @@ const web = review({
 });
 const local = review({ kind: "ref", gitRef: "main", turn: turn("Ready") });
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => sessionStorage.clear());
 
 test("a review's values for each field read as the menu shows them", () => {
   expect(valuesOf(web, "owner")).toEqual(["acme"]);
@@ -27,6 +27,11 @@ test("a review's values for each field read as the menu shows them", () => {
   expect(valuesOf(local, "verdict")).toEqual(["Not reviewed"]);
   expect(valuesOf(local, "kind")).toEqual(["Local"]);
   expect(valuesOf(local, "labels")).toEqual([]);
+});
+
+test("a status is its row's, the same whether or not the PR changed since your review", () => {
+  expect(valuesOf(review({ turn: turn("Approved · updated") }), "status")).toEqual(["Approved"]);
+  expect(choicesFor([review({ turn: turn("Approved") }), review({ turn: turn("Approved · updated") })], "status")).toEqual([{ value: "Approved", count: 2 }]);
 });
 
 test("a value filter matches any of its values, or none of them negated", () => {
@@ -46,6 +51,14 @@ test("a date filter matches within its days, or before them, and never a time th
   expect(matchesFilter(web, { field: "merged", days: 90, before: true }, now)).toBe(false);
 });
 
+test("closed is closed without merging, though GitHub gives a merged PR a close time too", () => {
+  const merged = review({ prState: "MERGED", prMergedAt: now - DAY, prClosedAt: now - DAY });
+  const closed = review({ prState: "CLOSED", prClosedAt: now - DAY });
+  expect(matchesFilter(merged, { field: "merged", days: 3 }, now)).toBe(true);
+  expect(matchesFilter(merged, { field: "closed", days: 3 }, now)).toBe(false);
+  expect(matchesFilter(closed, { field: "closed", days: 3 }, now)).toBe(true);
+});
+
 test("every filter must match", () => {
   expect(matchesFilters(web, [{ field: "owner", values: ["acme"] }, { field: "ci", values: ["Failing"] }], now)).toBe(true);
   expect(matchesFilters(web, [{ field: "owner", values: ["acme"] }, { field: "ci", values: ["Passing"] }], now)).toBe(false);
@@ -58,11 +71,17 @@ test("choices are the values the reviews have, the most common first, each count
   expect(labelColor([other], "ui")).toBeNull();
 });
 
-test("filters are kept in this browser, and a malformed one is dropped", () => {
+test("filters are kept in this tab, as the box's words are, and a malformed one is dropped", () => {
   saveFilters([{ field: "author", values: ["alice"] }, { field: "updated", days: 3 }]);
   expect(savedFilters()).toEqual([{ field: "author", values: ["alice"] }, { field: "updated", days: 3 }]);
-  localStorage.setItem("gr:inbox-filters", JSON.stringify([{ field: "nope", values: [] }, { field: "updated" }, null]));
+  expect(localStorage.getItem("gr:inbox-filters")).toBeNull();
+  sessionStorage.setItem("gr:inbox-filters", JSON.stringify([
+    { field: "nope", values: [] }, { field: "updated" }, null, { field: "author", values: [1] }, { field: "added", days: -1 }, { field: "labels", values: ["bug"], negate: "yes" },
+  ]));
   expect(savedFilters()).toEqual([]);
-  localStorage.setItem("gr:inbox-filters", "{");
+  // One a field, as the bar makes them: the first stands.
+  sessionStorage.setItem("gr:inbox-filters", JSON.stringify([{ field: "author", values: ["alice"] }, { field: "author", values: ["bob"] }]));
+  expect(savedFilters()).toEqual([{ field: "author", values: ["alice"] }]);
+  sessionStorage.setItem("gr:inbox-filters", "{");
   expect(savedFilters()).toEqual([]);
 });

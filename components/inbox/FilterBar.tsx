@@ -7,13 +7,14 @@ import {
 import type { ReviewItem } from "../../lib/review-state";
 import { cn } from "../../lib/utils";
 import { MENU_ITEM } from "../SnoozeChoices";
+import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
 import { Icon } from "../ui/icon";
 import { Input } from "../ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 
 const MENU = "w-72 max-w-[calc(100vw-24px)] p-1";
-const SEGMENT = "h-7 rounded-none px-2 text-xs font-normal text-muted-foreground hover:text-foreground pointer-coarse:h-9";
+const SEGMENT = "h-7 rounded-none px-2 text-xs font-normal text-muted-foreground hover:text-foreground pointer-coarse:h-11 pointer-coarse:min-w-11";
 
 /** The filter on `field` with `values` set, or none with no values left. */
 function withValues(filters: readonly Filter[], field: ValueField, values: string[]): Filter[] {
@@ -38,17 +39,26 @@ function FieldChoices({ field, filters, onFilters, reviews, onDone, onBack }: {
   const back = onBack && <Button variant="ghost" size="sm" className={MENU_ITEM} onClick={onBack}><Icon name="ChevronLeft" aria-hidden />{info.title}</Button>;
   if (isDateField(field)) {
     const pick = (days: number, before: boolean) => { onFilters(withDate(filters, field, days, before)); onDone(); };
+    const current = filters.find((f) => f.field === field) as Extract<Filter, { days: number }> | undefined;
     return <div role="group" aria-label={info.title}>
       {back}
       {([false, true] as const).map((before) => <div key={String(before)} role="group" aria-label={before ? "More than" : "In the last"}>
         <p className="px-2.5 pb-0.5 pt-1.5 text-xs text-subtle-foreground">{before ? "More than … ago" : "In the last …"}</p>
-        {DAY_CHOICES.map(({ days, label }) => <Button key={days} variant="ghost" size="sm" className={MENU_ITEM} onClick={() => pick(days, before)}>{label}</Button>)}
+        {DAY_CHOICES.map(({ days, label }) => {
+          const picked = current?.days === days && !!current.before === before;
+          return <Button key={days} variant="ghost" size="sm" aria-pressed={picked} className={MENU_ITEM} onClick={() => pick(days, before)}>
+            {label}{picked && <Icon name="Check" className="ml-auto text-primary" aria-hidden />}
+          </Button>;
+        })}
       </div>)}
     </div>;
   }
   const chosen = (filters.find((f) => f.field === field) as Extract<Filter, { values: string[] }> | undefined)?.values ?? [];
   const needle = fold(query.trim());
-  const choices = choicesFor(reviews, field).filter(({ value }) => !needle || fold(value).includes(needle));
+  // A value ticked that no review has now, as an author whose reviews went, stays to untick.
+  const counted = choicesFor(reviews, field);
+  const choices = [...counted, ...chosen.filter((value) => !counted.some((c) => c.value === value)).map((value) => ({ value, count: 0 }))]
+    .filter(({ value }) => !needle || fold(value).includes(needle));
   const toggle = (value: string) => onFilters(withValues(filters, field, chosen.includes(value) ? chosen.filter((v) => v !== value) : [...chosen, value]));
   return <div role="group" aria-label={info.title}>
     {back}
@@ -58,7 +68,7 @@ function FieldChoices({ field, filters, onFilters, reviews, onDone, onBack }: {
     <div className="max-h-72 overflow-y-auto">
       {choices.length ? choices.map(({ value, count }) => {
         const color = field === "labels" ? labelColor(reviews, value) : null;
-        return <Button key={value} variant="ghost" size="sm" role="menuitemcheckbox" aria-checked={chosen.includes(value)} className={MENU_ITEM} onClick={() => toggle(value)}>
+        return <Button key={value} variant="ghost" size="sm" role="checkbox" aria-checked={chosen.includes(value)} className={MENU_ITEM} onClick={() => toggle(value)}>
           <span className={cn("grid size-4 shrink-0 place-items-center rounded-sm border", chosen.includes(value) ? "border-primary bg-primary text-primary-foreground" : "border-input")}>
             {chosen.includes(value) && <Icon name="Check" className="size-3" aria-hidden />}
           </span>
@@ -95,20 +105,21 @@ function Chip({ filter, filters, onFilters, reviews }: { filter: Filter; filters
   const [open, setOpen] = useState(false);
   const info = FIELDS.get(filter.field)!;
   const replace = (next: Filter) => onFilters(filters.map((f) => f === filter ? next : f));
-  let operator: string, value: ReactNode;
+  let operator: string, flipped: string, value: ReactNode;
   if ("days" in filter) {
-    operator = filter.before ? "more than" : "in the last";
+    [operator, flipped] = filter.before ? ["more than", "in the last"] : ["in the last", "more than"];
     value = filter.before ? `${daysLabel(filter.days)} ago` : daysLabel(filter.days);
   } else {
     const many = filter.values.length > 1;
-    operator = filter.negate ? (many ? "is none of" : "is not") : (many ? "is any of" : "is");
+    const words = (negate: boolean) => negate ? (many ? "is none of" : "is not") : (many ? "is any of" : "is");
+    [operator, flipped] = [words(!!filter.negate), words(!filter.negate)];
     const color = filter.field === "labels" && !many ? labelColor(reviews, filter.values[0] ?? "") : null;
     value = many ? `${filter.values.length} ${info.noun}` : <>{color && <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden />}{filter.values[0]}</>;
   }
   const flip = () => replace("days" in filter ? { ...filter, before: !filter.before } : { ...filter, negate: !filter.negate });
-  return <li className="flex h-7 items-stretch overflow-hidden rounded-md border border-border bg-surface-raised text-xs shadow-xs pointer-coarse:h-9">
+  return <li className="flex h-7 items-stretch overflow-hidden rounded-md border border-border bg-surface-raised text-xs shadow-xs pointer-coarse:h-11">
     <span className="flex items-center gap-1.5 px-2 text-foreground"><Icon name={info.icon} className="size-3.5" aria-hidden />{info.title}</span>
-    <Button variant="ghost" size="sm" className={cn(SEGMENT, "border-l border-border")} aria-label={`${info.title} ${operator}, change`} onClick={flip}>{operator}</Button>
+    <Button variant="ghost" size="sm" className={cn(SEGMENT, "border-l border-border")} aria-label={`${info.title} ${operator}; switch to ${flipped}`} onClick={flip}>{operator}</Button>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="sm" className={cn(SEGMENT, "gap-1.5 border-l border-border text-foreground")}>{value}</Button>
@@ -135,7 +146,7 @@ export function FilterBar({ filters, onFilters, reviews, menuOpen, onMenuOpen }:
     <li>
       <Popover open={menuOpen} onOpenChange={onMenuOpen}>
         <PopoverTrigger asChild>
-          <Button variant="ghost" size="sm" aria-label="Add filter" className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground pointer-coarse:h-9 pointer-coarse:min-w-9">
+          <Button variant="ghost" size="sm" aria-label="Add filter" className={cn("h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)}>
             <Icon name={filters.length ? "Plus" : "SlidersHorizontal"} className="size-3.5" aria-hidden />{!filters.length && "Filter"}
           </Button>
         </PopoverTrigger>
@@ -144,6 +155,6 @@ export function FilterBar({ filters, onFilters, reviews, menuOpen, onMenuOpen }:
         </PopoverContent>
       </Popover>
     </li>
-    {filters.length > 1 && <li><Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground pointer-coarse:h-9" onClick={() => onFilters([])}>Clear</Button></li>}
+    {filters.length > 1 && <li><Button variant="ghost" size="sm" className={cn("h-7 px-2 text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)} onClick={() => onFilters([])}>Clear</Button></li>}
   </ul>;
 }

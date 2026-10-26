@@ -55,7 +55,8 @@ const VERDICT: Record<string, string> = { APPROVE: "Approved", REQUEST_CHANGES: 
 export function valuesOf(review: ReviewItem, field: ValueField): string[] {
   const [owner, name] = review.repo?.split("/") ?? [];
   switch (field) {
-    case "status": return [reviewState(review).label];
+    // As its row says it, but for whether the PR changed since your review: Approved · updated is Approved.
+    case "status": return [reviewState(review).label.replace(/ · updated$/, "")];
     case "author": return review.author ? [review.author] : [];
     case "reviewers": return review.prReviewers ?? [];
     case "teams": return review.prTeams ?? [];
@@ -68,13 +69,14 @@ export function valuesOf(review: ReviewItem, field: ValueField): string[] {
   }
 }
 
-/** When the review's field happened; null when it hasn't, as a PR not merged. */
+/** When the review's field happened; null when it hasn't, as a PR not merged. Closed is without merging. */
 export function timeOf(review: ReviewItem, field: DateField): number | null {
   switch (field) {
     case "added": return review.createdAt ?? null;
     case "updated": return review.prUpdatedAt ?? lastActivity(review);
     case "merged": return review.prMergedAt ?? null;
-    case "closed": return review.prClosedAt ?? null;
+    // GitHub closes a PR as it merges it too.
+    case "closed": return review.prState === "MERGED" ? null : review.prClosedAt ?? null;
   }
 }
 
@@ -108,16 +110,21 @@ export function matchesFilter(review: ReviewItem, filter: Filter, now = Date.now
 
 export const matchesFilters = (review: ReviewItem, filters: readonly Filter[], now = Date.now()) => filters.every((filter) => matchesFilter(review, filter, now));
 
-/** The filters kept in this browser. */
+/** The filters, kept for coming back to the list from a review, as the box's words are, so none outlasts the tab. */
 const FILTERS_KEY = "gr:inbox-filters";
+
+const validFilter = (f: any): f is Filter => !!f && FIELDS.has(f.field) && (isDateField(f.field)
+  ? Number.isFinite(f.days) && f.days > 0 && (f.before === undefined || typeof f.before === "boolean")
+  : Array.isArray(f.values) && f.values.every((value: unknown) => typeof value === "string") && (f.negate === undefined || typeof f.negate === "boolean"));
 
 export function savedFilters(): Filter[] {
   try {
-    const saved: unknown = JSON.parse(localStorage.getItem(FILTERS_KEY) ?? "[]");
-    return Array.isArray(saved) ? saved.filter((f): f is Filter => !!f && FIELDS.has(f.field) && (isDateField(f.field) ? typeof f.days === "number" : Array.isArray(f.values))) : [];
+    const saved: unknown = JSON.parse(sessionStorage.getItem(FILTERS_KEY) ?? "[]");
+    // One filter a field, as the bar makes them.
+    return Array.isArray(saved) ? saved.filter(validFilter).filter((f, i, all) => all.findIndex((g) => g.field === f.field) === i) : [];
   } catch { return []; }
 }
 
 export function saveFilters(filters: readonly Filter[]): void {
-  try { localStorage.setItem(FILTERS_KEY, JSON.stringify(filters)); } catch { /* best-effort */ }
+  try { sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters)); } catch { /* best-effort */ }
 }
