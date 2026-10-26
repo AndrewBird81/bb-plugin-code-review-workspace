@@ -196,6 +196,21 @@ test("editedAt reads when the PR's text was last edited", () => {
   expect(one(pr()).editedAt).toBeNull();
 });
 
+test("labels, reviewers, requested teams, and merge and close times are read for the list's filters", () => {
+  const facts = one(pr({
+    mergedAt: "2026-10-03T00:00:00Z", closedAt: "2026-10-03T00:00:00Z",
+    labels: { nodes: [{ name: "bug", color: "d73a4a" }, null] },
+    reviewRequests: { nodes: [{ requestedReviewer: user("bob") }, { requestedReviewer: user("me") }, { requestedReviewer: team("acme", "live-dev") }] },
+    latestOpinionatedReviews: { nodes: [{ state: "APPROVED", author: user("carol") }, { state: "APPROVED", author: user("bob") }, { state: "COMMENTED", author: { __typename: "Bot", login: "ci" } }] },
+  }));
+  expect(facts.labels).toEqual([{ name: "bug", color: "d73a4a" }]);
+  expect(facts.reviewers).toEqual(["bob", "carol"]);
+  expect(facts.reviewTeams).toEqual(["acme/live-dev"]);
+  expect([facts.mergedAt, facts.closedAt]).toEqual([Date.parse("2026-10-03T00:00:00Z"), Date.parse("2026-10-03T00:00:00Z")]);
+  expect(one(pr())).toMatchObject({ labels: [], reviewers: [], reviewTeams: [], mergedAt: null, closedAt: null });
+  expect(prFactsQuery([ref(1)]).query).toContain("labels(first:20){nodes{name color}}");
+});
+
 test("authorAssociation reads how the author is related to the repository", () => {
   expect(one(pr({ authorAssociation: "FIRST_TIME_CONTRIBUTOR" })).authorAssociation).toBe("FIRST_TIME_CONTRIBUTOR");
   expect(one(pr()).authorAssociation).toBeNull();

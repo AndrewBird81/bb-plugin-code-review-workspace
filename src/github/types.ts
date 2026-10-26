@@ -49,6 +49,14 @@ export interface PrFacts {
   updatedAt: number;
   /** When the PR's title or description was last edited; null for never. */
   editedAt?: number | null;
+  mergedAt?: number | null;
+  closedAt?: number | null;
+  /** The PR's labels, with GitHub's hex color without its #. */
+  labels?: Array<{ name: string; color: string }>;
+  /** Logins asked to review, or who approved or requested changes, but the viewer's and bots'. */
+  reviewers?: string[];
+  /** Teams asked to review, as org/slug. */
+  reviewTeams?: string[];
   /** The open PR whose head is this PR's base branch: the PR this one is stacked on. Null for none, or a base that's the default branch. */
   stackParent?: { number: number; title: string; url: string } | null;
   /** Lines added and deleted, and files changed. */

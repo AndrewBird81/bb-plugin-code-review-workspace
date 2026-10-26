@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- All reviews has filters, as Linear's: **Filter**, or `f`, picks a field (Status, Author, Reviewers, GitHub team reviewers, GitHub labels, Repository owner or name, Kind, Checks, Your verdict, or the Added, Updated, Merged or Closed date), then its values or a span of days. Each shows as a chip whose match flips between is and is not, or in the last and more than, and whose values open to change. Reviews must match every filter; filters stay in this browser. The sync now reads each PR's labels, requested teams, other reviewers, and when GitHub updated, merged or closed it, which fill in as it next reads each PR.
+
 ## 1.5.1 — 2026-10-25
 
 Fixes from a bug bash of rendered Markdown, and for updates that left the plugin not loaded. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.5.1. 1.5.1 adds no migration, so rolling back to 1.5.0 keeps everything.

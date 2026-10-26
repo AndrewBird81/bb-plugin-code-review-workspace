@@ -6,7 +6,8 @@ export const BATCH_SIZE = 10;
 
 const REVIEWER = "__typename ... on User{login} ... on Team{slug organization{login}}";
 const FRAGMENT = `fragment F on PullRequest{
-  number state isDraft updatedAt lastEditedAt title url baseRefName headRefName headRefOid isCrossRepository headRepositoryOwner{login} author{login} authorAssociation additions deletions changedFiles
+  number state isDraft updatedAt lastEditedAt mergedAt closedAt title url baseRefName headRefName headRefOid isCrossRepository headRepositoryOwner{login} author{login} authorAssociation additions deletions changedFiles
+  labels(first:20){nodes{name color}}
   baseRef{associatedPullRequests(states:OPEN,first:1){nodes{number title url}}} baseRepository{defaultBranchRef{name}}
   commits(last:100){nodes{commit{oid}}}
   head:commits(last:1){nodes{commit{statusCheckRollup{state}}}}
@@ -160,6 +161,12 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
     .map((c) => ({ at: time(c.createdAt), by: c.author.login as string }))
     .sort((a, b) => b.at - a.at)[0] ?? null;
 
+  // Everyone asked to review or who has, but you and bots, for the list's filters; a team's request goes once a member reviews.
+  const requested: any[] = (pr.reviewRequests?.nodes ?? []).map((n: any) => n?.requestedReviewer).filter(Boolean);
+  const reviewers = [...new Set([...requested.filter((r) => r.__typename === "User"), ...(pr.latestOpinionatedReviews?.nodes ?? []).map((r: any) => r?.author).filter(Boolean)]
+    .filter((r) => r.login && !same(r.login, viewer) && !isBot(r)).map((r) => r.login as string))];
+  const reviewTeams = requested.filter((r) => r.__typename === "Team" && r.slug).map((r) => `${r.organization?.login ?? ""}/${r.slug}`);
+
   const otherOpinions = (pr.latestOpinionatedReviews?.nodes ?? [])
     .filter((r: any) => r?.author && !same(r.author.login, viewer) && !isBot(r.author) && (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED"))
     .map((r: any) => ({ login: r.author.login as string, state: r.state as "APPROVED" | "CHANGES_REQUESTED" }));
@@ -174,6 +181,10 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
     headForkOwner: pr.isCrossRepository ? pr.headRepositoryOwner?.login ?? "" : null,
     updatedAt: time(pr.updatedAt),
     editedAt: pr.lastEditedAt ? time(pr.lastEditedAt) : null,
+    mergedAt: pr.mergedAt ? time(pr.mergedAt) : null,
+    closedAt: pr.closedAt ? time(pr.closedAt) : null,
+    labels: (pr.labels?.nodes ?? []).filter((l: any) => l?.name).map((l: any) => ({ name: l.name as string, color: (l.color as string | undefined) ?? "" })),
+    reviewers, reviewTeams,
     stackParent: parent?.number ? { number: parent.number, title: parent.title ?? "", url: parent.url ?? "" } : null,
     size: typeof pr.additions === "number" ? { additions: pr.additions, deletions: pr.deletions ?? 0, files: pr.changedFiles ?? 0 } : null,
     ci: CI[pr.head?.nodes?.[0]?.commit?.statusCheckRollup?.state] ?? "none",

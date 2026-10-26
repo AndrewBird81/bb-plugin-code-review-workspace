@@ -286,7 +286,7 @@ With **Comment keys** on (under Single-key shortcuts in Settings → Reading), t
 
 A comment on an older diff keeps its severity until you edit it. In a comment box, Cmd/Ctrl+Enter saves and Esc leaves the box with your text in it; the shortcuts sheet lists both.
 
-If you use speech input or press keys by accident, turn off **Single-key shortcuts** in Settings → Reading. Every key above goes, with the hints that name them, and `/` on All reviews too; Esc still closes what's over the code.
+If you use speech input or press keys by accident, turn off **Single-key shortcuts** in Settings → Reading. Every key above goes, with the hints that name them, and `/` and `f` on All reviews too; Esc still closes what's over the code.
 
 ### Command palette
 
@@ -322,6 +322,7 @@ Rows and the box:
 - Each row is two lines: the title (your name for it, once you've [renamed](#rename) it, with the PR's title on hover), repository and number, and age (in Needs review, how long it's been your turn), then why it's yours and only the facts that change whether to open it, such as the PR's size (`+120 −30 · 8 files`).
 - With a mouse, hovering a row shows **Snooze**, **Pin**, and **Archive**; on touch, every row has its **Review actions** (⋯).
 - The box at the top finds a review, filtering the list by repository, @author, title (yours or the PR's), or #number, or takes a pasted PR link or `owner/repo#n`: **Open** the review if it's listed, or **Review** it to start one. `/` puts the cursor in the box; on a phone, ⌕ in BB's title bar opens it. The list keeps the box's filter when you come back from a review.
+- **Filter** (or `f`) under the box narrows the list by **Status**, **Author**, **Reviewers**, **GitHub team reviewers**, **GitHub labels**, **Repository owner** and **name**, **Kind** (pull request or local), **Checks**, **Your verdict**, or when a review was **added** or its PR **updated**, **merged** or **closed**. Pick a field, then tick its values, each counted; a date takes a span, in the last 3 days or more than a week ago. Each filter shows as a chip: click how it matches to flip it (is / is not), its values to change them, or ✕ to remove it. A review must match every filter, and the box's words too. Filters stay in this browser. Labels, team reviewers, reviewers, and GitHub's dates fill in as the sync next reads each PR.
 - **Refresh** and **Settings** sit in BB's title bar. Refresh's tooltip says when GitHub was last read, and the list says why it can't be read now: GitHub CLI not on the BB server, `gh` not signed in, a rate limit (reading then pauses for 15 minutes), or PRs or teams it can't see.
 - Stacked PRs sit together, bottom first, labeled `Stack · 2 of 3`; a review's Overview links **Stacked on #N** and **#N builds on this**, and says when you haven't reviewed the PR below.
 

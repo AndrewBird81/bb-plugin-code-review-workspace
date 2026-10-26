@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { toast } from "sonner";
 import { defaultPreferences } from "../src/preferences";
@@ -246,6 +246,53 @@ test("the box finds reviews by repository, author, title, or number in every sec
   await again.slot.findByText("Older retries");
   expect((again.slot.getByRole("searchbox", { name: "Find a review, or paste a PR link" }) as HTMLInputElement).value).toBe("retries");
   again.slot.lifecycle.unmount();
+});
+
+test("filters pick a field, then its values, as chips that flip, change, and go, and stay in this browser", async () => {
+  const reviews = [
+    { targetKey: "a", kind: "pr", repo: "acme/live-api", number: 1, author: "alice", title: "Stream retries", status: "ready", prLabels: [{ name: "bug", color: "d73a4a" }], prTeams: ["acme/live-dev"] },
+    { targetKey: "b", kind: "pr", repo: "acme/web", number: 2, author: "bob", title: "Cache headers", status: "ready", prLabels: [{ name: "ui", color: "" }] },
+  ];
+  const { slot } = await inbox(reviews);
+  await slot.findByText("Stream retries");
+  const titles = () => slot.queryAllByText(/retries|headers/).map((el) => el.textContent);
+  // F opens the menu; a field's name finds it, and Enter takes it.
+  fireEvent.keyDown(document.body, { key: "f" });
+  fireEvent.change(await screen.findByRole("textbox", { name: "Find a filter" }), { target: { value: "label" } });
+  fireEvent.click(screen.getByRole("button", { name: "GitHub labels" }));
+  fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /bug/ }));
+  expect(titles()).toEqual(["Stream retries"]);
+  // The menu stays open to tick more; Esc closes it.
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Find labels" }), { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("textbox", { name: "Find labels" })).toBeNull());
+  const chips = within(slot.getByRole("list", { name: "Filters" }));
+  expect(chips.getByText("GitHub labels")).toBeTruthy();
+  // The operator flips the match.
+  fireEvent.click(chips.getByRole("button", { name: "GitHub labels is, change" }));
+  expect(titles()).toEqual(["Cache headers"]);
+  fireEvent.click(chips.getByRole("button", { name: "Remove GitHub labels filter" }));
+  expect(titles()).toEqual(["Stream retries", "Cache headers"]);
+
+  fireEvent.click(chips.getByRole("button", { name: "Add filter" }));
+  fireEvent.click(await screen.findByRole("button", { name: "GitHub team reviewers" }));
+  fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /acme\/live-dev/ }));
+  slot.lifecycle.unmount();
+
+  const again = await inbox(reviews);
+  await again.slot.findByText("Stream retries");
+  expect(again.slot.queryByText("Cache headers")).toBeNull();
+  fireEvent.click(within(again.slot.getByRole("list", { name: "Filters" })).getByRole("button", { name: "Remove GitHub team reviewers filter" }));
+  expect(again.slot.getByText("Cache headers")).toBeTruthy();
+  again.slot.lifecycle.unmount();
+});
+
+test("with no review matching the filters, the list says so and clears them", async () => {
+  localStorage.setItem("gr:inbox-filters", JSON.stringify([{ field: "author", values: ["nobody"] }]));
+  const { slot } = await inbox([{ targetKey: "a", kind: "pr", author: "alice", title: "A change", status: "ready" }]);
+  await slot.findByText("No reviews match these filters");
+  fireEvent.click(slot.getByRole("button", { name: "Clear filters" }));
+  expect(slot.getByText("A change")).toBeTruthy();
+  slot.lifecycle.unmount();
 });
 
 test("a pasted link to a listed PR, or its owner/repo#n, opens it", async () => {
