@@ -131,6 +131,20 @@ test("with nothing for you, Needs review says so and how many wait on their auth
   slot.lifecycle.unmount();
 });
 
+test("a row starts with its author's GitHub avatar, named on hover, and a local change with a branch", async () => {
+  const { slot } = await inbox([
+    { targetKey: "a", kind: "pr", repo: "acme/web", number: 1, author: "alice", title: "Authored change", status: "ready" },
+    { targetKey: "b", kind: "ref", gitRef: "my-branch", title: "Local change", status: "ready" },
+  ]);
+  const row = (await slot.findByText("Authored change")).closest("button")!;
+  expect(row.querySelector("img")!.getAttribute("src")).toBe("https://github.com/alice.png?size=48");
+  expect(within(row).getByTitle("@alice")).toBeTruthy();
+  const local = (await slot.findByText("Local change")).closest("button")!;
+  expect(local.querySelector("img")).toBeNull();
+  expect(local.querySelector('[data-icon="GitBranch"]')).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("a row shows its PR's labels after the title, three at most, each with its GitHub color, and counts the rest", async () => {
   const labels = ["bug", "ui", "performance", "dependencies", "docs"].map((name, i) => ({ name, color: i === 0 ? "d73a4a" : "" }));
   const { slot } = await inbox([{ targetKey: "a", kind: "pr", title: "Labeled change", status: "ready", prLabels: labels }]);

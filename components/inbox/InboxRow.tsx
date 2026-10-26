@@ -9,6 +9,7 @@ import { ReviewActions, useReviewActions } from "../ReviewActions";
 import { StatusLine } from "../ReviewStatus";
 import { SnoozeChoices } from "../SnoozeChoices";
 import { age } from "../time-ago";
+import { Avatar } from "../ui/avatar";
 import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
 import { Icon } from "../ui/icon";
@@ -67,28 +68,35 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   const quick = "size-6 px-0 text-muted-foreground hover:text-foreground aria-disabled:opacity-50";
   return (
     <div ref={rowRef} className="group/row relative flex min-w-0 items-center hover:bg-state-hover has-[[data-row]:focus-visible]:bg-state-hover">
-      <button type="button" data-row onClick={onOpen} className={cn("min-w-0 flex-1 px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", short ? "py-1.5" : "py-2.5 pointer-coarse:py-3")}>
-        <span className="flex min-w-0 items-baseline gap-3">
-          <span id={titleId} title={renamedFrom(review) ?? undefined} className="min-w-0 flex-1 truncate text-sm font-medium leading-5 text-foreground">
-            <InlineCode text={title} />
-            {pinnable && review.pinnedAt && <Icon name="Pin" className="ml-1.5 inline size-3.5 align-[-2px] text-muted-foreground" aria-label="Pinned" />}
-          </span>
-          {where && <span className="hidden shrink-0 font-mono text-[11px] text-subtle-foreground @min-[720px]/inbox:inline">{where}</span>}
-          {when && <span className="w-7 shrink-0 text-right text-xs tabular-nums text-subtle-foreground">{when}</span>}
+      <button type="button" data-row onClick={onOpen} className={cn("flex min-w-0 flex-1 items-center gap-2.5 px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", short ? "py-1.5" : "py-2.5 pointer-coarse:py-3")}>
+        {/* Who wrote it, as GitHub's list shows; a local change, a branch. */}
+        <span title={review.author ? `@${review.author}` : undefined} className="flex shrink-0">
+          {review.author ? <Avatar login={review.author} size={short ? 20 : 24} />
+            : <span aria-hidden className={cn("grid shrink-0 place-items-center rounded-full bg-muted text-muted-foreground ring-1 ring-border", short ? "size-5" : "size-6")}><Icon name="GitBranch" className="size-3.5" /></span>}
         </span>
-        {/* Narrow, where the PR is follows its status, which comes first when there's no room for both. The labels end the
-            line, under where the PR is and clear of the age's column. */}
-        <span className="mt-0.5 flex min-w-0 items-center gap-3">
-          <StatusLine parts={statusLine(review, { knobs: { unattendedAgents } })} after={where ? { content: <span className="font-mono text-[11px] text-subtle-foreground">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
-            className="min-w-0 flex-1 text-xs leading-4 text-muted-foreground" />
-          {labels.length > 0 && <span className={cn("hidden max-w-[45%] shrink-0 items-center gap-1 overflow-hidden @min-[560px]/inbox:flex", when && "mr-10")}>
-            <span className="sr-only">Labels: </span>
-            {labels.slice(0, MAX_LABELS).map((label) => <span key={label.name} title={label.name} className="inline-flex min-w-0 max-w-40 items-center gap-1 rounded-full border border-border px-1.5 text-[11px] leading-4 text-muted-foreground">
-              {/^[0-9a-f]{6}$/i.test(label.color) && <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: `#${label.color}` }} />}
-              <span className="truncate">{label.name}</span>
-            </span>)}
-            {labels.length > MAX_LABELS && <span title={labels.slice(MAX_LABELS).map((label) => label.name).join(", ")} className="shrink-0 text-[11px] text-subtle-foreground">+{labels.length - MAX_LABELS}</span>}
-          </span>}
+        <span className="block min-w-0 flex-1">
+          <span className="flex min-w-0 items-baseline gap-3">
+            <span id={titleId} title={renamedFrom(review) ?? undefined} className="min-w-0 flex-1 truncate text-sm font-medium leading-5 text-foreground">
+              <InlineCode text={title} />
+              {pinnable && review.pinnedAt && <Icon name="Pin" className="ml-1.5 inline size-3.5 align-[-2px] text-muted-foreground" aria-label="Pinned" />}
+            </span>
+            {where && <span className="hidden shrink-0 font-mono text-[11px] text-subtle-foreground @min-[720px]/inbox:inline">{where}</span>}
+            {when && <span className="w-7 shrink-0 text-right text-xs tabular-nums text-subtle-foreground">{when}</span>}
+          </span>
+          {/* Narrow, where the PR is follows its status, which comes first when there's no room for both. The labels end the
+              line, under where the PR is and clear of the age's column. */}
+          <span className="mt-0.5 flex min-w-0 items-center gap-3">
+            <StatusLine parts={statusLine(review, { knobs: { unattendedAgents } })} after={where ? { content: <span className="font-mono text-[11px] text-subtle-foreground">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
+              className="min-w-0 flex-1 text-xs leading-4 text-muted-foreground" />
+            {labels.length > 0 && <span className={cn("hidden max-w-[45%] shrink-0 items-center gap-1 overflow-hidden @min-[560px]/inbox:flex", when && "mr-10")}>
+              <span className="sr-only">Labels: </span>
+              {labels.slice(0, MAX_LABELS).map((label) => <span key={label.name} title={label.name} className="inline-flex min-w-0 max-w-40 items-center gap-1 rounded-full border border-border px-1.5 text-[11px] leading-4 text-muted-foreground">
+                {/^[0-9a-f]{6}$/i.test(label.color) && <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: `#${label.color}` }} />}
+                <span className="truncate">{label.name}</span>
+              </span>)}
+              {labels.length > MAX_LABELS && <span title={labels.slice(MAX_LABELS).map((label) => label.name).join(", ")} className="shrink-0 text-[11px] text-subtle-foreground">+{labels.length - MAX_LABELS}</span>}
+            </span>}
+          </span>
         </span>
       </button>
       {/* A fine pointer's quick actions show over the end of the status line, clear of the line above, while the row is

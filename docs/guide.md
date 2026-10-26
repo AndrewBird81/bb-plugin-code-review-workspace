@@ -320,6 +320,7 @@ Every layout detail, held either way and on foldables such as the iPhone Duo, is
 Rows and the box:
 
 - Each row is two lines: the title (your name for it, once you've [renamed](#rename) it, with the PR's title on hover), repository and number, and age (in Needs review, how long it's been your turn), then why it's yours and only the facts that change whether to open it, such as the PR's size (`+120 −30 · 8 files`, its added lines green and removed red).
+- A row starts with its author's GitHub avatar, their initials while it loads or where it can't, and `@author` on hover; a local change shows a branch.
 - A PR's GitHub labels end its second line, under the repository, each with a dot of its GitHub color: three at most, then `+2` naming the rest on hover. They hide where the list is narrow.
 - With a mouse, hovering a row shows **Snooze**, **Pin**, and **Archive**; on touch, every row has its **Review actions** (⋯).
 - The box at the top finds a review, filtering the list by repository, @author, title (yours or the PR's), or #number, or takes a pasted PR link or `owner/repo#n`: **Open** the review if it's listed, or **Review** it to start one. `/` puts the cursor in the box; on a phone, ⌕ in BB's title bar opens it. The list keeps the box's filter when you come back from a review.
