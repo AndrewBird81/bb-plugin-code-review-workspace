@@ -12,6 +12,7 @@ const FRAGMENT = `fragment F on PullRequest{
   commits(last:100){nodes{commit{oid}}}
   head:commits(last:1){nodes{commit{statusCheckRollup{state}}}}
   latestOpinionatedReviews(first:50){nodes{state author{__typename login}}}
+  latestReviews(first:50){nodes{author{__typename login}}}
   reviewRequests(first:50){nodes{requestedReviewer{${REVIEWER}}}}
   reviews(last:30,author:$viewer){nodes{id state submittedAt body commit{oid} comments(first:20){totalCount nodes{replyTo{id}}}}}
   events:timelineItems(last:30,itemTypes:[REVIEW_REQUESTED_EVENT,REVIEW_REQUEST_REMOVED_EVENT,REVIEW_DISMISSED_EVENT]){nodes{__typename
@@ -161,11 +162,16 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
     .map((c) => ({ at: time(c.createdAt), by: c.author.login as string }))
     .sort((a, b) => b.at - a.at)[0] ?? null;
 
-  // Everyone asked to review or who has, but you and bots, for the list's filters; a team's request goes once a member reviews.
+  // Everyone asked to review or who has, comments alone too, but you and bots, for the list's filters. A member's review
+  // for a team takes its request away; the team stays while the request's event shows and wasn't withdrawn after.
+  const teamOf = (r: any) => r?.__typename === "Team" && r.slug ? `${r.organization?.login ?? ""}/${r.slug}` : null;
   const requested: any[] = (pr.reviewRequests?.nodes ?? []).map((n: any) => n?.requestedReviewer).filter(Boolean);
-  const reviewers = [...new Set([...requested.filter((r) => r.__typename === "User"), ...(pr.latestOpinionatedReviews?.nodes ?? []).map((r: any) => r?.author).filter(Boolean)]
+  const reviewed = [...pr.latestOpinionatedReviews?.nodes ?? [], ...pr.latestReviews?.nodes ?? []].map((r: any) => r?.author).filter(Boolean);
+  const reviewers = [...new Set([...requested.filter((r) => r.__typename === "User"), ...reviewed]
     .filter((r) => r.login && !same(r.login, viewer) && !isBot(r)).map((r) => r.login as string))];
-  const reviewTeams = requested.filter((r) => r.__typename === "Team" && r.slug).map((r) => `${r.organization?.login ?? ""}/${r.slug}`);
+  const asked = events.filter((e) => e.__typename === "ReviewRequestedEvent" && teamOf(e.requestedReviewer) && !events.some((w) =>
+    w.__typename === "ReviewRequestRemovedEvent" && teamOf(w.requestedReviewer) === teamOf(e.requestedReviewer) && time(w.createdAt) > time(e.createdAt)));
+  const reviewTeams = [...new Set([...requested, ...asked.map((e) => e.requestedReviewer)].map(teamOf).filter((t): t is string => !!t))];
 
   const otherOpinions = (pr.latestOpinionatedReviews?.nodes ?? [])
     .filter((r: any) => r?.author && !same(r.author.login, viewer) && !isBot(r.author) && (r.state === "APPROVED" || r.state === "CHANGES_REQUESTED"))

@@ -53,9 +53,9 @@ export interface PrFacts {
   closedAt?: number | null;
   /** The PR's labels, with GitHub's hex color without its #. */
   labels?: Array<{ name: string; color: string }>;
-  /** Logins asked to review, or who approved or requested changes, but the viewer's and bots'. */
+  /** Logins asked to review, or who have reviewed, but the viewer's and bots'. */
   reviewers?: string[];
-  /** Teams asked to review, as org/slug. */
+  /** Teams asked to review, as org/slug, including one a member has since reviewed for. */
   reviewTeams?: string[];
   /** The open PR whose head is this PR's base branch: the PR this one is stacked on. Null for none, or a base that's the default branch. */
   stackParent?: { number: number; title: string; url: string } | null;

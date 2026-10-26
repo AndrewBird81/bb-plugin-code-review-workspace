@@ -211,6 +211,21 @@ test("labels, reviewers, requested teams, and merge and close times are read for
   expect(prFactsQuery([ref(1)]).query).toContain("labels(first:20){nodes{name color}}");
 });
 
+test("a reviewer who only commented counts, and a team stays once a member reviews for it, unless its request was withdrawn", () => {
+  const requested = (reviewer: unknown) => ({ __typename: "ReviewRequestedEvent", createdAt: "2026-10-01T00:00:00Z", actor: user("alice"), requestedReviewer: reviewer });
+  const facts = one(pr({
+    latestReviews: { nodes: [{ author: user("dave") }, { author: user("me") }, { author: { __typename: "Bot", login: "copilot-pull-request-reviewer" } }] },
+    events: { nodes: [
+      requested(team("acme", "web-dev")), requested(team("acme", "ops")), requested(user("erin")),
+      { __typename: "ReviewRequestRemovedEvent", createdAt: "2026-10-02T00:00:00Z", actor: user("alice"), requestedReviewer: team("acme", "ops") },
+    ] },
+  }));
+  // Erin's request went without a review: she isn't a reviewer.
+  expect(facts.reviewers).toEqual(["dave"]);
+  expect(facts.reviewTeams).toEqual(["acme/web-dev"]);
+  expect(prFactsQuery([ref(1)]).query).toContain("latestReviews(first:50){nodes{author{__typename login}}}");
+});
+
 test("authorAssociation reads how the author is related to the repository", () => {
   expect(one(pr({ authorAssociation: "FIRST_TIME_CONTRIBUTOR" })).authorAssociation).toBe("FIRST_TIME_CONTRIBUTOR");
   expect(one(pr()).authorAssociation).toBeNull();
