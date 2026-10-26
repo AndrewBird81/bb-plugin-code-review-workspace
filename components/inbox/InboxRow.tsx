@@ -73,7 +73,15 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
             <InlineCode text={title} />
             {pinnable && review.pinnedAt && <Icon name="Pin" className="ml-1.5 inline size-3.5 align-[-2px] text-muted-foreground" aria-label="Pinned" />}
           </span>
-          {labels.length > 0 && <span className="hidden max-w-[45%] shrink-0 items-center gap-1 overflow-hidden @min-[560px]/inbox:flex">
+          {where && <span className="hidden shrink-0 font-mono text-[11px] text-subtle-foreground @min-[720px]/inbox:inline">{where}</span>}
+          {when && <span className="w-7 shrink-0 text-right text-xs tabular-nums text-subtle-foreground">{when}</span>}
+        </span>
+        {/* Narrow, where the PR is follows its status, which comes first when there's no room for both. The labels end the
+            line, under where the PR is and clear of the age's column. */}
+        <span className="mt-0.5 flex min-w-0 items-center gap-3">
+          <StatusLine parts={statusLine(review, { knobs: { unattendedAgents } })} after={where ? { content: <span className="font-mono text-[11px] text-subtle-foreground">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
+            className="min-w-0 flex-1 text-xs leading-4 text-muted-foreground" />
+          {labels.length > 0 && <span className={cn("hidden max-w-[45%] shrink-0 items-center gap-1 overflow-hidden @min-[560px]/inbox:flex", when && "mr-10")}>
             <span className="sr-only">Labels: </span>
             {labels.slice(0, MAX_LABELS).map((label) => <span key={label.name} title={label.name} className="inline-flex min-w-0 max-w-40 items-center gap-1 rounded-full border border-border px-1.5 text-[11px] leading-4 text-muted-foreground">
               {/^[0-9a-f]{6}$/i.test(label.color) && <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: `#${label.color}` }} />}
@@ -81,12 +89,7 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
             </span>)}
             {labels.length > MAX_LABELS && <span title={labels.slice(MAX_LABELS).map((label) => label.name).join(", ")} className="shrink-0 text-[11px] text-subtle-foreground">+{labels.length - MAX_LABELS}</span>}
           </span>}
-          {where && <span className="hidden shrink-0 font-mono text-[11px] text-subtle-foreground @min-[720px]/inbox:inline">{where}</span>}
-          {when && <span className="w-7 shrink-0 text-right text-xs tabular-nums text-subtle-foreground">{when}</span>}
         </span>
-        {/* Narrow, where the PR is follows its status, which comes first when there's no room for both. */}
-        <StatusLine parts={statusLine(review, { knobs: { unattendedAgents } })} after={where ? { content: <span className="font-mono text-[11px] text-subtle-foreground">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
-          className="mt-0.5 text-xs leading-4 text-muted-foreground" />
       </button>
       {/* A fine pointer's quick actions show over the end of the status line, clear of the line above, while the row is
           hovered or focused, and stay while one's menu is open; a touch screen keeps Review actions, 44px, beside the

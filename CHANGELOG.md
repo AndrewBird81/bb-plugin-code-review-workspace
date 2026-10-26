@@ -3,7 +3,7 @@
 ## Unreleased
 
 - **Save view** keeps All reviews' filters under a name, such as "Live 4 Project" or "Updated this week", in this browser. Views show above the filters as tabs after **All**; picking one sets its filters, and a date span stays relative to now. Change a view's filters and **Save** updates it or **Save as new** names another; **Edit view**, at the end of the filters, renames or deletes it. Views keep filters only, not the box's words.
-- A row shows its PR's GitHub labels after the title, each with a dot of its GitHub color: three at most, then `+N` naming the rest on hover.
+- A row shows its PR's GitHub labels at the end of its second line, under the repository, each with a dot of its GitHub color: three at most, then `+N` naming the rest on hover.
 - A row's size shows its added lines in the diff's green and its removed lines in its red, as `+120 −30 · 8 files`, where it was all gray.
 - A filter's value list taller than the menu cuts its last row in half, so it reads as more to scroll to, where it ended on a whole row and its other values looked missing. A value too long for the menu shows whole on hover.
 
