@@ -170,8 +170,9 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     }
   }
 
+  // A merged PR isn't read again, but for once to fill in what earlier reads didn't keep, as when it merged and its labels.
   const readable = (review: ReviewMeta | null): review is ReviewMeta & { repo: string; number: number } =>
-    !!review && review.kind === "pr" && !!review.repo && !!review.number && review.prState !== "MERGED";
+    !!review && review.kind === "pr" && !!review.repo && !!review.number && (review.prState !== "MERGED" || review.prMergedAt === undefined);
 
   /**
    * Read these reviews' PRs in batches and apply what changed. `pass`: a sync pass, whose read speaks for every review.

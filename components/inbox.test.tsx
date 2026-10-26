@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { toast } from "sonner";
 import { defaultPreferences } from "../src/preferences";
@@ -246,6 +246,119 @@ test("the box finds reviews by repository, author, title, or number in every sec
   await again.slot.findByText("Older retries");
   expect((again.slot.getByRole("searchbox", { name: "Find a review, or paste a PR link" }) as HTMLInputElement).value).toBe("retries");
   again.slot.lifecycle.unmount();
+});
+
+test("filters pick a field, then its values, as chips that flip, change, and go, and stay when you come back", async () => {
+  const reviews = [
+    { targetKey: "a", kind: "pr", repo: "acme/live-api", number: 1, author: "alice", title: "Stream retries", status: "ready", prLabels: [{ name: "bug", color: "d73a4a" }], prTeams: ["acme/live-dev"] },
+    { targetKey: "b", kind: "pr", repo: "acme/web", number: 2, author: "bob", title: "Cache headers", status: "ready", prLabels: [{ name: "ui", color: "" }] },
+  ];
+  const { slot } = await inbox(reviews);
+  await slot.findByText("Stream retries");
+  const titles = () => slot.queryAllByText(/retries|headers/).map((el) => el.textContent);
+  // F opens the menu; a field's name finds it, and Enter takes it.
+  fireEvent.keyDown(document.body, { key: "f" });
+  fireEvent.change(await screen.findByRole("textbox", { name: "Find a filter" }), { target: { value: "label" } });
+  fireEvent.click(screen.getByRole("button", { name: "GitHub labels" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /bug/ }));
+  expect(titles()).toEqual(["Stream retries"]);
+  // The menu stays open to tick more; Esc closes it.
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Find labels" }), { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("textbox", { name: "Find labels" })).toBeNull());
+  const chips = within(slot.getByRole("list", { name: "Filters" }));
+  expect(chips.getByText("GitHub labels")).toBeTruthy();
+  // The operator flips the match.
+  fireEvent.click(chips.getByRole("button", { name: "GitHub labels is; switch to is not" }));
+  expect(titles()).toEqual(["Cache headers"]);
+  fireEvent.click(chips.getByRole("button", { name: "Remove GitHub labels filter" }));
+  expect(titles()).toEqual(["Stream retries", "Cache headers"]);
+
+  fireEvent.click(chips.getByRole("button", { name: "Add filter" }));
+  fireEvent.click(await screen.findByRole("button", { name: "GitHub team reviewers" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /acme\/live-dev/ }));
+  slot.lifecycle.unmount();
+
+  const again = await inbox(reviews);
+  await again.slot.findByText("Stream retries");
+  expect(again.slot.queryByText("Cache headers")).toBeNull();
+  fireEvent.click(within(again.slot.getByRole("list", { name: "Filters" })).getByRole("button", { name: "Remove GitHub team reviewers filter" }));
+  expect(again.slot.getByText("Cache headers")).toBeTruthy();
+  again.slot.lifecycle.unmount();
+});
+
+test("with no review matching the filters, the list says so and clears them", async () => {
+  sessionStorage.setItem("gr:inbox-filters", JSON.stringify([{ field: "author", values: ["nobody"] }]));
+  const { slot } = await inbox([{ targetKey: "a", kind: "pr", author: "alice", title: "A change", status: "ready" }]);
+  await slot.findByText("No reviews match these filters");
+  expect(slot.getByText("Try fewer filters.")).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: "Clear filters" }));
+  expect(slot.getByText("A change")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("filters open the sections to show what they found; one you close stays closed until the filters change", async () => {
+  const reviews = [
+    { targetKey: "a", kind: "pr", author: "alice", title: "Change Pending", status: "ready" },
+    { targetKey: "b", kind: "pr", author: "alice", title: "Change Merged", status: "ready", prState: "MERGED", prMergedAt: now - DAY, turn: turn("archive", "merged", "Merged") },
+  ];
+  sessionStorage.setItem("gr:inbox-filters", JSON.stringify([{ field: "merged", days: 7 }]));
+  const { slot, header, titles } = await inbox(reviews);
+  await slot.findByText("Change Merged");
+  expect(titles()).toEqual(["Change Merged"]);
+  fireEvent.click(header("Archive"));
+  expect(titles()).toEqual([]);
+  const chips = within(slot.getByRole("list", { name: "Filters" }));
+  fireEvent.click(chips.getByRole("button", { name: "Merged date in the last; switch to more than" }));
+  fireEvent.click(chips.getByRole("button", { name: "Merged date more than; switch to in the last" }));
+  expect(titles()).toEqual(["Change Merged"]);
+  // Without filters, the sections are as you left them, Archive closed.
+  fireEvent.click(chips.getByRole("button", { name: "Remove Merged date filter" }));
+  expect(titles()).toEqual(["Change Pending"]);
+  expect(JSON.parse(localStorage.getItem("gr:inbox-sections") ?? "{}")).toEqual({});
+  slot.lifecycle.unmount();
+});
+
+test("a value no review has now stays ticked to untick, and a date filter's span is marked", async () => {
+  sessionStorage.setItem("gr:inbox-filters", JSON.stringify([{ field: "author", values: ["carol"] }, { field: "added", days: 3 }]));
+  const { slot } = await inbox([{ targetKey: "a", kind: "pr", author: "alice", title: "A change", status: "ready", createdAt: now - DAY }]);
+  await slot.findByText("No reviews match these filters");
+  const chips = within(slot.getByRole("list", { name: "Filters" }));
+  fireEvent.click(chips.getByRole("button", { name: "3 days" }));
+  expect(within(await screen.findByRole("group", { name: "In the last" })).getByRole("button", { name: "3 days" }).getAttribute("aria-pressed")).toBe("true");
+  expect(within(screen.getByRole("group", { name: "More than" })).getByRole("button", { name: "3 days" }).getAttribute("aria-pressed")).toBe("false");
+  fireEvent.keyDown(screen.getByRole("group", { name: "Added date" }), { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("group", { name: "Added date" })).toBeNull());
+  fireEvent.click(chips.getByRole("button", { name: "carol" }));
+  const carol = await screen.findByRole("checkbox", { name: /carol/ });
+  expect(carol.getAttribute("aria-checked")).toBe("true");
+  expect(carol.textContent).toContain("0");
+  fireEvent.click(carol);
+  expect(slot.getByText("A change")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("a date filter's span moves with the clock while the list is open", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  try {
+    sessionStorage.setItem("gr:inbox-filters", JSON.stringify([{ field: "added", days: 1 }]));
+    const { slot } = await inbox([{ targetKey: "a", kind: "pr", title: "A change", status: "ready", createdAt: Date.now() - DAY + 30_000 }]);
+    await slot.findByText("A change");
+    await act(async () => { vi.advanceTimersByTime(60_000); });
+    expect(slot.queryByText("A change")).toBeNull();
+    slot.lifecycle.unmount();
+  } finally { vi.useRealTimers(); }
+});
+
+test("F adds a filter only where the filters show: not for a pasted link", async () => {
+  sessionStorage.setItem("gr:review-list", JSON.stringify({ query: "https://github.com/acme/web/pull/1" }));
+  const { slot } = await inbox([{ targetKey: "a", kind: "pr", repo: "acme/web", number: 1, title: "A change", status: "ready" }]);
+  await slot.findByText("A change");
+  expect(slot.queryByRole("list", { name: "Filters" })).toBeNull();
+  fireEvent.keyDown(document.body, { key: "f" });
+  fireEvent.change(slot.getByRole("searchbox", { name: "Find a review, or paste a PR link" }), { target: { value: "" } });
+  await slot.findByRole("list", { name: "Filters" });
+  expect(screen.queryByRole("textbox", { name: "Find a filter" })).toBeNull();
+  slot.lifecycle.unmount();
 });
 
 test("a pasted link to a listed PR, or its owner/repo#n, opens it", async () => {

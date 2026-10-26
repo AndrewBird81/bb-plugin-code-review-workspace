@@ -27,7 +27,10 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
   const retitled = previous.watchingSince != null && !!previous.title && !!facts.title && facts.title !== previous.title ? now : null;
   const edits = [facts.editedAt, previous.prEditedAt, retitled].filter((at): at is number => at != null);
   const update: ReviewLifecycle = {
-    prState: facts.state, startedPrState: null, latestHeadSha: facts.headSha, ...(facts.baseRefName ? { latestBase: facts.baseRefName } : {}), unreachable: null, prSize: facts.size ?? null, stackParent: facts.stackParent ?? null, ownPr: !!facts.author && facts.author.toLowerCase() === viewer.toLowerCase(), authorAssociation: facts.authorAssociation ?? null,
+    prState: facts.state, startedPrState: null, latestHeadSha: facts.headSha, ...(facts.baseRefName ? { latestBase: facts.baseRefName } : {}), unreachable: null, prSize: facts.size ?? null,
+    prLabels: facts.labels ?? [], prTeams: facts.reviewTeams ?? [], prReviewers: facts.reviewers ?? [],
+    prUpdatedAt: Number.isFinite(facts.updatedAt) ? facts.updatedAt : null, prMergedAt: facts.mergedAt ?? null, prClosedAt: facts.closedAt ?? null,
+    stackParent: facts.stackParent ?? null, ownPr: !!facts.author && facts.author.toLowerCase() === viewer.toLowerCase(), authorAssociation: facts.authorAssociation ?? null,
     foreignHeadOwner: foreignHeadOwner(facts.headForkOwner, facts.author, viewer), prEditedAt: edits.length ? Math.max(...edits) : null,
     archivedAt: facts.state === "OPEN" ? null : previous.archivedAt ?? now,
     // The account reading the PR, which the review's verdict and checks belong to.

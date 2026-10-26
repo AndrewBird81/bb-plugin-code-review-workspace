@@ -6,6 +6,7 @@ import { createReviewSync, type GithubReads, type TurnActions } from "./review-l
 import { defaultPreferences } from "./preferences";
 import type { FeedbackThread, PrFacts, PrRef } from "./github/types";
 import { feedbackProgress } from "../lib/turn";
+import { matchesFilter } from "../lib/review-filters";
 import { completionNotifications } from "./completion-notifications";
 import { BATCH_SIZE } from "./github/pr-facts";
 import { queueStore } from "./store-queue";
@@ -92,6 +93,30 @@ test("a review started on a merged PR is still read by the sync once, which take
     prState: "MERGED", startedPrState: null, archivedAt: expect.any(Number), watchingSince: expect.any(Number), ownPr: false, reviewer: "me",
     signals: expect.objectContaining({ lastReviewSha: "sha1" }),
   });
+});
+
+// The sync stops reading a PR once it's merged, so one merged before it kept labels, teams, reviewers, and merge and
+// close times never had them, and All reviews' filters missed it.
+test("a review merged before the sync kept its PR's labels and times is read once more for them, without alerting, unarchiving, or starting work", async () => {
+  const s = await setup({ reviewed: true, pr: {
+    state: "MERGED", mergedAt: T0 - 2 * HOUR, closedAt: T0 - 2 * HOUR, labels: [{ name: "bug", color: "d73a4a" }], reviewTeams: ["acme/live-dev"], reviewers: ["bob"],
+    requests: [{ at: T0 - HOUR, by: "bob", via: "user" }], requestPending: { via: "user" },
+  } });
+  await s.store.setLifecycle("pr-1", { prState: "MERGED", archivedAt: T0 - 2 * HOUR, userArchivedAt: T0 - HOUR, watchingSince: T0 - 10 * HOUR, reviewer: "me" });
+  await s.sync.all();
+  const merged = (await s.store.getReview("pr-1"))!;
+  expect(merged).toMatchObject({
+    prMergedAt: T0 - 2 * HOUR, prClosedAt: T0 - 2 * HOUR, prLabels: [{ name: "bug", color: "d73a4a" }], prTeams: ["acme/live-dev"], prReviewers: ["bob"],
+    archivedAt: T0 - 2 * HOUR, userArchivedAt: T0 - HOUR,
+  });
+  expect(matchesFilter(merged, { field: "merged", days: 1 }, T0)).toBe(true);
+  expect(matchesFilter(merged, { field: "labels", values: ["bug"] }, T0)).toBe(true);
+  expect(s.published).toHaveLength(0);
+  expect(s.actions.prepare).not.toHaveBeenCalled();
+  expect(s.actions.autoStart).not.toHaveBeenCalled();
+  // Once read, it isn't read again, even by Refresh.
+  await s.sync.all(true);
+  expect(s.github.facts).toHaveBeenCalledTimes(1);
 });
 
 test("sync restores the viewer's approval and keeps a changes-requested verdict through later comments", async () => {

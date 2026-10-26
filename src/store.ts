@@ -118,6 +118,14 @@ export interface ReviewLifecycle {
   skippedRun?: { run: "guide" | "review" | "check"; head: string | null; at: number; why?: "settings" | "failed"; error?: string } | null;
   /** Lines added and deleted, and files changed, as GitHub last said. */
   prSize?: { additions: number; deletions: number; files: number } | null;
+  /** The PR's labels, requested teams (org/slug), and other reviewers, as GitHub last said, for the list's filters. */
+  prLabels?: Array<{ name: string; color: string }>;
+  prTeams?: string[];
+  prReviewers?: string[];
+  /** When GitHub last updated, merged, or closed the PR, as it last said; null for not merged or closed. */
+  prUpdatedAt?: number | null;
+  prMergedAt?: number | null;
+  prClosedAt?: number | null;
   /** GitHub can't find the PR, or refuses access, since this time. */
   unreachable?: { since: number; reason: "not-found" | "forbidden" } | null;
   /** The open PR whose head is this PR's base branch, as GitHub last said; null for none. Unset until read. */

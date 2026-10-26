@@ -196,6 +196,36 @@ test("editedAt reads when the PR's text was last edited", () => {
   expect(one(pr()).editedAt).toBeNull();
 });
 
+test("labels, reviewers, requested teams, and merge and close times are read for the list's filters", () => {
+  const facts = one(pr({
+    mergedAt: "2026-10-03T00:00:00Z", closedAt: "2026-10-03T00:00:00Z",
+    labels: { nodes: [{ name: "bug", color: "d73a4a" }, null] },
+    reviewRequests: { nodes: [{ requestedReviewer: user("bob") }, { requestedReviewer: user("me") }, { requestedReviewer: team("acme", "live-dev") }] },
+    latestOpinionatedReviews: { nodes: [{ state: "APPROVED", author: user("carol") }, { state: "APPROVED", author: user("bob") }, { state: "COMMENTED", author: { __typename: "Bot", login: "ci" } }] },
+  }));
+  expect(facts.labels).toEqual([{ name: "bug", color: "d73a4a" }]);
+  expect(facts.reviewers).toEqual(["bob", "carol"]);
+  expect(facts.reviewTeams).toEqual(["acme/live-dev"]);
+  expect([facts.mergedAt, facts.closedAt]).toEqual([Date.parse("2026-10-03T00:00:00Z"), Date.parse("2026-10-03T00:00:00Z")]);
+  expect(one(pr())).toMatchObject({ labels: [], reviewers: [], reviewTeams: [], mergedAt: null, closedAt: null });
+  expect(prFactsQuery([ref(1)]).query).toContain("labels(first:20){nodes{name color}}");
+});
+
+test("a reviewer who only commented counts, and a team stays once a member reviews for it, unless its request was withdrawn", () => {
+  const requested = (reviewer: unknown) => ({ __typename: "ReviewRequestedEvent", createdAt: "2026-10-01T00:00:00Z", actor: user("alice"), requestedReviewer: reviewer });
+  const facts = one(pr({
+    latestReviews: { nodes: [{ author: user("dave") }, { author: user("me") }, { author: { __typename: "Bot", login: "copilot-pull-request-reviewer" } }] },
+    events: { nodes: [
+      requested(team("acme", "web-dev")), requested(team("acme", "ops")), requested(user("erin")),
+      { __typename: "ReviewRequestRemovedEvent", createdAt: "2026-10-02T00:00:00Z", actor: user("alice"), requestedReviewer: team("acme", "ops") },
+    ] },
+  }));
+  // Erin's request went without a review: she isn't a reviewer.
+  expect(facts.reviewers).toEqual(["dave"]);
+  expect(facts.reviewTeams).toEqual(["acme/web-dev"]);
+  expect(prFactsQuery([ref(1)]).query).toContain("latestReviews(first:50){nodes{author{__typename login}}}");
+});
+
 test("authorAssociation reads how the author is related to the repository", () => {
   expect(one(pr({ authorAssociation: "FIRST_TIME_CONTRIBUTOR" })).authorAssociation).toBe("FIRST_TIME_CONTRIBUTOR");
   expect(one(pr()).authorAssociation).toBeNull();
