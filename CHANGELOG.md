@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.5.2 — unreleased
+## 1.5.2 — 2026-10-26
 
 A rendered Markdown file's own HTML links work. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.5.2. 1.5.2 adds no migration, so rolling back to 1.5.1 keeps everything.
 
