@@ -23,6 +23,8 @@ export interface StatusPart {
   busy?: boolean;
   /** What it means in full, for a tooltip. */
   detail?: string;
+  /** The size part's lines added and removed, drawn in the diff's green and red. */
+  diff?: { additions: number; deletions: number; files: number };
 }
 
 const why = (text: string, tone: StatusTone, icon?: IconName, extra: Partial<StatusPart> = {}): StatusPart => ({ kind: "why", text, tone, ...(icon ? { icon } : {}), ...extra });
@@ -111,7 +113,7 @@ export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks
   if (!done && ci && ci !== "none" && (ci !== "pass" || passingChecks)) parts.push({ kind: "checks", ...CHECKS[ci] });
   if (review.prSize) {
     const { additions, deletions, files } = review.prSize;
-    parts.push({ kind: "size", text: `+${additions.toLocaleString()} −${deletions.toLocaleString()} · ${files} ${files === 1 ? "file" : "files"}`, tone: "neutral" });
+    parts.push({ kind: "size", text: `+${additions.toLocaleString()} −${deletions.toLocaleString()} · ${files} ${files === 1 ? "file" : "files"}`, tone: "neutral", diff: { additions, deletions, files } });
   }
   const stack = review.stack;
   if (stack) {

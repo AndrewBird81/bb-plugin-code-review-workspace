@@ -31,7 +31,8 @@ export function StatusLine({ parts, after, className }: { parts: StatusPart[]; a
         {index > 0 && dot}
         <span title={part.detail} className={STATUS_TEXT[part.tone]}>
           {part.icon && <Icon name={part.icon} className={cn("mr-1 inline size-3 align-[-2px]", part.busy && "animate-spin motion-reduce:animate-none")} aria-hidden />}
-          {part.text}
+          {part.diff ? <><span className="text-diff-added">+{part.diff.additions.toLocaleString()}</span> <span className="text-diff-removed">−{part.diff.deletions.toLocaleString()}</span>
+            {` · ${part.diff.files} ${part.diff.files === 1 ? "file" : "files"}`}</> : part.text}
         </span>
       </Fragment>)}
       {after && <span className={after.className}>{parts.length > 0 && dot}{after.content}</span>}

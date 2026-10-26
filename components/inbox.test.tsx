@@ -139,8 +139,13 @@ test("a row's status line says what changes whether to open it: checks GitHub ex
     { targetKey: "d", kind: "pr", title: "Sized change", status: "ready", prSize: { additions: 1200, deletions: 30, files: 8 } },
   ]);
   await slot.findByText("Expected change");
-  for (const text of ["Checks expected", "Your PR", "Can’t read on GitHub", "+1,200 −30 · 8 files"]) expect(slot.getByText(text)).toBeTruthy();
+  for (const text of ["Checks expected", "Your PR", "Can’t read on GitHub"]) expect(slot.getByText(text)).toBeTruthy();
   expect(slot.getByText("Can’t read on GitHub").getAttribute("title")).toBe("GitHub refused access, for example for SSO");
+  // The size reads as one part, its added lines in the diff's green and its removed in its red.
+  const added = slot.getByText("+1,200");
+  expect(added.className).toContain("text-diff-added");
+  expect(slot.getByText("−30").className).toContain("text-diff-removed");
+  expect(added.parentElement!.textContent).toBe("+1,200 −30 · 8 files");
   slot.lifecycle.unmount();
 });
 
