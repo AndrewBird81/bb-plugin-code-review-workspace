@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { VIEW_NAME_LIMIT, viewNameProblem, type FilterView } from "../../lib/review-filters";
 import { cn } from "../../lib/utils";
-import { MENU_ITEM } from "../SnoozeChoices";
 import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
+import { Hint } from "../ui/hint";
 import { Icon } from "../ui/icon";
 import { Input } from "../ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
@@ -23,20 +23,21 @@ function NameForm({ views, initial = "", except, submit, onSave }: { views: read
   </form>;
 }
 
-/** A button opening a popover of `children`, which `close` shuts. */
-function Pop({ label, trigger, title, children }: { label: string; trigger: ReactNode; title: string; children(close: () => void): ReactNode }) {
+/** A button opening a popover of `children`, which `close` shuts; `hint` names an icon-only one on hover. */
+function Pop({ label, trigger, title, hint, children }: { label: string; trigger: ReactNode; title: string; hint?: string; children(close: () => void): ReactNode }) {
   const [open, setOpen] = useState(false);
+  const button = <PopoverTrigger asChild>
+    <Button variant="ghost" size="sm" aria-label={label} className={ACTION}>{trigger}</Button>
+  </PopoverTrigger>;
   return <Popover open={open} onOpenChange={setOpen}>
-    <PopoverTrigger asChild>
-      <Button variant="ghost" size="sm" aria-label={label} className={ACTION}>{trigger}</Button>
-    </PopoverTrigger>
+    {hint ? <Hint label={hint}>{button}</Hint> : button}
     <PopoverContent align="start" mobileTitle={title} className="w-64 max-w-[calc(100vw-24px)] p-1">{children(() => setOpen(false))}</PopoverContent>
   </Popover>;
 }
 
 /**
  * Your views as tabs, All first, the one the filters started from pressed. Picking one sets its filters; the pressed
- * one's ⋯ renames or deletes it.
+ * one has Rename and Delete beside it. A deleted view's filters stay set, so Save view brings it back.
  */
 export function ViewTabs({ views, active, onPick, onRename, onDelete }: {
   views: readonly FilterView[]; active: FilterView | null; onPick(view: FilterView | null): void; onRename(view: FilterView, name: string): void; onDelete(view: FilterView): void;
@@ -46,19 +47,17 @@ export function ViewTabs({ views, active, onPick, onRename, onDelete }: {
     <Button variant="ghost" size="sm" aria-pressed={!active} className={tab(!active)} onClick={() => onPick(null)}>All</Button>
     {views.map((view) => <div key={view.id} className="flex shrink-0 items-center">
       <Button variant="ghost" size="sm" aria-pressed={view.id === active?.id} className={tab(view.id === active?.id)} onClick={() => onPick(view)}>{view.name}</Button>
-      {view.id === active?.id && <Pop label={`${view.name} view actions`} title={view.name} trigger={<Icon name="MoreHorizontal" className="size-3.5" aria-hidden />}>
-        {(close) => <ViewActions views={views} view={view} onRename={(name) => { onRename(view, name); close(); }} onDelete={() => { onDelete(view); close(); }} />}
-      </Pop>}
+      {view.id === active?.id && <>
+        <Pop label={`Rename ${view.name}`} hint="Rename view" title="Rename view" trigger={<Icon name="Edit" className="size-3.5" aria-hidden />}>
+          {(close) => <NameForm views={views} initial={view.name} except={view.id} submit="Rename" onSave={(name) => { onRename(view, name); close(); }} />}
+        </Pop>
+        <Hint label="Delete view">
+          <Button variant="ghost" size="sm" aria-label={`Delete ${view.name}`} className={cn(ACTION, "hover:text-destructive-text")} onClick={() => onDelete(view)}>
+            <Icon name="Trash2" className="size-3.5" aria-hidden />
+          </Button>
+        </Hint>
+      </>}
     </div>)}
-  </div>;
-}
-
-function ViewActions({ views, view, onRename, onDelete }: { views: readonly FilterView[]; view: FilterView; onRename(name: string): void; onDelete(): void }) {
-  const [renaming, setRenaming] = useState(false);
-  if (renaming) return <NameForm views={views} initial={view.name} except={view.id} submit="Rename" onSave={onRename} />;
-  return <div role="group" aria-label={`${view.name} view`}>
-    <Button variant="ghost" size="sm" className={MENU_ITEM} onClick={() => setRenaming(true)}><Icon name="Edit" aria-hidden />Rename</Button>
-    <Button variant="ghost" size="sm" className={cn(MENU_ITEM, "hover:text-destructive-text")} onClick={onDelete}><Icon name="Trash2" aria-hidden />Delete view</Button>
   </div>;
 }
 

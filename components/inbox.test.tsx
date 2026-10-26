@@ -405,10 +405,10 @@ test("filters save as named views, kept in this browser, that switch, update, sa
   fireEvent.click(views().getByRole("button", { name: "Live 4 Project" }));
   expect(titles()).toEqual(["Stream retries"]);
 
-  // Rename, from the pressed view's ⋯.
-  fireEvent.click(views().getByRole("button", { name: "Live 4 Project view actions" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Rename" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "View name" }), { target: { value: "Live Dev" } });
+  // Rename and Delete sit beside the pressed view alone.
+  expect(views().queryByRole("button", { name: "Rename Not Live" })).toBeNull();
+  fireEvent.click(views().getByRole("button", { name: "Rename Live 4 Project" }));
+  fireEvent.change(await screen.findByRole("textbox", { name: "View name" }), { target: { value: "Live Dev" } });
   fireEvent.submit(screen.getByRole("textbox", { name: "View name" }).closest("form")!);
   await waitFor(() => expect(views().getByRole("button", { name: "Live Dev" })).toBeTruthy());
   slot.lifecycle.unmount();
@@ -422,8 +422,7 @@ test("filters save as named views, kept in this browser, that switch, update, sa
   expect(tabs.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
   fireEvent.click(tabs.getByRole("button", { name: "Not Live" }));
   expect(again.slot.queryByText("Stream retries")).toBeNull();
-  fireEvent.click(tabs.getByRole("button", { name: "Not Live view actions" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Delete view" }));
+  fireEvent.click(tabs.getByRole("button", { name: "Delete Not Live" }));
   // Its filters stay, as filters of your own, to keep or clear.
   await waitFor(() => expect(tabs.queryByRole("button", { name: "Not Live" })).toBeNull());
   expect(again.slot.queryByText("Stream retries")).toBeNull();
