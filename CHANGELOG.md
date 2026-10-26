@@ -4,6 +4,15 @@
 
 - All reviews has filters, as Linear's: **Filter**, or `f`, picks a field (Status, Author, Reviewers, GitHub team reviewers, GitHub labels, Repository owner or name, Kind, Checks, Your verdict, or the Added, Updated, Merged or Closed date), then its values or a span of days. Each shows as a chip whose match flips between is and is not, or in the last and more than, and whose values open to change. Reviews must match every filter; filters stay in this browser. The sync now reads each PR's labels, requested teams, other reviewers, and when GitHub updated, merged or closed it, which fill in as it next reads each PR.
 
+## 1.5.2 — 2026-10-26
+
+A rendered Markdown file's own HTML links work. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.5.2. 1.5.2 adds no migration, so rolling back to 1.5.1 keeps everything.
+
+- A Markdown file shown rendered keeps its HTML links, as a README's centred logo or `<a href>` has, where they showed as their tags in text: `<a href="https://…">[Image: Logo](logo.png)</a>`. Each opens in a new tab, as a Markdown link does, and keeps only where it goes: a web page or an email address, or on a PR a file in its tree at its head; any other, as `javascript:`, or a relative one in a local review, shows as its words. An HTML image is a link to it, or its words inside a link, and loads nothing still. Others' comments and the agents' words show HTML links as text, as before.
+- A changed block whose HTML link now goes elsewhere says so under it, "Link changed", as for a Markdown link.
+- On a PR, a rendered file's tag whose attribute holds `](`, as `<p align="a](b">`, is drawn as written. Its closing quote went into a link's URL, so the text after the tag could be read as the tag's attributes.
+- A rendered file whose link the URL parser reads as a host it can't take, as `[x](\\a:99999)`, shows; it showed "Couldn’t show this file’s diff." in its place.
+
 ## 1.5.1 — 2026-10-25
 
 Fixes from a bug bash of rendered Markdown, and for updates that left the plugin not loaded. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.5.1. 1.5.1 adds no migration, so rolling back to 1.5.0 keeps everything.

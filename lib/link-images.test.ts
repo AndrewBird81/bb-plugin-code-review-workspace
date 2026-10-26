@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
+import type { Nodes } from "mdast";
 import { codeRanges, linkImages, resolveLinks } from "./link-images";
+import { parseMarkdown } from "./markdown-blocks";
 
 test("an inline image becomes a link to it, named by its alt text", () => {
   expect(linkImages("See ![the chart](https://attacker.example/t.png) here.")).toBe("See [Image: the chart](https://attacker.example/t.png) here.");
@@ -273,6 +275,14 @@ test("long runs of openers that close nothing, and of images, are read in linear
   }
 }, 60_000);
 
+test("in a rendered file, a link's or an image's URL with long runs of spaces inside is read in linear time", () => {
+  for (const html of [(url: string) => `<a href="${url}">z</a>`, (url: string) => `<img src="${url}">`]) {
+    const started = performance.now();
+    linkImages(html(`x${" ".repeat(64_000)}y`), { tree: TREE });
+    expect(performance.now() - started).toBeLessThan(250);
+  }
+}, 60_000);
+
 test("an image in an image's alt text is its words, however deep", () => {
   expect(linkImages("![a ![b](u) c](v)")).toBe("[Image: a Image: b c](v)");
   expect(linkImages("[![a ![b][] c](v)](w)")).toBe("[Image: a Image: b c](w)");
@@ -312,21 +322,35 @@ test("text with no image or HTML, an escaped one, or a plain link is unchanged",
 const LOADS = new Set(["img", "image", "video", "audio", "source", "track", "picture", "iframe", "frame", "embed", "object", "link", "script", "style", "input", "svg", "math", "meta", "base", "use", "feimage"]);
 const URL_ATTRIBUTES = new Set(["src", "srcset", "poster", "data", "background", "href", "xlink:href", "style", "action", "formaction"]);
 
-/** What `markdown`'s HTML would load outside its code, and any `![` there that could be an image. */
-function loads(markdown: string): string[] {
+const protocolOf = (url: string) => { try { return new URL(url).protocol; } catch { return ""; } };
+
+/**
+ * What `markdown`'s HTML would load outside its code, and any `![` there that could be an image. With `anchors`, as a
+ * rendered file's text, whose `<a>` may link, with an href alone, to the web or email: any other is found too.
+ */
+function loads(markdown: string, anchors = false): string[] {
   let rest = "";
   let from = 0;
-  for (const [start, end] of codeRanges(markdown)) {
+  for (const [start, end] of codeRanges(markdown, anchors)) {
     rest += `${markdown.slice(from, start)} `;
     from = end;
   }
   rest += markdown.slice(from);
-  const found = [...rest.matchAll(/(?<!\\)(?:\\\\)*!\[/g)].map(() => "![");
-  for (const element of Array.from(new DOMParser().parseFromString(rest, "text/html").body.querySelectorAll("*"))) {
+  return [...[...rest.matchAll(/(?<!\\)(?:\\\\)*!\[/g)].map(() => "!["), ...htmlLoads(rest, anchors)];
+}
+
+/** What `html`'s elements would load, or with `anchors`, link to but the web or email (`loads`). */
+function htmlLoads(html: string, anchors: boolean): string[] {
+  const found: string[] = [];
+  for (const element of Array.from(new DOMParser().parseFromString(html, "text/html").body.querySelectorAll("*"))) {
     if (LOADS.has(element.localName)) found.push(`<${element.localName}>`);
     // An autolink parses as a tag named like `https:`: no element at all to BB.
     if (element instanceof HTMLUnknownElement) continue;
-    for (const { name } of Array.from(element.attributes)) if (URL_ATTRIBUTES.has(name)) found.push(`${element.localName}[${name}]`);
+    for (const { name, value } of Array.from(element.attributes)) {
+      if (anchors && element.localName === "a") {
+        if (name !== "href" || !["http:", "https:", "mailto:"].includes(protocolOf(value))) found.push(`a[${name}=${value}]`);
+      } else if (URL_ATTRIBUTES.has(name)) found.push(`${element.localName}[${name}]`);
+    }
   }
   return found;
 }
@@ -377,6 +401,8 @@ const CONTEXTS: Array<(html: string) => string> = [
   (html) => `$$\n\`\`\`\n$$\n${html}\n\`\`\``,
   (html) => `\t\`\`\`\n${html}\n\`\`\``,
   (html) => `<b>\n\`\`\`\n${html}\n\`\`\``,
+  // A link's tag alone on its line begins an HTML block where a rendered file keeps it: what follows isn't a fence.
+  (html) => `<a href="https://ok.test">\n\`\`\`\n${html}\n\`\`\``,
   (html) => `x \`y\n${html}\n\`z\``,
 ];
 
@@ -411,4 +437,99 @@ test("a query or fragment alone goes to the file itself, a folder's # is its nam
   const tree = { root: "https://github.com/acme/web/blob/abc123/", path: "docs/C#/guide.md" };
   expect(resolveLinks("[raw](?plain=1), [goals](#goals), [next](next.md), [up](../../../x.md)", tree))
     .toBe("[raw](https://github.com/acme/web/blob/abc123/docs/C%23/guide.md?plain=1), [goals](https://github.com/acme/web/blob/abc123/docs/C%23/guide.md#goals), [next](https://github.com/acme/web/blob/abc123/docs/C%23/next.md), [up](https://github.com/acme/web/blob/abc123/x.md)");
+});
+
+const TREE = { root: "https://github.com/acme/web/blob/abc123/", path: "docs/README.md" };
+
+test("the comments of others and agents show an <a> as text", () => {
+  expect(linkImages('See <a href="https://a.example/x">the docs</a>.')).toBe('See &lt;a href="https://a.example/x">the docs&lt;/a>.');
+});
+
+test("a rendered file's <a> keeps its href alone, a web or email link, or a relative one as its file in the tree", () => {
+  expect(linkImages('<a href="https://acme.dev/x" target="_self" rel="opener" title="t" id="top" name="n" style="color:red" onclick="steal()">site</a>', { tree: TREE }))
+    .toBe('<a href="https://acme.dev/x">site</a>');
+  expect(linkImages('<a href="mailto:dev@acme.dev?subject=Hi there">mail</a> <A HREF=guide.md#setup>guide</A> <a href="#top">top</a> <a href="/LICENSE">license</a>', { tree: TREE }))
+    .toBe('<a href="mailto:dev@acme.dev?subject=Hi%20there">mail</a> <a href="https://github.com/acme/web/blob/abc123/docs/guide.md#setup">guide</a> <a href="https://github.com/acme/web/blob/abc123/docs/README.md#top">top</a> <a href="https://github.com/acme/web/blob/abc123/LICENSE">license</a>');
+  // The first href, as an HTML parser takes it.
+  expect(linkImages('<a href="https://acme.dev/" href="javascript:alert(1)">x</a>', { tree: TREE })).toBe('<a href="https://acme.dev/">x</a>');
+  // Written plain: `&` as `&amp;`, and what an attribute or Markdown would read otherwise percent-encoded.
+  expect(linkImages("<a href='https://x.io/a(b)/[c]?q=1&r=2&amp;s=3#f'>x</a>", { tree: TREE })).toBe('<a href="https://x.io/a%28b%29/%5Bc%5D?q=1&amp;r=2&amp;s=3#f">x</a>');
+  // A kept link's tag is a tag, so a code span after it is one: its HTML stays as written.
+  expect(linkImages('<a href="https://ok.test/">`<span>`</a>', { tree: TREE })).toBe('<a href="https://ok.test/">`<span>`</a>');
+  // A user and password that hide the link's host behind them are dropped.
+  expect(linkImages('<a href="https://github.com@evil.test/login">GitHub</a>', { tree: TREE })).toBe('<a href="https://evil.test/login">GitHub</a>');
+});
+
+test("a rendered file's <a> to anything but the web or email, or relative with no tree, is its words", () => {
+  for (const href of ["javascript:alert(1)", "JaVaScRiPt:alert(1)", " javascript:alert(1)", "java\tscript:alert(1)", "\u0001javascript:alert(1)", "vbscript:x", "data:text/html,<b>x</b>", "file:///etc/passwd", "vscode://file/etc/passwd", "//evil.test/x", "\\\\evil.test\\x", ""]) {
+    expect(linkImages(`<a href="${href.replace(/[<>"]/g, "")}">x</a>`, { tree: TREE })).toBe("<a>x</a>");
+  }
+  // A character reference spells no scheme: the href is a relative one, in the tree.
+  expect(linkImages('<a href="javascript&#58;alert(1)">x</a>', { tree: TREE })).toBe('<a href="https://github.com/acme/web/blob/abc123/docs/javascript&amp;#58;alert%281%29">x</a>');
+  expect(linkImages('<a href="guide.md">guide</a> <a href="#top">top</a> <a name="top"></a> <a href="https://acme.dev/">site</a>', { tree: null }))
+    .toBe('<a>guide</a> <a>top</a> <a></a> <a href="https://acme.dev/">site</a>');
+  // In a table's row, GFM splits the cells at a `|` before it reads any tag: an <a> holding one isn't one, and shows as text.
+  expect(linkImages('| a | b |\n|---|---|\n| <a title="x|y" href="https://ok.test">t</a> | z |', { tree: TREE })).toBe('| a | b |\n|---|---|\n| &lt;a title="x|y" href="https://ok.test">t</a> | z |');
+  // A tag that isn't plainly one, as one that a line break or a quote or backtick in its value splits, shows as text.
+  expect(linkImages('<a href="https://a.example"\n>x</a> <a href=\'a"b\'>y</a> <a href="`">z</a>', { tree: TREE })).toBe('&lt;a href="https://a.example"\n>x</a> &lt;a href=\'a"b\'>y</a> &lt;a href="`">z</a>');
+});
+
+test("a rendered file's HTML image is a link to it, its words inside a link, and a <picture> its <img> alone", () => {
+  expect(linkImages('<p align="center">\n  <img src="docs/logo.png" alt="Logo" width="120">\n</p>', { tree: TREE }))
+    .toBe('<p align="center">\n  <a href="https://github.com/acme/web/blob/abc123/docs/docs/logo.png">Image: Logo</a>\n</p>');
+  expect(linkImages('<div align="center">\n  <a href="https://acme.dev"><img src="logo.svg" alt="Acme"></a>\n</div>', { tree: TREE }))
+    .toBe('<div align="center">\n  <a href="https://acme.dev/">Image: Acme</a>\n</div>');
+  expect(linkImages('<picture>\n  <source media="(prefers-color-scheme: dark)" srcset="dark.png">\n  <img src="light.png" alt="Shot">\n</picture>', { tree: TREE }))
+    .toBe('\n  \n  <a href="https://github.com/acme/web/blob/abc123/docs/light.png">Image: Shot</a>\n');
+  expect(linkImages('<img src="data:image/png;base64,AAAA" alt="x"> <img src="logo.png" alt="y">', { tree: null })).toBe("Image: x Image: y");
+});
+
+test("resolveLinks leaves a rendered file's kept links alone, and resolves its Markdown links", () => {
+  const kept = linkImages('<a href="https://x.io/a](b)">x</a> and [the guide](guide.md)', { tree: TREE });
+  expect(resolveLinks(kept, TREE)).toBe('<a href="https://x.io/a%5D%28b%29">x</a> and [the guide](https://github.com/acme/web/blob/abc123/docs/guide.md)');
+  // A kept tag's attribute that reads like a link's end stays as written: its closing quote went into the URL.
+  expect(resolveLinks(linkImages('<p align="a](b">x</p> then " title="t', { tree: TREE }), TREE)).toBe('<p align="a](b">x</p> then " title="t');
+});
+
+test("resolveLinks keeps a destination it can't resolve as written, as one the URL parser reads as a host", () => {
+  for (const url of ["\\\\a:99999/b", "\\\\evil.test/x", "/\\evil.test/x"]) expect(resolveLinks(`[x](${url})`, TREE)).toBe(`[x](${url})`);
+});
+
+/**
+ * What `markdown` would load, or link to but the web or email, as micromark reads it, as BB's Markdown does: its images,
+ * and its raw HTML's, read apart from linkImages's own reading of what's code.
+ */
+function drawnLoads(markdown: string): string[] {
+  const found: string[] = [];
+  let html = "";
+  const walk = (node: Nodes) => {
+    if (node.type === "image" || node.type === "imageReference") found.push(node.type);
+    if (node.type === "html") html += node.value;
+    if ("children" in node) node.children.forEach(walk);
+  };
+  walk(parseMarkdown(markdown));
+  return [...found, ...htmlLoads(html, true)];
+}
+
+const ANCHORS = [
+  '<a href="javascript:alert(1)">x</a>', '<a href=" jav&#x09;ascript:alert(1)">x</a>', '<a href="data:text/html;base64,PHNjcmlwdD4=">x</a>', "<a href=vbscript:x>x</a>",
+  '<a href="https://ok.test" onclick="x()" style="background:url(https://evil.test/s.png)" ping="https://evil.test/p">x</a>', "<a href=https://ok.test><img src=https://evil.test/a.png></a>",
+  '<a href="https://ok.test"\nonclick=x>x</a>', '<a href="javascript:y" href="https://ok.test">x</a>', '<a href="//evil.test/x">x</a>', '<a href="https://ok.test/`">x</a>',
+  '<a href="https://ok.test/"><picture><source srcset="https://evil.test/p.png"><img src="https://evil.test/q.png"></picture></a>', '<a name="x" id="y" href="#z">x</a>',
+];
+
+test("in a rendered file, no HTML that loads, and no link but to the web or email, written any way, in any of these places, survives outside code", () => {
+  for (const fragment of [...FRAGMENTS, ...ANCHORS]) {
+    for (const html of [fragment, fragment.toUpperCase()]) {
+      for (const context of CONTEXTS) {
+        const text = context(html);
+        for (const tree of [TREE, null]) {
+          const drawn = linkImages(text, { tree });
+          expect([text, loads(drawn, true), drawnLoads(drawn)]).toEqual([text, [], []]);
+        }
+        expect([text, loads(resolveLinks(linkImages(text, { tree: TREE }), TREE), true)]).toEqual([text, []]);
+      }
+    }
+  }
+  for (const probe of PROBES) expect([probe, loads(linkImages(probe, { tree: TREE }), true)]).toEqual([probe, []]);
 });

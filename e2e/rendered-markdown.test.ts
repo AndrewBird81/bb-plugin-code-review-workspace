@@ -44,6 +44,12 @@ nightly by the audit job.
 
 1. Revoke the old keys.
 1. Issue the new keys.
+
+<p align="center">
+  <a href="https://acme.dev/home" target="_self"><img src="logo.svg" alt="Acme"></a>
+</p>
+
+See <a href="https://acme.dev/docs" onclick="alert(1)">the docs</a>, <a href="javascript:alert(1)">this</a> and <a href="setup.md">setup</a>.
 `;
 const NEW = OLD.replace("1 hour", "15 minutes").replace("Refresh tokens are never rotated.\n\n", "")
   .replace("| exp   | int  |", "| exp   | int  |\n| iat   | int  |").replace("3600", "900")
@@ -113,7 +119,19 @@ test.skipIf(!process.env.BB_E2E_URL)("rendered Markdown: toggle, comment on a ch
     // BB's Markdown drew each block: the table, and the code with its highlighting.
     await rendered.locator("table").waitFor();
     expect(await rendered.locator("[data-md-status]").evaluateAll((units) => units.map((unit) => (unit as HTMLElement).dataset.mdStatus)))
-      .toEqual(["unchanged", "unchanged", "changed", "unchanged", "changed", "added", "added", "added", "unchanged", "changed", "removed", "changed", "changed", "changed", "changed", "changed", "unchanged", "changed"]);
+      .toEqual(["unchanged", "unchanged", "changed", "unchanged", "changed", "added", "added", "added", "unchanged", "changed", "removed", "changed", "changed", "changed", "changed", "changed", "unchanged", "changed", "unchanged", "unchanged"]);
+    // The file's own HTML links are links as BB draws a Markdown link, to a new tab, with their href alone; the image in
+    // one is its words. One to a script, and a relative one in a review with no PR URL to resolve it, are words.
+    const link = (name: string) => rendered.getByRole("link", { name, exact: true });
+    expect(await link("Image: Acme").evaluate((a) => [a.getAttribute("href"), a.getAttribute("target")])).toEqual(["https://acme.dev/home", "_blank"]);
+    expect(await link("the docs").evaluate((a) => [a.getAttribute("href"), a.getAttribute("target"), a.getAttribute("rel"), a.hasAttribute("onclick")])).toEqual(["https://acme.dev/docs", "_blank", "noopener noreferrer", false]);
+    expect([await link("this").count(), await link("setup").count(), await rendered.getByText("setup", { exact: true }).count()]).toEqual([0, 0, 1]);
+    await page.context().route("https://acme.dev/**", (route) => route.fulfill({ body: "acme" }));
+    const opened = page.waitForEvent("popup");
+    const at = page.url();
+    await link("the docs").click();
+    expect([(await opened).url(), page.url()]).toEqual(["https://acme.dev/docs", at]);
+    await (await opened).close();
     // BB's Markdown draws the changed words marked, in a heading, a list item, a paragraph and a quote; the table's and
     // the code's changes cross their syntax, so they show whole.
     const changedBlock = (n: number) => rendered.locator('[data-md-status="changed"]').nth(n);
