@@ -361,6 +361,76 @@ test("F adds a filter only where the filters show: not for a pasted link", async
   slot.lifecycle.unmount();
 });
 
+test("filters save as named views, kept in this browser, that switch, update, save as new, rename, and go", async () => {
+  const reviews = [
+    { targetKey: "a", kind: "pr", repo: "acme/live-api", number: 1, author: "alice", title: "Stream retries", status: "ready", prTeams: ["acme/live-dev"], prUpdatedAt: now - DAY },
+    { targetKey: "b", kind: "pr", repo: "acme/web", number: 2, author: "bob", title: "Cache headers", status: "ready", prUpdatedAt: now - 20 * DAY },
+  ];
+  const { slot } = await inbox(reviews);
+  await slot.findByText("Stream retries");
+  const titles = () => slot.queryAllByText(/retries|headers/).map((el) => el.textContent);
+  const nameView = async (button: string, name: string) => {
+    fireEvent.click(slot.getByRole("button", { name: button }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "View name" }), { target: { value: name } });
+    fireEvent.submit(screen.getByRole("textbox", { name: "View name" }).closest("form")!);
+  };
+  // No filters, no views: nothing to save, and no row of views.
+  expect(slot.queryByRole("button", { name: "Save view" })).toBeNull();
+  expect(slot.queryByRole("toolbar", { name: "Views" })).toBeNull();
+
+  fireEvent.click(slot.getByRole("button", { name: "Add filter" }));
+  fireEvent.click(await screen.findByRole("button", { name: "GitHub team reviewers" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /acme\/live-dev/ }));
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Find teams" }), { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("textbox", { name: "Find teams" })).toBeNull());
+  await nameView("Save view", "Live 4 Project");
+  const views = () => within(slot.getByRole("toolbar", { name: "Views" }));
+  await waitFor(() => expect(views().getByRole("button", { name: "Live 4 Project" }).getAttribute("aria-pressed")).toBe("true"));
+  expect(slot.queryByRole("button", { name: "Save view" })).toBeNull();
+
+  // All shows everything; the view sets its filters again.
+  fireEvent.click(views().getByRole("button", { name: "All" }));
+  expect(titles()).toEqual(["Stream retries", "Cache headers"]);
+  fireEvent.click(views().getByRole("button", { name: "Live 4 Project" }));
+  expect(titles()).toEqual(["Stream retries"]);
+
+  // Changed, a view offers Save over it and Save as new; a name another view has, in any case, isn't taken.
+  fireEvent.click(within(slot.getByRole("list", { name: "Filters" })).getByRole("button", { name: /GitHub team reviewers is; switch/ }));
+  expect(titles()).toEqual(["Cache headers"]);
+  await nameView("Save as new", "live 4 PROJECT");
+  expect(await screen.findByText("There’s a view named “live 4 PROJECT”")).toBeTruthy();
+  fireEvent.change(screen.getByRole("textbox", { name: "View name" }), { target: { value: "Not Live" } });
+  fireEvent.submit(screen.getByRole("textbox", { name: "View name" }).closest("form")!);
+  await waitFor(() => expect(views().getByRole("button", { name: "Not Live" }).getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(views().getByRole("button", { name: "Live 4 Project" }));
+  expect(titles()).toEqual(["Stream retries"]);
+
+  // Rename, from the pressed view's ⋯.
+  fireEvent.click(views().getByRole("button", { name: "Live 4 Project view actions" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Rename" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "View name" }), { target: { value: "Live Dev" } });
+  fireEvent.submit(screen.getByRole("textbox", { name: "View name" }).closest("form")!);
+  await waitFor(() => expect(views().getByRole("button", { name: "Live Dev" })).toBeTruthy());
+  slot.lifecycle.unmount();
+
+  // Views outlast the tab; the filters and the view they started from don't.
+  sessionStorage.clear();
+  const again = await inbox(reviews);
+  await again.slot.findByText("Cache headers");
+  const tabs = within(again.slot.getByRole("toolbar", { name: "Views" }));
+  expect(tabs.getAllByRole("button").map((b) => b.textContent)).toEqual(["All", "Live Dev", "Not Live"]);
+  expect(tabs.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(tabs.getByRole("button", { name: "Not Live" }));
+  expect(again.slot.queryByText("Stream retries")).toBeNull();
+  fireEvent.click(tabs.getByRole("button", { name: "Not Live view actions" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Delete view" }));
+  // Its filters stay, as filters of your own, to keep or clear.
+  await waitFor(() => expect(tabs.queryByRole("button", { name: "Not Live" })).toBeNull());
+  expect(again.slot.queryByText("Stream retries")).toBeNull();
+  expect(again.slot.getByRole("button", { name: "Save view" })).toBeTruthy();
+  again.slot.lifecycle.unmount();
+});
+
 test("a pasted link to a listed PR, or its owner/repo#n, opens it", async () => {
   const { slot, calls } = await inbox([{ targetKey: "pr-42", kind: "pr", repo: "acme/web", number: 42, title: "Expire cache entries", status: "ready", signals: { requestedBy: "alice" }, turn: turn("needs", "re-requested", "Re-requested") }]);
   await slot.findByText("Expire cache entries");

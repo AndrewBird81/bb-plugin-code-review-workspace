@@ -128,3 +128,48 @@ export function savedFilters(): Filter[] {
 export function saveFilters(filters: readonly Filter[]): void {
   try { sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters)); } catch { /* best-effort */ }
 }
+
+/** A named set of filters you keep, such as "Updated this week": its date spans stay relative to now. */
+export interface FilterView { id: string; name: string; filters: Filter[] }
+
+export const VIEW_NAME_LIMIT = 60;
+/** Your views, in this browser, kept past the tab as the filters aren't. */
+const VIEWS_KEY = "gr:inbox-views";
+/** The view the tab's filters started from, kept as the filters are. */
+const ACTIVE_VIEW_KEY = "gr:inbox-view";
+
+export function savedViews(): FilterView[] {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(VIEWS_KEY) ?? "[]");
+    if (!Array.isArray(saved)) return [];
+    return saved.filter((v): v is FilterView => !!v && typeof v.id === "string" && typeof v.name === "string" && !!v.name.trim() && Array.isArray(v.filters))
+      .map((v) => ({ id: v.id, name: v.name.slice(0, VIEW_NAME_LIMIT), filters: v.filters.filter(validFilter).filter((f, i, all) => all.findIndex((g) => g.field === f.field) === i) }));
+  } catch { return []; }
+}
+
+export function saveViews(views: readonly FilterView[]): void {
+  try { localStorage.setItem(VIEWS_KEY, JSON.stringify(views)); } catch { /* best-effort */ }
+}
+
+export function savedActiveView(): string | null {
+  try { return sessionStorage.getItem(ACTIVE_VIEW_KEY); } catch { return null; }
+}
+
+export function saveActiveView(id: string | null): void {
+  try { if (id) sessionStorage.setItem(ACTIVE_VIEW_KEY, id); else sessionStorage.removeItem(ACTIVE_VIEW_KEY); } catch { /* best-effort */ }
+}
+
+/** Whether two sets of filters match the same reviews, in any order and with values in any order. */
+export function sameFilters(a: readonly Filter[], b: readonly Filter[]): boolean {
+  const key = (filters: readonly Filter[]) => JSON.stringify(filters.map((f) => "days" in f
+    ? [f.field, f.days, !!f.before] : [f.field, [...f.values].sort(), !!f.negate]).sort((x, y) => String(x[0]).localeCompare(String(y[0]))));
+  return key(a) === key(b);
+}
+
+/** Why `name` can't name a view, or null: blank, or another view's (`except` is the one being renamed). */
+export function viewNameProblem(views: readonly FilterView[], name: string, except?: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return "Name the view";
+  if (views.some((v) => v.id !== except && v.name.trim().toLowerCase() === trimmed.toLowerCase())) return `There’s a view named “${trimmed}”`;
+  return null;
+}

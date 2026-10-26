@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Save view** keeps All reviews' filters under a name, such as "Live 4 Project" or "Updated this week", in this browser. Views show above the filters as tabs after **All**; picking one sets its filters, and a date span stays relative to now. Change a view's filters and **Save** updates it or **Save as new** names another; the pressed view's ⋯ renames or deletes it. Views keep filters only, not the box's words.
+- A filter's value list taller than the menu cuts its last row in half, so it reads as more to scroll to, where it ended on a whole row and its other values looked missing. A value too long for the menu shows whole on hover.
+
 ## 1.6.0 — 2026-10-26
 
 Filter All reviews as Linear does. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.6.0. 1.6.0 adds no migration, so rolling back to 1.5.2 keeps everything.

@@ -65,7 +65,8 @@ function FieldChoices({ field, filters, onFilters, reviews, onDone, onBack }: {
     <Input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} aria-label={`Find ${info.noun}`} placeholder={`Find ${info.noun}…`}
       onKeyDown={(event) => { if (event.key === "Enter" && choices[0]) { event.preventDefault(); toggle(choices[0].value); } }}
       className="mb-1 h-8 border-0 bg-transparent text-sm shadow-none focus-visible:ring-0 pointer-coarse:h-11" />
-    <div className="max-h-72 overflow-y-auto">
+    {/* Nine and a half rows, so the cut falls mid-row and reads as more to scroll to. */}
+    <div className="max-h-76 overflow-y-auto">
       {choices.length ? choices.map(({ value, count }) => {
         const color = field === "labels" ? labelColor(reviews, value) : null;
         return <Button key={value} variant="ghost" size="sm" role="checkbox" aria-checked={chosen.includes(value)} className={MENU_ITEM} onClick={() => toggle(value)}>
@@ -73,7 +74,7 @@ function FieldChoices({ field, filters, onFilters, reviews, onDone, onBack }: {
             {chosen.includes(value) && <Icon name="Check" className="size-3" aria-hidden />}
           </span>
           {color && <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden />}
-          <span className="min-w-0 truncate text-foreground">{value}</span>
+          <span title={value} className="min-w-0 truncate text-foreground">{value}</span>
           <span className="ml-auto text-xs font-normal text-subtle-foreground">{count}</span>
         </Button>;
       }) : <p className="px-2.5 py-2 text-sm text-muted-foreground">{query ? `No ${info.noun} match` : `No reviews have ${info.noun} yet`}</p>}
@@ -136,10 +137,11 @@ function Chip({ filter, filters, onFilters, reviews }: { filter: Filter; filters
 
 /**
  * The list's filters as chips, each saying its field, how it matches (a click flips it: is / is not, in the last / more
- * than), and its values, which open to change; then Filter, or + once there's one, to add another. `menuOpen` lets F open it.
+ * than), and its values, which open to change; then Filter, or + once there's one, to add another, and `trailing`, as
+ * Save view. `menuOpen` lets F open it.
  */
-export function FilterBar({ filters, onFilters, reviews, menuOpen, onMenuOpen }: {
-  filters: readonly Filter[]; onFilters(filters: Filter[]): void; reviews: readonly ReviewItem[]; menuOpen: boolean; onMenuOpen(open: boolean): void;
+export function FilterBar({ filters, onFilters, reviews, menuOpen, onMenuOpen, trailing }: {
+  filters: readonly Filter[]; onFilters(filters: Filter[]): void; reviews: readonly ReviewItem[]; menuOpen: boolean; onMenuOpen(open: boolean): void; trailing?: ReactNode;
 }) {
   return <ul aria-label="Filters" className="flex flex-wrap items-center gap-1.5">
     {filters.map((filter) => <Chip key={filter.field} filter={filter} filters={filters} onFilters={onFilters} reviews={reviews} />)}
@@ -156,5 +158,6 @@ export function FilterBar({ filters, onFilters, reviews, menuOpen, onMenuOpen }:
       </Popover>
     </li>
     {filters.length > 1 && <li><Button variant="ghost" size="sm" className={cn("h-7 px-2 text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL)} onClick={() => onFilters([])}>Clear</Button></li>}
+    {trailing && <li className="flex items-center gap-1">{trailing}</li>}
   </ul>;
 }
