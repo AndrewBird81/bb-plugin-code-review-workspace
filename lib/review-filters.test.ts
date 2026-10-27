@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "vitest";
 import type { Turn } from "./turn";
 import type { ReviewItem } from "./review-state";
-import { choicesFor, labelColor, matchesFilter, matchesFilters, sameFilters, savedActiveView, savedFilters, saveFilters, savedViews, saveActiveView, saveViews, valuesOf, viewNameProblem, type Filter } from "./review-filters";
+import { choicesFor, forgetLegacyViews, labelColor, legacyViews, matchesFilter, matchesFilters, readViews, sameFilters, savedActiveView, savedFilters, saveFilters, saveActiveView, valuesOf, viewNameProblem, type Filter } from "./review-filters";
 
 const DAY = 86_400_000;
 const now = Date.parse("2026-10-26T12:00:00Z");
@@ -86,16 +86,26 @@ test("filters are kept in this tab, as the box's words are, and a malformed one 
   expect(savedFilters()).toEqual([]);
 });
 
-test("views are kept in this browser, past the tab, with their malformed filters dropped", () => {
-  saveViews([{ id: "v1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] }]);
-  expect(savedViews()).toEqual([{ id: "v1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] }]);
-  localStorage.setItem("gr:inbox-views", JSON.stringify([
+test("views read from the server keep what this version can read: a newer one's filters, and malformed views, are left out", () => {
+  expect(readViews([
+    { id: "v1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] },
     { id: "v2", name: "Last week", filters: [{ field: "updated", days: 7 }, { field: "nope" }, { field: "updated", days: 1 }] },
     { id: "v3", name: "  ", filters: [] }, { name: "No id", filters: [] }, null,
-  ]));
-  expect(savedViews()).toEqual([{ id: "v2", name: "Last week", filters: [{ field: "updated", days: 7 }] }]);
+  ])).toEqual([
+    { id: "v1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] },
+    { id: "v2", name: "Last week", filters: [{ field: "updated", days: 7 }] },
+  ]);
+  expect(readViews({})).toEqual([]);
+});
+
+test("views this browser kept before the database are read once, to move there, and forgotten", () => {
+  localStorage.setItem("gr:inbox-views", JSON.stringify([{ id: "v1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] }]));
+  expect(legacyViews()).toEqual([{ id: "v1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] }]);
+  forgetLegacyViews();
+  expect(legacyViews()).toEqual([]);
+  expect(localStorage.getItem("gr:inbox-views")).toBeNull();
   localStorage.setItem("gr:inbox-views", "{");
-  expect(savedViews()).toEqual([]);
+  expect(legacyViews()).toEqual([]);
 });
 
 test("the active view is the tab's, as its filters are", () => {

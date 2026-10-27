@@ -79,6 +79,7 @@ export const PG_MIGRATIONS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS discussion_entries_location ON discussion_entries (target_key, file, line, side)`,
   `ALTER TABLE review_preferences ADD COLUMN knobs TEXT`,
   `ALTER TABLE agent_comment_changes ADD COLUMN reason TEXT`,
+  `CREATE TABLE IF NOT EXISTS filter_views (id TEXT COLLATE "C" PRIMARY KEY, name TEXT NOT NULL, filters TEXT NOT NULL, created_at BIGINT NOT NULL)`,
 ];
 
 const statementHash = (statement: string) => createHash("sha256").update(statement).digest("hex");

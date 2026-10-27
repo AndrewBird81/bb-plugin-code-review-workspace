@@ -91,7 +91,7 @@ function randomCall(r: Rng, made: Made): Call {
   const k = r.pick(KEYS);
   const at = location(r);
   const call = (name: string, run: Call["run"]): Call => ({ name: `${name} ${k}`, run });
-  switch (r.int(0, 50)) {
+  switch (r.int(0, 51)) {
     case 0: case 1: {
       const meta: ReviewMeta = {
         targetKey: k, kind: k.startsWith("pr") ? "pr" : "ref", status: r.pick(["generating", "ready", "error", "tracked"] as const), createdAt: r.pick(TIMES),
@@ -200,6 +200,10 @@ function randomCall(r: Rng, made: Made): Call {
     case 49: {
       const moves = LOCATIONS.filter((l) => l.file && r.bool(0.1)).map((l) => ({ at: l, line: r.int(1, 4) }));
       return call("moveAgentCommentChanges", (s) => s.moveAgentCommentChanges(k, moves));
+    }
+    case 50: {
+      const id = r.pick(["v1", "v2"]), filters = r.pick([[], [{ field: "author", values: ["alice"] }], [{ field: "updated", days: 7 }]]);
+      return r.bool(0.7) ? call("saveFilterView", (s) => s.saveFilterView({ id, name: r.pick(TEXTS), filters })) : call("deleteFilterView", (s) => s.deleteFilterView(id));
     }
     default: {
       if (r.bool(0.5)) {

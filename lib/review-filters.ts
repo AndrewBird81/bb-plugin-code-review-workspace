@@ -2,9 +2,10 @@
 import type { IconName } from "../components/ui/icon";
 import { reviewState, type ReviewItem } from "./review-state";
 import { lastActivity } from "./status-line";
+import { DATE_FIELDS, VIEW_NAME_LIMIT, type DateField, type ValueField } from "./filter-fields";
 
-export type ValueField = "status" | "author" | "reviewers" | "teams" | "labels" | "owner" | "repo" | "ci" | "verdict" | "kind";
-export type DateField = "added" | "updated" | "merged" | "closed";
+export type { DateField, ValueField };
+export { VIEW_NAME_LIMIT };
 export type FilterField = ValueField | DateField;
 
 /** A review matches when it has any of `values` (none of them, `negate`), or its time is within `days` (`before`: longer ago). */
@@ -38,8 +39,8 @@ export const FIELD_GROUPS: FieldInfo[][] = [
   ],
 ];
 export const FIELDS = new Map(FIELD_GROUPS.flat().map((info) => [info.field, info]));
-const DATE_FIELDS = new Set<FilterField>(["added", "updated", "merged", "closed"]);
-export const isDateField = (field: FilterField): field is DateField => DATE_FIELDS.has(field);
+const DATES = new Set<FilterField>(DATE_FIELDS);
+export const isDateField = (field: FilterField): field is DateField => DATES.has(field);
 
 /** The spans a date filter offers, in days. */
 export const DAY_CHOICES: Array<{ days: number; label: string }> = [
@@ -132,23 +133,25 @@ export function saveFilters(filters: readonly Filter[]): void {
 /** A named set of filters you keep, such as "Updated this week": its date spans stay relative to now. */
 export interface FilterView { id: string; name: string; filters: Filter[] }
 
-export const VIEW_NAME_LIMIT = 60;
-/** Your views, in this browser, kept past the tab as the filters aren't. */
-const VIEWS_KEY = "gr:inbox-views";
+/** Where views were kept, in the browser, before the plugin's database kept them. */
+const LEGACY_VIEWS_KEY = "gr:inbox-views";
 /** The view the tab's filters started from, kept as the filters are. */
 const ACTIVE_VIEW_KEY = "gr:inbox-view";
 
-export function savedViews(): FilterView[] {
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(VIEWS_KEY) ?? "[]");
-    if (!Array.isArray(saved)) return [];
-    return saved.filter((v): v is FilterView => !!v && typeof v.id === "string" && typeof v.name === "string" && !!v.name.trim() && Array.isArray(v.filters))
-      .map((v) => ({ id: v.id, name: v.name.slice(0, VIEW_NAME_LIMIT), filters: v.filters.filter(validFilter).filter((f, i, all) => all.findIndex((g) => g.field === f.field) === i) }));
-  } catch { return []; }
+/** The views in `saved`, as the server sends them: a view's filters this version can't read are left out. */
+export function readViews(saved: unknown): FilterView[] {
+  if (!Array.isArray(saved)) return [];
+  return saved.filter((v): v is FilterView => !!v && typeof v.id === "string" && typeof v.name === "string" && !!v.name.trim() && Array.isArray(v.filters))
+    .map((v) => ({ id: v.id, name: v.name.slice(0, VIEW_NAME_LIMIT), filters: v.filters.filter(validFilter).filter((f, i, all) => all.findIndex((g) => g.field === f.field) === i) }));
 }
 
-export function saveViews(views: readonly FilterView[]): void {
-  try { localStorage.setItem(VIEWS_KEY, JSON.stringify(views)); } catch { /* best-effort */ }
+/** Views this browser kept before the database did, to move there once. */
+export function legacyViews(): FilterView[] {
+  try { return readViews(JSON.parse(localStorage.getItem(LEGACY_VIEWS_KEY) ?? "[]")); } catch { return []; }
+}
+
+export function forgetLegacyViews(): void {
+  try { localStorage.removeItem(LEGACY_VIEWS_KEY); } catch { /* best-effort */ }
 }
 
 export function savedActiveView(): string | null {

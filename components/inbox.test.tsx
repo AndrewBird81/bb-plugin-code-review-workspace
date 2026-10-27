@@ -8,7 +8,9 @@ import { defaultKnobs } from "../lib/knobs";
 import type { Turn } from "../lib/turn";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
-afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); });
+/** The saved views the fake server keeps, across a test's page loads. */
+let savedViews: Array<{ id: string; name: string; filters: unknown[] }> = [];
+afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); savedViews = []; });
 
 const DAY = 86_400_000;
 const now = Date.now();
@@ -27,6 +29,12 @@ async function inbox(reviews: unknown[], rpc: Record<string, (input: any) => unk
     listReviews,
     // A pass that finds nothing new, as the first run makes.
     refreshReviews: listReviews,
+    listFilterViews: () => ({ views: savedViews }),
+    saveFilterView: (view: typeof savedViews[number]) => {
+      savedViews = savedViews.some((v) => v.id === view.id) ? savedViews.map((v) => v.id === view.id ? view : v) : [...savedViews, view];
+      return { ok: true };
+    },
+    deleteFilterView: ({ id }: { id: string }) => { savedViews = savedViews.filter((v) => v.id !== id); return { ok: true }; },
     ...rpc,
   } as any });
   const calls = (method: string) => slot.inspection.rpcCalls.filter((call) => call.method === method).map((call) => call.input);
@@ -394,7 +402,7 @@ test("F adds a filter only where the filters show: not for a pasted link", async
   slot.lifecycle.unmount();
 });
 
-test("filters save as named views, kept in this browser, that switch, update, save as new, rename, and go", async () => {
+test("filters save as named views, kept by the plugin for every browser, that switch, update, save as new, rename, and go", async () => {
   const reviews = [
     { targetKey: "a", kind: "pr", repo: "acme/live-api", number: 1, author: "alice", title: "Stream retries", status: "ready", prTeams: ["acme/live-dev"], prUpdatedAt: now - DAY },
     { targetKey: "b", kind: "pr", repo: "acme/web", number: 2, author: "bob", title: "Cache headers", status: "ready", prUpdatedAt: now - 20 * DAY },
@@ -446,7 +454,7 @@ test("filters save as named views, kept in this browser, that switch, update, sa
   await waitFor(() => expect(views().getByRole("button", { name: "Live Dev" })).toBeTruthy());
   slot.lifecycle.unmount();
 
-  // Views outlast the tab; the filters and the view they started from don't.
+  // Views are the plugin's, so they outlast the tab; the filters and the view they started from don't.
   sessionStorage.clear();
   const again = await inbox(reviews);
   await again.slot.findByText("Cache headers");
@@ -464,6 +472,33 @@ test("filters save as named views, kept in this browser, that switch, update, sa
   expect(again.slot.queryByText("Stream retries")).toBeNull();
   expect(again.slot.getByRole("button", { name: "Save view" })).toBeTruthy();
   again.slot.lifecycle.unmount();
+});
+
+test("views this browser kept before move to the plugin once, but for a name a view there has, and leave the browser", async () => {
+  savedViews = [{ id: "s1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] }];
+  localStorage.setItem("gr:inbox-views", JSON.stringify([
+    { id: "b1", name: "live 4 project", filters: [{ field: "author", values: ["bob"] }] },
+    { id: "b2", name: "Last 1 week updated", filters: [{ field: "updated", days: 7 }] },
+  ]));
+  const { slot, calls } = await inbox([{ targetKey: "a", kind: "pr", title: "A change", status: "ready" }]);
+  const tabs = within(await slot.findByRole("toolbar", { name: "Views" }));
+  await waitFor(() => expect(tabs.getAllByRole("button").map((b) => b.textContent)).toEqual(["All", "Live 4 Project", "Last 1 week updated"]));
+  expect(calls("saveFilterView")).toEqual([{ id: "b2", name: "Last 1 week updated", filters: [{ field: "updated", days: 7 }] }]);
+  expect(localStorage.getItem("gr:inbox-views")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("a view the plugin couldn't save lists the views again as the plugin has them", async () => {
+  savedViews = [{ id: "s1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] }];
+  const { slot } = await inbox([{ targetKey: "a", kind: "pr", title: "A change", status: "ready", prTeams: ["acme/live-dev"] }], {
+    deleteFilterView: () => { throw new Error("offline"); },
+  });
+  const tabs = within(await slot.findByRole("toolbar", { name: "Views" }));
+  fireEvent.click(tabs.getByRole("button", { name: "Live 4 Project" }));
+  fireEvent.click(slot.getByRole("button", { name: "Edit view" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Delete view" }));
+  await waitFor(() => expect(tabs.getByRole("button", { name: "Live 4 Project" })).toBeTruthy());
+  slot.lifecycle.unmount();
 });
 
 test("a pasted link to a listed PR, or its owner/repo#n, opens it", async () => {

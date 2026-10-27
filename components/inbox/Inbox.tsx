@@ -5,7 +5,7 @@ import type { rpcContract } from "../../src/rpc-contract";
 import type { SyncHealth } from "../../src/review-lifecycle";
 import { forgetReviews } from "../../lib/panel-state";
 import { parsePrLink } from "../../lib/pr-link";
-import { matchesFilters, sameFilters, savedActiveView, savedFilters, saveFilters, savedViews, saveActiveView, saveViews, type Filter, type FilterView } from "../../lib/review-filters";
+import { forgetLegacyViews, legacyViews, matchesFilters, readViews, sameFilters, savedActiveView, savedFilters, saveFilters, saveActiveView, viewNameProblem, type Filter, type FilterView } from "../../lib/review-filters";
 import { needsGroup, needsOrder, reviewState, type NeedsGroup, type ReviewItem } from "../../lib/review-state";
 import { useKnob } from "../../lib/settings";
 import { withStacks } from "../../lib/stacks";
@@ -121,7 +121,7 @@ export function Inbox() {
   const [collapsed, setCollapsed] = useState(savedSections);
   const [filters, setFilters] = useState<Filter[]>(savedFilters);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
-  const [views, setViews] = useState<FilterView[]>(savedViews);
+  const [views, setViews] = useState<FilterView[]>([]);
   const [activeViewId, setActiveViewId] = useState(savedActiveView);
   const [refreshing, setRefreshing] = useState(false);
   const [syncError, setSyncError] = useState(false);
@@ -135,8 +135,29 @@ export function Inbox() {
     try { sessionStorage.setItem(VIEW_KEY, JSON.stringify({ query })); } catch { /* best-effort */ }
   }, [query]);
   useEffect(() => saveFilters(filters), [filters]);
-  useEffect(() => saveViews(views), [views]);
   useEffect(() => saveActiveView(activeViewId), [activeViewId]);
+  // Views are kept in the plugin's database, for every browser; a write that fails lists them again as they are.
+  const listViews = useCallback(() => {
+    void rpc.call("listFilterViews", null).then((result) => setViews(readViews(result.views))).catch(() => {});
+  }, [rpc]);
+  useRealtime("filter-views", listViews);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      let saved: FilterView[];
+      try { saved = readViews((await rpc.call("listFilterViews", null)).views); } catch { return; }
+      // Views this browser kept before the database did move there once, but for one whose name a view there has.
+      const legacy = legacyViews().filter((view) => !saved.some((s) => s.id === view.id) && !viewNameProblem(saved, view.name));
+      let moved = true;
+      for (const view of legacy) {
+        try { await rpc.call("saveFilterView", view); saved = [...saved, view]; } catch { moved = false; }
+      }
+      if (moved) forgetLegacyViews();
+      if (!cancelled) setViews(saved);
+    })();
+    return () => { cancelled = true; };
+  }, [rpc]);
+  const writeView = (call: Promise<unknown>) => { void call.catch(listViews); };
   // The view the filters started from, while it's there; changing them keeps it, to save over or as new.
   const activeView = views.find((view) => view.id === activeViewId) ?? null;
   const viewChanged = !!activeView && !sameFilters(activeView.filters, filters);
@@ -145,11 +166,20 @@ export function Inbox() {
     const view = { id: crypto.randomUUID(), name, filters };
     setViews((all) => [...all, view]);
     setActiveViewId(view.id);
+    writeView(rpc.call("saveFilterView", view));
   };
-  const updateView = () => setViews((all) => all.map((view) => view.id === activeViewId ? { ...view, filters } : view));
-  const renameView = (target: FilterView, name: string) => setViews((all) => all.map((view) => view.id === target.id ? { ...view, name } : view));
+  const changeView = (next: FilterView) => {
+    setViews((all) => all.map((view) => view.id === next.id ? next : view));
+    writeView(rpc.call("saveFilterView", next));
+  };
+  const updateView = () => { if (activeView) changeView({ ...activeView, filters }); };
+  const renameView = (target: FilterView, name: string) => changeView({ ...target, name });
   // Its filters stay, as filters of your own.
-  const deleteView = (target: FilterView) => { setViews((all) => all.filter((view) => view.id !== target.id)); setActiveViewId(null); };
+  const deleteView = (target: FilterView) => {
+    setViews((all) => all.filter((view) => view.id !== target.id));
+    setActiveViewId(null);
+    writeView(rpc.call("deleteFilterView", { id: target.id }));
+  };
 
   const refresh = useCallback(async (force = true) => {
     setRefreshing(true); setSyncError(false);

@@ -121,6 +121,7 @@ export async function dumpStoreReads(store: AsyncStore, entities: StoreEntities)
   global.listAssistantThreads = await read(() => store.listAssistantThreads());
   global.reasonedRemovals = await read(() => store.reasonedRemovals());
   global.listAgentOutcomes = await read(() => store.listAgentOutcomes());
+  global.listFilterViews = await read(() => store.listFilterViews());
   const generationOf: Record<string, unknown> = {};
   for (const threadId of entities.threadIds) generationOf[threadId] = await read(() => store.generationOf(threadId));
   global.generationOf = generationOf;

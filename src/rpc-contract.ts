@@ -4,6 +4,7 @@ import { releaseRpc } from "./plugin-updates";
 import { SEVERITIES } from "./draft";
 import { REMOVAL_NOTE_LIMIT, REMOVAL_REASONS } from "../lib/removal-reasons";
 import { NAME_LIMIT } from "../lib/review-name";
+import { DATE_FIELDS, VALUE_FIELDS, VIEW_NAME_LIMIT } from "../lib/filter-fields";
 import { agentChoiceSchema, agentExecutionSchema, knobsSchema, preferencesSchema } from "./preferences";
 
 // The RPC data plane between the panel (app.tsx) and the backend (server.ts).
@@ -15,6 +16,16 @@ const lineNumber = z.number().int().min(0).max(2_147_483_647);
 const startLine = z.number().int().min(1).max(2_147_483_647);
 /** A time in epoch ms, as the store keeps it: an integer a JavaScript number holds exactly. */
 const epochMs = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+
+/** A saved view of All reviews' filters, as lib/review-filters.ts makes it. */
+const filterViewShape = z.object({
+  id: z.string().min(1).max(100),
+  name: z.string().trim().min(1).max(VIEW_NAME_LIMIT),
+  filters: z.array(z.union([
+    z.object({ field: z.enum(VALUE_FIELDS), values: z.array(z.string().max(500)).max(200), negate: z.boolean().optional() }).strict(),
+    z.object({ field: z.enum(DATE_FIELDS), days: z.number().int().min(1).max(3650), before: z.boolean().optional() }).strict(),
+  ])).max(VALUE_FIELDS.length + DATE_FIELDS.length),
+}).strict();
 
 const commentShape = z
   .object({
@@ -108,6 +119,10 @@ export const rpcContract = defineRpcContract({
   suggestAssistantInstructions: { input: z.null(), output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
   /** Forget a finished proposal, once the reviewer adds it to their instructions or discards it. */
   dismissInstructionSuggestion: { input: z.null(), output: z.object({ ok: z.boolean() }) },
+  // Saved views of All reviews' filters. A view's filters are read back loosely: a newer version's may be there.
+  listFilterViews: { input: z.null(), output: z.object({ views: z.array(z.object({ id: z.string(), name: z.string(), filters: z.array(z.unknown()) })) }) },
+  saveFilterView: { input: filterViewShape, output: z.object({ ok: z.literal(true) }) },
+  deleteFilterView: { input: z.object({ id: z.string().min(1).max(100) }).strict(), output: z.object({ ok: z.literal(true) }) },
   getReviewerNotes: { input: targetKey, output: z.object({ body: z.string(), revision: z.number().int() }) },
   saveReviewerNotes: {
     input: z.object({ targetKey: z.string(), body: z.string().max(100000), revision: z.number().int().min(0) }).strict(),
