@@ -202,8 +202,8 @@ function randomCall(r: Rng, made: Made): Call {
       return call("moveAgentCommentChanges", (s) => s.moveAgentCommentChanges(k, moves));
     }
     case 50: {
-      const id = r.pick(["v1", "v2"]), filters = r.pick([[], [{ field: "author", values: ["alice"] }], [{ field: "updated", days: 7 }]]);
-      return r.bool(0.7) ? call("saveFilterView", (s) => s.saveFilterView({ id, name: r.pick(TEXTS), filters })) : call("deleteFilterView", (s) => s.deleteFilterView(id));
+      const id = r.pick(["v1", "v2"]), name = r.pick(TEXTS), filters = r.pick([[], [{ field: "author", values: ["alice"] }], [{ field: "updated", days: 7 }]]);
+      return r.bool(0.7) ? call("saveFilterView", (s) => s.saveFilterView({ id, name, filters })) : call("deleteFilterView", (s) => s.deleteFilterView(id));
     }
     default: {
       if (r.bool(0.5)) {

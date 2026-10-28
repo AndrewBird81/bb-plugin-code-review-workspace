@@ -339,8 +339,8 @@ describe.skipIf(!testPgUrl)("bb review storage, moving the reviews (CRW_TEST_PG_
     expect(await bb.storage.kv.get(STORAGE_OWNER_KEY)).toBeUndefined();
     expect(db.inTransaction).toBe(false);
 
-    db.prepare(`INSERT INTO _bb_migrations (id, applied_at, statement_hash) VALUES (38, 1, 'later')`).run();
-    expect((await run(harness, "migrate")).stderr).toBe("Nothing was copied:\n  - SQLite's data.db has migration 38, which this version doesn't have: a newer version made it.");
+    db.prepare(`INSERT INTO _bb_migrations (id, applied_at, statement_hash) VALUES (39, 1, 'later')`).run();
+    expect((await run(harness, "migrate")).stderr).toBe("Nothing was copied:\n  - SQLite's data.db has migration 39, which this version doesn't have: a newer version made it.");
     expect(await schemaExists(schema)).toBe(false);
   });
 
@@ -408,9 +408,9 @@ describe.skipIf(!testPgUrl)("bb review storage, moving the reviews (CRW_TEST_PG_
     expect(sqliteHasReviews(bb)).toBe(false);
     const { exitCode, stdout } = await run(harness, "migrate");
     expect(exitCode).toBe(0);
-    expect(stdout).toMatch(/^Copied and checked, the same in SQLite and Postgres: 26 tables, 0 rows, and 4 next ids, in \d+ ms\.$/m);
+    expect(stdout).toMatch(/^Copied and checked, the same in SQLite and Postgres: 27 tables, 0 rows, and 4 next ids, in \d+ ms\.$/m);
     expect(sqliteHasReviews(bb)).toBe(true);
-    expect(await connection(schema).get(`SELECT count(*) AS n FROM crw_migrations`)).toEqual({ n: 38 });
+    expect(await connection(schema).get(`SELECT count(*) AS n FROM crw_migrations`)).toEqual({ n: 39 });
     expect(await bb.storage.kv.get(STORAGE_OWNER_KEY)).toBe("postgres");
   });
 
