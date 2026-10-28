@@ -474,20 +474,6 @@ test("filters save as named views, kept by the plugin for every browser, that sw
   again.slot.lifecycle.unmount();
 });
 
-test("views this browser kept before move to the plugin once, but for a name a view there has, and leave the browser", async () => {
-  savedViews = [{ id: "s1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] }];
-  localStorage.setItem("gr:inbox-views", JSON.stringify([
-    { id: "b1", name: "live 4 project", filters: [{ field: "author", values: ["bob"] }] },
-    { id: "b2", name: "Last 1 week updated", filters: [{ field: "updated", days: 7 }] },
-  ]));
-  const { slot, calls } = await inbox([{ targetKey: "a", kind: "pr", title: "A change", status: "ready" }]);
-  const tabs = within(await slot.findByRole("toolbar", { name: "Views" }));
-  await waitFor(() => expect(tabs.getAllByRole("button").map((b) => b.textContent)).toEqual(["All", "Live 4 Project", "Last 1 week updated"]));
-  expect(calls("saveFilterView")).toEqual([{ id: "b2", name: "Last 1 week updated", filters: [{ field: "updated", days: 7 }] }]);
-  expect(localStorage.getItem("gr:inbox-views")).toBeNull();
-  slot.lifecycle.unmount();
-});
-
 test("a view the plugin couldn't save lists the views again as the plugin has them", async () => {
   savedViews = [{ id: "s1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] }];
   const { slot } = await inbox([{ targetKey: "a", kind: "pr", title: "A change", status: "ready", prTeams: ["acme/live-dev"] }], {

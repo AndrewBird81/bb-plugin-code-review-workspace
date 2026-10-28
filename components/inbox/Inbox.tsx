@@ -5,7 +5,7 @@ import type { rpcContract } from "../../src/rpc-contract";
 import type { SyncHealth } from "../../src/review-lifecycle";
 import { forgetReviews } from "../../lib/panel-state";
 import { parsePrLink } from "../../lib/pr-link";
-import { forgetLegacyViews, legacyViews, matchesFilters, readViews, sameFilters, savedActiveView, savedFilters, saveFilters, saveActiveView, viewNameProblem, type Filter, type FilterView } from "../../lib/review-filters";
+import { matchesFilters, readViews, sameFilters, savedActiveView, savedFilters, saveFilters, saveActiveView, type Filter, type FilterView } from "../../lib/review-filters";
 import { needsGroup, needsOrder, reviewState, type NeedsGroup, type ReviewItem } from "../../lib/review-state";
 import { useKnob } from "../../lib/settings";
 import { withStacks } from "../../lib/stacks";
@@ -146,13 +146,6 @@ export function Inbox() {
     void (async () => {
       let saved: FilterView[];
       try { saved = readViews((await rpc.call("listFilterViews", null)).views); } catch { return; }
-      // Views this browser kept before the database did move there once, but for one whose name a view there has.
-      const legacy = legacyViews().filter((view) => !saved.some((s) => s.id === view.id) && !viewNameProblem(saved, view.name));
-      let moved = true;
-      for (const view of legacy) {
-        try { await rpc.call("saveFilterView", view); saved = [...saved, view]; } catch { moved = false; }
-      }
-      if (moved) forgetLegacyViews();
       if (!cancelled) setViews(saved);
     })();
     return () => { cancelled = true; };

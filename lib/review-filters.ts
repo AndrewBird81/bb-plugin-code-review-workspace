@@ -133,8 +133,6 @@ export function saveFilters(filters: readonly Filter[]): void {
 /** A named set of filters you keep, such as "Updated this week": its date spans stay relative to now. */
 export interface FilterView { id: string; name: string; filters: Filter[] }
 
-/** Where views were kept, in the browser, before the plugin's database kept them. */
-const LEGACY_VIEWS_KEY = "gr:inbox-views";
 /** The view the tab's filters started from, kept as the filters are. */
 const ACTIVE_VIEW_KEY = "gr:inbox-view";
 
@@ -143,15 +141,6 @@ export function readViews(saved: unknown): FilterView[] {
   if (!Array.isArray(saved)) return [];
   return saved.filter((v): v is FilterView => !!v && typeof v.id === "string" && typeof v.name === "string" && !!v.name.trim() && Array.isArray(v.filters))
     .map((v) => ({ id: v.id, name: v.name.slice(0, VIEW_NAME_LIMIT), filters: v.filters.filter(validFilter).filter((f, i, all) => all.findIndex((g) => g.field === f.field) === i) }));
-}
-
-/** Views this browser kept before the database did, to move there once. */
-export function legacyViews(): FilterView[] {
-  try { return readViews(JSON.parse(localStorage.getItem(LEGACY_VIEWS_KEY) ?? "[]")); } catch { return []; }
-}
-
-export function forgetLegacyViews(): void {
-  try { localStorage.removeItem(LEGACY_VIEWS_KEY); } catch { /* best-effort */ }
 }
 
 export function savedActiveView(): string | null {
