@@ -2,9 +2,10 @@
 import type { IconName } from "../components/ui/icon";
 import { reviewState, type ReviewItem } from "./review-state";
 import { lastActivity } from "./status-line";
+import { DATE_FIELDS, VIEW_NAME_LIMIT, type DateField, type ValueField } from "./filter-fields";
 
-export type ValueField = "status" | "author" | "reviewers" | "teams" | "labels" | "owner" | "repo" | "ci" | "verdict" | "kind";
-export type DateField = "added" | "updated" | "merged" | "closed";
+export type { DateField, ValueField };
+export { VIEW_NAME_LIMIT };
 export type FilterField = ValueField | DateField;
 
 /** A review matches when it has any of `values` (none of them, `negate`), or its time is within `days` (`before`: longer ago). */
@@ -38,8 +39,8 @@ export const FIELD_GROUPS: FieldInfo[][] = [
   ],
 ];
 export const FIELDS = new Map(FIELD_GROUPS.flat().map((info) => [info.field, info]));
-const DATE_FIELDS = new Set<FilterField>(["added", "updated", "merged", "closed"]);
-export const isDateField = (field: FilterField): field is DateField => DATE_FIELDS.has(field);
+const DATES = new Set<FilterField>(DATE_FIELDS);
+export const isDateField = (field: FilterField): field is DateField => DATES.has(field);
 
 /** The spans a date filter offers, in days. */
 export const DAY_CHOICES: Array<{ days: number; label: string }> = [
@@ -127,4 +128,40 @@ export function savedFilters(): Filter[] {
 
 export function saveFilters(filters: readonly Filter[]): void {
   try { sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters)); } catch { /* best-effort */ }
+}
+
+/** A named set of filters you keep, such as "Updated this week": its date spans stay relative to now. */
+export interface FilterView { id: string; name: string; filters: Filter[] }
+
+/** The view the tab's filters started from, kept as the filters are. */
+const ACTIVE_VIEW_KEY = "gr:inbox-view";
+
+/** The views in `saved`, as the server sends them: a view's filters this version can't read are left out. */
+export function readViews(saved: unknown): FilterView[] {
+  if (!Array.isArray(saved)) return [];
+  return saved.filter((v): v is FilterView => !!v && typeof v.id === "string" && typeof v.name === "string" && !!v.name.trim() && Array.isArray(v.filters))
+    .map((v) => ({ id: v.id, name: v.name.slice(0, VIEW_NAME_LIMIT), filters: v.filters.filter(validFilter).filter((f, i, all) => all.findIndex((g) => g.field === f.field) === i) }));
+}
+
+export function savedActiveView(): string | null {
+  try { return sessionStorage.getItem(ACTIVE_VIEW_KEY); } catch { return null; }
+}
+
+export function saveActiveView(id: string | null): void {
+  try { if (id) sessionStorage.setItem(ACTIVE_VIEW_KEY, id); else sessionStorage.removeItem(ACTIVE_VIEW_KEY); } catch { /* best-effort */ }
+}
+
+/** Whether two sets of filters match the same reviews, in any order and with values in any order. */
+export function sameFilters(a: readonly Filter[], b: readonly Filter[]): boolean {
+  const key = (filters: readonly Filter[]) => JSON.stringify(filters.map((f) => "days" in f
+    ? [f.field, f.days, !!f.before] : [f.field, [...f.values].sort(), !!f.negate]).sort((x, y) => String(x[0]).localeCompare(String(y[0]))));
+  return key(a) === key(b);
+}
+
+/** Why `name` can't name a view, or null: blank, or another view's (`except` is the one being renamed). */
+export function viewNameProblem(views: readonly FilterView[], name: string, except?: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return "Name the view";
+  if (views.some((v) => v.id !== except && v.name.trim().toLowerCase() === trimmed.toLowerCase())) return `There’s a view named “${trimmed}”`;
+  return null;
 }

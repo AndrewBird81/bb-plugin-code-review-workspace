@@ -5,7 +5,7 @@ import type { rpcContract } from "../../src/rpc-contract";
 import type { SyncHealth } from "../../src/review-lifecycle";
 import { forgetReviews } from "../../lib/panel-state";
 import { parsePrLink } from "../../lib/pr-link";
-import { matchesFilters, savedFilters, saveFilters, type Filter } from "../../lib/review-filters";
+import { matchesFilters, readViews, sameFilters, savedActiveView, savedFilters, saveFilters, saveActiveView, type Filter, type FilterView } from "../../lib/review-filters";
 import { needsGroup, needsOrder, reviewState, type NeedsGroup, type ReviewItem } from "../../lib/review-state";
 import { useKnob } from "../../lib/settings";
 import { withStacks } from "../../lib/stacks";
@@ -20,6 +20,7 @@ import { CompactViewportOverrideProvider } from "../ui/hooks/use-compact-viewpor
 import { Icon } from "../ui/icon";
 import { Skeleton } from "../ui/skeleton";
 import { FilterBar } from "./FilterBar";
+import { SaveView, ViewTabs } from "./FilterViews";
 import { FirstRun } from "./FirstRun";
 import { InboxRow } from "./InboxRow";
 import { InboxPart, InboxSection, ROWS_CARD } from "./InboxSection";
@@ -120,6 +121,8 @@ export function Inbox() {
   const [collapsed, setCollapsed] = useState(savedSections);
   const [filters, setFilters] = useState<Filter[]>(savedFilters);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const [views, setViews] = useState<FilterView[]>([]);
+  const [activeViewId, setActiveViewId] = useState(savedActiveView);
   const [refreshing, setRefreshing] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [health, setHealth] = useState<SyncHealth>();
@@ -132,6 +135,44 @@ export function Inbox() {
     try { sessionStorage.setItem(VIEW_KEY, JSON.stringify({ query })); } catch { /* best-effort */ }
   }, [query]);
   useEffect(() => saveFilters(filters), [filters]);
+  useEffect(() => saveActiveView(activeViewId), [activeViewId]);
+  // Views are kept in the plugin's database, for every browser; a write that fails lists them again as they are.
+  const listViews = useCallback(() => {
+    void rpc.call("listFilterViews", null).then((result) => setViews(readViews(result.views))).catch(() => {});
+  }, [rpc]);
+  useRealtime("filter-views", listViews);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      let saved: FilterView[];
+      try { saved = readViews((await rpc.call("listFilterViews", null)).views); } catch { return; }
+      if (!cancelled) setViews(saved);
+    })();
+    return () => { cancelled = true; };
+  }, [rpc]);
+  const writeView = (call: Promise<unknown>) => { void call.catch(listViews); };
+  // The view the filters started from, while it's there; changing them keeps it, to save over or as new.
+  const activeView = views.find((view) => view.id === activeViewId) ?? null;
+  const viewChanged = !!activeView && !sameFilters(activeView.filters, filters);
+  const pickView = (view: FilterView | null) => { setActiveViewId(view?.id ?? null); setFilters(view ? view.filters : []); };
+  const createView = (name: string) => {
+    const view = { id: crypto.randomUUID(), name, filters };
+    setViews((all) => [...all, view]);
+    setActiveViewId(view.id);
+    writeView(rpc.call("saveFilterView", view));
+  };
+  const changeView = (next: FilterView) => {
+    setViews((all) => all.map((view) => view.id === next.id ? next : view));
+    writeView(rpc.call("saveFilterView", next));
+  };
+  const updateView = () => { if (activeView) changeView({ ...activeView, filters }); };
+  const renameView = (target: FilterView, name: string) => changeView({ ...target, name });
+  // Its filters stay, as filters of your own.
+  const deleteView = (target: FilterView) => {
+    setViews((all) => all.filter((view) => view.id !== target.id));
+    setActiveViewId(null);
+    writeView(rpc.call("deleteFilterView", { id: target.id }));
+  };
 
   const refresh = useCallback(async (force = true) => {
     setRefreshing(true); setSyncError(false);
@@ -275,7 +316,9 @@ export function Inbox() {
         {!firstRun && (searchInline || phoneBox) && <div className={searchInline ? "px-1.5 pb-2 pt-4" : "sticky top-0 z-20 bg-background px-1.5 py-2"}>{omnibox}</div>}
         {!firstRun && !searchInline && !phoneBox && ownControls && <div className="flex justify-end py-1"><ListTitleBar placement="page" /></div>}
         {showFilters && <div className={cn("px-1.5 pb-2", !searchInline && !phoneBox && "pt-2")}>
-          <FilterBar filters={filters} onFilters={setFilters} reviews={reviews} menuOpen={filterMenuOpen} onMenuOpen={setFilterMenuOpen} />
+          {views.length > 0 && <div className="pb-1.5"><ViewTabs views={views} active={activeView} onPick={pickView} /></div>}
+          <FilterBar filters={filters} onFilters={setFilters} reviews={reviews} menuOpen={filterMenuOpen} onMenuOpen={setFilterMenuOpen}
+            trailing={<SaveView views={views} active={activeView} changed={viewChanged} hasFilters={filters.length > 0} onCreate={createView} onUpdate={updateView} onRename={renameView} onDelete={deleteView} />} />
         </div>}
         {!syncError && problem && <p role="status" className={cn("mx-1.5 mb-2 flex items-start gap-2 rounded-lg border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning-text", firstRun && "mt-4")}><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />{problem}</p>}
         {syncError && <p role="alert" className={cn("mx-1.5 mb-2 flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive-text", firstRun && "mt-4")}><Icon name="AlertCircle" className="mt-0.5 size-4 shrink-0" aria-hidden />Couldn’t refresh GitHub status. Saved reviews are still available; try Refresh again.</p>}

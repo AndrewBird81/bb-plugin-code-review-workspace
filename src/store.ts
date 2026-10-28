@@ -154,6 +154,9 @@ export interface ReviewMeta extends ReviewLifecycle {
   cwd?: string;
 }
 
+/** A named set of All reviews' filters, each filter as the panel sent it (lib/review-filters.ts reads them). */
+export interface FilterViewRecord { id: string; name: string; filters: unknown[] }
+
 export interface FileView {
   file: string;
   hash: string;
@@ -310,6 +313,11 @@ export interface Store extends AgentCommentStore {
   ignoreDiscovery(targetKey: string): Promise<void>;
   unignoreDiscovery(targetKey: string): Promise<void>;
   isDiscoveryIgnored(targetKey: string): Promise<boolean>;
+  // Saved views of All reviews' filters, oldest first.
+  listFilterViews(): Promise<FilterViewRecord[]>;
+  /** Add the view, or rename it or change its filters in its place. */
+  saveFilterView(view: FilterViewRecord): Promise<void>;
+  deleteFilterView(id: string): Promise<void>;
   /** The text a draft comment's line, or with "start" its range's first line, had when it was drafted. */
   draftCommentCode(targetKey: string, at: CommentLocation, end?: "start" | "line"): Promise<string | undefined>;
   /**
@@ -409,6 +417,8 @@ export const SQLITE_MIGRATIONS: readonly string[] = [
     `ALTER TABLE review_preferences ADD COLUMN knobs TEXT`,
     // Why the reviewer removed an agent's comment, and their line about it, as JSON (lib/removal-reasons.ts).
     `ALTER TABLE agent_comment_changes ADD COLUMN reason TEXT`,
+    // Saved views of All reviews' filters (lib/review-filters.ts), their filters as JSON.
+    `CREATE TABLE IF NOT EXISTS filter_views (id TEXT PRIMARY KEY, name TEXT NOT NULL, filters TEXT NOT NULL, created_at INTEGER NOT NULL)`,
 ];
 
 /** The plugin's SQLite database, a former install brought in and SQLITE_MIGRATIONS applied, as the Store opens it. */
@@ -998,6 +1008,17 @@ export function storeOn(sql: Sql): Store {
     },
     async unignoreDiscovery(k) {
       await sql.run(`DELETE FROM discovery_ignores WHERE target_key=?`, [k]);
+    },
+    async listFilterViews() {
+      const rows = await sql.all<{ id: string; name: string; filters: string }>(`SELECT id, name, filters FROM filter_views ORDER BY created_at, id`);
+      return rows.map((row) => ({ id: row.id, name: row.name, filters: JSON.parse(row.filters) as unknown[] }));
+    },
+    async saveFilterView({ id, name, filters }) {
+      await sql.run(`INSERT INTO filter_views (id,name,filters,created_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, filters=excluded.filters`,
+        [id, name, JSON.stringify(filters), Date.now()]);
+    },
+    async deleteFilterView(id) {
+      await sql.run(`DELETE FROM filter_views WHERE id=?`, [id]);
     },
     async isDiscoveryIgnored(k) {
       return !!await sql.get(`SELECT 1 FROM discovery_ignores WHERE target_key=?`, [k]);

@@ -1135,7 +1135,7 @@ export function repoOptions(root: string): CodemodOptions {
       "fileHashes", "getGuide", "guideBackupHead", "isCurrentGeneration", "generationOf", "generationWorker", "getDraft", "staleDraftComments",
       "listDiscussions", "lastDiscussionChange", "getFileViews", "getAgentThread", "listAgentMessages", "getAssistantThread",
       "listAssistantThreads", "getSnapshot", "listFeedbackThreads", "feedbackFetched", "getAssessment", "latestAssessmentRun",
-      "listReplyDrafts", "isDiscoveryIgnored", "draftCommentCode", "agentCommentChanges", "reasonedRemovals", "listAgentOutcomes",
+      "listReplyDrafts", "isDiscoveryIgnored", "draftCommentCode", "agentCommentChanges", "reasonedRemovals", "listAgentOutcomes", "listFilterViews",
     ]),
     queueModule: "src/store-queue.ts",
     storeFactory: { file: "src/store.ts", name: "createStore" },

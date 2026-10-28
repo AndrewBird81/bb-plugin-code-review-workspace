@@ -8,7 +8,9 @@ import { defaultKnobs } from "../lib/knobs";
 import type { Turn } from "../lib/turn";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
-afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); });
+/** The saved views the fake server keeps, across a test's page loads. */
+let savedViews: Array<{ id: string; name: string; filters: unknown[] }> = [];
+afterEach(() => { cleanup(); sessionStorage.clear(); localStorage.clear(); vi.clearAllMocks(); savedViews = []; });
 
 const DAY = 86_400_000;
 const now = Date.now();
@@ -27,6 +29,12 @@ async function inbox(reviews: unknown[], rpc: Record<string, (input: any) => unk
     listReviews,
     // A pass that finds nothing new, as the first run makes.
     refreshReviews: listReviews,
+    listFilterViews: () => ({ views: savedViews }),
+    saveFilterView: (view: typeof savedViews[number]) => {
+      savedViews = savedViews.some((v) => v.id === view.id) ? savedViews.map((v) => v.id === view.id ? view : v) : [...savedViews, view];
+      return { ok: true };
+    },
+    deleteFilterView: ({ id }: { id: string }) => { savedViews = savedViews.filter((v) => v.id !== id); return { ok: true }; },
     ...rpc,
   } as any });
   const calls = (method: string) => slot.inspection.rpcCalls.filter((call) => call.method === method).map((call) => call.input);
@@ -131,6 +139,34 @@ test("with nothing for you, Needs review says so and how many wait on their auth
   slot.lifecycle.unmount();
 });
 
+test("a row starts with its author's GitHub avatar, named on hover, and a local change with a branch", async () => {
+  const { slot } = await inbox([
+    { targetKey: "a", kind: "pr", repo: "acme/web", number: 1, author: "alice", title: "Authored change", status: "ready" },
+    { targetKey: "b", kind: "ref", gitRef: "my-branch", title: "Local change", status: "ready" },
+  ]);
+  const row = (await slot.findByText("Authored change")).closest("button")!;
+  expect(row.querySelector("img")!.getAttribute("src")).toBe("https://github.com/alice.png?size=48");
+  expect(within(row).getByTitle("@alice")).toBeTruthy();
+  const local = (await slot.findByText("Local change")).closest("button")!;
+  expect(local.querySelector("img")).toBeNull();
+  expect(local.querySelector('[data-icon="GitBranch"]')).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("a row shows its PR's labels after the title, three at most, each with its GitHub color, and counts the rest", async () => {
+  const labels = ["bug", "ui", "performance", "dependencies", "docs"].map((name, i) => ({ name, color: i === 0 ? "d73a4a" : "" }));
+  const { slot } = await inbox([{ targetKey: "a", kind: "pr", title: "Labeled change", status: "ready", prLabels: labels }]);
+  const row = (await slot.findByText("Labeled change")).closest("button")!;
+  for (const name of ["bug", "ui", "performance"]) expect(within(row).getByTitle(name)).toBeTruthy();
+  expect(within(row).queryByTitle("dependencies")).toBeNull();
+  expect(within(row).getByText("+2").getAttribute("title")).toBe("dependencies, docs");
+  expect((within(row).getByTitle("bug").firstElementChild as HTMLElement).style.backgroundColor).toBe("rgb(215, 58, 74)");
+  // A label without a usable color has no dot.
+  expect(within(row).getByTitle("ui").children).toHaveLength(1);
+  expect(row.textContent).toContain("Labels: bugui");
+  slot.lifecycle.unmount();
+});
+
 test("a row's status line says what changes whether to open it: checks GitHub expects, your own PR, a PR GitHub can't read", async () => {
   const { slot } = await inbox([
     { targetKey: "a", kind: "pr", title: "Expected change", status: "ready", signals: { ci: "expected" } },
@@ -139,8 +175,13 @@ test("a row's status line says what changes whether to open it: checks GitHub ex
     { targetKey: "d", kind: "pr", title: "Sized change", status: "ready", prSize: { additions: 1200, deletions: 30, files: 8 } },
   ]);
   await slot.findByText("Expected change");
-  for (const text of ["Checks expected", "Your PR", "Can’t read on GitHub", "+1,200 −30 · 8 files"]) expect(slot.getByText(text)).toBeTruthy();
+  for (const text of ["Checks expected", "Your PR", "Can’t read on GitHub"]) expect(slot.getByText(text)).toBeTruthy();
   expect(slot.getByText("Can’t read on GitHub").getAttribute("title")).toBe("GitHub refused access, for example for SSO");
+  // The size reads as one part, its added lines in the diff's green and its removed in its red.
+  const added = slot.getByText("+1,200");
+  expect(added.className).toContain("text-diff-added");
+  expect(slot.getByText("−30").className).toContain("text-diff-removed");
+  expect(added.parentElement!.textContent).toBe("+1,200 −30 · 8 files");
   slot.lifecycle.unmount();
 });
 
@@ -358,6 +399,91 @@ test("F adds a filter only where the filters show: not for a pasted link", async
   fireEvent.change(slot.getByRole("searchbox", { name: "Find a review, or paste a PR link" }), { target: { value: "" } });
   await slot.findByRole("list", { name: "Filters" });
   expect(screen.queryByRole("textbox", { name: "Find a filter" })).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("filters save as named views, kept by the plugin for every browser, that switch, update, save as new, rename, and go", async () => {
+  const reviews = [
+    { targetKey: "a", kind: "pr", repo: "acme/live-api", number: 1, author: "alice", title: "Stream retries", status: "ready", prTeams: ["acme/live-dev"], prUpdatedAt: now - DAY },
+    { targetKey: "b", kind: "pr", repo: "acme/web", number: 2, author: "bob", title: "Cache headers", status: "ready", prUpdatedAt: now - 20 * DAY },
+  ];
+  const { slot } = await inbox(reviews);
+  await slot.findByText("Stream retries");
+  const titles = () => slot.queryAllByText(/retries|headers/).map((el) => el.textContent);
+  const nameView = async (button: string, name: string) => {
+    fireEvent.click(slot.getByRole("button", { name: button }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "View name" }), { target: { value: name } });
+    fireEvent.submit(screen.getByRole("textbox", { name: "View name" }).closest("form")!);
+  };
+  // No filters, no views: nothing to save, and no row of views.
+  expect(slot.queryByRole("button", { name: "Save view" })).toBeNull();
+  expect(slot.queryByRole("toolbar", { name: "Views" })).toBeNull();
+
+  fireEvent.click(slot.getByRole("button", { name: "Add filter" }));
+  fireEvent.click(await screen.findByRole("button", { name: "GitHub team reviewers" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /acme\/live-dev/ }));
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Find teams" }), { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("textbox", { name: "Find teams" })).toBeNull());
+  await nameView("Save view", "Live 4 Project");
+  const views = () => within(slot.getByRole("toolbar", { name: "Views" }));
+  await waitFor(() => expect(views().getByRole("button", { name: "Live 4 Project" }).getAttribute("aria-pressed")).toBe("true"));
+  expect(slot.queryByRole("button", { name: "Save view" })).toBeNull();
+
+  // All shows everything; the view sets its filters again.
+  fireEvent.click(views().getByRole("button", { name: "All" }));
+  expect(titles()).toEqual(["Stream retries", "Cache headers"]);
+  fireEvent.click(views().getByRole("button", { name: "Live 4 Project" }));
+  expect(titles()).toEqual(["Stream retries"]);
+
+  // Changed, a view offers Save over it and Save as new; a name another view has, in any case, isn't taken.
+  fireEvent.click(within(slot.getByRole("list", { name: "Filters" })).getByRole("button", { name: /GitHub team reviewers is; switch/ }));
+  expect(titles()).toEqual(["Cache headers"]);
+  await nameView("Save as new", "live 4 PROJECT");
+  expect(await screen.findByText("There’s a view named “live 4 PROJECT”")).toBeTruthy();
+  fireEvent.change(screen.getByRole("textbox", { name: "View name" }), { target: { value: "Not Live" } });
+  fireEvent.submit(screen.getByRole("textbox", { name: "View name" }).closest("form")!);
+  await waitFor(() => expect(views().getByRole("button", { name: "Not Live" }).getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(views().getByRole("button", { name: "Live 4 Project" }));
+  expect(titles()).toEqual(["Stream retries"]);
+
+  // Edit view, with the filters, renames the pressed view in place.
+  fireEvent.click(slot.getByRole("button", { name: "Edit view" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Rename" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "View name" }), { target: { value: "Live Dev" } });
+  fireEvent.submit(screen.getByRole("textbox", { name: "View name" }).closest("form")!);
+  await waitFor(() => expect(views().getByRole("button", { name: "Live Dev" })).toBeTruthy());
+  slot.lifecycle.unmount();
+
+  // Views are the plugin's, so they outlast the tab; the filters and the view they started from don't.
+  sessionStorage.clear();
+  const again = await inbox(reviews);
+  await again.slot.findByText("Cache headers");
+  const tabs = within(again.slot.getByRole("toolbar", { name: "Views" }));
+  expect(tabs.getAllByRole("button").map((b) => b.textContent)).toEqual(["All", "Live Dev", "Not Live"]);
+  expect(tabs.getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
+  // On All, there's no view to edit.
+  expect(again.slot.queryByRole("button", { name: "Edit view" })).toBeNull();
+  fireEvent.click(tabs.getByRole("button", { name: "Not Live" }));
+  expect(again.slot.queryByText("Stream retries")).toBeNull();
+  fireEvent.click(again.slot.getByRole("button", { name: "Edit view" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Delete view" }));
+  // Its filters stay, as filters of your own, to keep or clear.
+  await waitFor(() => expect(tabs.queryByRole("button", { name: "Not Live" })).toBeNull());
+  expect(again.slot.queryByText("Stream retries")).toBeNull();
+  expect(again.slot.getByRole("button", { name: "Save view" })).toBeTruthy();
+  again.slot.lifecycle.unmount();
+});
+
+test("a view the plugin couldn't save lists the views again as the plugin has them", async () => {
+  savedViews = [{ id: "s1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] }];
+  const { slot } = await inbox([{ targetKey: "a", kind: "pr", title: "A change", status: "ready", prTeams: ["acme/live-dev"] }], {
+    deleteFilterView: () => { throw new Error("offline"); },
+  });
+  const tabs = within(await slot.findByRole("toolbar", { name: "Views" }));
+  fireEvent.click(tabs.getByRole("button", { name: "Live 4 Project" }));
+  fireEvent.click(slot.getByRole("button", { name: "Edit view" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Delete view" }));
+  await waitFor(() => expect(tabs.getByRole("button", { name: "Live 4 Project" })).toBeTruthy());
   slot.lifecycle.unmount();
 });
 

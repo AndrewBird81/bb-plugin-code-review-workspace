@@ -26,7 +26,7 @@ function change(statement: string) {
 
 test("each Postgres migration makes the change the SQLite migration at its index makes", () => {
   const sqlite = sqliteMigrations();
-  expect(PG_MIGRATIONS).toHaveLength(38);
+  expect(PG_MIGRATIONS).toHaveLength(39);
   expect(PG_MIGRATIONS.map(change)).toEqual(sqlite.map(change));
   expect(PG_MIGRATIONS.map(change)).not.toContain(undefined);
 });

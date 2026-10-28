@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "vitest";
 import type { Turn } from "./turn";
 import type { ReviewItem } from "./review-state";
-import { choicesFor, labelColor, matchesFilter, matchesFilters, savedFilters, saveFilters, valuesOf } from "./review-filters";
+import { choicesFor, labelColor, matchesFilter, matchesFilters, readViews, sameFilters, savedActiveView, savedFilters, saveFilters, saveActiveView, valuesOf, viewNameProblem, type Filter } from "./review-filters";
 
 const DAY = 86_400_000;
 const now = Date.parse("2026-10-26T12:00:00Z");
@@ -15,7 +15,7 @@ const web = review({
 });
 const local = review({ kind: "ref", gitRef: "main", turn: turn("Ready") });
 
-beforeEach(() => sessionStorage.clear());
+beforeEach(() => { sessionStorage.clear(); localStorage.clear(); });
 
 test("a review's values for each field read as the menu shows them", () => {
   expect(valuesOf(web, "owner")).toEqual(["acme"]);
@@ -84,4 +84,40 @@ test("filters are kept in this tab, as the box's words are, and a malformed one 
   expect(savedFilters()).toEqual([{ field: "author", values: ["alice"] }]);
   sessionStorage.setItem("gr:inbox-filters", "{");
   expect(savedFilters()).toEqual([]);
+});
+
+test("views read from the server keep what this version can read: a newer one's filters, and malformed views, are left out", () => {
+  expect(readViews([
+    { id: "v1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] },
+    { id: "v2", name: "Last week", filters: [{ field: "updated", days: 7 }, { field: "nope" }, { field: "updated", days: 1 }] },
+    { id: "v3", name: "  ", filters: [] }, { name: "No id", filters: [] }, null,
+  ])).toEqual([
+    { id: "v1", name: "Live 4 Project", filters: [{ field: "teams", values: ["acme/live-dev"] }] },
+    { id: "v2", name: "Last week", filters: [{ field: "updated", days: 7 }] },
+  ]);
+  expect(readViews({})).toEqual([]);
+});
+
+test("the active view is the tab's, as its filters are", () => {
+  saveActiveView("v1");
+  expect(savedActiveView()).toBe("v1");
+  expect(localStorage.getItem("gr:inbox-view")).toBeNull();
+  saveActiveView(null);
+  expect(savedActiveView()).toBeNull();
+});
+
+test("filters are the same in any order, values in any order, and differ on a flip or a span", () => {
+  const a: Filter[] = [{ field: "labels", values: ["bug", "ui"] }, { field: "updated", days: 7 }];
+  expect(sameFilters(a, [{ field: "updated", days: 7 }, { field: "labels", values: ["ui", "bug"] }])).toBe(true);
+  expect(sameFilters(a, [{ field: "updated", days: 7 }, { field: "labels", values: ["ui", "bug"], negate: true }])).toBe(false);
+  expect(sameFilters(a, [{ field: "updated", days: 3 }, { field: "labels", values: ["ui", "bug"] }])).toBe(false);
+  expect(sameFilters([], [])).toBe(true);
+});
+
+test("a view's name must be there and its own, in any case", () => {
+  const views = [{ id: "v1", name: "Live 4 Project", filters: [] }];
+  expect(viewNameProblem(views, "  ")).toBe("Name the view");
+  expect(viewNameProblem(views, "live 4 project ")).toBe("There’s a view named “live 4 project”");
+  expect(viewNameProblem(views, "Live 4 Project", "v1")).toBeNull();
+  expect(viewNameProblem(views, "Last 1 week updated")).toBeNull();
 });

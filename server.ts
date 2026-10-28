@@ -657,6 +657,17 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     async getAgentLearning() { return store.exclusive(async (tx) => { return { ...await learningStats(tx), canSuggest: await suggester.possible(tx), suggestion: suggester.current() }; }); },
     async suggestAssistantInstructions() { return await suggester.start(); },
     dismissInstructionSuggestion() { suggester.dismiss(); return { ok: true }; },
+    async listFilterViews() { return { views: await store.listFilterViews() }; },
+    async saveFilterView(view) {
+      await store.saveFilterView(view);
+      bb.realtime.publish("filter-views", { ts: Date.now() });
+      return { ok: true as const };
+    },
+    async deleteFilterView({ id }) {
+      await store.deleteFilterView(id);
+      bb.realtime.publish("filter-views", { ts: Date.now() });
+      return { ok: true as const };
+    },
     async getReviewerNotes({ targetKey }) { return await store.getReviewerNotes(targetKey); },
     async saveReviewerNotes({ targetKey, body, revision }) { return await store.saveReviewerNotes(targetKey, body, revision); },
 
