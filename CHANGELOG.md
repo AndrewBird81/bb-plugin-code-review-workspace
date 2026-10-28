@@ -1,13 +1,14 @@
 # Changelog
 
-## Unreleased
+## 1.7.0 — 2026-10-28
+
+Save All reviews' filters as named views. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.7.0. 1.7.0 adds one migration, a `filter_views` table, on SQLite and on Postgres. Rolling back to 1.6.0 keeps everything, the saved views unused until you update again; on 1.6.0, `bb review storage` won't move the reviews between SQLite and Postgres, the migration being newer than it.
 
 - **Save view** keeps All reviews' filters under a name, such as "Live 4 Project" or "Updated this week", in the plugin's database, so they're the same in every browser and on a phone. Views show above the filters as tabs after **All**; picking one sets its filters, and a date span stays relative to now. Change a view's filters and **Save** updates it or **Save as new** names another; **Edit view**, at the end of the filters, renames or deletes it. Views keep filters only, not the box's words.
 - A row starts with its author's GitHub avatar, as the review's header shows it, and a local change with a branch.
 - A row shows its PR's GitHub labels at the end of its second line, under its age, each with a dot of its GitHub color: three at most, then `+N` naming the rest on hover.
 - A row's size shows its added lines in the diff's green and its removed lines in its red, as `+120 −30 · 8 files`, where it was all gray.
 - A filter's value list taller than the menu cuts its last row in half, so it reads as more to scroll to, where it ended on a whole row and its other values looked missing. A value too long for the menu shows whole on hover.
-- Saved views add a `filter_views` table, on SQLite and on Postgres. Rolling back leaves it unread.
 
 ## 1.6.0 — 2026-10-26
 
