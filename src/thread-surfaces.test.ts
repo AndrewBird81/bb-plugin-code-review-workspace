@@ -151,7 +151,7 @@ test("a thread a review agent started, in its folder, leads to that agent: neith
   expect(await s.harness.behavior.runCli([], { threadId: "sub", projectId: "proj_api", cwd: "/Users/me/src/api" })).toMatchObject({ exitCode: 0 });
 });
 
-test("a review re-homed to its fixer's worktree opens as it is from the fixer's Review changes: no second review, no diff read, no guide writer", async () => {
+test("a review re-homed to its fixer's worktree opens as it is from the fixer's Review changes and bb review: no second review, no diff read, no guide writer", async () => {
   const s = await setup({ branchName: "bb/env_fix1" });
   const store = testStore(s.bb);
   // 4.2's own-rehomed: your PR's review, moved to fixer1's worktree on its own branch, its key the old folder's.
@@ -165,4 +165,31 @@ test("a review re-homed to its fixer's worktree opens as it is from the fixer's 
   expect((await store.listReviews()).map((review) => review.targetKey)).toEqual(["pr-1"]);
   expect(s.calls).toEqual([]);
   expect(s.spawns).toEqual([]);
+  // bb review with no arguments, there, opens the same review.
+  const cli = await s.harness.behavior.runCli([], { threadId: "fixer1", projectId: "proj_api", cwd: "/Users/me/.bb/worktrees/env_fix1" });
+  expect(cli).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("(pr-1), as it was; nothing was rebuilt") });
+  expect((await store.listReviews()).map((review) => review.targetKey)).toEqual(["pr-1"]);
+  expect((await store.getReview("pr-1"))?.mainThread?.threadId).toBe("fixer1");
+  expect(s.calls).toEqual([]);
+  expect(s.spawns).toEqual([]);
+});
+
+test("a re-homed review you archived comes back when its fixer's Review changes opens it, as bb review brings one back", async () => {
+  const s = await setup({ branchName: "bb/env_fix1" });
+  const store = testStore(s.bb);
+  const rehomed = { environmentId: "env_fix1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/.bb/worktrees/env_fix1", branch: "retry-uploads", baseRef: "main", repo: "acme/api", workBranch: "bb/env_fix1" };
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/api", number: 1, status: "ready", createdAt: 1 });
+  await store.setLifecycle("pr-1", { ownPr: true, feature: rehomed, mainThread: { threadId: "fixer1", environmentId: "env_fix1", origin: "fresh", since: 2 }, userArchivedAt: 5 });
+  s.threads.fixer1 = { id: "fixer1", environmentId: "env_fix1", title: "Fixes 1" };
+  expect(await s.call("reviewThreadChanges", { threadId: "fixer1" })).toEqual({ ok: true, targetKey: "pr-1" });
+  expect((await store.getReview("pr-1"))?.userArchivedAt ?? null).toBeNull();
+  expect((await store.listReviews()).map((review) => review.targetKey)).toEqual(["pr-1"]);
+  expect(s.calls).toEqual([]);
+});
+
+test("a hidden subagent of a visible main thread may run bb review with no arguments: the review goes to that main thread", async () => {
+  const s = await setup();
+  s.threads.hiddenSub = { id: "hiddenSub", environmentId: "env1", parentThreadId: "main", visibility: "hidden", title: "Worker" };
+  expect(await s.harness.behavior.runCli([], { threadId: "hiddenSub", projectId: "proj_api", cwd: "/Users/me/src/api" })).toMatchObject({ exitCode: 0 });
+  expect((await testStore(s.bb).getReview(key))?.mainThread?.threadId).toBe("main");
 });

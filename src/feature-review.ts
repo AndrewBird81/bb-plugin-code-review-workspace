@@ -126,7 +126,9 @@ type Opened = { key: string; created: boolean; replaced: { threadId: string; tit
 async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null, options: { name?: string; context?: string } = {}): Promise<{ opened: Opened; run?: () => Promise<void> } | { error: string }> {
   const { bb, store } = deps;
   const { env, machine, repo } = folder;
-  const key = featureKey(env.id, env.branchName);
+  // A review re-homed to a fixer's worktree, on that worktree's branch, is the folder's review: its key is its old folder's.
+  const exact = featureKey(env.id, env.branchName);
+  const key = await store.getReview(exact) ? exact : reviewOfFolder(await store.listReviews(), env.id, env.branchName)?.targetKey ?? exact;
   const existing = await store.getReview(key);
   // A recorded main thread that's archived or deleted gives way to the live one asking. One BB can't read now stays.
   const checked = existing?.mainThread && main && existing.mainThread.threadId !== main.id ? await threadGone(bb, existing.mainThread.threadId) : null;
@@ -559,10 +561,6 @@ export function register(deps: ServeDeps) {
       if ("stderr" in found) return { ok: false, error: found.stderr };
       // Its page is a thread you see.
       if (found.caller.visibility === "hidden") return { ok: false, error: "This thread is one of Code Review Workspace’s agents, so it can’t start a review of its folder. Run it in a thread working on the change." };
-      // A review re-homed to a fixer's worktree, on that worktree's branch, opens as it is: its key is its old folder's.
-      const { env } = found.folder;
-      const there = reviewOfFolder(await store.listReviews(), env.id, env.branchName);
-      if (there && there.targetKey !== featureKey(env.id, env.branchName)) return { ok: true, targetKey: there.targetKey };
       let started: Awaited<ReturnType<typeof openFolderReview>>;
       try {
         started = await openFolderReview(deps, found.folder, found.main);
