@@ -1,4 +1,4 @@
-import { memo, useState, type ReactNode } from "react";
+import { memo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
@@ -6,7 +6,8 @@ import type { CheckItem } from "../src/threads";
 import type { StackMember, StackPlace } from "../lib/stacks";
 import { LINES_PER_HOUR, readingTime } from "../lib/review-size";
 import { reviewState, type ReviewItem } from "../lib/review-state";
-import { renamedFrom, reviewName } from "../lib/review-name";
+import { defaultName, NAME_LIMIT, renamedFrom } from "../lib/review-name";
+import { branchLabel, reviewIdentity } from "../lib/review-identity";
 import { statusLine, type StatusKind, type StatusTone } from "../lib/status-line";
 import { useKnob } from "../lib/settings";
 import { canSnooze, canSnoozeUntil, type ReviewRound } from "../lib/turn";
@@ -16,11 +17,12 @@ import { TONE_TEXT } from "./ui/badge";
 import { Avatar } from "./ui/avatar";
 import { InlineCode } from "./ui/inline-code";
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { kindLook, STATUS_TEXT } from "./ReviewStatus";
-import { MetaLine } from "./MetaLine";
 import { SnoozeChoices } from "./SnoozeChoices";
-import { TOUCH_CONTROL } from "./touch";
+import { useReviewActions } from "./ReviewActions";
+import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { timeAgo } from "./time-ago";
 
 /** A text button in a line of text is 44px tall on a coarse pointer, its words centred in it. */
@@ -143,12 +145,93 @@ function Snooze({ review, snoozing, onSnooze }: { review: ReviewItem; snoozing: 
 }
 
 /**
+ * The hero's facts, "a · b · c", wrapping between facts. Each dot sits before its fact, and the left edge cuts off a
+ * line's first, so no line starts or ends with one.
+ */
+function FactLine({ items }: { items: ReactNode[] }) {
+  const shown = items.filter((item) => item !== null && item !== undefined && item !== false && item !== "");
+  return (
+    <div className="overflow-hidden">
+      <div className="-ml-3 flex flex-wrap items-center text-xs leading-6 text-muted-foreground">
+        {shown.map((item, index) => <span key={index} className="flex min-w-0 max-w-full items-center whitespace-nowrap">
+          {/* The space stays outside the hidden dot, so a screen reader hears each fact apart. */}
+          {" "}<span aria-hidden className="w-3 shrink-0 text-center text-subtle-foreground">·</span>{item}
+        </span>)}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The review's name, which links to its PR, with Rename review beside it (on hover or focus with a mouse, always on
+ * touch, its 44px target drawn no bigger): it becomes a box, its name selected, that Enter, ✓ or leaving it saves and Esc
+ * or ✕ cancels. Emptied, or given its PR's title or ref, the review goes back to that.
+ */
+function ReviewName({ review, shown }: { review: ReviewItem; shown: string }) {
+  const actions = useReviewActions(review);
+  const [draft, setDraft] = useState<string | null>(null);
+  const pencil = useRef<HTMLButtonElement>(null);
+  // Enter saves, then the box goes: its blur mustn't save again.
+  const closing = useRef(false);
+  const close = () => {
+    setDraft(null);
+    requestAnimationFrame(() => pencil.current?.focus());
+  };
+  const save = async (event?: FormEvent) => {
+    event?.preventDefault();
+    if (closing.current || draft === null) return;
+    closing.current = true;
+    const name = draft.trim();
+    if (name !== shown) await actions.rename(name === defaultName(review) ? "" : name);
+    close();
+  };
+  const cancel = () => {
+    closing.current = true;
+    close();
+  };
+  const heading = "text-base font-semibold leading-snug text-foreground @min-[640px]/overview:text-xl";
+  // Pressing ✓ or ✕ keeps the focus in the box, so leaving it doesn't save first.
+  const keepFocus = (event: { preventDefault(): void }) => event.preventDefault();
+  if (draft !== null) return (
+    // Leaving the box and its ✓ and ✕, by a click or by Tab, ends renaming as Enter does: a changed name saves.
+    <form className="flex items-center gap-1" onSubmit={(event) => void save(event)}
+      onBlur={(event) => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) void save(); }}>
+      <Input autoFocus aria-label="Review name" value={draft} maxLength={NAME_LIMIT} readOnly={actions.busy}
+        onFocus={(event) => event.currentTarget.select()} onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          // The workspace's own Esc leaves a key another took alone.
+          event.preventDefault();
+          cancel();
+        }}
+        className={cn("h-auto min-w-0 flex-1 px-2 py-1", heading)} />
+      <Button type="submit" variant="ghost" size="icon" aria-label="Save name" onPointerDown={keepFocus} onMouseDown={keepFocus} className={cn("size-8 shrink-0 text-muted-foreground", TOUCH_CONTROL)}><Icon name="Check" aria-hidden /></Button>
+      <Button type="button" variant="ghost" size="icon" aria-label="Cancel renaming" onPointerDown={keepFocus} onMouseDown={keepFocus} onClick={cancel} className={cn("size-8 shrink-0 text-muted-foreground", TOUCH_CONTROL)}><Icon name="X" aria-hidden /></Button>
+    </form>
+  );
+  return (
+    // The pencil follows the title's last word, on its line.
+    <div className={cn("group/name", heading)}>
+      <h2 className="inline">
+        <ReviewTitleLink url={review.url} text={shown} />
+      </h2>
+      <Button ref={pencil} variant="ghost" size="icon" aria-label="Rename review" onClick={() => { closing.current = false; setDraft(shown); }}
+        className={cn("relative ml-1 size-7 align-middle text-muted-foreground pointer-fine:opacity-0 pointer-fine:group-hover/name:opacity-100 pointer-fine:focus-visible:opacity-100", TOUCH_TARGET)}>
+        <Icon name="Edit" className="size-3.5" aria-hidden />
+      </Button>
+    </div>
+  );
+}
+
+/**
  * The top of a review's Overview: its title (your name for it, with the PR's title under it), who and what it is, a
  * status line (whose turn, your feedback, checks), your reviews and its stack, then `action`, the way into its chapters,
  * with Snooze beside it while it's your turn.
  */
-export const ReviewHeader = memo(function ReviewHeader({ review, checks, readLines, onShowFeedback, onSnooze, snoozing = false, action }: {
+export const ReviewHeader = memo(function ReviewHeader({ review, guideTitle, checks, readLines, onShowFeedback, onSnooze, snoozing = false, action }: {
   review: ReviewItem;
+  /** Names a local review with no name of yours (lib/review-identity.ts). */
+  guideTitle?: string;
   checks?: Checks | null;
   /** The changed lines worth reading (lib/review-size.ts readingLines). */
   readLines?: number;
@@ -179,21 +262,26 @@ export const ReviewHeader = memo(function ReviewHeader({ review, checks, readLin
       <Fact key={part.kind} icon={part.icon && <Icon name={part.icon} className={cn(part.busy && "animate-spin motion-reduce:animate-none")} aria-hidden />} tone={part.tone} title={part.kind === "checks" && checks ? checks.checks.map((check) => `${check.name}: ${check.bucket}`).join("\n") : part.detail}>{part.text}</Fact>
     ));
   const snooze = onSnooze && <Snooze review={review} snoozing={snoozing} onSnooze={onSnooze} />;
+  const identity = reviewIdentity(review, guideTitle);
+  // A PR's branches; a local review's range, its head as the id has it: main ← snooze-checks. A single ref is in the id.
+  const range = review.kind === "ref" ? review.gitRef?.split(/\.{2,3}/) : null;
+  const [base, head] = range ? range.length === 2 && range[0] && range[1] ? [range[0], branchLabel(range[1])] : [null, null] : [review.base, review.head];
   return (
     <header className="space-y-2.5">
       <div>
-        <h2 className="text-base font-semibold leading-snug text-foreground @min-[640px]/overview:text-xl">
-          <ReviewTitleLink url={review.url} text={reviewName(review)} />
-        </h2>
+        <ReviewName review={review} shown={identity.name} />
         <PrTitle review={review} className="mt-1" />
       </div>
-      <MetaLine className="leading-6" items={[
-        review.author && <span className="inline-flex items-center gap-1.5 align-top"><Avatar login={review.author} size={16} /><span className="text-foreground/90">@{review.author}</span></span>,
-        review.repo && <span className="inline-flex items-center gap-1 align-top"><Icon name={kind.icon} className={cn("size-3.5 shrink-0", TONE_TEXT[kind.tone])} aria-hidden /><span className="font-mono text-[11px]">{review.repo}</span>{review.number ? <span className="text-subtle-foreground">#{review.number}</span> : null}</span>,
-        review.base && review.head
+      <FactLine items={[
+        review.author && <span className="inline-flex items-center gap-1.5"><Avatar login={review.author} size={16} /><span className="text-foreground/90">{review.ownPr ? "Yours" : `@${review.author}`}</span></span>,
+        // A local review is Local, on its machine, in its folder.
+        review.kind === "ref" && <span className="text-foreground/90">{identity.whose}</span>,
+        identity.where && <span title={review.place?.path ?? review.cwd} className="inline-flex min-w-0 max-w-full items-center gap-1"><Icon name="Folder" className="size-3.5 shrink-0 text-muted-foreground" aria-hidden /><span className="truncate">{identity.where}</span></span>,
+        // Its id as the window's title has it; a PR's with its repository in full, as one word: flosports/api#4512.
+        <span title={identity.repo ?? undefined} className="inline-flex min-w-0 max-w-full items-center gap-1"><Icon name={kind.icon} className={cn("size-3.5 shrink-0", TONE_TEXT[kind.tone])} aria-hidden /><span className="truncate font-mono text-[11px]">{review.kind === "ref" ? identity.id : `${identity.repo ?? ""}${identity.idTail}`}</span></span>,
+        base && head
           // base ← head, which a screen reader hears in words, the way the PR merges: "fix-race into main".
-          ? <span className="inline-flex min-w-0 max-w-full items-center gap-1 align-top"><span className="sr-only">{review.head} into {review.base}</span><span aria-hidden className="contents"><BranchChip>{review.base}</BranchChip><Icon name="ArrowRight" className="size-3 shrink-0 rotate-180 text-subtle-foreground" /><BranchChip>{review.head}</BranchChip></span></span>
-          : review.gitRef && <BranchChip className="align-top">{review.gitRef}</BranchChip>,
+          && <span className="inline-flex min-w-0 max-w-full items-center gap-1"><span className="sr-only">{head} into {base}</span><span aria-hidden className="contents"><BranchChip>{base}</BranchChip><Icon name="ArrowRight" className="size-3 shrink-0 rotate-180 text-subtle-foreground" /><BranchChip>{head}</BranchChip></span></span>,
         !!readLines && <span className="tabular-nums" title={`Without lockfiles and generated files. Reading time at about ${LINES_PER_HOUR} changed lines an hour.`}>{readLines.toLocaleString()} changed {readLines === 1 ? "line" : "lines"} · {readingTime(readLines)}</span>,
       ]} />
       {facts.length > 0 && <p className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-foreground/90">{facts}</p>}

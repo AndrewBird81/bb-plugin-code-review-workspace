@@ -110,7 +110,7 @@ const dockedPanel = (slot: Slot) => slot.queryByRole("complementary", { name: "C
 test("folded with Chapters open and Find half typed, unfolding docks them, and folding brings the sheet back: text, caret and focus kept", async () => {
   const screen = fakeScreen(OUTER.width, OUTER.height);
   const slot = await renderWorkspace();
-  fireEvent.click(slot.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(slot.getByRole("button", { name: /^pr-42, Chapters:/ }));
   const find = within(sheet(slot, "Chapters")!).getByRole("searchbox", { name: "Find in review" }) as HTMLInputElement;
   find.focus();
   fireEvent.change(find, { target: { value: "cachex" } });
@@ -132,7 +132,7 @@ test("folded with Chapters open and Find half typed, unfolding docks them, and f
 test("folded with Chapters open, unfolding docks them and folding brings the sheet back, as often as it's done", async () => {
   const screen = fakeScreen(OUTER.width, OUTER.height);
   const slot = await renderWorkspace();
-  fireEvent.click(slot.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(slot.getByRole("button", { name: /^pr-42, Chapters:/ }));
   for (let i = 0; i < 2; i++) {
     screen.fold(INNER_LANDSCAPE);
     expect(dockedChapters(slot)).toBeTruthy();
@@ -154,7 +154,7 @@ test("chapters docked on their own, not opened over the code, step aside as it f
   within(dockedChapters(slot)!).getByRole("button", { name: "Overview" }).focus();
   screen.fold(OUTER);
   expect(sheet(slot, "Chapters")).toBeNull();
-  await vi.waitFor(() => expect(document.activeElement?.getAttribute("aria-label") ?? "").toMatch(/^Chapters:/));
+  await vi.waitFor(() => expect(document.activeElement?.getAttribute("aria-label") ?? "").toMatch(/^pr-42, Chapters:/));
   slot.lifecycle.unmount();
 });
 
@@ -193,7 +193,7 @@ test("Comments docked unfolded becomes the sheet as it folds, and docks again as
 
 test.each([
   { open: "Comments", opener: "Comments" },
-  { open: "Chapters", opener: /^Chapters:/ },
+  { open: "Chapters", opener: /^pr-42, Chapters:/ },
 ])("unfolding as BB remounts the page beside its thread list, $open open folded stays open over the code", async ({ open, opener }) => {
   const screen = fakeScreen(OUTER.width, OUTER.height);
   let slot = await renderWorkspace();
@@ -244,7 +244,7 @@ test("typing on a phone, the keyboard shortening the workspace doesn't turn it i
   const screen = fakeScreen(OUTER.width, OUTER.height);
   const slot = await renderWorkspace();
   const root = slot.getByRole("main").closest<HTMLElement>("[class*='@container/review']")!;
-  fireEvent.click(slot.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(slot.getByRole("button", { name: /^pr-42, Chapters:/ }));
   within(sheet(slot, "Chapters")!).getByRole("searchbox", { name: "Find in review" }).focus();
   // The keyboard pads the workspace's bottom (lib/use-keyboard-inset.ts), and its content box shrinks.
   root.style.paddingBottom = "290px";
@@ -297,7 +297,7 @@ test("typing a comment in the code beside docked Comments, folding or turning st
 test("typing a comment in the code, chapters opened folded and docked as it unfolded step aside as it folds again, rather than cover the box", async () => {
   const screen = fakeScreen(OUTER.width, OUTER.height);
   const slot = await renderWorkspace();
-  fireEvent.click(slot.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(slot.getByRole("button", { name: /^pr-42, Chapters:/ }));
   screen.fold(INNER_LANDSCAPE);
   expect(dockedChapters(slot)).toBeTruthy();
   const box = await typeInlineComment(slot);
@@ -351,7 +351,7 @@ test("an iPad's rotation hides docked Comments, as BB's pane narrowing does, and
 test("chapters opened folded and docked as it unfolded hide as BB's pane narrows, rather than open over the code by themselves", async () => {
   const screen = fakeScreen(OUTER.width, OUTER.height);
   const slot = await renderWorkspace();
-  fireEvent.click(slot.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(slot.getByRole("button", { name: /^pr-42, Chapters:/ }));
   screen.fold(INNER_LANDSCAPE);
   expect(dockedChapters(slot)).toBeTruthy();
   screen.pane({ width: 800, height: INNER_LANDSCAPE.height });

@@ -100,7 +100,7 @@ async function renderWorkspace() {
     markSeen: () => ({ ok: true }),
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   await slot.findByText(/const retries = 5;/);
   return slot;
 }

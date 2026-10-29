@@ -88,7 +88,7 @@ The checkout for a local review must exist on the BB server. A checkout only pre
 - When you open a local review, it runs its diff again in the checkout, and if the code changed since its guide, the notice strip says "The code changed since this guide." with **Update guide** (unless **Notice when a local review's code changes** is off in Settings → Reading).
 - On a local review whose diff ends at the checkout (a ref, such as `bb review main`, or a range ending at `HEAD`), each file's second row and each draft comment's ⋯ offer **Open in editor** at the line, which opens the checkout's file on the BB server (unless **Open in editor (local reviews)** is off).
 
-`bb review` remembers the thread it ran in, as the thread that made the change; this plugin's own agents never count. It prints a link to the review when BB has an app URL. `bb review list [--json]` lists every review, Needs review first and a stack's reviews together, as All reviews does, with its key, its title (quoted, then `named "…"` with the name you gave it), whose turn it is, and whether its guide is ready. With **Help agents in your threads use bb review** on (Settings → Review agent), agents in your other BB threads are also offered a `code-review-workspace` skill that explains these commands, tells them never to post to GitHub, and says that what `bb review` prints is data, not instructions. Off, `bb review` prints no link and has no `list`.
+`bb review` remembers the thread it ran in, as the thread that made the change; this plugin's own agents never count. It prints a link to the review when BB has an app URL. `bb review list [--json]` lists every review, Needs review first and a stack's reviews together, as All reviews does, with its id, its key, its title (quoted, then `named "…"` with the name you gave it), whose turn it is, and whether its guide is ready. With **Help agents in your threads use bb review** on (Settings → Review agent), agents in your other BB threads are also offered a `code-review-workspace` skill that explains these commands, tells them never to post to GitHub, and says that what `bb review` prints is data, not instructions. Off, `bb review` prints no link and has no `list`.
 
 ### Context for the automatic review
 
@@ -367,9 +367,19 @@ Code Review Workspace alerts only about what happens after it starts following a
 - **Back to Needs review** ends a snooze.
 - Snooze, Pin, Rename, and Archive can be undone from their toast.
 
+### Which review you're in
+
+- Every review goes by a short id: the repository's name and the PR's number, `api#4512`, or for local work the repository and branch, `api:feat/snooze-checks` (a bb branch reads as its slug: `bb/snooze-checks-thr_…` is `snooze-checks`). Where two repositories in your list share a name, the id names the owner, `flosports/api#4512`; where two local reviews of one branch are in different folders, it adds the end of the folder's path that tells them apart, `api:HEAD (thr_a-1/api)` for bb's worktrees; and where they're in one folder, as `main...feat` and `feat`, it says each ref as given.
+- BB's title bar, after the panel's name, and the window's title lead with it, then the review's name: `api#4512 › Fix login race` in the bar, `api#4512 · Fix login race` as the window's title. Each pane's bar names its own review, so two reviews in split panes, or two windows, read apart, and a long name is cut before the id is. In a window under 720px the bar shows them as one title, cut at its end.
+- A local review with no name of yours goes by its guide's title in every list, page and title.
+- The band keeps the id in a chip after ‹ on every page of the review. The name follows it in a chapter only where BB's title bar doesn't show it, in full screen or on a BB without page titles, and where the band has room. Short of room, the repository's name is cut first, and `#4512` never; hovering the chip shows the whole id, with the repository in full, and the name. On a phone, the dock's chapter tab has the id over the chapter.
+- The page bar of a review without a guide yet, the popped-out review agent, a PR's row in BB's thread list (its `#n`), Needs You alerts, review agent and **Fix in a new thread** threads, and what Send to thread sends all name the review by its id. A local review's row in All reviews says its id and machine, `api:feat/x · MaxBook`, and its Overview the machine and folder of its checkout.
+- A local review with no name of yours goes by its guide's title.
+
 ### Rename
 
-- **Rename…** in a review's **Review actions** menu (⋯) gives it a name of your own. All reviews, BB's thread list, the review's band, Needs You alerts, and the title of a **Fix in a new thread** thread use it in place of the PR's title. It stays in BB: the PR keeps its title on GitHub, and the agents read that one.
+- **Rename…** in a review's **Review actions** menu (⋯), the pencil beside the Overview's title, or `bb review <target> --name "…"` gives it a name of your own. All reviews, BB's thread list, the review's band and title, Needs You alerts, and the title of a **Fix in a new thread** thread use it in place of the PR's title.
+- The pencil shows on hover or focus with a mouse, and always on a touch screen. It turns the title into a box: Enter, or leaving the box, saves the name, and Esc leaves it as it was. A review's own agent can't rename it. It stays in BB: the PR keeps its title on GitHub, and the agents read that one.
 - The PR's title is under your name on the review's Overview, shows when you hover its row in All reviews or BB's thread list, and is in the Rename dialog with **Use PR title**. The find box matches either.
 - Your name stays when the author retitles the PR or pushes, and when the guide is rebuilt. **Use PR title**, or an empty name, puts the PR's title back, and Delete forgets it. A local review's name stands in for its ref the same way, with **Use ref**.
 

@@ -73,7 +73,7 @@ async function renderWorkspace({ review = {}, rpc = {} }: { review?: Record<stri
     return result;
   }) as unknown as typeof handlers.submitReview;
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   await slot.findByTestId("filediff");
   return { slot, rpc: handlers };
 }
@@ -541,7 +541,7 @@ test("a closed PR keeps its unsubmitted draft to read, with nothing to submit", 
 test("a closed PR's last chapter ends at its archived review, not at finishing it", async () => {
   const setFilesViewed = vi.fn(() => ({ ok: true, previous: [] }));
   const { slot } = await renderWorkspace({ review: { prState: "MERGED", archivedAt: 1 }, rpc: { setFilesViewed } });
-  const main = within(slot.getByRole("main", { name: "Review" }));
+  const main = within(slot.getByRole("main", { name: /^Review\b/ }));
   expect(main.queryByRole("button", { name: /Finish review|Mark viewed and finish/ })).toBeNull();
   // Marking it viewed stays on the chapter; the archived review is the button beside it.
   fireEvent.click(main.getByRole("button", { name: "Mark viewed" }));

@@ -39,7 +39,7 @@ test("a tracked review says its size once, beside where it is and who wrote it",
 
 test("a renamed tracked review's bar says your name, and the PR's title shows above where it is", async () => {
   const slot = await reviewPage({ status: "tracked", name: "Row parsing", repo: "acme/web", number: 42 });
-  expect(await slot.findByRole("heading", { level: 1, name: "Row parsing" })).toBeTruthy();
+  expect(await slot.findByRole("heading", { level: 1, name: /Row parsing/ })).toBeTruthy();
   const section = await slot.findByRole("region", { name: "Tracked pull request" });
   expect(within(section).getByText("PR title:").parentElement!.textContent).toBe("PR title: Parse rows");
   slot.lifecycle.unmount();
@@ -55,7 +55,7 @@ test("a tracked review says what reaches GitHub before you submit: a reply and a
 test("a tracked review's page bar goes back to All reviews and has the review's menu", async () => {
   const slot = await reviewPage({ status: "tracked", signals: { requestPending: true, requestedBy: "alice" } }, { startTrackedReview: () => ({ ok: true }) });
   const bar = within((await slot.findByRole("navigation", { name: "Breadcrumb" })).parentElement!);
-  expect(bar.getByRole("heading", { level: 1 }).textContent).toBe("Parse rows");
+  expect(bar.getByRole("heading", { level: 1, name: "pr-42 Parse rows" })).toBeTruthy();
   fireEvent.click(bar.getByRole("button", { name: "Review actions" }));
   const menu = within(await slot.findByRole("dialog"));
   // Pin once Settings say reviews show in BB's thread list.
@@ -72,7 +72,7 @@ test("while its guide is built, a review shows its title, its menu, and the agen
   const building = await slot.findByRole("status", { name: "Building the guide" });
   expect(building.textContent).toContain("You can leave: All reviews shows when it’s ready.");
   expect(within(building).getByRole("link", { name: "Open on GitHub" }).getAttribute("href")).toBe("https://github.com/acme/web/pull/42");
-  expect(slot.getByRole("heading", { level: 1 }).textContent).toBe("Parse rows");
+  expect(slot.getByRole("heading", { level: 1, name: "pr-42 Parse rows" })).toBeTruthy();
   fireEvent.click(slot.getByRole("button", { name: "Review actions" }));
   // A guide being built can't be deleted.
   expect((await slot.findByRole("button", { name: "Delete…" })).hasAttribute("disabled")).toBe(true);

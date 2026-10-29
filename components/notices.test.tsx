@@ -179,7 +179,7 @@ test("notices go into a polite live region that's there before them, so a new on
   const { slot } = await renderWorkspace({ checkForUpdates });
   await waitFor(() => expect(checkForUpdates).toHaveBeenCalled());
   expect(slot.queryByText("New commits since this guide was written.")).toBeNull();
-  const regions = Array.from(slot.getByRole("main", { name: "Review" }).querySelectorAll('[aria-live="polite"]'));
+  const regions = Array.from(slot.getByRole("main", { name: /^Review\b/ }).querySelectorAll('[aria-live="polite"]'));
   checkForUpdates.mockReturnValue({ hasNewCommits: true });
   await slot.emitRealtime("review:pr-42", {});
   const text = await slot.findByText("New commits since this guide was written.");

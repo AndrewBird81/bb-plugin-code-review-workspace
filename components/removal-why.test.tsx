@@ -57,7 +57,7 @@ async function renderReview(knobs: Knobs = defaultKnobs) {
     getReplyDrafts: () => ({ drafts: [] }),
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   // Once the settings apply.
   await new Promise((resolve) => setTimeout(resolve, 20));
   return { slot, rpc: handlers };

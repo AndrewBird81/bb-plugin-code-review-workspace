@@ -513,7 +513,7 @@ test("lines that take no comment offer Ask agent alone, which asks about their s
     getFileContents: () => ({ ok: true, old, new: now }),
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: rpc as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   await waitFor(() => expect(units(slot.container)).toHaveLength(6));
   select(within(units(slot.container)[0]).getByTestId("bb-markdown").firstChild!, within(units(slot.container)[0]).getByTestId("bb-markdown").firstChild!);
   const bar = within(await slot.findByRole("group", { name: "Selection" }));

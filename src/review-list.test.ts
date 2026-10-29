@@ -41,8 +41,9 @@ test("bb review list gives a renamed review's name beside its title, quoted, and
   await store.setLifecycle("pr-1", { name: "Cache expiry" });
   const { reviews } = await harness.behavior.callRpc("listReviews", null) as any;
   const lines = runListCommand(reviews, []).stdout!.split("\n");
-  expect(lines.find((line) => line.startsWith("pr-1"))).toBe(`pr-1  "Expire cache entries" named "Cache expiry" · Needs review (Ready) · guide ready`);
-  expect(lines.find((line) => line.startsWith("pr-2"))).toBe(`pr-2  "Fix login" · Needs review (Ready) · guide ready`);
+  // Each line leads with the review's id, then its key.
+  expect(lines.find((line) => line.startsWith("web#1"))).toBe(`web#1  pr-1  "Expire cache entries" named "Cache expiry" · Needs review (Ready) · guide ready`);
+  expect(lines.find((line) => line.startsWith("web#2"))).toBe(`web#2  pr-2  "Fix login" · Needs review (Ready) · guide ready`);
   const json = JSON.parse(runListCommand(reviews, ["--json"]).stdout!).reviews;
   expect(json.find((row: any) => row.key === "pr-1")).toMatchObject({ title: "Expire cache entries", name: "Cache expiry" });
   expect(json.find((row: any) => row.key === "pr-2")).not.toHaveProperty("name");
@@ -62,5 +63,5 @@ test("bb review list keeps a stack's reviews together, bottom first, where its f
   // Wherever the section puts the stack's first review, its bottom comes right before its top.
   expect(listed).toHaveLength(3);
   expect(listed.indexOf("pr-3") - listed.indexOf("pr-1")).toBe(1);
-  expect(runListCommand(reviews, []).stdout!.split("\n").map((line) => line.split(" ")[0])).toEqual(listed);
+  expect(runListCommand(reviews, []).stdout!.split("\n").map((line) => line.split("  ")[1])).toEqual(listed);
 });

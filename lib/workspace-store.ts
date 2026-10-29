@@ -2,6 +2,7 @@
 // controls (navPanel headerContent) apart from the page, with only the subPath to say which review is open.
 import { useSyncExternalStore } from "react";
 import type { WorkspaceApi } from "./workspace-context";
+import type { ReviewIdentity } from "./review-identity";
 
 const workspaces = new Map<string, WorkspaceApi>();
 const listeners = new Set<() => void>();
@@ -83,6 +84,52 @@ export function currentFileOf(targetKey: string): string | undefined {
 
 export function useCurrentFile(targetKey: string): string | undefined {
   return useSyncExternalStore(subscribe, () => currentFiles.get(targetKey));
+}
+
+/** What BB's title bar and the window's title say of a review (lib/review-identity.ts). */
+export type ReviewTitle = Pick<ReviewIdentity, "id" | "name" | "line">;
+
+// Each open review's title, which BB asks for apart from the page: published by the review's page whatever it shows,
+// its guide or not. Each page that shows the review publishes it, as two panes may, and the latest one still showing it
+// is its title.
+const titles = new Map<string, Array<{ title: ReviewTitle }>>();
+
+/** Make `title` the review's while its page shows. The returned function withdraws it. */
+export function publishReviewTitle(targetKey: string, title: ReviewTitle): () => void {
+  const entry = { title };
+  titles.set(targetKey, [...titles.get(targetKey) ?? [], entry]);
+  notify();
+  return () => {
+    const left = (titles.get(targetKey) ?? []).filter((other) => other !== entry);
+    if (left.length) titles.set(targetKey, left);
+    else titles.delete(targetKey);
+    notify();
+  };
+}
+
+export function useReviewTitle(targetKey: string | null): ReviewTitle | null {
+  return useSyncExternalStore(subscribe, () => (targetKey === null ? null : titles.get(targetKey)?.at(-1)?.title ?? null));
+}
+
+// How many of BB's title bars show each review's title (app.tsx), as a host with page titles does; the band then
+// leaves the review's name to it.
+const pageTitles = new Map<string, number>();
+
+/** BB's title bar shows the review's title; the returned function says it stopped. */
+export function showPageTitle(targetKey: string): () => void {
+  pageTitles.set(targetKey, (pageTitles.get(targetKey) ?? 0) + 1);
+  notify();
+  return () => {
+    const left = (pageTitles.get(targetKey) ?? 1) - 1;
+    if (left > 0) pageTitles.set(targetKey, left);
+    else pageTitles.delete(targetKey);
+    notify();
+  };
+}
+
+/** Whether a title bar of BB's shows the review's title. */
+export function usePageTitleShown(targetKey: string): boolean {
+  return useSyncExternalStore(subscribe, () => pageTitles.has(targetKey));
 }
 
 /** What a Code Review Workspace subPath shows, as ReviewPanel routes it: the list, Review settings, or a review. */

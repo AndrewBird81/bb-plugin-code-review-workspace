@@ -48,12 +48,12 @@ test("short of room, Fold comments moves into Diff options before the chapter's 
 test("on touch, a band with under 600px of room ends with Diff options alone, off an unfolded iPhone Duo's fold", () => {
   const alone = { back: false, title: false, compare: null, fold: false };
   // Beside Comments docked at 391 on the Duo held sideways: 547px of room.
-  expect(bandFit(547, 5, 44, select, true)).toEqual(alone);
+  expect(bandFit(547, 5, 44, select, { touch: true })).toEqual(alone);
   // In full screen there, the chapters docked, before the review's commands: 391px; a first review's too.
-  expect(bandFit(391, 3, 44, select, true)).toEqual(alone);
-  expect(bandFit(391, 3, 44, null, true)).toEqual(alone);
+  expect(bandFit(391, 3, 44, select, { touch: true })).toEqual(alone);
+  expect(bandFit(391, 3, 44, null, { touch: true })).toEqual(alone);
   // From 600px, as with a mouse, which keeps them under 600 too.
-  expect(bandFit(600, 5, 44, select, true)).toMatchObject({ compare: "full", fold: true });
+  expect(bandFit(600, 5, 44, select, { touch: true })).toMatchObject({ compare: "full", fold: true });
   expect(bandFit(547, 5, 32, select)).toMatchObject({ compare: "full", fold: true });
 });
 
@@ -123,10 +123,10 @@ test("the band says where you are, chapter included, as text: the chapters toggl
   slot.lifecycle.unmount();
 });
 
-test("where the band has room for the review's title, it goes to the Overview, a 44px target on touch like the band's buttons", async () => {
+test("the review's crumb, its id, goes to the Overview, a 44px target on touch like the band's buttons", async () => {
   fakePane(1600);
   const slot = await renderWorkspace();
-  const title = within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "Parse rows" });
+  const title = within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "pr-42" });
   expect(title.className).toContain("pointer-coarse:h-11");
   fireEvent.click(title);
   await band(slot).findByText("Overview");
@@ -142,7 +142,7 @@ test("on a re-review the band ends with the compare select, Fold comments and Di
   expect(controls()).toEqual(["Show changes: Since your review", "Fold comments in code", "Diff options"]);
   slot.lifecycle.unmount();
   slot = await renderWorkspace();
-  expect(controls()).toEqual(["Parse rows", "Fold comments in code", "Diff options"]);
+  expect(controls()).toEqual(["pr-42", "Fold comments in code", "Diff options"]);
   slot.lifecycle.unmount();
 });
 

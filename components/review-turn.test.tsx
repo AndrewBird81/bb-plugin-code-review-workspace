@@ -253,7 +253,8 @@ test("a tracked review offers Build the guide instead of the guide", async () =>
     status: "tracked", repo: "acme/web", number: 42, author: "octo", url: "https://github.com/acme/web/pull/42",
     turn: turn({ reason: "requested", label: "Review requested" }), signals: { requestedBy: "alice" },
   }, {}, null);
-  await slot.findByRole("heading", { name: "Parse rows" });
+  // The bar's title starts with the review's id, as it shows.
+  await slot.findByRole("heading", { level: 1, name: "web#42 Parse rows" });
   expect(slot.getByText("Requested by @alice")).toBeTruthy();
   expect(slot.getByRole("link", { name: "Open on GitHub" }).getAttribute("href")).toBe("https://github.com/acme/web/pull/42");
   fireEvent.click(slot.getByRole("button", { name: "Build the guide" }));

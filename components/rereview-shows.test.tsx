@@ -58,7 +58,7 @@ async function renderWorkspace({ rpc = {}, opened = true, shows = "since", now =
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  if (pr.built) await slot.findByRole("main", { name: "Review" });
+  if (pr.built) await slot.findByRole("main", { name: /^Review\b/ });
   else await slot.findByRole("status", { name: "Building the guide" });
   /** The author pushes, and the review is rebuilt on the new head. */
   const push = async () => { Object.assign(pr, { headSha: "newer", revision: "r2" }); await slot.emitRealtime("review:pr-42", {}); };
@@ -86,7 +86,7 @@ test("a re-review opens on what changed since your review, however you go in: Re
   expect(checked(slot, "Since your review · 1 of 2 files")).toBe(true);
   fireEvent.click(chapters(slot).getByText("Logging"));
   await waitFor(() => expect(shown(slot)).toEqual(["src/e.ts"]));
-  fireEvent.click(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "Parse rows" }));
+  fireEvent.click(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "pr-42" }));
   fireEvent.click(await slot.findByRole("button", { name: "Continue: Logging" }));
   await waitFor(() => expect(shown(slot)).toEqual(["src/e.ts"]));
   // A comment on a file that changed shows there, still narrowed.
@@ -203,7 +203,7 @@ async function narrowedToB() {
   await waitFor(() => expect(shown(slot)).toEqual(["src/b.ts"]));
   const current = () => chapters(slot).getAllByRole("button").filter((button) => button.getAttribute("aria-current") === "true").map((button) => button.title);
   await waitFor(() => expect(current()).toEqual(["src/b.ts"]));
-  const code = slot.getByRole("main", { name: "Review" }).querySelector<HTMLElement>(":scope > .overflow-y-auto")!;
+  const code = slot.getByRole("main", { name: /^Review\b/ }).querySelector<HTMLElement>(":scope > .overflow-y-auto")!;
   /** Your own scroll to `top`. */
   const scroll = (top: number) => { code.scrollTop = top; fireEvent.wheel(code); fireEvent.scroll(code); };
   return { slot, current, scroll, code };

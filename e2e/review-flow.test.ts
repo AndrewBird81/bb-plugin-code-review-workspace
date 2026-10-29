@@ -181,7 +181,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await askAgent.click();
     const assistant = page.getByRole("region", { name: "Review agent", exact: true });
     await assistant.waitFor();
-    expect(await page.getByRole("dialog", { name: "Review agent", exact: true }).count()).toBe(0);
+    expect(await page.getByRole("dialog", { name: /^Review agent/ }).count()).toBe(0);
     await page.getByPlaceholder(/Ask the agent/).fill("Explain the validation guard");
     await askAgent.click();
     await assistant.waitFor({ state: "hidden" });
@@ -193,7 +193,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await askAgent.press("Enter");
     expect(await page.getByRole("textbox", { name: "Ask the agent", exact: true }).inputValue()).toBe("Explain the validation guard");
     await page.getByRole("button", { name: "Pop out", exact: true }).click();
-    const widget = page.getByRole("dialog", { name: "Review agent", exact: true });
+    const widget = page.getByRole("dialog", { name: /^Review agent/ });
     await widget.waitFor();
     expect(await widget.evaluate((element) => document.fullscreenElement?.contains(element))).toBe(true);
     expect(await widget.getByRole("textbox", { name: "Ask the agent", exact: true }).inputValue()).toBe("Explain the validation guard");
@@ -206,7 +206,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     await page.getByRole("button", { name: "Send", exact: true }).click();
     // bb's ThreadChat takes over. The stubbed worker id has no thread in this bb.
     await assistant.getByText("This thread is no longer available.").waitFor();
-    expect(harness.inspection.sdk.callsTo("threads.spawn")[0][0]).toMatchObject({ visibility: "hidden", title: `Review agent: ${key}`, pluginMetadata: { targetKey: key },
+    expect(harness.inspection.sdk.callsTo("threads.spawn")[0][0]).toMatchObject({ visibility: "hidden", title: `Review agent: web#7 · Validate incoming review data · ${key}`, pluginMetadata: { targetKey: key },
       input: [{ type: "text", text: "Explain the validation guard\n\nAbout `src/input.ts`." }] });
     expect(JSON.stringify(harness.inspection.sdk.callsTo("threads.spawn"))).not.toContain("Private: verify");
     await page.screenshot({ animations: "disabled", path: `${dir}/assistant-panel.png` });

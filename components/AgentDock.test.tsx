@@ -87,6 +87,15 @@ test("during a conversation, a selection is quoted into bb's composer for the re
   expect(screen.queryByRole("textbox", { name: "Ask the agent" })).toBeNull();
 });
 
+test("the agent's header names its review by its id, docked or popped out over the code", async () => {
+  await renderDock({ reviewId: "api#4512" }, { getConversation: unstarted });
+  await screen.findByText("Ask about this change.");
+  expect(within(screen.getByRole("region", { name: "Review agent" })).getByRole("heading", { level: 2 }).textContent).toBe("Review agent·api#4512");
+  fireEvent.click(screen.getByRole("button", { name: "Pop out" }));
+  const widget = await screen.findByRole("dialog", { name: "Review agent · api#4512" });
+  expect(within(widget).getByRole("heading", { level: 2 }).textContent).toBe("Review agent·api#4512");
+});
+
 test("the popped-out agent moves with the arrow keys from its mark, as it resizes from its corner", async () => {
   await renderDock({}, { getConversation: unstarted });
   await screen.findByText("Ask about this change.");

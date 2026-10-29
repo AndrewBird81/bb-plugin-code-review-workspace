@@ -3,7 +3,6 @@ import { UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
-import { reviewName } from "../lib/review-name";
 import { statusLine } from "../lib/status-line";
 import { notRunReason } from "../lib/trust";
 import { useKnob } from "../lib/settings";
@@ -11,8 +10,8 @@ import { Button } from "./ui/button";
 import { Avatar } from "./ui/avatar";
 import { Icon } from "./ui/icon";
 import { IconTile } from "./ui/icon-tile";
-import { InlineCode } from "./ui/inline-code";
 import { PageBar, reviewSettingsItem } from "./PageBar";
+import { ReviewTitle } from "./ReviewIdChip";
 import { ReviewActions } from "./ReviewActions";
 import { PrTitle, StackLinks, UnreviewedParent } from "./ReviewHeader";
 import { kindLook, StatusLine } from "./ReviewStatus";
@@ -46,7 +45,7 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: { r
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <PageBar onBack={onBack} title={<InlineCode text={reviewName(review)} />}>
+      <PageBar onBack={onBack} title={<ReviewTitle review={review} />}>
         <ReviewActions review={review} pinnable={pinnable} trailing={[reviewSettingsItem(navigate, review.targetKey)]} onDeleted={onBack} className={TOUCH_CONTROL} />
       </PageBar>
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -55,7 +54,8 @@ export const TrackedReview = memo(function TrackedReview({ review, onBack }: { r
           <div className="w-full space-y-1.5">
             <PrTitle review={review} />
             <p className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
-              {review.repo && <span className="font-mono text-[11px]">{review.repo}{review.number ? <span className="text-subtle-foreground"> #{review.number}</span> : null}</span>}
+              {/* One word, as its id: flosports/web#88. */}
+              {review.repo && <span className="font-mono text-[11px]">{review.repo}{review.number ? `#${review.number}` : null}</span>}
               {review.author && <span className="inline-flex items-center gap-1.5"><Avatar login={review.author} size={16} /><span className="text-foreground/90">@{review.author}</span></span>}
               {size && <span className="tabular-nums">+{size.additions.toLocaleString()} −{size.deletions.toLocaleString()} · {size.files} {size.files === 1 ? "file" : "files"}</span>}
             </p>

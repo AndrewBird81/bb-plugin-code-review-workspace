@@ -55,7 +55,7 @@ test("opening a review splits the full patch at most twice", async () => {
   };
   splits.results.clear();
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: rpc as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   await new Promise((r) => setTimeout(r, 200));
   slot.lifecycle.unmount();
   expect(splits.results.size).toBeLessThanOrEqual(2);

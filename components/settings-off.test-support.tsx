@@ -75,8 +75,8 @@ export async function renderReview(knobs: Knobs, rpc: Record<string, unknown> = 
   const registration = app.navPanels[0]!;
   const bar = renderSlot({ component: registration.headerContent! }, { subPath: "pr-42" }, { rpc: settingsOffRpc(knobs, rpc) as any });
   const page = renderSlot(registration, { subPath: "pr-42" }, { rpc: settingsOffRpc(knobs, rpc) as any });
-  await page.findByRole("main", { name: "Review" });
-  return { page, bar, main: () => within(page.getByRole("main", { name: "Review" })) };
+  await page.findByRole("main", { name: /^Review\b/ });
+  return { page, bar, main: () => within(page.getByRole("main", { name: /^Review\b/ })) };
 }
 
 /** All reviews. */

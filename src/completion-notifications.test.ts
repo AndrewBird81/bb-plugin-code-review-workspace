@@ -40,7 +40,8 @@ test("a renamed review's alert says the name you gave it", async () => {
   const f = await fixture();
   await f.store.setLifecycle("target", { name: "Sign-in rework" });
   await generateGuide(f.bb, f.store, "target", "p1");
-  expect(f.delivered[0]).toMatchObject({ title: "Sign-in rework", status: "ready" });
+  // After the review's id, here its key, as it has no ref.
+  expect(f.delivered[0]).toMatchObject({ title: "target · Sign-in rework", status: "ready" });
   await f.harness.lifecycle.dispose();
 });
 

@@ -23,6 +23,8 @@ import { Badge, SpeakerMark } from "./ui/badge";
 export interface DockInjection { context: AgentMessageContext; quote?: string; nonce: number; }
 export interface AgentDockProps {
   targetKey: string;
+  /** The review's id (lib/review-identity.ts), which its header names it by, docked or popped out over the code. */
+  reviewId?: string;
   /** The review's patch, for quoting selected lines. */
   patch: string;
   injection?: DockInjection;
@@ -58,7 +60,7 @@ function loadPersisted(targetKey: string): Persisted | null {
 // This controller stays mounted when changing tabs or presentation. A review's
 // conversation is a hidden bb thread shown with ThreadChat; until it exists, a
 // first-message composer chooses its agent.
-export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, container, active = true, popOut = true, closeLabel = "Close panel", onDock, onCollapse }: AgentDockProps) {
+export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, injection, container, active = true, popOut = true, closeLabel = "Close panel", onDock, onCollapse }: AgentDockProps) {
   const rpc = useRpc<typeof rpcContract>();
   const composers = useComposers();
   const scopeProps = usePortalScopeProps();
@@ -230,7 +232,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
             event.preventDefault(); setRect((rect) => clampRect({ ...rect, x: rect.x + step.dx, y: rect.y + step.dy }, bounds()));
           }} className="flex rounded-sm focus-visible:outline focus-visible:outline-ring"><Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden /></span>
         : <Icon name="Sparkles" className="size-4 text-(--ansi-13)" aria-hidden />}
-      <h2 className="text-sm font-medium">Review agent</h2>
+      <h2 className="flex min-w-0 items-baseline gap-1.5 text-sm font-medium"><span className="shrink-0">Review agent</span>{reviewId && <><span aria-hidden className="text-subtle-foreground">·</span><span className="truncate font-mono text-[11px] font-normal text-muted-foreground">{reviewId}</span></>}</h2>
       {(threadId || conversation?.legacy.length) ? <Button ref={resetRef} variant="ghost" size="icon" className="ml-auto size-7 pointer-coarse:size-11" aria-label="New conversation" onPointerDown={(event) => event.stopPropagation()} onClick={() => setConfirmingReset(true)}><Icon name="MessageSquarePlus" className="size-3.5" aria-hidden /></Button> : null}
       {popOut && <Button variant="ghost" size="sm" className={cn("pointer-coarse:h-11", !(threadId || conversation?.legacy.length) && "ml-auto")} onPointerDown={(event) => event.stopPropagation()} onClick={mode === "widget" ? dock : () => setMode("widget")}>
         <Icon name={mode === "widget" ? "Minimize2" : "Maximize2"} className="size-3.5" aria-hidden />{mode === "widget" ? "Dock" : "Pop out"}
@@ -248,7 +250,7 @@ export const AgentDock = memo(function AgentDock({ targetKey, patch, injection, 
     {body}
   </>;
   // Below z-50, where bb's own popovers (such as ThreadChat's model picker) open.
-  const widget = mode === "widget" && createPortal(<div role="dialog" aria-label="Review agent" {...scopeProps} className="fixed z-[49] flex flex-col overflow-hidden rounded-lg border border-border shadow-2xl" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
+  const widget = mode === "widget" && createPortal(<div role="dialog" aria-label={reviewId ? `Review agent · ${reviewId}` : "Review agent"} {...scopeProps} className="fixed z-[49] flex flex-col overflow-hidden rounded-lg border border-border shadow-2xl" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, backgroundColor: "rgb(from var(--background) r g b / 1)" }}>
     {panel}
     <div role="separator" tabIndex={0} aria-label="Resize agent widget" aria-orientation="horizontal" onPointerDown={(event) => startGesture(event, "resize")} onKeyDown={(event) => {
       const step = arrowStep(event.key);

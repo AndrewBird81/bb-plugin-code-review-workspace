@@ -121,7 +121,7 @@ test("without a conversation, asking starts one on the default agent; a new conv
   const { store, ask, harness, signals } = await host({ conversation: false });
   await ask({ body: "What does this do?" });
   const [spawn] = harness.inspection.sdk.callsTo("threads.spawn")[0] as [any];
-  expect(spawn).toMatchObject({ title: "Review agent: pr-1", model: "opus", input: [{ type: "text", text: "On `a.ts:3`: What does this do?" }, { type: "text", visibility: "agent-only" }] });
+  expect(spawn).toMatchObject({ title: "Review agent: web#1 · pr-1", model: "opus", input: [{ type: "text", text: "On `a.ts:3`: What does this do?" }, { type: "text", visibility: "agent-only" }] });
   expect(await store.getAssistantThread("pr-1")).toBe("assistant");
   expect(signals("conversation:pr-1")).toBe(1);
   await harness.behavior.callRpc("newConversation", { targetKey: "pr-1" });

@@ -59,7 +59,7 @@ test("a row shows its title, where the PR is, how long it's been your turn, and 
   const { slot } = await inbox([{ targetKey: "pr-7", kind: "pr", number: 7, repo: "acme/app", title: "Fix", author: "alice", status: "ready",
     signals: { requestedBy: "alice" }, turn: turn("needs", "requested", "Review requested", { at: now - 3 * 3_600_000 }) }]);
   const row = (await slot.findByText("Fix")).closest("button")!;
-  expect(within(row).getAllByText("acme/app #7")).toHaveLength(2);
+  expect(within(row).getAllByText("app#7")).toHaveLength(2);
   expect(within(row).getByText("3h")).toBeTruthy();
   expect(within(row).getByText("Requested by @alice")).toBeTruthy();
   // The row is one button, named by everything on it.
@@ -573,10 +573,12 @@ test("a stack's reviews sit together, bottom first, each saying where it stands"
 test("wide, where the PR is sits beside the title; narrow, it follows the status line", async () => {
   const { slot } = await inbox([{ targetKey: "a", repo: "acme/app", number: 3, title: "A long title that needs the row's width", status: "ready" }]);
   const row = (await slot.findByText("A long title that needs the row's width")).closest("button")!;
-  const [beside, after] = within(row).getAllByText("acme/app #3");
-  expect(beside.className).toContain("hidden");
-  expect(beside.className).toContain("@min-[720px]/inbox:inline");
-  expect(after.parentElement!.className).toContain("@min-[720px]/inbox:hidden");
+  const [beside, after] = within(row).getAllByText("app#3");
+  // The review's id, its repository in full on hover.
+  expect(beside.closest("[title]")!.getAttribute("title")).toBe("acme/app#3");
+  expect(beside.closest(".hidden")!.className).toContain("@min-[720px]/inbox:inline");
+  expect(after.closest("[class*='@min-[720px]/inbox:hidden']")).toBeTruthy();
+  expect(after.closest(".hidden")).toBeNull();
   slot.lifecycle.unmount();
 });
 
@@ -704,10 +706,11 @@ test("a rename that fails says why and keeps the dialog, with what you typed", a
   slot.lifecycle.unmount();
 });
 
-test("a renamed local review shows your name, with its ref where a PR's repository goes", async () => {
+test("a renamed local review shows your name, with its id where a PR's repository goes", async () => {
   const { slot, rename } = await renamable([{ targetKey: "ref-1", kind: "ref", gitRef: "main...search", name: "Search revamp", status: "ready" }]);
   const row = (await slot.findByText("Search revamp")).closest("button")!;
-  expect(within(row).getAllByText("main...search").length).toBeGreaterThan(0);
+  // Without its folder or repository known, its id says it's local.
+  expect(within(row).getAllByText("local:search").length).toBeGreaterThan(0);
   const { dialog } = await rename("Search revamp");
   expect(dialog.getByText("Ref:").parentElement!.textContent).toBe("Ref: main...search");
   expect(dialog.getByRole("button", { name: "Use ref" })).toBeTruthy();

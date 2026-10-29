@@ -539,7 +539,8 @@ test("discovery adds PRs you're asked to review, skips deleted ones, and auto-st
   expect(s.actions.autoStart).toHaveBeenCalledWith(api.targetKey);
   // The other request alerts now; the auto-started one waits for its guide.
   await vi.waitFor(() => expect(s.published).toHaveLength(1));
-  expect(s.published[0]).toMatchObject({ title: "Fix login", body: expect.stringContaining("requested your review") });
+  // Its id leads, as in its window's title.
+  expect(s.published[0]).toMatchObject({ title: "app#9 · Fix login", body: expect.stringContaining("requested your review") });
 });
 
 test("evaluations of one review run one at a time, so a signal is prepared once", async () => {

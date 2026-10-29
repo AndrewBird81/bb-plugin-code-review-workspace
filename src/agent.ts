@@ -6,6 +6,8 @@ import { runGh } from "./gh";
 import { assistantPreferencesPrompt, automaticReviewPrompt, spawnExecution, type AgentExecution, type ReviewPreferences } from "./preferences";
 import { mayRunChecks, mayRunUnattended, skipWhy } from "../lib/trust";
 import { agentPlacement, machineStatus, machineUnavailable } from "./machines";
+import { identityIn, placeFacts } from "./review-places";
+import { titleText } from "../lib/review-identity";
 import { spawningFor } from "./thread-review";
 import { recordFormerWorker } from "./former-workers";
 import { untrusted } from "./untrusted";
@@ -172,9 +174,17 @@ export async function startConversation(bb: BbPluginApi, store: AsyncStore, args
 async function spawnConversation(bb: BbPluginApi, store: AsyncStore, args: { targetKey: string; text: string; context?: string; agent: AgentChoice }, projectId: string): Promise<{ threadId: string }> {
   const unavailable = await machineUnavailable(bb, args.agent, "review assistant");
   if (unavailable) throw new Error(unavailable);
-  const { assistantAgent, messages } = await store.exclusive(async (tx) => ({ assistantAgent: (await tx.getPreferences()).preferences.assistantAgent, messages: await tx.listAgentMessages(args.targetKey) }));
+  const { assistantAgent, messages, review, all, guideTitle } = await store.exclusive(async (tx) => ({
+    assistantAgent: (await tx.getPreferences()).preferences.assistantAgent, messages: await tx.listAgentMessages(args.targetKey),
+    review: await tx.getReview(args.targetKey), all: await tx.listReviews(), guideTitle: (await tx.getGuide(args.targetKey))?.title,
+  }));
   const legacy = messages.slice(-20).map((entry) => `${entry.role}: ${entry.text}`).join("\n\n").slice(-80_000);
-  const title = `${ASSISTANT_TITLE}${args.targetKey}`;
+  // Named for its review where bb shows it, as in a notification: "Review agent: api#4512 · Fix login race · pr-…". The
+  // key keeps spawns' titles apart; bb knows the thread by its id once it's spawned. Until then its role is bound by
+  // its exact title, so the name is on one line and cut to 80 characters, as bb could change a long or broken one.
+  const identity = review && identityIn(await placeFacts(bb, all), all, review, guideTitle);
+  const named = identity ? identity.line === identity.id ? [identity.id] : [identity.id, titleText(identity.name)] : [];
+  const title = `${ASSISTANT_TITLE}${[...new Set([...named, args.targetKey])].join(" · ")}`;
   const placement = await agentPlacement(bb, args.agent, projectId);
   const worker = await spawningFor(bb, title, args.targetKey, async () => {
     const worker = await bb.sdk.threads.spawn({

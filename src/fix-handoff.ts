@@ -8,6 +8,17 @@ import { assistantReview } from "./draft-comments";
 import { isMissingThread } from "./thread-errors";
 import { requireReviewRevision } from "./review-revision";
 import type { AsyncStore } from "./store-queue";
+import { reviewIdentity, threadLine, type ReviewPlace } from "../lib/review-identity";
+import { placeFacts, reviewPlaces } from "./review-places";
+
+/** A review with where its code is (src/review-places.ts), as its messages name it. */
+type Placed = ReviewMeta & { place?: ReviewPlace | null };
+
+/** `review` with its place among your reviews; read outside the store's lock, as it asks bb. */
+async function placed(bb: BbPluginApi, store: AsyncStore, review: ReviewMeta): Promise<Placed> {
+  const all = await store.listReviews();
+  return { ...review, place: reviewPlaces(await placeFacts(bb, all), all).get(review.targetKey) ?? null };
+}
 
 const MAX_CODE_LINES = 40;
 
@@ -44,14 +55,27 @@ function fenced(code: string, lang: string): string {
   return `${fence}${lang}\n${code}\n${fence}`;
 }
 
-/** Where the fix thread works: the PR's branch, or a local review's diff and its head. */
-function where(review: ReviewMeta): string {
-  if (review.kind === "pr") return [
-    `Fix these comments from my review of ${review.repo} PR #${review.number}${review.title ? ` (${review.title})` : ""}.`,
+/** A PR's title, the author's words, on one line and quoted, so it reads as data: "Fix login race". */
+const quoted = (title: string) => JSON.stringify(title.replace(/\s+/g, " ").trim());
+
+/**
+ * Which review is talking, first, as the thread may hear from several: 'Review api#4512 "Fix login race", from Code
+ * Review Workspace:', by the PR's title, which agents keep, not your name for it.
+ */
+function header(review: Placed): string {
+  const machine = review.kind === "ref" && review.place?.machine;
+  return `Review ${reviewIdentity(review).id}${review.title ? ` ${quoted(review.title)}` : ""}${machine ? ` on ${machine}${review.cwd ? ` in \`${review.cwd}\`` : ""}` : ""}, from Code Review Workspace:`;
+}
+
+/** The review's header, then where the fix thread works: the PR's branch, or a local review's diff and its head. */
+function where(review: Placed): string {
+  if (review.kind === "pr") return [header(review),
+    `Fix these comments from my review of ${review.repo} PR #${review.number}${review.title ? `, ${quoted(review.title)}` : ""}.`,
     `Check out the branch \`${review.head}\`, or stay on it if it's already checked out.${review.headSha ? ` I reviewed commit \`${review.headSha.slice(0, 7)}\`.` : ""}`,
   ].join("\n");
   const head = review.gitRef?.split(/\.{2,3}/)[1];
   return [
+    header(review),
     `Fix these comments from my review of \`git diff ${review.gitRef}\`${review.cwd ? ` in \`${review.cwd}\`` : ""}.`,
     head && head !== "HEAD" ? `Check out \`${head}\`, or stay on it if it's already checked out.` : "Stay on the branch checked out there.",
   ].join("\n");
@@ -62,7 +86,7 @@ function where(review: ReviewMeta): string {
  * (Settings' Keep pre-existing problems apart): each comment reads as it would post, a problem the PR didn't introduce
  * marked so. `guard` adds the GitHub limit, for a new thread; the thread that made the change keeps its own rules.
  */
-export function fixMessage(review: ReviewMeta, comments: readonly FixComment[], patch: string, stale: readonly CommentLocation[], preExisting = false, guard = true): string {
+export function fixMessage(review: Placed, comments: readonly FixComment[], patch: string, stale: readonly CommentLocation[], preExisting = false, guard = true): string {
   const items = comments.map((comment) => {
     const cross = comment.startLine !== undefined && (comment.startSide ?? comment.side) !== comment.side;
     const at = `\`${comment.file}:${linesOf(comment)}\`${cross ? ` (old line ${comment.startLine} to new line ${comment.line})` : comment.side === "LEFT" ? " (old line)" : ""}`;
@@ -84,22 +108,24 @@ export async function startFixThread(bb: BbPluginApi, store: AsyncStore, targetK
   if (!(await isOwnChange(review))) throw new Error("Fix in a new thread is only for your own PR or a local review.");
   if (!review.projectId) throw new Error("This review has no associated project; re-run `bb review` inside a project.");
   // What the message says, read in one turn.
-  const { comments, agent, patch, stale, preExistingFindings } = await store.exclusive(async (tx) => {
+  const { comments, agent, patch, stale, preExistingFindings, guideTitle } = await store.exclusive(async (tx) => {
     const { preferences } = await tx.getPreferences();
     return {
       comments: (await tx.getDraft(targetKey)).comments.filter((comment) => picked.some((at) => sameLocation(at, comment))),
       agent: preferences.assistantAgent, patch: await tx.patch(targetKey), stale: await tx.staleDraftComments(targetKey),
-      preExistingFindings: preferences.knobs.preExistingFindings,
+      preExistingFindings: preferences.knobs.preExistingFindings, guideTitle: (await tx.getGuide(targetKey))?.title,
     };
   });
   if (!comments.length) throw new Error("Those comments are no longer in the draft.");
   if (!agent && !(await bb.sdk.projects.defaultExecutionOptions({ projectId: review.projectId }).catch(() => null))) throw new Error("bb has no default agent for the review's project. Choose an agent for the Review agent in Review settings.");
-  // Named as you named the review; its message names the PR by its title.
-  const title = `Fix review comments: ${review.kind === "pr" ? `#${review.number} ${review.name ?? review.title ?? ""}`.trim() : review.name ?? review.gitRef}`;
+  const shown = await placed(bb, store, review);
+  // Named as you named the review, its id first, so its notifications say which review: "Fixes for api#4512 · Fix
+  // login race", on one line and cut to 80 characters. Its message names the PR by its title.
+  const title = `Fixes for ${threadLine(reviewIdentity(shown, guideTitle))}`;
   try {
     const thread = await bb.sdk.threads.spawn({
       projectId: review.projectId, environment: { type: "project-default" },
-      prompt: fixMessage(review, comments, patch, stale, preExistingFindings),
+      prompt: fixMessage(shown, comments, patch, stale, preExistingFindings),
       title,
       ...spawnExecution(agent),
     });
@@ -145,13 +171,14 @@ function extras(draftBody: string, { message, includeSummary }: SendExtras): { m
  */
 export async function sendToSourceThread(bb: BbPluginApi, store: AsyncStore, targetKey: string, picked: readonly CommentLocation[], add: SendExtras = {}): Promise<{ ok: true; delivery: "sent" | "queued"; title: string | null }> {
   const { review, source } = await openSourceThread(bb, store, targetKey);
+  const shown = await placed(bb, store, review);
   // What the message says, read in one turn.
   const { comments, text } = await store.exclusive(async (tx) => {
     const draft = await tx.getDraft(targetKey);
     const comments = draft.comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
     if (!comments.length) return { comments, text: "" };
     const { message, summary } = extras(draft.body, add);
-    const fix = fixMessage(review, comments, await tx.patch(targetKey), await tx.staleDraftComments(targetKey), (await tx.getPreferences()).preferences.knobs.preExistingFindings, false);
+    const fix = fixMessage(shown, comments, await tx.patch(targetKey), await tx.staleDraftComments(targetKey), (await tx.getPreferences()).preferences.knobs.preExistingFindings, false);
     return { comments, text: [message, fix, summary, REPORT_BACK].filter(Boolean).join("\n\n") };
   });
   if (!comments.length) throw new Error("Those comments are no longer in the draft.");
@@ -182,7 +209,7 @@ export async function sendApprovalToSourceThread(bb: BbPluginApi, store: AsyncSt
   });
   if (count) throw new Error("Your draft has comments. Send them instead.");
   if (review.approvalSent?.threadId === source.threadId && review.approvalSent.revision === revision) throw new Error(`You already told ${source.title ?? "the thread"} you approve this diff.`);
-  const delivery = await sendText(bb, source.threadId, [APPROVED, message, summary].filter(Boolean).join("\n\n"));
+  const delivery = await sendText(bb, source.threadId, [`${header(await placed(bb, store, review))}\n${APPROVED}`, message, summary].filter(Boolean).join("\n\n"));
   // The check passed, so `revision` is set.
   await store.setLifecycle(targetKey, { approvalSent: { at: Date.now(), threadId: source.threadId, title: source.title, revision: revision! } });
   return { ok: true, delivery, title: source.title };

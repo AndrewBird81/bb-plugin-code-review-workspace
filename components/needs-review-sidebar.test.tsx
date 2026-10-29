@@ -45,7 +45,7 @@ test("Needs review goes last in BB's thread list, below Threads, with only the r
   expect(groups.lastElementChild!.contains(section)).toBe(true);
   expect(groups.children).toHaveLength(3);
   const rows = within(section).getAllByRole("link");
-  expect(rows.map((row) => row.textContent)).toEqual(["Blocks merge1h", "Direct request2h", "Team request1d"]);
+  expect(rows.map((row) => row.textContent)).toEqual(["#2Blocks merge1h", "#1Direct request2h", "#3Team request1d"]);
   expect(within(section).getByRole("button", { name: /Needs review/ }).textContent).toContain("3");
   slot.lifecycle.unmount();
   expect(groups.children).toHaveLength(2);
@@ -76,12 +76,21 @@ test("a row's tooltip says where the PR is, why it's yours and for how long, as 
   threadList();
   const slot = await renderSidebar([{ ...reviews[2], signals: { requestedBy: "alice" } }]);
   const row = await within(document.body).findByRole("link", { name: /Direct request/ });
-  expect(row.getAttribute("title")).toBe("acme/web #1 · Requested by @alice · 2h");
+  expect(row.getAttribute("title")).toBe("acme/web#1 · Requested by @alice · 2h");
   const pin = within(document.body).getByRole("button", { name: "Pin Direct request" });
   // Touch and screen readers get no tooltip, so the row says where and why in words too.
-  expect(within(document.body).getByRole("link", { name: /Direct request/, description: "acme/web #1, Requested by @alice" })).toBe(row);
+  expect(within(document.body).getByRole("link", { name: /Direct request/, description: "acme/web#1, Requested by @alice" })).toBe(row);
   // A screen that can't hover keeps its rows clear, as BB's own are; the review's menu pins it.
   expect(pin.className.split(" ")).toEqual(expect.arrayContaining(["[@media(hover:hover)]:opacity-0", "group-hover/row:opacity-100", "[@media(hover:none)]:hidden"]));
+  slot.lifecycle.unmount();
+});
+
+test("a PR's row has its number before its name, muted, the repository staying in its tooltip; a local review's has none", async () => {
+  threadList();
+  const slot = await renderSidebar([reviews[2], { targetKey: "ref-1", kind: "ref", gitRef: "HEAD", title: "Local work", status: "ready", turn: turn("needs", "requested", 1) }]);
+  const row = await within(document.body).findByRole("link", { name: "#1 Direct request 2h" });
+  expect(within(row).getByText("#1").className).toContain("text-muted-foreground");
+  expect(within(document.body).getByRole("link", { name: "Local work 1h" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -89,8 +98,8 @@ test("a renamed review's row says your name, with the PR's title first in its to
   threadList();
   const slot = await renderSidebar([{ ...reviews[2], name: "Requests rework", signals: { requestedBy: "alice" } }]);
   const row = await within(document.body).findByRole("link", { name: /Requests rework/ });
-  expect(row.getAttribute("title")).toBe("Direct request · acme/web #1 · Requested by @alice · 2h");
-  expect(within(document.body).getByRole("link", { name: /Requests rework/, description: "Direct request, acme/web #1, Requested by @alice" })).toBe(row);
+  expect(row.getAttribute("title")).toBe("Direct request · acme/web#1 · Requested by @alice · 2h");
+  expect(within(document.body).getByRole("link", { name: /Requests rework/, description: "Direct request, acme/web#1, Requested by @alice" })).toBe(row);
   expect(within(document.body).getByRole("button", { name: "Pin Requests rework" })).toBeTruthy();
   slot.lifecycle.unmount();
 });
@@ -165,9 +174,9 @@ test("how long each has waited keeps up while the page stays open", async () => 
   threadList();
   const slot = await renderSidebar([reviews[2]]);
   const row = await within(document.body).findByRole("link", { name: /Direct request/ });
-  expect(row.textContent).toBe("Direct request2h");
+  expect(row.textContent).toBe("#1Direct request2h");
   await vi.advanceTimersByTimeAsync(3_600_000);
-  expect(row.textContent).toBe("Direct request3h");
+  expect(row.textContent).toBe("#1Direct request3h");
   slot.lifecycle.unmount();
 });
 
@@ -181,7 +190,7 @@ test("a pinned review sits in BB's Pinned group after its threads, and leaves Ne
   expect(pinnedRows.lastElementChild!.contains(row)).toBe(true);
   expect(pinnedRows.children).toHaveLength(3);
   const needs = within(document.body).getByRole("region", { name: "Needs review" });
-  expect(within(needs).getAllByRole("link").map((link) => link.textContent)).toEqual(["Blocks merge1h"]);
+  expect(within(needs).getAllByRole("link").map((link) => link.textContent)).toEqual(["#2Blocks merge1h"]);
   expect(within(pinnedRows).getByRole("button", { name: "Unpin Direct request" })).toBeTruthy();
   slot.lifecycle.unmount();
   expect(pinnedRows.children).toHaveLength(2);

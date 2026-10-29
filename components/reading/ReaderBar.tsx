@@ -1,12 +1,14 @@
-import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
+import { reviewIdentity, type ReviewIdentity } from "../../lib/review-identity";
 import { keyHint } from "../../lib/review-shortcuts";
 import { TITLE_BAR_WAIT_MS } from "../../lib/title-bar";
 import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
 import { phoneWindow } from "../../lib/workspace-layout";
-import { useTitleBarMounted } from "../../lib/workspace-store";
+import { usePageTitleShown, useTitleBarMounted } from "../../lib/workspace-store";
 import { compareLabel, ComparePicker, lastReviewed } from "../ComparePicker";
+import { ReviewIdChip } from "../ReviewIdChip";
 import { ChapterStep } from "../shell/ChapterStep";
 import { TopBand } from "../shell/TopBand";
 import { TitleBarControls } from "../TitleBarControls";
@@ -19,7 +21,10 @@ import { InlineCode } from "../ui/inline-code";
 import { DiffOptions } from "./DiffOptions";
 
 
-/** What the band shows beside its buttons: "All reviews" beside ‹, the review's title, the compare select, and Fold. */
+/**
+ * What the band shows beside its buttons and the review's id, which always shows: "All reviews" beside ‹, the review's
+ * title, the compare select, and Fold.
+ */
 export interface BandFit {
   back: boolean;
   title: boolean;
@@ -46,23 +51,32 @@ const OPTIONS_ALONE_BELOW = 600;
 /** The compare select's width with `label`: about 6.5px a character, its chevron, and its padding. */
 export const selectWidth = (label: string) => Math.ceil(label.length * 6.5) + 34;
 
+/** The id chip's width: 11px monospace, its repository's name up to 160px, its padding, and the gap after it. */
+export const chipWidth = ({ idRepo, idTail }: Pick<ReviewIdentity, "idRepo" | "idTail">) => Math.min(160, Math.ceil(idRepo.length * 6.6)) + Math.ceil(idTail.length * 6.6) + 18;
+
 /**
- * What fits in `room` px of band beside its `buttons` square buttons of `size` px: the chapter's title first, then the
- * compare select, `compare` px wide with its full or brief label (null: the review has none), then "All reviews" from a
- * reader of 720px, then the review's title. Fold comments, one of the buttons, is a setting Diff options has too: it
- * gives way to the chapter's title and to the compare select, a state you must see. On a phone's touch screen
- * (`touch`), under 600px of room, both are in Diff options.
+ * What fits in `room` px of band beside its `buttons` square buttons of `size` px and the review's id, `chip` px wide,
+ * which always shows: the chapter's title first, then the compare select, `compare` px wide with its full or brief
+ * label (null: the review has none), then "All reviews" from a reader of 720px, then the review's title, which goes
+ * first. Where BB's title bar doesn't name the review (`named`), as in full screen, its title comes before "All
+ * reviews". Fold comments, one of the buttons, is a setting Diff options has too: it gives way to the chapter's title
+ * and to the compare select, a state you must see. On a phone's touch screen (`touch`), under 600px of room, both are
+ * in Diff options.
  */
-export function bandFit(room: number, buttons: number, size: number, compare: { full: number; brief: number } | null, touch = false): BandFit {
+export function bandFit(room: number, buttons: number, size: number, compare: { full: number; brief: number } | null, { touch = false, chip = 0, named = false }: { touch?: boolean; chip?: number; named?: boolean } = {}): BandFit {
   if (touch && room < OPTIONS_ALONE_BELOW) return { back: false, title: false, compare: null, fold: false };
   const button = size + 4;
-  let left = room - buttons * button;
+  let left = room - buttons * button - chip;
   // The full label only with room to spare, so the chapter's title doesn't lose what the label gains.
   const fits = (space: number): BandFit["compare"] => !compare ? null : space - CHAPTER.least >= compare.full + 60 ? "full" : space - CHAPTER.least >= compare.brief ? "brief" : null;
   let select = fits(left);
   const fold = left >= CHAPTER.least && (!compare || !!select || !fits(left + button));
   if (!fold) select = fits(left += button);
   left -= (select ? compare![select] : 0) + CHAPTER.usual;
+  if (named) {
+    const title = left >= TITLE;
+    return { back: room >= 720 && left - (title ? TITLE : 0) >= BACK, title, compare: select, fold };
+  }
   const back = room >= 720 && left >= BACK;
   left -= back ? BACK : 0;
   // The review's title only in the whole breadcrumb: after ‹ alone, it would read as where ‹ goes.
@@ -126,11 +140,17 @@ export function ReaderBar({ threads, onCompareShown }: { threads: boolean; onCom
   const longer = (brief: boolean) => [compareLabel(false, null), compareLabel(true, compare.from, brief)].reduce((a, b) => b.length > a.length ? b : a);
   const sized = (brief: boolean) => selectWidth(longer(brief)) + (compare.error ? 18 : 0);
   const buttons = (layout.nav === "docked" ? 0 : 2) + 1 + (chapter ? 2 : 0);
-  const fit = useBandFit(reading, (room) => bandFit(room, buttons, short ? 36 : coarse ? 44 : 32, comparable ? { full: sized(false), brief: sized(true) } : null, coarse && phoneWindow()));
+  // The review's commands end the band where BB's title bar doesn't show them, nor the review's name.
+  const commands = fullscreen.on || (waited && !titleBar);
+  // The review's name has one home: BB's title bar, where it shows this pane's review, else the band.
+  const titled = usePageTitleShown(targetKey) && !commands;
+  // A local review with no name of its own goes by its guide's title, as its page title does.
+  const identity = useMemo(() => reviewIdentity(review, guide.title), [review, guide.title]);
+  const described = useId();
+  const fit = useBandFit(reading, (room) => bandFit(room, buttons, short ? 36 : coarse ? 44 : 32, comparable ? { full: sized(false), brief: sized(true) } : null, { touch: coarse && phoneWindow(), chip: chipWidth(identity), named: commands }));
   // Before the paint, so a narrowed diff's own note doesn't flash as the select comes and goes.
   useLayoutEffect(() => onCompareShown?.(!!fit.compare), [fit.compare, onCompareShown]);
   if (layout.mode === "phone") return null;
-  const commands = fullscreen.on || (waited && !titleBar);
   const chapterFiles = chapter?.diffs.map((diff) => diff.file) ?? [];
   const viewed = chapterFiles.filter((file) => files.views.get(file)?.viewed).length;
   // A phone held sideways keeps its band to 40px, its buttons inside 44px targets.
@@ -145,16 +165,22 @@ export function ReaderBar({ threads, onCompareShown }: { threads: boolean; onCom
             <Icon name="ChevronLeft" aria-hidden />{fit.back && "All reviews"}
           </Button>
           {fit.back && <span aria-hidden className="text-subtle-foreground">/</span>}
+          {/* Which review: its id always, and in a chapter its title where the band has room, which goes to its Overview. */}
+          <span className="flex min-w-0 shrink-[3] items-center gap-1">
+            {chapter
+              // Its words truncate inside it, so a 44px target around it (short's ::after) isn't clipped.
+              ? <button type="button" title="Overview" aria-label={fit.title && !titled ? `${identity.id} ${identity.name}` : identity.id} aria-describedby={described} className={cn("flex min-w-0 items-center gap-1.5 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", touch)} onClick={() => go(OVERVIEW)}>
+                <ReviewIdChip identity={identity} />{fit.title && !titled && <span className="max-w-56 truncate">{identity.name}</span>}
+                <span id={described} className="sr-only">{identity.label}</span>
+              </button>
+              // The Overview's own title names it, under the band.
+              : <span className="flex min-w-0 items-center"><ReviewIdChip identity={identity} /></span>}
+            <span aria-hidden className="text-subtle-foreground">/</span>
+          </span>
           {!chapter ? <span className="flex min-w-0 items-center gap-1.5 font-medium">
             <Icon name="AlignLeft" className="size-4 shrink-0 text-primary" aria-hidden />
             <span className="truncate">Overview</span>
           </span> : <>
-            {/* The review's title, which goes to its Overview, where the band has room for it beside the chapter's. */}
-            {fit.title && <span className="flex min-w-0 shrink-[3] items-center gap-1">
-              {/* Its words truncate inside it, so a 44px target around it (short's ::after) isn't clipped. */}
-              <button type="button" title="Overview" className={cn("flex min-w-0 max-w-56 items-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", touch)} onClick={() => go(OVERVIEW)}><span className="truncate">{review.name ?? review.title ?? guide.title ?? targetKey}</span></button>
-              <span aria-hidden className="text-subtle-foreground">/</span>
-            </span>}
             {/* Where you are, not a button: the chapters toggle shows the chapters, here or at the navigator's top. */}
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="sr-only">{`Chapter ${index + 1} of ${sections.length}: ${chapter.title}, ${viewed} of ${chapterFiles.length} files viewed`}</span>

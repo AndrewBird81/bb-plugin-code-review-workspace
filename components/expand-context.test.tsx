@@ -50,7 +50,7 @@ async function renderWorkspace(rpc: Record<string, unknown> = {}, shown = { guid
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   await slot.findAllByTestId("filediff");
   return { slot, rpc: handlers, file: () => within(slot.container.querySelector<HTMLElement>('[data-file="src/a.ts"]')!) };
 }

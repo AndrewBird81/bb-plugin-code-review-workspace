@@ -112,7 +112,7 @@ test("on a first review Diff options compares with a commit, on a page of its ow
 test("on a phone Diff options is a drawer from the chapters sheet, with Fold comments, and Show changes, which the diff then says above its files", async () => {
   fakeScreen(390, 844, false);
   const slot = await renderWorkspace({ signals: { lastReviewSha: "old" }, submittedVerdict: "COMMENT" });
-  fireEvent.click(slot.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(slot.getByRole("button", { name: /^pr-42, Chapters:/ }));
   fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Diff options" }));
   expect(await slot.findByRole("switch", { name: "Fold comments in code" })).toBeTruthy();
   expect(slot.queryByRole("radiogroup", { name: "Layout" })).toBeNull();

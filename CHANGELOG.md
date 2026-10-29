@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Every review says which it is, at a glance: a short id, `api#4512` for a PR, or the repository and branch for local work, `api:feat/snooze-checks`, with a bb branch read as its slug. BB's title bar and the window's title lead with it, then the review's name, `api#4512 · Fix login race`, so two reviews in split panes or two windows read apart, and cutting a long name keeps the id. A local review with no name of yours goes by its guide's title everywhere. Where two repositories in your list share a name, the id names the owner; where two local reviews of one branch are in different folders, it adds the end of the folder's path, `(thr_a-1/api)` for bb's worktrees; and where they're in one folder, it says each ref as given.
+- The band keeps the id in a chip after ‹ on the Overview and in every chapter, and the review's name after it in full screen, where BB's title bar is hidden. Short of room, the repository's name is cut first, and `#4512` never.
+- The page bar of a review without a guide yet, the popped-out review agent, and a phone's dock, over the chapter, show the id too. BB's thread list shows a PR's `#n` before its name.
+- A local review's row says its id and machine, `api:feat/x · MaxBook`, and its Overview the machine and folder of its checkout. Your own PR's Overview says Yours.
+- Needs You alerts, the review agent's thread, and a **Fix in a new thread** thread, now "Fixes for api#4512 · Fix login race", are titled by the id, so their notifications say which review; what Send to thread sends, comments or an approval, starts 'Review api#4512 "Fix login race", from Code Review Workspace:', the PR's title quoted. `bb review` prints the id and name with the key, and `bb review list` an id column, `id` in its JSON.
+- Rename a review from the pencil beside its Overview's title, or with `bb review <target> --name "…"`, which a review's own agent can't use. Screen readers hear the whole review, "Pull request 4512 in flosports/api: Fix login race, by dana", in its landmark and the band's description; what they hear of a chip, a tab or a title starts with the id as it's shown.
+
 ## 1.7.0 — 2026-10-28
 
 Save All reviews' filters as named views. Still **BB 0.45+** (plugin SDK **0.6.14+**) with Node 24+; installs at `^1.0.0` update to 1.7.0. 1.7.0 adds one migration, a `filter_views` table, on SQLite and on Postgres. Rolling back to 1.6.0 keeps everything, the saved views unused until you update again; on 1.6.0, `bb review storage` won't move the reviews between SQLite and Postgres, the migration being newer than it.

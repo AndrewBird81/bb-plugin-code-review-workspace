@@ -37,14 +37,14 @@ async function setup(lifecycle: ReviewLifecycle) {
 test("Run starts the automatic review that didn't run, and approves agents on the guide's head", async () => {
   const { harness, store, titles } = await setup({ skippedRun: { run: "review", head: "sha1", at: 1 } });
   expect(await harness.behavior.callRpc("runSkipped", { targetKey: "pr-1" })).toEqual({ ok: true });
-  expect(titles()).toEqual(["Review agent: pr-1"]);
+  expect(titles()).toEqual(["Review agent: web#1 · pr-1"]);
   expect(await store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", approvedAt: expect.any(Number), skippedRun: null });
 });
 
 test("Run starts the feedback check that didn't run, on the PR's head", async () => {
   const { harness, store, titles } = await setup({ skippedRun: { run: "check", head: "sha1", at: 1 }, submittedVerdict: "REQUEST_CHANGES", submittedAt: 5, submittedHeadSha: "sha0" });
   expect(await harness.behavior.callRpc("runSkipped", { targetKey: "pr-1" })).toEqual({ ok: true });
-  expect(titles()).toEqual(["Review agent: pr-1"]);
+  expect(titles()).toEqual(["Review agent: web#1 · pr-1"]);
   expect(await store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", approvedAt: expect.any(Number), skippedRun: null, verifyingSince: expect.any(Number) });
 });
 

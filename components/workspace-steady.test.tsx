@@ -62,7 +62,7 @@ async function renderWorkspace(review: () => Record<string, unknown>, rpc: Recor
     ...rpc,
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   return { slot, rpc: handlers };
 }
 const panel = (slot: Awaited<ReturnType<typeof renderWorkspace>>["slot"]) => within(slot.getByRole("complementary", { name: "Comments and agent" }));

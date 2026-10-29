@@ -1,13 +1,12 @@
 import { memo, useId } from "react";
 import { UrlLink, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { GUIDE_STOPPED, type ReviewItem } from "../lib/review-state";
-import { reviewName } from "../lib/review-name";
 import { Skeleton } from "./ui/skeleton";
 import { Icon } from "./ui/icon";
 import { Button } from "./ui/button";
 import { IconTile } from "./ui/icon-tile";
-import { InlineCode } from "./ui/inline-code";
 import { PageBar, reviewSettingsItem } from "./PageBar";
+import { ReviewTitle } from "./ReviewIdChip";
 import { ReviewActions } from "./ReviewActions";
 import { useThreadListReviews } from "./NeedsReviewSidebar";
 import { TOUCH_CONTROL } from "./touch";
@@ -76,7 +75,7 @@ function BuildingGuide({ review, onBack, onStop, stopping }: { review: ReviewIte
   const pinnable = useThreadListReviews() === true;
   return (
     <div className="@container/skeleton flex h-full min-h-0 min-w-0 flex-col bg-background">
-      <PageBar onBack={onBack} title={<InlineCode text={reviewName(review)} />}>
+      <PageBar onBack={onBack} title={<ReviewTitle review={review} />}>
         <ReviewActions review={review} pinnable={pinnable} trailing={[reviewSettingsItem(navigate, review.targetKey)]} onDeleted={onBack} className={TOUCH_CONTROL} />
       </PageBar>
       <div className="px-4 pt-6 @min-[640px]/skeleton:px-6">
@@ -127,7 +126,7 @@ export const ReviewError = memo(function ReviewError({ review, title = "Couldnâ€
   const reasonId = useId();
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <PageBar onBack={onBack} title={review && <InlineCode text={reviewName(review)} />}>
+      <PageBar onBack={onBack} title={review && <ReviewTitle review={review} />}>
         {review && <ReviewActions review={review} pinnable={pinnable} trailing={[reviewSettingsItem(navigate, review.targetKey)]} onDeleted={onBack} className={TOUCH_CONTROL} />}
       </PageBar>
       {/* A guide you stopped, or one waiting for its writer's machine, didn't fail: it says so plainly, not as an alert. */}

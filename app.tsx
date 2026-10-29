@@ -12,10 +12,31 @@ import { NeedsReviewSidebar } from "./components/NeedsReviewSidebar";
 import { TitleBarControls } from "./components/TitleBarControls";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { paletteCommandsAvailable, postPaletteCommand, readClipboard } from "./lib/commands";
+import { useEffect } from "react";
+import { panelPage, showPageTitle, useReviewTitle } from "./lib/workspace-store";
+import { useMediaQuery } from "./components/ui/hooks/use-media-query";
 
 /** Needs review's rows in BB's own thread list: should they fail to draw, BB's list shows without them. */
 function SidebarOverlay() {
   return <ErrorBoundary fallback={() => null}><NeedsReviewSidebar /></ErrorBoundary>;
+}
+
+/**
+ * BB's title bar, after the panel's name, and the window's title: the open review's id and name, "api#4512 · Fix login
+ * race", which its page publishes; the panel's name alone on All reviews and Settings. Each pane asks for its own. The
+ * id and the name are crumbs, where the window is at least 720px wide: BB cuts only the last one short. Narrower, the
+ * whole line as one title, cut at its end: BB's crumbs run into each other in a tight bar (seen at 390 and 480px), and
+ * it shares the bar between the panel's name and a title by their lengths, so the id alone would be cut to "api#4…".
+ */
+function usePageTitle({ subPath }: { subPath: string }) {
+  const page = panelPage(subPath);
+  const targetKey = page.kind === "review" ? page.targetKey : null;
+  const title = useReviewTitle(targetKey);
+  const narrow = useMediaQuery("(max-width: 719px)");
+  // Told while it shows the title, so the band leaves the review's name to it.
+  useEffect(() => title && targetKey ? showPageTitle(targetKey) : undefined, [title, targetKey]);
+  if (!title) return null;
+  return narrow || title.line === title.id ? { title: title.line, windowTitle: title.line } : { breadcrumbs: [{ label: title.id }, { label: title.name }], windowTitle: title.line };
 }
 
 export default definePluginApp((app) => {
@@ -27,6 +48,8 @@ export default definePluginApp((app) => {
     path: "review",
     component: ReviewPanel,
     headerContent: TitleBarControls,
+    // BB hosts from before page titles ignore it, and the band's id chip still says which review it is.
+    experimental_usePageTitle: usePageTitle,
   });
   // Optional call: BB hosts from before app overlays skip it rather than fail to load the plugin.
   app.slots.experimental_appOverlay?.({ id: "needs-review", component: SidebarOverlay });

@@ -8,6 +8,7 @@ import { NOT_LISTED, runListCommand } from "./list-command";
 import { createPrReview } from "./start-review";
 import { isAssistantAnswering } from "./agent";
 import { personalProjectId } from "./machines";
+import { placeFacts, reviewPlaces } from "./review-places";
 import { agentReadsHead } from "./agent-reads";
 import { isMissingThread } from "./thread-errors";
 import { ghPrChecksJsonArgs, runGh, runGit } from "./gh";
@@ -29,9 +30,20 @@ export function register(deps: ServeDeps) {
   const { bb, store, notifications, sync, changed, reviewOwners } = deps;
   // Reviews leave the server with whose turn they are, how far your feedback got, and their place in a stack.
   // JSON round-trips drop the literal `undefined` fields rowToMeta leaves, which strict rpc output rejects.
-  const decorate = async (review: ReviewMeta, options: TurnOptions, stacks: ReturnType<typeof findStacks>) => JSON.parse(JSON.stringify({
-    ...review, turn: await sync.turnOf(review, undefined, options), progress: feedbackProgress(review), stack: stacks.get(review.targetKey) ?? null,
+  // A local review with no title of its own goes by its guide's (lib/review-identity.ts): `guideTitles`, by key.
+  const decorate = async (review: ReviewMeta, options: TurnOptions, stacks: ReturnType<typeof findStacks>, places: ReturnType<typeof reviewPlaces>, guideTitles: ReadonlyMap<string, string>) => JSON.parse(JSON.stringify({
+    ...review, turn: await sync.turnOf(review, undefined, options), progress: feedbackProgress(review), stack: stacks.get(review.targetKey) ?? null, place: places.get(review.targetKey) ?? null,
+    guideTitle: guideTitles.get(review.targetKey) ?? null,
   }));
+  /** The guides' titles of `reviews`' local reviews with no title of their own. */
+  const guideTitles = async (tx: Pick<typeof store, "getGuide">, reviews: readonly ReviewMeta[]) => {
+    const titles = new Map<string, string>();
+    for (const review of reviews) {
+      const title = review.kind === "ref" && !review.title ? (await tx.getGuide(review.targetKey))?.title : undefined;
+      if (title) titles.set(review.targetKey, title);
+    }
+    return titles;
+  };
   // Whether you wrote the PR, before the sync has read it: GitHub allows only a Comment review on your own PR.
   const ownPrUnread = (review: ReviewMeta) => review.kind === "pr" && !!review.author && typeof review.ownPr !== "boolean";
   const ownPrOf = (review: ReviewMeta, login: string | null): ReviewMeta =>
@@ -39,12 +51,16 @@ export function register(deps: ServeDeps) {
   const withOwnPr = async (review: ReviewMeta | null) => review && ownPrUnread(review) ? ownPrOf(review, await sync.login()) : review;
   /** Every review, decorated with one read of the settings and the sync's cached login, without the summaries only the assistant reads. */
   const listed = async () => {
-    const { options, all } = await store.exclusive(async (tx) => ({ options: turnOptions((await tx.getPreferences()).preferences), all: await tx.listReviews() }));
+    const { options, all, titles } = await store.exclusive(async (tx) => {
+      const all = await tx.listReviews();
+      return { options: turnOptions((await tx.getPreferences()).preferences), all, titles: await guideTitles(tx, all) };
+    });
     // The sync reads who you are on its passes; a list load never waits on gh for it.
     const login = all.some(ownPrUnread) ? sync.cachedLogin() : null;
     const reviews = all.map((review) => ownPrOf(review, login));
     const stacks = findStacks(reviews);
-    return await Promise.all(reviews.map(async ({ reviewBodies: _bodies, agentReads: _reads, ...review }) => await decorate(review, options, stacks)));
+    const places = reviewPlaces(await placeFacts(bb, reviews), reviews);
+    return await Promise.all(reviews.map(async ({ reviewBodies: _bodies, agentReads: _reads, ...review }) => await decorate(review, options, stacks, places, titles)));
   };
   /** A review whose diff pruneOldDiffs dropped reads it again when it's opened; returns why it couldn't. */
   async function rereadPrunedDiff(targetKey: string): Promise<string | undefined> {
@@ -69,12 +85,15 @@ export function register(deps: ServeDeps) {
   const handlers = {
     async getReviewBundle({ targetKey, knownRevision }) {
       const diffError = await rereadPrunedDiff(targetKey);
-      const { revision, found } = await store.exclusive(async (tx) => ({ revision: await reviewRevision(tx, targetKey), found: await tx.getReview(targetKey) }));
+      const { revision, found, listedNow } = await store.exclusive(async (tx) => ({ revision: await reviewRevision(tx, targetKey), found: await tx.getReview(targetKey), listedNow: await tx.listReviews() }));
       const owned = await withOwnPr(found);
+      // As the list asks it, so the page's id is the list's.
+      const facts = await placeFacts(bb, listedNow);
       // What the page shows of it, read in one turn.
       return store.exclusive(async (tx) => {
-        const stacks = findStacks(await tx.listReviews());
-        const review = owned && await decorate(owned, turnOptions((await tx.getPreferences()).preferences), stacks);
+        const all = await tx.listReviews();
+        const stacks = findStacks(all);
+        const review = owned && await decorate(owned, turnOptions((await tx.getPreferences()).preferences), stacks, reviewPlaces(facts, all), await guideTitles(tx, [owned]));
         // Reads of a local review's earlier diff don't count toward its rebuilt one, which the client can't tell apart.
         if (review?.agentReads && review.agentReads.head !== await agentReadsHead(tx, targetKey)) review.agentReads = null;
         return { review, guide: await tx.getGuide(targetKey),

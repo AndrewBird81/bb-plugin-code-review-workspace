@@ -155,7 +155,7 @@ test("with Fold files you've viewed off, the Viewed checkbox, v and Mark chapter
 test("on a phone the chapters sheet marks a chapter viewed and stays open, its controls 44px", async () => {
   fakeSize(390, 844);
   const { slot, rpc } = await renderWorkspace();
-  fireEvent.click(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(within(slot.getByRole("group", { name: "Review commands" })).getByRole("button", { name: /^pr-42, Chapters:/ }));
   const sheet = within(slot.getByRole("dialog", { name: "Chapters" }));
   const mark = sheet.getByRole("button", { name: "Mark chapter viewed" });
   expect(mark.className).toContain("pointer-coarse:h-11");

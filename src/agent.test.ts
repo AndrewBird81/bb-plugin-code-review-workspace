@@ -495,7 +495,7 @@ test("a guide you start approves its head, so the automatic review follows; a ne
   await store.setLifecycle("pr-1", { skippedRun: { run: "guide", head: "sha1", at: 1 } });
   await generateGuide(bb, store, "pr-1", "p1");
   expect(await store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", approvedAt: expect.any(Number), skippedRun: null });
-  expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: pr-1"]);
+  expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: web#1 · pr-1"]);
 
   const next = await outsider("sha2");
   await next.store.setLifecycle("pr-1", { approvedHead: "sha1" });
@@ -574,7 +574,7 @@ test("with the repo's checks allowed, the automatic review asks the agent to run
   const { bb, harness, store, titles } = await outsider("sha1", { runRepoChecks: true });
   await store.setLifecycle("pr-1", { authorAssociation: "MEMBER" });
   await generateGuide(bb, store, "pr-1", "p1");
-  expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: pr-1"]);
+  expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: web#1 · pr-1"]);
   const assistant = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any)[1];
   expect(assistant.input[1]).toMatchObject({ visibility: "agent-only", text: expect.stringMatching(/Run the repo's checks as your instructions describe/) });
 
@@ -589,7 +589,7 @@ test("on your own PR before the sync read it, the automatic review asks for the 
   await store.setLifecycle("pr-1", { ownPr: null });
   vi.mocked(runGh).mockResolvedValueOnce({ stdout: "mallory\n", stderr: "", code: 0 });
   await generateGuide(bb, store, "pr-1", "p1", { unattended: true });
-  expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: pr-1"]);
+  expect(titles()).toEqual(["Generate guide: pr-1", "Review agent: web#1 · pr-1"]);
   const context: string = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any)[1].input[1].text;
   expect(context).toContain("This is the reviewer's own PR");
   expect(context).not.toContain("Run the repo's checks");

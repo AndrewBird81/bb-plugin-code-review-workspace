@@ -12,7 +12,8 @@ import { cn } from "../lib/utils";
 import { experimental_useCodeTheme } from "@get-bb/plugin-sdk/app";
 import { getCommentsFolded, getGithubThreadsInCode, getHideWhitespace, getNavOpen, getNavView, getNavWidth, getPanelWidth, getReviewState, getWrapLines, patchReviewState, setCommentsFolded, setGithubThreadsInCode, setHideWhitespace, setNavOpen as saveNavOpen, setNavView, setNavWidth as saveNavWidth, setPanelWidth as savePanelWidth, setWrapLines, type NavView, type PanelView } from "../lib/panel-state";
 import { OVERVIEW, WorkspaceProvider, type WorkspaceApi } from "../lib/workspace-context";
-import { currentFileOf, setCurrentFile as storeCurrentFile, useCurrentFile } from "../lib/workspace-store";
+import { currentFileOf, publishReviewTitle, setCurrentFile as storeCurrentFile, useCurrentFile } from "../lib/workspace-store";
+import { reviewIdentity } from "../lib/review-identity";
 import { NAV_WIDTH, PANEL_WIDTH, READER_MIN, panelDockWidth, useWorkspaceLayout, type LayoutState } from "../lib/workspace-layout";
 import { useKeyboardInset } from "../lib/use-keyboard-inset";
 import { useFold } from "../lib/use-fold";
@@ -1395,6 +1396,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     shortcuts: shortcutsOn,
   } : null, [targetKey, review, guide, sections, activeId, selectChapter, layout, toggleNav, findInReview, navView, changeNavView, shownPanel, openPanel, togglePanel, closePanel, views, toggleViewed, markChapterViewed, nextUnviewed, foldAllFiles, baselineSha, compareFrom, pickCompare, flip, since, sinceOnly, sinceError, sinceWhat, diffLayout, toggleLayout, newFiles, changeNewFiles, markdownFiles, changeMarkdownFiles, unifiedOnly, wrapLines, changeWrap, hideWhitespace, changeHideWhitespace, showThreads, setShowThreads, commentsFolded, changeCommentsFolded, showComment, showLocation, followUp, askAgent, showDraftSummary, canFullscreen, fullscreen, toggleFullscreen, leave, snooze, newCommits, rebuild, load, preferences, showShortcuts, shortcutsOn]);
 
+  // Which review this is, for BB's title bar and the window's title, whatever the page shows.
+  const identity = useMemo(() => review ? reviewIdentity(review, guide?.title) : null, [review, guide?.title]);
+  const { id, name, line } = identity ?? {};
+  useEffect(() => id && name && line ? publishReviewTitle(targetKey, { id, name, line }) : undefined, [targetKey, id, name, line]);
+
   if (!guide || !api) {
     const back = () => navigate.toPluginPanel("review");
     if (loadError) return <ReviewError title="Couldn’t load this review" message={loadError} onRetry={() => void load()} onBack={back} />;
@@ -1450,7 +1456,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         <NavigatorHost targetKey={targetKey} placement={layout.nav} sheet={sheet} sheetTitle={<ChapterViewSwitch view={navView} onChange={changeNavView} />} sheetActions={<><DiffOptions threads={isPr && diffThreads.threads.length > 0} /><ReviewMenu api={api} className={cn("size-8 px-0", TOUCH_CONTROL)} /></>} width={navWidth} maxWidth={Math.min(NAV_WIDTH.max, paneWidth - READER_MIN - (layout.panel === "docked" ? panelDockWidth(paneWidth, panelWidth) : 0))} onWidth={setNavWidth} onWidthDone={saveNavWidth} onClose={() => setNavOverlay(false)}>
           <NavigatorAtFile targetKey={targetKey} leading={<TopBand />} patch={patch} changedSince={changedSince} lines={lines} generated={generated} chosen={chosenFiles} threads={diffThreads.threads} owners={shownOwners} onSelect={selectChapter} onSelectFile={onSelectFile} onOpenLine={showLocation} onOpenFile={openFoundFile} initialFind={carry?.find} onFind={keepFind} />
         </NavigatorHost>
-        <main aria-label="Review" inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
+        <main aria-label={identity ? `Review: ${identity.label}` : "Review"} inert={sheetOpen} className="flex min-w-0 flex-1 flex-col">
           {/* With the keyboard up leaving a phone held sideways' room or less, the band and notices give way to the code. */}
           <div className="contents [[data-keyboard=short]_&]:hidden">
             <ReaderBar threads={isPr && diffThreads.threads.length > 0} onCompareShown={setCompareShown} />
@@ -1508,7 +1514,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
         <SidePanel targetKey={targetKey} placement={layout.panel} sheet={sheet} view={shownPanel} width={panelWidth} maxWidth={Math.min(PANEL_WIDTH.max, paneWidth - READER_MIN - (layout.nav === "docked" ? navWidth : 0))} onWidth={setPanelWidth} onWidthDone={savePanelWidth} onClose={closePanel} onBack={() => { openPanel("comments"); focusComments(targetKey); }}>
           <CommentsView shown={shownPanel === "comments" || shownPanel === "finish"} finish={shownPanel === "finish"} tab={commentsTab} onTab={setCommentsTab} revision={revision} onShowThread={showThread} />
           <FinishView shown={shownPanel === "finish"} revision={revision} />
-          <AgentDock targetKey={targetKey} patch={patch} injection={injection} container={rootEl} active={shownPanel === "agent"} popOut={layout.mode === "tablet"} closeLabel={sheet ? "Close" : undefined} onDock={() => openPanel("agent")} onCollapse={closePanel} />
+          <AgentDock targetKey={targetKey} reviewId={identity?.id} patch={patch} injection={injection} container={rootEl} active={shownPanel === "agent"} popOut={layout.mode === "tablet"} closeLabel={sheet ? "Close" : undefined} onDock={() => openPanel("agent")} onCollapse={closePanel} />
         </SidePanel>
         {/* Over the code, a side dims the rest; a tap there closes it. */}
         {(layout.nav === "overlay" || layout.panel === "overlay") && <div aria-hidden className="absolute inset-0 z-30 bg-black/40 animate-in fade-in duration-200 motion-reduce:animate-none" onClick={() => { setNavOverlay(false); if (layout.panel === "overlay") closePanel(); }} />}

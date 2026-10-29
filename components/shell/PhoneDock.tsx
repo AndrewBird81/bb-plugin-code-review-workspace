@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useDraftStatus } from "../../lib/draft-status";
+import { reviewIdentity, type ReviewIdentity } from "../../lib/review-identity";
 import { TEXT_FIELD } from "../../lib/review-shortcuts";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
@@ -7,6 +8,7 @@ import { useNeedsYou } from "../../lib/workspace-store";
 import { Button } from "../ui/button";
 import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
+import { ReviewIdChip } from "../ReviewIdChip";
 import { ChapterStep } from "./ChapterStep";
 import { sidePanelId } from "./SidePanel";
 import { OPAQUE } from "./side-parts";
@@ -43,13 +45,47 @@ function useToastsAbove(dock: HTMLElement | null) {
   }, [dock]);
 }
 
+/** `id` in at most `chars` characters, cut in the middle so both its ends show: web:feat…on-retries. */
+export function middleCut(id: string, chars: number): string {
+  if (id.length <= chars) return id;
+  const tail = Math.ceil((chars - 1) * 0.55);
+  return `${id.slice(0, Math.max(0, chars - 1 - tail))}…${id.slice(id.length - tail)}`;
+}
+
+/**
+ * The review's id over the chapter. A local review's, often longer than the tab, is cut in the middle to the tab's
+ * room, at 11px monospace's 6.6px a character (as the band's chip is sized), so its repository and its branch's end both
+ * show; whole on hover and to a screen reader. A PR's is the chip, which never cuts its number.
+ */
+function DockId({ identity }: { identity: ReviewIdentity }) {
+  const [el, setEl] = useState<HTMLSpanElement | null>(null);
+  const [room, setRoom] = useState(Number.POSITIVE_INFINITY);
+  useLayoutEffect(() => {
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = (width: number) => { if (width > 0) setRoom(width); };
+    measure(el.getBoundingClientRect().width);
+    const observer = new ResizeObserver(([entry]) => measure(entry.contentRect.width));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [el]);
+  if (identity.idTail.startsWith("#")) return <ReviewIdChip identity={identity} className="bg-transparent px-0 leading-3.5" />;
+  return (
+    <span ref={setEl} data-dock-id title={identity.id} className="block w-full overflow-hidden whitespace-nowrap font-mono text-[11px] leading-3.5 text-muted-foreground">
+      <span className="sr-only">{identity.id}</span>
+      <span aria-hidden>{middleCut(identity.id, Math.max(1, Math.floor(room / 6.6)))}</span>
+    </span>
+  );
+}
+
 /**
  * A phone's controls, at the bottom: All reviews, the chapter you're on, Comments, the agent, and Full screen. The
  * chapter, Comments and the agent are the tabs of the one sheet above it: the open one is pressed, and pressing it
  * again closes the sheet. It makes way while you type, for the keyboard, and for the lines you select (`hidden`).
  */
 export function PhoneDock({ hidden }: { hidden: boolean }) {
-  const { targetKey, sections, activeId, files, nav, panel, askAgent, fullscreen, leave } = useWorkspace();
+  const { targetKey, review, guide, sections, activeId, files, nav, panel, askAgent, fullscreen, leave } = useWorkspace();
+  // A phone has no band, and in full screen no title bar of BB's: the chapter's tab says which review this is.
+  const identity = useMemo(() => reviewIdentity(review, guide.title), [review, guide.title]);
   const status = useDraftStatus(targetKey);
   const needsYou = useNeedsYou(targetKey);
   const [typing, setTyping] = useState(() => typingIn(document.activeElement));
@@ -87,14 +123,18 @@ export function PhoneDock({ hidden }: { hidden: boolean }) {
       </Button>
       <Button
         variant="ghost"
-        aria-label={chapter ? `Chapters: Chapter ${index + 1} of ${sections.length}, ${chapter.title}, ${viewed} of ${chapterFiles.length} files viewed` : "Chapters: Overview"}
+        aria-label={`${identity.id}, ${chapter ? `Chapters: Chapter ${index + 1} of ${sections.length}, ${chapter.title}, ${viewed} of ${chapterFiles.length} files viewed` : "Chapters: Overview"}`}
         aria-pressed={nav.open}
         aria-controls={navigatorId(targetKey)}
         className="h-11 min-w-0 flex-1 justify-start gap-2 bg-muted/40 px-2.5 text-foreground ring-1 ring-inset ring-border"
         onClick={nav.toggle}
       >
         {chapter ? <ChapterStep index={index} viewed={viewed} total={chapterFiles.length} /> : <Icon name="AlignLeft" className="text-primary" aria-hidden />}
-        <span className="min-w-0 flex-1 truncate text-left">{chapter ? <InlineCode text={chapter.title} /> : "Overview"}</span>
+        {/* The id over the chapter, in 44px, so the review stays named whatever the chapter's title takes. */}
+        <span className="flex min-w-0 flex-1 flex-col items-start text-left">
+          <DockId identity={identity} />
+          <span className="w-full truncate leading-5">{chapter ? <InlineCode text={chapter.title} /> : "Overview"}</span>
+        </span>
         <Icon name={nav.open ? "ChevronDown" : "ChevronUp"} className="text-subtle-foreground" aria-hidden />
       </Button>
       <Button

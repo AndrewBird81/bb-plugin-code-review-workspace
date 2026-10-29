@@ -48,7 +48,7 @@ async function renderWorkspace() {
     getFileContents: vi.fn(() => ({ ok: true, old: "  one();\n  two();\n", new: "    one();\n    two();\n" })),
   };
   const slot = renderSlot(app.navPanels[0]!, { subPath: "pr-42" }, { rpc: handlers as any });
-  await slot.findByRole("main", { name: "Review" });
+  await slot.findByRole("main", { name: /^Review\b/ });
   await slot.findAllByTestId("filediff");
   return slot;
 }

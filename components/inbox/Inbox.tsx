@@ -70,7 +70,7 @@ function savedSections(): Collapsed {
 
 /** Whether the review matches every word of the filter, in your name for it, its title, repository, @author, or #number. */
 function matchesFilter(review: ReviewItem, query: string): boolean {
-  const text = [review.name, review.title, review.repo, review.gitRef, review.author && `@${review.author}`, review.number && `#${review.number}`].filter(Boolean).join(" ").toLowerCase();
+  const text = [review.name, review.title, review.guideTitle, review.repo, review.gitRef, review.author && `@${review.author}`, review.number && `#${review.number}`].filter(Boolean).join(" ").toLowerCase();
   return query.toLowerCase().split(/\s+/).filter(Boolean).every((word) => text.includes(word));
 }
 

@@ -3,7 +3,8 @@ import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import { reviewState, type ReviewItem } from "../lib/review-state";
-import { defaultName, NAME_LIMIT, reviewName } from "../lib/review-name";
+import { defaultName, NAME_LIMIT } from "../lib/review-name";
+import { reviewIdentity } from "../lib/review-identity";
 import { canSnooze, canSnoozeUntil, snoozeLabel } from "../lib/turn";
 import { updateDraftRecovery } from "../lib/draft-recovery";
 import { forgetReview } from "../lib/panel-state";
@@ -99,7 +100,8 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   const [draft, setDraft] = useState("");
   const nameInput = useRef<HTMLInputElement>(null);
   const originalId = useId();
-  const title = reviewName(review);
+  // As every page and list calls it: a local review with no name goes by its guide's title.
+  const title = reviewIdentity(review).name;
   const original = defaultName(review);
   const turn = reviewState(review);
   // GitHub state archives merged and closed PRs, and those you can no longer read or are no longer asked to review: only
@@ -138,8 +140,8 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
   async function saveName(event: FormEvent) {
     event.preventDefault();
     if (actions.busy) return;
-    // Empty, or what it's called anyway, puts the PR's title or ref back.
-    const name = draft.trim() === original ? "" : draft.trim();
+    // Empty, or what it's called anyway, puts the PR's title or ref back; a local review's guide title, unchanged, stays its guide's.
+    const name = draft.trim() === original || (!review.name && draft.trim() === title) ? "" : draft.trim();
     if (name === (review.name ?? "")) { setRenaming(false); return; }
     if (await actions.rename(name)) setRenaming(false);
   }

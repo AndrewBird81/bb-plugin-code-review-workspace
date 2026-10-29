@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { experimental_Icon as HostIcon, experimental_usePluginId, experimental_useSidebarThreads, useBbNavigate, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../src/rpc-contract";
 import { needsOrder, reviewState, type ReviewItem } from "../lib/review-state";
-import { renamedFrom, reviewName } from "../lib/review-name";
+import { renamedFrom } from "../lib/review-name";
+import { reviewIdentity } from "../lib/review-identity";
 import { statusWhy } from "../lib/status-line";
 import { usePortalScopeProps } from "../lib/portal-scope";
 import { setPaletteCommands, usePaletteCommands } from "../lib/commands";
@@ -175,12 +176,15 @@ export function NeedsReviewSidebar() {
   };
   const rows = (list: ReviewItem[], isPinned: boolean) => <ul className="space-y-0.5">
     {list.map((review) => {
-      const title = reviewName(review);
+      const identity = reviewIdentity(review);
+      // As every page and list calls it: a local review with no name goes by its guide's title.
+      const title = identity.name;
       const turn = reviewState(review);
       const waited = turn.group === "needs" ? age(turn.at) : null;
       // The PR's title, when you renamed the review; where the PR is, why it's yours, and for how long, in the inbox's words.
       const from = renamedFrom(review);
-      const where = review.repo ? `${review.repo}${review.number ? ` #${review.number}` : ""}` : null;
+      // The review's id, with a PR's repository in full: flosports/api#4512, or api:feat/x.
+      const where = review.number ? `${identity.repo ?? ""}${identity.idTail}` : review.kind === "ref" ? identity.id : null;
       const why = statusWhy(review)?.text;
       const tooltip = [from, where, why, waited].filter(Boolean).join(" · ") || undefined;
       // The tooltip reaches neither touch nor a screen reader: the row also says it in words.
@@ -189,7 +193,11 @@ export function NeedsReviewSidebar() {
         <a href={`/plugins/${pluginId}/review/${review.targetKey}`} title={tooltip} aria-describedby={describedBy} onClick={(event) => open(event, review.targetKey)}
           className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md pl-2 pr-1 outline-none ring-sidebar-ring focus-visible:ring-2">
           <HostIcon name={`${pluginId}/review`} fallback={kindLook(review).icon} className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="min-w-0 flex-1 truncate">{title}</span>
+          {/* A PR's number before its name, on its baseline: the list is too narrow for its repository, which the tooltip says. */}
+          <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+            {!!review.number && <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">#{review.number}</span>}
+            <span className="min-w-0 flex-1 truncate">{title}</span>
+          </span>
           {waited && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{waited}</span>}
         </a>
         {describedBy && <span id={describedBy} className="sr-only">{[from, where, why].filter(Boolean).join(", ")}</span>}

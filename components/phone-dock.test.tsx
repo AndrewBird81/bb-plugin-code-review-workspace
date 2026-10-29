@@ -71,13 +71,13 @@ async function renderPhone() {
 
 test("the dock names where you are and what's waiting: the chapter and its viewed files, the comments to send, and what needs you", async () => {
   const { slot, dock } = await renderPhone();
-  expect(await dock.findByRole("button", { name: "Chapters: Chapter 1 of 2, Parsing, 0 of 1 files viewed" })).toBeTruthy();
+  expect(await dock.findByRole("button", { name: "pr-42, Chapters: Chapter 1 of 2, Parsing, 0 of 1 files viewed" })).toBeTruthy();
   expect(await dock.findByRole("button", { name: "Comments, 2 to send" })).toBeTruthy();
   act(() => setNeedsYou("pr-42", 3));
   const comments = dock.getByRole("button", { name: "Comments, 2 to send, 3 need you" });
   expect(comments.textContent).toBe("2 to send");
   expect(comments.getAttribute("aria-controls")).toBe("gr-side-panel-pr-42");
-  expect(dock.getByRole("button", { name: /^Chapters:/ }).getAttribute("aria-controls")).toBe("gr-navigator-pr-42");
+  expect(dock.getByRole("button", { name: /^pr-42, Chapters:/ }).getAttribute("aria-controls")).toBe("gr-navigator-pr-42");
   fireEvent.click(dock.getByRole("button", { name: "All reviews" }));
   expect(slot.inspection.navigateCalls).toContainEqual({ method: "toPluginPanel", path: "review" });
   slot.lifecycle.unmount();
@@ -97,7 +97,7 @@ test("Finish review is part of Comments in the sheet: Comments stays pressed, an
 
 test("Esc, ✕ and a tap on the code above close the sheet, and the focus goes back to its tab, after a tap too", async () => {
   const { slot, dock } = await renderPhone();
-  const tab = dock.getByRole("button", { name: /^Chapters:/ });
+  const tab = dock.getByRole("button", { name: /^pr-42, Chapters:/ });
   tab.focus();
   fireEvent.keyDown(tab, { key: "Enter" });
   fireEvent.click(tab);
@@ -153,21 +153,21 @@ test("a flick down the sheet's handle closes it, as does a drag a quarter of its
 
 test("a pick in the sheet closes it to show what was picked: a chapter, or a comment's line", async () => {
   const { slot, dock } = await renderPhone();
-  fireEvent.click(dock.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(dock.getByRole("button", { name: /^pr-42, Chapters:/ }));
   fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByText("Caching"));
   expect(slot.queryByRole("dialog")).toBeNull();
-  expect(await dock.findByRole("button", { name: "Chapters: Chapter 2 of 2, Caching, 1 of 1 files viewed" })).toBeTruthy();
+  expect(await dock.findByRole("button", { name: "pr-42, Chapters: Chapter 2 of 2, Caching, 1 of 1 files viewed" })).toBeTruthy();
   fireEvent.click(dock.getByRole("button", { name: /^Comments/ }));
   fireEvent.click(within(slot.getByRole("dialog", { name: "Comments" })).getByRole("button", { name: /^Draft · not submitted · src\/a\.ts:1/ }));
   expect(slot.queryByRole("dialog")).toBeNull();
-  expect(await dock.findByRole("button", { name: /^Chapters: Chapter 1 of 2/ })).toBeTruthy();
+  expect(await dock.findByRole("button", { name: /^pr-42, Chapters: Chapter 1 of 2/ })).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
 test("the dock makes way while you type, and for the lines you select, whose bar takes its place", async () => {
   const { slot, dock } = await renderPhone();
   const group = slot.getByRole("group", { name: "Review commands" });
-  fireEvent.click(dock.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(dock.getByRole("button", { name: /^pr-42, Chapters:/ }));
   const find = within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("searchbox", { name: "Find in review" });
   act(() => find.focus());
   expect(group.hidden).toBe(true);
@@ -191,7 +191,7 @@ test("while the dock shows, BB's toasts at the page's bottom sit above it, and d
   const rule = () => document.head.querySelector("style[data-gr-toasts-above-dock]")?.textContent ?? null;
   // jsdom lays out nothing: the dock's top is at 0, so it lifts them by the page's whole height.
   expect(rule()).toBe(`[data-sonner-toaster][data-y-position="bottom"] { margin-bottom: ${document.documentElement.clientHeight}px !important; }`);
-  fireEvent.click(dock.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(dock.getByRole("button", { name: /^pr-42, Chapters:/ }));
   act(() => within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("searchbox", { name: "Find in review" }).focus());
   expect(group.hidden).toBe(true);
   expect(rule()).toBeNull();
@@ -218,7 +218,7 @@ test("the agent's sheet has no Pop out, and an agent popped out on a bigger scre
 
 test("Esc in a menu the sheet opened closes the menu, and leaves the sheet open", async () => {
   const { slot, dock } = await renderPhone();
-  fireEvent.click(dock.getByRole("button", { name: /^Chapters:/ }));
+  fireEvent.click(dock.getByRole("button", { name: /^pr-42, Chapters:/ }));
   fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Review actions" }));
   const settings = await slot.findByRole("button", { name: "Review settings…" });
   fireEvent.keyDown(settings, { key: "Escape" });
