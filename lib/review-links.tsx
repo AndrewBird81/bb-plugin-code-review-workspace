@@ -43,9 +43,10 @@ export function useReviewLinks(review: ReviewItem | null): ReviewLinks {
   }, [rpc, root]);
   const sent = sendToThread ? review?.sent ?? null : null;
   const sends = sendToThread ? review?.sends ?? null : null;
+  const threadSends = sendToThread ? review?.threadSends ?? null : null;
   const posts = review?.kind === "pr";
   const own = review?.kind === "ref" || review?.ownPr === true || !!review?.feature;
-  const status = useMemo(() => ({ posts, own, sends, sent }), [posts, own, sends, sent]);
+  const status = useMemo(() => ({ posts, own, sends, sent, threadSends }), [posts, own, sends, sent, threadSends]);
   return useMemo(() => ({ status, editor: root && hostId ? { hostId, root } : null }), [status, root, hostId]);
 }
 

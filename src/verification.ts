@@ -144,23 +144,44 @@ export async function describeFeedback(store: AsyncStore, review: ReviewMeta): P
   const view = await feedbackView(store, review);
   const threads = view.items.filter((item) => item.thread);
   const lines: string[] = [];
+  const own = review.ownPr === true;
   for (const { thread, assessment } of threads) {
     if (!thread) continue;
     const where = thread.path ? `${thread.path}${thread.line ? `:${thread.line}` : thread.originalLine ? ` (was line ${thread.originalLine}; the code there changed)` : ""}${thread.side === "LEFT" ? " (LEFT side)" : ""}` : "the PR";
-    const state = [thread.status === "resolved" ? `resolved${thread.resolvedBy ? ` by @${thread.resolvedBy}` : ""}` : thread.status === "question" ? "the author asked a question" : thread.status === "answered" ? "the author replied" : "no reply yet",
-      thread.isOutdated ? "code changed since the comment" : ""].filter(Boolean).join(", ");
-    lines.push("", `[${thread.id}] ${where} · ${state}`, ...thread.body.split("\n").map((l) => `  > ${l}`));
+    const state = [thread.status === "resolved" ? `resolved${thread.resolvedBy ? ` by @${thread.resolvedBy}` : ""}` : own ? thread.needsReply ? `waiting for the reviewer's reply to @${thread.needsReply.by}` : "" : thread.status === "question" ? "the author asked a question" : thread.status === "answered" ? "the author replied" : "no reply yet",
+      thread.isOutdated ? "code changed since the comment" : "", own && thread.author ? `started by @${thread.author}` : ""].filter(Boolean).join(", ");
+    lines.push("", `[${thread.id}] ${where}${state ? ` · ${state}` : ""}`, ...thread.body.split("\n").map((l) => `  > ${l}`));
     for (const reply of thread.replies.slice(-5)) lines.push(`  @${reply.author}${reply.mine ? " (reviewer)" : ""}${reply.bot ? " (bot)" : ""}: ${reply.body.replace(/\s+/g, " ").slice(0, 1500)}`);
+    if (own && !feedbackCheck(review)) lines.push(...fixReport(review, thread.id));
     if (assessment) lines.push(`  Earlier check: ${assessment.verdict} — ${assessment.evidence}`);
   }
-  const out = [threads.length ? `${threads.length} review thread${threads.length === 1 ? "" : "s"} the reviewer started:\n${untrusted("review threads", lines.join("\n").trim())}` : "The reviewer started no review threads."];
+  const out = [threads.length ? `${threads.length} review thread${threads.length === 1 ? "" : "s"} ${own ? "on the reviewer's own PR, everyone's" : "the reviewer started"}:\n${untrusted("review threads", lines.join("\n").trim())}` : own ? "No review threads on the reviewer's PR." : "The reviewer started no review threads."];
+  // On your own PR, others' review summaries and comments on it, which the reviewer answers as the PR's author.
+  const said = own ? review.prConversation ?? [] : [];
+  if (said.length) {
+    const items = said.flatMap((item) => ["", `[${item.id}] @${item.author}'s ${item.kind === "review" ? `review summary (${item.state ?? "COMMENTED"})` : "comment on the PR"}, ${date(item.at)}${item.waiting ? ", waiting for the reviewer's reply" : ""}`,
+      ...item.body.split("\n").map((l) => `  > ${l}`), ...feedbackCheck(review) ? [] : fixReport(review, item.id)]);
+    out.push("", "Review summaries and comments on the PR from others, oldest first:", untrusted("review summaries and comments", items.join("\n").trim()));
+  }
   const bodies = review.reviewBodies ?? [];
   if (bodies.length) {
     const summaries = bodies.flatMap((body) => ["", `(${body.state}, ${date(body.at)})`, ...body.body.split("\n").map((l) => `  > ${l}`)]);
     out.push("", "The reviewer's review summaries, newest last. Record each distinct ask in them as an item with id \"summary:1\", \"summary:2\", … and a short title:", untrusted("review summaries", summaries.join("\n").trim()));
   }
-  if (sent.size) out.push("", describeSent(sent));
+  // On your own PR, a GitHub item sent says what became of it under the item, above; one the review no longer lists, as
+  // one that left GitHub's window, is listed here with your draft comments.
+  const listed = new Set([...threads.map((item) => item.thread!.id), ...said.map((item) => item.id)]);
+  const drafts = own ? new Map([...sent].filter(([, comment]) => !comment.thread || !listed.has(comment.thread))) : sent;
+  if (drafts.size) out.push("", describeSent(drafts));
   return out.join("\n");
+}
+
+/** What became of a GitHub item sent from your own PR's review: its id and Send, and what the thread that took it reported. */
+function fixReport(review: ReviewMeta, githubId: string): string[] {
+  const sent = review.threadSends?.[githubId];
+  if (!sent) return [];
+  const claim = sent.claim;
+  return [`  Sent as ${sent.id} in Send ${sent.sendN} (check it as ${sent.id}, against that Send); ${claim ? `the thread reported it ${claim.outcome}${claim.commit ? ` in ${short(claim.commit)}` : ""}${claim.note ? `: ${claim.note.replace(/\s+/g, " ").slice(0, 1500)}` : ""}${claim.inferred ? " (inferred, not reported)" : ""}` : "no report yet"}.`];
 }
 
 /** The commit a running check is about, as assess_feedback records it; otherwise the PR's head. */

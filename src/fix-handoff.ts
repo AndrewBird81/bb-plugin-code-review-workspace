@@ -34,7 +34,7 @@ export async function isOwnChange(review: ReviewMeta): Promise<boolean> {
 }
 
 /** The diff lines a comment is on, from its first line to its last, with their +/-/space prefixes. */
-function codeAt(patch: string, comment: FixComment): string {
+export function codeAt(patch: string, comment: Pick<FixComment, "file" | "line" | "side" | "startLine" | "startSide">): string {
   const file = splitPatchByFile(patch).find((f) => f.path === comment.file);
   if (!file) return "";
   const rows = patchRows(file.text).flatMap((row) => "oldLine" in row ? [row] : []);
@@ -69,13 +69,13 @@ export function header(review: Placed): string {
 
 /**
  * The review's header, then where the fix thread works: the PR's branch, a folder's branch with its uncommitted and new
- * files, or a local review's diff and its head.
+ * files, or a local review's diff and its head. `lead` "feedback": what follows is others' feedback on GitHub, to address.
  */
-export function where(review: Placed, branch = branchLine(review)): string {
+export function where(review: Placed, branch = branchLine(review), lead?: "feedback"): string {
   const what = review.kind === "pr" ? `${review.repo} PR #${review.number}${review.title ? `, ${quoted(review.title)}` : ""}`
     : review.feature ? `the changes on \`${review.feature.branch}\` against \`${review.feature.baseRef}\`, uncommitted and new files included`
     : `\`git diff ${review.gitRef}\`${review.cwd ? ` in \`${review.cwd}\`` : ""}`;
-  return [header(review), `Fix these comments from my review of ${what}.`, branch].join("\n");
+  return [header(review), lead === "feedback" ? `Address this feedback on ${what}.` : `Fix these comments from my review of ${what}.`, branch].join("\n");
 }
 
 /** Which branch to work on: the PR's, and the commit reviewed; a folder's; or a local review's diff's head. */

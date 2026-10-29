@@ -269,7 +269,7 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     /** The review's signals from your threads, as saved now. */
     const threadsSignals = async (tx: AsyncStore) => {
       const review = (await tx.getReview(key))!;
-      await tx.setLifecycle(key, { signals: { ...review.signals, ...threadSignals(await tx.listFeedbackThreads(key), review.ownPr === true) } });
+      await tx.setLifecycle(key, { signals: { ...review.signals, ...threadSignals(await tx.listFeedbackThreads(key), review.ownPr === true, review.prConversation ?? []) } });
     };
     // What GitHub said, recorded in one turn; your threads, when they need reading, in the turn after GitHub answers.
     const read = await store.exclusive(async (tx) => {

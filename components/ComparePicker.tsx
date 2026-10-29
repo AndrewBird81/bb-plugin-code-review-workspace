@@ -5,6 +5,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import { useFullscreenPortalContainer } from "../lib/portal-scope";
 import { baselineOf } from "../lib/turn";
 import { sendBaselineOf, sendOf } from "../lib/send-baseline";
+import { hasNotPushed, showNotPushed } from "../lib/main-thread";
 import { cn } from "../lib/utils";
 import { useWorkspace, type WorkspaceApi } from "../lib/workspace-context";
 import { TOUCH_COMPACT, TOUCH_CONTROL } from "./touch";
@@ -79,7 +80,7 @@ export function useCommits(wanted: boolean): { commits: PrCommit[] | null; error
 function moveFocus(event: KeyboardEvent<HTMLElement>) {
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
   event.preventDefault();
-  const items = Array.from(event.currentTarget.closest("[role=menu]")?.querySelectorAll<HTMLElement>("[role=menuitemradio]") ?? []);
+  const items = Array.from(event.currentTarget.closest("[role=menu]")?.querySelectorAll<HTMLElement>("[role=menuitemradio], [role=menuitem]") ?? []);
   items[items.indexOf(event.currentTarget) + (event.key === "ArrowDown" ? 1 : -1)]?.focus();
 }
 
@@ -109,7 +110,7 @@ function Choice({ checked, label, detail, plain = false, onSelect }: { checked: 
  * comparison that failed says why. `onPicked` runs after a choice.
  */
 export function CompareMenu({ commits, error, onPicked }: { commits: PrCommit[] | null; error: string | null; onPicked: () => void }) {
-  const { review, compare } = useWorkspace();
+  const { targetKey, review, compare, panel } = useWorkspace();
   const pickable = review.kind === "pr";
   const lastReview = lastReviewed(compare);
   const reviewedAt = timeAgo(baselineOf(review).at);
@@ -123,6 +124,16 @@ export function CompareMenu({ commits, error, onPicked }: { commits: PrCommit[] 
       <Choice checked={!compare.narrowed} label={pickable ? "All changes in this PR" : "All changes"} onSelect={choose(() => compare.setNarrowed(false))} />
       {lastReview && <Choice checked={compare.narrowed && !compare.from} label="Since your review" detail={[short(lastReview), reviewedAt].filter(Boolean).join(" · ")} onSelect={choose(() => compare.pick(null))} />}
       {lastSend && <Choice checked={compare.narrowed && compare.from === lastSend.key} label="Since your last Send" detail={[`Send ${lastSend.n}`, timeAgo(lastSend.at)].filter(Boolean).join(" · ")} plain onSelect={choose(() => compare.pick(lastSend.key))} />}
+      {/* What the thread working on the PR hasn't pushed: beside the diff, in the Main thread tab. */}
+      {hasNotPushed(review) && <button type="button" role="menuitem" onKeyDown={moveFocus} onClick={choose(() => { showNotPushed(targetKey); panel.open("main"); })}
+        className={cn("flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-state-hover focus-visible:bg-state-hover focus-visible:outline-none", TOUCH_CONTROL, "pointer-coarse:items-center")}>
+        {/* The choices' check column stays empty: it opens a view, it isn't what the diff shows. */}
+        <span aria-hidden className="size-3.5 shrink-0" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">Not pushed yet</span>
+          <span className="block truncate text-[11px] text-subtle-foreground">Opens beside the diff, in the main thread’s folder</span>
+        </span>
+      </button>}
       {problem && <p role="status" className="flex items-start gap-2 px-2 py-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-px size-3.5 shrink-0" aria-hidden />{problem}</p>}
       {pickable && (
         <div role="group" aria-label="Since a commit" className="mt-1 border-t border-border pt-1">

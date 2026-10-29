@@ -329,3 +329,29 @@ test("a withdrawn team request doesn't hide your direct one", () => {
   ] } }), "me", new Set(["acme/web-core"]));
   expect(facts.requests).toEqual([{ at: Date.parse("2026-10-01T00:00:00Z"), by: "alice", via: "user" }]);
 });
+
+test("others' review summaries and comments on the PR, each once: a review's inline comments are its threads', and yours answers those before it", () => {
+  const review = (id: string, author: unknown, state: string, body: string, submittedAt: string, comments: string[] = []) =>
+    ({ __typename: "PullRequestReview", id, url: `https://github.com/acme/web/pull/1#pullrequestreview-${id}`, state, author, body, submittedAt, comments: { nodes: comments.map((c) => ({ body: c })) } });
+  const comment = (id: string, author: unknown, body: string, createdAt: string) => ({ id, url: `https://github.com/acme/web/pull/1#issuecomment-${id}`, author, body, createdAt });
+  const facts = one(pr({
+    reviewItems: { nodes: [
+      review("r1", user("dana"), "CHANGES_REQUESTED", "Can you add tests?", "2026-10-02T00:00:00Z"),
+      // Inline comments only: its threads have them.
+      review("r2", user("dana"), "COMMENTED", "", "2026-10-02T01:00:00Z", ["nit: spacing"]),
+      review("r3", user("erin"), "APPROVED", "LGTM", "2026-10-02T02:00:00Z"),
+      review("r4", { __typename: "Bot", login: "copilot-pull-request-reviewer" }, "COMMENTED", "Summary of changes", "2026-10-02T03:00:00Z"),
+    ] },
+    conversation: { nodes: [comment("c1", user("bob"), "Does this need a flag?", "2026-10-01T00:00:00Z"), comment("c2", user("me"), "Not yet.", "2026-10-01T12:00:00Z")] },
+  }));
+  expect(facts.conversation).toEqual([
+    { id: "c1", kind: "comment", author: "bob", bot: false, body: "Does this need a flag?", at: Date.parse("2026-10-01T00:00:00Z"), url: "https://github.com/acme/web/pull/1#issuecomment-c1", waiting: false },
+    { id: "r1", kind: "review", author: "dana", bot: false, state: "CHANGES_REQUESTED", body: "Can you add tests?", at: Date.parse("2026-10-02T00:00:00Z"), url: "https://github.com/acme/web/pull/1#pullrequestreview-r1", waiting: true },
+    expect.objectContaining({ id: "r3", state: "APPROVED", waiting: false }),
+    expect.objectContaining({ id: "r4", bot: true, waiting: false }),
+  ]);
+  // The query asks for each one's id, link and state.
+  const { query } = prFactsQuery([ref(1)]);
+  expect(query).toContain("... on IssueComment{id url author{__typename login} body createdAt}");
+  expect(query).toContain("... on PullRequestReview{id url state author{__typename login} body submittedAt");
+});

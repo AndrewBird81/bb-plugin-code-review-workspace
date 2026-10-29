@@ -142,7 +142,7 @@ test("comments sent to fix: how many the main thread reported while it works, th
   expect(said(review(turn("waiting", "fixes-sent", "1 of 3 reported"), { kind: "ref", fixes }))).toEqual(["1 of 3 reported", "neutral", "Send"]);
   const ready = review(turn("needs", "fixes-ready", "Ready to re-review"), { kind: "ref", fixes: { ...fixes, reported: 3, checked: 3, fixed: 2 } });
   expect(said(ready)).toEqual(["Ready to re-review · 3 of 3 reported", "foreground", "ArrowTurnBackward"]);
-  expect(statusWhy(ready, knobs, now)?.detail).toBe("The main thread reported all 3 of your comments. Checked: 2 look fixed, 1 doesn't");
+  expect(statusWhy(ready, knobs, now)?.detail).toBe("The main thread reported all 3 comments you sent. Checked: 2 look fixed, 1 doesn't");
   expect(needsGroup(ready)).toBe("back");
   const archived = review(turn("needs", "fixes-stopped", "Main thread archived · 1 of 3 reported"), { kind: "ref", fixes });
   expect(said(archived)).toEqual(["Main thread archived · 1 of 3 reported", "foreground", "Archive"]);

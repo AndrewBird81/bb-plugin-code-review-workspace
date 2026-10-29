@@ -177,7 +177,7 @@ test("every comment reported makes it Ready to re-review, with exactly one Check
   expect((await store.getReview("ref-1"))!.fixes).toEqual({ sent: 6, reported: 6, inferred: 0, checked: 6, fixed: 5 });
   await h.harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "agent" }), lastAssistantText: "Checked." });
   await vi.waitFor(() => expect(h.published).toHaveLength(1));
-  expect(h.published[0]).toMatchObject({ title: expect.stringMatching(/^repo:feature/), body: "The main thread reported all 6 of your comments. Checked: 5 look fixed, 1 doesn't" });
+  expect(h.published[0]).toMatchObject({ title: expect.stringMatching(/^repo:feature/), body: "The main thread reported all 6 comments you sent. Checked: 5 look fixed, 1 doesn't" });
   expect((await store.getReview("ref-1"))!.verifyingFixes ?? null).toBeNull();
   expect(agentMessages(h)).toHaveLength(1);
 });
@@ -461,4 +461,44 @@ test("a check of your feedback, as on a re-request, reads no sent comments and i
     ? { id: "agent", archivedAt: null, deletedAt: null, status: "active", queuedMessageCount: 0, visibility: "hidden" }
     : threadsSdk(h.chat, h.state).get({ threadId })) as any);
   expect(await h.harness.behavior.callRpc("checkFixes", { targetKey: "pr-1" })).toEqual({ ok: false, error: "The assistant is still answering. Try again when it finishes." });
+});
+
+test("on your own PR, the thread you sent a teammate's thread and review summary to reports each by its id, which makes it Ready, checked once, then the alert", async () => {
+  const h = host();
+  const store = await startPlugin(h.bb);
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 12, title: "Retry uploads", author: "me", head: "retry-uploads", headSha: "a".repeat(40), status: "ready", createdAt: 1, projectId: "p1" });
+  await store.setLifecycle("pr-1", { ownPr: true, sourceThreadId: "coder", prConversation: [{ id: "PRR_9", kind: "review", author: "dana", bot: false, state: "CHANGES_REQUESTED", body: "Can you add tests?", at: 5, url: null, waiting: true }] });
+  await store.savePatch("pr-1", PATCH);
+  await store.setAssistantThread("pr-1", "agent");
+  await store.saveFeedbackThreads("pr-1", [{ id: "PRRT_1", commentId: 7, reviewId: null, path: "src/a.ts", line: 2, originalLine: 2, startLine: null, side: "RIGHT", subjectType: "LINE",
+    body: "Name b better.", createdAt: 4, isResolved: false, resolvedBy: null, isOutdated: false, replies: [], status: "open", replyAt: null, author: "dana", needsReply: { comments: 1, at: 4, by: "dana" } }], null);
+  expect(await h.harness.behavior.callRpc("sendToSourceThread", { targetKey: "pr-1", comments: [], threads: ["PRRT_1", "PRR_9"] })).toMatchObject({ ok: true, sendN: 1 });
+  // The Send names each by the id the thread reports on.
+  const sent = h.state.requests[0]!.data.input[0]!.text;
+  expect(sent).toContain("c1 · @dana's comment on `src/a.ts:2`");
+  expect(sent).toContain("c2 · @dana's review summary, which requested changes");
+  expect((await store.getReview("pr-1"))!.fixes).toMatchObject({ sent: 2, reported: 0 });
+  expect(await cli(h, "coder", "report", "c1", "done", "--note", "Renamed it.")).toMatchObject({ exitCode: 0, stdout: "Reported c1 done on web#12. 1 of 2 reported. Report the rest, then run `bb review ready`." });
+  expect(await cli(h, "coder", "report", "c2", "done", "--note", "Added tests.")).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("That was the last one") });
+  const review = (await store.getReview("pr-1"))!;
+  expect(review.threadSends).toEqual({ PRRT_1: { id: "c1", sendN: 1, claim: expect.objectContaining({ outcome: "done", note: "Renamed it.", threadId: "coder" }) }, PRR_9: { id: "c2", sendN: 1, claim: expect.objectContaining({ note: "Added tests." }) } });
+  // Ready, with one check of both; once it's done, the alert says what came back.
+  await vi.waitFor(() => expect(agentMessages(h)).toHaveLength(1));
+  const list = (await h.harness.behavior.callRpc("listReviews", null) as any).reviews.find((r: any) => r.targetKey === "pr-1");
+  expect(list.turn).toMatchObject({ group: "needs", reason: "fixes-ready" });
+  const listed = toolText(await h.harness.behavior.callAgentTool("list_feedback", {}, { threadId: "agent" }));
+  // Each once: under the thread and the summary, with the id to check it as.
+  expect(listed.match(/Sent as c1 /g)).toHaveLength(1);
+  expect(listed.match(/Sent as c2 /g)).toHaveLength(1);
+  expect(listed).not.toContain("the GitHub thread PRRT_1");
+  await h.harness.behavior.callAgentTool("assess_feedback", { items: ["c1", "c2"].map((id) => ({ id, verdict: "addressed", evidence: "Read it." })) }, { threadId: "agent" });
+  await h.harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "agent" }), lastAssistantText: "Checked." });
+  await vi.waitFor(() => expect(h.published).toHaveLength(1));
+  expect(h.published[0]).toMatchObject({ title: expect.stringMatching(/^web#12/), body: "The main thread reported all 2 comments you sent. Checked: 2 look fixed" });
+  // Her summary gone from what the review keeps, as once it leaves GitHub's window, its report still lists, once.
+  await store.setLifecycle("pr-1", { prConversation: [] });
+  const after = toolText(await h.harness.behavior.callAgentTool("list_feedback", {}, { threadId: "agent" }));
+  expect(after.match(/\[c2\] the GitHub thread PRR_9 · Send 1 · reported done: Added tests\./g)).toHaveLength(1);
+  expect(after.match(/Sent as c1 /g)).toHaveLength(1);
+  expect(after).not.toContain("the GitHub thread PRRT_1");
 });

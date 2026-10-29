@@ -8,6 +8,9 @@ import { sameLocation } from "../../src/draft";
 import { cn } from "../../lib/utils";
 import { Badge, type Tone } from "../ui/badge";
 import { Icon, type IconName } from "../ui/icon";
+import { InlineCode } from "../ui/inline-code";
+import { age } from "../time-ago";
+import type { ReactNode } from "react";
 
 /** Whose words a not-submitted thing holds, which its edge's color says: yours, the agent's, or one on an older diff. */
 export type Edge = "yours" | "agent" | "older";
@@ -54,6 +57,19 @@ export function ItemIcon({ item, className }: { item: CommentItem; className?: s
   if (item.kind === "private") return <Icon name="Lock" className={cn("size-3.5 shrink-0 text-subtle-foreground", className)} aria-hidden />;
   if (item.kind === "ask") return <Icon name="FileText" className={cn("size-3.5 shrink-0 text-muted-foreground", className)} aria-hidden />;
   return <Icon name="Github" className={cn("size-3.5 shrink-0 text-muted-foreground", className)} aria-hidden />;
+}
+
+/**
+ * Where a sent comment's fix stands, its icon and its words, each part kept whole, so it wraps only between them
+ * ("Sent to ‹thread›" / "Send 1 · 30m"); a thread's note shows its `code`.
+ */
+export function FixStatus({ status, className }: { status: { label: string; at?: number; mark: FixMark }; className?: string }) {
+  const when = status.at === undefined ? null : age(status.at);
+  const parts = [...status.label.split(" · "), ...when ? [when] : []];
+  return <span className={cn("inline-flex min-w-0 items-baseline gap-1", className)}>
+    <Icon name={MARK_ICON[status.mark].icon} className={cn("size-3 shrink-0 self-center", MARK_ICON[status.mark].text)} aria-hidden />
+    <span className="min-w-0">{parts.map((part, i) => <span key={i} className="whitespace-nowrap">{i > 0 && " · "}<InlineCode text={part} /></span>).reduce<ReactNode[]>((all, part, i) => i ? [...all, <wbr key={`w${i}`} />, part] : [part], [])}</span>
+  </span>;
 }
 
 /** A draft's icon by who wrote it, or once sent, where its fix stands (`mark`). */

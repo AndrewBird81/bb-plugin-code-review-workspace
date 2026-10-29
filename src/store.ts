@@ -5,7 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { preferencesSchema, readPreferences, savedKnobs, unknownKnobs, type PreferencesRecord, type ReviewPreferences, type ReviewerNotesRecord } from "./preferences";
 import type { AssessmentSummary, TurnSignals } from "../lib/turn";
 import type { AssessmentItem, AssessmentRun, ReplyDraft } from "../lib/feedback";
-import type { FeedbackThread } from "./github/types";
+import type { FeedbackThread, PrConversationItem } from "./github/types";
 import { diffPositions, rangeProblem, type FilePositions } from "./review-positions";
 import { reanchorIn } from "./reanchor";
 import { renamedPaths } from "./patch";
@@ -148,6 +148,12 @@ export interface ReviewLifecycle {
   threadSends?: Record<string, { id: string; sendN: number; claim?: Claim }>;
   /** The comments still out with the thread that fixes them, and how many it reported, as last counted (src/fix-tally.ts). */
   fixes?: FixTally | null;
+  /** Who owns the fork the PR's head branch is in, as GitHub last said; null when it's in the PR's repo. Unset until read. */
+  headFork?: string | null;
+  /** On your own PR, others' review summaries and comments on the PR, as the sync last read them; null on others' PRs. */
+  prConversation?: PrConversationItem[] | null;
+  /** Fixers' branches whose folders bb removed: git keeps them in the repo at `path` on `machine`, and the review says how to delete each. */
+  keptBranches?: Array<{ branch: string; machine: string | null; path?: string | null; at: number }>;
   /** A relayed approve, merge or close, waiting in Needs review for the reviewer's own click. Null for none. */
   readyToApprove?: ReadyToApprove | null;
   /** Let it push when done: a Send leaves out "Don't push until I say". Absent or false, it says it. */
@@ -206,6 +212,11 @@ export interface MainThread {
   since: number;
   /** A fixer's own branch, recorded when it's spawned, which outlives its folder: Branch kept names it once that's gone. */
   branch?: string;
+  /**
+   * A fixer the plugin started for a PR, fresh or forked, at its head commit `sha`, recorded as it's made: what makes it
+   * one (lib/fixer.ts), never its branch, which BB says only later.
+   */
+  fixer?: { sha: string; at: number };
 }
 
 /** One Send or Send now. The diff it was sent at is kept as the snapshot `send:<n>`. */

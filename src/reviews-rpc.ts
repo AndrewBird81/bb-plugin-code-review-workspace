@@ -61,7 +61,7 @@ export function register(deps: ServeDeps) {
     const reviews = all.map((review) => ownPrOf(review, login));
     const stacks = findStacks(reviews);
     const places = reviewPlaces(await placeFacts(bb, reviews), reviews);
-    return await Promise.all(reviews.map(async ({ reviewBodies: _bodies, agentReads: _reads, ...review }) => await decorate(review, options, stacks, places, titles)));
+    return await Promise.all(reviews.map(async ({ reviewBodies: _bodies, agentReads: _reads, prConversation: _said, ...review }) => await decorate(review, options, stacks, places, titles)));
   };
   /** A review whose diff pruneOldDiffs dropped reads it again when it's opened; returns why it couldn't. */
   async function rereadPrunedDiff(targetKey: string): Promise<string | undefined> {

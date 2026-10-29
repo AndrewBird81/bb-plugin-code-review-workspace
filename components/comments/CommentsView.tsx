@@ -1,8 +1,10 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useBbNavigate } from "@get-bb/plugin-sdk/app";
+import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
+import { toast } from "sonner";
+import type { rpcContract } from "../../src/rpc-contract";
 import { sameLocation, SEVERITIES, VERDICT_LABEL } from "../../src/draft";
-import { buildItems, checkTally, FILTER_LABEL, groups, needsYou, shownItems, toSend, type CommentFilter, type CommentGroup, type CommentItem, type CommentSources } from "../../lib/comments";
+import { buildItems, checkTally, FILTER_LABEL, groups, needsYou, shownItems, toSend, type CommentFilter, type CommentGroup, type CommentItem, type CommentSources, type ThreadItem } from "../../lib/comments";
 import { clearOpenComments, forgetOpenComments, revealComment } from "../../lib/comments-fold";
 import { askReply, registerCommentKeys, registerCommentStepper, showCommentStep, useCommentStep } from "../../lib/comment-stops";
 import { holdReview } from "../../lib/review-holds";
@@ -24,7 +26,8 @@ import { Icon } from "../ui/icon";
 import { Input } from "../ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { CheckStrip } from "./CheckStrip";
-import { ShowBoxInDiff, usePanelComposer } from "./CommentCard";
+import { githubWhat, ShowBoxInDiff, usePanelComposer } from "./CommentCard";
+import { sentNote, SendWarning, type Choice, type SendWarned } from "../SendNow";
 import { CommentRow } from "./CommentRow";
 import { notSubmitted } from "./look";
 import { updateComments, useComments } from "./store";
@@ -87,13 +90,15 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const expanded = useComments(targetKey, "expanded");
   const step = useCommentStep(targetKey);
   const [showFolded, setShowFolded] = useState(false);
+  const sendOn = useKnob("sendToThread");
 
   const sources = useMemo((): CommentSources => ({
     draft: draft.loaded ? { draft: draft.draft, stale: draft.stale, discussions: draft.discussions } : null,
     threads: isPr ? threads : [], feedback: isPr ? feedback : null, replyDrafts: isPr ? replyDrafts : [],
     // Your own PR is yours as its author until your account is verified.
     sections, patch: draft.patch, viewer: draft.account ?? (ownPr ? review.author : null) ?? null, prUrl: review.url ?? null, closed, ownPr, status,
-  }), [draft.loaded, draft.draft, draft.stale, draft.discussions, isPr, threads, feedback, replyDrafts, sections, draft.patch, draft.account, review.url, closed, ownPr, review.author, status]);
+    conversation: ownPr ? review.prConversation ?? null : null,
+  }), [draft.loaded, draft.draft, draft.stale, draft.discussions, isPr, threads, feedback, replyDrafts, sections, draft.patch, draft.account, review.url, closed, ownPr, review.author, status, review.prConversation]);
   const items = useMemo(() => buildItems(sources), [sources]);
   const sending = useMemo(() => toSend(sources), [sources]);
   // Hidden nits leave the list and the code, not what Submit sends; one that needs you stays.
@@ -221,6 +226,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const groupBody = (group: CommentGroup, rows: CommentItem[], countedGroup: CommentGroup) => (
     <section key={group.id} aria-labelledby={`gr-group-${group.id}`} className="space-y-1.5">
       <GroupHead id={`gr-group-${group.id}`} title={group.title} count={countedGroup.count} summary={[countedGroup.summary, group.id === "not-submitted" && hidden ? `${hidden} hidden` : null].filter(Boolean).join(" · ") || null} />
+      {group.id === "needs-you" && ownPr && !closed && sendOn && <SendWaiting targetKey={targetKey} items={countedGroup.items} />}
       {rows.length > 0 && <ul className="space-y-1.5">{rows.map(row)}</ul>}
       {filter === "all" && group.id === "not-submitted" && countedGroup.elsewhere > 0 && (
         <p className="px-1 text-xs text-muted-foreground">+{countedGroup.elsewhere} on an older diff, in Needs you</p>
@@ -297,6 +303,48 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
       )}
     </div>
   );
+}
+
+/**
+ * On your own PR, Send for the comments on GitHub waiting for your reply that no Send took yet: their threads, review
+ * summaries and comments on the PR, together, to the main thread, or with none, to a fresh thread or a fork.
+ */
+function SendWaiting({ targetKey, items }: { targetKey: string; items: readonly CommentItem[] }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const to = useWorkspace().mainThread;
+  const [busy, setBusy] = useState(false);
+  const [warned, setWarned] = useState<SendWarned | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const waiting = items.filter((item): item is ThreadItem => item.kind === "thread" && item.state === "needs-reply" && !item.sendStatus);
+  if (!waiting.length && !warned) return null;
+  const what = waiting.length === 1 ? githubWhat(waiting[0]) : `${waiting.length} comments`;
+  async function send(choice?: Choice) {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      const result = await rpc.call("sendToSourceThread", { targetKey, comments: [], threads: waiting.map((item) => item.id), ...choice });
+      if (result.ok) {
+        setWarned(null);
+        toast.success(sentNote(result.delivery, result.title, what));
+      } else setWarned({ warning: result.warning, offers: result.offers ?? ["anyway"], freshWhere: result.freshWhere, forkFrom: result.forkFrom, choice: result.choice });
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Couldn’t send them. Try again.");
+    } finally { setBusy(false); }
+  }
+  // As Finish's Send: what and where on the button, which thread on which machine under it.
+  const label = `Send ${what} to ${to ? "main thread" : "a fresh thread"}`;
+  const under = to ? [to.title ?? "The main thread", to.machine].filter(Boolean).join(" · ") : null;
+  return <div className="space-y-1 px-1">
+    {!warned && waiting.length > 0 && <>
+      <Button variant="outline" size="sm" className={cn("h-8 max-w-full", TOUCH_CONTROL)} aria-describedby={under ? `${targetKey}-send-waiting-to` : undefined} aria-disabled={busy || undefined} onClick={() => void send()}>
+        <Icon name={busy ? "Loading" : "Send"} className={cn("size-3.5", busy && "animate-spin motion-reduce:animate-none")} aria-hidden />
+        <span className="truncate">{label}</span>
+      </Button>
+      {under && <p id={`${targetKey}-send-waiting-to`} className="truncate text-xs text-muted-foreground">{under}</p>}
+    </>}
+    {warned && <SendWarning warned={warned} busy={busy} what={what} onChoose={(choice) => void send(choice)} onCancel={() => setWarned(null)} />}
+    {error && <p role="alert" className="text-xs text-destructive-text">{error}</p>}
+  </div>;
 }
 
 /** A group's heading: its title, how many its chip shows, and its summary ("1 blocking · 2 nits", "Yours: 2 of 2 handled"). */

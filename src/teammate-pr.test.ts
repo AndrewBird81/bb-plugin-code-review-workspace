@@ -162,6 +162,14 @@ test("a Send on a teammate's PR warns first, and sent anyway, never changes what
   expect(JSON.stringify(toGithubReviewPayload(after))).toBe(before);
 });
 
+test("on a teammate's PR, its threads on GitHub never go with a Send: your review answers them", async () => {
+  const { store, call } = await teammatePr();
+  await store.setLifecycle(KEY, { sourceThreadId: "coder" });
+  expect(await call("sendNow", { targetKey: KEY, comment: { threadId: "t-mine" }, force: true })).toMatchObject({ ok: false, error: expect.stringContaining("Only your own PR's threads") });
+  expect(await call("sendToSourceThread", { targetKey: KEY, comments: [], threads: ["t-mine"], force: true }).catch((error: Error) => error.message)).toContain("Only your own PR's threads");
+  expect((await store.getReview(KEY))!.threadSends).toBeUndefined();
+});
+
 // The review agent: its tools and instructions.
 
 test("with the review agent only drafting, it gets 1.7.0's tools and its rule never to post", async () => {

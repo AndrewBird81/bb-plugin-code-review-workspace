@@ -1,12 +1,12 @@
 import { memo } from "react";
-import type { CommentItem } from "../../lib/comments";
+import { topLevelLabel, type CommentItem } from "../../lib/comments";
 import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { InlineCode } from "../ui/inline-code";
 import { Badge } from "../ui/badge";
 import { Icon } from "../ui/icon";
 import { SEVERITY_LABEL } from "../../src/draft";
-import { CheckBadge, frameOf, ItemIcon, itemWords, placeLabel, plainLine, ReplyDraftBadge, SEVERITY_TONE, TAG_TONE, ThreadState } from "./look";
+import { CheckBadge, FixStatus, frameOf, ItemIcon, itemWords, placeLabel, plainLine, ReplyDraftBadge, SEVERITY_TONE, TAG_TONE, ThreadState } from "./look";
 import { CommentCard, whereOf } from "./CommentCard";
 import { PreExistingBadge } from "../InlineDraft";
 
@@ -35,7 +35,7 @@ function nameOf(item: CommentItem, preExisting: boolean): string {
     parts.push(item.comment.severity ? SEVERITY_LABEL[item.comment.severity] : null, preExisting ? "Pre-existing" : null);
     const talk = talkOf(item);
     parts.push(talk ? talkWords(talk) : null, item.discussion?.waiting ? "Waiting for agent" : null);
-  } else if (item.kind === "thread") parts.push(item.tag);
+  } else if (item.kind === "thread") parts.push(item.tag, item.topLevel && item.waitingOn ? topLevelLabel(item.topLevel) : null, item.sendStatus?.label ?? null);
   if ((item.kind === "thread" || item.kind === "ask") && item.check) parts.push(`agent's check: ${item.check.label}`);
   if (item.kind === "thread") parts.push(item.replyDraft?.label ?? null);
   return parts.filter(Boolean).join(" · ");
@@ -44,7 +44,7 @@ function nameOf(item: CommentItem, preExisting: boolean): string {
 /** What the row's card is called: "Draft comment on src/a.ts:2". */
 function cardName(item: CommentItem): string {
   if (item.kind === "draft") return `Draft comment on ${whereOf(item)}`;
-  if (item.kind === "thread") return `GitHub thread on ${whereOf(item)}`;
+  if (item.kind === "thread") return item.topLevel ? `GitHub ${item.topLevel.kind === "review" ? "review summary" : "comment"} on the PR` : `GitHub thread on ${whereOf(item)}`;
   if (item.kind === "private") return `Private discussion on ${whereOf(item)}`;
   return item.title;
 }
@@ -89,6 +89,10 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
             {severity && <Badge tone={SEVERITY_TONE[severity]} size="sm">{SEVERITY_LABEL[severity]}</Badge>}
             {preExisting && <PreExistingBadge />}
             {item.kind === "thread" && item.tag && <Badge tone={TAG_TONE[item.tag] ?? "neutral"} size="sm">{item.tag}</Badge>}
+            {/* Waiting, its chip names whose it is; this says what it is. */}
+            {item.kind === "thread" && item.topLevel && item.waitingOn && <Badge size="sm">{topLevelLabel(item.topLevel)}</Badge>}
+            {/* It wraps between its parts rather than cut, so its time always shows. */}
+            {item.kind === "thread" && item.sendStatus && <Badge size="sm" className="h-auto min-h-4 min-w-0 max-w-full shrink whitespace-normal rounded-md py-0.5 leading-snug"><FixStatus status={item.sendStatus} /></Badge>}
             {(item.kind === "thread" || item.kind === "ask") && item.check && <CheckBadge check={item.check} />}
             {item.kind === "thread" && item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} />}
             {item.kind === "draft" && item.discussion?.waiting ? <Badge tone="agent" dot pulse size="sm">Waiting for agent</Badge>

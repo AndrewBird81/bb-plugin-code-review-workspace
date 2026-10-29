@@ -5,6 +5,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import { linesOf, type DraftComment } from "../src/draft";
 import { useMainThread } from "../lib/main-thread";
 import { useKnob } from "../lib/settings";
+import { cn } from "../lib/utils";
 import { useWorkspace } from "../lib/workspace-context";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { Button } from "./ui/button";
@@ -22,9 +23,9 @@ const plural = (n: number) => `${n} comment${n === 1 ? "" : "s"}`;
 const BUSY = new Set(["starting", "active", "stopping"]);
 
 /** A thread's title as BB's thread list shows it, or as it was read, where the list doesn't have it. */
-export function ThreadName({ threadId, title }: { threadId: string; title: string | null }) {
+export function ThreadName({ threadId, title, wrap = false }: { threadId: string; title: string | null; wrap?: boolean }) {
   const listed = experimental_useSidebarThreads().threads.some((thread) => thread.id === threadId);
-  return <span className="inline-block min-w-0 max-w-full truncate align-bottom font-medium text-foreground">{listed ? <ThreadTitle threadId={threadId} /> : title ?? "the main thread"}</span>;
+  return <span className={cn("inline-block min-w-0 max-w-full align-bottom font-medium text-foreground", wrap ? "line-clamp-2 break-words" : "truncate")}>{listed ? <ThreadTitle threadId={threadId} /> : title ?? "the main thread"}</span>;
 }
 
 /**
@@ -81,11 +82,11 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
   const picked = () => chosen.map(({ file, line, side }) => ({ file, line, side }));
   const extras = () => ({ ...(message.trim() ? { message: message.trim() } : {}), ...(withSummary && summary ? { includeSummary: true } : {}) });
   /** Run a send, showing what it warned, with what sends it, or why it failed. */
-  async function attempt(run: (choice?: Choice) => Promise<{ ok: boolean; warning?: string; offers?: SendWarned["offers"]; freshWhere?: string } | void>, anyway: string, choice?: Choice) {
+  async function attempt(run: (choice?: Choice) => Promise<{ ok: boolean; warning?: string } & Partial<Pick<SendWarned, "offers" | "freshWhere" | "forkFrom" | "choice">> | void>, anyway: string, choice?: Choice) {
     setBusy(true); setError(null);
     try {
       const result = await run(choice);
-      if (result && !result.ok && result.warning) setWarned({ warning: result.warning, offers: result.offers ?? ["anyway"], freshWhere: result.freshWhere, anyway, retry: (next) => void attempt(run, anyway, next) });
+      if (result && !result.ok && result.warning) setWarned({ warning: result.warning, offers: result.offers ?? ["anyway"], freshWhere: result.freshWhere, forkFrom: result.forkFrom, choice: result.choice, anyway, retry: (next) => void attempt(run, anyway, next) });
       else { setWarned(null); setChoosing(null); }
     } catch (failure) {
       setWarned(null);
@@ -134,7 +135,7 @@ export function FixHandoff({ targetKey, comments, revision }: { targetKey: strin
     {told && <p role="status" className="min-w-0 text-xs text-muted-foreground">{told.note} · <button type="button" className={LINK} onClick={() => navigate.toThread(told.threadId)}>Open</button></p>}
     {started && <p role="status" className="text-xs text-muted-foreground">Started a thread: <span className="text-foreground">{started.title}</span> · <button type="button" className={LINK} onClick={() => navigate.toThread(started.threadId)}>Open</button></p>}
     {error && <p role="alert" className="text-xs text-destructive-text">{error}</p>}
-    {warned && <SendWarning warned={warned} busy={busy} anyway={warned.anyway} onChoose={warned.retry} onCancel={() => setWarned(null)} />}
+    {warned && <SendWarning warned={warned} busy={busy} anyway={warned.anyway} what={plural(chosen.length)} onChoose={warned.retry} onCancel={() => setWarned(null)} />}
     {picking ? <fieldset className="space-y-2">
       <legend className="mb-2 text-xs font-medium">{picking === "approve" ? "Approval to send" : picking === "send" ? "Comments to send" : "Comments to fix"}</legend>
       {picking !== "approve" && open.map((comment) => {

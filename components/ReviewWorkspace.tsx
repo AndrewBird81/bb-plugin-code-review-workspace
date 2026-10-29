@@ -58,7 +58,7 @@ import { NavigatorHost } from "./shell/NavigatorHost";
 import { PhoneDock } from "./shell/PhoneDock";
 import { returnFocus } from "./shell/side-parts";
 import { REWRITE_GUIDE, ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
-import { useFeatureNotices } from "./shell/FeatureNotices";
+import { useBranchKeptNotices, useFeatureNotices } from "./shell/FeatureNotices";
 import { useFixNotices } from "./shell/FixNotices";
 import { SelectionBar } from "./shell/SelectionBar";
 import { SidePanel, sidePanelId } from "./shell/SidePanel";
@@ -714,6 +714,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   });
   // A local review's folder: changed, on another branch, offline or gone, and who else works there.
   const featureNotices = useFeatureNotices(targetKey, review, load);
+  // A fixer's branch, once BB removed its folder.
+  const branchKept = useBranchKeptNotices(targetKey, review, load);
 
   // Track browser fullscreen state so the toggle icon/label stays correct.
   useEffect(() => {
@@ -1460,6 +1462,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: repoAccess.badCredentials ? "GitHub refused your account’s credentials. Switch account:" : `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
     ...featureNotices,
     ...fixNotices,
+    ...branchKept,
     ...(became?.targetKey === targetKey ? [{ id: "became-pr", tone: "info", icon: "GitPullRequest", text: `This review is now ${became.to}, the PR’s. It was ${became.from}; your comments came with it.`,
       action: <Button variant="outline" size="sm" className={noticeButton} onClick={() => setBecame(null)}>Got it</Button> }] as const : []),
     ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),

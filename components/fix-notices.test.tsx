@@ -163,3 +163,42 @@ test("a check that can't start says why; with the re-review check off there's no
   expect(archived.slot.queryByRole("status", { name: "Comments sent" })).toBeNull();
   archived.slot.lifecycle.unmount();
 });
+
+test("on your own PR with no folder, Send the rest takes the GitHub items not reported too, and asks where: a fresh fixer, or a fork", async () => {
+  const own = {
+    targetKey: KEY, kind: "pr", repo: "acme/web", number: 12, headSha: "a".repeat(40), status: "ready", createdAt: 1, title: "Retry uploads", ownPr: true, author: "me",
+    mainThread: { threadId: "fixer", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fix" }, sends: [{ ...send, threadId: "fixer", ids: ["c1", "c2", "c3", "c4"], stopped: { at: 2, why: "archived" } }],
+    threadSends: { PRRT_1: { id: "c4", sendN: 1 }, PRR_2: { id: "c5", sendN: 1, claim: { outcome: "done", threadId: "fixer", at: 3 } } }, fixes: tally({ sent: 5, reported: 2 }),
+  };
+  const sendToSourceThread = vi.fn(async (input: any) => input.thread === "fork"
+    ? { ok: true, delivery: "sent", title: "Fixes for web#12 · Retry uploads", threadId: "forked", sendN: 2 }
+    : { ok: false, warning: "…", offers: ["fresh", "fork", "unarchive"], forkFrom: "Retry uploads", choice: { why: "archived", thread: "Fixes for web#12", machine: "MaxBook" } });
+  const { slot } = await renderWorkspace(own, { sendToSourceThread, getReviewThreads: () => ({ threads: [] }), getFeedback: () => ({ feedback: null }), getReplyDrafts: () => ({ drafts: [] }) });
+  const shown = await slot.findByRole("status", { name: "Comments sent" });
+  fireEvent.click(within(shown).getByRole("button", { name: "Send the rest…" }));
+  // c2 and c3, and the thread not reported; never what was.
+  await waitFor(() => expect(sendToSourceThread).toHaveBeenCalledWith({ targetKey: KEY, comments: [{ file: "src/a.ts", line: 1, side: "LEFT" }, { file: "src/a.ts", line: 2, side: "RIGHT" }], threads: ["PRRT_1"], force: true }));
+  const choice = await slot.findByRole("group", { name: "Fixes for web#12 is archived. Where should these 3 comments go?" });
+  expect(within(choice).getAllByRole("button").map((button) => button.textContent)).toEqual(["Start a fresh thread", "Fork the original instead", "Unarchive and send", "Cancel"]);
+  fireEvent.click(within(choice).getByRole("button", { name: "Fork the original instead" }));
+  await waitFor(() => expect(sendToSourceThread).toHaveBeenLastCalledWith(expect.objectContaining({ threads: ["PRRT_1"], force: true, thread: "fork" })));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sent 3 comments to Fixes for web#12 · Retry uploads."));
+  slot.lifecycle.unmount();
+});
+
+test("on your PR whose folder a fixer took over, Send the rest still asks as a fixer's does; what the review no longer has is said plainly", async () => {
+  const own = {
+    targetKey: KEY, kind: "pr", repo: "acme/web", number: 12, headSha: "a".repeat(40), status: "ready", createdAt: 1, title: "Retry uploads", ownPr: true, author: "me",
+    feature: { ...feature, environmentId: "env_fix", workBranch: "bb/fix" },
+    mainThread: { threadId: "fixer", environmentId: "env_fix", origin: "fresh", since: 1, branch: "bb/fix" }, sends: [{ ...send, threadId: "fixer", ids: ["c1", "c2", "c3", "c4"], stopped: { at: 2, why: "archived" } }],
+    threadSends: { PRRT_1: { id: "c4", sendN: 1 } }, fixes: tally({ sent: 4, reported: 1 }),
+  };
+  const sendToSourceThread = vi.fn(async () => ({ ok: true, delivery: "sent", title: "Fixes for web#12", threadId: "fresh2", sendN: 2, skipped: 1 }));
+  const { slot } = await renderWorkspace(own, { sendToSourceThread, getReviewThreads: () => ({ threads: [] }), getFeedback: () => ({ feedback: null }), getReplyDrafts: () => ({ drafts: [] }) });
+  const shown = await slot.findByRole("status", { name: "Comments sent" });
+  fireEvent.click(within(shown).getByRole("button", { name: "Send the rest…" }));
+  // No thread chosen: the server asks, as for any fixer.
+  await waitFor(() => expect(sendToSourceThread).toHaveBeenCalledWith({ targetKey: KEY, comments: [{ file: "src/a.ts", line: 1, side: "LEFT" }, { file: "src/a.ts", line: 2, side: "RIGHT" }], threads: ["PRRT_1"], force: true }));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sent 2 comments to Fixes for web#12. 1 other isn’t on GitHub as the review last read it, so it didn’t go."));
+  slot.lifecycle.unmount();
+});

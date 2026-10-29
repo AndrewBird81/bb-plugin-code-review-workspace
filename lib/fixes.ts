@@ -59,13 +59,14 @@ const finisher = (by: SendEntry["readyBy"]) => by?.from === "shell" ? null : by?
 
 /**
  * Who finished the comments that came back, and how many: "The main thread reported all 6", "‹thread› says it’s
- * finished: 4 of 6 reported", "Marked finished from the command line: …". `yours`: "… all 6 of your comments".
+ * finished: 4 of 6 reported", "Marked finished from the command line: …". `yours`: "… all 6 comments you sent", which on your
+ * own PR may be your teammates'.
  */
 export function finishedText(tally: FixTally, by?: SendEntry["readyBy"], yours = false): string {
-  if (tally.reported === tally.sent) return `The main thread reported all ${tally.sent}${yours ? " of your comments" : ""}`;
+  if (tally.reported === tally.sent) return tally.sent === 1 ? `The main thread reported the comment${yours ? " you sent" : ""}` : `The main thread reported all ${tally.sent}${yours ? " comments you sent" : ""}`;
   const who = finisher(by);
   return who ? `${who} says it’s finished: ${countedText(tally)}` : `Marked finished from the command line: ${countedText(tally)}`;
 }
 
-/** Who did what with your comments, then what the check found, as an alert says it: "The main thread reported all 3 of your comments. Checked: 3 look fixed". */
+/** Who did what with your comments, then what the check found, as an alert says it: "The main thread reported all 3 comments you sent. Checked: 3 look fixed". */
 export const cameBackText = (tally: FixTally, by?: SendEntry["readyBy"]) => [finishedText(tally, by, true), checkedText(tally)].filter(Boolean).join(". ");

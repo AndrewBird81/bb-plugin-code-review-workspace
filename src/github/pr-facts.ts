@@ -1,5 +1,5 @@
 // Batched reads of the PR facts the turn rules need, one aliased GraphQL query per batch.
-import type { MyReview, PrFacts, PrRead, PrRef, ReviewRequestEvent, ReviewState, RunGh } from "./types";
+import type { MyReview, PrConversationItem, PrFacts, PrRead, PrRef, ReviewRequestEvent, ReviewState, RunGh } from "./types";
 import { longLivedBranch } from "../../lib/stacks";
 
 export const BATCH_SIZE = 10;
@@ -19,9 +19,9 @@ const FRAGMENT = `fragment F on PullRequest{
     ... on ReviewRequestedEvent{createdAt actor{login} requestedReviewer{${REVIEWER}}}
     ... on ReviewRequestRemovedEvent{createdAt actor{login} requestedReviewer{${REVIEWER}}}
     ... on ReviewDismissedEvent{createdAt review{id}}}}
-  conversation:timelineItems(last:15,itemTypes:[ISSUE_COMMENT]){nodes{... on IssueComment{author{__typename login} body createdAt}}}
+  conversation:timelineItems(last:15,itemTypes:[ISSUE_COMMENT]){nodes{... on IssueComment{id url author{__typename login} body createdAt}}}
   reviewItems:timelineItems(last:15,itemTypes:[PULL_REQUEST_REVIEW]){nodes{__typename
-    ... on PullRequestReview{author{__typename login} body submittedAt comments(first:10){nodes{body}}}}}
+    ... on PullRequestReview{id url state author{__typename login} body submittedAt comments(first:10){nodes{body}}}}}
 }`;
 
 export function prFactsQuery(refs: PrRef[]): { query: string; variables: Record<string, string | number> } {
@@ -119,6 +119,10 @@ function realReview(r: any): boolean {
   return (r.comments?.totalCount ?? 0) > 0 && !comments.every((c: any) => c?.replyTo);
 }
 
+/** How much of a review summary or comment is kept for Comments and a Send, and how many: every read of a review carries them. */
+const MAX_BODY = 4000;
+const MAX_CONVERSATION = 20;
+
 const CI: Record<string, PrFacts["ci"]> = { SUCCESS: "pass", FAILURE: "fail", ERROR: "fail", PENDING: "pending", EXPECTED: "expected" };
 
 function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<string>): PrFacts {
@@ -162,6 +166,20 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
     .map((c) => ({ at: time(c.createdAt), by: c.author.login as string }))
     .sort((a, b) => b.at - a.at)[0] ?? null;
 
+  // Others' review summaries and comments on the PR, for your own PR's Comments. One waits for you until you comment on
+  // the PR or write a review summary after it; a reply on a line's thread doesn't answer it, nor does an approval wait.
+  const topLevel = [...(pr.conversation?.nodes ?? []).filter((c: any) => c?.author && c.id).map((c: any) => ({ node: c, kind: "comment" as const, at: time(c.createdAt) })),
+    ...(pr.reviewItems?.nodes ?? []).filter((r: any) => r?.author && r.id).map((r: any) => ({ node: r, kind: "review" as const, at: time(r.submittedAt) }))]
+    .filter((c) => Number.isFinite(c.at) && (c.node.body ?? "").trim());
+  const repliedAt = latest(topLevel.filter((c) => same(c.node.author.login, viewer)).map((c) => c.at)) ?? 0;
+  const conversationItems: PrConversationItem[] = topLevel.filter((c) => !same(c.node.author.login, viewer))
+    .map(({ node, kind, at }) => ({
+      id: node.id as string, kind, author: node.author.login as string, bot: isBot(node.author), ...kind === "review" && node.state ? { state: node.state as string } : {},
+      body: (node.body as string).slice(0, MAX_BODY), at, url: node.url ?? null,
+      waiting: !isBot(node.author) && at > repliedAt && node.state !== "APPROVED",
+    }))
+    .sort((a, b) => a.at - b.at).slice(-MAX_CONVERSATION);
+
   // Everyone asked to review or who has, comments alone too, but you and bots, for the list's filters. A member's review
   // for a team takes its request away; the team stays while the request's event shows and wasn't withdrawn after.
   const teamOf = (r: any) => r?.__typename === "Team" && r.slug ? `${r.organization?.login ?? ""}/${r.slug}` : null;
@@ -197,5 +215,6 @@ function normalize(pr: any, ref: PrRef, viewer: string, teams: ReadonlySet<strin
     myReviews, otherOpinions, requests, requestPending,
     mention,
     commits: (pr.commits?.nodes ?? []).map((n: any) => n?.commit?.oid).filter(Boolean),
+    conversation: conversationItems, conversationRepliedAt: repliedAt,
   };
 }

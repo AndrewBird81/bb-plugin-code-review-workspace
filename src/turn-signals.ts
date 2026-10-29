@@ -1,6 +1,6 @@
 // Turns what GitHub says about a PR into the signals the turn rules read.
 import type { ReviewLifecycle, ReviewMeta } from "./store";
-import type { FeedbackThread, PrFacts } from "./github/types";
+import type { FeedbackThread, PrConversationItem, PrFacts } from "./github/types";
 import type { ReviewPreferences } from "./preferences";
 import { feedbackProgress, newCommentsText, type Turn, type TurnOptions, type TurnSignals } from "../lib/turn";
 import { verdictFromMine } from "./review-verdict";
@@ -32,10 +32,12 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
     prLabels: facts.labels ?? [], prTeams: facts.reviewTeams ?? [], prReviewers: facts.reviewers ?? [],
     prUpdatedAt: Number.isFinite(facts.updatedAt) ? facts.updatedAt : null, prMergedAt: facts.mergedAt ?? null, prClosedAt: facts.closedAt ?? null,
     stackParent: facts.stackParent ?? null, ownPr: !!facts.author && facts.author.toLowerCase() === viewer.toLowerCase(), authorAssociation: facts.authorAssociation ?? null,
-    foreignHeadOwner: foreignHeadOwner(facts.headForkOwner, facts.author, viewer), prEditedAt: edits.length ? Math.max(...edits) : null,
+    foreignHeadOwner: foreignHeadOwner(facts.headForkOwner, facts.author, viewer), headFork: facts.headForkOwner ?? null, prEditedAt: edits.length ? Math.max(...edits) : null,
     archivedAt: facts.state === "OPEN" ? null : previous.archivedAt ?? now,
     // The account reading the PR, which the review's verdict and checks belong to.
     reviewer: viewer,
+    // Others' review summaries and comments on your own PR, which wait for you as its threads do.
+    prConversation: facts.author && facts.author.toLowerCase() === viewer.toLowerCase() ? keptConversation(previous.prConversation, facts) : null,
     ...(previous.reviewer && previous.reviewer !== viewer ? READER_STATE : {}),
   };
   const own = verdictFromMine(facts.myReviews);
@@ -89,12 +91,36 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
 }
 
 const RECEIPT_GRACE = 10 * 60_000;
+/** How many review summaries and comments a review keeps, as the read does (src/github/pr-facts.ts). */
+const CONVERSATION_KEPT = 20;
+
+/**
+ * Your own PR's review summaries and comments after a read: what it saw, and what waited before that it no longer shows,
+ * as the read sees only the latest 15 reviews and each reply on a line is one, until your comment on the PR answers it.
+ * One answered stays answered. Past the cap, the oldest answered ones go first.
+ */
+function keptConversation(previous: ReviewMeta["prConversation"], facts: PrFacts): PrConversationItem[] {
+  const read = facts.conversation;
+  if (!read) return previous ?? [];
+  const seen = new Set(read.map((item) => item.id));
+  const replied = facts.conversationRepliedAt ?? 0;
+  // Answered once, it stays answered, though later comments push your reply out of the read's window.
+  const answered = new Set((previous ?? []).filter((item) => !item.waiting).map((item) => item.id));
+  const kept = [...read.map((item) => item.waiting && answered.has(item.id) ? { ...item, waiting: false } : item),
+    ...(previous ?? []).filter((item) => item.waiting && !seen.has(item.id) && item.at > replied)].sort((a, b) => a.at - b.at);
+  while (kept.length > CONVERSATION_KEPT) {
+    const answered = kept.findIndex((item) => !item.waiting);
+    kept.splice(answered >= 0 ? answered : 0, 1);
+  }
+  return kept;
+}
 
 /**
  * Your threads' standing, as signals. Non-blocking threads are counted apart, and hold nothing but questions. On your
- * own PR (`ownPr`), also the comments waiting for your reply on everyone's threads.
+ * own PR (`ownPr`), also the comments waiting for your reply on everyone's threads, and the review summaries and
+ * comments on the PR (`conversation`) that wait: each once, a review's inline comments being its threads'.
  */
-export function threadSignals(all: ReadonlyArray<FeedbackThread & { resolvedSeenAt?: number | null }>, ownPr = false): Pick<TurnSignals, "threads" | "questionAt" | "questionBy" | "replyAt" | "handledAt" | "newComments"> {
+export function threadSignals(all: ReadonlyArray<FeedbackThread & { resolvedSeenAt?: number | null }>, ownPr = false, conversation: readonly PrConversationItem[] = []): Pick<TurnSignals, "threads" | "questionAt" | "questionBy" | "replyAt" | "handledAt" | "newComments"> {
   const threads = all.filter((t) => !threadLabel(t.body)?.nonBlocking);
   const count = (status: FeedbackThread["status"]) => threads.filter((t) => t.status === status).length;
   const tally = {
@@ -105,7 +131,7 @@ export function threadSignals(all: ReadonlyArray<FeedbackThread & { resolvedSeen
   const handled = tally.total > 0 && tally.open === 0 && tally.questions === 0;
   const questionAt = latest(all.filter((t) => t.status === "question").map((t) => t.replyAt));
   const asked = all.find((t) => t.status === "question" && t.replyAt === questionAt);
-  const waiting = all.flatMap((t) => t.needsReply ? [t.needsReply] : []);
+  const waiting = [...all.flatMap((t) => t.needsReply ? [t.needsReply] : []), ...conversation.filter((c) => c.waiting).map((c) => ({ comments: 1, at: c.at, by: c.author }))];
   const newest = waiting.reduce<typeof waiting[number] | null>((max, w) => w.at > (max?.at ?? -Infinity) ? w : max, null);
   return {
     ...(ownPr ? { newComments: newest ? { count: waiting.reduce((sum, w) => sum + w.comments, 0), threads: waiting.length, at: newest.at, by: newest.by } : null } : {}),

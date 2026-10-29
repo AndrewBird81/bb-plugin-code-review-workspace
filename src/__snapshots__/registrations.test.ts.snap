@@ -348,13 +348,13 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
-    "description": "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries. Also the comments they sent to the main thread to fix (c12), each with its Send and what the thread reported.",
+    "description": "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries. Also the comments they sent to the main thread to fix (c12), each with its Send and what the thread reported. On their own PR: everyone's threads, and others' review summaries and comments on the PR.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {},
       "type": "object",
     },
-    "instructions": "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review (with send, for a sent comment's Send), then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, each sent comment by its id, and each distinct ask in the summaries as "summary:<n>" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or "Fixed in abc123, thanks."",
+    "instructions": "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review (with send, for a sent comment's Send), then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, each sent comment by its id, and each distinct ask in the summaries as "summary:<n>" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or "Fixed in abc123, thanks." On the reviewer's own PR, list_feedback has everyone's threads, and others' review summaries and comments on the PR, with what the thread that fixed each reported: draft each thread's reply from its report with draft_thread_reply, and for a review summary or comment, suggest the reply in your message.",
     "name": "list_feedback",
     "presentation": null,
   },
@@ -1041,10 +1041,11 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
           "type": "string",
         },
         "thread": {
-          "description": "When the main thread is archived or deleted, as the warning offered: unarchive it, or start a fresh thread.",
+          "description": "As the warning offered: unarchive the main thread, start a fresh thread, or on a PR, fork the thread that wrote it.",
           "enum": [
             "unarchive",
             "fresh",
+            "fork",
           ],
           "type": "string",
         },
@@ -1055,7 +1056,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
       ],
       "type": "object",
     },
-    "instructions": "When the reviewer asks to have a comment fixed ("fix this", "send it"), send it with send_now and say so; add the comment with add_draft_comment first if the line has none. When they say you do it, write the exact unified diff that fixes it, against the code as it is now, and pass it as patch: the main thread applies it as written, so the folder keeps one writer. Don't change the code yourself. If it comes back with a warning, tell the reviewer in a line, and call again only as they choose: force: true to send anyway, with thread: "unarchive" or "fresh" when it offers those. In a turn the reviewer didn't start, it sends nothing: suggest it instead. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "instructions": "When the reviewer asks to have a comment fixed ("fix this", "send it"), send it with send_now and say so; add the comment with add_draft_comment first if the line has none. When they say you do it, write the exact unified diff that fixes it, against the code as it is now, and pass it as patch: the main thread applies it as written, so the folder keeps one writer; on a PR with no thread working on it, a fresh thread at the PR's head applies it. Don't change the code, or push, yourself. If it comes back with a warning, tell the reviewer in a line, and call again only as they choose: force: true to send anyway, with thread: "unarchive", "fresh" or "fork" when it offers those. In a turn the reviewer didn't start, it sends nothing: suggest it instead. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
     "name": "send_now",
     "presentation": null,
   },

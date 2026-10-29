@@ -8,10 +8,13 @@ import { useKnob } from "../../lib/settings";
 import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { cn } from "../../lib/utils";
 import { useDraft } from "../DraftProvider";
+import { usesFixer } from "../../lib/fixer";
 import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
 import { Icon } from "../ui/icon";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { SendWarning, type Choice, type SendWarned } from "../SendNow";
 import type { Notice } from "./ReviewNotices";
 
 /** The review, as its fixes' notice reads it. */
@@ -24,23 +27,40 @@ const BUTTON = cn("h-7", TOUCH_CONTROL);
 
 /**
  * Send the rest to a fresh thread: the comments the main thread, archived or deleted, didn't report, sent again to a
- * fresh thread, which then is the main thread. Inside the draft, whose comments it sends.
+ * fresh thread, which then is the main thread. Inside the draft, whose comments it sends. On your own PR with no folder
+ * of its own, the GitHub threads and summaries it didn't report go too, and the Send asks where, as any of its Sends
+ * does there: a fresh fixer at the PR's head, or a fork of the thread that wrote it.
  */
 function SendRest({ targetKey, onChanged }: { targetKey: string; onChanged: () => void }) {
   const rpc = useRpc<typeof rpcContract>();
-  const { draft, load } = useDraft();
+  const { draft, load, review } = useDraft();
   const [busy, setBusy] = useState(false);
+  const [warned, setWarned] = useState<SendWarned | null>(null);
   const rest = draft.comments.filter((comment) => comment.state === "sent" && !reported(comment.claim));
-  if (!rest.length) return null;
-  const send = async () => {
+  const own = review?.kind === "pr" && review.ownPr === true;
+  const threads = own ? Object.entries(review.threadSends ?? {}).filter(([, sent]) => !reported(sent.claim)).map(([id]) => id) : [];
+  // A fixer's choice, as every Send to a fixer asks.
+  const fixer = own && usesFixer(review);
+  const count = rest.length + threads.length;
+  if (!count) return null;
+  const what = `${count} comment${count === 1 ? "" : "s"}`;
+  const send = async (choice?: Choice) => {
     if (busy) return;
     setBusy(true);
     try {
-      // You sent them once, past any warning; a fresh thread is the choice the main thread's state leaves.
-      const result = await rpc.call("sendToSourceThread", { targetKey, comments: rest.map(({ file, line, side }) => ({ file, line, side })), thread: "fresh", force: true });
-      if (!result.ok) toast.error(result.warning);
+      // You sent them once, past any warning; a fresh thread is the choice the main thread's state leaves, and on your
+      // PR, a fresh fixer or a fork, which it asks.
+      const result = await rpc.call("sendToSourceThread", {
+        targetKey, comments: rest.map(({ file, line, side }) => ({ file, line, side })), ...threads.length ? { threads } : {},
+        force: true, ...choice?.thread ? { thread: choice.thread } : fixer ? {} : { thread: "fresh" },
+      });
+      if (!result.ok && result.choice) setWarned({ warning: result.warning, offers: result.offers ?? ["fresh"], freshWhere: result.freshWhere, forkFrom: result.forkFrom, choice: result.choice });
+      else if (!result.ok) toast.error(result.warning);
       else {
-        toast.success(`Sent ${rest.length} comment${rest.length === 1 ? "" : "s"} to ${result.title ?? "a fresh thread"}.`);
+        setWarned(null);
+        // What the review no longer has can't go: said plainly, as there's no getting it back.
+        const sentCount = count - (result.skipped ?? 0);
+        toast.success(`Sent ${sentCount} comment${sentCount === 1 ? "" : "s"} to ${result.title ?? "a fresh thread"}.${result.skipped ? ` ${result.skipped === 1 ? "1 other isn’t" : `${result.skipped} others aren’t`} on GitHub as the review last read it, so ${result.skipped === 1 ? "it" : "they"} didn’t go.` : ""}`);
         onChanged();
         void load();
       }
@@ -50,8 +70,15 @@ function SendRest({ targetKey, onChanged }: { targetKey: string; onChanged: () =
       setBusy(false);
     }
   };
-  const label = "Send the rest to a fresh thread";
-  return <Button variant="outline" size="sm" className={BUTTON} disabled={busy} onClick={() => void send()}>{busy ? `${label}…` : label}</Button>;
+  const label = fixer ? "Send the rest…" : "Send the rest to a fresh thread";
+  return <Popover open={!!warned} onOpenChange={(open) => { if (!open) setWarned(null); }}>
+    <PopoverTrigger asChild>
+      <Button variant="outline" size="sm" className={BUTTON} disabled={busy} onClick={(event) => { event.preventDefault(); void send(); }}>{busy ? `${label.replace(/…$/, "")}…` : label}</Button>
+    </PopoverTrigger>
+    <PopoverContent align="end" mobileTitle="Send the rest" className="w-80 max-w-[calc(100vw-24px)] p-1">
+      {warned && <SendWarning warned={warned} busy={busy} what={what} onChoose={(choice) => void send(choice)} onCancel={() => setWarned(null)} className="border-0 bg-transparent" />}
+    </PopoverContent>
+  </Popover>;
 }
 
 /**

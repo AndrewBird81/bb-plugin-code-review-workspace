@@ -75,6 +75,32 @@ export interface PrFacts {
   mention: { at: number; by: string } | null;
   /** Commit oids on the PR, oldest first (the last 100). */
   commits: string[];
+  /** Others' review summaries and comments on the PR itself, oldest first; absent from reads before 1.8.0. */
+  conversation?: PrConversationItem[];
+  /** When you last commented on the PR, or wrote a review summary, as far as the reads' windows show; 0 for not there. */
+  conversationRepliedAt?: number;
+}
+
+/**
+ * Someone else's review summary, or comment on the PR itself rather than on a line, as your own PR's Comments shows
+ * it. A review's inline comments are its threads', so only its summary is here.
+ */
+export interface PrConversationItem {
+  /** GitHub's node id: Send names it, as it does a thread's. */
+  id: string;
+  kind: "review" | "comment";
+  author: string;
+  bot: boolean;
+  /** A review's state: CHANGES_REQUESTED, COMMENTED or APPROVED. */
+  state?: string;
+  body: string;
+  at: number;
+  url: string | null;
+  /**
+   * It waits for your reply: a person's, posted since your last comment or review summary on the PR, and not an
+   * approval.
+   */
+  waiting: boolean;
 }
 
 /** A PR's read: its facts, null when GitHub can't find it, or "forbidden" when GitHub refuses access (permissions, SSO). */

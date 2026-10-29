@@ -152,8 +152,9 @@ test("Send now sends one comment with an id, as its own Send", async () => {
   expect(text).toContain("c1 · `src/a.ts:3`");
   expect(text).not.toContain("Why change b?");
   expect(await comment(store, B2)).not.toHaveProperty("id");
-  // GitHub's threads are step 4.2's.
-  expect(await call(h.harness, "sendNow", { targetKey: "pr-1", comment: { threadId: "t1" } })).toMatchObject({ ok: false, error: expect.stringContaining("isn’t available yet") });
+  // A thread on GitHub the review hasn't read sends nothing.
+  expect(await call(h.harness, "sendNow", { targetKey: "pr-1", comment: { threadId: "t1" } })).toMatchObject({ ok: false, error: expect.stringContaining("on GitHub as the review last read it") });
+  expect(h.sends()).toHaveLength(1);
 });
 
 test("Let it push when done leaves out Don't push, for the review or for one Send", async () => {

@@ -8,6 +8,7 @@ import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
 import { phoneWindow } from "../../lib/workspace-layout";
 import { usePageTitleShown, useTitleBarMounted } from "../../lib/workspace-store";
 import { compareLabel, ComparePicker, sinceFrom } from "../ComparePicker";
+import { hasNotPushed } from "../../lib/main-thread";
 import { sendBaselineOf } from "../../lib/send-baseline";
 import { ReviewIdChip } from "../ReviewIdChip";
 import { ChapterStep } from "../shell/ChapterStep";
@@ -137,8 +138,8 @@ export function ReaderBar({ threads, onCompareShown }: { threads: boolean; onCom
   const chapter = sections[index];
   // A re-review compares with your last review, a review with a Send with your last Send, and a first review shows its
   // comparison once you pick a commit. The select is sized for its longest label, so what it says doesn't move it out
-  // of the band.
-  const comparable = !!chapter && sinceFrom(compare, review) !== undefined;
+  // of the band. A PR with a thread working on it in a folder has Not pushed yet there too.
+  const comparable = !!chapter && (sinceFrom(compare, review) !== undefined || hasNotPushed(review));
   const lastSend = sendBaselineOf(review)?.key;
   const longer = (brief: boolean) => [compareLabel(false, null), compareLabel(true, compare.from, brief), ...(lastSend ? [compareLabel(true, lastSend, brief)] : [])]
     .reduce((a, b) => b.length > a.length ? b : a);

@@ -10,9 +10,13 @@ test("the list carries each review's lifecycle and turn, without its review summ
   await store.saveReview({ targetKey: "pr-1", kind: "pr", number: 1, repo: "acme/web", status: "ready", createdAt: 1 });
   await store.saveReview({ targetKey: "pr-2", kind: "pr", number: 2, repo: "acme/web", status: "ready", createdAt: 2 });
   await store.setLifecycle("pr-1", { submittedVerdict: "APPROVE", submittedAt: 5, reviewBodies: [{ state: "APPROVED", at: 5, body: "Ship it" }] });
+  // Your own PR's summaries and comments by others stay with the review's page, not every list load.
+  await store.setLifecycle("pr-2", { ownPr: true, prConversation: [{ id: "PRR_1", kind: "review", author: "dana", bot: false, state: "COMMENTED", body: "x".repeat(4000), at: 3, url: null, waiting: true }] });
   const { reviews, sync } = await harness.behavior.callRpc("listReviews", null) as any;
   expect(reviews.map((r: any) => [r.targetKey, r.submittedVerdict ?? null, r.turn.group])).toEqual([["pr-2", null, "needs"], ["pr-1", "APPROVE", "reviewed"]]);
   expect(reviews[1]).not.toHaveProperty("reviewBodies");
+  expect(reviews[0]).not.toHaveProperty("prConversation");
+  expect((await store.getReview("pr-2"))?.prConversation).toHaveLength(1);
   expect(sync).toEqual({ lastReadAt: null, error: null });
   // A single review still has them, for the assistant's tools.
   expect((await store.getReview("pr-1"))?.reviewBodies).toHaveLength(1);

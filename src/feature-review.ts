@@ -107,8 +107,8 @@ async function saveRead(tx: AsyncStore, key: string, feature: FeatureReview, rea
  * The lifecycle that records `main` as the review's main thread, the one before it, if any, kept as an implementer:
  * adopted, one already working in the folder, or fresh, one a Send started.
  */
-export function mainThreadState(review: Pick<ReviewMeta, "mainThread" | "implementers"> | null, main: Pick<Thread, "id" | "environmentId">, now: number, origin: MainThread["origin"] = "adopted"): ReviewLifecycle {
-  const mainThread: MainThread = { threadId: main.id, environmentId: main.environmentId ?? null, origin, since: now };
+export function mainThreadState(review: Pick<ReviewMeta, "mainThread" | "implementers"> | null, main: Pick<Thread, "id" | "environmentId">, now: number, origin: MainThread["origin"] = "adopted", fixer?: MainThread["fixer"]): ReviewLifecycle {
+  const mainThread: MainThread = { threadId: main.id, environmentId: main.environmentId ?? null, origin, since: now, ...fixer ? { fixer } : {} };
   const before = review?.mainThread;
   // The thread a Send goes to until Send has its own (src/fix-handoff.ts), and its title as the review shows it.
   return { mainThread, sourceThreadId: main.id, sourceThreadAt: now, ...before ? { implementers: [...review.implementers ?? [], before] } : {} };

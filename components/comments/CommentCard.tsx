@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Markdown, useBbNavigate } from "@get-bb/plugin-sdk/app";
 import { linesOf, sameLocation } from "../../src/draft";
 import { withLineBreaks } from "../../src/line-breaks";
-import type { AskItem, CommentItem, DraftItem, PrivateItem, ThreadItem, ThreadMessage } from "../../lib/comments";
+import { topLevelLabel, type AskItem, type CommentItem, type DraftItem, type PrivateItem, type ThreadItem, type ThreadMessage } from "../../lib/comments";
 import { answerReply, useReplyAsked } from "../../lib/comment-stops";
 import { setCommentOpen } from "../../lib/comments-fold";
 import { linkImages } from "../../lib/link-images";
@@ -21,7 +21,7 @@ import { Hint } from "../ui/hint";
 import { Icon } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
-import { CheckBadge, frameOf, plainLine, TAG_TONE, ThreadState } from "./look";
+import { CheckBadge, FixStatus, frameOf, plainLine, TAG_TONE, ThreadState } from "./look";
 import { MoveToSummary } from "./MoveToSummary";
 import { ReplyBox } from "./ReplyBox";
 import { CommentEditorMenu } from "../OpenInEditor";
@@ -110,12 +110,38 @@ function Replies({ replies }: { replies: ThreadMessage[] }) {
   </div>;
 }
 
+/** "@dana’s comment", "@dana’s review", "your comment": whose words a GitHub item's Send carries. */
+export function githubWhat(item: ThreadItem): string {
+  const who = item.waitingOn ?? item.who;
+  return `${who === "You" ? "your" : `${who}’s`} ${item.topLevel?.kind === "review" ? "review" : "comment"}`;
+}
+
+/**
+ * On your own PR, whether a thread, review summary or comment on GitHub can go with Send: Send to thread on, and not
+ * resolved. With no main thread, its Send offers a fresh thread or a fork.
+ */
+function useGithubSendable(targetKey: string, item: ThreadItem): boolean {
+  const review = useWorkspaceFor(targetKey)?.review;
+  const sendOn = useKnob("sendToThread");
+  return sendOn && review?.kind === "pr" && review.ownPr === true && review.prState !== "MERGED" && review.prState !== "CLOSED" && item.state !== "resolved";
+}
+
+/** Where a GitHub item's last Send took it, or what the thread that took it reported, on its card. */
+function SendStatus({ status }: { status: NonNullable<ThreadItem["sendStatus"]> }) {
+  return <p className="text-xs text-muted-foreground"><FixStatus status={status} /></p>;
+}
+
 /**
  * A thread on GitHub: who started it and when, its state and the agent's check, the messages, and its reply. In the
- * code a resolved one starts as a pill (LineThreads), and Hide folds it back to one.
+ * code a resolved one starts as a pill (LineThreads), and Hide folds it back to one. On your own PR, also a review
+ * summary or comment on the PR (`topLevel`), which has no reply box or Resolve of its own; and each has Send, which
+ * takes its author's words to the main thread, or a fresh one.
  */
 function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: ThreadItem; variant: "inline" | "row" }) {
   const actions = useComments(targetKey, "actions");
+  const sendable = useGithubSendable(targetKey, item);
+  // What Send warned, or why it failed, under the card.
+  const [sendNote, setSendNote] = useState<ReactNode>(null);
   const busy = useComments(targetKey, "busy").includes(item.id);
   const api = useWorkspaceFor(targetKey);
   const navigate = useBbNavigate();
@@ -144,7 +170,7 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
   // Hidden, one line says what's under it.
   const shutLine = [item.state === "resolved" && item.resolvedBy ? `Resolved by @${item.resolvedBy}` : null, replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : null].filter(Boolean).join(" · ");
   return (
-    <article tabIndex={-1} aria-label={`GitHub thread on ${where}`} className={cn(inline ? INLINE_CARD : "overflow-hidden rounded-lg bg-card pt-2.5 text-sm", "outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
+    <article tabIndex={-1} aria-label={item.topLevel ? `GitHub ${item.topLevel.kind === "review" ? "review summary" : "comment"} on the PR` : `GitHub thread on ${where}`} className={cn(inline ? INLINE_CARD : "overflow-hidden rounded-lg bg-card pt-2.5 text-sm", "outline-none focus-visible:ring-2 focus-visible:ring-ring/50", frameOf(item))}>
       {inline && <div className={cn(HEAD, !open && "pb-1")}>
         <span className="flex shrink-0 items-center gap-1.5"><Icon name="Github" className="size-3.5 shrink-0" aria-hidden />On GitHub<span aria-hidden className="text-subtle-foreground">·</span></span>
         {first ? <Speaker message={first} /> : <span className="font-medium text-foreground">{item.who}</span>}
@@ -154,20 +180,23 @@ function ThreadCard({ targetKey, item, variant }: { targetKey: string; item: Thr
         <Button variant="ghost" size="sm" aria-expanded={open} className={cn(ACTION, "ml-auto")} onClick={() => (pill && open ? setCommentOpen(targetKey, item.id, false) : setShut(open))}>{open ? "Hide" : "Show"}</Button>
       </div>}
       {open ? <div className="space-y-2.5 px-3 pb-2.5">
-        {!inline && first && <Speaker message={first} />}
+        {!inline && first && <Speaker message={first}>{item.topLevel && <Badge size="sm">{topLevelLabel(item.topLevel)}</Badge>}</Speaker>}
         {first && <Clamped body={first.body} link />}
         <Replies replies={replies} />
         <Evidence item={item} onFix={item.check?.fix && api ? () => api.showLocation(item.check!.fix!.file, item.check!.fix!.line, "RIGHT") : undefined} />
+        {item.sendStatus && <SendStatus status={item.sendStatus} />}
+        {sendNote}
         {actions && replyShows && <ReplyBox targetKey={targetKey} item={item} where={where} actions={actions} busy={busy} writing={writing} onClose={() => setWriting(false)} replyButton={replyButton} />}
         {actions && <div className="-mb-1 -ml-2 flex flex-wrap items-center gap-0.5">
-          {!replyShows && <Button ref={replyButton} variant="ghost" size="sm" className={ACTION} disabled={busy || item.replyTo === null} onClick={() => setWriting(true)}><Icon name="CornerDownRight" className="size-3.5" aria-hidden />Reply</Button>}
+          {!replyShows && !item.topLevel && <Button ref={replyButton} variant="ghost" size="sm" className={ACTION} disabled={busy || item.replyTo === null} onClick={() => setWriting(true)}><Icon name="CornerDownRight" className="size-3.5" aria-hidden />Reply</Button>}
+          {sendable && <SendNow targetKey={targetKey} comment={{ threadId: item.id }} to={api?.mainThread ?? null} what={githubWhat(item)} className={ACTION} onNote={setSendNote} />}
           {/* Unlike the draft, Resolve doesn't wait for Submit. */}
-          <Hint label="Posts to GitHub now" container={container}>
+          {!item.topLevel && <Hint label="Posts to GitHub now" container={container}>
             {/* Resolved here, the card stays open where it is, with the focus, rather than fold to a pill. */}
             <Button variant="ghost" size="sm" className={ACTION} disabled={busy} aria-describedby={postsNow} onClick={() => { if (inline) setCommentOpen(targetKey, item.id, true); void actions.setResolved(item.id, item.state !== "resolved"); }}>
               <Icon name={item.state === "resolved" ? "RotateCcw" : "CircleCheck"} className="size-3.5" aria-hidden />{item.state === "resolved" ? "Unresolve" : "Resolve"}
             </Button>
-          </Hint>
+          </Hint>}
           <span id={postsNow} hidden>Posts to GitHub now</span>
           {(followUp || item.url) && <Popover open={menu} onOpenChange={setMenu}>
             <PopoverTrigger asChild>

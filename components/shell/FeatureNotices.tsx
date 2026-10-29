@@ -5,7 +5,7 @@ import type { rpcContract } from "../../src/rpc-contract";
 import type { FeatureCheck } from "../../src/feature-review";
 import type { FeatureReview, MainThread } from "../../src/store";
 import { flaggedFileNotice, hiddenFileNotice } from "../../lib/folder-files";
-import { branchLabel } from "../../lib/review-identity";
+import { branchLabel, homeShort } from "../../lib/review-identity";
 import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { TOUCH_CONTROL } from "../touch";
@@ -22,6 +22,8 @@ interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureRevi
 const BUTTON = cn("h-7", TOUCH_CONTROL);
 // A branch's name never breaks across lines.
 const Code = ({ children }: { children: string }) => <span className="whitespace-nowrap font-mono">{children}</span>;
+/** A branch or path that wraps only after a slash or hyphen, never mid-word, on a phone. */
+const Wrappable = ({ text }: { text: string }) => <>{text.split(/(?<=\w[/-])/).map((part, i) => <span key={i}>{i > 0 && <wbr />}{part}</span>)}</>;
 /** "a, b and 2 more": names as a notice lists them. */
 const listed = (names: string[], shown = 2) => names.length > shown ? `${names.slice(0, shown).join(", ")} and ${names.length - shown} more`
   : names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "";
@@ -178,4 +180,42 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
       action: more.length ? button("open", `Open ${first!.title}`, () => open(first!.threadId)) : button("open", "Open", () => open(first!.threadId), { aria: `Open ${first!.title}` }) });
   }
   return notices;
+}
+
+/**
+ * Branch kept: a branch a fixer made in a new worktree stays in the repo once BB removes the worktree, and the plugin
+ * runs no git in your checkout, so each says so, with its delete command to copy (select it, if copying fails) and Got
+ * it, which stops showing it. `onChanged` reloads the review.
+ */
+export function useBranchKeptNotices(targetKey: string, review: { keptBranches?: Array<{ branch: string; machine: string | null; path?: string | null }> } | null, onChanged: () => void): Notice[] {
+  const rpc = useRpc<typeof rpcContract>();
+  const [busy, setBusy] = useState<string | null>(null);
+  const copy = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); toast.success("Copied"); }
+    catch { toast.error("Couldn’t copy. Select the command instead."); }
+  };
+  const dismiss = async (branch: string) => {
+    if (busy) return;
+    setBusy(branch);
+    try {
+      const result = await rpc.call("dismissKeptBranch", { targetKey, branch });
+      if (!result.ok) toast.error(result.error ?? "Couldn’t save that.");
+      else onChanged();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn’t save that.");
+    } finally { setBusy(null); }
+  };
+  return (review?.keptBranches ?? []).map(({ branch, machine, path }) => {
+    const command = `git branch -D ${branch}`;
+    const repo = path ? homeShort(path) : machine ? `the repo on ${machine}` : "the repo";
+    return {
+      id: `branch-kept:${branch}`, tone: "info", icon: "GitBranch", label: "Branch kept", firstLine: true,
+      // -D deletes commits that never reached GitHub: the warning is part of the command's sentence.
+      text: <>Branch kept: <span className="font-mono"><Wrappable text={branch} /></span>{machine ? ` on ${machine}` : ""}. The fixer’s folder is gone, but its branch is still in {path ? <span className="font-mono"><Wrappable text={repo} /></span> : repo}. To delete it, run <code className="select-all font-mono">{command.split(" ").map((word, i) => <span key={i}>{i ? " " : ""}<Wrappable text={word} /></span>)}</code>. This also deletes any commits on it that aren’t on GitHub.</>,
+      action: <span className="flex gap-1">
+        <Button variant="outline" size="sm" className={BUTTON} aria-label={`Copy ${command}`} onClick={() => void copy(command)}>Copy command</Button>
+        <Button variant="ghost" size="sm" className={BUTTON} disabled={busy === branch} aria-label={`Got it: ${branch}`} onClick={() => void dismiss(branch)}>Got it</Button>
+      </span>,
+    } satisfies Notice;
+  });
 }

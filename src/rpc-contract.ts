@@ -55,18 +55,26 @@ const location = { file: z.string(), line: lineNumber, side: z.enum(["LEFT", "RI
 // What Send to thread adds to what it sends (src/fix-handoff.ts): your message, as long as a summary may be, and the summary.
 const sendExtras = { message: z.string().max(65_000).optional(), includeSummary: z.boolean().optional() };
 // Where a Send goes past its warning (src/loop.ts): force, past it, as on a PR you don't own; thread, when the main
-// thread is archived or deleted, or its folder gone, as the warning offered: unarchive it and send, or a fresh thread.
-const routeChoices = { force: z.boolean().optional(), thread: z.enum(["unarchive", "fresh"]).optional() };
+// thread is archived or deleted, or its folder gone, as the warning offered: unarchive it and send, or a fresh thread;
+// on a PR with no thread working on it, a fresh thread at its head, or a fork of the thread that wrote it.
+const routeChoices = { force: z.boolean().optional(), thread: z.enum(["unarchive", "fresh", "fork"]).optional() };
 // A Send's own choices: letPush, Let it push when done for this Send, else the review's setting, and where it goes.
 const sendChoices = { letPush: z.boolean().optional(), ...routeChoices };
 /**
- * A Send that didn't go: why, and what it offers. anyway: the same call with force sends it; unarchive and fresh: with
- * force and that thread.
+ * A Send that didn't go: why, and what it offers. anyway: the same call with force sends it; unarchive, fresh and fork:
+ * with force and that thread.
  */
 const sendWarning = z.object({
-  ok: z.literal(false), warning: z.string(), offers: z.array(z.enum(["anyway", "unarchive", "fresh"])).optional(),
+  ok: z.literal(false), warning: z.string(), offers: z.array(z.enum(["anyway", "unarchive", "fresh", "fork"])).optional(),
   // With fresh offered: where that thread starts, "in ~/src/api".
   freshWhere: z.string().optional(),
+  // With fork offered: the thread it forks, by its title.
+  forkFrom: z.string().optional(),
+  // On a PR, where the Send can go, as a choice (src/loop.ts FixerChoice).
+  choice: z.object({
+    why: z.enum(["archived", "deleted", "none", "folder-gone"]), thread: z.string().nullable(), machine: z.string().nullable(),
+    folder: z.string().optional(), note: z.string().optional(),
+  }).optional(),
 });
 const syncHealth = z.object({
   lastReadAt: z.number().nullable(),
@@ -354,9 +362,12 @@ export const rpcContract = defineRpcContract({
     output: z.object({ thread: z.object({ threadId: z.string(), title: z.string().nullable(), state: z.enum(["open", "archived", "gone"]), machine: z.string().nullable().optional() }).nullable() }),
   },
   // Send: the comments, each with an id, to the main thread, threadId (a fresh one, when it started one), as Send sendN.
+  // threads: on your own PR, threads, review summaries and comments on GitHub that go with them, by GitHub's id.
   sendToSourceThread: {
-    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()).min(1), ...sendExtras, ...sendChoices }).strict(),
-    output: z.union([z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable(), threadId: z.string().optional(), sendN: z.number().int().optional() }), sendWarning]),
+    input: z.object({ targetKey: z.string(), comments: z.array(z.object(location).strict()), threads: z.array(z.string().min(1)).max(100).optional(), ...sendExtras, ...sendChoices }).strict()
+      .refine((input) => input.comments.length > 0 || !!input.threads?.length, "Choose a comment to send."),
+    // skipped: GitHub items left out, as the review no longer has them.
+    output: z.union([z.object({ ok: z.literal(true), delivery: z.enum(["sent", "queued"]), title: z.string().nullable(), threadId: z.string().optional(), sendN: z.number().int().optional(), skipped: z.number().int().optional() }), sendWarning]),
   },
   // Tells the main thread you approve the change as is, at the revision the page shows. With comments not yet sent, or
   // told already for this diff, it warns.
@@ -380,7 +391,7 @@ export const rpcContract = defineRpcContract({
     }).strict(),
     // sent: the comment's id, the Send's number, and the thread it went to.
     output: z.object({
-      ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(), offers: sendWarning.shape.offers, freshWhere: sendWarning.shape.freshWhere,
+      ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(), offers: sendWarning.shape.offers, freshWhere: sendWarning.shape.freshWhere, forkFrom: sendWarning.shape.forkFrom, choice: sendWarning.shape.choice,
       sent: z.object({ id: z.string(), sendN: z.number().int(), threadId: z.string(), title: z.string().nullable(), delivery: z.enum(["sent", "queued"]) }).optional(),
     }),
   },
@@ -419,6 +430,25 @@ export const rpcContract = defineRpcContract({
   /** Send to this thread from now on: one working in the review's folder; with fresh, a new one started there. */
   setMainThread: {
     input: z.union([z.object({ targetKey: z.string(), threadId: z.string().min(1) }).strict(), z.object({ targetKey: z.string(), fresh: z.literal(true) }).strict()]),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /**
+   * Not pushed yet, on a PR: what the folder of its main thread, a fixer's or its own, has that the PR's head on GitHub
+   * doesn't, committed or not (src/own-pr.ts); or, with no such folder, or one that can't be read now, why.
+   */
+  getNotPushed: {
+    input: targetKey,
+    output: z.union([
+      z.object({
+        state: z.literal("available"), patch: z.string(), base: z.string(), branch: z.string(), machine: z.string().nullable(), threadId: z.string(),
+        hidden: z.array(z.object({ path: z.string(), reason: z.enum(["secret", "binary", "large"]) })), notice: z.string().nullable(),
+      }),
+      z.object({ state: z.enum(["none", "offline", "gone", "unavailable"]), message: z.string() }),
+    ]),
+  },
+  /** Stop showing Branch kept for a fixer's branch, once you've deleted it or chosen to keep it. */
+  dismissKeptBranch: {
+    input: z.object({ targetKey: z.string(), branch: z.string().min(1) }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
   /** Include files the secrets filter keeps out of a local review's diff, by path; with included false, keep them out again. */

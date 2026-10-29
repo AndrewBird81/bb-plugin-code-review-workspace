@@ -1447,6 +1447,114 @@ test("a new comment on your own PR while its merge waits in Ready to approve sti
   expect((await s.store.getReview(s.key))?.notifiedSignal).toBe(turn.signal);
 });
 
+test("a teammate's Request changes with only a summary brings your PR to Needs review once, as one comment; a review's inline comments count as their threads, not again", async () => {
+  const s = await ownSetup();
+  let conversation: PrFacts["conversation"] = [];
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => [ref.targetKey, ref.number === 4
+    // Each read sees the PR updated, so its threads are read again.
+    ? facts(ref, { author: "me", url: "https://github.com/acme/web/pull/4", headRefName: "feat/4", conversation, updatedAt: Date.now() }) : facts(ref)])));
+  await s.sync.all(true);
+  const body = { id: "PRR_1", kind: "review" as const, author: "dana", bot: false, state: "CHANGES_REQUESTED", body: "Can you add tests?", at: T0 + 2 * HOUR, url: null, waiting: true };
+  conversation = [body];
+  s.at(3);
+  await s.sync.all(true);
+  const back = (await s.store.getReview(s.key))!;
+  expect(back.prConversation).toEqual([body]);
+  expect(back.signals?.newComments).toEqual({ count: 1, threads: 1, at: T0 + 2 * HOUR, by: "dana" });
+  expect(await s.sync.turnOf(back)).toMatchObject({ group: "needs", reason: "new-comments", label: "Your PR · 1 new comment" });
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  expect(s.published[0]).toMatchObject({ body: expect.stringContaining("@dana commented on your PR") });
+  // Read again, it's the same comment: no second alert.
+  s.at(3.5);
+  await s.sync.all(true);
+  expect(s.published).toHaveLength(1);
+  // Her review adds a thread on a line: two comments, each once.
+  s.comments([ghThread("t-dana", person("dana"))]);
+  s.at(4);
+  await s.sync.all(true);
+  expect((await s.store.getReview(s.key))!.signals?.newComments).toMatchObject({ count: 2, threads: 2 });
+  // Your comment on the PR answers her summary.
+  conversation = [{ ...body, waiting: false }];
+  s.comments([]);
+  s.at(5);
+  await s.sync.all(true);
+  expect(await s.sync.turnOf((await s.store.getReview(s.key))!)).toMatchObject({ group: "reviewed", reason: "own" });
+});
+
+test("a Request changes with only a summary keeps waiting once 16 later reviews push it out of GitHub's window of 15, until your comment answers it", async () => {
+  const { parsePrFacts } = await import("./github/pr-facts");
+  const s = await ownSetup();
+  const node = (id: string, login: string, state: string, body: string, hours: number) => ({ __typename: "PullRequestReview", id, url: null, state, author: { __typename: "User", login }, body, submittedAt: new Date(T0 + hours * HOUR).toISOString(), comments: { nodes: [] } });
+  const comment = (id: string, login: string, body: string, hours: number) => ({ id, url: null, author: { __typename: "User", login }, body, createdAt: new Date(T0 + hours * HOUR).toISOString() });
+  // Dana's Request changes, then her 16 replies on lines, each a review of its own with no summary.
+  const reviews = [node("PRR_rc", "dana", "CHANGES_REQUESTED", "Can you add tests?", 2), ...Array.from({ length: 16 }, (_, i) => node(`PRR_r${i}`, "dana", "COMMENTED", "", 2.1 + i * 0.01))];
+  let window = { reviews: reviews.slice(-15), comments: [] as unknown[] };
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => {
+    if (ref.number !== 4) return [ref.targetKey, facts(ref)];
+    const pr = { number: 4, state: "OPEN", isDraft: false, updatedAt: new Date(Date.now()).toISOString(), title: "Expire cache entries", url: "https://github.com/acme/web/pull/4", baseRefName: "main", headRefName: "feat/4", headRefOid: "sha1",
+      author: { login: "me" }, commits: { nodes: [{ commit: { oid: "sha1" } }] }, head: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, reviewRequests: { nodes: [] }, reviews: { nodes: [] }, events: { nodes: [] },
+      conversation: { nodes: window.comments }, reviewItems: { nodes: window.reviews } };
+    return [ref.targetKey, parsePrFacts({ data: { p0: { pullRequest: pr } } }, [ref], "me", new Set()).get(ref.targetKey)!];
+  })));
+  await s.sync.all(true);
+  // First read: in the window.
+  window = { reviews: [reviews[0]!, ...reviews.slice(1, 15)], comments: [] };
+  s.at(3);
+  await s.sync.all(true);
+  expect((await s.store.getReview(s.key))!.prConversation).toEqual([expect.objectContaining({ id: "PRR_rc", waiting: true })]);
+  // Then 16 later reviews: GitHub's last 15 no longer have it, and it still waits, counted once.
+  window = { reviews: reviews.slice(-15), comments: [] };
+  s.at(4);
+  await s.sync.all(true);
+  const kept = (await s.store.getReview(s.key))!;
+  expect(kept.prConversation).toEqual([expect.objectContaining({ id: "PRR_rc", waiting: true })]);
+  expect(kept.signals?.newComments).toMatchObject({ count: 1, by: "dana" });
+  expect(await s.sync.turnOf(kept)).toMatchObject({ group: "needs", reason: "new-comments" });
+  // Your comment on the PR answers it.
+  window = { reviews: reviews.slice(-15), comments: [comment("IC_me", "me", "Added them.", 5)] };
+  s.at(5);
+  await s.sync.all(true);
+  expect((await s.store.getReview(s.key))!.prConversation).toEqual([]);
+  expect(await s.sync.turnOf((await s.store.getReview(s.key))!)).toMatchObject({ group: "reviewed" });
+});
+
+test("a summary you answered stays answered once 15 later PR comments push your reply out of GitHub's window", async () => {
+  const { parsePrFacts } = await import("./github/pr-facts");
+  const s = await ownSetup();
+  const rc = { __typename: "PullRequestReview", id: "PRR_rc", url: null, state: "CHANGES_REQUESTED", author: { __typename: "User", login: "dana" }, body: "Can you add tests?", submittedAt: new Date(T0 + 2 * HOUR).toISOString(), comments: { nodes: [] } };
+  const comment = (id: string, author: { __typename: string; login: string }, hours: number) => ({ id, url: null, author, body: "Coverage report", createdAt: new Date(T0 + hours * HOUR).toISOString() });
+  // Your reply, then a bot's 15 comments after it.
+  const comments = [comment("IC_me", { __typename: "User", login: "me" }, 3), ...Array.from({ length: 15 }, (_, i) => comment(`IC_bot${i}`, { __typename: "Bot", login: "codecov" }, 3.1 + i * 0.01))];
+  let window: unknown[] = [];
+  vi.mocked(s.github.facts).mockImplementation(async (refs) => new Map(refs.map((ref) => {
+    if (ref.number !== 4) return [ref.targetKey, facts(ref)];
+    const pr = { number: 4, state: "OPEN", isDraft: false, updatedAt: new Date(Date.now()).toISOString(), title: "Expire cache entries", url: "https://github.com/acme/web/pull/4", baseRefName: "main", headRefName: "feat/4", headRefOid: "sha1",
+      author: { login: "me" }, commits: { nodes: [{ commit: { oid: "sha1" } }] }, head: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, reviewRequests: { nodes: [] }, reviews: { nodes: [] }, events: { nodes: [] },
+      conversation: { nodes: window }, reviewItems: { nodes: [rc] } };
+    return [ref.targetKey, parsePrFacts({ data: { p0: { pullRequest: pr } } }, [ref], "me", new Set()).get(ref.targetKey)!];
+  })));
+  window = comments.slice(0, 1);
+  s.at(4);
+  await s.sync.all(true);
+  expect((await s.store.getReview(s.key))!.prConversation?.find((item) => item.id === "PRR_rc")).toMatchObject({ waiting: false });
+  // GitHub's last 15 comments are the bot's: your reply isn't among them.
+  window = comments.slice(-15);
+  s.at(5);
+  await s.sync.all(true);
+  const later = (await s.store.getReview(s.key))!;
+  expect(later.prConversation?.find((item) => item.id === "PRR_rc")).toMatchObject({ waiting: false });
+  expect(later.signals?.newComments ?? null).toBeNull();
+  expect(await s.sync.turnOf(later)).toMatchObject({ group: "reviewed" });
+});
+
+test("a teammate's PR keeps no summaries or comments of others, as before 1.8.0", async () => {
+  const s = await setup({ reviewed: true, pr: { conversation: [{ id: "PRR_1", kind: "review", author: "bob", bot: false, state: "COMMENTED", body: "Thoughts?", at: T0, url: null, waiting: true }] } });
+  await s.sync.all(true);
+  const review = (await s.store.getReview("pr-1"))!;
+  expect(review.prConversation).toBeNull();
+  expect(review.signals).not.toHaveProperty("newComments");
+});
+
 test("a snooze that ends while a row waits in Ready to approve still wakes, with its alert (3.4-fixes2 P1)", async () => {
   const s = await setup({ reviewed: true });
   await s.sync.all();

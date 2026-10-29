@@ -220,3 +220,16 @@ test("a sent comment says which Send carried it, to which thread, on its row, an
   expect(within(document.body).getByRole("button", { name: /^Sent to Build snooze · Send 2 · src\/a\.ts:2/ })).toBeTruthy();
   expect(card.queryByRole("button", { name: /^Send now/ })).toBeNull();
 });
+
+test("on your PR whose folder a fixer took over, Change offers a fresh thread, not one here: the server starts a fixer at the PR's head", async () => {
+  const setMainThread = vi.fn(async () => ({ ok: true }));
+  const rehomed = { ...folderReview, targetKey: "pr-12", kind: "pr", repo: "acme/api", number: 12, ownPr: true,
+    feature: { ...folderReview.feature, environmentId: "env_fix", workBranch: "bb/fix" }, mainThread: { threadId: "coder", environmentId: "env_fix", origin: "fresh", since: 2, fixer: { sha: "a".repeat(40), at: 2 } } };
+  const slot = await renderTab(rehomed, { getSourceThread: () => MAIN, setMainThread }, [listed("coder", "Build snooze", { environment: { id: "env_fix" } })]);
+  fireEvent.click(await slot.findByRole("button", { name: "Change main thread" }));
+  const menu = within(await slot.findByRole("menu", { name: "Change main thread" }));
+  expect(menu.queryByRole("menuitem", { name: "Start a fresh thread here" })).toBeNull();
+  fireEvent.click(menu.getByRole("menuitem", { name: "Start a fresh thread" }));
+  await waitFor(() => expect(setMainThread).toHaveBeenCalledWith({ targetKey: "pr-12", fresh: true }));
+  slot.lifecycle.unmount();
+});

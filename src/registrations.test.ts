@@ -45,6 +45,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "dismissDiscussion",
       "dismissFlagged",
       "dismissInstructionSuggestion",
+      "dismissKeptBranch",
       "dismissReady",
       "getAgentDefaults",
       "getAgentLearning",
@@ -59,6 +60,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "getFileViews",
       "getGeneratedFiles",
       "getGhAccounts",
+      "getNotPushed",
       "getPrCommits",
       "getPreferences",
       "getProviderModes",
@@ -211,7 +213,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
   // Only the events it listens to: the SDK lists every event it knows.
   expect(Object.fromEntries(Object.entries(registered.threadEventHandlers).filter(([, count]) => count > 0))).toMatchInlineSnapshot(`
     {
-      "experimental_environment.removed": 1,
+      "experimental_environment.removed": 2,
       "message.cancelled": 3,
       "message.dispatched": 3,
       "thread.active": 1,

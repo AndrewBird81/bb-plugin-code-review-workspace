@@ -54,6 +54,7 @@ import * as featureReview from "./src/feature-review";
 import * as openPr from "./src/open-pr";
 import * as loop from "./src/loop";
 import * as reportsModule from "./src/reports";
+import * as ownPr from "./src/own-pr";
 import * as rpcStubs from "./src/rpc-stubs";
 import * as reviewAgentTools from "./src/review-agent-tools";
 import * as relaysModule from "./src/relays";
@@ -283,7 +284,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       if (!await tx.getReview(review.targetKey)) return null;
       const threadsChanged = await tx.saveFeedbackThreads(review.targetKey, threads, (await tx.feedbackFetched(review.targetKey))?.prUpdatedAt ?? null);
       const now = (await tx.getReview(review.targetKey))!;
-      await tx.setLifecycle(review.targetKey, { signals: { ...now.signals, ...threadSignals(await tx.listFeedbackThreads(review.targetKey), now.ownPr === true) } });
+      await tx.setLifecycle(review.targetKey, { signals: { ...now.signals, ...threadSignals(await tx.listFeedbackThreads(review.targetKey), now.ownPr === true, now.prConversation ?? []) } });
       return threadsChanged;
     });
     if (threadsChanged === null) return;
@@ -317,8 +318,9 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   const opening = openPr.register(moduleDeps);
   const sends = loop.register(moduleDeps);
   const reports = reportsModule.register(moduleDeps);
+  const own = ownPr.register(moduleDeps);
   const stubs = rpcStubs.register();
-  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, feature.handlers, opening.handlers, relays.handlers, sends.handlers, reports.handlers, stubs.handlers);
+  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, feature.handlers, opening.handlers, relays.handlers, sends.handlers, reports.handlers, own.handlers, stubs.handlers);
   const guarded = Object.fromEntries(Object.entries(handlers).map(([name, handler]) =>
     [name, (input: unknown) => updates.run(() => (handler as (input: unknown) => unknown)(input))])) as unknown as typeof handlers;
   bb.rpc.register(rpcContract, {
@@ -329,7 +331,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     setReviewPresence: ({ clientId, open }) => updates.presence(clientId, open),
     applyPluginUpdate: ({ clientId, candidateVersion }) => updates.apply(clientId, candidateVersion),
   });
-  listen(bb, [events.events, feature.events, ledgerEvents(bb), sends.events, reports.events]);
+  listen(bb, [events.events, feature.events, ledgerEvents(bb), sends.events, reports.events, own.events]);
   const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands, reports.commands);
 
   // Tools go only to THIS plugin's own spawned threads, by the role each is recorded with: a thread can retitle
