@@ -24,7 +24,7 @@ export interface InlineDraft {
   /** The review, whose comments' folding and threads the cards read (components/comments/store.ts). */
   targetKey?: string;
   comments: DraftComment[];
-  /** Comments drafted against an older diff, which submitting refuses. */
+  /** Comments drafted against an older diff, which Submit warns about. */
   stale: CommentLocation[];
   /** Discussions with the review assistant, under their line's comment or in its place. */
   discussions: Discussion[];

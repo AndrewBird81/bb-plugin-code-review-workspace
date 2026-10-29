@@ -1,18 +1,26 @@
 // The regression net for teammates' PRs, most of what the plugin reviews: with Settings' Let the review agent act when
 // you ask off, everything behaves as 1.7.0 did. Each part below pins one surface; later steps add theirs (Submit's
 // warnings, unattended turns, relayed approvals, own-PR discovery) with their own tests, on the same setup.
-import { expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
 
 const runGh = vi.hoisted(() => vi.fn());
 vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh, runGit: vi.fn(async () => ({ stdout: "", stderr: "", code: 0 })) }));
+// Who's asking, when a test says: the real reading of the agent's timeline otherwise.
+const asking = vi.hoisted(() => ({ override: null as null | { asking: "unattended"; message: null } }));
+vi.mock("./asking", async (original) => {
+  const actual = await original<typeof import("./asking")>();
+  return { ...actual, directOnly: (bb: any) => { const real = actual.directOnly(bb); return async (threadId: string) => asking.override ?? await real(threadId); } };
+});
 vi.mock("./store-queue", async (original) => {
   const actual = await original<typeof import("./store-queue")>();
   return { ...actual, queueStore: vi.fn(actual.queueStore) };
 });
 
 import { startPlugin } from "./plugin-store.test-support";
+
+beforeEach(() => { asking.override = null; });
 import { prReviewKey, targetKey } from "./targets";
 import { defaultPreferences } from "./preferences";
 import { ASSISTANT_WRITE_TOOL_NAMES } from "./server-modules";
@@ -42,13 +50,17 @@ const node = (id: string, author: string) => ({
 async function teammatePr() {
   runGh.mockReset();
   runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "auth") return { stdout: "token", stderr: "", code: 0 };
     if (args[0] === "api" && args[1] === "user") return { stdout: "me\n", stderr: "", code: 0 };
+    if (args[0] === "pr" && args[1] === "view") return { stdout: JSON.stringify({ headRefOid: "sha2", baseRefName: "main", state: "OPEN" }), stderr: "", code: 0 };
     // Threads on the PR: yours, and bob's.
     if (args[0] === "api" && args[1] === "graphql") return { stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [node("t-mine", "me"), node("t-bob", "bob")] } } } } }), stderr: "", code: 0 };
     return { stdout: "", stderr: "", code: 0 };
   });
+  // What the review agent's chat holds: you typed "approve it" in the review.
+  const timeline = vi.fn(async () => ({ rows: [{ kind: "conversation", role: "user", initiator: "user", text: "Approve it, and thank them", createdAt: Date.now(), senderThreadId: null }] }));
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
-    threads: { get: async () => ({ archivedAt: null, deletedAt: null, status: "idle", title: `Review agent: ${KEY}` }), send: async () => ({}), stop: async () => ({}), update: async () => ({}), archive: async () => ({}) },
+    threads: { get: async () => ({ archivedAt: null, deletedAt: null, status: "idle", title: `Review agent: ${KEY}` }), send: async () => ({}), stop: async () => ({}), update: async () => ({}), archive: async () => ({}), timeline },
   } as any });
   const store = await startPlugin(bb);
   await store.saveReview({ targetKey: KEY, kind: "pr", repo: "acme/web", number: 1, url: "https://github.com/acme/web/pull/1", author: "alice", base: "main", head: "cache", headSha: "sha2", createdAt: 1, status: "ready", projectId: "p1" });
@@ -66,7 +78,7 @@ async function teammatePr() {
     const { preferences, revision } = await call("getPreferences", null);
     await call("savePreferences", { preferences: { ...preferences, knobs: { ...preferences.knobs, reviewAgentActs } }, revision });
   };
-  return { store, call, agent, acting };
+  return { store, call, agent, acting, harness, timeline };
 }
 
 function agentContext(): PluginAgentConfigurationContext {
@@ -162,4 +174,57 @@ test("turning the switch off gives the review agent 1.7.0's rule at once; on, it
   expect((await agent()).instructions).toContain(NEVER_POST_1_7_0[0]);
   await acting(true);
   expect((await agent()).instructions).not.toMatch(REFUSALS);
+});
+
+// Submit's warnings, and what GitHub enforces.
+
+/** What GitHub was sent, by gh: the review POSTs. */
+const reviewPosts = () => runGh.mock.calls.filter(([args]) => (args as string[]).includes("repos/acme/web/pulls/1/reviews"));
+
+test("a teammate's PR with commits since your review warns at Submit, and Submit anyway posts on the version you reviewed", async () => {
+  const { store, call } = await teammatePr();
+  const gh = runGh.getMockImplementation()!;
+  runGh.mockImplementation(async (args: string[]) => {
+    if (args[0] === "pr" && args[1] === "view") return { stdout: JSON.stringify({ headRefOid: "sha3", baseRefName: "main", state: "OPEN" }), stderr: "", code: 0 };
+    if (args.includes("repos/acme/web/pulls/1/reviews")) return { stdout: JSON.stringify({ node_id: "R2", user: { login: "me" } }), stderr: "", code: 0 };
+    return gh(args);
+  });
+  await store.savePatch(KEY, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-x\n+y\n");
+  await store.setVerdict(KEY, "COMMENT", "Two asks left.");
+  const { revision } = await call("getReviewBundle", { targetKey: KEY });
+  const { comments, body, verdict } = await store.getDraft(KEY);
+  const page = { targetKey: KEY, revision, account: "me", comments, body, verdict };
+  const warned = await call("submitReview", page);
+  expect(warned).toEqual({ ok: false, warning: "New commits since you reviewed. Submitting now posts on the version you reviewed.", warnings: ["new-commits"], offers: ["anyway"], newCommits: { count: null, url: "https://github.com/acme/web/compare/sha2...sha3" } });
+  expect(reviewPosts()).toEqual([]);
+  // Submit anyway passes back exactly the warnings shown.
+  expect(await call("submitReview", { ...page, force: warned.warnings })).toEqual({ ok: true });
+  expect(JSON.parse((reviewPosts()[0][1] as { stdin: string }).stdin)).toMatchObject({ event: "COMMENT", body: "Two asks left.", commit_id: "sha2" });
+});
+
+test("on a teammate's PR, what GitHub enforces still stops Submit anyway", async () => {
+  const { store, call } = await teammatePr();
+  await store.setVerdict(KEY, "REQUEST_CHANGES", "");
+  const { revision } = await call("getReviewBundle", { targetKey: KEY });
+  const { comments, body, verdict } = await store.getDraft(KEY);
+  expect(await call("submitReview", { targetKey: KEY, revision, account: "me", comments, body, verdict, force: true })).toEqual({ ok: false, error: "Add a summary explaining the requested changes before submitting." });
+  expect(reviewPosts()).toEqual([]);
+});
+
+test("asked in the review to approve, the agent opens the Post form, and nothing posts until you click", async () => {
+  const { harness } = await teammatePr();
+  void harness.behavior.callAgentTool("submit_review", { verdict: "APPROVE", body: "Thanks, alice!" }, { threadId: "agent" });
+  await vi.waitFor(() => expect(harness.inspection.pendingInteractions).toHaveLength(1));
+  expect(harness.inspection.pendingInteractions[0]).toMatchObject({ rendererId: "post-preview", title: "Approve acme/web#1 as @me", payload: { action: "Approve", button: "Approve", parts: [{ label: "Summary", body: "Thanks, alice!" }] } });
+  expect(reviewPosts()).toEqual([]);
+  harness.behavior.cancelInteraction(harness.inspection.pendingInteractions[0].id);
+});
+
+test("in a turn you didn't start, the agent's approve only marks its suggestion, opening no form: zero writes", async () => {
+  const { harness, store } = await teammatePr();
+  asking.override = { asking: "unattended", message: null };
+  await harness.behavior.callAgentTool("submit_review", { verdict: "APPROVE" }, { threadId: "agent" });
+  expect(await store.getDraft(KEY)).toMatchObject({ verdict: "COMMENT", suggestedVerdict: "APPROVE" });
+  expect(harness.inspection.pendingInteractions).toEqual([]);
+  expect(runGh.mock.calls.filter(([args]) => (args as string[]).includes("POST") || ["comment", "edit", "merge", "close"].includes((args as string[])[1]))).toEqual([]);
 });

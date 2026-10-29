@@ -52,6 +52,8 @@ import * as assistantEvents from "./src/assistant-events";
 import * as guideTool from "./src/guide-tool";
 import * as featureReview from "./src/feature-review";
 import * as rpcStubs from "./src/rpc-stubs";
+import * as reviewAgentTools from "./src/review-agent-tools";
+import { directOnly } from "./src/asking";
 
 export { rpcContract } from "./src/rpc-contract";
 
@@ -289,7 +291,8 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
 
   // Each area of the server is a module (src/server-modules.ts). Registering it registers its agent tools, in this
   // order, and gives its RPC handlers, its listeners to BB's events, and the bb review subcommands it runs.
-  const moduleDeps: ServeDeps = { ...deps, receipts, submitReview, githubWrites, notifications, suggester, sync, changed, refreshThreads, reviewOwners };
+  // Who's asking in a review agent's turn: step 3.4 replaces directOnly with one that knows the plugin's own messages.
+  const moduleDeps: ServeDeps = { ...deps, receipts, submitReview, githubWrites, notifications, suggester, sync, changed, refreshThreads, reviewOwners, classify: directOnly(bb) };
   const settings = settingsRpc.register(moduleDeps);
   const reviews = reviewsRpc.register(moduleDeps);
   const githubThreads = githubThreadsRpc.register(moduleDeps);
@@ -299,6 +302,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   patchTools.register(moduleDeps);
   draftTools.register(moduleDeps);
   feedbackTools.register(moduleDeps);
+  reviewAgentTools.register(moduleDeps, { submit: draft.submit });
   const events = assistantEvents.register(moduleDeps);
   guideTool.register(moduleDeps);
   const feature = featureReview.register(moduleDeps);

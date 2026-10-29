@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { UrlLink, useRpc } from "@get-bb/plugin-sdk/app";
+import { UrlLink, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
 import { SUMMARY_AT, VERDICT_LABEL, verdictPicked, type Verdict } from "../../src/draft";
@@ -61,9 +61,9 @@ export function FinishView({ shown, revision }: {
   const notes = usePrivateNotes(targetKey, shown);
   // What the last Submit here sent, for its receipt.
   const [sent, setSent] = useState<{ comments: number; at: number } | null>(null);
-  const submit = (confirmed = false) => {
+  const submit = (confirmed = false, choice?: "anyway" | "comment") => {
     if (confirmed || !(d.doubts.length || d.approvingBlocked)) setSent({ comments: d.draft.comments.length, at: Date.now() });
-    void d.submit(confirmed);
+    void d.submit(confirmed, choice);
   };
   // It didn't go: there's no receipt to show.
   useEffect(() => { if (d.status.error) setSent(null); }, [d.status.error]);
@@ -101,6 +101,7 @@ export function FinishView({ shown, revision }: {
             {isPr ? <GoesToGitHub items={items} replyDrafts={items.filter((item) => item.kind === "thread" && item.replyDraft).length} onList={openList} />
               : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p>{notes.show && <PrivateNotes targetKey={targetKey} />}</Part>}
             {(d.isLocal || d.ownPr) && <FixHandoff targetKey={targetKey} comments={d.sortedComments} revision={revision} />}
+            {isPr && <AgentActivity />}
             {isPr && notes.show && <Part title="Stays in BB"><PrivateNotes targetKey={targetKey} /></Part>}
           </div>
           {!d.isLocal && <SubmitFoot onSubmit={submit} />}
@@ -273,18 +274,36 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
   );
 }
 
-/** Submit, pinned: the verdict on it, where it posts and as whom, or why it waits; and the one more ask when in doubt. */
-function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean) => void }) {
+/**
+ * Submit, pinned: the verdict on it, where it posts and as whom, or why it waits; the one more ask when in doubt; and
+ * what GitHub or the server held it back for, in words, with what to do: Submit anyway, Submit as Comment, Open it on GitHub.
+ */
+function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean, choice?: "anyway" | "comment") => void }) {
   const { review } = useWorkspace();
   const d = useDraft();
-  const blocked = d.busy || d.rebuilding || !d.hasReview || d.writing || d.needsSummary || d.staleComments.length > 0;
+  // Comments on an older diff don't hold it: Submit warns, and Submit anyway moves them into the summary.
+  const blocked = d.busy || d.rebuilding || !d.hasReview || d.writing || d.needsSummary;
   // While it posts, Submit keeps the focus it was clicked with.
   const unavailable = { disabled: blocked && !d.busy, "aria-disabled": d.busy || undefined };
   const where = review.repo && review.number ? `${review.repo}#${review.number}` : null;
   const ready = d.hint === "Drafts stay in BB until you submit.";
+  const warned = d.warned;
+  // While it posts, the choice keeps the focus it was clicked with.
+  const choosing = { "aria-disabled": d.busy || undefined };
+  const dismiss = () => { d.setWarned(null); requestAnimationFrame(() => d.submitRef.current?.focus()); };
   return (
     <footer className="shrink-0 space-y-2 border-t border-border p-3">
-      {d.confirming ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
+      {warned ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
+        <p><span className="font-medium">Not submitted.</span> {warned.text.replace(/\s*Your draft (has been kept|is still here)\.$/, "")} Your draft is kept.</p>
+        <div className="flex flex-wrap gap-2">
+          {warned.offers.includes("anyway") && <Button size="sm" className={cn(TOUCH_CONTROL, BUSY)} {...choosing} onClick={() => { if (!d.busy) onSubmit(true, "anyway"); }}>{d.draft.verdict === "APPROVE" ? "Approve anyway" : "Submit anyway"}</Button>}
+          {warned.newCommits && <UrlLink href={warned.newCommits.url} className={cn(buttonVariants({ size: "sm", variant: "outline" }), "text-foreground", TOUCH_CONTROL)}>{warned.newCommits.count ? `See the ${plural(warned.newCommits.count, "commit")}` : "See the new commits"}</UrlLink>}
+          {warned.offers.includes("comment") && <Button size="sm" className={cn(TOUCH_CONTROL, BUSY)} {...choosing} onClick={() => { if (!d.busy) onSubmit(true, "comment"); }}>Submit as Comment</Button>}
+          {warned.offers.includes("github") && where && <UrlLink href={review.url ?? `https://github.com/${where.replace("#", "/pull/")}`} className={cn(buttonVariants({ size: "sm" }), TOUCH_CONTROL)}><Icon name="Github" className="size-4" aria-hidden />Open it on GitHub</UrlLink>}
+          <Button ref={d.confirmCancelRef} size="sm" variant="ghost" className={cn("text-muted-foreground hover:text-foreground", TOUCH_CONTROL)} onClick={dismiss}>Cancel</Button>
+        </div>
+      </div>
+      : d.confirming ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
         <p>{d.approvingBlocked ? `Approve with ${plural(d.blockingCount, "blocking comment")}?` : `Submit ${VERDICT_LABEL[d.draft.verdict]}${d.commentCount ? ` with ${plural(d.commentCount, "comment")}` : ""}?`} {d.doubts.join(" ")}</p>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" className={cn(TOUCH_CONTROL, BUSY)} {...unavailable} onClick={() => { if (!blocked) onSubmit(true); }}>Submit anyway</Button>
@@ -297,6 +316,36 @@ function SubmitFoot({ onSubmit }: { onSubmit: (confirmed?: boolean) => void }) {
         </Button>}
       <p className="text-xs leading-relaxed text-muted-foreground">{ready && where ? <>Posts to {where}{d.account ? <> as @{d.account}</> : null}.</> : d.hint}</p>
     </footer>
+  );
+}
+
+/** What the review agent did on GitHub when you asked, newest first, a line each: "Posted reply on src/a.ts:12 · 2m ago". */
+function AgentActivity() {
+  const { review } = useWorkspace();
+  const navigate = useBbNavigate();
+  const [all, setAll] = useState(false);
+  const entries = review.activity ?? [];
+  if (!entries.length) return null;
+  // Folded only from 5 up, so Show all never hides a single line.
+  const folds = entries.length >= 5;
+  const shown = [...entries].reverse().slice(0, all || !folds ? undefined : 3);
+  return (
+    <Part title="Agent activity">
+      <ul className="space-y-1.5">
+        {shown.map((entry, index) => <li key={`${entry.at}-${index}`} className="flex items-start gap-1.5">
+          <Icon name="Sparkles" className="mt-0.5 size-3 shrink-0 text-(--ansi-13)" aria-hidden />
+          <MetaLine className="min-w-0" items={[
+            <span className="whitespace-normal break-words text-foreground">{entry.text}</span>,
+            timeAgo(entry.at),
+            entry.asking === "relayed" ? entry.from
+              ? <span className="whitespace-normal">asked from <button type="button" className={cn("relative italic text-primary hover:underline", TOUCH_TARGET)} onClick={() => navigate.toThread(entry.from!)}>{entry.fromTitle ?? "another thread"} ↗</button></span>
+              : "asked from another thread" : null,
+            entry.url ? <UrlLink href={entry.url} aria-label={`${entry.text}, on GitHub`} className={cn("relative text-primary hover:underline", TOUCH_TARGET)}>View</UrlLink> : null,
+          ]} />
+        </li>)}
+      </ul>
+      {folds && <Button variant="ghost" size="sm" aria-expanded={all} className={cn("-ml-2 h-7 px-2 text-xs text-muted-foreground", TOUCH_CONTROL)} onClick={() => setAll(!all)}>{all ? "Show fewer" : `Show all ${entries.length}`}</Button>}
+    </Part>
   );
 }
 

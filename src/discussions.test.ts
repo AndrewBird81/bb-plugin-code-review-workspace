@@ -258,7 +258,8 @@ test("the reviewer's own comment changes only in the turn that carries their ask
   expect((await tool("edit_draft_comment", { ...at, body: "Theirs." })).isError).toBe(true);
   await harness.behavior.emitThreadEvent("message.dispatched", { entry: row });
   expect(await tool("edit_draft_comment", { ...at, body: "Short." })).toBe("Updated the reviewer's draft comment on a.ts:3, as they asked.");
-  expect((await store.getDraft("pr-1")).comments).toEqual([{ ...at, body: "Short." }]);
+  // Marked as the agent's edit of your comment.
+  expect((await store.getDraft("pr-1")).comments).toEqual([{ ...at, body: "Short.", editedBy: "agent" }]);
   expect(await harness.behavior.callRpc("undoAgentChange", { targetKey: "pr-1", ...at })).toMatchObject({ draft: { comments: [{ ...at, body: "Mine." }] } });
   // Once the turn ends, it's the reviewer's again.
   await idle();

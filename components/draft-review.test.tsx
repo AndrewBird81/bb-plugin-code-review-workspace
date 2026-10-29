@@ -197,11 +197,11 @@ test("a refused save keeps focus in the box, with the reason and its buttons in 
   slot.lifecycle.unmount();
 });
 
-test("Submit waits while comments are on an older diff, and names them", async () => {
+test("comments on an older diff don't hold Submit: it names them, and Submit warns before moving them into the summary", async () => {
   const draft = draftOf({ body: "Summary.", comments: [{ file: "src/a.ts", line: 9, side: "RIGHT", body: "Old." }, { file: "src/a.ts", line: 2, side: "RIGHT", body: "Current." }] });
   const slot = await renderTray("stale", { getDraft: () => ({ draft, stale: [{ file: "src/a.ts", line: 9, side: "RIGHT" }], discussions: [] }) });
-  expect(submit(slot).hasAttribute("disabled")).toBe(true);
-  expect(slot.getByText("The diff changed after these comments were drafted. Edit and save, or remove: src/a.ts:9")).toBeTruthy();
+  expect(submit(slot).hasAttribute("disabled")).toBe(false);
+  expect(slot.getByText("The diff changed after these comments were drafted: src/a.ts:9. Edit or remove it, or submit anyway to move it into the summary.")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

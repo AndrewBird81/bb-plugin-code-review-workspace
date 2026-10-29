@@ -1,7 +1,7 @@
 // The review assistant's tools on its own review's local draft: its comments, the summary, and replies in your discussions.
 import type { PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, type DraftResult } from "./draft-comments";
+import { addComment, assistantReview, deleteComment, editComment, replyInDiscussion, REVIEWERS, type DraftResult } from "./draft-comments";
 import { SEVERITIES, SUMMARY_AT } from "./draft";
 import { describeDraft, writeSummary } from "./draft-summary";
 import { describeRemovals, removalWarning } from "./learning";
@@ -9,7 +9,18 @@ import type { AsyncStore } from "./store-queue";
 import { failed, type ServeDeps } from "./server-modules";
 
 export function register(deps: ServeDeps) {
-  const { bb, store } = deps;
+  const { bb, store, classify } = deps;
+  /**
+   * A change to a comment, which on one the reviewer wrote may go ahead when they asked for it in chat, with the review
+   * agent acting when asked; never in a turn they didn't start. Who's asking is read only for theirs, outside the store's
+   * turn, and the change is then checked again in one.
+   */
+  async function reviewersToo(threadId: string, change: (tx: AsyncStore, targetKey: string, inChat: boolean) => Promise<DraftResult>): Promise<PluginAgentToolResult> {
+    const first = await assistantDraft(threadId, true, (tx, targetKey) => change(tx, targetKey, false));
+    if (typeof first === "string" || first.content[0]?.type !== "text" || first.content[0].text !== REVIEWERS) return first;
+    if ((await classify(threadId)).asking !== "direct") return first;
+    return await assistantDraft(threadId, true, async (tx, targetKey) => await change(tx, targetKey, (await tx.getPreferences()).preferences.knobs.reviewAgentActs));
+  }
   // The review assistant's draft tools act only on its own review's local draft, checked in the same turn as the change.
   async function assistantDraft(threadId: string, changes: boolean, act: (tx: AsyncStore, targetKey: string) => Promise<DraftResult>): Promise<PluginAgentToolResult> {
     const { targetKey, result } = await store.exclusive(async (tx) => {
@@ -61,15 +72,19 @@ export function register(deps: ServeDeps) {
   });
   bb.agents.registerTool({
     name: "edit_draft_comment",
-    description: "Replace the text of the draft comment at a file, line, and side in the reviewer's local draft; line is a range's last line. With startLine and code, it also sets the range's first line, for example to fit a suggestion block. Its last line stays; to move a comment, delete it and add it again. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked on that comment for the change.",
+    description: "Replace the text of the draft comment at a file, line, and side in the reviewer's local draft; line is a range's last line. With startLine and code, it also sets the range's first line, for example to fit a suggestion block. Its last line stays; to move a comment, delete it and add it again. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked for the change.",
     parameters: z.object({ ...location, ...range, code: z.string().optional().describe("With startLine: the lines' text, one per line, as add_draft_comment takes it."), severity, body, evidence: evidence.describe("Replaces how you confirmed it, under 600 characters; without it, that stays."), introduced: introduced.describe("false when the problem is in code this PR didn't change; true when it's from this PR. Without it, that stays.") }),
-    execute: async (input, { threadId }) => await assistantDraft(threadId, true, async (tx, targetKey) => await editComment(tx, targetKey, input, threadId)),
+    execute: async (input, { threadId }) => {
+      return await reviewersToo(threadId, (tx, targetKey, inChat) => editComment(tx, targetKey, input, threadId, inChat));
+    },
   });
   bb.agents.registerTool({
     name: "delete_draft_comment",
-    description: "Delete the draft comment at a file, line, and side from the reviewer's local draft. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked on that comment for it.",
+    description: "Delete the draft comment at a file, line, and side from the reviewer's local draft. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked for it.",
     parameters: z.object(location),
-    execute: async (input, { threadId }) => await assistantDraft(threadId, true, async (tx, targetKey) => await deleteComment(tx, targetKey, input, threadId)),
+    execute: async (input, { threadId }) => {
+      return await reviewersToo(threadId, (tx, targetKey, inChat) => deleteComment(tx, targetKey, input, threadId, inChat));
+    },
   });
   bb.agents.registerTool({
     name: "set_review_summary",

@@ -153,7 +153,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
-    "description": "Replace the text of the draft comment at a file, line, and side in the reviewer's local draft; line is a range's last line. With startLine and code, it also sets the range's first line, for example to fit a suggestion block. Its last line stays; to move a comment, delete it and add it again. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked on that comment for the change.",
+    "description": "Replace the text of the draft comment at a file, line, and side in the reviewer's local draft; line is a range's last line. With startLine and code, it also sets the range's first line, for example to fit a suggestion block. Its last line stays; to move a comment, delete it and add it again. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked for the change.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -232,7 +232,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
-    "description": "Delete the draft comment at a file, line, and side from the reviewer's local draft. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked on that comment for it.",
+    "description": "Delete the draft comment at a file, line, and side from the reviewer's local draft. Nothing reaches GitHub. Refuses a comment the reviewer wrote, unless they asked for it.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -532,6 +532,191 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     },
     "instructions": null,
     "name": "draft_thread_reply",
+    "presentation": null,
+  },
+  {
+    "description": "Submit the reviewer's review of this PR to GitHub: their draft's comments, with the verdict, and the summary given or the draft's. The reviewer sees exactly what posts, with a button naming the verdict, before it posts.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "body": {
+          "description": "The summary to post with it, in GitHub Markdown, replacing the draft's when it posts. Without it, the draft's summary posts.",
+          "maxLength": 65000,
+          "type": "string",
+        },
+        "confirm": {
+          "description": ""yes": the reviewer answered yes in chat to what the Post form showed; give the same input again. "just-post-it": the reviewer's own message says to post it without showing it first ("just post it"; for an approve, request changes, merge or close, the message is only that command: "just merge it").",
+          "enum": [
+            "yes",
+            "just-post-it",
+          ],
+          "type": "string",
+        },
+        "force": {
+          "description": "true: post past the warning you told the reviewer about, as they asked.",
+          "type": "boolean",
+        },
+        "verdict": {
+          "enum": [
+            "APPROVE",
+            "REQUEST_CHANGES",
+            "COMMENT",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "verdict",
+      ],
+      "type": "object",
+    },
+    "instructions": "When the reviewer asks you to submit their review, approve, or request changes, call submit_review. It opens a form showing them exactly what posts: say it's there, and end your turn. If they answer with a short yes in chat instead, call it again with the same input and confirm: "yes". Pass confirm: "just-post-it" only when their own message says to post without showing it, and for an approval names it ("approve it, just post it"). If it comes back with a warning, such as new commits since they reviewed, tell them in a line, and call again with force: true only if they want it posted anyway. In a turn the reviewer didn't start, it only marks your suggested verdict. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "submit_review",
+    "presentation": null,
+  },
+  {
+    "description": "Reply on a review thread on this PR, as the reviewer. They see exactly what posts, with a Post button, before it posts.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "body": {
+          "description": "The reply, in GitHub Markdown.",
+          "maxLength": 65000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "confirm": {
+          "description": ""yes": the reviewer answered yes in chat to what the Post form showed; give the same input again. "just-post-it": the reviewer's own message says to post it without showing it first ("just post it"; for an approve, request changes, merge or close, the message is only that command: "just merge it").",
+          "enum": [
+            "yes",
+            "just-post-it",
+          ],
+          "type": "string",
+        },
+        "threadId": {
+          "description": "The thread's id, from list_feedback or read_pr_context.",
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "threadId",
+        "body",
+      ],
+      "type": "object",
+    },
+    "instructions": "When the reviewer asks you to reply on a thread, call post_reply with the thread's id; it opens the Post form, and a yes works as with submit_review. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "post_reply",
+    "presentation": null,
+  },
+  {
+    "description": "Resolve, or with resolved: false unresolve, a review thread on this PR on GitHub.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "confirm": {
+          "description": ""yes": the reviewer answered yes in chat to what the Post form showed; give the same input again. "just-post-it": the reviewer's own message says to post it without showing it first ("just post it"; for an approve, request changes, merge or close, the message is only that command: "just merge it").",
+          "enum": [
+            "yes",
+            "just-post-it",
+          ],
+          "type": "string",
+        },
+        "resolved": {
+          "description": "false to unresolve it.",
+          "type": "boolean",
+        },
+        "threadId": {
+          "description": "The thread's id, from list_feedback or read_pr_context.",
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "threadId",
+      ],
+      "type": "object",
+    },
+    "instructions": "Resolve or unresolve a thread when the reviewer asks, with resolve_thread. On someone else's PR, push back once before changing its labels, reviewers, assignees, title or description, resolving its threads, or closing it, and offer a comment instead; then do what the reviewer says. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "resolve_thread",
+    "presentation": null,
+  },
+  {
+    "description": "Act on this PR on GitHub as the reviewer: comment; edit its title or description; add or remove labels, reviewers (a team as org/slug) or assignees; close, reopen or merge it; mark it ready for review or a draft. A comment, an edit, closing and merging show the reviewer exactly what happens, with a button naming it, first.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "enum": [
+            "comment",
+            "edit",
+            "close",
+            "merge",
+            "add-label",
+            "remove-label",
+            "add-reviewer",
+            "remove-reviewer",
+            "add-assignee",
+            "remove-assignee",
+            "reopen",
+            "ready",
+            "draft",
+          ],
+          "type": "string",
+        },
+        "auto": {
+          "description": "merge: once checks and reviews pass.",
+          "type": "boolean",
+        },
+        "body": {
+          "description": "comment: the comment. edit: the new description. merge: the merge commit's description, else none. GitHub Markdown.",
+          "maxLength": 65000,
+          "type": "string",
+        },
+        "confirm": {
+          "description": ""yes": the reviewer answered yes in chat to what the Post form showed; give the same input again. "just-post-it": the reviewer's own message says to post it without showing it first ("just post it"; for an approve, request changes, merge or close, the message is only that command: "just merge it").",
+          "enum": [
+            "yes",
+            "just-post-it",
+          ],
+          "type": "string",
+        },
+        "deleteBranch": {
+          "description": "merge: delete the branch after.",
+          "type": "boolean",
+        },
+        "method": {
+          "description": "merge: how. Ask the reviewer if they didn't say.",
+          "enum": [
+            "merge",
+            "squash",
+            "rebase",
+          ],
+          "type": "string",
+        },
+        "names": {
+          "description": "Labels, logins, or teams as org/slug, for the add and remove actions.",
+          "items": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 50,
+          "type": "array",
+        },
+        "title": {
+          "description": "edit: the new title. merge: the merge commit's title, else the PR's title and number.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "action",
+      ],
+      "type": "object",
+    },
+    "instructions": "Use github_pr when the reviewer asks for one of these. On someone else's PR, push back once before changing its labels, reviewers, assignees, title or description, resolving its threads, or closing it, and offer a comment instead; then do what the reviewer says. Ask before merging while checks are still running, and offer auto: true, which merges once they pass. Force-pushing is the main thread's job: offer to send it there. The form and a yes work as with submit_review. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "github_pr",
     "presentation": null,
   },
   {

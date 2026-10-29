@@ -1,4 +1,6 @@
 export type Verdict = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+/** What holds a Submit back until you submit anyway (src/submit-review.ts). */
+export const SUBMIT_WARNINGS = ["revision", "closed", "generating", "no-head", "older-diff", "outside-diff", "new-commits", "base-changed"] as const;
 export const VERDICT_LABEL: Record<Verdict, string> = { APPROVE: "Approve", COMMENT: "Comment", REQUEST_CHANGES: "Request changes" };
 
 /** How much a comment matters to the author. A comment without one has none. */

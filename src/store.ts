@@ -253,8 +253,9 @@ export interface ActivityEntry {
   /** What it did: "Posted a reply on api.ts:88". */
   text: string;
   asking: Asking;
-  /** The thread that relayed the ask. */
+  /** The thread that relayed the ask, and its title then. */
   from?: string | null;
+  fromTitle?: string;
   /** What it posted, on GitHub. */
   url?: string;
 }

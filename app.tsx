@@ -10,6 +10,8 @@ import { ReviewPanel } from "./components/ReviewPanel";
 import { ReviewSettings } from "./components/ReviewSettings";
 import { NeedsReviewSidebar } from "./components/NeedsReviewSidebar";
 import { TitleBarControls } from "./components/TitleBarControls";
+import { PostPreview } from "./components/PostPreview";
+import { POST_PREVIEW_RENDERER } from "./src/post-preview";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { paletteCommandsAvailable, postPaletteCommand, readClipboard } from "./lib/commands";
 import { useEffect } from "react";
@@ -19,6 +21,11 @@ import { useMediaQuery } from "./components/ui/hooks/use-media-query";
 /** Needs review's rows in BB's own thread list: should they fail to draw, BB's list shows without them. */
 function SidebarOverlay() {
   return <ErrorBoundary fallback={() => null}><NeedsReviewSidebar /></ErrorBoundary>;
+}
+
+/** The review agent's Post form, in place of its message box: should it fail to draw, it says so, and "yes" in chat still posts. */
+function PostForm(props: Parameters<typeof PostPreview>[0]) {
+  return <ErrorBoundary fallback={() => <p role="alert" className="p-3 text-sm text-muted-foreground">The Post form couldn’t show. Reply yes to post what the agent showed, or no.</p>}><PostPreview {...props} /></ErrorBoundary>;
 }
 
 /**
@@ -53,6 +60,8 @@ export default definePluginApp((app) => {
   });
   // Optional call: BB hosts from before app overlays skip it rather than fail to load the plugin.
   app.slots.experimental_appOverlay?.({ id: "needs-review", component: SidebarOverlay });
+  // The review agent's Post form (src/review-agent-tools.ts). A host without the slot shows none; "yes" in chat posts instead.
+  app.slots.pendingInteraction?.({ id: POST_PREVIEW_RENDERER, component: PostForm });
   // BB's command palette, each rebindable; the overlay above handles them, so without it they aren't listed.
   app.commands.register({ id: "next-review", title: "Code Review Workspace: Next review that needs me", defaultShortcut: { key: "u", mod: true, shift: true },
     isAvailable: paletteCommandsAvailable, run: () => postPaletteCommand({ kind: "next" }) });

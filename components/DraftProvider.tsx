@@ -1,3 +1,4 @@
+import type { SubmitWarning } from "../src/submit-review";
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -113,10 +114,13 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const [receipt, setReceipt] = useState<Verdict | null>(null);
   // Submit asked whether you're sure; any change to the draft asks again.
   const [confirming, setConfirming] = useState(false);
+  // What the server held Submit back for, and what it offers: Submit anyway, Submit as Comment, Open it on GitHub. Any
+  // change to the draft clears it, as Submit checks again.
+  const [warned, setWarned] = useState<{ text: string; offers: Array<"anyway" | "comment" | "github">; warnings: SubmitWarning[]; newCommits?: { count: number | null; url: string } } | null>(null);
   const confirmCancelRef = useRef<HTMLButtonElement>(null);
   const submitRef = useRef<HTMLButtonElement>(null);
   const draftKey = `${draft.verdict}\0${draft.body}\0${commentsKey(draft.comments)}`;
-  useEffect(() => setConfirming(false), [draftKey]);
+  useEffect(() => { setConfirming(false); setWarned(null); }, [draftKey]);
   // The review this panel posted, on GitHub.
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -533,18 +537,31 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
       focusSummary();
     });
   }
-  /** Submit the draft; against the agent's suggestion or with the summary out of date, only once you confirm. */
-  async function submit(confirmed = false) {
+  /**
+   * Submit the draft; against the agent's suggestion or with the summary out of date, only once you confirm. What the
+   * server warns about waits for `choice`: Submit anyway, or Submit as Comment.
+   */
+  async function submit(confirmed = false, choice?: "anyway" | "comment") {
     if (isLocal || !loaded || body.trim()) return;
     if ((doubts.length || approvingBlocked) && !confirmed) { setConfirming(true); requestAnimationFrame(() => confirmCancelRef.current?.focus()); return; }
     setConfirming(false);
+    // Submit anyway goes past exactly the warnings shown: one that turned up since warns again.
+    const past = choice === "anyway" ? warned?.warnings ?? [] : undefined;
+    setWarned(null);
     setSubmitting(true);
     try { await mutate(async () => {
       // What this page shows; the server refuses a draft that changed since.
       const { verdict, body: summary } = draft;
-      const result = await enqueue(() => rpc.call("submitReview", { targetKey, ...(reviewRevision ? { revision: reviewRevision } : {}), ...(account ? { account } : {}), comments: shownComments.current, body: summary, verdict }));
+      const result = await enqueue(() => rpc.call("submitReview", { targetKey, ...(reviewRevision ? { revision: reviewRevision } : {}), ...(account ? { account } : {}), comments: shownComments.current, body: summary, verdict,
+        ...(past ? { force: past } : {}), ...(choice === "comment" ? { asComment: true } : {}) }));
+      if (!result.ok && (result.warning || result.offers?.length)) {
+        refresh();
+        setWarned({ text: result.warning ?? result.error ?? "", offers: result.offers ?? [], warnings: result.warnings ?? [], ...(result.newCommits ? { newCommits: result.newCommits } : {}) });
+        requestAnimationFrame(() => confirmCancelRef.current?.focus());
+        return;
+      }
       if (!result.ok) { refresh(); throw new Error(result.error ?? "Submit failed. Your draft is still here."); }
-      setReceipt(verdict); setReceiptUrl(result.url ?? null);
+      setReceipt(choice === "comment" ? "COMMENT" : verdict); setReceiptUrl(result.url ?? null);
       setWriteAnother(false);
       onSubmitted?.();
       toast.success("Review submitted to GitHub");
@@ -684,7 +701,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const hint = isLocal ? "Local review. Comments and notes stay in this BB installation."
     : writing ? asking ? "Send or cancel your message to the agent before submitting." : onSummary ? "Save or cancel the summary before submitting." : "Add the comment you’re writing to the draft before submitting."
     : rebuilding ? "The guide is rebuilding for new commits. Submit when it’s ready."
-    : staleComments.length ? `The diff changed after these comments were drafted. Edit and save, or remove: ${staleComments.map((c) => `${c.file}:${c.line}`).join(", ")}`
+    : staleComments.length ? `The diff changed after these comments were drafted: ${staleComments.map((c) => `${c.file}:${c.line}`).join(", ")}. Edit or remove ${staleComments.length === 1 ? "it" : "them"}, or submit anyway to move ${staleComments.length === 1 ? "it" : "them"} into the summary.`
     : needsSummary ? "Requesting changes needs a summary: say what has to change."
     : "Drafts stay in BB until you submit.";
   const suggested = draft.suggestedVerdict;
@@ -725,7 +742,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
     showComposer, inline, edited, replacing, counts, preExistingCount, blocks, markPreExisting, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity, moveToSummary,
     file, boxLines, line, side, files, setFile, editing, showBoxInDiff, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,
-    changedWhileEditing, ownPr, suggested, chooseVerdict, confirming, setConfirming, approval, agentCoverage, unreadApproval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
+    changedWhileEditing, ownPr, suggested, chooseVerdict, confirming, setConfirming, warned, setWarned, approval, agentCoverage, unreadApproval, approvingBlocked, blockingCount, commentCount, doubts, hasReview, needsSummary, staleComments, submit, confirmCancelRef, submitRef, hint,
     inlineDraft, inlineComposer, askAgent, patch, account, why, setWhy,
   };
 }

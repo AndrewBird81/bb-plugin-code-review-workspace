@@ -13,6 +13,7 @@ import type { completionNotifications } from "./completion-notifications";
 import type { createInstructionSuggester } from "./learning";
 import type { createReviewSync } from "./review-lifecycle";
 import type { codeOwners } from "./codeowners";
+import type { Classify } from "./asking";
 
 /** What servePlugin gives each module: the open store, gh, and what it started on them. */
 export interface ServeDeps {
@@ -32,6 +33,8 @@ export interface ServeDeps {
   refreshThreads(review: ReviewMeta): Promise<void>;
   /** The review's changed `files` with CODEOWNERS owners, marking yours. */
   reviewOwners(review: ReviewMeta, files: string[]): ReturnType<typeof codeOwners>;
+  /** Who's asking in the turn running on a review agent: what its write tools, and its edits to your comments, may do. */
+  classify: Classify;
 }
 
 /** The RPC handlers the modules give, merged into the one object BB registers; the release's own are plugin-updates'. */
@@ -87,9 +90,9 @@ export const ASSISTANT_TOOL_NAMES = ["read_review_patch", "list_review_files", "
  * The tools that act on GitHub or send to other threads, given besides only while Settings lets the review agent act
  * when asked (reviewAgentActs). Each also checks the knob when it runs, since a running agent keeps the tools it started with.
  */
-export const ASSISTANT_WRITE_TOOL_NAMES: string[] = [];
+export const ASSISTANT_WRITE_TOOL_NAMES = ["submit_review", "post_reply", "resolve_thread", "github_pr"];
 // Raise when the review assistant's tools, or their instructions, change.
-export const ASSISTANT_TOOLS = 11;
+export const ASSISTANT_TOOLS = 12;
 
 /** A tool's answer that it failed, with why. */
 export const failed = (text: string): PluginAgentToolResult => ({ content: [{ type: "text", text }], isError: true });

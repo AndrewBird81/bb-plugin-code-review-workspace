@@ -15,7 +15,6 @@ const CALLS: Record<string, unknown> = {
   setMainThread: { targetKey: "pr-1", threadId: "thr_main" },
   setLetPush: { targetKey: "pr-1", letPush: true },
   approveReady: { rows: [{ targetKey: "pr-1", token: "t1" }], alsoHeld: true },
-  postPreview: { targetKey: "pr-1", token: "t1" },
 };
 
 test("an RPC method whose build hasn't landed takes its contract's input and says it isn't available yet", async () => {

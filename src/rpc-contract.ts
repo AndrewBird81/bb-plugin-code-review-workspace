@@ -1,7 +1,7 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { releaseRpc } from "./plugin-updates";
-import { COMMENT_STATES, SEVERITIES } from "./draft";
+import { COMMENT_STATES, SEVERITIES, SUBMIT_WARNINGS } from "./draft";
 import { REMOVAL_NOTE_LIMIT, REMOVAL_REASONS } from "../lib/removal-reasons";
 import { NAME_LIMIT } from "../lib/review-name";
 import { DATE_FIELDS, VALUE_FIELDS, VIEW_NAME_LIMIT } from "../lib/filter-fields";
@@ -278,11 +278,19 @@ export const rpcContract = defineRpcContract({
       comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), severity: z.enum(SEVERITIES).optional(), introduced: z.literal(false).optional(), body: z.string() })),
       body: z.string(),
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
-      // Submit anyway: past the warnings, such as new commits since you read it. What GitHub refuses still stops it.
-      force: z.boolean().optional(),
+      // Submit anyway: past the warnings it names, as the page showed them, such as new commits since you read it. What
+      // GitHub refuses still stops it.
+      force: z.union([z.boolean(), z.array(z.enum(SUBMIT_WARNINGS))]).optional(),
+      // Submit as Comment: the draft's verdict becomes Comment, then it's submitted, as on your own PR.
+      asComment: z.boolean().optional(),
     }).strict(),
-    // url: the posted review on GitHub.
-    output: z.object({ ok: z.boolean(), error: z.string().optional(), url: z.string().optional() }),
+    // url: the posted review on GitHub. warning: it didn't post, and force posts it. offers: what the page can do next,
+    // beside the warning or the error: Submit anyway, Submit as Comment, Open it on GitHub.
+    // warnings: what each warning is, to pass back as force. newCommits: how many, and GitHub's compare of them.
+    output: z.object({
+      ok: z.boolean(), error: z.string().optional(), url: z.string().optional(), warning: z.string().optional(), offers: z.array(z.enum(["anyway", "comment", "github"])).optional(),
+      warnings: z.array(z.enum(SUBMIT_WARNINGS)).optional(), newCommits: z.object({ count: z.number().nullable(), url: z.string() }).optional(),
+    }),
   },
 
   // Per-file "Viewed" state
@@ -428,11 +436,6 @@ export const rpcContract = defineRpcContract({
   approveReady: {
     input: z.object({ rows: z.array(z.object({ targetKey: z.string(), token: z.string().min(1) }).strict()).min(1).max(100), alsoHeld: z.boolean().optional() }).strict(),
     output: z.object({ results: z.array(z.object({ targetKey: z.string(), outcome: z.enum(["posted", "held", "failed"]), error: z.string().optional(), url: z.string().optional() })) }),
-  },
-  /** Post what the review agent's Post form shows, by its token, from the review page: what the form's Post does. */
-  postPreview: {
-    input: z.object({ targetKey: z.string(), token: z.string().min(1) }).strict(),
-    output: z.object({ ok: z.boolean(), error: z.string().optional(), url: z.string().optional() }),
   },
 
   // GitHub account indicator + switcher

@@ -636,3 +636,84 @@ test("with Show what the agent checked off, Finish review says nothing of what t
   await waitFor(() => expect(rpc.submitReview).toHaveBeenCalled());
   slot.lifecycle.unmount();
 }, 15_000);
+
+// What the server holds Submit back for: in plain words, with what to do next.
+
+test("new commits since you reviewed hold Submit with a warning in plain words, See the commits, and Submit anyway posts past exactly that warning", async () => {
+  const submitReview = vi.fn()
+    .mockResolvedValueOnce({ ok: false, warning: "2 new commits since you reviewed. Submitting now posts on the version you reviewed.", warnings: ["new-commits"], offers: ["anyway"], newCommits: { count: 2, url: "https://github.com/acme/web/compare/a...b" } })
+    .mockResolvedValueOnce({ ok: true });
+  const { slot, rpc } = await renderWorkspace({ rpc: { submitReview } });
+  const view = await finish(slot);
+  fireEvent.click(submit(view));
+  const alert = await view.findByRole("alert");
+  expect(alert.textContent).toBe("Not submitted. 2 new commits since you reviewed. Submitting now posts on the version you reviewed. Your draft is kept.Submit anywaySee the 2 commitsCancel");
+  expect(within(alert).getByRole("link", { name: "See the 2 commits" }).getAttribute("href")).toBe("https://github.com/acme/web/compare/a...b");
+  await waitFor(() => expect(document.activeElement?.textContent).toBe("Cancel"));
+  fireEvent.click(within(alert).getByRole("button", { name: "Submit anyway" }));
+  await slot.findByRole("region", { name: "Submitted review" });
+  expect(rpc.submitReview).toHaveBeenLastCalledWith(expect.objectContaining({ force: ["new-commits"] }));
+  slot.lifecycle.unmount();
+});
+
+test("GitHub allows only a Comment on your own PR: Submit as Comment submits it as one, in one step", async () => {
+  const submitReview = vi.fn()
+    .mockResolvedValueOnce({ ok: false, error: "GitHub allows only a Comment review on your own PR.", offers: ["comment"] })
+    .mockResolvedValueOnce({ ok: true });
+  const { slot, rpc } = await renderWorkspace({ rpc: { submitReview, getDraft: vi.fn(() => ({ draft: draftOf({ verdict: "APPROVE", body: "Ready." }), stale: [] })) } });
+  const view = await finish(slot);
+  fireEvent.click(submit(view));
+  fireEvent.click(view.getByRole("button", { name: "Submit anyway" }));
+  const alert = await view.findByRole("alert");
+  expect(alert.textContent).toContain("Not submitted. GitHub allows only a Comment review on your own PR. Your draft is kept.");
+  expect(within(alert).queryByRole("button", { name: "Submit anyway" })).toBeNull();
+  fireEvent.click(within(alert).getByRole("button", { name: "Submit as Comment" }));
+  await slot.findByRole("region", { name: "Submitted review" });
+  expect(rpc.submitReview).toHaveBeenLastCalledWith(expect.objectContaining({ asComment: true }));
+  slot.lifecycle.unmount();
+});
+
+test("an unsent review of yours on GitHub offers to open it there, in the same voice; Cancel returns to Submit", async () => {
+  const { slot } = await renderWorkspace({ rpc: { submitReview: vi.fn(() => ({ ok: false, error: "You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft has been kept.", offers: ["github"] })) } });
+  const view = await finish(slot);
+  fireEvent.click(submit(view));
+  const alert = await view.findByRole("alert");
+  expect(alert.textContent).toContain("Not submitted. You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft is kept.");
+  expect(within(alert).getByRole("link", { name: "Open it on GitHub" }).getAttribute("href")).toBe("https://github.com/acme/web/pull/42");
+  fireEvent.click(within(alert).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(view.queryByRole("alert")).toBeNull());
+  await waitFor(() => expect(document.activeElement).toBe(submit(view)));
+  slot.lifecycle.unmount();
+});
+
+test("Agent activity lists what the review agent did on GitHub, newest first, a line each with its age and a link, folding from 5", async () => {
+  const activity = [
+    { at: now - 4 * 60_000, text: "Marked as a draft", asking: "direct" },
+    { at: now - 3 * 60_000, text: "Posted reply on src/a.ts:12", asking: "direct", url: "https://github.com/acme/web/pull/42#discussion_r1" },
+    { at: now - 2 * 60_000, text: "Added label bug", asking: "relayed", from: "thr_x", fromTitle: "Fix login race" },
+    { at: now - 60_000, text: "Requested review from flocasts/live-dev", asking: "direct" },
+    { at: now - 30_000, text: "Marked ready for review", asking: "direct" },
+  ];
+  const { slot } = await renderWorkspace({ review: { activity } });
+  const view = await finish(slot);
+  const part = view.getByRole("heading", { name: "Agent activity" }).parentElement!;
+  const lines = () => within(part).getAllByRole("listitem").map((li) => li.textContent?.replace(/\u00a0/g, " "));
+  expect(lines()).toEqual(["Marked ready for review · just now", "Requested review from flocasts/live-dev · 1m ago", "Added label bug · 2m ago · asked from Fix login race ↗"]);
+  expect(within(part).getByRole("button", { name: "Fix login race ↗" })).toBeTruthy();
+  fireEvent.click(within(part).getByRole("button", { name: "Show all 5" }));
+  expect(lines().slice(-2)).toEqual(["Posted reply on src/a.ts:12 · 3m ago · View", "Marked as a draft · 4m ago"]);
+  expect(within(part).getByRole("link", { name: "Posted reply on src/a.ts:12, on GitHub" }).getAttribute("href")).toBe("https://github.com/acme/web/pull/42#discussion_r1");
+  slot.lifecycle.unmount();
+});
+
+test("on an approval, the button past a warning says Approve anyway", async () => {
+  const submitReview = vi.fn().mockResolvedValueOnce({ ok: false, warning: "The PR's base changed to main since you reviewed it.", warnings: ["base-changed"], offers: ["anyway"] });
+  const { slot } = await renderWorkspace({ rpc: { submitReview, getDraft: vi.fn(() => ({ draft: draftOf({ verdict: "APPROVE", body: "Ready.", comments: [] }), stale: [] })) } });
+  const view = await finish(slot);
+  fireEvent.click(submit(view));
+  const anyway = view.queryByRole("button", { name: "Submit anyway" });
+  if (anyway) fireEvent.click(anyway);
+  const alert = await view.findByRole("alert");
+  await waitFor(() => expect(within(alert).getByRole("button", { name: "Approve anyway" })).toBeTruthy());
+  slot.lifecycle.unmount();
+});

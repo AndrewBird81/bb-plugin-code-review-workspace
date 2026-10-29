@@ -7,7 +7,7 @@ import { PAGE_BUDGET_MS, refusalText, type WriteAction } from "./github-writes";
 import type { RpcHandlers, ServeDeps } from "./server-modules";
 
 /** The review's threads on GitHub, everyone's, read with `run`: every page, up to 1,000. */
-async function readReviewThreads(repo: string, number: number, run: typeof runGh) {
+export async function readReviewThreads(repo: string, number: number, run: typeof runGh) {
   const [owner, name] = repo.split("/");
   // Threads come oldest first: page through them all, so the newest aren't the ones dropped.
   const threads: ReturnType<typeof parseReviewThreads>["threads"] = [];

@@ -180,10 +180,10 @@ async function pullRequestContext(run: Run, review: ReviewMeta, files: readonly 
   const resolved = others.length - open.length;
   if (open.length) {
     const rows = open.slice(0, 30).map((t) => [
-      `- @${t.author}${t.bot ? " (bot)" : ""} on ${t.path ?? "the PR"}${t.line ? `:${t.line}` : ""}${t.isOutdated ? " (outdated)" : ""}: ${oneLine(t.body, 500)}`,
+      `- [${t.id}] @${t.author}${t.bot ? " (bot)" : ""} on ${t.path ?? "the PR"}${t.line ? `:${t.line}` : ""}${t.isOutdated ? " (outdated)" : ""}: ${oneLine(t.body, 500)}`,
       ...(t.latestReply ? [`  latest reply, @${t.latestReply.author}${t.latestReply.bot ? " (bot)" : ""}: ${oneLine(t.latestReply.body, 300)}`] : []),
     ].join("\n"));
-    sections.push(`Other people's open review threads (${open.length}${open.length > 30 ? ", the first 30" : ""}; ${resolved} resolved). Don't repeat what they raise:\n${untrusted("review threads", rows.join("\n"))}`);
+    sections.push(`Other people's open review threads (${open.length}${open.length > 30 ? ", the first 30" : ""}; ${resolved} resolved), each with its id. Don't repeat what they raise:\n${untrusted("review threads", rows.join("\n"))}`);
   } else sections.push(`Other people's open review threads: none (${resolved} resolved).`);
 
   const base = pr.baseRef?.target;

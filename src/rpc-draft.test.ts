@@ -113,8 +113,8 @@ test("while the guide rebuilds, the summary and verdict save, and a comment's sa
   expect(await harness.behavior.callRpc("setVerdict", { targetKey: "pr-4", revision, verdict: "APPROVE" })).toMatchObject({ draft: { verdict: "APPROVE" } });
   await expect(harness.behavior.callRpc("saveDraftComment", { targetKey: "pr-4", revision, comment: { file: "a.ts", line: 1, side: "RIGHT", body: "nit" } }))
     .rejects.toThrow("The guide is rebuilding for new commits; your text is kept. Try again when it’s ready.");
-  // Submitting says the same, without telling you to save.
-  expect(await harness.behavior.callRpc("submitReview", { targetKey: "pr-4", revision, account: "casey", ...await shown(store, "pr-4") })).toEqual({ ok: false, error: "The guide is rebuilding for new commits; your text is kept. Try again when it’s ready." });
+  // Submitting warns, with Submit anyway.
+  expect(await harness.behavior.callRpc("submitReview", { targetKey: "pr-4", revision, account: "casey", ...await shown(store, "pr-4") })).toEqual({ ok: false, warning: "The guide is still rebuilding, so these comments are on the diff from before it.", warnings: ["generating"], offers: ["anyway"] });
 });
 
 test("the review bundle says whether the signed-in account wrote the PR", async () => {
@@ -245,4 +245,20 @@ test("moveToSummary marks a pre-existing comment's line as it would post", async
   const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-9" }) as any;
   const moved = await harness.behavior.callRpc("moveToSummary", { targetKey: "pr-9", revision, file: "a.ts", line: 1, side: "RIGHT" }) as any;
   expect(moved.draft.body).toBe("- On `a.ts:1` (an earlier diff): **Pre-existing:** **Blocking:** Already racy.");
+});
+
+test("Submit as Comment switches the verdict the page showed to Comment and submits it in one step", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace" });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "pr-5", kind: "pr", number: 5, repo: "acme/web", author: "casey", headSha: "sha123", status: "ready", createdAt: 1 });
+  await store.savePatch("pr-5", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+one\n+two\n");
+  await store.setVerdict("pr-5", "APPROVE", "Ready.");
+  const { revision } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "pr-5" }) as any;
+  const page = { targetKey: "pr-5", revision, account: "casey", ...await shown(store, "pr-5") };
+  expect(await harness.behavior.callRpc("submitReview", page)).toEqual({ ok: false, error: "GitHub allows only a Comment review on your own PR.", offers: ["comment"] });
+  submit.mockClear();
+  expect(await harness.behavior.callRpc("submitReview", { ...page, asComment: true })).toEqual({ ok: true });
+  expect(submit).toHaveBeenCalledTimes(1);
+  expect(await store.getReview("pr-5")).toMatchObject({ submittedVerdict: "COMMENT" });
 });

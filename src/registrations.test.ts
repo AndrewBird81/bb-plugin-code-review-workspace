@@ -78,7 +78,6 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "newConversation",
       "openPr",
       "pinReview",
-      "postPreview",
       "push",
       "refreshFeedback",
       "refreshReviews",
@@ -141,6 +140,10 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "read_file",
       "assess_feedback",
       "draft_thread_reply",
+      "submit_review",
+      "post_reply",
+      "resolve_thread",
+      "github_pr",
       "generate_review_guide",
     ]
   `);
@@ -240,6 +243,10 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
           "read_file",
           "assess_feedback",
           "draft_thread_reply",
+          "submit_review",
+          "post_reply",
+          "resolve_thread",
+          "github_pr",
         ],
       },
       "other": {

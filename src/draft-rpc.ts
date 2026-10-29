@@ -14,11 +14,12 @@ import { invalidComments, rangeProblem } from "./review-positions";
 import { pruneDiffs } from "./feedback-view";
 import { noteReviewerRemoval, noteReviewerSave, recordOutcomes } from "./learning";
 import type { AsyncStore } from "./store-queue";
+import { DRAFT_CHANGED, type SubmitWarning } from "./submit-review";
 import type { RpcHandlers, ServeDeps, Subcommands } from "./server-modules";
 
 export function register(deps: ServeDeps) {
   const { bb, store, submitReview, notifications, sync, changed } = deps;
-  // The draft, its comments drafted against an older diff (which submitting refuses), and the discussions at its lines and summary.
+  // The draft, its comments drafted against an older diff (which Submit warns about), and the discussions at its lines and summary.
   const draftState = async (store: AsyncStore, targetKey: string, given?: Draft) => {
     return store.exclusive(async (tx) => {
       const draft = given ?? await tx.getDraft(targetKey);
@@ -29,6 +30,37 @@ export function register(deps: ServeDeps) {
       return { draft, stale, discussions };
     });
   };
+
+  /** Submit the draft to GitHub, then record what follows: the page's Submit, and the review agent's. */
+  async function submit(targetKey: string, revision: string | undefined, account: string | undefined, comments: Parameters<typeof submitReview>[3], summary: Parameters<typeof submitReview>[4], force?: boolean | readonly SubmitWarning[]) {
+    // The draft the submitter checks next. A change between the two reads fails its check against the page's draft.
+    const submitted = await store.getDraft(targetKey);
+    const result = await submitReview(targetKey, revision, account, comments, summary, { force });
+    // The discussions were about this draft. The assistant's conversation keeps them.
+    // GitHub has the review and it's recorded: what follows failing mustn't fail the Submit.
+    if (result.ok) {
+      try {
+        await store.exclusive(async (tx) => {
+          await recordOutcomes(tx, targetKey, submitted);
+          await tx.clearDiscussions(targetKey);
+          await clearAsks(tx, targetKey);
+          bb.realtime.publish(`draft:${targetKey}`, {});
+          const review = (await tx.getReview(targetKey))!;
+          // The diff you reviewed is what "since your review" compares against.
+          if (review.headSha) await tx.saveSnapshot(targetKey, review.headSha, await tx.patch(targetKey));
+          await pruneDiffs(tx, review);
+          // Your review answers whatever turn was holding, and what didn't run on its own for it.
+          await tx.setLifecycle(targetKey, { heldTurn: null, skippedRun: null });
+        });
+        await notifications.dismiss(targetKey).catch(() => {});
+        await sync.evaluate(targetKey);
+      } catch (error) {
+        bb.log.warn(`Could not finish recording the review of ${targetKey} GitHub took: ${String(error)}`);
+      }
+    }
+    changed(targetKey);
+    return result;
+  }
 
   const handlers = {
     // Draft and submit
@@ -153,41 +185,29 @@ export function register(deps: ServeDeps) {
         return await draftState(tx, targetKey, draft);
       });
     },
-    async submitReview({ targetKey, revision, account, comments, body, verdict }) {
+    async submitReview({ targetKey, revision, account, comments, body, verdict, force, asComment }) {
       if (!account) return { ok: false, error: "Verify your GitHub account before submitting. Reload this review to check access." };
-      // The draft the submitter checks next. A change between the two reads fails its check against the page's draft.
-      let submitted: Draft;
-      try {
-        submitted = await store.exclusive(async (tx) => {
-          await requireReviewRevision(tx, targetKey, revision);
-          return await tx.getDraft(targetKey);
+      if (!revision) return { ok: false, error: "This review changed in another window. Open the latest diff before saving or submitting feedback. Your text is still here." };
+      // Submit as Comment: the verdict the page showed becomes Comment, in the draft it's checked against, and goes
+      // back if the review didn't post.
+      const shownVerdict = verdict;
+      if (asComment && verdict !== "COMMENT") {
+        const switched = await store.exclusive(async (tx) => {
+          const draft = await tx.getDraft(targetKey);
+          if (draft.verdict !== verdict || draft.body !== body) return false;
+          await tx.setVerdict(targetKey, "COMMENT");
+          return true;
         });
-      } catch (error) { return { ok: false, error: (error as Error).message }; }
-      const result = await submitReview(targetKey, revision, account, comments, { body, verdict });
-      // The discussions were about this draft. The assistant's conversation keeps them.
-      // GitHub has the review and it's recorded: what follows failing mustn't fail the Submit.
-      if (result.ok) {
-        try {
-          await store.exclusive(async (tx) => {
-            await recordOutcomes(tx, targetKey, submitted);
-            await tx.clearDiscussions(targetKey);
-            await clearAsks(tx, targetKey);
-            bb.realtime.publish(`draft:${targetKey}`, {});
-            const review = (await tx.getReview(targetKey))!;
-            // The diff you reviewed is what "since your review" compares against.
-            if (review.headSha) await tx.saveSnapshot(targetKey, review.headSha, await tx.patch(targetKey));
-            await pruneDiffs(tx, review);
-            // Your review answers whatever turn was holding, and what didn't run on its own for it.
-            await tx.setLifecycle(targetKey, { heldTurn: null, skippedRun: null });
-          });
-          await notifications.dismiss(targetKey).catch(() => {});
-          await sync.evaluate(targetKey);
-        } catch (error) {
-          bb.log.warn(`Could not finish recording the review of ${targetKey} GitHub took: ${String(error)}`);
-        }
+        if (!switched) return { ok: false, error: DRAFT_CHANGED };
+        verdict = "COMMENT";
       }
-      changed(targetKey);
-      return result;
+      const { ok, error, url, warning, warnings, offers, newCommits } = await submit(targetKey, revision, account, comments, { body, verdict }, force);
+      if (!ok && verdict !== shownVerdict) await store.exclusive(async (tx) => {
+        const draft = await tx.getDraft(targetKey);
+        if (draft.verdict === "COMMENT" && draft.body === body) await tx.setVerdict(targetKey, shownVerdict);
+      });
+      if (verdict !== shownVerdict) bb.realtime.publish(`draft:${targetKey}`, {});
+      return { ok, ...(error ? { error } : {}), ...(url ? { url } : {}), ...(warning ? { warning } : {}), ...(warnings ? { warnings } : {}), ...(offers ? { offers } : {}), ...(newCommits ? { newCommits } : {}) };
     },
 
     // Per-file "Viewed" state (viewed/stale computed against the patch)
@@ -233,5 +253,5 @@ export function register(deps: ServeDeps) {
     comment: (args, _ctx, ownReview) => runCommentCommand(store, args, changedDraft, ownReview),
     summary: (args, _ctx, ownReview) => runSummaryCommand(store, args, changedDraft, ownReview),
   } satisfies Subcommands;
-  return { handlers, commands };
+  return { handlers, commands, submit };
 }

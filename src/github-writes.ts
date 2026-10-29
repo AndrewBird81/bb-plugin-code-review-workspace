@@ -228,6 +228,35 @@ export async function readWriteFacts(run: Run, repo: string, number: number, thr
   };
 }
 
+/** How the repo writes a merge's commit message, and the PR facts it's made from; a setting GitHub didn't give is null. */
+export interface MergeSettings {
+  squashTitle: string | null; squashMessage: string | null; mergeTitle: string | null; mergeMessage: string | null;
+  title: string; body: string; commits: number;
+  /** The head branch as `owner/branch`, by the head repo's owner, as GitHub names a fork's. Null when unknown. */
+  from: string | null;
+}
+
+/** The repo's merge commit settings and the PR's title, body, commits and head, in one read, just before a merge form shows. */
+export async function readMergeSettings(run: Run, repo: string, number: number): Promise<MergeSettings | null> {
+  const [owner, name] = repo.split("/");
+  const query = `query($owner:String!,$repo:String!,$number:Int!){ repository(owner:$owner,name:$repo){
+    squashMergeCommitTitle squashMergeCommitMessage mergeCommitTitle mergeCommitMessage
+    pullRequest(number:$number){ title body headRefName headRepositoryOwner{login} commits{totalCount} } } }`;
+  const r = await run(["api", "graphql", "-f", `query=${query}`, "-f", `owner=${owner}`, "-f", `repo=${name}`, "-F", `number=${number}`]);
+  let data: any;
+  // GitHub answers what it can, with errors beside it: a setting it withholds is null.
+  try { data = JSON.parse(r.stdout)?.data; } catch { return null; }
+  const repository = data?.repository;
+  const pr = repository?.pullRequest;
+  if (!pr || typeof pr.title !== "string") return null;
+  const text = (value: unknown) => typeof value === "string" ? value : null;
+  return {
+    squashTitle: text(repository.squashMergeCommitTitle), squashMessage: text(repository.squashMergeCommitMessage), mergeTitle: text(repository.mergeCommitTitle), mergeMessage: text(repository.mergeCommitMessage),
+    title: pr.title, body: text(pr.body) ?? "", commits: typeof pr.commits?.totalCount === "number" ? pr.commits.totalCount : 0,
+    from: pr.headRepositoryOwner?.login && pr.headRefName ? `${pr.headRepositoryOwner.login}/${pr.headRefName}` : null,
+  };
+}
+
 export type WriteAction = "comment" | "review" | "reply" | "resolve" | "unresolve" | "label" | "assign" | "request-review" | "close" | "reopen" | "edit" | "merge";
 const ROLES = ["READ", "TRIAGE", "WRITE", "MAINTAIN", "ADMIN"];
 /** The role GitHub requires: Triage for labels, assignees, review requests, close and reopen; Write to merge or edit another's PR. */
@@ -275,7 +304,8 @@ export async function addAssignees(writes: GithubWrites, run: Run, repo: string,
   return { ok: true, ignored, note: `GitHub didn't assign ${who}: only people with push access to ${repo} can be assigned.` };
 }
 
-export interface MergeOptions { headSha: string; method: "merge" | "squash" | "rebase"; auto?: boolean; deleteBranch?: boolean }
+/** `subject` and `body`: the merge or squash commit's message, as shown before merging; a rebase has none. */
+export interface MergeOptions { headSha: string; method: "merge" | "squash" | "rebase"; auto?: boolean; deleteBranch?: boolean; subject?: string; body?: string }
 
 /**
  * Merge the PR, only at the head that was reviewed. With `auto`, GitHub merges once checks and reviews pass. A merge
@@ -284,6 +314,7 @@ export interface MergeOptions { headSha: string; method: "merge" | "squash" | "r
  */
 export async function mergePr(writes: GithubWrites, run: Run, repo: string, number: number, options: MergeOptions): Promise<{ ok: true; merged: boolean; note?: string } | WriteRefusal> {
   const args = ["pr", "merge", String(number), "-R", repo, `--${options.method}`, "--match-head-commit", options.headSha,
+    ...(options.subject !== undefined ? ["--subject", options.subject] : []), ...(options.body !== undefined ? ["--body", options.body] : []),
     ...(options.auto ? ["--auto"] : []), ...(options.deleteBranch ? ["--delete-branch"] : [])];
   const posted = await writes.post(run, args, { action: "merge" });
   const read = await run(["pr", "view", String(number), "-R", repo, "--json", "state,headRefOid"]);

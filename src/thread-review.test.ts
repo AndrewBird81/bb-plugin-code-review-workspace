@@ -7,6 +7,7 @@ import { startConversation } from "./agent";
 import { generateGuide } from "./generate";
 import { toolFailed, toolText } from "./fake-host.test-support";
 import { startPlugin } from "./plugin-store.test-support";
+import { ASSISTANT_WRITE_TOOL_NAMES } from "./server-modules";
 
 vi.mock("./store-queue", async (original) => {
   const actual = await original<typeof import("./store-queue")>();
@@ -142,7 +143,7 @@ test("a spawn that fails leaves no window open", async () => {
 });
 
 const assistantTools = ["read_review_patch", "list_review_files", "list_draft_comments", "add_draft_comment", "edit_draft_comment", "delete_draft_comment", "set_review_summary", "reply_in_discussion",
-  "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply"];
+  "list_feedback", "read_changes_since_review", "read_pr_context", "read_file", "assess_feedback", "draft_thread_reply", ...ASSISTANT_WRITE_TOOL_NAMES];
 const writerTools = ["read_review_patch", "list_review_files", "read_changes_since_review", "read_pr_context", "generate_review_guide"];
 
 test("a recorded assistant that's retitled keeps its tools and its review's instructions", async () => {

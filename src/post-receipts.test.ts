@@ -203,7 +203,7 @@ test("a review whose record saved the submitted state but not the cleared draft 
   expect(await store.getReview("pr-1")).toMatchObject({ submittedReviewId: "R1" });
   expect(await submit(store)).toEqual({ ok: true, url: "https://github.com/acme/web/pull/1#r1" });
   expect(await store.getDraft("pr-1")).toMatchObject({ comments: [], body: "" });
-  expect(await submit(store)).toMatchObject({ ok: false, error: expect.stringContaining("changed since this page showed") });
+  expect(await submit(store)).toMatchObject({ ok: false, error: expect.stringContaining("Draft changed · review it") });
   expect(gh.posts).toHaveLength(1);
 }, 15_000);
 
