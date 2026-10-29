@@ -399,7 +399,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
     const brief = fixer ? { place: fixer.fixer, forked: fixer.fork } : briefed ? { place: briefed, forked: true } : null;
     const opening = brief
       ? fixerBrief(shown, brief.place, { lead: `${named.length ? "Fix these comments from my review of" : "Address this feedback on"} ${prWhat(shown)}.`, intent: (await tx.getGuide(targetKey))?.intent, forked: brief.forked, own, letPush })
-      : moved ? where(moved.shown, moved.branch, lead) : where(shown, laterFixer ? fixerBranchLine(main?.branch) : stayOn ?? undefined, lead);
+      : moved ? where(moved.shown, moved.branch, lead) : where(shown, laterFixer && main ? fixerBranchLine(recordOf(now, main.threadId)?.branch ?? main.branch) : stayOn ?? undefined, lead);
     // A fixer sent to again stays on its branch, and is told again what the quoted words are.
     const text = [message, opening, ...texts, ...apply, summary, ...limits, ...laterFixer ? [UNTRUSTED_NOTE] : [], REPORT].filter(Boolean).join("\n\n");
     return { comments: named, items: items.map((item, i) => ({ githubId: githubId(item), id: itemIds[i] })), skipped: github.length - items.length, patch, files, text };

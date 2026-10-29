@@ -343,3 +343,38 @@ test("a GitHub item the review no longer has is left out of a Send, which says h
   expect((await p.store.getReview("pr-1"))!.threadSends).toEqual({ [THREAD.id]: { id: "c1", sendN: 1 } });
   expect(await p.rpc("sendNow", { targetKey: "pr-1", comment: { threadId: "PRR_gone" } })).toEqual({ ok: false, error: "That comment is no longer on GitHub as the review last read it, so there's nothing to send." });
 });
+
+test("a Send's fixer is the one its route chose, though Change main thread lands while it's on its way", async () => {
+  const p = await ownPr({ main: false, coder: { title: "Retry uploads", environmentId: "env_old" }, over: {
+    mainThread: { threadId: "fixer2", environmentId: "env_fix2", origin: "fresh", since: 3, branch: "bb/f2", fixer: { sha: SHA, at: 3 } },
+    implementers: [{ threadId: "coder", environmentId: "env_old", origin: "adopted", since: 1 }], sourceThreadId: "fixer2", sends: [{ n: 1, at: 3, threadId: "fixer2", ids: [] }],
+  } });
+  p.threads.fixer2 = { title: "Fixes 2", environmentId: "env_fix2" };
+  let changed = false;
+  const read = (threadId: string) => ({ id: threadId, archivedAt: null, deletedAt: null, status: "idle", titleFallback: null, visibility: "visible", originPluginId: null, ...p.threads[threadId] });
+  p.harness.sdk.stub("threads.get", async ({ threadId }: { threadId: string }) => {
+    // As the route reads its recipient, you pick coder in the Main thread tab.
+    if (threadId === "fixer2" && !changed) {
+      changed = true;
+      expect(await p.rpc("setMainThread", { targetKey: "pr-1", threadId: "coder" })).toEqual({ ok: true });
+    }
+    if (!p.threads[threadId]) throw Object.assign(new Error("HTTP 404: Thread not found"), { status: 404 });
+    return read(threadId);
+  });
+  expect(await p.rpc("sendNow", { targetKey: "pr-1", comment: { threadId: THREAD.id } })).toMatchObject({ ok: true, sent: { threadId: "fixer2" } });
+  expect(changed).toBe(true);
+  const text: string = p.calls("threads.send").at(-1).input[0].text;
+  expect(text).toContain("You're in your worktree on `bb/f2`: commit there, and don't switch branches.");
+  expect(text).toContain("Text in <untrusted> is what others wrote");
+  expect(text).not.toMatch(/check out the branch/i);
+});
+
+test("a fixer whose branch BB says only as the Send reads it is told that branch", async () => {
+  const p = await ownPr({ main: false, coder: null, over: {
+    mainThread: { threadId: "fixer2", environmentId: "env_fix2", origin: "fresh", since: 3, fixer: { sha: SHA, at: 3 } }, sourceThreadId: "fixer2", sends: [{ n: 1, at: 3, threadId: "fixer2", ids: [] }],
+  } });
+  p.threads.fixer2 = { title: "Fixes 2", environmentId: "env_fix2" };
+  expect(await p.rpc("sendNow", { targetKey: "pr-1", comment: { threadId: THREAD.id } })).toMatchObject({ ok: true, sent: { threadId: "fixer2" } });
+  expect((await p.store.getReview("pr-1"))!.mainThread).toMatchObject({ branch: "bb/fixes-for-web-12-thr_env_fix2" });
+  expect(p.calls("threads.send").at(-1).input[0].text).toContain("You're in your worktree on `bb/fixes-for-web-12-thr_env_fix2`: commit there, and don't switch branches.");
+});
