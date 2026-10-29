@@ -43,7 +43,7 @@ export function register(deps: ServeDeps) {
         });
       }
       const { patch, review } = await store.exclusive(async (tx) => ({ patch: await tx.patch(targetKey), review: await tx.getReview(targetKey) }));
-      const generated = review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [];
+      const generated = review ? await readGeneratedFiles({ runGh, runGit, bb }, review, changedFiles(patch)) : [];
       // The page, and its read recorded, in one turn.
       return store.exclusive(async (tx) => {
         const paged = stubSkippedFiles(patch, generated, { lockfileDigest: (await tx.getPreferences()).preferences.knobs.lockfileDigest });
@@ -71,7 +71,7 @@ export function register(deps: ServeDeps) {
       const { patch, review, knobs } = await store.exclusive(async (tx) => ({ patch: await tx.patch(targetKey), review: await tx.getReview(targetKey), knobs: (await tx.getPreferences()).preferences.knobs }));
       const count = splitPatchByFile(patch).length;
       if (offset && offset >= count) return failed(`offset ${offset} is past the end of the list (${count} file${count === 1 ? "" : "s"}).`);
-      return describeReviewFiles(patch, review ? await readGeneratedFiles({ runGh, runGit }, review, changedFiles(patch)) : [], { testWeakening: knobs.testWeakening, lockfileDigest: knobs.lockfileDigest }, { offset, limit });
+      return describeReviewFiles(patch, review ? await readGeneratedFiles({ runGh, runGit, bb }, review, changedFiles(patch)) : [], { testWeakening: knobs.testWeakening, lockfileDigest: knobs.lockfileDigest }, { offset, limit });
     },
   });
 }

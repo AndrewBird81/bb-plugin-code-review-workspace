@@ -65,7 +65,7 @@ export function register(deps: ServeDeps) {
       if (!read) return failed("There's no review to read the context of.");
       const { review, files, reviewMd, reviewContext } = read;
       try {
-        const [{ text: context, author }, owned] = await Promise.all([readPrContext({ runGh, runGit }, review, files, reviewContext, { reviewMd }), reviewOwners(review, files).catch(() => [])]);
+        const [{ text: context, author }, owned] = await Promise.all([readPrContext({ runGh, runGit, bb }, review, files, reviewContext, { reviewMd }), reviewOwners(review, files).catch(() => [])]);
         const ownership = describeOwnership(owned);
         // An untrusted author's text could name a ticket to steer the agent, or to have it read one it shouldn't. Until
         // the sync has read the PR, this read says who wrote it.

@@ -164,8 +164,10 @@ export interface FeatureReview {
   /** The folder's path on that machine. */
   path: string;
   branch: string;
-  /** What the diff is against: the folder's merge-base override, the PR's base, the upstream, or the default branch. */
+  /** What the diff is against: the PR's base, else the folder's merge base in bb, the branch it was made from, or the default branch (src/env-diff.ts). */
   baseRef: string;
+  /** The commit where the branch left `baseRef` when the stored diff was read (src/env-diff.ts): file reads take the diff's old side there. */
+  mergeBaseRef?: string;
   /** The project's GitHub repo, owner/name, from its remote; null without one. The review's own `repo` means it's of a PR. */
   repo: string | null;
   /** The branch the folder is on instead of `branch`: the review is paused until it's back. */

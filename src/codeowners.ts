@@ -1,7 +1,8 @@
 // Who owns each changed file, by the repo's CODEOWNERS (a PR's base branch, a local review's new side), matched as GitHub does.
+import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { ReviewMeta } from "./store";
 import { ghErrorMessage, type runGh, type runGit } from "./gh";
-import { gitFile, localRevs, workingTreeFile, type Read } from "./file-contents";
+import { gitFile, localRevs, readFeatureFile, workingTreeFile, type Read } from "./file-contents";
 import { globMatches, type Glob } from "./glob";
 import { shownPath } from "./patch";
 
@@ -93,7 +94,7 @@ const CACHE_SIZE = 64;
  * The repo's CODEOWNERS: "" when it has none. A PR reads it at its base branch's tip, all three places in one
  * GraphQL call; a local review at the diff's new side.
  */
-export async function readCodeowners(gh: { runGh: typeof runGh; runGit: typeof runGit }, review: ReviewMeta): Promise<Read> {
+export async function readCodeowners(gh: { runGh: typeof runGh; runGit: typeof runGit; bb?: BbPluginApi }, review: ReviewMeta): Promise<Read> {
   if (review.kind === "pr") {
     if (!review.repo || !review.number || !review.headSha) return { text: "" };
     const key = `${review.repo}#${review.number}@${review.headSha}`;
@@ -113,6 +114,13 @@ export async function readCodeowners(gh: { runGh: typeof runGh; runGit: typeof r
     if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
     return { text };
   }
+  if (review.feature) {
+    for (const path of CODEOWNERS_PATHS) {
+      const read = await readFeatureFile(gh.bb, review.feature, "new", path);
+      if ("text" in read || !read.missing) return read;
+    }
+    return { text: "" };
+  }
   if (!review.cwd || !review.gitRef) return { text: "" };
   const revs = await localRevs(gh.runGit, review);
   if ("error" in revs) return revs;
@@ -125,7 +133,7 @@ export async function readCodeowners(gh: { runGh: typeof runGh; runGit: typeof r
 
 /** Each changed file with owners, and whether you or a team you're on is one of them. */
 export async function codeOwners(
-  gh: { runGh: typeof runGh; runGit: typeof runGit },
+  gh: { runGh: typeof runGh; runGit: typeof runGit; bb?: BbPluginApi },
   review: ReviewMeta,
   paths: readonly string[],
   viewer: () => Promise<{ login: string | null; teams: ReadonlySet<string> }>,

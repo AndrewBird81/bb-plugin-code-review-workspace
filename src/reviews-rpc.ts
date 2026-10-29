@@ -149,7 +149,7 @@ export function register(deps: ServeDeps) {
         return review && { review, patch: await tx.patch(targetKey) };
       });
       if (!read) return { files: [] };
-      return { files: await readGeneratedFiles({ runGh, runGit }, read.review, changedFiles(read.patch)) };
+      return { files: await readGeneratedFiles({ runGh, runGit, bb }, read.review, changedFiles(read.patch)) };
     },
     async getCodeOwners({ targetKey }) {
       const read = await store.exclusive(async (tx) => {
@@ -169,7 +169,7 @@ export function register(deps: ServeDeps) {
       const { review } = read;
       const patchFile = splitPatchByFile(read.patch).find((f) => f.path === file);
       if (!patchFile) return { ok: false as const, error: `${file} isn’t in this review’s diff.` };
-      return readFileContents({ runGh, runGit }, review, patchFile);
+      return readFileContents({ runGh, runGit, bb }, review, patchFile);
     },
 
     // Staleness and re-review, and the review's place in the list

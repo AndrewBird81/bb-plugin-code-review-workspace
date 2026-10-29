@@ -279,7 +279,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     if (threadsChanged) bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
   }
   /** The review's changed `files` with CODEOWNERS owners, marking yours. */
-  const reviewOwners = (review: ReviewMeta, files: string[]) => codeOwners({ runGh, runGit }, review, files,
+  const reviewOwners = (review: ReviewMeta, files: string[]) => codeOwners({ runGh, runGit, bb }, review, files,
     async () => ({ login: await sync.login(), teams: await sync.teams() }));
 
   // Each area of the server is a module (src/server-modules.ts). Registering it registers its agent tools, in this
