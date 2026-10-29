@@ -298,10 +298,10 @@ test("a commit report with no Push waiting, from a review's own agent, or after 
   expect(await run()).toBeNull();
 });
 
-test("a reported commit GitHub has already is nothing to push, and the thread is told so", async () => {
+test("a reported commit GitHub had already, as you accepted it, is nothing to push, and the thread is told so", async () => {
   const { push, cli, run, github } = await setup();
-  await push();
   github.sha = HEAD;
+  await push();
   expect((await cli("coder", "report", "--commit", HEAD)).stdout).toBe("Nothing to push. GitHub already has `abc1234` on `feat/qa`.");
   expect(await run()).toMatchObject({ state: "pushed", sha: HEAD });
 });
@@ -361,8 +361,8 @@ test("the review agent's push needs the reviewer's own words: push, and for Push
   expect(sent.at(-1).input[0].text).toContain(refspec(HEAD));
 });
 
-test("with Send to thread off, GitHub's head is only noted: a push then isn't flagged once it's back on", async () => {
-  const { store, idle, run, github } = await setup();
+test("with Send to thread off, GitHub isn't read; back on, a move made meanwhile is flagged once, and Got it accepts it", async () => {
+  const { store, idle, run, github, harness } = await setup();
   await idle();
   const knob = async (sendToThread: boolean) => {
     const { preferences, revision } = await store.getPreferences();
@@ -370,12 +370,17 @@ test("with Send to thread off, GitHub's head is only noted: a push then isn't fl
   };
   await knob(false);
   github.sha = OTHER;
+  runGh.mockClear();
   await idle();
+  expect(runGh).not.toHaveBeenCalled();
   expect(await run()).toBeUndefined();
   await knob(true);
   await idle();
-  expect(await run()).toBeUndefined();
+  expect(await run()).toMatchObject({ state: "flagged", flag: "unrequested", remote: OTHER });
+  await harness.behavior.callRpc("dismissPush", { targetKey: KEY });
   expect((await store.getReview(KEY))!.remoteHead?.sha).toBe(OTHER);
+  await idle();
+  expect(await run()).toBeNull();
 });
 
 test("commits GitHub has already aren't checked for secrets again", async () => {
@@ -632,4 +637,73 @@ test("a folder Push can't read says so plainly, not that GitHub is ahead, and st
   expect(await push()).toEqual({ ok: true, warning: "Couldn’t read the folder on MaxBook. Try again, or Push anyway." });
   expect(await run()).toMatchObject({ state: "mismatch", behind: true });
   expect(sent).toEqual([]);
+});
+
+/**
+ * GitHub's head against the head you accepted, whatever stands with Push: each way it can go, ending flagged, or
+ * accepted with GitHub's head as the one you accepted.
+ */
+const SEQUENCES: Array<[string, (t: Awaited<ReturnType<typeof setup>>) => Promise<unknown>, "flagged" | "accepted"]> = [
+  ["commit → report → push: your own Push lands on its checked commit", async (t) => {
+    await t.push(); await t.cli("coder", "report", "--commit", HEAD); t.github.sha = HEAD; await t.idle();
+    expect(await t.run()).toMatchObject({ state: "pushed", sha: HEAD });
+  }, "accepted"],
+  ["commit → push → report: the thread pushed before it reported", async (t) => {
+    await t.push(); t.github.sha = HEAD;
+    expect(await t.cli("coder", "report", "--commit", HEAD)).toMatchObject({ exitCode: 1, stderr: "Push on api:feat/qa stopped: its branch has commits on GitHub that didn’t come from Push. Don’t push; the reviewer decides." });
+  }, "flagged"],
+  ["commit → push → the thread fails", async (t) => {
+    await t.push(); t.github.sha = HEAD;
+    await t.harness.behavior.emitThreadEvent("thread.failed", { thread: makeThreadResponse({ id: "coder" }) } as any);
+  }, "flagged"],
+  ["commit → push → the thread is archived", async (t) => {
+    await t.push(); t.github.sha = HEAD;
+    await t.harness.behavior.emitThreadEvent("thread.archived", { thread: makeThreadResponse({ id: "coder" }) } as any);
+  }, "flagged"],
+  ["a force-push back to an older head, after a head you accepted", async (t) => {
+    t.github.sha = HEAD; await t.idle(); await t.harness.behavior.callRpc("dismissPush", { targetKey: KEY });
+    t.github.sha = OLD; await t.idle();
+  }, "flagged"],
+  ["a move a Send with Let it push covers", async (t) => {
+    await t.store.setLifecycle(KEY, { sends: [{ n: 1, at: Date.now() + 1, threadId: "coder", ids: ["c1"], letPush: true }] });
+    t.github.sha = HEAD; await t.idle();
+  }, "accepted"],
+];
+
+test.each(SEQUENCES)("%s", async (_name, steps, ends) => {
+  const t = await setup();
+  // GitHub's head as first read is the one you accepted.
+  await t.idle();
+  expect((await t.store.getReview(KEY))!.remoteHead?.sha).toBe(OLD);
+  await steps(t);
+  const review = (await t.store.getReview(KEY))!;
+  if (ends === "flagged") {
+    expect(review.push).toMatchObject({ state: "flagged", flag: "unrequested", remote: t.github.sha });
+    expect(review.remoteHead?.sha).not.toBe(t.github.sha);
+  } else {
+    expect(review.push?.state === "flagged").toBe(false);
+    expect(review.remoteHead?.sha).toBe(t.github.sha);
+  }
+});
+
+test("the agent's Push anyway needs a \"push anyway\" from the reviewer that came after the warning, not one from before it", async () => {
+  const { harness, chat, push, cli, run, folder, sent } = await setup();
+  const tool = (input: Record<string, unknown> = {}) => harness.behavior.callAgentTool("push", input, { threadId: "agent" });
+  chat.say("push it anyway", { at: Date.now() - 60_000 });
+  await push();
+  folder.committed = { "src/a.ts": "100644:aaa:100644:ccc" };
+  await cli("coder", "report", "--commit", HEAD);
+  const at = (await run())!.at;
+  // One turn, under the old message: fetch the warning's at, then force with it. Refused.
+  expect(toolText(await tool({ force: true }))).toContain(`(at: ${at})`);
+  expect(toolText(await tool({ force: true, at }))).toBe(`Not pushed: the reviewer's "push anyway" came before this warning. Tell the reviewer; only if they then say "push anyway", call push with force: true and at: ${at}.`);
+  expect(sent).toHaveLength(1);
+
+  // A mismatch the server wouldn't take Push anyway on, a commit the check couldn't place, isn't offered either.
+  const unplaced = await setup();
+  await unplaced.push();
+  unplaced.folder.head = OTHER;
+  await unplaced.cli("coder", "report", "--commit", HEAD);
+  unplaced.chat.say("push it anyway");
+  expect(toolText(await unplaced.harness.behavior.callAgentTool("push", { force: true }, { threadId: "agent" }))).toBe("Not pushed: No commit is waiting on Push anyway. Push to start again.");
 });

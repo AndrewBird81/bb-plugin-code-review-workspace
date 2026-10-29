@@ -14,7 +14,7 @@ import { ghErrorMessage, type runGh } from "./gh";
 import { assistantReview } from "./draft-comments";
 import type { Turn } from "./asking";
 import { reviewIdentity } from "../lib/review-identity";
-import { behindText, mismatchText, NOT_PUSHED, nothingToPush, plainText, pushCommand, pushTarget, type PushTarget } from "../lib/push";
+import { behindText, mismatchText, pushAnywayOffered, pushFlagText, NOT_PUSHED, nothingToPush, plainText, pushCommand, pushTarget, type PushTarget } from "../lib/push";
 import { command } from "./post-preview";
 import { inlineCode } from "./untrusted";
 import type { PushRun, ReviewMeta } from "./store";
@@ -99,9 +99,23 @@ const behindWarning = (behind: "ahead" | "unread", place: Place, machine: string
 /** The machine the folder Push reads is on, as the review names it. */
 const machineOf = (review: ReviewMeta, place: Place) => review.feature?.environmentId === place.environmentId ? review.feature.machine : "its machine";
 
-/** GitHub's head as noted: its time moves only with the commit, so a Send that let the thread push still covers it. */
-const noted = (was: ReviewMeta["remoteHead"] | undefined, github: { repo: string; head: string; sha: string | null }) =>
-  was && was.repo === github.repo && was.head === github.head && was.sha === github.sha ? was : { ...github, at: Date.now() };
+type Github = { repo: string; head: string; sha: string | null };
+
+/**
+ * GitHub's head, read, against the last head you accepted (`remoteHead`), whatever stands with Push: the same; one to
+ * accept, as the first read, or a move a Send that let the thread push covers; or a move nothing explains, to flag. Only
+ * these, Push landing on exactly its checked commit, and Got it on a flag, move what's accepted. A branch gone from
+ * GitHub pushed nothing.
+ */
+function judge(now: ReviewMeta, github: Github): "same" | "accept" | "flag" {
+  const was = now.remoteHead?.repo === github.repo && now.remoteHead.head === github.head ? now.remoteHead : null;
+  if (!was) return "accept";
+  if (was.sha === github.sha || github.sha === null) return "same";
+  return (now.sends ?? []).some((send) => send.letPush && (send.at > was.at || send.readyAt === undefined)) ? "accept" : "flag";
+}
+const accepted = (github: Github) => ({ remoteHead: { ...github, at: Date.now() } });
+/** A move on GitHub that didn't come from Push: said plainly, naming a fixer on your PR among who may have made it. */
+const moved = (place: Place, sha: string | null, threadId: string): PushRun => ({ state: "flagged", flag: "unrequested", at: Date.now(), threadId, repo: place.repo, head: place.head, remote: sha, ...place.fixer ? { fixer: true as const } : {} });
 
 /**
  * What the check found: the commit as you reviewed it, by its full SHA; or how it isn't, the files that differ, and the
@@ -226,7 +240,7 @@ export async function startPush(deps: Deps, targetKey: string, { force = false, 
   let pastBehind = false;
   if (force) {
     const run = review!.push;
-    if (run?.state !== "mismatch" || !run.sha && !run.behind) return { ok: false, error: "No commit is waiting on Push anyway. Push to start again." };
+    if (!pushAnywayOffered(run)) return { ok: false, error: "No commit is waiting on Push anyway. Push to start again." };
     // The warning shown, not one that came since.
     if (sha !== undefined && sha !== run.sha || at !== undefined && at !== run.at) return { ok: false, error: "Push changed meanwhile. Look again, then choose." };
     if (run.sha) {
@@ -254,7 +268,18 @@ export async function startPush(deps: Deps, targetKey: string, { force = false, 
   if ("error" in claimed) return { ok: false, error: claimed.error };
   const [head, remote] = await Promise.all([folderHead(deps, place.environmentId), githubHead(gh.runGh, place)]);
   const github = "sha" in remote ? { repo: place.repo, head: place.head, sha: remote.sha } : undefined;
-  if (github) await store.exclusive(async (tx) => tx.setLifecycle(targetKey, { remoteHead: noted((await tx.getReview(targetKey))?.remoteHead, github) }));
+  // A move on GitHub nothing explains is said before anything is asked: Got it accepts it, then Push.
+  const seen = github && await store.exclusive(async (tx) => {
+    const now = await tx.getReview(targetKey);
+    const judged = now ? judge(now, github) : "same";
+    if (judged === "accept") await tx.setLifecycle(targetKey, accepted(github));
+    if (judged === "flag" && now?.push?.state === "committing" && now.push.at === run.at) await tx.setLifecycle(targetKey, { push: moved(place, github.sha, main.threadId) });
+    return judged;
+  });
+  if (seen === "flag") {
+    deps.changed(targetKey);
+    return { ok: false, error: `Not pushed: ${plainText(pushFlagText(moved(place, github!.sha, main.threadId))!).replace(/`/g, "")} Got it accepts them; then Push.` };
+  }
   // Unless you cancelled meanwhile.
   const ours = (now: PushRun | null) => now?.state === "committing" && now.at === run.at ? null : "Push was cancelled.";
   try {
@@ -321,14 +346,22 @@ export async function reportCommit(deps: Deps, sha: string, mine: ReadonlySet<st
     ...run, state: "mismatch", at: Date.now(), ...checked.sha ? { sha: checked.sha } : {}, warning, files: checked.ok ? [] : checked.files,
     ...!checked.ok && checked.secrets ? { secrets: checked.secrets } : {}, ...behind ? { behind: true as const } : {},
   } : { ...run, state: nothing ? "pushed" : "pushing", at: Date.now(), sha: checked.sha };
-  // Unless the reviewer cancelled meanwhile, or the branch moved on GitHub with no Push.
+  // Unless the reviewer cancelled meanwhile, or the branch moved on GitHub with no Push, as when the thread pushed before
+  // it reported: that's flagged, whatever the check found.
   const saved = await store.exclusive(async (tx) => {
-    const now = (await tx.getReview(key))?.push ?? null;
+    const review = await tx.getReview(key);
+    const now = review?.push ?? null;
     if (now?.state !== "committing" || now.at !== run.at) return now;
-    await tx.setLifecycle(key, { push: next, ...github ? { remoteHead: noted((await tx.getReview(key))?.remoteHead, github) } : {} });
+    const judged = github ? judge(review!, github) : "same";
+    if (judged === "flag") {
+      await tx.setLifecycle(key, { push: moved(place, github!.sha, run.threadId) });
+      return "moved" as const;
+    }
+    await tx.setLifecycle(key, { push: next, ...judged === "accept" ? accepted(github!) : {} });
     return true;
   });
-  if (saved !== true) return { exitCode: 1, stderr: `Push on ${id} stopped: ${saved?.state === "flagged" ? "its branch moved on GitHub meanwhile, with no Push" : "the reviewer cancelled it"}. Don’t push.` };
+  if (saved === "moved") deps.changed(key);
+  if (saved !== true) return { exitCode: 1, stderr: `Push on ${id} stopped: ${saved === "moved" || saved?.state === "flagged" ? "its branch has commits on GitHub that didn’t come from Push" : "the reviewer cancelled it"}. Don’t push; the reviewer decides.` };
   deps.changed(key);
   if (!checked.ok || next.state === "mismatch") return { exitCode: 0, stdout: `Recorded ${short(sha)} for ${id}, but ${checked.ok ? "it can’t go yet" : "it isn’t what the reviewer reviewed"}: ${plainText(warning)} Don’t push: the reviewer chooses Push anyway or Update first in the review, and you’ll be told.` };
   if (next.state === "pushed") return { exitCode: 0, stdout: nothingToPush(place.head, checked.sha) };
@@ -336,16 +369,15 @@ export async function reportCommit(deps: Deps, sha: string, mine: ReadonlySet<st
 }
 
 /**
- * When a review's main thread stops, read its branch on GitHub. After a push, it's at the commit, or it's flagged with
- * what's there instead; not while the thread has messages queued, as the push may be one of them. Otherwise a branch
- * that moved since last read, with no Push and no Send letting the thread push, is flagged as a push no one asked for.
- * The first read only notes where it is. A main thread that failed, or was archived or deleted (`why`), while Push
- * waited on its commit, stopped it: that's flagged too.
+ * When a review's main thread stops, read its branch on GitHub. A Push landing on exactly its checked commit is pushed,
+ * and accepted; a Push that didn't land is flagged, with what's there instead, but not while the thread has messages
+ * queued, as the push may be one of them. Any other move nothing explains (judge) is flagged plainly, whatever stands
+ * with Push, a flag you haven't dismissed staying as it is. A main thread that failed, or was archived or deleted
+ * (`why`), while Push waited on its commit, stopped it. With Send to thread off, there's no Push, and nothing is read.
  */
 async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, why?: NonNullable<PushRun["why"]>) {
   const { store, gh } = deps;
-  // With Send to thread off, there's no Push: GitHub's head is only noted.
-  const watching = (await store.getPreferences()).preferences.knobs.sendToThread;
+  if (!(await store.getPreferences()).preferences.knobs.sendToThread) return;
   const reviews = (await store.listReviews()).filter((review) => !review.archivedAt && !review.userArchivedAt
     && (review.push?.threadId === thread.id || (review.mainThread?.threadId ?? review.sourceThreadId) === thread.id));
   for (const review of reviews) {
@@ -356,23 +388,21 @@ async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, wh
     await store.exclusive(async (tx) => {
       const now = await tx.getReview(review.targetKey);
       if (!now) return;
-      const run = now.push;
-      const was = now.remoteHead?.repo === place.repo && now.remoteHead.head === place.head ? now.remoteHead : null;
+      const run = now.push ?? null;
+      const judged = github ? judge(now, github) : "same";
+      const stopped = !!why && run?.state === "committing" && run.threadId === thread.id;
       let next: PushRun | null | undefined;
+      let accept = judged === "accept";
       // A commit reported by a short SHA is GitHub's full one that starts with it.
-      if (!watching) next = undefined;
-      else if (why && run?.state === "committing" && run.threadId === thread.id) next = { ...run, state: "flagged", flag: "stopped", why, at: Date.now() };
-      else if (!github) next = undefined;
-      else if (run?.sha && (run.state === "pushing" || run.state === "flagged" && run.flag === "differs")) {
-        next = github.sha?.startsWith(run.sha) ? { ...run, state: "pushed", at: Date.now(), sha: github.sha, flag: undefined, remote: undefined }
-          : run.state === "flagged" && run.remote === github.sha || run.state === "pushing" && thread.queued ? undefined
-          : { ...run, state: "flagged", flag: "differs", remote: github.sha, at: Date.now() };
-      } else if (was && github.sha && was.sha !== github.sha && run?.state !== "flagged" && !(now.sends ?? []).some((send) => send.letPush && send.at > was.at)) {
-        // Whoever pushed it, a fixer told in its own chat, a teammate or CI: said plainly, never as checked. A flag you
-        // haven't dismissed stays as it is.
-        next = { state: "flagged", flag: "unrequested", at: Date.now(), threadId: thread.id, repo: place.repo, head: place.head, remote: github.sha, ...place.fixer ? { fixer: true as const } : {} };
-      }
-      await tx.setLifecycle(review.targetKey, { ...github ? { remoteHead: noted(was, github) } : {}, ...next !== undefined ? { push: next } : {} });
+      if (github?.sha && run?.sha && (run.state === "pushing" || run.state === "flagged" && run.flag === "differs") && github.sha.startsWith(run.sha)) {
+        next = { ...run, state: "pushed", at: Date.now(), sha: github.sha, flag: undefined, remote: undefined };
+        accept = true;
+      } else if (github && run?.sha && run.state === "pushing") {
+        next = thread.queued ? undefined : { ...run, state: "flagged", flag: "differs", remote: github.sha, at: Date.now() };
+      } else if (judged === "flag") next = run?.state === "flagged" ? undefined : moved(place, github!.sha, thread.id);
+      else if (stopped) next = { ...run!, state: "flagged", flag: "stopped", why, at: Date.now() };
+      if (!accept && next === undefined) return;
+      await tx.setLifecycle(review.targetKey, { ...accept && github ? accepted(github) : {}, ...next !== undefined ? { push: next } : {} });
       if (next !== undefined) deps.changed(review.targetKey);
     });
   }
@@ -393,8 +423,11 @@ export function register(deps: ServeDeps) {
     },
     async dismissPush({ targetKey }) {
       const found = await store.exclusive(async (tx) => {
-        if (!await tx.getReview(targetKey)) return false;
-        await tx.setLifecycle(targetKey, { push: null });
+        const review = await tx.getReview(targetKey);
+        if (!review) return false;
+        // Got it on a flag accepts what GitHub has, so it's flagged once.
+        const run = review.push;
+        await tx.setLifecycle(targetKey, { push: null, ...run?.state === "flagged" && run.remote !== undefined ? accepted({ repo: run.repo, head: run.head, sha: run.remote }) : {} });
         return true;
       });
       if (!found) return { ok: false, error: "This review no longer exists." };
@@ -431,11 +464,14 @@ export function register(deps: ServeDeps) {
       if (order === null || !(force ? PUSH_ANYWAY : [...PUSH, ...PUSH_ANYWAY]).includes(order)) {
         return failed(`Not pushed: only the reviewer starts ${force ? "Push anyway" : "a push"}, with a message in this review that's just "${force ? "push anyway" : "push"}". Suggest it in your reply; they can use Push in Finish review.`);
       }
-      // Push anyway goes on the warning the reviewer was told: without its at, the agent is told the warning now.
-      if (force && at === undefined) {
+      // Push anyway goes on the warning the reviewer was told, and their "push anyway" came after it: without its at, the
+      // agent is told the warning now, to tell them.
+      if (force) {
         const run = (await store.getReview(targetKey))?.push;
-        if (run?.state !== "mismatch") return failed("Not pushed: No commit is waiting on Push anyway. Push to start again.");
-        return failed(`Not pushed yet. The warning now: ${plainText(run.warning ?? "the commit isn't what the reviewer reviewed.")} (at: ${run.at}). Tell the reviewer; only if they then say "push anyway", call push with force: true and at: ${run.at}.`);
+        if (!pushAnywayOffered(run)) return failed("Not pushed: No commit is waiting on Push anyway. Push to start again.");
+        const ask = `Tell the reviewer; only if they then say "push anyway", call push with force: true and at: ${run.at}.`;
+        if (at === undefined) return failed(`Not pushed yet. The warning now: ${plainText(run.warning ?? "the commit isn't what the reviewer reviewed.")} (at: ${run.at}). ${ask}`);
+        if (at === run.at && !(turn.message!.at > run.at)) return failed(`Not pushed: the reviewer's "push anyway" came before this warning. ${ask}`);
       }
       const started = await startPush(deps, targetKey, { force, ...at === undefined ? {} : { at } });
       if (!started.ok) return failed(`Not pushed: ${started.error}`);

@@ -70,6 +70,12 @@ export function mismatchText(files: readonly string[], secrets: readonly string[
   ].join(" ");
 }
 
+/**
+ * Whether a Push waits on Push anyway: a mismatch with a commit the check placed, or GitHub ahead of the folder before
+ * any commit. The page, the review agent and the server all ask this.
+ */
+export const pushAnywayOffered = (run: PushRun | null | undefined): run is PushRun => run?.state === "mismatch" && (!!run.sha || !!run.behind);
+
 /** What Push says when GitHub has commits the folder doesn't: a push without force would be refused. */
 export const behindText = (head: string) => `GitHub has commits on ${code(head)} that this folder doesn’t. Pull first, or Push anyway to try.`;
 

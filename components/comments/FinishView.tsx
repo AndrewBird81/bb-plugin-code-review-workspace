@@ -10,7 +10,7 @@ import { readDraftRecovery } from "../../lib/draft-recovery";
 import { useKnob } from "../../lib/settings";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
 import { reviewIdentity } from "../../lib/review-identity";
-import { pushFlagText, pushTarget } from "../../lib/push";
+import { pushAnywayOffered, pushFlagText, pushTarget } from "../../lib/push";
 import { showNotPushed } from "../../lib/main-thread";
 import { Marked, Mono, updateThenClear } from "../shell/PushNotices";
 import { statusWhy } from "../../lib/status-line";
@@ -188,7 +188,7 @@ function Push() {
       <div className="flex flex-wrap gap-2">
         {/* GitHub being ahead isn't something Update fixes; a commit the check couldn't place has nothing to push anyway. */}
         {!(run.behind && !files.length) && updateButton("Update first", true)}
-        {(run.sha || run.behind) && <Button size="sm" variant="outline" className={cn("gap-1.5 text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void push(true)}>{spinner(busy === "anyway", "ArrowUp")}Push anyway</Button>}
+        {pushAnywayOffered(run) && <Button size="sm" variant="outline" className={cn("gap-1.5 text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void push(true)}>{spinner(busy === "anyway", "ArrowUp")}Push anyway</Button>}
         {cancel()}
       </div>
     </div>
