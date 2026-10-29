@@ -254,14 +254,17 @@ process.env.PATH = [standIns, process.env.PATH].join(delimiter);
 const ran = (bin: string) => readFileSync(calls, "utf8").split("\n").filter((line) => line.startsWith(`${bin} `));
 
 /** The Store checks, on either backend: what each draft posts, and what 1.7.0's own writes keep of 1.8.0's. */
+// `read` runs in a v1.7.0 checkout, so this is 1.7.0's signature: no `own`, and preExisting optional.
+const payload170 = toGithubReviewPayload as unknown as (draft: Draft, preExisting?: boolean) => ReturnType<typeof toGithubReviewPayload>;
+
 async function storeChecks(backend: string, store: AsyncStore, sql: Sql) {
   const reviews = [keys.feature, keys.own, keys.teammate];
   const payloads: Record<string, unknown> = {};
   for (const k of reviews) {
     const draft = await store.getDraft(k);
-    payloads[k] = { plain: toGithubReviewPayload(draft), preExisting: toGithubReviewPayload(draft, true) };
+    payloads[k] = { plain: payload170(draft), preExisting: payload170(draft, true) };
     // 1.7.0 posts every comment in the draft, whatever 1.8.0 says of its fix.
-    const posted = toGithubReviewPayload(draft).comments.map((c) => `${c.path}:${c.line}:${c.side}`);
+    const posted = payload170(draft).comments.map((c) => `${c.path}:${c.line}:${c.side}`);
     const settled = keys.comments[k].filter((c) => c.state && c.state !== "open");
     check(backend, `${k}: the payload posts every comment, the ${[...new Set(settled.map((c) => c.state))].join(", ") || "none"} ones too`,
       keys.comments[k].every((c) => posted.includes(`${c.file}:${c.line}:${c.side}`)) && posted.length === keys.comments[k].length, { posted, comments: keys.comments[k] });
