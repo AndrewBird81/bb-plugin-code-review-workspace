@@ -7,7 +7,7 @@ import type { StackMember, StackPlace } from "../lib/stacks";
 import { LINES_PER_HOUR, readingTime } from "../lib/review-size";
 import { reviewState, type ReviewItem } from "../lib/review-state";
 import { defaultName, NAME_LIMIT, renamedFrom } from "../lib/review-name";
-import { branchLabel, reviewIdentity } from "../lib/review-identity";
+import { branchLabel, homeShort, reviewIdentity } from "../lib/review-identity";
 import { statusLine, type StatusKind, type StatusTone } from "../lib/status-line";
 import { useKnob } from "../lib/settings";
 import { canSnooze, canSnoozeUntil, type ReviewRound } from "../lib/turn";
@@ -263,9 +263,14 @@ export const ReviewHeader = memo(function ReviewHeader({ review, guideTitle, che
     ));
   const snooze = onSnooze && <Snooze review={review} snoozing={snoozing} onSnooze={onSnooze} />;
   const identity = reviewIdentity(review, guideTitle);
-  // A PR's branches; a local review's range, its head as the id has it: main ← snooze-checks. A single ref is in the id.
-  const range = review.kind === "ref" ? review.gitRef?.split(/\.{2,3}/) : null;
-  const [base, head] = range ? range.length === 2 && range[0] && range[1] ? [range[0], branchLabel(range[1])] : [null, null] : [review.base, review.head];
+  // A PR's branches; a local review's range, its head as the id has it: main ← snooze-checks. A single ref is in the id;
+  // a folder's review has its base and branch.
+  const range = review.kind === "ref" && !review.feature ? review.gitRef?.split(/\.{2,3}/) : null;
+  const [base, head] = review.kind === "ref" && review.feature ? [review.feature.baseRef, branchLabel(review.feature.branch)]
+    : range ? range.length === 2 && range[0] && range[1] ? [range[0], branchLabel(range[1])] : [null, null] : [review.base, review.head];
+  const path = review.kind === "ref" ? review.place?.path ?? review.cwd : undefined;
+  // Beside its folder, a local id needn't add the folder's end to tell it apart.
+  const id = review.kind === "ref" ? reviewIdentity({ ...review, place: review.place && { ...review.place, folder: undefined } }, guideTitle).id : `${identity.repo ?? ""}${identity.idTail}`;
   return (
     <header className="space-y-2.5">
       <div>
@@ -276,9 +281,10 @@ export const ReviewHeader = memo(function ReviewHeader({ review, guideTitle, che
         review.author && <span className="inline-flex items-center gap-1.5"><Avatar login={review.author} size={16} /><span className="text-foreground/90">{review.ownPr ? "Yours" : `@${review.author}`}</span></span>,
         // A local review is Local, on its machine, in its folder.
         review.kind === "ref" && <span className="text-foreground/90">{identity.whose}</span>,
-        identity.where && <span title={review.place?.path ?? review.cwd} className="inline-flex min-w-0 max-w-full items-center gap-1"><Icon name="Folder" className="size-3.5 shrink-0 text-muted-foreground" aria-hidden /><span className="truncate">{identity.where}</span></span>,
+        review.kind === "ref" && review.place?.machine && <span className="inline-flex min-w-0 max-w-full items-center gap-1"><Icon name="Laptop" className="size-3.5 shrink-0 text-muted-foreground" aria-hidden /><span className="truncate">{review.place.machine}</span></span>,
+        path && <span title={path} className="inline-flex min-w-0 max-w-full items-center gap-1"><Icon name="Folder" className="size-3.5 shrink-0 text-muted-foreground" aria-hidden /><span className="truncate">{homeShort(path)}</span></span>,
         // Its id as the window's title has it; a PR's with its repository in full, as one word: flosports/api#4512.
-        <span title={identity.repo ?? undefined} className="inline-flex min-w-0 max-w-full items-center gap-1"><Icon name={kind.icon} className={cn("size-3.5 shrink-0", TONE_TEXT[kind.tone])} aria-hidden /><span className="truncate font-mono text-[11px]">{review.kind === "ref" ? identity.id : `${identity.repo ?? ""}${identity.idTail}`}</span></span>,
+        <span title={identity.repo ?? undefined} className="inline-flex min-w-0 max-w-full items-center gap-1"><Icon name={kind.icon} className={cn("size-3.5 shrink-0", TONE_TEXT[kind.tone])} aria-hidden /><span className="truncate font-mono text-[11px]">{id}</span></span>,
         base && head
           // base ← head, which a screen reader hears in words, the way the PR merges: "fix-race into main".
           && <span className="inline-flex min-w-0 max-w-full items-center gap-1"><span className="sr-only">{head} into {base}</span><span aria-hidden className="contents"><BranchChip>{base}</BranchChip><Icon name="ArrowRight" className="size-3 shrink-0 rotate-180 text-subtle-foreground" /><BranchChip>{head}</BranchChip></span></span>,

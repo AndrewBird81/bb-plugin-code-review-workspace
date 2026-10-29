@@ -12,7 +12,9 @@ export type TurnReason =
   | "question" | "mentioned" | "handled" | "looks-ready" | "dismissed"
   | "waiting" | "draft" | "snoozed"
   | "approved" | "commented"
-  | "own";
+  | "own"
+  // A local review whose folder is on another branch, or that bb removed (src/feature-review.ts).
+  | "paused" | "folder-gone";
 
 /** Your review threads on the PR, by where each stands. */
 export interface ThreadTally {
@@ -114,6 +116,8 @@ export interface TurnInput {
   ownPr?: boolean | null;
   /** A turn that came from a passing state (feedback handled, looks ready); it holds until you act. */
   heldTurn?: { reason: TurnReason; label: string; signal: string; at: number } | null;
+  /** A local review's folder: on another branch, which pauses it, or removed by bb (src/feature-review.ts). */
+  feature?: { pausedOn?: string | null; folderGone?: boolean } | null;
 }
 
 export interface TurnOptions {
@@ -176,6 +180,8 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
     ({ ...base, group, reason, label, ...extra });
 
   if (review.prState === "MERGED") return make("archive", "merged", "Merged");
+  // A local review whose folder bb removed, with nothing left open or sent (src/feature-review.ts).
+  if (review.kind === "ref" && review.archivedAt && review.feature?.folderGone) return make("archive", "folder-gone", "Folder removed");
   if (review.prState === "CLOSED" || review.archivedAt) return make("archive", "closed", "Closed");
   // Deleted, or out of your reach for good; access refused (say, for SSO) may come back.
   if (review.unreachable?.reason === "not-found" && now - review.unreachable.since >= UNREACHABLE_MS) return make("archive", "unreachable", "Can’t read on GitHub");
@@ -202,7 +208,12 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   return review.status === "generating" ? { ...turn, label: "Generating" } : turn;
 
   function reviewerTurn(): Turn {
-    if (review.kind === "ref") return make("needs", "new", "Ready", { at: review.createdAt ?? null });
+    if (review.kind === "ref") {
+      // Its folder gone, its comments still wait on you; on another branch, it waits for its own.
+      if (review.feature?.folderGone) return make("needs", "folder-gone", "Folder removed", { at: review.createdAt ?? null });
+      if (review.feature?.pausedOn) return make("waiting", "paused", "Paused", { at: review.createdAt ?? null });
+      return make("needs", "new", "Ready", { at: review.createdAt ?? null });
+    }
     const tracked = review.status === "tracked";
     // Your own PR is yours to review until you have; then nothing brings it back.
     if (review.ownPr) {

@@ -180,8 +180,22 @@ test("a local review's Overview says it's Local, where its checkout is, its id, 
   const slot = await render("ref-1", { "ref-1": { kind: "ref", gitRef: "main...bb/snooze-checks-thr_ab12", cwd: "/Users/ana/src/web", status: "ready", createdAt: 1, place: { repo: "flosports/web", machine: "MaxBook", path: "/Users/ana/src/web" } } });
   const main = within(await slot.findByRole("main", { name: "Review: Local review of snooze-checks in flosports/web: Guide, on MaxBook in ~/src/web" }));
   const hero = within(main.getByRole("heading", { level: 2, name: "Guide" }).closest("header")!);
-  for (const fact of ["Local", "MaxBook · ~/src/web", "web:snooze-checks", "main", "snooze-checks", "snooze-checks into main"]) expect(hero.getByText(fact), fact).toBeTruthy();
+  for (const fact of ["Local", "MaxBook", "~/src/web", "web:snooze-checks", "main", "snooze-checks", "snooze-checks into main"]) expect(hero.getByText(fact), fact).toBeTruthy();
   expect(hero.queryByText("main...bb/snooze-checks-thr_ab12")).toBeNull();
+  // The machine has a laptop, the folder a folder.
+  expect(hero.getByText("MaxBook").previousElementSibling?.getAttribute("data-icon")).toBe("Laptop");
+  expect(hero.getByText("~/src/web").previousElementSibling?.getAttribute("data-icon")).toBe("Folder");
+  slot.lifecycle.unmount();
+});
+
+test("a folder's review's Overview has its base and branch, and its id without the folder's end, which is beside it", async () => {
+  pane(1400);
+  const feature = { environmentId: "env1", hostId: "h", machine: "MaxBook", path: "/Users/ana/src/web-wt", branch: "bb/snooze-checks-thr_ab12", baseRef: "release/2", repo: "flosports/web" };
+  const slot = await render("br-1", { "br-1": { kind: "ref", gitRef: feature.branch, title: "Snooze flaky checks", status: "ready", createdAt: 1, feature, place: { repo: "flosports/web", machine: "MaxBook", path: feature.path, folder: "web-wt" } } });
+  const main = within(await slot.findByRole("main", { name: /^Review: Local review of snooze-checks/ }));
+  const hero = within(main.getByRole("heading", { level: 2, name: "Snooze flaky checks" }).closest("header")!);
+  for (const fact of ["Local", "MaxBook", "~/src/web-wt", "web:snooze-checks", "release/2", "snooze-checks", "snooze-checks into release/2"]) expect(hero.getByText(fact), fact).toBeTruthy();
+  expect(hero.queryByText("web:snooze-checks (web-wt)")).toBeNull();
   slot.lifecycle.unmount();
 });
 
@@ -263,7 +277,7 @@ test("a local review goes by one name everywhere: its row, BB's thread list, its
   // BB's thread list.
   document.body.insertAdjacentHTML("beforeend", `<div data-bb-plugin-root data-bb-plugin="thread-list"><div><div data-sidebar-visibility-group="threads"><div data-sidebar-sticky-group><div data-sidebar="group-label">Threads</div></div></div></div></div>`);
   const sidebar = renderSlot(app.appOverlays.find((overlay) => overlay.id === "needs-review")!, {}, { rpc: { listReviews: () => ({ reviews }), pinReview: () => ({ ok: true }), getPreferences: () => settings }, sidebarThreads: { status: "ready", threads: [] } });
-  expect(await within(document.body).findByRole("link", { name: /^Guide/ })).toBeTruthy();
+  expect(await within(document.body).findByRole("link", { name: /^snooze-checks Guide/ })).toBeTruthy();
   sidebar.lifecycle.unmount();
   document.body.innerHTML = "";
   // Its Overview and BB's title bar.

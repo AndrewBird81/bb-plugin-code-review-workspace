@@ -19,6 +19,8 @@ export interface Notice {
   label?: string;
   text: ReactNode;
   action?: ReactNode;
+  /** The icon and the action sit on the text's first line, however many it wraps to. */
+  firstLine?: boolean;
 }
 
 const TONE = {
@@ -60,10 +62,13 @@ export function ReviewNotices({ notices }: { notices: Notice[] }) {
   return (
     <div aria-live="polite" className={cn("shrink-0", notices.length > 0 && "border-b border-border")}>
       {(expanded ? notices : notices.slice(0, 1)).map((notice, index) => (
-        <div key={notice.id} role={notice.role ?? "status"} aria-label={notice.label} className={cn("flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 text-xs", TONE[notice.tone], index > 0 && "border-t border-border")}>
-          <Icon name={notice.icon} className={cn("size-3.5 shrink-0", notice.tone === "info" && "text-primary", notice.busy && "animate-spin motion-reduce:animate-none")} aria-hidden />
-          <span className="min-w-0 flex-1">{notice.text}</span>
-          {notice.action}
+        <div key={notice.id} role={notice.role ?? "status"} aria-label={notice.label} className={cn("flex min-h-9 flex-wrap gap-x-2 gap-y-1 px-3 py-1 text-xs", notice.firstLine ? "items-baseline" : "items-center", TONE[notice.tone], index > 0 && "border-t border-border")}>
+          {/* Aligned on its baseline, the icon's foot is on the text's: down a little, it's centred on the first line. */}
+          <Icon name={notice.icon} className={cn("size-3.5 shrink-0", notice.firstLine && "translate-y-[3px]", notice.tone === "info" && "text-primary", notice.busy && "animate-spin motion-reduce:animate-none")} aria-hidden />
+          {/* Wrapping, the text keeps room for two lines' worth, and the action goes under it rather than squeeze it to three. */}
+          <span className={cn("min-w-0 flex-1", notice.firstLine && "basis-56")}>{notice.text}</span>
+          {/* At the end of its line, or of the one it wraps to. */}
+          {notice.firstLine && notice.action ? <span className="ml-auto flex">{notice.action}</span> : notice.action}
           {index === 0 && more > 0 && (
             <Button variant="ghost" size="sm" aria-expanded={expanded} aria-label={expanded ? "Show fewer notices" : `${more} more notice${more === 1 ? "" : "s"}`} className={cn("h-7 px-2 text-xs tabular-nums", TOUCH_CONTROL)} onClick={() => setExpanded(!expanded)}>
               {expanded ? <Icon name="ChevronUp" aria-hidden /> : `+${more}`}

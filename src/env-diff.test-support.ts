@@ -24,8 +24,10 @@ const headers = (file: FolderFile) => file.binary
 
 export interface Folder {
   files: FolderFile[];
-  env?: Partial<{ mergeBaseBranch: string | null; baseBranch: string | null; defaultBranch: string | null; status: string }>;
+  env?: Partial<{ mergeBaseBranch: string | null; baseBranch: string | null; defaultBranch: string | null; status: string; branchName: string | null; path: string; projectId: string }>;
   prBase?: string;
+  /** With prBase, the rest of the PR GitHub PR status reports. */
+  pr?: { number: number; url: string; headRefName: string; state?: string };
   /** What GitHub PR status says instead, or that it throws. */
   prLookup?: "unavailable" | "throws";
   connected?: boolean;
@@ -40,8 +42,11 @@ export interface Folder {
   answers?: Record<string, (input: any) => unknown>;
 }
 
-/** A fake plugin host whose environment `env1` is `folder`, on MaxBook; `calls` records each Git plugin call. */
-export function folderHost(folder: Folder) {
+/**
+ * A fake plugin host whose environment `env1` is `folder`, on MaxBook; `calls` records each Git plugin call. `sdk` adds
+ * other areas, such as threads, or another environment's answers through `environments`.
+ */
+export function folderHost(folder: Folder, sdk: Record<string, unknown> = {}) {
   const calls: Array<{ method: string; input: any }> = [];
   const revision = (file: FolderFile) => `100644:${file.path.length}:100644:${(file.body ?? "").length}`;
   const git: Record<string, (input: any) => unknown> = {
@@ -84,16 +89,18 @@ export function folderHost(folder: Folder) {
       get: async ({ environmentId }: { environmentId: string }) => {
         if (folder.missing) throw Object.assign(new Error("HTTP 404: Environment not found"), { status: 404 });
         return { id: environmentId, hostId: "host_max", path: "/Users/me/src/api", status: "ready", isGitRepo: true, branchName: "feat/qa",
-          mergeBaseBranch: null, baseBranch: null, defaultBranch: "main", ...folder.env };
+          mergeBaseBranch: null, baseBranch: null, defaultBranch: "main", projectId: "proj_api", ...folder.env };
       },
     },
+    projects: { get: async () => ({ id: "proj_api", gitRemoteUrl: "git@github.com:acme/api.git" }), list: async () => [{ id: "proj_api", kind: "standard", gitRemoteUrl: "git@github.com:acme/api.git" }] },
+    ...sdk,
     hosts: { get: async () => ({ id: "host_max", name: "MaxBook", status: folder.connected === false ? "disconnected" : "connected", lifecycle: { phase: "active" } }) },
     plugins: {
       callRpc: async ({ pluginId, method, input, outputSchema }: any) => {
         if (pluginId === "bb--github-pr-status") {
           if (folder.prLookup === "throws") throw new Error("bb--github-pr-status isn't running");
           if (folder.prLookup) return outputSchema.parse({ [input.keys[0]]: { outcome: "unavailable", message: "gh: HTTP 502" } });
-          return outputSchema.parse({ [input.keys[0]]: folder.prBase ? { outcome: "available", pullRequest: { number: 7, baseRefName: folder.prBase } } : { outcome: "absent" } });
+          return outputSchema.parse({ [input.keys[0]]: folder.prBase ? { outcome: "available", pullRequest: { number: 7, baseRefName: folder.prBase, ...folder.pr } } : { outcome: "absent" } });
         }
         if (pluginId !== "bb--git") throw new Error(`${pluginId} isn't installed`);
         calls.push({ method, input });

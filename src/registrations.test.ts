@@ -32,6 +32,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "approveReady",
       "archiveReview",
       "askAgent",
+      "checkFeature",
       "checkFeedback",
       "checkFixes",
       "checkForUpdates",
@@ -42,6 +43,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "digDeeper",
       "discardReplyDraft",
       "dismissDiscussion",
+      "dismissFlagged",
       "dismissInstructionSuggestion",
       "getAgentDefaults",
       "getAgentLearning",
@@ -88,6 +90,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "rereview",
       "resolveComment",
       "resolveThread",
+      "reviewFolderBranch",
       "rewriteGuide",
       "runSkipped",
       "saveDraftComment",
@@ -149,8 +152,8 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "commands": [
         {
           "name": "review",
-          "summary": "Review a PR or ref",
-          "usage": "bb review <pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>] [--context <text>]",
+          "summary": "Review this thread's folder, or a PR or ref",
+          "usage": "bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--context <text>] [--name <text>]",
         },
         {
           "name": "comment",
@@ -181,10 +184,11 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
   // Only the events it listens to: the SDK lists every event it knows.
   expect(Object.fromEntries(Object.entries(registered.threadEventHandlers).filter(([, count]) => count > 0))).toMatchInlineSnapshot(`
     {
+      "experimental_environment.removed": 1,
       "message.cancelled": 1,
       "message.dispatched": 1,
       "thread.failed": 2,
-      "thread.idle": 1,
+      "thread.idle": 2,
     }
   `);
   expect(registered.services.map(({ name }) => name)).toMatchInlineSnapshot(`

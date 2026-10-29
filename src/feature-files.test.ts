@@ -47,7 +47,7 @@ test("a file the folder no longer matches, a binary, an asleep machine, and a re
   expect(await asleep.harness.behavior.callRpc("getFileContents", { targetKey: "br-1", file: "src/a.ts" })).toEqual({ ok: false, error: "Couldn’t read src/a.ts from MaxBook: Host request timed out" });
   const changed = await setUp([], { answers: { fileSide: () => ({ outcome: "moved", file: "src/a.ts" }) } });
   expect(await changed.harness.behavior.callRpc("getFileContents", { targetKey: "br-1", file: "src/a.ts" })).toEqual({ ok: false, error: expect.stringMatching(/^Couldn’t read src\/a\.ts from MaxBook: /) });
-  expect(await readFeatureFile(undefined, feature, "new", "src/a.ts")).toEqual({ error: "Couldn’t read src/a.ts: bb’s Git plugin isn’t reachable from here." });
+  expect(await readFeatureFile(undefined, feature, "new", "src/a.ts")).toEqual({ error: "Couldn’t read src/a.ts: BB’s Git plugin isn’t reachable from here." });
   const unread = await setUp([], { feature: { ...feature, mergeBaseRef: undefined } });
   expect(await unread.harness.behavior.callRpc("getFileContents", { targetKey: "br-1", file: "src/a.ts" })).toEqual({ ok: false, error: "This review hasn’t read its folder’s changes yet." });
   expect(unread.calls).toEqual([]);

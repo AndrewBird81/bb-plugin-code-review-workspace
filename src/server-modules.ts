@@ -55,7 +55,10 @@ export type EventListeners = { [E in PluginThreadEventName]?: PluginThreadEventH
 /** Register each module's listeners with BB, in order. BB runs every listener on its own. */
 export function listen(bb: BbPluginApi, modules: EventListeners[]) {
   const on = <E extends PluginThreadEventName>(event: E, listeners: EventListeners[E]) => {
-    for (const listener of listeners ?? []) bb.events.on(event, listener);
+    for (const listener of listeners ?? []) {
+      // An experimental event a bb doesn't have yet goes unheard there.
+      try { bb.events.on(event, listener); } catch (error) { if (!event.startsWith("experimental_")) throw error; }
+    }
   };
   for (const listeners of modules) for (const event of Object.keys(listeners) as PluginThreadEventName[]) on(event, listeners[event]);
 }
@@ -68,7 +71,7 @@ export type Subcommands = Record<string, (args: string[], ctx: PluginCliContext,
  * and `storage`, which answers before the store opens.
  */
 export const SUBCOMMANDS: PluginCliCommandInfo[] = [
-  { name: "review", summary: "Review a PR or ref", usage: "bb review <pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>] [--context <text>]" },
+  { name: "review", summary: "Review this thread's folder, or a PR or ref", usage: "bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--context <text>] [--name <text>]" },
   { name: "comment", summary: "List, add, edit, or delete a review's local draft comments; never posts to GitHub", usage: "bb review comment <list | add | edit | delete> <review> [<file>:<line>] [--side LEFT|RIGHT] [--code <text>] [--body <text>] [--severity <severity>] [--evidence <text>] [--pre-existing] [--json]" },
   { name: "summary", summary: "Show or write a review's local review summary and suggested verdict; never posts to GitHub", usage: "bb review summary <review> [--json] | [--body <text> [--suggest APPROVE|COMMENT|REQUEST_CHANGES]]" },
   { name: "list", summary: "List your reviews, in Needs review's order, with whose turn it is", usage: "bb review list [--json]" },

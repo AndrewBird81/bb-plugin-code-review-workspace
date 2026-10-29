@@ -62,9 +62,10 @@ What doesn't carry over: the small state kept outside the plugin's database. An 
 
 ## Local changes and the command line
 
-Run `bb review` in a BB thread. A PR URL, or `owner/repo#n`, works from a thread on any machine; a PR number or a local ref needs a project checkout on the BB server:
+Run `bb review` in a BB thread. With nothing after it, it reviews the folder that thread works in, on any machine. A PR URL, or `owner/repo#n`, works from a thread on any machine; a PR number or a local ref needs a project checkout on the BB server:
 
 ```sh
+bb review                              # this thread's folder: its branch's changes, uncommitted and new files included
 bb review https://github.com/acme/web/pull/42
 bb review acme/web#42                  # the same PR
 bb review 42                           # PR in the current repository
@@ -75,6 +76,19 @@ bb review https://github.com/acme/web/pull/42 --context 'Implements LIN-123: ret
 
 `bb review` must run in a project thread, and a review it starts runs in that thread's project.
 
+### A thread's folder
+
+`bb review` with no PR or ref reviews the folder the thread works in, on whichever machine it's on: everything its branch changed against its base, committed, uncommitted and new files alike. The base is the branch's PR's base once it has one, else the one BB keeps for the folder.
+
+- There's one review per folder and branch, however many threads and subagents work there. Run again, from any of them, it opens the review as it is: nothing is rebuilt.
+- The review is addressed to its main thread, the top thread working in that folder, which gets the comments you send. A subagent's call finds the thread that leads the work, even under an orchestrator in another folder; a live thread replaces an archived main thread, but not one BB can't read just then. The command says which.
+- It's named after the main thread, until its branch has a PR. Its id is the repository and branch, `api:snooze-checks`, and it shows the machine and folder.
+- New files that look like secrets (`.env*`, `*.pem`, `*.key`, `credentials*`), binaries and very large diffs stay out of the review and away from agents; a button naming each secret sends it to agents, and **Include** brings binaries in. Committed ones that look like secrets show, flagged, until you choose **Got it**.
+- The notice strip says when the folder changed, "3 files changed since your last update.", with **Update**, which shows the new code with your comments moved to their lines and keeps the guide (unless **Notice when a local review's code changes** is off). It also says when the folder is on another branch, which pauses the review until it's back, with **Open** or **Start a review of** that branch; when its machine is offline, keeping the folder as last read; when BB removed the folder; and which other threads are also editing it.
+- Once its branch has an open PR, the same review becomes the PR's, its diff the PR's at its head and your comments kept. If the PR already has a review, it links to it instead.
+- When BB removes the folder, a review that became a PR's goes on. A local one goes to Archive, unless comments are open or sent.
+- A review's own agent can't start one, and `--base` goes only with a ref.
+
 ### What each form reviews
 
 - **A single ref**, such as `bb review main`, runs `git diff main`: your working tree against the ref, uncommitted changes to tracked files included.
@@ -83,7 +97,7 @@ bb review https://github.com/acme/web/pull/42 --context 'Implements LIN-123: ret
 - **Untracked files are never included.** To review a new file, track it first, for example with `git add -N <file>`.
 - `--base` goes with a single ref: `bb review` refuses it beside a range.
 
-The checkout for a local review must exist on the BB server. A checkout only present on another enrolled machine is not supported by this release. Local reviews do not offer GitHub submission.
+A local ref's checkout must exist on the BB server; for a folder on another machine, run `bb review` with no ref in its thread. Local reviews do not offer GitHub submission.
 
 - When you open a local review, it runs its diff again in the checkout, and if the code changed since its guide, the notice strip says "The code changed since this guide." with **Update guide** (unless **Notice when a local review's code changes** is off in Settings → Reading).
 - On a local review whose diff ends at the checkout (a ref, such as `bb review main`, or a range ending at `HEAD`), each file's second row and each draft comment's ⋯ offer **Open in editor** at the line, which opens the checkout's file on the BB server (unless **Open in editor (local reviews)** is off).
@@ -235,7 +249,7 @@ Where the band has no room for them, it also holds **Fold comments in code** and
 
 ### Notices and Review actions
 
-- One notice strip under the band says what to know: "New commits since this guide was written." with **Update guide** (or, when a stacked PR is retargeted, "The PR's base changed from parent to main since this guide was written."), "The code changed since this guide." on a local review, a guide update that failed and why, or one waiting for its writer's machine to reconnect, what didn't run on its own and why, a GitHub account that GitHub refuses for the repository (not when GitHub just can't be reached), or "Reconnecting…" while the connection to BB is down; the review reloads once it's back. While a guide updates, its notice offers **Stop**, which keeps the guide you had. **+N** shows the rest.
+- One notice strip under the band says what to know: "New commits since this guide was written." with **Update guide** (or, when a stacked PR is retargeted, "The PR's base changed from parent to main since this guide was written."), "The code changed since this guide." on a local review, a folder's changes, branch, machine and other threads on a folder's review, a guide update that failed and why, or one waiting for its writer's machine to reconnect, what didn't run on its own and why, a GitHub account that GitHub refuses for the repository (not when GitHub just can't be reached), or "Reconnecting…" while the connection to BB is down; the review reloads once it's back. While a guide updates, its notice offers **Stop**, which keeps the guide you had. **+N** shows the rest.
 - **Review actions** (⋯) lists, in the same order everywhere: **Update guide** or **Rebuild guide**, **Snooze**, **Pin**, **Rename…**, **Archive**, **Open on GitHub**, **Keyboard shortcuts** (not on a phone), **Review settings…**, and **Delete…**.
 
 ### When the PR changes

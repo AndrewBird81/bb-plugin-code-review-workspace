@@ -18,6 +18,7 @@ import {
 import type { AsyncStore } from "./store-queue";
 import { defaultName, NAME_LIMIT } from "../lib/review-name";
 import { identityIn, placeFacts, type PlaceFacts } from "./review-places";
+import { runFeatureCommand } from "./feature-review";
 
 interface Deps {
   bb: BbPluginApi;
@@ -28,12 +29,14 @@ interface Ctx { projectId?: string; threadId?: string; cwd?: string }
 
 /** The usage, with `bb review list` while Help agents in your threads use bb review is on. */
 const usage = (list: boolean) => [
-  "usage: bb review <pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>] [--context <text>] [--name <text>]",
+  "usage: bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--context <text>] [--name <text>]",
   "       bb review comment <list | add | edit | delete> …   (see bb review comment --help)",
   "       bb review summary <review> [--body <text>] …        (see bb review summary --help)",
   ...list ? ["       bb review list [--json]                             (see bb review list --help)"] : [],
   "       bb review storage <status | verify | migrate | export-sqlite>  (see bb review storage --help)",
   "",
+  "  With no PR or ref, it reviews this thread's folder: its committed, uncommitted and new files on its branch, on any",
+  "  machine. One review per folder and branch, addressed to the top thread working there; run again, it opens as it is.",
   "  A git ref named comment, summary, list or storage is given as refs/heads/<name>.",
   "  --context  text for the assistant's automatic review, such as the ticket the change implements. It's kept with the review; '' removes it.",
   "  --name     your name for the review, shown in bb instead of the PR's title or the ref; '' puts that back. GitHub, and the agents, keep the PR's title.",
@@ -73,6 +76,15 @@ export async function runReviewCommand(deps: Deps, argv: string[], ctx: Ctx, own
     } else if (value.trim().startsWith("-") || input !== undefined) {
       return { exitCode: 2, stderr: `Unexpected argument: ${value}` };
     } else input = value.trim();
+  }
+  // No PR or ref: the folder this thread works in. A blank one is a mistake.
+  if (input === undefined) {
+    if (base) return { exitCode: 2, stderr: "--base goes with a git ref. With no ref, bb review compares this thread's folder with its own base." };
+    const changed = (key: string) => {
+      deps.bb.realtime.publish(`review:${key}`, { ts: Date.now() });
+      deps.bb.realtime.publish("reviews", { ts: Date.now() });
+    };
+    return runFeatureCommand({ ...deps, changed }, { context, name, inThreads }, ctx, ownReview);
   }
   if (!input) return { exitCode: 2, stderr: USAGE };
   if (!ctx.projectId) return { exitCode: 2, stderr: "Run `bb review` inside a project thread." };

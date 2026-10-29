@@ -392,6 +392,33 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), files: z.array(z.string().min(1)).min(1).max(1000), included: z.boolean() }).strict(),
     output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
+  /**
+   * A local review's folder now, for its notices: as the review shows it, `changedFiles` changed since, paused on
+   * another `branch`, its machine offline, gone, or unreadable (`message`); the other threads working there; the files it
+   * keeps out, and committed ones that look like secrets; the review its PR had already, if any; and, paused, the review
+   * of the branch the folder is on, if any (src/feature-review.ts).
+   */
+  checkFeature: {
+    input: targetKey,
+    output: z.object({
+      state: z.enum(["current", "changed", "paused", "offline", "gone", "unavailable"]),
+      changedFiles: z.number().int().optional(),
+      branch: z.string().nullable().optional(),
+      message: z.string().optional(),
+      alsoActive: z.array(z.object({ threadId: z.string(), title: z.string() })),
+      hidden: z.array(z.object({ path: z.string(), reason: z.enum(["secret", "binary", "large"]) })),
+      flagged: z.array(z.string()),
+      prReview: z.string().optional(),
+      branchReview: z.string().optional(),
+    }),
+  },
+  /** Got it: stop warning about these committed files that look like secrets, in this review. */
+  dismissFlagged: {
+    input: z.object({ targetKey: z.string(), files: z.array(z.string().min(1)).min(1).max(1000) }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+  },
+  /** Review the branch a local review's folder is on now, in that branch's own review, addressed to the same main thread. */
+  reviewFolderBranch: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }) },
 
   // What posts as you on GitHub from the review agent's work.
   /**

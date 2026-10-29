@@ -1,0 +1,173 @@
+// @vitest-environment jsdom
+import { afterEach, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import { defaultPreferences } from "../src/preferences";
+import { patchReviewState } from "../lib/panel-state";
+import { TOUCH_CONTROL } from "./touch";
+import type { FeatureCheck } from "../src/feature-review";
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+vi.mock("@pierre/diffs/react", () => ({ FileDiff: () => <div data-testid="filediff" /> }));
+
+afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); });
+
+const KEY = "br-1";
+const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+aa\n";
+const guide = { title: "Snooze flaky checks", intent: "Snoozes checks.", unplacedFiles: [] as string[], sections: [{ id: "c1", title: "Snooze", overview: "", diffs: [{ file: "src/a.ts" }] }] };
+const feature = { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/api", branch: "bb/snooze-checks-thr_ab12", baseRef: "main", repo: "acme/api" };
+const local = { targetKey: KEY, kind: "ref", gitRef: feature.branch, status: "ready", createdAt: 1, title: "Snooze flaky checks", feature, mainThread: { threadId: "main", environmentId: "env1", origin: "adopted", since: 1 } };
+const nothing: FeatureCheck = { state: "current", alsoActive: [], hidden: [], flagged: [] };
+
+async function renderWorkspace(rpc: Record<string, unknown>, review: Record<string, unknown> = local, knobs: Record<string, boolean> = {}) {
+  patchReviewState(KEY, { activeId: "c1" });
+  const app = await loadPluginApp(() => import("../app"));
+  const handlers = {
+    setReviewPresence: () => ({ ok: true }),
+    getReviewBundle: vi.fn(() => ({ review, guide: structuredClone(guide), patch, revision: "r1" })),
+    getChecks: () => ({ bucket: "none", checks: [] }),
+    getPreferences: () => ({ preferences: { ...defaultPreferences, knobs: { ...defaultPreferences.knobs, ...knobs } }, revision: 0 }),
+    getFileViews: () => ({ views: [] }),
+    checkRepoAccess: () => ({ accessible: true, repo: "acme/api", account: "me" }),
+    checkForUpdates: () => ({ hasNewCommits: false }),
+    getDraft: () => ({ draft: { targetKey: KEY, verdict: "COMMENT", body: "", comments: [] }, stale: [] }),
+    getReviewerNotes: () => ({ body: "", revision: 0 }),
+    getConversation: () => ({ threadId: null, legacy: [], defaults: null }),
+    getGhAccounts: () => ({ active: "me", accounts: [{ login: "me", active: true }] }),
+    getSourceThread: () => ({ thread: null }),
+    markSeen: () => ({ ok: true }),
+    ...rpc,
+  };
+  const slot = renderSlot(app.navPanels[0]!, { subPath: KEY }, { rpc: handlers as any });
+  await slot.findByTestId("filediff");
+  return { slot, rpc: handlers };
+}
+type Slot = Awaited<ReturnType<typeof renderWorkspace>>["slot"];
+const notice = (slot: Slot, text: string | RegExp) => slot.getByText(text).closest<HTMLElement>("[role]")!;
+
+test("a changed folder says how many files, and Update reads it again without the guide writer", async () => {
+  const checkFeature = vi.fn(() => ({ ...nothing, state: "changed", changedFiles: 3 }));
+  const updateFeature = vi.fn(() => ({ ok: true }));
+  const { slot, rpc } = await renderWorkspace({ checkFeature, updateFeature });
+  const text = "3 files changed since your last update.";
+  await slot.findByText(text);
+  expect(notice(slot, text).querySelector("svg")?.getAttribute("data-icon")).toBe("FileDiff");
+  const update = within(notice(slot, text)).getByRole("button", { name: "Update" });
+  expect(update.className.split(" ")).toEqual(expect.arrayContaining(TOUCH_CONTROL.split(" ")));
+  fireEvent.click(update);
+  await waitFor(() => expect(updateFeature).toHaveBeenCalledWith({ targetKey: KEY }));
+  // The review reads itself again: the updated diff.
+  await waitFor(() => expect(rpc.getReviewBundle.mock.calls.length).toBeGreaterThan(1));
+  expect(slot.queryByRole("button", { name: "Update guide" })).toBeNull();
+  // Its folder is asked about again when the review, or the folder, changes.
+  await slot.emitRealtime(`folder:${KEY}`, {});
+  await waitFor(() => expect(checkFeature.mock.calls.length).toBeGreaterThan(1));
+  slot.lifecycle.unmount();
+});
+
+test("with Say when the code changed off, a changed folder says nothing", async () => {
+  const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "changed", changedFiles: 3 }) }, local, { localDiffChanges: false });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(slot.queryByText(/changed since your last update/)).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+test("a folder on another branch pauses the review: Start a review of that branch, or Open its review once it has one", async () => {
+  const reviewFolderBranch = vi.fn(() => ({ ok: true, targetKey: "br-2" }));
+  const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34" }), reviewFolderBranch });
+  const paused = await slot.findByRole("status", { name: "Review paused" });
+  expect(paused.textContent).toContain("Folder is on fix-docs. This review waits for snooze-checks.");
+  // A branch's name never breaks across lines.
+  expect(within(paused).getByText("fix-docs").className).toContain("whitespace-nowrap");
+  fireEvent.click(within(paused).getByRole("button", { name: "Start a review of fix-docs" }));
+  await waitFor(() => expect(reviewFolderBranch).toHaveBeenCalledWith({ targetKey: KEY }));
+  slot.lifecycle.unmount();
+  cleanup();
+
+  const opening = vi.fn();
+  const existing = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "paused", branch: "bb/fix-docs-thr_cd34", branchReview: "br-2" }), reviewFolderBranch: opening });
+  fireEvent.click(within(await existing.slot.findByRole("status", { name: "Review paused" })).getByRole("button", { name: "Open fix-docs review" }));
+  expect(opening).not.toHaveBeenCalled();
+  existing.slot.lifecycle.unmount();
+});
+
+test("an offline machine is said calmly, with Check again", async () => {
+  const asking = vi.fn(() => ({ ...nothing, state: "offline", message: "MaxBook is offline." }));
+  const offline = await renderWorkspace({ checkFeature: asking });
+  const asleep = (await offline.slot.findByText("MaxBook is offline. This is the folder as last read.")).closest<HTMLElement>("[role]")!;
+  expect(asleep.querySelector("svg")?.getAttribute("data-icon")).toBe("WifiOff");
+  expect(asleep.className).not.toContain("warning");
+  fireEvent.click(within(asleep).getByRole("button", { name: "Check again" }));
+  await waitFor(() => expect(asking.mock.calls.length).toBeGreaterThan(1));
+  offline.slot.lifecycle.unmount();
+});
+
+test("a removed folder says so, with Archive until it's archived", async () => {
+  const archiveReview = vi.fn(() => ({ ok: true }));
+  const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "gone" }), archiveReview }, { ...local, feature: { ...feature, folderGone: true } });
+  const text = "BB removed this folder. The review keeps its last changes and your comments.";
+  await slot.findByText(text);
+  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Archive" }));
+  await waitFor(() => expect(archiveReview).toHaveBeenCalledWith({ targetKey: KEY, archived: true }));
+  slot.lifecycle.unmount();
+  cleanup();
+  const archived = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "gone" }) }, { ...local, archivedAt: 5, feature: { ...feature, folderGone: true } });
+  const done = notice(archived.slot, await archived.slot.findByText("BB removed this folder. The review keeps its last changes.").then((el) => el.textContent!));
+  expect(within(done).queryByRole("button")).toBeNull();
+  archived.slot.lifecycle.unmount();
+});
+
+test("Changed leads the rest; Got it quiets a committed secret; each secret is sent only by a button naming it, and binaries by Include", async () => {
+  const includeHidden = vi.fn(() => ({ ok: true }));
+  const dismissFlagged = vi.fn(() => ({ ok: true }));
+  const check: FeatureCheck = {
+    ...nothing, state: "changed", changedFiles: 2,
+    hidden: [{ path: ".env.local", reason: "secret" }, { path: "certs/dev.pem", reason: "secret" }, { path: "logo.png", reason: "binary" }, { path: "dump.sql", reason: "large" }],
+    flagged: ["config/.env.production"],
+    alsoActive: [{ threadId: "thr_docs", title: "Fix the docs" }],
+    prReview: "pr-abc-7",
+  };
+  const { slot } = await renderWorkspace({ checkFeature: () => check, includeHidden, dismissFlagged });
+  // The banner needed on every visit leads, the rest under +N.
+  await slot.findByText("2 files changed since your last update.");
+  expect(slot.queryByText("config/.env.production looks like a secret and is committed. Check it belongs in the repo.")).toBeNull();
+  fireEvent.click(slot.getByRole("button", { name: "6 more notices" }));
+  const order = Array.from(document.querySelectorAll<HTMLElement>("[aria-live=polite] > [role]")).map((row) => row.getAttribute("aria-label") ?? row.textContent!.slice(0, 20));
+  expect(order).toEqual(["Folder changed", "config/.env.producti", "This branch’s PR has", "File not shown", "File not shown", "Files not shown", "Also editing this folder"]);
+  fireEvent.click(within(notice(slot, "config/.env.production looks like a secret and is committed. Check it belongs in the repo.")).getByRole("button", { name: "Got it" }));
+  await waitFor(() => expect(dismissFlagged).toHaveBeenCalledWith({ targetKey: KEY, files: ["config/.env.production"] }));
+  fireEvent.click(within(notice(slot, ".env.local looks like a secret, so it isn’t shown or sent to agents.")).getByRole("button", { name: "Send .env.local to agents" }));
+  await waitFor(() => expect(includeHidden).toHaveBeenCalledWith({ targetKey: KEY, files: [".env.local"], included: true }));
+  expect(within(notice(slot, "certs/dev.pem looks like a secret, so it isn’t shown or sent to agents.")).getByRole("button", { name: "Send certs/dev.pem to agents" })).toBeTruthy();
+  const rest = notice(slot, "2 files aren’t shown: logo.png and dump.sql.");
+  fireEvent.click(within(rest).getByRole("button", { name: "Include logo.png" }));
+  await waitFor(() => expect(includeHidden).toHaveBeenLastCalledWith({ targetKey: KEY, files: ["logo.png"], included: true }));
+  expect(within(notice(slot, "This branch’s PR has a review of its own.")).getByRole("button", { name: "Open PR review" })).toBeTruthy();
+  const active = slot.getByRole("status", { name: "Also editing this folder" });
+  expect(active.textContent).toBe("Fix the docs is also editing this folder; its changes are in this review.Open");
+  expect(within(active).getByRole("button", { name: "Open Fix the docs" })).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+test("other threads editing the folder: the first named, the rest listed from “N more”", async () => {
+  const check: FeatureCheck = { ...nothing, alsoActive: [{ threadId: "thr_docs", title: "Fix the docs" }, { threadId: "thr_deps", title: "Bump deps" }, { threadId: "thr_ci", title: "Fix CI" }] };
+  const { slot } = await renderWorkspace({ checkFeature: () => check });
+  const active = await slot.findByRole("status", { name: "Also editing this folder" });
+  expect(active.textContent).toBe("Fix the docs and 2 more are also editing this folder; their changes are in this review.Open");
+  fireEvent.click(within(active).getByRole("button", { name: "2 more" }));
+  const list = await within(document.body).findByRole("list", { name: "Also editing this folder" });
+  expect(within(list).getAllByRole("button").map((button) => button.textContent)).toEqual(["Bump deps", "Fix CI"]);
+  slot.lifecycle.unmount();
+});
+
+test("a review that isn't of a folder, or became its PR's, asks nothing about one", async () => {
+  const checkFeature = vi.fn(() => nothing);
+  const pr = await renderWorkspace({ checkFeature }, { ...local, kind: "pr", repo: "acme/api", number: 7, headSha: "c0ffee" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  pr.slot.lifecycle.unmount();
+  cleanup();
+  const ref = await renderWorkspace({ checkFeature }, { targetKey: KEY, kind: "ref", gitRef: "HEAD", cwd: "/repo", status: "ready", createdAt: 1 });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(checkFeature).not.toHaveBeenCalled();
+  ref.slot.lifecycle.unmount();
+});

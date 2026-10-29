@@ -8,6 +8,7 @@ import { GUIDE_STOPPED, reviewState, type ReviewItem } from "./review-state";
 import { notRunReason } from "./trust";
 import { defaultKnobs, type Knobs } from "./knobs";
 import { baselineOf, progressText, snoozeLabel, type TurnSignals } from "./turn";
+import { branchLabel } from "./review-identity";
 
 /** foreground: plain text that stands out, for what came back to you; the tones color only what changes your next move. */
 export type StatusTone = Tone | "foreground";
@@ -58,7 +59,8 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
     case "looks-ready": return why("Agent: all feedback addressed", "agent", "Sparkles");
     case "dismissed": return why("Your review was dismissed", "warning", "AlertCircle");
     case "own": return why("Your PR", "neutral", "UserRound");
-    case "new": return review.kind === "ref" ? why("Local review", "neutral", "GitBranch")
+    // A folder's review says what changed in its folder since it was read, as last checked.
+    case "new": return review.kind === "ref" ? review.feature?.changedFiles ? why(`${review.feature.changedFiles} file${review.feature.changedFiles === 1 ? "" : "s"} changed`, "foreground", "FileDiff") : why("Local review", "neutral", "GitBranch")
       : review.status === "tracked" ? why("No guide yet", "neutral") : why("Guide ready", "neutral");
     case "waiting": return review.submittedVerdict === "COMMENT" ? why(`You commented${ago(turn.at)}`, "neutral", "MessageSquare")
       : why(`You requested changes${ago(turn.at)}`, "neutral", "FileDiff");
@@ -71,6 +73,8 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
     case "archived": return why("Archived by you", "neutral", "Archive");
     case "unrequested": return why("No longer requested", "neutral");
     case "unreachable": return why("Can’t read on GitHub", "neutral", "EyeOff");
+    case "paused": return why(`Paused: on ${review.feature?.pausedOn ? branchLabel(review.feature.pausedOn) : "another branch"}`, "neutral", "GitBranch");
+    case "folder-gone": return why("Folder removed", "neutral", "Folder");
     default: return null;
   }
 }

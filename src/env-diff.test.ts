@@ -71,7 +71,7 @@ test("patches are read 50 at a time at the merge base's commit, and a cut file l
   for (const { input } of calls.filter((c) => c.method === "patches")) {
     for (const key of input.keys) expect(JSON.parse(key).slice(0, 3)).toEqual(["env1", { type: "all", mergeBaseBranch: BASE_SHA }, false]);
   }
-  expect(diff.notice).toBe("This folder has more changed files than bb lists at once, so the review has the first 120.");
+  expect(diff.notice).toBe("This folder has more changed files than BB lists at once, so the review has the first 120.");
   expect(diff.mergeBaseRef).toBe(BASE_SHA);
 });
 
@@ -106,7 +106,7 @@ test("a Git plugin that answers in another shape fails the read instead of guess
   const { bb: unrevised } = folderHost({ files, answers: { files: () => ({ outcome: "available", files: [{ path: "a.ts", previousPath: null, changeKind: "modified", binary: false, origin: "tracked", loadMode: "auto" }], truncated: false, mergeBaseRef: BASE_SHA, initialPatches: [] }) } });
   expect((await readFeatureDiff(unrevised, feature)).outcome).toBe("unavailable");
   const { bb: keyless } = folderHost({ files, answers: { patches: () => ({}) } });
-  expect(await readFeatureDiff(keyless, feature)).toEqual({ outcome: "unavailable", message: "Couldn’t read the folder’s changes: bb sent no diff for b.ts." });
+  expect(await readFeatureDiff(keyless, feature)).toEqual({ outcome: "unavailable", message: "Couldn’t read the folder’s changes: BB sent no diff for b.ts." });
   for (const mergeBaseRef of ["main", "abc123", null]) {
     const { bb } = folderHost({ files, answers: { files: () => ({ outcome: "available", files: [], truncated: false, shortstat: "", mergeBaseRef, initialPatches: [] }) } });
     expect(await readFeatureDiff(bb, feature)).toEqual({ outcome: "unavailable", message: "Couldn’t find where this folder’s branch left main." });
@@ -132,7 +132,7 @@ test("an offline machine, a removed folder, and a failed read each say what happ
   expect((await readFeatureDiff(host.bb, feature)).outcome).toBe("offline");
   expect(await read({ files, throws: "boom" })).toEqual({ outcome: "unavailable", message: "Couldn’t read the folder’s changes: boom" });
 
-  expect(await read({ files, missing: true })).toEqual({ outcome: "gone", message: "bb removed this folder, so its changes can’t be read." });
+  expect(await read({ files, missing: true })).toEqual({ outcome: "gone", message: "BB removed this folder, so its changes can’t be read." });
   expect((await read({ files, env: { status: "destroyed" } })).outcome).toBe("gone");
   expect(await read({ files, filesFailure: { outcome: "unavailable", failure: { code: "path_not_found", workspacePath: "/Users/me/src/api", message: "Path does not exist" } } }))
     .toEqual({ outcome: "gone", message: "The folder is no longer on its machine, so its changes can’t be read." });

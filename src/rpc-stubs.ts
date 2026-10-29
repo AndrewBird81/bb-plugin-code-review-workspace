@@ -15,8 +15,6 @@ export function register() {
 
     checkFixes: notYet("Check fixes"), // Step 2.2.
 
-    updateFeature: notYet("Update"), // Step 1.5.
-
     rewriteGuide: notYet("Rewrite guide"), // Step 1.5.
 
     push: notYet("Push"), // Step 5.1.
@@ -26,8 +24,6 @@ export function register() {
     setMainThread: notYet("Changing the main thread"), // Step 2.1.
 
     setLetPush: notYet("Let it push when done"), // Step 2.1.
-
-    includeHidden: notYet("Include"), // Step 1.4.
 
     approveReady: notYet("Approve"), // Step 3.4.
 

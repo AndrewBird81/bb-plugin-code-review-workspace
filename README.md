@@ -138,6 +138,7 @@ Some changes look harmless in a diff. The plugin marks them where you'll see the
 Run `bb review` in the BB thread that made a change, and the review remembers that thread. Finish review can then send your comments straight back to it.
 
 ```sh
+bb review                            # this thread's folder, on any machine: one review per folder and branch
 bb review main                       # your working tree against main
 bb review my-feature --base main     # what the branch changed since it left main
 bb review https://github.com/acme/web/pull/42
@@ -195,7 +196,7 @@ Limits:
 5. On the review's Overview, choose **Start reading** and go through the chapters. Edit or remove the agent's comments, and add your own.
 6. Open **Finish review**, pick a verdict, and choose **Submit to GitHub**.
 
-For a local change, run `bb review main` in a BB thread whose project checkout is on the BB server. See [Local changes and the command line](docs/guide.md#local-changes-and-the-command-line).
+For a local change, run `bb review` in the BB thread that made it, on any machine. See [Local changes and the command line](docs/guide.md#local-changes-and-the-command-line).
 
 ## Moving from Guided Review
 

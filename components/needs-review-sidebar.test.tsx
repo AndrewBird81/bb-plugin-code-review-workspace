@@ -85,13 +85,21 @@ test("a row's tooltip says where the PR is, why it's yours and for how long, as 
   slot.lifecycle.unmount();
 });
 
-test("a PR's row has its number before its name, muted, the repository staying in its tooltip; a local review's has none", async () => {
+test("a PR's row has its number before its name, muted, the repository staying in its tooltip; a local review's its branch", async () => {
   threadList();
   const slot = await renderSidebar([reviews[2], { targetKey: "ref-1", kind: "ref", gitRef: "HEAD", title: "Local work", status: "ready", turn: turn("needs", "requested", 1) }]);
   const row = await within(document.body).findByRole("link", { name: "#1 Direct request 2h" });
   expect(within(row).getByText("#1").className).toContain("text-muted-foreground");
-  expect(within(document.body).getByRole("link", { name: "Local work 1h" })).toBeTruthy();
+  // Two local reviews of one name are told apart by their branches.
+  const local = within(document.body).getByRole("link", { name: "HEAD Local work 1h" });
+  expect(within(local).getByText("HEAD").className).toContain("text-muted-foreground");
   slot.lifecycle.unmount();
+  cleanup();
+  // Two of one branch in two folders: the folder's end the id adds.
+  threadList();
+  const again = await renderSidebar([{ targetKey: "br-2", kind: "ref", gitRef: "feat", title: "Local work", status: "ready", turn: turn("needs", "new", 1), place: { folder: "web-wt" } }]);
+  expect(await within(document.body).findByRole("link", { name: "(web-wt) Local work 1h" })).toBeTruthy();
+  again.lifecycle.unmount();
 });
 
 test("a renamed review's row says your name, with the PR's title first in its tooltip and description", async () => {

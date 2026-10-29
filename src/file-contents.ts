@@ -87,7 +87,7 @@ const fileSide = z.discriminatedUnion("outcome", [
  * starts from, the new side as the folder has it now.
  */
 export async function readFeatureFile(bb: BbPluginApi | undefined, feature: Pick<FeatureReview, "environmentId" | "machine" | "mergeBaseRef">, side: "old" | "new", path: string): Promise<Read> {
-  if (!bb) return { error: `Couldn’t read ${path}: bb’s Git plugin isn’t reachable from here.` };
+  if (!bb) return { error: `Couldn’t read ${path}: BB’s Git plugin isn’t reachable from here.` };
   if (!feature.mergeBaseRef) return { error: "This review hasn’t read its folder’s changes yet." };
   try {
     const out = await callGit(bb, "fileSide", { environmentId: feature.environmentId, query: { target: "all", mergeBaseRef: feature.mergeBaseRef, path, side } }, fileSide);

@@ -1,7 +1,9 @@
 // The review assistant's check of whether your feedback was addressed: how it
 // starts, and what its tools return. Nothing here writes to GitHub.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import type { ReviewMeta } from "./store";
+import type { FeatureReview, ReviewMeta } from "./store";
+import { isSecretPath } from "../lib/folder-files";
+import { readFeatureFile } from "./file-contents";
 import { ghErrorMessage, type runGh, type runGit } from "./gh";
 import { messageAssistant } from "./agent";
 import { reReviewCheckPrompt } from "./preferences";
@@ -162,17 +164,61 @@ async function localFile(git: typeof runGit, review: ReviewMeta, path: string, r
   return { at: /^[0-9a-f]{40}$/.test(rev) ? short(rev) : rev, text: out.stdout };
 }
 
+/** The most of a folder's file read_file reads, as the diff's whole files. */
+const MAX_FOLDER_FILE_BYTES = 2 * 1024 * 1024;
+
+/** Where a file's diff says it links to, when it's a symbolic link (mode 120000) on its new side. */
+export function symlinkTarget(fileDiff: string): string | null {
+  if (!/^(?:new file mode|new mode) 120000$|^index \S+ 120000$/m.test(fileDiff)) return null;
+  const line = fileDiff.split("\n").find((row) => row.startsWith("+") && !row.startsWith("+++"));
+  return line ? line.slice(1) : null;
+}
+
+/**
+ * A folder's review's file, on the folder's machine: as the folder has it now, read through BB inside the folder; or
+ * where its diff starts. A secret-looking file the review doesn't show stays unread unless the reviewer included it
+ * (src/env-diff.ts), and so does a link the diff shows to one. `diff`: the file's diff in the review, if it has one.
+ * BB reads through a link inside the folder and answers with the link's own path, so only the diff tells a link apart.
+ */
+async function folderFile(folder: { bb: BbPluginApi; diff?: string }, review: ReviewMeta & { feature: FeatureReview }, path: string, ref: FileRef): Promise<{ at: string; text: string } | string> {
+  const { feature } = review;
+  if (ref === "reviewed") return "A local review has no reviewed commit. Use ref \"current\" or \"base\".";
+  const included = review.includeHidden ?? [];
+  if (isSecretPath(path) && folder.diff === undefined && !included.includes(path)) return `${path} looks like a secret, so it isn't read for agents. The reviewer can include it from the review.`;
+  const target = folder.diff !== undefined ? symlinkTarget(folder.diff) : null;
+  if (ref === "current" && target && isSecretPath(target) && !included.includes(path)) return `${path} links to ${target}, which looks like a secret, so it isn't read for agents.`;
+  if (ref === "base") {
+    const read = await readFeatureFile(folder.bb, feature, "old", path);
+    return "error" in read ? read.error : { at: short(feature.mergeBaseRef), text: read.text };
+  }
+  if (feature.folderGone) return `bb removed this review's folder, so ${path} can't be read as it is now. Use ref "base".`;
+  const root = feature.path.replace(/\/+$/, "");
+  try {
+    const out = await folder.bb.sdk.files.read({ hostId: feature.hostId, rootPath: root, path: `${root}/${path}` });
+    if (out.sizeBytes > MAX_FOLDER_FILE_BYTES) return `${path} is too large to read here.`;
+    if (out.contentEncoding !== "utf8") return `${path} isn't text.`;
+    return { at: "the working tree", text: out.content };
+  } catch (error) {
+    return `Couldn't read ${path} from ${feature.machine}: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
 type FileRef = "base" | "current" | "reviewed";
 const MAX_FILE_LINES = 400;
 
-/** read_file: a file at the diff's base, your reviewed commit, or the PR's head (a local review's new side), with line numbers. */
-export async function readFileAt(run: Run, git: typeof runGit, review: ReviewMeta, path: string, ref: FileRef, startLine = 1, endLine?: number): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+/**
+ * read_file: a file at the diff's base, your reviewed commit, or the PR's head (a local review's new side), with line
+ * numbers. A folder's review reads its folder through `folder` (folderFile).
+ */
+export async function readFileAt(run: Run, git: typeof runGit, review: ReviewMeta, path: string, ref: FileRef, startLine = 1, endLine?: number, folder?: { bb: BbPluginApi; diff?: string }): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   // A repo-relative path only: no "." or ".." segments that could reach another GitHub endpoint.
   const segments = path.split("/");
   if (path.startsWith("/") || segments.some((segment) => !segment || segment === "." || segment === "..")) return { ok: false, error: `${path} isn't a repo-relative file path.` };
   const from = Math.max(1, startLine);
   if (endLine !== undefined && endLine < from) return { ok: false, error: `endLine ${endLine} is before startLine ${from}.` };
-  const file = review.kind === "pr" ? await prFile(run, review, path, ref) : await localFile(git, review, path, ref);
+  const file = review.kind === "pr" ? await prFile(run, review, path, ref)
+    : review.feature ? folder ? await folderFile(folder, review as ReviewMeta & { feature: FeatureReview }, path, ref) : "This review's folder can't be read from here."
+    : await localFile(git, review, path, ref);
   if (typeof file === "string") return { ok: false, error: file };
   const lines = file.text.replace(/\n$/, "").split("\n");
   if (from > lines.length) return { ok: false, error: `startLine ${from} is past the end: ${path} at ${file.at} has ${lines.length} line${lines.length === 1 ? "" : "s"}.` };

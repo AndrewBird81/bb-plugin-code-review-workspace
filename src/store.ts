@@ -150,6 +150,8 @@ export interface ReviewLifecycle {
   letPush?: boolean;
   /** Files the secrets filter keeps out of the diff that the reviewer chose to Include, by path. Absent: none. */
   includeHidden?: string[];
+  /** Committed files that look like secrets whose warning the reviewer said Got it to, by path. Absent: none. */
+  flaggedSeen?: string[];
   /** What the review agent did on GitHub or sent, oldest first: the last 100 (setLifecycle drops the rest). */
   activity?: ActivityEntry[];
 }
@@ -174,6 +176,10 @@ export interface FeatureReview {
   pausedOn?: string | null;
   /** bb removed the folder. A review that became a PR goes on, and its next Send starts a fresh thread. */
   folderGone?: boolean;
+  /** The key of the review its branch's PR already had when the PR was found: this one links to it instead of becoming it. */
+  prReview?: string;
+  /** How many files changed in the folder since the review read it, as last checked; null for none or not checked. */
+  changedFiles?: number | null;
 }
 
 /** A thread that fixes the review's comments. */

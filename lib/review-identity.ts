@@ -60,7 +60,7 @@ const refHead = (gitRef: string) => gitRef.split(/\.{2,3}/).at(-1) || gitRef;
 const folderName = (path: string | undefined) => path?.split(/[\\/]/).filter(Boolean).at(-1);
 
 /** A home folder as ~: /Users/ana/src/api is ~/src/api. */
-const homeShort = (path: string) => path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+export const homeShort = (path: string) => path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
 
 const fullRepo = (review: Identifiable) => (review.kind === "ref" ? review.place?.repo : review.repo) ?? null;
 

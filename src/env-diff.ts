@@ -10,13 +10,13 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { ensureGitHeaders } from "./patch";
 import { machineStatus } from "./machines";
-import type { FeatureReview, SnapshotFiles } from "./store";
+import type { FeatureReview } from "./store";
+import { isSecretPath, type HiddenFile } from "../lib/folder-files";
 
 export const GIT_PLUGIN = "bb--git";
 type Environment = Awaited<ReturnType<BbPluginApi["sdk"]["environments"]["get"]>>;
 
-/** A file kept out of the patch, and why: it looks like a secret, it's binary, or its diff is too large. */
-export type HiddenFile = SnapshotFiles["hidden"][number];
+export { flaggedFileNotice, hiddenFileNotice, isSecretPath, type HiddenFile } from "../lib/folder-files";
 
 export type FeatureDiff =
   | {
@@ -33,27 +33,25 @@ export type FeatureDiff =
     mergeBaseRef: string;
     /** Why the diff is incomplete, for the review to say; null when it's whole. */
     notice: string | null;
+    /** The branch's PR, as bb's GitHub PR status plugin said; absent for none, or when it couldn't say. */
+    pr?: FolderPr;
   }
-  /** offline: the folder's machine isn't connected. gone: bb removed the folder. unavailable: anything else. */
-  | { outcome: "offline" | "gone" | "unavailable"; message: string };
+  | FolderUnread;
 
-/** Untracked files with these names stay out until included: `.env*`, `*.pem`, `*.key`, `credentials*`. */
-export function isSecretPath(path: string): boolean {
-  const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
-  return name.startsWith(".env") || name.endsWith(".pem") || name.endsWith(".key") || name.startsWith("credentials");
-}
+/**
+ * Why a folder wasn't read. offline: its machine isn't connected. gone: bb removed it. paused: it's on another branch
+ * than the review's, `branch` (null for none). unavailable: anything else.
+ */
+export type FolderUnread = { outcome: "offline" | "gone" | "unavailable"; message: string } | { outcome: "paused"; branch: string | null; message: string };
 
-/** What the review says about a file it doesn't show. */
-export function hiddenFileNotice(file: HiddenFile): string {
-  switch (file.reason) {
-    case "secret": return `${file.path} looks like a secret, so it isn’t shown or sent to agents. Include it to review it.`;
-    case "binary": return `${file.path} is a binary file, so its contents aren’t shown or sent to agents.`;
-    case "large": return `${file.path}’s diff is too large to show. Review it in the folder.`;
-  }
-}
+/** A folder's branch's PR, as bb's GitHub PR status plugin says it. */
+export type FolderPr = z.infer<typeof folderPr>;
 
-/** What the review says about a committed file that looks like a secret. */
-export const flaggedFileNotice = (path: string) => `${path} looks like a secret and is committed. Check it belongs in the repo.`;
+/**
+ * Where a local review keeps the revisions and hidden files of its diff (saveSnapshotFiles): by the stored patch's hash,
+ * so another patch never reads them. None kept means they're unknown.
+ */
+export const diffFilesHead = (patchHash: string) => `diff:${patchHash}`;
 
 /** bb gives each file's diff up to 512 KB; past this much in all, the rest stay out, as a local diff stops at 64 MB. */
 const MAX_PATCH_BYTES = 64 * 1024 * 1024;
@@ -77,7 +75,8 @@ const filesOutput = z.discriminatedUnion("outcome", [
   notGit, failure,
 ]);
 const patchesOutput = z.record(z.string(), z.discriminatedUnion("outcome", [z.object({ outcome: z.literal("available"), patch: filePatch }), notGit, failure]));
-const pullRequestsOutput = z.record(z.string(), z.object({ outcome: z.string(), pullRequest: z.object({ baseRefName: z.string() }).optional() }));
+const folderPr = z.object({ baseRefName: z.string(), number: z.number().int().optional(), url: z.string().optional(), headRefName: z.string().optional(), state: z.string().optional() });
+const pullRequestsOutput = z.record(z.string(), z.object({ outcome: z.string(), pullRequest: folderPr.optional() }));
 type ChangedFile = Extract<z.infer<typeof filesOutput>, { outcome: "available" }>["files"][number];
 
 /** Call one of bb's Git plugin's RPC methods. */
@@ -85,19 +84,20 @@ export function callGit<T>(bb: BbPluginApi, method: string, input: Parameters<Bb
   return bb.sdk.plugins.callRpc({ pluginId: GIT_PLUGIN, method, input, outputSchema });
 }
 
-const isNotFound = (error: unknown) => (error as { status?: number } | null)?.status === 404 || String(error).includes("HTTP 404");
+/** BB answered that the thing asked for doesn’t exist: not that it couldn’t say. */
+export const isNotFound = (error: unknown) => (error as { status?: number } | null)?.status === 404 || String(error).includes("HTTP 404");
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 /**
- * What a folder's diff is against, in the order above, or why that's unknown. A folder with no GitHub repo has no PR.
- * When bb can't say whether the branch has one, the base the last read used (`stored`) stays, so the diff doesn't
- * jump to another base and back.
+ * What a folder's diff is against, in the order above, or why that's unknown, and the branch's PR when it has one. A
+ * folder with no GitHub repo has no PR. When bb can't say whether the branch has one, the base the last read used
+ * (`stored`) stays, so the diff doesn't jump to another base and back.
  */
-export async function featureBase(bb: BbPluginApi, env: Environment, repo: string | null, stored?: string): Promise<{ base: string } | { message: string }> {
+export async function featureBase(bb: BbPluginApi, env: Environment, repo: string | null, stored?: string): Promise<{ base: string; pr?: FolderPr } | { message: string }> {
   if (repo) {
     const prs = await bb.sdk.plugins.callRpc({ pluginId: "bb--github-pr-status", method: "pullRequests", input: { keys: [env.id] }, outputSchema: pullRequestsOutput }).catch(() => null);
     const pr = prs?.[env.id];
-    if (pr?.outcome === "available" && pr.pullRequest?.baseRefName) return { base: pr.pullRequest.baseRefName };
+    if (pr?.outcome === "available" && pr.pullRequest?.baseRefName) return { base: pr.pullRequest.baseRefName, pr: pr.pullRequest };
     if (pr?.outcome !== "absent") {
       return stored ? { base: stored } : { message: "Couldn’t check whether this branch has a PR, so its base isn’t known yet. Try again in a moment." };
     }
@@ -115,34 +115,71 @@ function binaryStub(file: ChangedFile, patch: string): string {
   return `${patch.slice(0, at)}\nBinary files ${old} and ${next} differ\n`;
 }
 
+type Opened = { env: Environment; base: string; pr?: FolderPr; offline: () => FolderUnread };
+
 /**
- * The folder's diff against its real base, with `include` the hidden files the reviewer chose to see and
- * `feature.baseRef` the base the last read used, if any. A machine that's
- * asleep, a folder bb removed, and any read that fails come back as an outcome with the message the review shows.
+ * The folder, ready to read: ready on a connected machine, on the review's `branch` when one's given, and its base;
+ * else why it can't be read.
  */
-export async function readFeatureDiff(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string }, include: readonly string[] = []): Promise<FeatureDiff> {
+async function openFolder(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; branch?: string }): Promise<Opened | FolderUnread> {
   let env: Environment;
   try {
     env = await bb.sdk.environments.get({ environmentId: feature.environmentId });
   } catch (error) {
-    if (isNotFound(error)) return { outcome: "gone", message: "bb removed this folder, so its changes can’t be read." };
+    if (isNotFound(error)) return { outcome: "gone", message: "BB removed this folder, so its changes can’t be read." };
     return { outcome: "unavailable", message: `Couldn’t read the folder’s changes: ${errorText(error)}` };
   }
-  if (env.status === "destroyed") return { outcome: "gone", message: "bb removed this folder, so its changes can’t be read." };
-  if (env.status === "error") return { outcome: "unavailable", message: "bb couldn’t set up this folder, so its changes can’t be read." };
+  if (env.status === "destroyed") return { outcome: "gone", message: "BB removed this folder, so its changes can’t be read." };
+  if (env.status === "error") return { outcome: "unavailable", message: "BB couldn’t set up this folder, so its changes can’t be read." };
   if (env.status !== "ready") return { outcome: "unavailable", message: "The folder is still being set up. Try again in a moment." };
   const machine = await machineStatus(bb, env.hostId);
-  const offline = (): FeatureDiff => ({ outcome: "offline", message: `${machine?.name ?? feature.machine} is offline. Wake it to see the folder’s latest changes.` });
+  const offline = (): FolderUnread => ({ outcome: "offline", message: `${machine?.name ?? feature.machine} is offline. Wake it to see the folder’s latest changes.` });
   if (machine && !machine.connected) return offline();
+  // Another branch's changes aren't this review's.
+  if (feature.branch !== undefined && env.branchName !== feature.branch) {
+    return { outcome: "paused", branch: env.branchName, message: `The folder is on ${env.branchName ?? "no branch"}, not ${feature.branch}.` };
+  }
   const found = await featureBase(bb, env, feature.repo, feature.baseRef);
   if ("message" in found) return { outcome: "unavailable", message: found.message };
-  const { base } = found;
+  return { env, ...found, offline };
+}
 
-  const unreadable = (result: z.infer<typeof notGit> | z.infer<typeof failure>): FeatureDiff => result.outcome === "not_applicable"
-    ? { outcome: "unavailable", message: "This folder isn’t a git repository, so it has no changes to review." }
-    : result.failure.code === "path_not_found" || result.failure.code === "unknown_environment"
-      ? { outcome: "gone", message: "The folder is no longer on its machine, so its changes can’t be read." }
-      : { outcome: "unavailable", message: `Couldn’t read the folder’s changes: ${result.failure.message}` };
+/**
+ * Each changed file's revision in the folder now, against its real base, hidden files' too, without reading a diff:
+ * what a review compares with the revisions it keeps to say whether the folder changed. With the branch's PR.
+ */
+export async function readFeatureRevisions(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; branch?: string }): Promise<{ outcome: "available"; revisions: Record<string, string>; base: string; pr?: FolderPr } | FolderUnread> {
+  const opened = await openFolder(bb, feature);
+  if ("outcome" in opened) return opened;
+  const { env, base, pr } = opened;
+  try {
+    const listed = await callGit(bb, "files", { environmentId: env.id, target: { type: "all", mergeBaseBranch: base }, ignoreWhitespace: false }, filesOutput);
+    if (listed.outcome !== "available") return unreadable(listed);
+    return { outcome: "available", revisions: Object.fromEntries(listed.files.map((file) => [file.path, file.revision])), base, ...pr ? { pr } : {} };
+  } catch (error) {
+    if ((await machineStatus(bb, env.hostId))?.connected === false) return opened.offline();
+    return { outcome: "unavailable", message: `Couldn’t read the folder’s changes: ${errorText(error)}` };
+  }
+}
+
+/** Why the Git plugin couldn't read the folder. */
+const unreadable = (result: z.infer<typeof notGit> | z.infer<typeof failure>): FolderUnread => result.outcome === "not_applicable"
+  ? { outcome: "unavailable", message: "This folder isn’t a git repository, so it has no changes to review." }
+  : result.failure.code === "path_not_found" || result.failure.code === "unknown_environment"
+    ? { outcome: "gone", message: "The folder is no longer on its machine, so its changes can’t be read." }
+    : { outcome: "unavailable", message: `Couldn’t read the folder’s changes: ${result.failure.message}` };
+
+/**
+ * The folder's diff against its real base, with `include` the hidden files the reviewer chose to see,
+ * `feature.baseRef` the base the last read used, if any, and `feature.branch` the branch it must be on, if any. A
+ * machine that's asleep, a folder bb removed or on another branch, and any read that fails come back as an outcome with
+ * the message the review shows.
+ */
+export async function readFeatureDiff(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "machine" | "repo"> & { baseRef?: string; branch?: string }, include: readonly string[] = []): Promise<FeatureDiff> {
+  const opened = await openFolder(bb, feature);
+  if ("outcome" in opened) return opened;
+  const { env, base, pr, offline } = opened;
+
   try {
     const listed = await callGit(bb, "files", { environmentId: env.id, target: { type: "all", mergeBaseBranch: base }, ignoreWhitespace: false }, filesOutput);
     if (listed.outcome !== "available") return unreadable(listed);
@@ -171,7 +208,7 @@ export async function readFeatureDiff(bb: BbPluginApi, feature: Pick<FeatureRevi
       const read = await callGit(bb, "patches", { keys: batch.map((b) => b.key) }, patchesOutput);
       for (const { file, key } of batch) {
         const result = read[key];
-        if (!result) return { outcome: "unavailable", message: `Couldn’t read the folder’s changes: bb sent no diff for ${file.path}.` };
+        if (!result) return { outcome: "unavailable", message: `Couldn’t read the folder’s changes: BB sent no diff for ${file.path}.` };
         if (result.outcome !== "available") return unreadable(result);
         patches.set(file.path, result.patch);
       }
@@ -206,7 +243,8 @@ export async function readFeatureDiff(bb: BbPluginApi, feature: Pick<FeatureRevi
       flagged,
       base,
       mergeBaseRef,
-      notice: listed.truncated ? `This folder has more changed files than bb lists at once, so the review has the first ${listed.files.length}.` : null,
+      notice: listed.truncated ? `This folder has more changed files than BB lists at once, so the review has the first ${listed.files.length}.` : null,
+      ...pr ? { pr } : {},
     };
   } catch (error) {
     // The Git plugin can't reach a machine that went to sleep since it was last seen.

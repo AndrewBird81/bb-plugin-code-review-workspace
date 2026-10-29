@@ -9,6 +9,7 @@ import { skipRun } from "./agent";
 import { mayRunUnattended } from "../lib/trust";
 import { existsSync } from "node:fs";
 import type { AsyncStore } from "./store-queue";
+import { readForGuide } from "./feature-review";
 
 interface Deps {
   bb: BbPluginApi; store: AsyncStore;
@@ -38,6 +39,7 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
   if (unavailable) return { ok: false, error: unavailable };
 
   let patch = "";
+  let saveRead: ((tx: AsyncStore) => Promise<void>) | undefined;
   if (m.kind === "pr" && m.number && m.repo) {
     try {
       const snapshot = await readPrSnapshot(deps.gh.runGh, m.number, m.repo);
@@ -57,6 +59,12 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Couldn't load the PR." };
     }
+  } else if (m.feature && m.kind === "ref") {
+    // A folder's review reads its folder, on whichever machine it's on, and keeps what it read with the guide.
+    const read = await readForGuide(deps.bb, m);
+    if (!read || "error" in read) return { ok: false, error: read?.error ?? "Review has no re-runnable target." };
+    patch = read.patch;
+    saveRead = read.save;
   } else if (m.kind === "ref" && m.gitRef) {
     if (!m.cwd) return { ok: false, error: "Rebuilding a local review's guide needs its original working dir; re-run `bb review` in the terminal." };
     const diff = await deps.gh.runGit(gitDiffArgs(m.gitRef), { cwd: m.cwd });
@@ -76,6 +84,7 @@ async function rerun(deps: Deps, targetKey: string, options: { notify?: boolean;
       // A guide started while GitHub or git answered, as by bb review, is building this review already: one writer, not two.
       if ((await tx.getReview(targetKey))?.status === "generating") return { ok: true };
       run = await rebuildReview(deps, tx, { ...m, projectId }, patch, options);
+      await saveRead?.(tx);
       return { ok: true };
     });
   } finally {

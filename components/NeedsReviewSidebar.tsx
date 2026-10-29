@@ -193,9 +193,11 @@ export function NeedsReviewSidebar() {
         <a href={`/plugins/${pluginId}/review/${review.targetKey}`} title={tooltip} aria-describedby={describedBy} onClick={(event) => open(event, review.targetKey)}
           className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md pl-2 pr-1 outline-none ring-sidebar-ring focus-visible:ring-2">
           <HostIcon name={`${pluginId}/review`} fallback={kindLook(review).icon} className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-          {/* A PR's number before its name, on its baseline: the list is too narrow for its repository, which the tooltip says. */}
+          {/* A PR's number before its name, on its baseline: the list is too narrow for its repository, which the tooltip says.
+              A local review's branch tells apart two of one name, or, where they share it, the folder's end the id adds. */}
           <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
             {!!review.number && <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">#{review.number}</span>}
+            {!review.number && review.kind === "ref" && identity.idTail && <span className="min-w-0 max-w-[45%] shrink-0 truncate font-mono text-[11px] text-muted-foreground">{review.place?.folder ? `(${review.place.folder})` : identity.idTail.replace(/^:/, "")}</span>}
             <span className="min-w-0 flex-1 truncate">{title}</span>
           </span>
           {waited && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{waited}</span>}

@@ -1,6 +1,6 @@
 // Where each review's code is, for its identity (lib/review-identity.ts): a local review's repository, from its
-// project's remote, and the machine its checkout is on, the bb server's, where `bb review` reads it. Derived for
-// display, never stored: the top-level `repo` still means a PR.
+// project's remote, and the machine its checkout is on, the bb server's, where `bb review` reads it; a folder's review's
+// own folder, machine and repository. Derived for display, never stored: the top-level `repo` still means a PR.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { distinguish, reviewIdentity, type ReviewIdentity, type ReviewPlace } from "../lib/review-identity";
 import { machineStatus } from "./machines";
@@ -53,7 +53,10 @@ export function placeFacts(bb: BbPluginApi, reviews: readonly Pick<ReviewMeta, "
 
 /** Each review's place in `reviews`, your list, with what tells apart ids that would match. */
 export function reviewPlaces(facts: PlaceFacts, reviews: readonly ReviewMeta[]): Map<string, ReviewPlace> {
-  const placed = reviews.map((review) => review.kind !== "ref" ? review : { ...review, place: {
+  // A folder's review is where its folder is, on whichever machine (src/feature-review.ts).
+  const placed = reviews.map((review) => review.kind !== "ref" ? review : review.feature ? { ...review, place: {
+    ...review.feature.repo ? { repo: review.feature.repo } : {}, machine: review.feature.machine, path: review.feature.path,
+  } } : { ...review, place: {
     ...review.projectId && facts.repos.get(review.projectId) ? { repo: facts.repos.get(review.projectId) } : {},
     ...facts.machine ? { machine: facts.machine } : {},
     ...review.cwd ? { path: review.cwd } : {},

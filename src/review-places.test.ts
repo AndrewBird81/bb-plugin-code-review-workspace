@@ -78,3 +78,16 @@ test("the list and a review's page give a local review with no title its guide's
   const { review } = await harness.behavior.callRpc("getReviewBundle", { targetKey: "ref-1" }) as { review: any };
   expect(review.guideTitle).toBe("Snooze flaky checks");
 });
+
+test("a folder's review is where its folder is: its repository, machine and path, its bb branch read as its slug", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: bbSdk as any });
+  await plugin(bb);
+  const store = testStore(bb);
+  const feature = { environmentId: "env1", hostId: "host_laptop", machine: "FloMac", path: "/Users/ana/src/web-wt", branch: "bb/snooze-checks-thr_ab12", baseRef: "main", repo: "flosports/web" };
+  await store.saveReview({ targetKey: "br-1", kind: "ref", gitRef: feature.branch, title: "Snooze flaky checks", status: "ready", createdAt: 1, projectId: "p1" });
+  await store.setLifecycle("br-1", { feature });
+  // Its project's remote is another repository's: the folder's own stands.
+  const { reviews } = await harness.behavior.callRpc("listReviews", null) as { reviews: any[] };
+  expect(reviews[0].place).toEqual({ repo: "flosports/web", machine: "FloMac", path: "/Users/ana/src/web-wt" });
+  expect(reviewIdentity(reviews[0])).toMatchObject({ id: "web:snooze-checks", line: "web:snooze-checks · Snooze flaky checks", whose: "Local", where: "FloMac · ~/src/web-wt" });
+});

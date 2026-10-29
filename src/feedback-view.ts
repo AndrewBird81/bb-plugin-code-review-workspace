@@ -5,6 +5,7 @@ import type { runGh } from "./gh";
 import { ghErrorMessage, ghPrHeadArgs } from "./gh";
 import { diffTooLarge, readFilesPatch, readPrDiff } from "./pr-snapshot";
 import { ensureGitHeaders, splitPatchByFile } from "./patch";
+import { diffFilesHead } from "./env-diff";
 import { interdiff, type FileInterdiff } from "./interdiff";
 import { firstLine, type AssessmentItem, type FeedbackItem, type FeedbackView } from "../lib/feedback";
 import { baselineOf, type AssessmentSummary } from "../lib/turn";
@@ -79,9 +80,10 @@ async function compareDiff(run: Run, repo: string, base: string, sha: string): P
 /** The diffs this review still needs: its guide's, your review's, and the PR's head. */
 const keptDiffs = (review: ReviewMeta) => [review.headSha, baselineOf(review).sha, headOf(review)].filter((sha): sha is string => !!sha);
 
-/** Keep the diffs this review still needs. */
+/** Keep the diffs this review still needs, and a local review's diff's files. */
 export async function pruneDiffs(store: AsyncStore, review: ReviewMeta) {
-  await store.pruneSnapshots(review.targetKey, keptDiffs(review));
+  const live = review.feature ? [diffFilesHead(await store.patchHash(review.targetKey))] : [];
+  await store.pruneSnapshots(review.targetKey, [...keptDiffs(review), ...live]);
 }
 
 /** How long a review stays out of play (merged, closed, or archived) before its stored diffs are dropped. */
@@ -101,6 +103,14 @@ export async function pruneOldDiffs(store: AsyncStore, now: number): Promise<str
     const pruned: string[] = [];
     for (const review of await tx.listReviews()) {
       const since = Math.min(review.archivedAt ?? Infinity, review.userArchivedAt ?? Infinity);
+      // A local review whose folder bb removed has nothing to read again, and nothing waits on it once archived.
+      const folderGone = review.kind === "ref" && !!review.feature?.folderGone && !!review.archivedAt;
+      if (folderGone && now - since >= PRUNE_AFTER && !(await tx.getDraft(review.targetKey)).comments.length && await tx.hasPatch(review.targetKey)) {
+        await tx.dropPatch(review.targetKey);
+        await tx.pruneSnapshots(review.targetKey, []);
+        pruned.push(review.targetKey);
+        continue;
+      }
       if (review.kind !== "pr" || review.status !== "ready" || !review.headSha || now - since < PRUNE_AFTER) continue;
       if (review.prState !== "MERGED" && review.prState !== "CLOSED" || headOf(review) !== review.headSha) continue;
       if (!await tx.hasPatch(review.targetKey) || (await tx.getDraft(review.targetKey)).comments.length) continue;

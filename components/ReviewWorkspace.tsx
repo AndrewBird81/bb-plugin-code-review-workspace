@@ -52,6 +52,7 @@ import { NavigatorHost } from "./shell/NavigatorHost";
 import { PhoneDock } from "./shell/PhoneDock";
 import { returnFocus } from "./shell/side-parts";
 import { ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
+import { useFeatureNotices } from "./shell/FeatureNotices";
 import { SelectionBar } from "./shell/SelectionBar";
 import { SidePanel, sidePanelId } from "./shell/SidePanel";
 import { TopBand, navigatorId } from "./shell/TopBand";
@@ -696,6 +697,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   useRealtime("gh-account", () => {
     void checkAccess();
   });
+  // A local review's folder: changed, on another branch, offline or gone, and who else works there.
+  const featureNotices = useFeatureNotices(targetKey, review, load);
 
   // Track browser fullscreen state so the toggle icon/label stays correct.
   useEffect(() => {
@@ -1424,6 +1427,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
       // Why, as a first guide's page says it: the writer's words or the last rejection, as plain text cut to a few lines.
       : { id: "rebuild", tone: "danger", icon: "AlertTriangle", role: "alert", text: <>Couldn’t update the guide. Showing the previous one.{review.guideError?.text && <span className="mt-0.5 line-clamp-3 whitespace-pre-line break-words">{review.guideError.text}</span>}</>, action: retryGuide } as const] : []),
     ...(repoAccess && !repoAccess.accessible ? [{ id: "access", tone: "danger", icon: "Lock", text: repoAccess.badCredentials ? "GitHub refused your account’s credentials. Switch account:" : `${repoAccess.account ? `@${repoAccess.account}` : "Your GitHub account"} can’t access ${repoAccess.repo ?? "this repo"}. Switch account:`, action: <AccountBar /> }] as const : []),
+    ...featureNotices,
     ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),
     ...(review?.skippedRun && !archived ? [{ id: "not-run", tone: "warning", icon: "Lock", label: "Not run automatically", text: `${notRunReason(review, { unattendedAgents })}.`, action: <NotRunButton review={review} /> }] as const : []),
     ...(newCommits && !generatingReplacement ? [{ id: "new-commits", tone: "info", icon: "GitCommit", text: newCommitsText, action: <Button variant="outline" size="sm" className={noticeButton} disabled={rebuilding} onClick={() => void rebuild()}>Update guide</Button> }] as const : []),

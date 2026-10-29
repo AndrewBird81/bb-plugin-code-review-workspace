@@ -34,7 +34,7 @@ Drafts stay in BB until the reviewer explicitly submits a GitHub verdict. The re
 
 Code Review Workspace runs on BB **0.45.0+**, Node **24+**, and plugin SDK **0.6.14+**; [CHANGELOG.md](CHANGELOG.md) lists each release. Reviewers need their own BB installation and GitHub authentication. It does not provide shared review workspaces or separate user accounts within one server.
 
-Git and `gh` run on the BB server. Local review checkouts must exist there; a checkout only on another enrolled machine is unsupported. GitHub features currently support `github.com`. Account switching affects that server’s `gh` credentials, including other consumers; environment-token overrides must be cleared before switching saved accounts.
+Git and `gh` run on the BB server. A review of a local ref needs its checkout there; a review of a thread's folder, from `bb review` with no ref, reads that folder on whichever enrolled machine it's on, through BB. GitHub features currently support `github.com`. Account switching affects that server’s `gh` credentials, including other consumers; environment-token overrides must be cleared before switching saved accounts.
 
 Metadata, patches, guides, and drafts reside in the installation’s plugin database, or in a Postgres database its operator chooses. Review agents receive context through the configured provider. Sharing a BB server shares its credentials and plugin storage. See [README.md](README.md) for installation, [docs/guide.md](docs/guide.md) for use, and [docs/operations.md](docs/operations.md) for running it.
 
