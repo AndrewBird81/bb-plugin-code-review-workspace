@@ -52,7 +52,7 @@ export interface SendExtras { message?: string; includeSummary?: boolean }
 export interface Sent { ok: true; delivery: "sent" | "queued"; threadId: string; title: string | null; sendN: number; ids: string[]; skipped?: number }
 
 
-interface Deps { bb: BbPluginApi; store: AsyncStore; changed(targetKey: string): void; submitReview?: { submitting(targetKey: string): boolean } }
+interface Deps { bb: BbPluginApi; store: AsyncStore; changed(targetKey: string): void; submitReview?: { submitting(targetKey: string): boolean; sendStarted(targetKey: string): void; sendEnded(targetKey: string): void } }
 
 /** The last line of every Send: how the thread says what it did with each comment. */
 const REPORT = "Report each with `bb review report <id> done|declined --note \"…\"`; run `bb review ready` when finished.";
@@ -369,79 +369,88 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
   // A fresh thread is told GitHub's limits as Fix in a new thread is: all of them, or, let push, all but the push.
   const limits = fresh || fixer || briefed ? [letPush ? GUARD_BUT_PUSH : GUARD] : letPush ? [] : [NO_PUSH];
   // What the message says, and what the Send keeps, read in one turn; the comments get their ids now.
-  const composed = await store.exclusive(async (tx) => {
-    const draft = await tx.getDraft(targetKey);
-    const comments = draft.comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
-    const now = (await tx.getReview(targetKey)) ?? review;
-    const items = await githubItems(tx, now, github);
-    // A GitHub item the review no longer has, as one gone from GitHub's window, is left out; the Send says how many.
-    if (!comments.length && !items.length || picked.length && !comments.length) return null;
-    // Only your Reopen sends a comment you resolved or dismissed again.
-    const settled = comments.find((comment) => comment.state === "resolved" || comment.state === "dismissed");
-    if (settled) throw new Error(`The comment on ${settled.file}:${settled.line} is ${settled.state}. Reopen it to send it again.`);
-    const unnamed = comments.filter((comment) => !comment.id);
-    // A GitHub item sent before keeps its id.
-    const unsentItems = items.filter((item) => !now.threadSends?.[githubId(item)]);
-    const ids = unnamed.length + unsentItems.length ? await newCommentIds(tx, bb.storage.kv, unnamed.length + unsentItems.length) : [];
-    if (unnamed.length) await tx.trackComments(targetKey, unnamed.map((comment, i) => ({ at: comment, id: ids[i] })));
-    const named = comments.map((comment) => ({ ...comment, id: comment.id ?? ids[unnamed.indexOf(comment)] })) as Array<DraftComment & { id: string }>;
-    const itemIds = items.map((item) => now.threadSends?.[githubId(item)]?.id ?? ids[unnamed.length + unsentItems.indexOf(item)]);
-    const patch = await tx.patch(targetKey);
-    const stale = await tx.staleDraftComments(targetKey);
-    const preExisting = (await tx.getPreferences()).preferences.knobs.preExistingFindings;
-    const files: SnapshotFiles | null = review.feature ? await tx.getSnapshotFiles(targetKey, diffFilesHead(await tx.patchHash(targetKey))) : null;
-    const { message, summary } = extras(draft.body, add);
-    const texts = [
-      ...named.map((comment) => commentText(comment, patch, stale, preExisting, { id: comment.id, author: theirs })),
-      ...items.map((item, i) => itemText(item, itemIds[i], patch)),
-    ];
-    const apply = add.patch === undefined ? [] : [
-      `I asked the review agent to fix ${named[0].id} itself. Apply its patch as written, with \`git apply\`, and change nothing else for it; if it doesn't apply cleanly, report ${named[0].id} declined with why.`,
-      fenced(add.patch, "diff"),
-    ];
-    // Only GitHub's feedback is to address, not fix as your review's comments are.
-    const lead = named.length ? undefined : "feedback";
-    const brief = fixer ? { place: fixer.fixer, forked: fixer.fork } : briefed ? { place: briefed, forked: true } : null;
-    const opening = brief
-      ? fixerBrief(shown, brief.place, { lead: `${named.length ? "Fix these comments from my review of" : "Address this feedback on"} ${prWhat(shown)}.`, intent: (await tx.getGuide(targetKey))?.intent, forked: brief.forked, own, letPush })
-      : moved ? where(moved.shown, moved.branch, lead) : where(shown, laterFixer && main ? fixerBranchLine(recordOf(now, main.threadId)?.branch ?? main.branch) : stayOn ?? undefined, lead);
-    // A fixer sent to again stays on its branch, and is told again what the quoted words are.
-    const text = [message, opening, ...texts, ...apply, summary, ...limits, ...laterFixer ? [UNTRUSTED_NOTE] : [], REPORT].filter(Boolean).join("\n\n");
-    return { comments: named, items: items.map((item, i) => ({ githubId: githubId(item), id: itemIds[i] })), skipped: github.length - items.length, patch, files, text };
-  });
-  if (!composed) throw new Error(github.length && !picked.length ? `${github.length === 1 ? "That comment is" : "Those comments are"} no longer on GitHub as the review last read it, so there's nothing to send.` : "Those comments are no longer in the draft.");
-  const went = await go(deps, shown, routed, composed.text);
-  const n = await store.exclusive(async (tx) => {
-    const now = (await tx.getReview(targetKey)) ?? review;
-    const n = Math.max(0, ...(now.sends ?? []).map((entry) => entry.n)) + 1;
-    await tx.saveSnapshot(targetKey, sendKey(n), composed.patch);
-    if (composed.files) await tx.saveSnapshotFiles(targetKey, sendKey(n), composed.files);
-    // Each comment as it went, with no report yet; one edited meanwhile is open again, for the next Send.
-    const { comments } = await tx.getDraft(targetKey);
-    const unchanged = composed.comments.filter((sent) => comments.some((comment) => sameLocation(comment, sent) && comment.body === sent.body));
-    if (unchanged.length) await tx.trackComments(targetKey, unchanged.map((comment) => ({ at: comment, state: "sent" as const, sendN: n, claim: undefined })));
-    const at = Date.now();
-    const entry: SendEntry = { n, at, threadId: went.threadId, ids: [...composed.comments.map((comment) => comment.id), ...composed.items.map((item) => item.id)], ...add.patch === undefined ? {} : { patch: add.patch }, ...went.queued ? { queued: went.queued } : {}, ...letPush ? { letPush: true as const } : {} };
-    // 1.7.0's record, which its Send to thread reads: comments sent to this thread before stay marked, one sent again is marked now.
-    const earlier = now.sent?.threadId === went.threadId ? now.sent.comments.filter((comment) => !composed.comments.some((sent) => sameLocation(sent, comment))) : [];
-    await tx.setLifecycle(targetKey, {
-      sends: [...now.sends ?? [], entry],
-      sent: { at, threadId: went.threadId, title: went.title, comments: [...earlier, ...composed.comments.map(({ file, line, side, body }) => ({ file, line, side, body, at }))] },
-      // A GitHub item sent again waits for its new report.
-      ...composed.items.length ? { threadSends: { ...now.threadSends, ...Object.fromEntries(composed.items.map((item) => [item.githubId, { id: item.id, sendN: n }])) } } : {},
-      // The comments supersede an approval sent before them.
-      approvalSent: null,
-      // A fork is the main thread already.
-      ...went.fresh && now.mainThread?.threadId !== went.fresh.id ? mainThreadState(now, went.fresh, at, went.forked ? "forked" : "fresh", "fixer" in routed ? { sha: routed.fixer.sha, at } : undefined) : {},
+  let holding = false;
+  try {
+    const composed = await store.exclusive(async (tx) => {
+      // A review being submitted now could post what this takes: it waits. Once it's taken, Submit waits for it.
+      if (deps.submitReview?.submitting(targetKey)) throw new Error("Submitting this review; try again in a moment.");
+      deps.submitReview?.sendStarted(targetKey);
+      holding = true;
+      const draft = await tx.getDraft(targetKey);
+      const comments = draft.comments.filter((comment) => picked.some((at) => sameLocation(at, comment)));
+      const now = (await tx.getReview(targetKey)) ?? review;
+      const items = await githubItems(tx, now, github);
+      // A GitHub item the review no longer has, as one gone from GitHub's window, is left out; the Send says how many.
+      if (!comments.length && !items.length || picked.length && !comments.length) return null;
+      // Only your Reopen sends a comment you resolved or dismissed again.
+      const settled = comments.find((comment) => comment.state === "resolved" || comment.state === "dismissed");
+      if (settled) throw new Error(`The comment on ${settled.file}:${settled.line} is ${settled.state}. Reopen it to send it again.`);
+      const unnamed = comments.filter((comment) => !comment.id);
+      // A GitHub item sent before keeps its id.
+      const unsentItems = items.filter((item) => !now.threadSends?.[githubId(item)]);
+      const ids = unnamed.length + unsentItems.length ? await newCommentIds(tx, bb.storage.kv, unnamed.length + unsentItems.length) : [];
+      if (unnamed.length) await tx.trackComments(targetKey, unnamed.map((comment, i) => ({ at: comment, id: ids[i] })));
+      const named = comments.map((comment) => ({ ...comment, id: comment.id ?? ids[unnamed.indexOf(comment)] })) as Array<DraftComment & { id: string }>;
+      const itemIds = items.map((item) => now.threadSends?.[githubId(item)]?.id ?? ids[unnamed.length + unsentItems.indexOf(item)]);
+      const patch = await tx.patch(targetKey);
+      const stale = await tx.staleDraftComments(targetKey);
+      const preExisting = (await tx.getPreferences()).preferences.knobs.preExistingFindings;
+      const files: SnapshotFiles | null = review.feature ? await tx.getSnapshotFiles(targetKey, diffFilesHead(await tx.patchHash(targetKey))) : null;
+      const { message, summary } = extras(draft.body, add);
+      const texts = [
+        ...named.map((comment) => commentText(comment, patch, stale, preExisting, { id: comment.id, author: theirs })),
+        ...items.map((item, i) => itemText(item, itemIds[i], patch)),
+      ];
+      const apply = add.patch === undefined ? [] : [
+        `I asked the review agent to fix ${named[0].id} itself. Apply its patch as written, with \`git apply\`, and change nothing else for it; if it doesn't apply cleanly, report ${named[0].id} declined with why.`,
+        fenced(add.patch, "diff"),
+      ];
+      // Only GitHub's feedback is to address, not fix as your review's comments are.
+      const lead = named.length ? undefined : "feedback";
+      const brief = fixer ? { place: fixer.fixer, forked: fixer.fork } : briefed ? { place: briefed, forked: true } : null;
+      const opening = brief
+        ? fixerBrief(shown, brief.place, { lead: `${named.length ? "Fix these comments from my review of" : "Address this feedback on"} ${prWhat(shown)}.`, intent: (await tx.getGuide(targetKey))?.intent, forked: brief.forked, own, letPush })
+        : moved ? where(moved.shown, moved.branch, lead) : where(shown, laterFixer && main ? fixerBranchLine(recordOf(now, main.threadId)?.branch ?? main.branch) : stayOn ?? undefined, lead);
+      // A fixer sent to again stays on its branch, and is told again what the quoted words are.
+      const text = [message, opening, ...texts, ...apply, summary, ...limits, ...laterFixer ? [UNTRUSTED_NOTE] : [], REPORT].filter(Boolean).join("\n\n");
+      return { comments: named, items: items.map((item, i) => ({ githubId: githubId(item), id: itemIds[i] })), skipped: github.length - items.length, patch, files, text };
     });
-    await settleFixes(tx, targetKey);
-    await pruneDiffs(tx, (await tx.getReview(targetKey))!);
-    return n;
-  });
-  if (went.fresh) await settleFolder(deps, targetKey, went.fresh);
-  deps.changed(targetKey);
-  bb.realtime.publish(`draft:${targetKey}`, {});
-  return { ok: true, delivery: went.delivery, threadId: went.threadId, title: went.title, sendN: n, ids: [...composed.comments.map((comment) => comment.id), ...composed.items.map((item) => item.id)], ...composed.skipped ? { skipped: composed.skipped } : {} };
+    if (!composed) throw new Error(github.length && !picked.length ? `${github.length === 1 ? "That comment is" : "Those comments are"} no longer on GitHub as the review last read it, so there's nothing to send.` : "Those comments are no longer in the draft.");
+    const went = await go(deps, shown, routed, composed.text);
+    const n = await store.exclusive(async (tx) => {
+      const now = (await tx.getReview(targetKey)) ?? review;
+      const n = Math.max(0, ...(now.sends ?? []).map((entry) => entry.n)) + 1;
+      await tx.saveSnapshot(targetKey, sendKey(n), composed.patch);
+      if (composed.files) await tx.saveSnapshotFiles(targetKey, sendKey(n), composed.files);
+      // Each comment as it went, with no report yet; one edited meanwhile is open again, for the next Send.
+      const { comments } = await tx.getDraft(targetKey);
+      const unchanged = composed.comments.filter((sent) => comments.some((comment) => sameLocation(comment, sent) && comment.body === sent.body));
+      if (unchanged.length) await tx.trackComments(targetKey, unchanged.map((comment) => ({ at: comment, state: "sent" as const, sendN: n, claim: undefined })));
+      const at = Date.now();
+      const entry: SendEntry = { n, at, threadId: went.threadId, ids: [...composed.comments.map((comment) => comment.id), ...composed.items.map((item) => item.id)], ...add.patch === undefined ? {} : { patch: add.patch }, ...went.queued ? { queued: went.queued } : {}, ...letPush ? { letPush: true as const } : {} };
+      // 1.7.0's record, which its Send to thread reads: comments sent to this thread before stay marked, one sent again is marked now.
+      const earlier = now.sent?.threadId === went.threadId ? now.sent.comments.filter((comment) => !composed.comments.some((sent) => sameLocation(sent, comment))) : [];
+      await tx.setLifecycle(targetKey, {
+        sends: [...now.sends ?? [], entry],
+        sent: { at, threadId: went.threadId, title: went.title, comments: [...earlier, ...composed.comments.map(({ file, line, side, body }) => ({ file, line, side, body, at }))] },
+        // A GitHub item sent again waits for its new report.
+        ...composed.items.length ? { threadSends: { ...now.threadSends, ...Object.fromEntries(composed.items.map((item) => [item.githubId, { id: item.id, sendN: n }])) } } : {},
+        // The comments supersede an approval sent before them.
+        approvalSent: null,
+        // A fork is the main thread already.
+        ...went.fresh && now.mainThread?.threadId !== went.fresh.id ? mainThreadState(now, went.fresh, at, went.forked ? "forked" : "fresh", "fixer" in routed ? { sha: routed.fixer.sha, at } : undefined) : {},
+      });
+      await settleFixes(tx, targetKey);
+      await pruneDiffs(tx, (await tx.getReview(targetKey))!);
+      return n;
+    });
+    if (went.fresh) await settleFolder(deps, targetKey, went.fresh);
+    deps.changed(targetKey);
+    bb.realtime.publish(`draft:${targetKey}`, {});
+    return { ok: true, delivery: went.delivery, threadId: went.threadId, title: went.title, sendN: n, ids: [...composed.comments.map((comment) => comment.id), ...composed.items.map((item) => item.id)], ...composed.skipped ? { skipped: composed.skipped } : {} };
+  } finally {
+    if (holding) deps.submitReview?.sendEnded(targetKey);
+  }
 }
 
 /** On a PR whose folder is there, the branch a thread in it stays on: it's checked out there already. */

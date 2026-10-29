@@ -40,12 +40,16 @@ const posts = () => runGh.mock.calls.filter(([args]) => (args as string[]).inclu
  * Your own PR acme/web#12 (or, `own` false, alice's), whose main thread is `coder`, with comments on lines 1–4, and
  * lines 1–3 sent in Send 1 as c1–c3.
  */
-async function sentThree({ own = true } = {}) {
+/** What the main thread's send waits for, when a test holds it. */
+const sends = { hold: null as Promise<void> | null };
+
+async function sentThree({ own = true, send = true } = {}) {
   gh();
+  sends.hold = null;
   const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: {
     threads: {
       get: async ({ threadId }: { threadId: string }) => ({ id: threadId, title: "Retry uploads", titleFallback: null, archivedAt: null, deletedAt: null, environmentId: null, status: "idle", visibility: "visible", originPluginId: null }),
-      send: async () => ({ ok: true, delivery: "sent" }),
+      send: async () => { await sends.hold; return { ok: true, delivery: "sent" }; },
       experimental_listAncestors: async ({ threadIds }: { threadIds: string[] }) => ({ threads: threadIds.map((threadId) => ({ threadId, ancestorIds: [] })) }),
     },
   } as any });
@@ -55,7 +59,7 @@ async function sentThree({ own = true } = {}) {
   await store.savePatch(KEY, PATCH);
   for (const line of [1, 2, 3, 4]) await store.upsertDraftComment(KEY, { ...at(line), body: `Line ${line}.` });
   const call = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
-  expect(await call("sendToSourceThread", { targetKey: KEY, comments: [at(1), at(2), at(3)], force: true })).toMatchObject({ ok: true, sendN: 1 });
+  if (send) expect(await call("sendToSourceThread", { targetKey: KEY, comments: [at(1), at(2), at(3)], force: true })).toMatchObject({ ok: true, sendN: 1 });
   const cli = (...argv: string[]) => harness.behavior.runCli(argv, { threadId: "coder", projectId: "p1" });
   return { bb, harness, store, call, cli };
 }
@@ -330,4 +334,22 @@ test("a Resolve's Undo is forgotten once its comment is removed, its review dele
   later.mockRestore();
   expect(await call("deleteReview", { targetKey: KEY })).toMatchObject({ ok: true });
   expect(await keys()).toEqual([]);
+});
+
+test("a Send under way when Submit posts holds the post, with no Send before: a comment posts or goes to the thread, never both", async () => {
+  const { store, call } = await sentThree({ send: false });
+  // The main thread is slow to take the Send of line 4.
+  let take!: () => void;
+  sends.hold = new Promise<void>((resolve) => { take = resolve; });
+  const sent = call("sendToSourceThread", { targetKey: KEY, comments: [at(4)], force: true });
+  // Its comment has its id once the Send has taken it, as it waits on the thread.
+  for (let i = 0; i < 200 && !(await comments(store))[3]!.id; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  // Submit, from a page that showed all four open: it doesn't post while the Send is under way.
+  expect(await submit(store, call)).toEqual({ ok: false, error: "Sending this review's comments to the main thread; submit again in a moment." });
+  expect(posts()).toEqual([]);
+  take();
+  expect(await sent).toMatchObject({ ok: true, sendN: 1 });
+  // Then line 4 is sent, and posts no more; the rest do.
+  expect(await submit(store, call)).toMatchObject({ ok: true });
+  expect(posts()[0].comments.map((c: { body: string }) => c.body)).toEqual(["Line 1.", "Line 2.", "Line 3."]);
 });

@@ -538,3 +538,24 @@ test("on your own PR, a review GitHub took but this server didn't record is reco
   expect(run).not.toHaveBeenCalled();
   expect(await store.getDraft("pr-test")).toMatchObject({ body: "", comments: [{ id: "c1", state: "sent", body: "Sent to the main thread" }] });
 });
+
+test("only a Submit that may post holds its review: a Send waits for it, not for a check, as the review agent's form makes", async () => {
+  const { store, run, page } = await setup();
+  let answer!: () => void;
+  const answered = new Promise<void>((resolve) => { answer = resolve; });
+  run.mockImplementation(async (args) => {
+    if (args[0] === "pr") await answered;
+    return { code: 0, stderr: "", stdout: args[0] === "pr" ? '{"headRefOid":"sha1"}' : '{"id":12}' };
+  });
+  const submit = createReviewSubmitter(store, run);
+  const [comments, summary] = await page("pr-test");
+  const checking = submit("pr-test", undefined, undefined, comments, summary, { check: true });
+  await vi.waitFor(() => expect(run).toHaveBeenCalled());
+  expect(submit.submitting("pr-test")).toBe(false);
+  const posting = submit("pr-test", undefined, undefined, comments, summary);
+  expect(submit.submitting("pr-test")).toBe(true);
+  answer();
+  expect(await checking).toMatchObject({ ok: true });
+  expect(await posting).toEqual({ ok: true });
+  expect(submit.submitting("pr-test")).toBe(false);
+});
