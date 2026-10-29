@@ -4,7 +4,7 @@ import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../../src/rpc-contract";
 import { sameLocation, SEVERITIES, VERDICT_LABEL } from "../../src/draft";
-import { buildItems, checkTally, FILTER_LABEL, groups, needsYou, shownItems, toSend, type CommentFilter, type CommentGroup, type CommentItem, type CommentSources, type ThreadItem } from "../../lib/comments";
+import { buildItems, checkTally, FILTER_LABEL, FIX_STATES, groups, isFixFilter, itemFix, needsYou, shownItems, toSend, type CommentFilter, type CommentGroup, type CommentItem, type CommentSources, type FixState, type ThreadItem } from "../../lib/comments";
 import { clearOpenComments, forgetOpenComments, revealComment } from "../../lib/comments-fold";
 import { askReply, registerCommentKeys, registerCommentStepper, showCommentStep, useCommentStep } from "../../lib/comment-stops";
 import { holdReview } from "../../lib/review-holds";
@@ -36,6 +36,10 @@ import { updateComments, useComments } from "./store";
 export type CommentsTab = "drafts" | "feedback" | "threads";
 const TAB_FILTER: Record<Exclude<CommentsTab, "drafts">, CommentFilter> = { feedback: "needs-you", threads: "on-github" };
 const FILTERS: CommentFilter[] = ["all", "needs-you", "not-submitted", "on-github"];
+/** A fix's chip's empty list. */
+const NO_FIX: Record<FixState, string> = {
+  open: "No open comments.", sent: "No comments waiting on a report.", done: "No comments reported done.", declined: "No comments reported declined.", resolved: "No resolved comments.", dismissed: "No dismissed comments.",
+};
 
 /**
  * Comments: every comment-like thing in the review in one list beside the code, in four groups (Needs you, Not
@@ -96,9 +100,9 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
     draft: draft.loaded ? { draft: draft.draft, stale: draft.stale, discussions: draft.discussions } : null,
     threads: isPr ? threads : [], feedback: isPr ? feedback : null, replyDrafts: isPr ? replyDrafts : [],
     // Your own PR is yours as its author until your account is verified.
-    sections, patch: draft.patch, viewer: draft.account ?? (ownPr ? review.author : null) ?? null, prUrl: review.url ?? null, closed, ownPr, status,
+    sections, patch: draft.patch, viewer: draft.account ?? (ownPr ? review.author : null) ?? null, prUrl: review.url ?? null, closed, ownPr, status, checks: draft.checks,
     conversation: ownPr ? review.prConversation ?? null : null,
-  }), [draft.loaded, draft.draft, draft.stale, draft.discussions, isPr, threads, feedback, replyDrafts, sections, draft.patch, draft.account, review.url, closed, ownPr, review.author, status, review.prConversation]);
+  }), [draft.loaded, draft.draft, draft.stale, draft.discussions, isPr, threads, feedback, replyDrafts, sections, draft.patch, draft.account, review.url, closed, ownPr, review.author, status, review.prConversation, draft.checks]);
   const items = useMemo(() => buildItems(sources), [sources]);
   const sending = useMemo(() => toSend(sources), [sources]);
   // Hidden nits leave the list and the code, not what Submit sends; one that needs you stays.
@@ -109,6 +113,16 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const listed = useMemo(() => groups(listItems, preExisting, ownPr), [listItems, preExisting, ownPr]);
   const stops = useMemo(() => shownItems(listItems, filter, showFolded), [listItems, filter, showFolded]);
   const needing = counted[0].count;
+  // Of the drafts All shows in Needs you, those there for an older diff; the rest wait on your click about their fix.
+  const olderElsewhere = items.filter((item) => item.kind === "draft" && item.needs === "older-diff").length;
+  // Once a comment was sent, chips for where fixes stand: those with any, and the one chosen.
+  const fixCount = (state: FixState) => items.filter((item) => itemFix(item) === state).length;
+  const tracked = items.some((item) => item.kind === "draft" ? item.comment.id || item.comment.state : itemFix(item));
+  // With them, a chip that counts none gives way, but All and the one chosen.
+  const chips: Array<[CommentFilter, number]> = [
+    ...(isPr ? FILTERS.map((id): [CommentFilter, number] => [id, id === "all" ? items.length : counted.find((group) => group.id === id)!.count]) : tracked ? [["all", items.length] as [CommentFilter, number]] : []),
+    ...(tracked ? FIX_STATES.map((state): [CommentFilter, number] => [state, fixCount(state)]) : []),
+  ].filter(([id, count]) => !tracked || count > 0 || id === "all" || id === filter);
 
   useEffect(() => { updateComments(targetKey, { items }); }, [targetKey, items]);
   useEffect(() => {
@@ -148,7 +162,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const [current, setCurrent] = useState<string | null>(null);
   const last = useRef<string | null>(null);
   // What the chip counts, which can be more than the list shows.
-  const chipCount = filter === "all" ? items.length : counted.find((group) => group.id === filter)!.count;
+  const chipCount = chips.find(([id]) => id === filter)?.[1] ?? stops.length;
   const live = useRef({ api, stops, chipCount, filter, coarse, step, onShowThread, visible });
   live.current = { api, stops, chipCount, filter, coarse, step, onShowThread, visible };
   const goTo = useCallback((item: CommentItem, from: "row" | "step") => {
@@ -220,16 +234,16 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const slot = useContext(PanelActionsContext);
   const container = useFullscreenPortalContainer();
   const mine = items.some((item) => item.kind === "ask" || (item.kind === "thread" && item.mine));
-  const folded = counted[2].folded;
+  const folded = counted.find((group) => group.id === "on-github")!.folded;
   const ready = draft.loaded && (!isPr || githubRead);
   const row = (item: CommentItem) => <CommentRow key={item.id} targetKey={targetKey} item={item} expanded={expanded === item.id} current={current === item.id} onShow={item.at ? show : null} onExpand={expand} />;
   const groupBody = (group: CommentGroup, rows: CommentItem[], countedGroup: CommentGroup) => (
     <section key={group.id} aria-labelledby={`gr-group-${group.id}`} className="space-y-1.5">
-      <GroupHead id={`gr-group-${group.id}`} title={group.title} count={countedGroup.count} summary={[countedGroup.summary, group.id === "not-submitted" && hidden ? `${hidden} hidden` : null].filter(Boolean).join(" · ") || null} />
+      <GroupHead id={`gr-group-${group.id}`} title={!isPr && group.id === "not-submitted" ? "Comments" : group.title} count={countedGroup.count} summary={[countedGroup.summary, group.id === "not-submitted" && hidden ? `${hidden} hidden` : null].filter(Boolean).join(" · ") || null} />
       {group.id === "needs-you" && ownPr && !closed && sendOn && <SendWaiting targetKey={targetKey} items={countedGroup.items} />}
       {rows.length > 0 && <ul className="space-y-1.5">{rows.map(row)}</ul>}
       {filter === "all" && group.id === "not-submitted" && countedGroup.elsewhere > 0 && (
-        <p className="px-1 text-xs text-muted-foreground">+{countedGroup.elsewhere} on an older diff, in Needs you</p>
+        <p className="px-1 text-xs text-muted-foreground">+{countedGroup.elsewhere}{olderElsewhere === countedGroup.elsewhere ? " on an older diff," : ""} in Needs you</p>
       )}
       {group.id === "on-github" && group.folded && <>
         <button type="button" aria-expanded={showFolded} onClick={() => setShowFolded(!showFolded)} className={cn("flex min-h-8 w-full items-center gap-1.5 rounded-md px-1 text-left text-xs text-muted-foreground hover:text-foreground", TOUCH_CONTROL, "pointer-coarse:min-h-11")}>
@@ -239,7 +253,11 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
       </>}
     </section>
   );
-  const shownGroups = filter === "all" ? listed.filter((group) => group.items.length || group.folded || (group.id === "not-submitted" && (counted[1].elsewhere || hidden))) : listed.filter((group) => group.id === filter);
+  // A fix's chip shows its comments as one group.
+  const fixGroup: CommentGroup | null = isFixFilter(filter) ? { id: "fixes", title: FILTER_LABEL[filter], count: fixCount(filter), summary: null, items: stops, elsewhere: 0, folded: null } : null;
+  const shownGroups = fixGroup ? [fixGroup]
+    : filter === "all" ? listed.filter((group) => group.items.length || group.folded || (group.id === "not-submitted" && (counted[1].elsewhere || hidden)))
+    : listed.filter((group) => group.id === filter);
   // ↻ and ⋯, in the panel's header; in the list's own top row where there's none.
   const headerActions = <>
     {isPr && actions && <Hint label={feedback?.fetchedAt ? `Refresh comments · GitHub read ${timeAgo(feedback.fetchedAt)}` : "Refresh comments"} container={container}>
@@ -263,7 +281,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
             <Button variant="ghost" size="sm" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} onClick={() => api.reveal({ file: draft.file, line: Number(draft.line), side: draft.side })}>Show in diff</Button>
           </div>
         )}
-        {isPr && <Chips groups={counted} total={items.length} filter={filter} onFilter={setFilter} />}
+        {chips.length > 0 && <Chips chips={chips} filter={filter} onFilter={setFilter} wrap={tracked} />}
         {!isPr && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Lock" className="size-3.5 shrink-0" aria-hidden />Comments on a local review stay in BB.</p>}
         {/* On your own PR there's no feedback of yours for the agent to check. */}
         {isPr && mine && !closed && !ownPr && <CheckStrip run={feedback?.run ?? null} tally={checkTally(items)} running={!!review.verifyingSince} starting={checking} onCheck={() => void actions?.checkAgain()} />}
@@ -277,8 +295,8 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
           {isPr && !githubRead && <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Loading" className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />Reading GitHub…</p>}
           {/* A box you're writing in is the start of a comment, so "No comments yet" would contradict it. */}
           {empty ? !writing && <Empty text={closed ? "No comments on this review." : coarse ? "No comments yet. Tap a line to comment." : "No comments yet. Select a line, or click + beside one. From the keyboard: ⋯ › Add comment by line."} />
-            : filterEmpty ? <Empty text={filter === "needs-you" ? "Nothing needs you." : filter === "not-submitted" ? "No comments to submit yet." : "Nothing on GitHub yet."} onAll={() => setFilter("all")} />
-            : shownGroups.map((group) => groupBody(group, filter === "not-submitted" ? stops : group.items, counted.find((entry) => entry.id === group.id)!))}
+            : filterEmpty ? <Empty text={isFixFilter(filter) ? NO_FIX[filter] : filter === "needs-you" ? "Nothing needs you." : filter === "not-submitted" ? "No comments to submit yet." : "Nothing on GitHub yet."} onAll={() => setFilter("all")} />
+            : shownGroups.map((group) => groupBody(group, filter === "not-submitted" ? stops : group.items, fixGroup ?? counted.find((entry) => entry.id === group.id)!))}
         </>}
       </section>
       {/* With the keyboard up leaving a phone held sideways' room or less, it gives way to the box you type in. */}
@@ -360,16 +378,19 @@ function GroupHead({ id, title, count, summary }: { id: string; title: string; c
   );
 }
 
-/** The chips: All, Needs you, Not submitted, On GitHub, each with its count, as a radio group. */
-function Chips({ groups, total, filter, onFilter }: { groups: CommentGroup[]; total: number; filter: CommentFilter; onFilter: (filter: CommentFilter) => void }) {
-  const count = (id: CommentFilter) => id === "all" ? total : groups.find((group) => group.id === id)!.count;
+/**
+ * The chips, each with its count, as a radio group: on a PR All, Needs you, Not submitted, On GitHub; then, once a
+ * comment was sent, where fixes stand, Open, Sent, Done, Declined, Resolved, Dismissed, those with any, after a rule.
+ */
+function Chips({ chips, filter, onFilter, wrap = false }: { chips: ReadonlyArray<[CommentFilter, number]>; filter: CommentFilter; onFilter: (filter: CommentFilter) => void; wrap?: boolean }) {
+  const ids = chips.map(([id]) => id);
   // One stop for Tab; the arrows move between the chips, as in any radio group.
   const arrow = (event: KeyboardEvent<HTMLDivElement>) => {
     const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
     if (!step) return;
     event.preventDefault();
     const group = event.currentTarget;
-    const next = FILTERS[(FILTERS.indexOf(filter) + step + FILTERS.length) % FILTERS.length];
+    const next = ids[(Math.max(0, ids.indexOf(filter)) + step + ids.length) % ids.length]!;
     onFilter(next);
     requestAnimationFrame(() => group.querySelector<HTMLElement>(`[data-filter="${next}"]`)?.focus());
   };
@@ -385,20 +406,24 @@ function Chips({ groups, total, filter, onFilter }: { groups: CommentGroup[]; to
     observer?.observe(el);
     el.addEventListener("scroll", check, { passive: true });
     return () => { observer?.disconnect(); el.removeEventListener("scroll", check); };
-  }, [groups, total]);
+  }, [chips]);
   return (
     // Touch's wider chips wrap rather than scroll out of sight, as they would in a 400px panel or on a phone.
     // Scrolling sideways clips it up and down too: py-0.5 holds the chips' 2px focus ring, and -mt-0.5 keeps the row in place.
-    <div ref={strip} role="radiogroup" aria-label="Show" onKeyDown={arrow} data-more={more || undefined} className="-mx-3 -mt-0.5 flex gap-1 overflow-x-auto px-3 py-0.5 [scrollbar-width:none] pointer-coarse:flex-wrap data-[more]:[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]">
-      {FILTERS.map((id) => {
+    // With where fixes stand too, they wrap, so none starts past the edge.
+    <div ref={strip} role="radiogroup" aria-label="Show" onKeyDown={arrow} data-more={more || undefined} className={cn("-mx-3 -mt-0.5 flex gap-1 overflow-x-auto px-3 py-0.5 [scrollbar-width:none] pointer-coarse:flex-wrap data-[more]:[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]", wrap && "flex-wrap gap-y-1.5")}>
+      {chips.map(([id, count], index) => {
         const on = filter === id;
+        // Where fixes stand, apart from what's in the review.
+        const rule = index > 0 && isFixFilter(id) && !isFixFilter(chips[index - 1]![0]);
         return (
-          <button key={id} type="button" role="radio" aria-checked={on} tabIndex={on ? 0 : -1} data-filter={id} aria-label={`${FILTER_LABEL[id]}, ${count(id)}`} onClick={() => onFilter(id)}
+          <span key={id} className="flex shrink-0 gap-1">{rule && <span aria-hidden className="mx-0.5 my-1 w-px shrink-0 bg-border" />}
+          <button type="button" role="radio" aria-checked={on} tabIndex={on || (index === 0 && !ids.includes(filter)) ? 0 : -1} data-filter={id} aria-label={`${FILTER_LABEL[id]}, ${count}`} onClick={() => onFilter(id)}
             className={cn("flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full border px-2 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:px-3.5", TOUCH_CONTROL,
               on ? "border-primary/40 bg-primary/12 text-foreground" : "border-border text-muted-foreground hover:border-input hover:text-foreground")}>
             {FILTER_LABEL[id]}
-            <span className={cn("tabular-nums", on ? "text-primary" : "text-subtle-foreground", id === "needs-you" && count(id) > 0 && !on && "text-primary")}>{count(id)}</span>
-          </button>
+            <span className={cn("tabular-nums", on ? "text-primary" : "text-subtle-foreground", id === "needs-you" && count > 0 && !on && "text-primary")}>{count}</span>
+          </button></span>
         );
       })}
     </div>

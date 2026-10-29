@@ -96,6 +96,8 @@ const draftOutput = z.object({
   draft: z.any(),
   stale: z.array(z.object(location)),
   discussions: z.array(discussion),
+  // What the review agent's check found of each sent comment, by its id, against the Send that last carried it.
+  checks: z.record(z.string(), z.object({ verdict: z.enum(["addressed", "partial", "not_addressed", "disputed", "unclear"]), evidence: z.string() })).optional(),
 });
 
 export const rpcContract = defineRpcContract({
@@ -246,7 +248,8 @@ export const rpcContract = defineRpcContract({
   getDraft: { input: targetKey, output: draftOutput },
   saveDraftComment: {
     // `replaces`: the line's comment the box saw, null for none; a save over another one, written since, is refused.
-    input: z.object({ targetKey: z.string(), revision: z.string().optional(), comment: commentShape, replaces: z.string().nullable().optional() }).strict(),
+    // `restore`, Undo after Remove with replaces null: the comment keeps its id, and where its fix stood, as sent back.
+    input: z.object({ targetKey: z.string(), revision: z.string().optional(), comment: commentShape, replaces: z.string().nullable().optional(), restore: z.boolean().optional() }).strict(),
     output: draftOutput,
   },
   removeDraftComment: {
@@ -295,6 +298,9 @@ export const rpcContract = defineRpcContract({
       targetKey: z.string(), revision: z.string().optional(), account: z.string().optional(),
       // The comments, summary, and verdict the page shows; submission refuses a draft that no longer matches.
       comments: z.array(z.object({ file: z.string(), line: z.number().int(), side: z.enum(["LEFT", "RIGHT"]), startLine: z.number().int().optional(), startSide: z.enum(["LEFT", "RIGHT"]).optional(), severity: z.enum(SEVERITIES).optional(), introduced: z.literal(false).optional(), body: z.string() })),
+      // Of those, the ones the page shows as posting: not one sent to fix from your own change, resolved or dismissed.
+      // Submission refuses a draft whose comments that post differ; without it, one with any comment sent.
+      posting: z.array(z.object(location).strict()).optional(),
       body: z.string(),
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
       // Submit anyway: past the warnings it names, as the page showed them, such as new commits since you read it. What
@@ -400,8 +406,11 @@ export const rpcContract = defineRpcContract({
     input: z.object({ targetKey: z.string(), ...location, state: z.enum(["resolved", "dismissed"]) }).strict(),
     output: draftOutput,
   },
-  /** Open a sent, resolved or dismissed comment again: it goes with the next Send. */
-  reopenComment: { input: z.object({ targetKey: z.string(), ...location }).strict(), output: draftOutput },
+  /**
+   * Open a sent, resolved or dismissed comment again: it goes with the next Send. undo, right after Resolve or Dismiss:
+   * it's as it was before that click, as the server recorded it then, with its report, and goes with no Send.
+   */
+  reopenComment: { input: z.object({ targetKey: z.string(), ...location, undo: z.boolean().optional() }).strict(), output: draftOutput },
   /** Ask the review agent to check the fixes of the comments sent, each against the diff it was sent at. */
   checkFixes: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
   /** Read a local review's folder again, and move the comments with their lines; the guide stays. */

@@ -94,6 +94,34 @@ test("with the review agent acting, each write tool's instructions say it posts 
   expect(ONLY_WITH_THESE_TOOLS).toBe("Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.");
 });
 
+test("on your own PR, submit_review shows and posts only the open comments: one sent to the main thread stays in BB", async () => {
+  const { harness, store, tool, form } = await setup({ author: "me", ownPr: true });
+  await store.upsertDraftComment(KEY, { file: "a.ts", line: 1, side: "LEFT", body: "Sent to the main thread." });
+  await store.trackComments(KEY, [{ at: { file: "a.ts", line: 1, side: "LEFT" }, id: "c1", state: "sent", sendN: 1 }]);
+  const call = tool("submit_review", { verdict: "COMMENT", body: "Two asks." });
+  const waiting = await form();
+  expect(waiting).toMatchObject({ payload: { parts: [{ label: "Summary", body: "Two asks." }, { label: "a.ts:1", body: "Rename this.", path: true }] } });
+  harness.behavior.submitInteraction(waiting.id, { post: true });
+  expect(toolText(await call)).toMatch(/^Posted the review to GitHub/);
+  const [post] = runGh.mock.calls.filter(([args]) => args.includes("repos/acme/web/pulls/1/reviews"));
+  expect(JSON.parse(post[1].stdin).comments).toEqual([{ path: "a.ts", line: 1, side: "RIGHT", body: "Rename this." }]);
+  expect((await store.getReview(KEY))?.activity).toEqual([expect.objectContaining({ text: "Submitted Comment with 1 comment" })]);
+  expect((await store.getDraft(KEY)).comments).toEqual([expect.objectContaining({ id: "c1", state: "sent" })]);
+});
+
+test("on your own PR, a comment reopened between submit_review's form and the click posts nothing: the draft changed", async () => {
+  const { harness, store, tool, form } = await setup({ author: "me", ownPr: true });
+  await store.upsertDraftComment(KEY, { file: "a.ts", line: 1, side: "LEFT", body: "Sent to the main thread." });
+  await store.trackComments(KEY, [{ at: { file: "a.ts", line: 1, side: "LEFT" }, id: "c1", state: "sent", sendN: 1 }]);
+  await store.setLifecycle(KEY, { sends: [{ n: 1, at: 1, threadId: "coder", ids: ["c1"] }] });
+  const call = tool("submit_review", { verdict: "COMMENT", body: "Two asks." });
+  const waiting = await form();
+  await harness.behavior.callRpc("reopenComment", { targetKey: KEY, file: "a.ts", line: 1, side: "LEFT" });
+  harness.behavior.submitInteraction(waiting.id, { post: true });
+  expect(toolText(await call)).toContain("Draft changed");
+  expect(runGh.mock.calls.filter(([args]) => args.includes("repos/acme/web/pulls/1/reviews"))).toEqual([]);
+});
+
 test("submit_review shows exactly what posts, led by the verdict, and one click on Approve posts it on the reviewed commit", async () => {
   const { harness, store, tool, form, writes } = await setup();
   const call = tool("submit_review", { verdict: "APPROVE", body: "Ship it." });

@@ -27,6 +27,9 @@ import { ReplyBox } from "./ReplyBox";
 import { CommentEditorMenu } from "../OpenInEditor";
 import { useComments } from "./store";
 import { SendNow, useSendable } from "../SendNow";
+import { useStatusFacts } from "../../lib/review-links";
+import { postable } from "../../src/draft";
+import { FixButtons, FixReport, FixUndo, marksPreExisting } from "./FixTracking";
 
 /**
  * In the code: inside pierre's code view, so it sets its own text style rather than inheriting the code's, at a
@@ -271,6 +274,7 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
   const box = boxAt(draft, comment);
   const where = `${comment.file}:${linesOf(comment)}`;
   const preExisting = useKnob("preExistingFindings");
+  const facts = useStatusFacts();
   const sendable = useSendable(draft.editable ? targetKey : undefined, comment);
   // What Send now warned, or why it failed, under the comment.
   const [sendNote, setSendNote] = useState<ReactNode>(null);
@@ -281,23 +285,27 @@ function DraftCard({ targetKey, item }: { targetKey: string; item: DraftItem }) 
         {comment.startLine !== undefined && <p className="px-2.5 pt-2.5 text-xs text-muted-foreground tabular-nums">Lines {linesOf(comment)}</p>}
         <ComposerFields mode="edit" busy={draft.busy} composer={composer} controlsRef={draft.composerControls} />
       </> : <div className="space-y-2 px-3 pb-2.5 pt-2.5">
+        {/* The row above says its status; right after Resolve or Dismiss, Undo is here. */}
+        <FixUndo targetKey={targetKey} comment={comment} onFix={draft.setFix} label />
         {(comment.startLine !== undefined || comment.side === "LEFT") && <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
           {comment.side === "LEFT" && <Badge size="sm">Old line</Badge>}
         </p>}
         <CommentBody body={comment.body} link={comment.author === "agent"} />
         {comment.evidence && <AgentEvidence evidence={comment.evidence} />}
-        {item.state === "older-diff" && <p className="text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
+        <FixReport comment={comment} checks={draft.checks} />
+        {item.state === "older-diff" && item.posts && <p className="text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
         {sendNote}
         {draft.editable && <div className="-mb-1 -ml-2 flex flex-wrap gap-0.5">
+          <FixButtons targetKey={targetKey} comment={comment} checks={draft.checks} busy={draft.busy} posts={facts.posts && postable(comment, facts.own)} className={ACTION} onFix={draft.setFix} />
           <Button variant="ghost" size="sm" aria-label={`Edit comment on ${where}`} className={ACTION} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false); }}><Icon name="Edit" className="size-3.5" aria-hidden />Edit</Button>
           <Button variant="ghost" size="sm" aria-label={`Ask agent about the comment on ${where}`} className={cn(ACTION, "text-(--ansi-13) hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.openComposer(comment, false, true); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
           {sendable && <SendNow targetKey={targetKey} comment={comment} to={sendable} className={ACTION} onNote={setSendNote} />}
-          {preExisting && item.state !== "older-diff" && <Button variant="ghost" size="sm" className={ACTION} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) void draft.markPreExisting(comment, comment.introduced !== false); }}>
+          {preExisting && item.state !== "older-diff" && marksPreExisting(comment) && <Button variant="ghost" size="sm" className={ACTION} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) void draft.markPreExisting(comment, comment.introduced !== false); }}>
             <Icon name="History" className="size-3.5" aria-hidden />{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}
           </Button>}
           <Button variant="ghost" size="sm" aria-label={`Remove comment on ${where}`} className={cn(ACTION, "hover:text-destructive-text")} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) void draft.removeComment(comment); }}><Icon name="Trash2" className="size-3.5" aria-hidden />Remove</Button>
-          {item.state === "older-diff" && <MoveToSummary comments={[comment]} className={ACTION} />}
+          {item.state === "older-diff" && item.posts && <MoveToSummary comments={[comment]} className={ACTION} />}
           <CommentEditorMenu comment={comment} />
         </div>}
       </div>}

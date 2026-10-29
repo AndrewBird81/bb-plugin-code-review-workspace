@@ -8,6 +8,7 @@ import { reviewRevision } from "./review-revision";
 import plugin from "../server";
 import type { AsyncStore } from "./store-queue";
 import { testStore } from "./test-store.test-support";
+import { postReceipts, reviewReceiptKey } from "./post-receipts";
 
 // The server's gh, for submitting through the RPC; the submitter's own tests pass theirs.
 const serverGh = vi.hoisted(() => vi.fn());
@@ -522,4 +523,18 @@ test("a PR head GitHub doesn't say keeps the draft and posts nothing", async () 
   }
   expect(posted(run)).toBe(0);
   expect(await store.getDraft("pr-test")).toEqual(draft);
+});
+
+test("on your own PR, a review GitHub took but this server didn't record is recorded on the next Submit, not posted again, and a sent comment stays", async () => {
+  const { store, run, page } = await setup();
+  await store.setLifecycle("pr-test", { ownPr: true });
+  await store.upsertDraftComment("pr-test", { file: "a.ts", line: 1, side: "LEFT", body: "Sent to the main thread" });
+  await store.trackComments("pr-test", [{ at: { file: "a.ts", line: 1, side: "LEFT" }, id: "c1", state: "sent", sendN: 1 }]);
+  const receipts = postReceipts();
+  // What GitHub took: the summary, and the one comment that posts.
+  const draft = await store.getDraft("pr-test");
+  await receipts.put(reviewReceiptKey("pr-test"), { submittedAt: 1, reviewId: "R1", headSha: "sha1", draft: { ...draft, comments: draft.comments.filter((c) => !c.state) } });
+  expect(await createReviewSubmitter(store, run, receipts)("pr-test", undefined, undefined, ...await page("pr-test"))).toEqual({ ok: true });
+  expect(run).not.toHaveBeenCalled();
+  expect(await store.getDraft("pr-test")).toMatchObject({ body: "", comments: [{ id: "c1", state: "sent", body: "Sent to the main thread" }] });
 });

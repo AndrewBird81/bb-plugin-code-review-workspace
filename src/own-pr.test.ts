@@ -2,7 +2,7 @@
 // as theirs; with no thread working on the PR, a fixer takes them, fresh at the PR's head on the machine of the thread
 // that wrote it, or a fork of that thread; Not pushed yet reads the fixer's folder against the head; and once bb
 // removes the fixer's folder, the review keeps its branch's name, with the command to delete it. Nothing runs git.
-import { expect, test, vi } from "vitest";
+import { expect, test, vi, type Mock } from "vitest";
 
 const runGh = vi.hoisted(() => vi.fn(async () => ({ stdout: "", stderr: "no GitHub here", code: 1 })));
 const runGit = vi.hoisted(() => vi.fn(async () => ({ stdout: "", stderr: "no git here", code: 1 })));
@@ -378,4 +378,28 @@ test("a fixer whose branch BB says only as the Send reads it is told that branch
   expect(await p.rpc("sendNow", { targetKey: "pr-1", comment: { threadId: THREAD.id } })).toMatchObject({ ok: true, sent: { threadId: "fixer2" } });
   expect((await p.store.getReview("pr-1"))!.mainThread).toMatchObject({ branch: "bb/fixes-for-web-12-thr_env_fix2" });
   expect(p.calls("threads.send").at(-1).input[0].text).toContain("You're in your worktree on `bb/fixes-for-web-12-thr_env_fix2`: commit there, and don't switch branches.");
+});
+
+test("on your own PR, Submit after a Send of Dana's thread and review and one draft comment posts only your open comment", async () => {
+  const p = await ownPr();
+  await p.store.upsertDraftComment("pr-1", { file: "src/a.ts", line: 3, side: "RIGHT", body: "Sent with them." });
+  await p.store.upsertDraftComment("pr-1", { file: "src/a.ts", line: 2, side: "RIGHT", body: "Still mine." });
+  await p.store.setVerdict("pr-1", "COMMENT", "One more.");
+  expect(await p.rpc("sendToSourceThread", { targetKey: "pr-1", comments: [{ file: "src/a.ts", line: 3, side: "RIGHT" }], threads: [THREAD.id, REVIEW.id], force: true, thread: "fresh" })).toMatchObject({ ok: true, sendN: 1 });
+  expect(Object.keys((await p.store.getReview("pr-1"))!.threadSends ?? {}).sort()).toEqual([REVIEW.id, THREAD.id].sort());
+  const offline = runGh.getMockImplementation()!;
+  (runGh as unknown as Mock<(args: string[]) => Promise<{ stdout: string; stderr: string; code: number }>>).mockImplementation(async (args) => {
+    if (args[0] === "auth") return { stdout: "token", stderr: "", code: 0 };
+    if (args[0] === "api" && args[1] === "user") return { stdout: "alice\n", stderr: "", code: 0 };
+    if (args[0] === "pr" && args[1] === "view") return { stdout: JSON.stringify({ headRefOid: SHA, baseRefName: "main", state: "OPEN" }), stderr: "", code: 0 };
+    if (args.includes("repos/acme/web/pulls/12/reviews")) return { stdout: "{}", stderr: "", code: 0 };
+    return { stdout: "", stderr: "no GitHub here", code: 1 };
+  });
+  const { revision } = await p.rpc("getReviewBundle", { targetKey: "pr-1" });
+  const { comments, body, verdict } = await p.store.getDraft("pr-1");
+  expect(await p.rpc("submitReview", { targetKey: "pr-1", revision, account: "alice", comments, posting: [{ file: "src/a.ts", line: 2, side: "RIGHT" }], body, verdict })).toEqual({ ok: true });
+  const posts = (runGh.mock.calls as unknown as Array<[string[], { stdin: string }]>).filter(([args]) => args.includes("repos/acme/web/pulls/12/reviews")).map(([, options]) => JSON.parse(options.stdin));
+  expect(posts).toEqual([{ event: "COMMENT", body: "One more.", comments: [{ path: "src/a.ts", line: 2, side: "RIGHT", body: "Still mine." }], commit_id: SHA }]);
+  expect((await p.store.getDraft("pr-1")).comments).toEqual([expect.objectContaining({ line: 3, state: "sent" })]);
+  runGh.mockImplementation(offline);
 });

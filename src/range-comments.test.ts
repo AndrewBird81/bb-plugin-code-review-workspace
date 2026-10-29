@@ -47,7 +47,7 @@ test("a selection dragged upward, or across sides, orders to its first and last 
 });
 
 test("the GitHub payload sends a range's start line and side; single-line comments are unchanged", () => {
-  const payload = toGithubReviewPayload({ targetKey: "k", verdict: "COMMENT", body: "", comments: [at(4, 2), at(3, 2, "RIGHT", "LEFT"), at(5)] });
+  const payload = toGithubReviewPayload({ targetKey: "k", verdict: "COMMENT", body: "", comments: [at(4, 2), at(3, 2, "RIGHT", "LEFT"), at(5)] }, false, false);
   expect(payload.comments).toEqual([
     { path: "a.ts", line: 4, side: "RIGHT", start_line: 2, start_side: "RIGHT", body: "x" },
     { path: "a.ts", line: 3, side: "RIGHT", start_line: 2, start_side: "LEFT", body: "x" },

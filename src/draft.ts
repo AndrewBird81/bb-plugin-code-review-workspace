@@ -79,6 +79,12 @@ export interface DraftComment {
 export const COMMENT_STATES = ["open", "sent", "resolved", "dismissed"] as const;
 export type CommentState = typeof COMMENT_STATES[number];
 
+/**
+ * Whether a comment posts with Submit. On your own change (`own`) only an open one does: a Send took it to the thread
+ * that fixes it. On someone else's PR a Send never changes what posts: all but the ones you resolved or dismissed.
+ */
+export const postable = (c: Pick<DraftComment, "state">, own: boolean) => own ? !c.state || c.state === "open" : c.state !== "resolved" && c.state !== "dismissed";
+
 /** A thread's report on a comment it was sent: with `bb review report`, or inferred by Check fixes. */
 export interface Claim {
   outcome: "done" | "declined";
@@ -197,8 +203,11 @@ export function sameComments(a: readonly DraftComment[], b: readonly Keyed[]): b
 /** An inline comment as GitHub's review API takes it. */
 export type GithubReviewComment = { path: string; line: number; side: string; start_line?: number; start_side?: string; body: string };
 
-/** `preExisting`: mark the problems the PR didn't introduce, as postedBody does. */
-export function toGithubReviewPayload(draft: Draft, preExisting = false): {
+/**
+ * `preExisting`: mark the problems the PR didn't introduce, as postedBody does. `own`: your own change, as postable reads
+ * it: always said, as a caller that forgot it would post comments sent to fix.
+ */
+export function toGithubReviewPayload(draft: Draft, preExisting: boolean, own: boolean): {
   event: Verdict;
   body: string;
   comments: GithubReviewComment[];
@@ -206,7 +215,7 @@ export function toGithubReviewPayload(draft: Draft, preExisting = false): {
   return {
     event: draft.verdict,
     body: draft.body,
-    comments: draft.comments.map((c) => ({
+    comments: draft.comments.filter((c) => postable(c, own)).map((c) => ({
       path: c.file, line: c.line, side: c.side,
       ...(c.startLine !== undefined ? { start_line: c.startLine, start_side: c.startSide ?? c.side } : {}),
       body: postedBody(c, preExisting),

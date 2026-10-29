@@ -374,6 +374,9 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
     const items = await githubItems(tx, now, github);
     // A GitHub item the review no longer has, as one gone from GitHub's window, is left out; the Send says how many.
     if (!comments.length && !items.length || picked.length && !comments.length) return null;
+    // Only your Reopen sends a comment you resolved or dismissed again.
+    const settled = comments.find((comment) => comment.state === "resolved" || comment.state === "dismissed");
+    if (settled) throw new Error(`The comment on ${settled.file}:${settled.line} is ${settled.state}. Reopen it to send it again.`);
     const unnamed = comments.filter((comment) => !comment.id);
     // A GitHub item sent before keeps its id.
     const unsentItems = items.filter((item) => !now.threadSends?.[githubId(item)]);

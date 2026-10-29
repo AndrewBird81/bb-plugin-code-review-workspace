@@ -121,7 +121,7 @@ test("one list: chips count what they show, the groups come in order, and each i
   expect(list.getByText("Yours: 1 of 1 handled")).toBeTruthy();
   expect(rows(list)).toEqual([
     "Older diff · not submitted · src/a.ts:1",
-    "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partial · Agent reply draft · not sent",
+    "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partly addressed · Agent reply draft · not sent",
     "Draft · not submitted · src/a.ts:2 · Blocking",
     "Agent draft · not submitted · src/b.ts:1 · Nit",
     "@carol · Open · File comment · src/b.ts",
@@ -150,7 +150,7 @@ test("a chip shows its group alone: Needs you by urgency, and Not submitted ever
   expect(chip(list, "All").getAttribute("aria-checked")).toBe("true");
   fireEvent.click(chip(list, "Needs you"));
   expect(headings(list)).toEqual(["Needs you · 2"]);
-  expect(rows(list)).toEqual(["Older diff · not submitted · src/a.ts:1", "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partial · Agent reply draft · not sent"]);
+  expect(rows(list)).toEqual(["Older diff · not submitted · src/a.ts:1", "You · Author replied · src/a.ts:2 · Blocking · agent's check: Partly addressed · Agent reply draft · not sent"]);
   fireEvent.click(chip(list, "Not submitted"));
   expect(rows(list)).toEqual(["Older diff · not submitted · src/a.ts:1", "Draft · not submitted · src/a.ts:2 · Blocking", "Agent draft · not submitted · src/b.ts:1 · Nit"]);
   fireEvent.click(chip(list, "On GitHub"));
@@ -208,7 +208,7 @@ test("GitHub threads show at their lines with every message; a resolved one is a
   expect(within(open).getByText("It's a constant.")).toBeTruthy();
   expect(within(open).getByText("@alice")).toBeTruthy();
   expect(within(open).getByText("Author replied")).toBeTruthy();
-  expect(within(open).getByText("Partial")).toBeTruthy();
+  expect(within(open).getByText("Partly addressed")).toBeTruthy();
   // Resolved, it starts as its pill: who, its state, and its first line, without its actions.
   const resolved = code(slot, "src/a.ts").getByRole("group", { name: "GitHub thread on src/a.ts:2 (old line), folded" });
   expect(within(resolved).getByText(/Resolved/)).toBeTruthy();

@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useState, type KeyboardEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { Markdown } from "@get-bb/plugin-sdk/app";
-import { linesOf, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
-import { draftItemId, draftState, draftStatus, privateItemId, STATE_LABEL } from "../lib/comments";
+import { linesOf, postable, sameLocation, SEVERITIES, SEVERITY_LABEL, type CommentLocation, type Discussion, type DiscussionEntry, type DraftComment, type Severity } from "../src/draft";
+import { draftItemId, draftState, draftStatus, privateItemId, sentCheck, STATE_LABEL, type CommentChecks } from "../lib/comments";
 import { composing } from "../lib/composing";
 import { linkImages } from "../lib/link-images";
 import { setCommentOpen, useCommentOpen } from "../lib/comments-fold";
@@ -14,13 +14,14 @@ import { Textarea } from "./ui/textarea";
 import { Badge, SpeakerMark, TONE_TEXT } from "./ui/badge";
 import { withLineBreaks } from "../src/line-breaks";
 import { CommentPill } from "./comments/CommentPill";
-import { DraftIcon, draftEdge, notSubmitted, privately, SEVERITY_TONE } from "./comments/look";
+import { CheckBadge, DraftIcon, draftEdge, notSubmitted, privately, SEVERITY_TONE } from "./comments/look";
 import { useComments } from "./comments/store";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { useStatusFacts } from "../lib/review-links";
 import { age } from "./time-ago";
 import { CommentEditorMenu } from "./OpenInEditor";
 import { SendNow, useSendable } from "./SendNow";
+import { FixButtons, FixCheckBadge, FixReport, FixUndo, marksPreExisting, type FixChange } from "./comments/FixTracking";
 
 /** The draft as the diff shows it, under each comment's line. DraftProvider owns the draft and provides this. */
 export interface InlineDraft {
@@ -55,6 +56,10 @@ export interface InlineDraft {
   markPreExisting?(comment: DraftComment, preExisting: boolean): void;
   /** Show the review assistant's chat, when the review has one. */
   chat: (() => void) | null;
+  /** What the review agent's check found of each sent comment, by its id. */
+  checks?: CommentChecks;
+  /** Resolve or dismiss a sent comment, or reopen it: the reviewer's click alone. */
+  setFix?(comment: DraftComment, state: FixChange): Promise<void>;
 }
 
 /** The comment box's text. Apart from InlineDraft so that typing re-renders only the box, not the diff. */
@@ -135,7 +140,8 @@ export const InlineLocation = memo(function InlineLocation({ at }: { at: Comment
     if (comment) {
       const talk = discussion?.entries.filter((entry) => entry.kind === "message").length ?? 0;
       const status = draftStatus(comment, draftState(comment, draft.stale), facts);
-      return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} mark={status.mark} />} who={null} words={status.label}
+      const check = sentCheck(comment, draft.checks);
+      return <div data-draft-at={locationKey(at)}><CommentPill frame={notSubmitted(edge)} icon={<DraftIcon edge={edge} mark={status.mark} />} who={null} words={status.label} badge={check && <CheckBadge check={check} />}
         tag={comment.severity && SEVERITY_LABEL[comment.severity]} text={comment.body}
         more={talk ? `${talk} message${talk === 1 ? "" : "s"} with the agent` : null} name={`Draft comment on ${where}`} onShow={fold} /></div>;
     }
@@ -171,7 +177,8 @@ export function DraftStatus({ status }: { status: ReturnType<typeof draftStatus>
 
 function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft: InlineDraft; onFold: (() => void) | null }) {
   const state = draftState(comment, draft.stale);
-  const status = draftStatus(comment, state, useStatusFacts());
+  const facts = useStatusFacts();
+  const status = draftStatus(comment, state, facts);
   const preExisting = useKnob("preExistingFindings");
   const sendable = useSendable(draft.editable ? draft.targetKey : undefined, comment);
   // What Send now warned, or why it failed, under the comment.
@@ -179,25 +186,30 @@ function CommentView({ comment, draft, onFold }: { comment: DraftComment; draft:
   return (
     <article tabIndex={-1} aria-label={`Draft comment on ${comment.file}:${linesOf(comment)}`} className="outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50">
       <div className={bar}>
-        <DraftIcon edge={draftEdge(comment, draft.stale)} mark={status.mark} />
-        <DraftStatus status={status} />
+        {/* The icon stays beside its words, which wrap after it on a phone. */}
+        <span className="flex min-w-0 items-baseline gap-2">
+          <DraftIcon edge={draftEdge(comment, draft.stale)} mark={status.mark} className="translate-y-0.5" />
+          <span className="min-w-0"><DraftStatus status={status} />{draft.targetKey && draft.setFix && <FixUndo targetKey={draft.targetKey} comment={comment} onFix={draft.setFix} />}</span>
+        </span>
         {state === "older-diff" && comment.author === "agent" && <Badge tone="agent" size="sm" icon={<Icon name="Sparkles" aria-hidden />}>Agent</Badge>}
         {comment.startLine !== undefined && <span className="tabular-nums">Lines {linesOf(comment)}</span>}
         {comment.severity && <SeverityBadge severity={comment.severity} />}
         {preExisting && comment.introduced === false && <PreExistingBadge />}
+        <FixCheckBadge comment={comment} checks={draft.checks} />
         {onFold && <span className="-mr-1.5 ml-auto"><FoldButton onFold={onFold} /></span>}
       </div>
-      <div className="space-y-2 px-3 pb-2.5"><CommentBody body={comment.body} link={comment.author === "agent"} />{comment.evidence && <AgentEvidence evidence={comment.evidence} />}{sendNote}</div>
+      <div className="space-y-2 px-3 pb-2.5"><CommentBody body={comment.body} link={comment.author === "agent"} />{comment.evidence && <AgentEvidence evidence={comment.evidence} />}<FixReport comment={comment} checks={draft.checks} />{sendNote}</div>
       {/* Every card's actions in one row under its words, which wraps on a phone. */}
       {draft.editable && <div className="-mt-1 flex flex-wrap gap-0.5 px-1.5 pb-1.5">
+        {draft.setFix && draft.targetKey && <FixButtons targetKey={draft.targetKey} comment={comment} checks={draft.checks} busy={draft.busy} posts={facts.posts && postable(comment, facts.own)} className={action} onFix={draft.setFix} />}
         <Button variant="ghost" size="sm" className={action} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.open(comment); }}>Edit</Button>
         <Button variant="ghost" size="sm" className={cn(action, TONE_TEXT.agent, "hover:text-(--ansi-13)")} {...whileBusy(draft.busy, draft.writing)} onClick={() => { if (!draft.busy && !draft.writing) draft.ask(comment); }}><Icon name="Sparkles" className="size-3.5" aria-hidden />Ask agent</Button>
         {sendable && <SendNow targetKey={draft.targetKey!} comment={comment} to={sendable} className={action} onNote={setSendNote} />}
-        {preExisting && state !== "older-diff" && draft.markPreExisting && <Button variant="ghost" size="sm" className={action} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) draft.markPreExisting!(comment, comment.introduced !== false); }}>{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}</Button>}
+        {preExisting && state !== "older-diff" && marksPreExisting(comment) && draft.markPreExisting && <Button variant="ghost" size="sm" className={action} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) draft.markPreExisting!(comment, comment.introduced !== false); }}>{comment.introduced === false ? "Mark as from this PR" : "Mark as pre-existing"}</Button>}
         <Button variant="ghost" size="sm" className={cn(action, "hover:text-destructive-text")} {...whileBusy(draft.busy)} onClick={() => { if (!draft.busy) draft.remove(comment); }}>Remove</Button>
         <CommentEditorMenu comment={comment} />
       </div>}
-      {state === "older-diff" && <p className="border-t border-warning/20 bg-warning/10 px-3 py-1.5 text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
+      {state === "older-diff" && (!facts.posts || postable(comment, facts.own)) && <p className="border-t border-warning/20 bg-warning/10 px-3 py-1.5 text-xs text-warning-text">Drafted against an older diff. Edit and save it, or remove it, before you submit.</p>}
     </article>
   );
 }

@@ -28,7 +28,7 @@ test("a renamed file's comments use its new path, which GitHub resolves at the P
   const { store, add } = await host();
   expect(changedFiles(patch)).toEqual(["src/new.ts"]);
   await add({ file: "src/new.ts", line: 2, code: "const b = 3;", body: "Why 3?" });
-  expect(toGithubReviewPayload(await store.getDraft("pr-1")).comments).toEqual([{ path: "src/new.ts", line: 2, side: "RIGHT", body: "Why 3?" }]);
+  expect(toGithubReviewPayload(await store.getDraft("pr-1"), false, false).comments).toEqual([{ path: "src/new.ts", line: 2, side: "RIGHT", body: "Why 3?" }]);
   expect(await store.staleDraftComments("pr-1")).toEqual([]);
 });
 

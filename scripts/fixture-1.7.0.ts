@@ -98,7 +98,7 @@ writeFileSync(join(out, "reads.json"), reads);
 const payloads: Record<string, unknown> = {};
 for (const k of [teammate, own, local]) {
   const draft = await store.getDraft(k);
-  payloads[k] = { plain: JSON.stringify(toGithubReviewPayload(draft)), preExisting: JSON.stringify(toGithubReviewPayload(draft, true)) };
+  payloads[k] = { plain: JSON.stringify(toGithubReviewPayload(draft, false, false)), preExisting: JSON.stringify(toGithubReviewPayload(draft, true, false)) };
 }
 writeFileSync(join(out, "payloads.json"), JSON.stringify(payloads, null, 2) + "\n");
 await harness.dispose();

@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import type { PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { assistantReview } from "./draft-comments";
-import { linesOf, postedBody, sameComments, VERDICT_LABEL, type DraftComment, type Verdict } from "./draft";
+import { linesOf, postedBody, sameComments, VERDICT_LABEL, type CommentLocation, type DraftComment, type Verdict } from "./draft";
 import { writeSummary } from "./draft-summary";
 import { ghReplyThreadArgs, ghResolveThreadArgs, ghUnresolveThreadArgs, runGh } from "./gh";
 import { readReviewThreads } from "./github-threads-rpc";
@@ -41,7 +41,7 @@ const META_LABEL: Record<MetaAction, string> = {
 };
 /** A write to GitHub, as its preview's token names it: the review it's on, at the head it was reviewed at. */
 type Write =
-  | { kind: "review"; verdict: Verdict; body: string; comments: Comment[]; was: { body: string; verdict: Verdict }; force: SubmitWarning[]; headSha: string | null }
+  | { kind: "review"; verdict: Verdict; body: string; comments: Comment[]; was: { body: string; verdict: Verdict }; force: SubmitWarning[]; headSha: string | null; posts?: number; posting?: CommentLocation[] }
   | { kind: "reply"; thread: string; commentId: number; at: string | null; body: string }
   | { kind: "comment"; body: string }
   | { kind: "edit"; title?: string; body?: string }
@@ -75,7 +75,7 @@ const DOING: Record<Verdict, string> = { APPROVE: "Approving", REQUEST_CHANGES: 
 
 export function register(deps: ServeDeps, { submit }: {
   /** draft-rpc's Submit: it posts, then records what follows. */
-  submit: (targetKey: string, revision: undefined, account: string | undefined, comments: Comment[], summary: { body: string; verdict: Verdict }, force?: readonly SubmitWarning[]) => Promise<SubmitResult>;
+  submit: (targetKey: string, revision: undefined, account: string | undefined, comments: Comment[], summary: { body: string; verdict: Verdict }, force?: readonly SubmitWarning[], options?: { posting?: readonly CommentLocation[] }) => Promise<SubmitResult>;
 }) {
   const { bb, store, receipts, githubWrites, submitReview, sync, changed, refreshThreads, classify } = deps;
   const key = (threadId: string) => `post-preview:${threadId}`;
@@ -171,8 +171,9 @@ export function register(deps: ServeDeps, { submit }: {
         });
         if (!ready) return { ok: false, text: "The draft or the review changed since it was shown, so nothing was posted. Call submit_review again to show it as it is now." };
         bb.realtime.publish(`draft:${targetKey}`, {});
-        const result = await submit(targetKey, undefined, account ?? undefined, w.comments, { body: w.body, verdict: w.verdict }, w.force);
-        if (result.ok) return { ok: true, text: `Posted the review to GitHub${result.url ? `: ${result.url}` : "."}`, activity: `Submitted ${VERDICT_LABEL[w.verdict]}${w.comments.length ? ` with ${plural(w.comments.length, "comment")}` : ""}`, ...(result.url ? { url: result.url } : {}) };
+        // Only what the form showed as posting: a Reopen, a Send or a Resolve since refuses it.
+        const result = await submit(targetKey, undefined, account ?? undefined, w.comments, { body: w.body, verdict: w.verdict }, w.force, { posting: w.posting ?? [] });
+        if (result.ok) return { ok: true, text: `Posted the review to GitHub${result.url ? `: ${result.url}` : "."}`, activity: `Submitted ${VERDICT_LABEL[w.verdict]}${w.posts ? ` with ${plural(w.posts, "comment")}` : ""}`, ...(result.url ? { url: result.url } : {}) };
         if (result.warning) return { ok: false, text: `Nothing was posted. ${result.warning} Tell the reviewer; if they want it posted anyway, call submit_review again with force: true.` };
         if (result.offers?.includes("comment")) return { ok: false, text: `Nothing was posted. ${result.error} Offer to post it as a Comment review instead.` };
         return { ok: false, text: `Nothing was posted. ${result.error ?? "GitHub didn't take the review."}` };
@@ -438,7 +439,8 @@ export function register(deps: ServeDeps, { submit }: {
         : checked.texts?.[kind] ?? "");
       if (checked.warning && !force) return failed(`Nothing was posted. ${notes.join(" ")} Tell the reviewer; if they want it posted anyway, call submit_review again with force: true.`);
       const posting = checked.posting ?? { body: summary, comments: draft.comments };
-      const w: Write = { kind: "review", verdict, body: summary, comments, was: { body: draft.body, verdict: draft.verdict }, force: checked.warnings ?? [], headSha: review.headSha ?? null };
+      // comments: the draft's, as Submit checks the draft against them; posts: those that post as line comments.
+      const w: Write = { kind: "review", verdict, body: summary, comments, was: { body: draft.body, verdict: draft.verdict }, force: checked.warnings ?? [], headSha: review.headSha ?? null, posts: posting.comments.length, posting: checked.posts ?? [] };
       return previewed(threadId, signal, review, turn, w, verdict === "APPROVE" ? "approve" : verdict === "REQUEST_CHANGES" ? "request-changes" : "post", (account) => ({
         title: `${verdict === "APPROVE" ? "Approve" : verdict === "REQUEST_CHANGES" ? "Request changes on" : "Post to"} ${where(review)}${by(account)}`, action: VERDICT_LABEL[verdict], button: VERDICT_BUTTON[verdict],
         parts: [...posting.body.trim() ? [{ label: "Summary", body: posting.body }] : [], ...posting.comments.map((c) => ({ label: `${c.file}:${linesOf(c)}`, body: postedBody(c, preExisting), path: true }))],

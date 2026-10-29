@@ -6,9 +6,6 @@ const notYet = (what: string) => async (): Promise<never> => { throw new Error(`
 
 export function register() {
   const handlers = {
-    resolveComment: notYet("Resolve"), // Step 2.3.
-
-    reopenComment: notYet("Reopen"), // Step 2.3.
   } satisfies Partial<RpcHandlers>;
   return { handlers };
 }

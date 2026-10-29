@@ -163,7 +163,7 @@ test("a GitHub thread reads its author, replies, ages and check; yours by your l
     url: `${PR}#discussion_r${t1.comments[0].databaseId}`, thread: t1, feedback: feedback.items[0],
   });
   expect(find("T3")).toMatchObject({ state: "resolved", resolvedBy: "alice", check: { label: "Unclear", fix: null } });
-  expect(find("T6")).toMatchObject({ outdated: true, nonBlocking: true, tag: "Nit", at: { file: "src/cache.ts", line: null, lines: "30" }, check: { label: "Partial" } });
+  expect(find("T6")).toMatchObject({ outdated: true, nonBlocking: true, tag: "Nit", at: { file: "src/cache.ts", line: null, lines: "30" }, check: { label: "Partly addressed" } });
   expect(find("B1")).toMatchObject({
     mine: false, who: "@bob", check: null, feedback: null, url: `${PR}#discussion_r${b1.comments[0].databaseId}`,
     messages: [expect.objectContaining({ who: "@bob" }), expect.objectContaining({ who: "You", mine: true })],
@@ -207,6 +207,7 @@ test("groups come in order, show each item once under All, and count what their 
   expect(list.map((group) => [group.id, group.title, group.count, group.summary, group.elsewhere])).toEqual([
     ["needs-you", "Needs you", 7, null, 0],
     ["not-submitted", "Not submitted · only in BB", 5, "1 blocking · 1 should fix · 1 question · 2 nits", 1],
+    ["fixes", "Sent to fix · won’t post", 0, null, 0],
     ["on-github", "On GitHub", 7, "Yours: 2 of 4 handled +2 nits", 0],
     ["private", "Private · with the agent", 1, null, 0],
   ]);
@@ -218,11 +219,14 @@ test("groups come in order, show each item once under All, and count what their 
   expect(ids(list[0].items)).toEqual(ids(needsYou(items)));
   expect(ids(list[1].items)).toEqual(["draft:src/cache.ts:16:RIGHT", "draft:src/server.ts:38:RIGHT", "draft:src/api/handler.ts:5:RIGHT", "draft:README.md:2:RIGHT"]);
   // On GitHub: yours first, then other people's; resolved and outdated threads folded, yours first there too.
-  expect(ids(list[2].items)).toEqual(["summary:2", "B1", "B3", "B5"]);
-  expect(list[2].folded).toEqual({ label: "2 resolved · 1 outdated", items: expect.anything() });
-  expect(ids(list[2].folded!.items)).toEqual(["T3", "B2", "B4"]);
-  expect(list[3].folded).toBeNull();
-  expect(FILTER_LABEL).toEqual({ all: "All", "needs-you": "Needs you", "not-submitted": "Not submitted", "on-github": "On GitHub" });
+  expect(ids(list[3].items)).toEqual(["summary:2", "B1", "B3", "B5"]);
+  expect(list[3].folded).toEqual({ label: "2 resolved · 1 outdated", items: expect.anything() });
+  expect(ids(list[3].folded!.items)).toEqual(["T3", "B2", "B4"]);
+  expect(list[4].folded).toBeNull();
+  expect(FILTER_LABEL).toEqual({
+    all: "All", "needs-you": "Needs you", "not-submitted": "Not submitted", "on-github": "On GitHub",
+    open: "Open", sent: "Sent", done: "Done", declined: "Declined", resolved: "Resolved", dismissed: "Dismissed",
+  });
 });
 
 test("the check strip and the file headers count from the same items", () => {
@@ -327,7 +331,7 @@ test("threads read without the newer fields still build", () => {
 test("a local review has only what's in BB: drafts and private discussions", () => {
   const items = buildItems({ draft: { draft: { ...draft, verdict: "COMMENT", body: "" }, stale: [{ file: "src/cache.ts", line: 21, side: "RIGHT" }], discussions }, threads: [], feedback: null, sections, patch });
   expect(groups(items).map((group) => [group.id, group.count, group.summary])).toEqual([
-    ["needs-you", 1, null], ["not-submitted", 5, "1 blocking · 1 should fix · 1 question · 2 nits"], ["on-github", 0, null], ["private", 1, null],
+    ["needs-you", 1, null], ["not-submitted", 5, "1 blocking · 1 should fix · 1 question · 2 nits"], ["fixes", 0, null], ["on-github", 0, null], ["private", 1, null],
   ]);
   expect(checkTally(items)).toBeNull();
   expect(toSend({ draft: { draft: { ...draft, body: "" }, stale: [] }, threads: [], feedback: null, sections, patch })).toMatchObject({ comments: 5, replyDrafts: 0, summary: null });
@@ -357,10 +361,10 @@ test("the words for every state, thread flag, check, reply draft and summary", (
     "summary-ask": "From your review summary",
   });
   expect(THREAD_FLAG_LABEL).toEqual({ outdated: "Outdated", fileComment: "File comment" });
-  expect(CHECK_LABEL).toEqual({ addressed: "Addressed", partial: "Partial", not_addressed: "Not addressed", disputed: "Author disagrees", unclear: "Unclear" });
+  expect(CHECK_LABEL).toEqual({ addressed: "Addressed", partial: "Partly addressed", not_addressed: "Not addressed", disputed: "Author disagrees", unclear: "Unclear" });
   expect(REPLY_DRAFT_LABEL).toEqual({ reviewer: "Reply draft · not sent", agent: "Agent reply draft · not sent" });
   expect(SUMMARY_LABEL).toEqual({ reviewer: "Summary · not submitted", agent: "Agent summary · not submitted" });
-  expect(GROUP_TITLE).toEqual({ "needs-you": "Needs you", "not-submitted": "Not submitted · only in BB", "on-github": "On GitHub", private: "Private · with the agent" });
+  expect(GROUP_TITLE).toEqual({ "needs-you": "Needs you", "not-submitted": "Not submitted · only in BB", fixes: "Sent to fix · won’t post", "on-github": "On GitHub", private: "Private · with the agent" });
 });
 
 // Your own PR (S6): every thread is yours to answer; bots' are folded.
@@ -385,8 +389,8 @@ test("on your own PR a thread whose latest comment that isn't a bot's isn't your
   ]);
   const list = groups(items);
   expect(ids(list[0].items).sort()).toEqual(["B3", "B6", "T1"]);
-  expect(list[2].folded).toEqual({ label: "1 resolved · 1 from bots", items: expect.anything() });
-  expect(ids(list[2].folded!.items).sort()).toEqual(["B4", "B5"]);
+  expect(list[3].folded).toEqual({ label: "1 resolved · 1 from bots", items: expect.anything() });
+  expect(ids(list[3].folded!.items).sort()).toEqual(["B4", "B5"]);
   // A thread GitHub didn't list reads from what the server kept, under its own author.
   const kept = buildItems({ ...own, threads: [] });
   expect((kept.find((item) => item.id === "B3") as ThreadItem)).toMatchObject({ state: "needs-reply", who: "@dave", mine: false });
@@ -399,7 +403,7 @@ test("on your own PR a thread whose latest comment that isn't a bot's isn't your
 test("on a teammate's PR, bots' threads stay where they were and nothing reads Needs your reply", () => {
   const items = buildItems(sources);
   expect(items.some((item) => item.kind === "thread" && (item.state === "needs-reply" || item.bot))).toBe(false);
-  expect(groups(items)[2].folded?.label).toBe("2 resolved · 1 outdated");
+  expect(groups(items)[3].folded?.label).toBe("2 resolved · 1 outdated");
 });
 
 test("a sent comment's report says Done or Declined with its note, without its closing stop; one the review agent's check found says it wasn't reported; each marks its icon", () => {
@@ -412,4 +416,54 @@ test("a sent comment's report says Done or Declined with its note, without its c
   expect(draftStatus(sent, "draft", local)).toMatchObject({ label: "Sent to the main thread · Send 1", mark: "sent" });
   // Where it posts on someone else's PR, it's still a draft first: no mark.
   expect(draftStatus(sent, "draft", { ...local, posts: true, own: false }).mark).toBeUndefined();
+});
+
+test("on your own PR, comments sent to fix, resolved or dismissed are apart from what Submit posts, and the fix chips filter them", () => {
+  const claim = (outcome: "done" | "declined") => ({ outcome, threadId: "coder", at: 1 });
+  const tracked: DraftComment[] = [
+    { ...expiry, id: "c1", state: "sent", sendN: 1 },
+    { ...ttl, id: "c2", state: "sent", sendN: 1, claim: claim("done") },
+    { ...rename, id: "c3", state: "sent", sendN: 1, claim: claim("declined") },
+    { ...warmUp, id: "c4", state: "resolved", sendN: 1, claim: claim("done") },
+    typo,
+  ];
+  const own = (isOwn: boolean): CommentSources => ({
+    draft: { draft: { ...draft, comments: tracked }, stale: [{ file: "src/cache.ts", line: 21, side: "RIGHT" }] }, threads: [], feedback: null, sections, patch,
+    status: { posts: true, own: isOwn, sends: [{ n: 1, at: 1, threadId: "coder", ids: ["c1", "c2", "c3", "c4"] }] },
+    checks: { c1: { verdict: "not_addressed", evidence: "Still `<=`." }, c2: { verdict: "addressed", evidence: "Reads config now." }, c4: { verdict: "partial", evidence: "Half." } },
+  });
+  const items = buildItems(own(true));
+  const list = groups(items);
+  // Only the open comment posts: its chip and Submit agree. The one on an older diff that won't post needs nothing for
+  // that; one the check says isn't fixed, and one declined, need your click; done and addressed doesn't.
+  expect(list.map((group) => [group.id, group.count, group.summary])).toEqual([
+    ["needs-you", 2, null], ["not-submitted", 1, "1 nit"], ["fixes", 2, "1 done · 1 resolved"], ["on-github", 0, null], ["private", 0, null],
+  ]);
+  expect(needsYou(items).map((item) => [item.id, item.needs])).toEqual([["draft:src/cache.ts:16:RIGHT", "check"], ["draft:src/api/handler.ts:5:RIGHT", "declined"]]);
+  expect(toSend(own(true)).comments).toBe(1);
+  expect(shownItems(items, "not-submitted").map((item) => item.id)).toEqual(["draft:README.md:2:RIGHT"]);
+  expect(shownItems(items, "done").map((item) => item.id)).toEqual(["draft:src/cache.ts:21:RIGHT"]);
+  expect(shownItems(items, "open").map((item) => item.id)).toEqual(["draft:README.md:2:RIGHT"]);
+  // The check of each, against its Send; none for one never sent.
+  expect(items.flatMap((item) => item.kind === "draft" ? [[item.fix, item.check?.label ?? null]] : [])).toEqual([
+    ["sent", "Not addressed"], ["done", "Addressed"], ["resolved", "Partly addressed"], ["declined", null], ["open", null],
+  ]);
+  // On a PR you don't own, a Send changes nothing Submit posts: only the resolved one stays out.
+  const theirs = groups(buildItems(own(false)));
+  expect(theirs.map((group) => [group.id, group.count])).toEqual([["needs-you", 3], ["not-submitted", 4], ["fixes", 1], ["on-github", 0], ["private", 0]]);
+  expect(toSend(own(false)).comments).toBe(4);
+});
+
+test("a resolved or dismissed comment's status line says so, with its icon", () => {
+  const facts = { posts: false, own: true };
+  expect(draftStatus({ ...expiry, id: "c1", state: "resolved" }, "draft", facts)).toEqual({ label: "Resolved", mark: "resolved" });
+  expect(draftStatus({ ...expiry, id: "c1", state: "dismissed" }, "draft", facts)).toEqual({ label: "Dismissed", mark: "dismissed" });
+});
+
+test("on your own PR, a GitHub thread that went with a Send is under the fix chips too, by what was reported", () => {
+  const status = { posts: true, own: true, sends: [{ n: 1, at: 1, threadId: "coder", ids: ["c1", "c2"] }], threadSends: { T1: { id: "c1", sendN: 1 }, T4: { id: "c2", sendN: 1, claim: { outcome: "done" as const, threadId: "coder", at: 2 } } } };
+  const items = buildItems({ draft: { draft: { ...draft, comments: [] }, stale: [] }, threads: [t1, t4], feedback: null, sections, patch, viewer: "reviewer", ownPr: true, status });
+  expect(shownItems(items, "sent").map((item) => item.id)).toEqual(["T1"]);
+  expect(shownItems(items, "done").map((item) => item.id)).toEqual(["T4"]);
+  expect(shownItems(items, "open")).toEqual([]);
 });

@@ -38,7 +38,8 @@ export function frameOf(item: CommentItem): string {
 const DRAFT_ICON: Record<Edge, IconName> = { yours: "CircleDashed", agent: "Sparkles", older: "AlertTriangle" };
 /**
  * A sent comment's icon, where its fix stands: the send arrow while it's out; a check once the thread reports it done,
- * hollow where the review agent's check found it done unreported; a cross for declined, hollow the same way.
+ * hollow where the review agent's check found it done unreported; a cross for declined, hollow the same way; a badge
+ * once you resolve it, and a box once you dismiss it.
  */
 const MARK_ICON: Record<FixMark, { icon: IconName; text: string }> = {
   sent: { icon: "Send", text: "text-primary" },
@@ -46,6 +47,8 @@ const MARK_ICON: Record<FixMark, { icon: IconName; text: string }> = {
   "looks-done": { icon: "CircleCheck", text: "text-muted-foreground" },
   declined: { icon: "X", text: "text-muted-foreground" },
   "looks-declined": { icon: "CircleX", text: "text-muted-foreground" },
+  resolved: { icon: "BadgeCheck", text: "text-diff-added" },
+  dismissed: { icon: "Archive", text: "text-muted-foreground" },
 };
 
 /** The icon that leads an item: a dashed circle, the agent's sparkle, a warning, where a sent one's fix stands, GitHub's mark, or a lock. */
@@ -134,6 +137,12 @@ export function itemWords(item: CommentItem): string {
   if (item.kind === "thread") return [item.label, item.outdated ? THREAD_FLAG_LABEL.outdated : null, item.fileComment ? THREAD_FLAG_LABEL.fileComment : null].filter(Boolean).join(" · ");
   return item.label;
 }
+
+/**
+ * On a line cut short with an ellipsis, `code` keeps its type and color but not its box, which the cut would leave as a
+ * sliver, or with the ellipsis inside it.
+ */
+export const CUT_CODE = "[&_code]:bg-transparent [&_code]:px-0";
 
 /** A message's first line in plain words, for a row or pill: no quote marks or fences, no bold or italic markers. */
 export function plainLine(text: string): string {

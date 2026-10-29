@@ -153,13 +153,13 @@ test("a Send on a teammate's PR warns first, and sent anyway, never changes what
   await store.setLifecycle(KEY, { sourceThreadId: "coder" });
   await store.savePatch(KEY, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n x\n-y\n+z\n");
   for (const line of [1, 2]) await store.upsertDraftComment(KEY, { file: "a.ts", line, side: "RIGHT", body: `Line ${line}.` });
-  const before = JSON.stringify(toGithubReviewPayload(await store.getDraft(KEY)));
+  const before = JSON.stringify(toGithubReviewPayload(await store.getDraft(KEY), false, false));
   const comments = [{ file: "a.ts", line: 1, side: "RIGHT" }, { file: "a.ts", line: 2, side: "RIGHT" }];
   expect(await call("sendToSourceThread", { targetKey: KEY, comments })).toEqual({ ok: false, warning: "This is @alice’s PR, not yours. Your review on GitHub stays as it is.", offers: ["anyway"] });
   expect(await call("sendToSourceThread", { targetKey: KEY, comments, force: true })).toMatchObject({ ok: true, sendN: 1 });
   const after = await store.getDraft(KEY);
   expect(after.comments.map((comment) => comment.state)).toEqual(["sent", "sent"]);
-  expect(JSON.stringify(toGithubReviewPayload(after))).toBe(before);
+  expect(JSON.stringify(toGithubReviewPayload(after, false, false))).toBe(before);
 });
 
 test("on a teammate's PR, its threads on GitHub never go with a Send: your review answers them", async () => {
@@ -168,6 +168,27 @@ test("on a teammate's PR, its threads on GitHub never go with a Send: your revie
   expect(await call("sendNow", { targetKey: KEY, comment: { threadId: "t-mine" }, force: true })).toMatchObject({ ok: false, error: expect.stringContaining("Only your own PR's threads") });
   expect(await call("sendToSourceThread", { targetKey: KEY, comments: [], threads: ["t-mine"], force: true }).catch((error: Error) => error.message)).toContain("Only your own PR's threads");
   expect((await store.getReview(KEY))!.threadSends).toBeUndefined();
+});
+
+test("on a teammate's PR, Submit after a Send of 2 comments posts exactly what it posted before it", async () => {
+  /** Two draft comments and a summary, Sent first or not, then Submit: what gh was given to post. */
+  const posted = async (sendFirst: boolean) => {
+    const { store, call } = await teammatePr();
+    await store.setLifecycle(KEY, { sourceThreadId: "coder" });
+    await store.savePatch(KEY, "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n x\n-y\n+z\n");
+    for (const line of [1, 2]) await store.upsertDraftComment(KEY, { file: "a.ts", line, side: "RIGHT", body: `Line ${line}.` });
+    await store.setVerdict(KEY, "COMMENT", "Two asks.");
+    if (sendFirst) expect(await call("sendToSourceThread", { targetKey: KEY, comments: [1, 2].map((line) => ({ file: "a.ts", line, side: "RIGHT" })), force: true })).toMatchObject({ ok: true, sendN: 1 });
+    const { revision } = await call("getReviewBundle", { targetKey: KEY });
+    const { comments, body, verdict } = await store.getDraft(KEY);
+    expect(comments.map((comment) => comment.state)).toEqual(sendFirst ? ["sent", "sent"] : [undefined, undefined]);
+    expect(await call("submitReview", { targetKey: KEY, revision, account: "me", comments, posting: comments.map(({ file, line, side }) => ({ file, line, side })), body, verdict })).toEqual({ ok: true });
+    const [[, { stdin }]] = reviewPosts() as unknown as [[string[], { stdin: string }]];
+    return stdin;
+  };
+  const before = await posted(false);
+  expect(JSON.parse(before).comments).toHaveLength(2);
+  expect(await posted(true)).toBe(before);
 });
 
 // The review agent: its tools and instructions.

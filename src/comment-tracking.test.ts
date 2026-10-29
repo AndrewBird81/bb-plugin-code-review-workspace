@@ -86,9 +86,9 @@ test("trackComments sets only the server's fields, clears one given as undefined
 test("a tracked comment posts to GitHub as it would untracked", async () => {
   const { store } = await review();
   await store.upsertDraftComment("pr-1", { ...AT, line: 2, startLine: 1, severity: "should-fix", body: "Cap the retries." });
-  const untracked = JSON.stringify(toGithubReviewPayload(await store.getDraft("pr-1"), true));
+  const untracked = JSON.stringify(toGithubReviewPayload(await store.getDraft("pr-1"), true, false));
   await store.trackComments("pr-1", [{ at: { ...AT, line: 2 }, id: "c1", state: "sent", sendN: 1, claim: CLAIM, editedBy: "agent" }]);
-  expect(JSON.stringify(toGithubReviewPayload(await store.getDraft("pr-1"), true))).toBe(untracked);
+  expect(JSON.stringify(toGithubReviewPayload(await store.getDraft("pr-1"), true, false))).toBe(untracked);
 });
 
 test("comment ids count up across reviews and Sends from the install's counter, in one turn of the queue each", async () => {

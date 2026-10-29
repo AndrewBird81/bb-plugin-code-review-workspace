@@ -24,12 +24,12 @@ const MAX_CODE_LINES = 40;
 export type FixComment = Pick<DraftComment, "file" | "line" | "side" | "severity" | "body" | "introduced"> & { startLine?: number; startSide?: "LEFT" | "RIGHT" };
 
 /** Whether the change is yours: a local review, a folder's review that became its PR, or your own PR. */
-export async function isOwnChange(review: ReviewMeta): Promise<boolean> {
+export async function isOwnChange(review: ReviewMeta, run: typeof runGh = runGh): Promise<boolean> {
   if (review.kind === "ref" || review.feature) return true;
   if (typeof review.ownPr === "boolean") return review.ownPr;
   if (!review.author) return false;
   // The sync knows once it has read the PR; before that, ask gh who you are.
-  const login = await runGh(["api", "user", "--jq", ".login"]).then((r) => r.code === 0 ? r.stdout.trim() : "", () => "");
+  const login = await run(["api", "user", "--jq", ".login"]).then((r) => r.code === 0 ? r.stdout.trim() : "", () => "");
   return !!login && login.toLowerCase() === review.author.toLowerCase();
 }
 

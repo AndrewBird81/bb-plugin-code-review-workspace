@@ -65,7 +65,7 @@ export function FinishView({ shown, revision }: {
   // What the last Submit here sent, for its receipt.
   const [sent, setSent] = useState<{ comments: number; at: number } | null>(null);
   const submit = (confirmed = false, choice?: "anyway" | "comment") => {
-    if (confirmed || !(d.doubts.length || d.approvingBlocked)) setSent({ comments: d.draft.comments.length, at: Date.now() });
+    if (confirmed || !(d.doubts.length || d.approvingBlocked)) setSent({ comments: d.posting.length, at: Date.now() });
     void d.submit(confirmed, choice);
   };
   // It didn't go: there's no receipt to show.
@@ -364,16 +364,21 @@ function Row({ icon, tone = "neutral", children, action }: { icon: ReactNode; to
   </li>;
 }
 
-/** Goes to GitHub: the comments and their severities, who wrote them, what holds Submit back, and the reply drafts that post on their own. */
+/**
+ * Goes to GitHub: the comments that post and their severities, who wrote them, what holds Submit back, and the reply
+ * drafts that post on their own. On your own change, those sent to the main thread, resolved or dismissed don't post.
+ */
 function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentItem[]; replyDrafts: number; onList: (filter: CommentFilter, id?: string | null) => void }) {
   const d = useDraft();
   const { reveal, showLocation } = useWorkspace();
-  const comments = d.draft.comments;
+  const comments = d.posting;
+  // Sent to fix from your own change, resolved or dismissed: they stay in BB.
+  const held = d.draft.comments.length - comments.length;
   const agent = comments.filter((comment) => comment.author === "agent").length;
-  const older = items.filter((item) => item.kind === "draft" && item.state === "older-diff");
+  const older = items.filter((item) => item.kind === "draft" && item.state === "older-diff" && item.posts);
   // As MoveToSummary offers it.
   const movable = useKnob("moveToSummary") && d.editable;
-  const blocking = items.find((item) => item.kind === "draft" && d.blocks(item.comment));
+  const blocking = items.find((item) => item.kind === "draft" && item.posts && d.blocks(item.comment));
   const link = (label: string, onClick: () => void) => <Button variant="ghost" size="sm" aria-label={label} className={cn("size-8 shrink-0 px-0 text-muted-foreground", TOUCH_CONTROL)} onClick={onClick}><Icon name="ChevronRight" aria-hidden /></Button>;
   const fix = (label: string, onClick: () => void) => <Button variant="outline" size="sm" className={cn("h-7 shrink-0 px-2 text-xs", TOUCH_CONTROL)} onClick={onClick}>{label}</Button>;
   return (
@@ -407,6 +412,7 @@ function GoesToGitHub({ items, replyDrafts, onList }: { items: readonly CommentI
           The agent suggests Approve but read {readOf(d.unreadApproval)}
         </Row>}
       </ul>
+      {held > 0 && <p className="px-0.5 text-xs text-muted-foreground">{held} sent to fix won’t post to GitHub. Reopen {held === 1 ? "it" : "one"} to post it.</p>}
     </Part>
   );
 }

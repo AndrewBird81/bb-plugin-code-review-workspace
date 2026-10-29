@@ -6,7 +6,7 @@ import { InlineCode } from "../ui/inline-code";
 import { Badge } from "../ui/badge";
 import { Icon } from "../ui/icon";
 import { SEVERITY_LABEL } from "../../src/draft";
-import { CheckBadge, FixStatus, frameOf, ItemIcon, itemWords, placeLabel, plainLine, ReplyDraftBadge, SEVERITY_TONE, TAG_TONE, ThreadState } from "./look";
+import { CheckBadge, CUT_CODE, FixStatus, frameOf, ItemIcon, itemWords, placeLabel, plainLine, ReplyDraftBadge, SEVERITY_TONE, TAG_TONE, ThreadState } from "./look";
 import { CommentCard, whereOf } from "./CommentCard";
 import { PreExistingBadge } from "../InlineDraft";
 
@@ -36,7 +36,7 @@ function nameOf(item: CommentItem, preExisting: boolean): string {
     const talk = talkOf(item);
     parts.push(talk ? talkWords(talk) : null, item.discussion?.waiting ? "Waiting for agent" : null);
   } else if (item.kind === "thread") parts.push(item.tag, item.topLevel && item.waitingOn ? topLevelLabel(item.topLevel) : null, item.sendStatus?.label ?? null);
-  if ((item.kind === "thread" || item.kind === "ask") && item.check) parts.push(`agent's check: ${item.check.label}`);
+  if (item.kind !== "private" && item.check) parts.push(`agent's check: ${item.check.label}`);
   if (item.kind === "thread") parts.push(item.replyDraft?.label ?? null);
   return parts.filter(Boolean).join(" · ");
 }
@@ -83,7 +83,7 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
             <ItemIcon item={item} />
             {/* Waiting for your reply: the chip the thread's card has, naming whose comment waits. */}
             {item.kind === "thread" && item.waitingOn ? <span className="flex min-w-0 items-center gap-1 overflow-hidden"><ThreadState item={item} /></span>
-              : <span className="min-w-0 truncate font-medium text-foreground">{item.kind === "thread" ? `${item.who} · ${itemWords(item)}` : itemWords(item)}</span>}
+              : <span className={cn("min-w-0 truncate font-medium text-foreground", CUT_CODE)}>{item.kind === "thread" ? `${item.who} · ${itemWords(item)}` : item.kind === "draft" ? <InlineCode text={itemWords(item)} /> : itemWords(item)}</span>}
             {place && <span className="ml-auto shrink-0 pl-1 font-mono text-[11px] text-muted-foreground">{place}</span>}
           </span>
           {/* What it is in a word or two, then its latest message: on the next line when the words leave it no room. */}
@@ -96,11 +96,11 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
             {item.kind === "thread" && item.topLevel && item.waitingOn && <Badge size="sm">{topLevelLabel(item.topLevel)}</Badge>}
             {/* It wraps between its parts rather than cut, so its time always shows. */}
             {item.kind === "thread" && item.sendStatus && <Badge size="sm" className="h-auto min-h-4 min-w-0 max-w-full shrink whitespace-normal rounded-md py-0.5 leading-snug"><FixStatus status={item.sendStatus} /></Badge>}
-            {(item.kind === "thread" || item.kind === "ask") && item.check && <CheckBadge check={item.check} />}
+            {item.kind !== "private" && item.check && <CheckBadge check={item.check} />}
             {item.kind === "thread" && item.replyDraft && <ReplyDraftBadge reply={item.replyDraft} />}
             {item.kind === "draft" && item.discussion?.waiting ? <Badge tone="agent" dot pulse size="sm">Waiting for agent</Badge>
               : talk > 0 && <span title={talkWords(talk)} className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground tabular-nums"><Icon name="MessageSquare" className="size-3" aria-hidden />{talk}</span>}
-            {!expanded && latest && <span className="min-w-0 grow basis-24 truncate text-[13px] leading-snug text-muted-foreground"><InlineCode text={latest} /></span>}
+            {!expanded && latest && <span className={cn("min-w-0 grow basis-24 truncate text-[13px] leading-snug text-muted-foreground", CUT_CODE)}><InlineCode text={latest} /></span>}
           </span>
         </button>
         {onExpand && <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${cardName(item)}`} aria-expanded={expanded} onClick={() => onExpand(expanded ? null : item.id)}

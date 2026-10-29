@@ -179,7 +179,7 @@ test("fetchMyThreads reads a thread you started after the first 300, and stops a
 test("a pre-existing comment's label is the severity after its Pre-existing mark", () => {
   const posted = toGithubReviewPayload({
     verdict: "COMMENT", body: "", comments: [{ file: "src/a.ts", line: 3, side: "RIGHT", severity: "nit", introduced: false, body: "Rename this to `count`." }],
-  } as unknown as Draft, true).comments[0].body;
+  } as unknown as Draft, true, false).comments[0].body;
   expect(posted).toBe("**Pre-existing:** **Nit:** Rename this to `count`.");
   expect(threadLabel(posted)).toEqual({ label: "Nit", nonBlocking: true });
   expect(threadLabel("**Pre-existing:** **Blocking:** drops writes")).toEqual({ label: "Blocking", nonBlocking: false });

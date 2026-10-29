@@ -100,6 +100,16 @@ test("a review with a main thread leads with Send N to it, by its title and mach
   slot.lifecycle.unmount();
 });
 
+test("a comment you reopened goes with the next Send, with its id; one you resolved or dismissed doesn't", async () => {
+  const sendToSourceThread = vi.fn(async () => ({ ok: true, delivery: "sent", title: "Retry uploads", threadId: "coder", sendN: 2 }));
+  const drafted = [{ ...comments[0], id: "c3", state: "open", sendN: 1 }, { ...comments[1], id: "c4", state: "resolved", sendN: 1 }];
+  const slot = await renderTray({ getSourceThread: open(), sendToSourceThread }, local, {}, drafted);
+  fireEvent.click(await slot.findByRole("button", { name: "Send 1 to main thread" }));
+  fireEvent.click(within(slot.getByRole("group", { name: "Comments to send" })).getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(sendToSourceThread).toHaveBeenCalledWith(expect.objectContaining({ comments: [{ file: comments[0]!.file, line: comments[0]!.line, side: comments[0]!.side }] })));
+  slot.lifecycle.unmount();
+});
+
 test("Send counts only the comments not sent yet, and Let it push when done is the review's, saved as you change it", async () => {
   const setLetPush = vi.fn(async () => ({ ok: true }));
   const sendToSourceThread = vi.fn(async () => ({ ok: true, delivery: "sent", title: "Retry uploads", threadId: "coder", sendN: 1 }));

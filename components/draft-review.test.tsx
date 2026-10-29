@@ -247,8 +247,23 @@ test("removing a comment offers Undo, which puts it back", async () => {
   await waitFor(() => expect(slot.queryByRole("button", { name: row("src/a.ts:2") })).toBeNull());
   const [, { action }] = vi.mocked(toast.info).mock.calls[0] as any;
   action.onClick();
-  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo", revision: "r1", replaces: null, comment: mine }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo", revision: "r1", replaces: null, restore: true, comment: mine }));
   await slot.findByRole("button", { name: row("src/a.ts:2") });
+  slot.lifecycle.unmount();
+});
+
+test("Undo after removing a sent comment puts it back with its id, its Send and the thread's report", async () => {
+  const sent = { file: "src/a.ts", line: 2, side: "RIGHT", chapterId: "c2", body: "Rename it.", id: "c4", state: "sent", sendN: 2, claim: { outcome: "done", note: "Renamed.", threadId: "coder", at: 5 } };
+  let draft = draftOf({ comments: [sent] });
+  const removeDraftComment = vi.fn(async () => { draft = { ...draft, comments: [] }; return { draft, stale: [], discussions: [] }; });
+  const saveDraftComment = vi.fn(async ({ comment }: any) => { draft = { ...draft, comments: [comment] }; return { draft, stale: [], discussions: [] }; });
+  const slot = await renderTray("undo-sent", { getDraft: () => ({ draft, stale: [], discussions: [] }), removeDraftComment, saveDraftComment });
+  expand(slot, "src/a.ts:2");
+  fireEvent.click(slot.getByRole("button", { name: "Remove comment on src/a.ts:2" }));
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Comment removed", expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) })));
+  const [, { action }] = vi.mocked(toast.info).mock.calls[0] as any;
+  action.onClick();
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo-sent", revision: "r1", replaces: null, restore: true, comment: sent }));
   slot.lifecycle.unmount();
 });
 
@@ -263,7 +278,7 @@ test("Undo after removing an agent's comment puts back how it checked it too", a
   await waitFor(() => expect(toast.info).toHaveBeenCalledWith("Comment removed", expect.objectContaining({ action: expect.objectContaining({ label: "Undo" }) })));
   const [, { action }] = vi.mocked(toast.info).mock.calls[0] as any;
   action.onClick();
-  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo-agent", revision: "r1", replaces: null, comment: agents }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo-agent", revision: "r1", replaces: null, restore: true, comment: agents }));
   slot.lifecycle.unmount();
 });
 
@@ -394,7 +409,7 @@ test("Undo after removing keeps an agent's comment the agent's, and isn't offere
   await waitFor(() => expect(toast.info).toHaveBeenCalledTimes(2));
   const [, { action }] = vi.mocked(toast.info).mock.calls[1] as any;
   action.onClick();
-  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo-agent", revision: "r1", replaces: null, comment: agents }));
+  await waitFor(() => expect(saveDraftComment).toHaveBeenCalledWith({ targetKey: "undo-agent", revision: "r1", replaces: null, restore: true, comment: agents }));
   slot.lifecycle.unmount();
 });
 

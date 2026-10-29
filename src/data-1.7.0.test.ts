@@ -48,7 +48,7 @@ test("each draft 1.7.0 wrote posts the same review, byte for byte, and what it s
   const payloads = JSON.parse(fixture("payloads.json"));
   for (const k of [TEAMMATE, OWN, LOCAL]) {
     const draft = await store.getDraft(k);
-    expect({ k, plain: JSON.stringify(toGithubReviewPayload(draft)), preExisting: JSON.stringify(toGithubReviewPayload(draft, true)) }).toEqual({ k, ...payloads[k] });
+    expect({ k, plain: JSON.stringify(toGithubReviewPayload(draft, false, false)), preExisting: JSON.stringify(toGithubReviewPayload(draft, true, false)) }).toEqual({ k, ...payloads[k] });
     // A comment with no state is open: none gains one by loading.
     expect(draft.comments.filter((c) => "id" in c || "state" in c || "sendN" in c || "claim" in c)).toEqual([]);
   }

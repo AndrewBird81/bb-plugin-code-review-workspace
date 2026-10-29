@@ -4,7 +4,9 @@ import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../src/rpc-contract";
 import type { ReviewItem } from "../lib/review-state";
-import { commentsKey, isPreExisting, isSummary, linesOf, rangeOf, sameLocation, SEVERITIES, severityCounts, SEVERITY_LABEL, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
+import type { CommentChecks } from "../lib/comments";
+import type { FixChange } from "./comments/FixTracking";
+import { commentsKey, isPreExisting, isSummary, linesOf, postable, rangeOf, sameLocation, SEVERITIES, severityCounts, SEVERITY_LABEL, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { diffPositions, orderRange, type FilePositions } from "../src/review-positions";
 import { splitPatchByFile } from "../src/patch";
 import { carries, insertLines } from "../src/post-preview";
@@ -112,6 +114,8 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   function keepOnCurrentDiff() { composerRevision.current = revisionRef.current; setOlderDiff(false); }
   const [stale, setStale] = useState<CommentLocation[]>([]);
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
+  // What the review agent's check found of each sent comment, by its id.
+  const [checks, setChecks] = useState<CommentChecks>({});
   const [writeAnother, setWriteAnother] = useState(false);
   const [hideNits, setHideNitsState] = useState(getHideNits);
   function toggleNits() { setHideNits(!hideNits); setHideNitsState(!hideNits); }
@@ -169,11 +173,13 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   }, []);
 
   /** Show the draft as the server has it. The comment box keeps its own text, and a verdict you just picked stays. */
-  const apply = useCallback((next: { draft: Draft; stale?: CommentLocation[]; discussions?: Discussion[] }) => {
+  const apply = useCallback((next: { draft: Draft; stale?: CommentLocation[]; discussions?: Discussion[]; checks?: CommentChecks }) => {
     if (!mounted.current) return;
     setDraft(pendingVerdict.current ? { ...next.draft, verdict: pendingVerdict.current, verdictChosen: true } : next.draft);
     setStale(next.stale ?? []);
     setDiscussions(next.discussions ?? []);
+    // A verdict's save sends the draft alone.
+    if (next.stale) setChecks(next.checks ?? {});
   }, []);
 
   const load = useCallback(async () => {
@@ -533,9 +539,21 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     if (!free.length) return;
     await mutate(async () => {
       for (const comment of free) {
-        const { file, line, side, chapterId, author, severity, body, evidence, introduced } = comment;
-        apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revision ? { revision } : {}), replaces: null, comment: { file, line, side, ...rangeOf(comment), ...(chapterId ? { chapterId } : {}), ...(author ? { author } : {}), ...(severity ? { severity } : {}), body, ...(evidence ? { evidence } : {}), ...(introduced === false ? { introduced } : {}) } })) as { draft: Draft });
+        const { file, line, side, chapterId, author, severity, body, evidence, introduced, id, state, sendN, claim } = comment;
+        // With its id, and where its fix stood: a sent comment is still the one the main thread reports on.
+        const tracking = { ...(id ? { id } : {}), ...(state ? { state } : {}), ...(sendN !== undefined ? { sendN } : {}), ...(claim ? { claim } : {}) };
+        apply(await enqueue(() => rpc.call("saveDraftComment", { targetKey, ...(revision ? { revision } : {}), replaces: null, restore: true, comment: { file, line, side, ...rangeOf(comment), ...(chapterId ? { chapterId } : {}), ...(author ? { author } : {}), ...(severity ? { severity } : {}), body, ...(evidence ? { evidence } : {}), ...(introduced === false ? { introduced } : {}), ...tracking } })) as { draft: Draft });
       }
+    });
+  }
+  /**
+   * Resolve a sent comment as fixed, dismiss it as won't be, or reopen it, for the next Send; "undo", right after
+   * Resolve or Dismiss, puts it back as it was. Only these clicks do. It keeps its id, its Send and the thread's report.
+   */
+  async function setFix(comment: DraftComment, state: FixChange) {
+    const { file, line, side } = comment;
+    await mutate(async () => {
+      apply(await enqueue(() => state === "open" || state === "undo" ? rpc.call("reopenComment", { targetKey, file, line, side, ...state === "undo" ? { undo: true } : {} }) : rpc.call("resolveComment", { targetKey, file, line, side, state })) as { draft: Draft });
     });
   }
   /** Mark a comment as a problem in code the PR didn't change, or as from this PR; it stays whoever wrote it. */
@@ -568,7 +586,7 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     try { await mutate(async () => {
       // What this page shows; the server refuses a draft that changed since.
       const { verdict, body: summary } = draft;
-      const result = await enqueue(() => rpc.call("submitReview", { targetKey, ...(reviewRevision ? { revision: reviewRevision } : {}), ...(account ? { account } : {}), comments: shownComments.current, body: summary, verdict,
+      const result = await enqueue(() => rpc.call("submitReview", { targetKey, ...(reviewRevision ? { revision: reviewRevision } : {}), ...(account ? { account } : {}), comments: shownComments.current, posting: shownPosting.current.map(({ file, line, side }) => ({ file, line, side })), body: summary, verdict,
         ...(past ? { force: past } : {}), ...(choice === "comment" ? { asComment: true } : {}) }));
       if (!result.ok && (result.warning || result.offers?.length)) {
         refresh();
@@ -635,7 +653,12 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     return texts.length ? texts : null;
   }, [positionsOf, showComposer, summaryBox, asking, file, line, side, startLine, startSide]);
   const boxLines = linesOf({ line: Number(line), side, startLine, startSide });
-  const hasReview = draft.comments.length > 0 || draft.body.trim().length > 0 || draft.verdict === "APPROVE";
+  // On your own change only open comments post: a Send took the rest to the main thread (src/draft.ts postable). A local review posts none.
+  const own = isLocal || ownPr || !!review?.feature;
+  const posting = useMemo(() => draft.comments.filter((comment) => postable(comment, own)), [draft.comments, own]);
+  // What Submit sends as shown posting, read as it posts.
+  const shownPosting = useRef(posting); shownPosting.current = posting;
+  const hasReview = posting.length > 0 || draft.body.trim().length > 0 || draft.verdict === "APPROVE";
   // GitHub refuses Request changes without a summary.
   const needsSummary = draft.verdict === "REQUEST_CHANGES" && !draft.body.trim();
   const submittedVerdict = review ? review.submittedVerdict : receipt;
@@ -646,26 +669,27 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     const rank = (file: string) => { const index = files.indexOf(file); return index < 0 ? files.length : index; };
     return [...draft.comments].sort((a, b) => rank(a.file) - rank(b.file) || a.file.localeCompare(b.file) || a.line - b.line || (a.side === b.side ? 0 : a.side === "LEFT" ? -1 : 1));
   }, [draft.comments, files]);
-  // Submitting refuses comments drafted against an older diff.
-  const staleComments = sortedComments.filter((comment) => stale.some((at) => sameLocation(at, comment)));
+  // Submitting refuses comments drafted against an older diff, of those it posts.
+  const staleComments = sortedComments.filter((comment) => postable(comment, own) && stale.some((at) => sameLocation(at, comment)));
   const summaryDiscussion = discussions.find(isSummary);
   const lineDiscussions = useMemo(() => discussions.filter((d) => !isSummary(d)), [discussions]);
   // The Submit review button in the review's top bar follows this draft.
   const submittable = loaded && !loadError && !closed && !isLocal && !completed;
   useEffect(() => {
-    setDraftStatus(targetKey, submittable ? { verdict: draft.verdict, comments: draft.comments.length } : null);
-  }, [targetKey, submittable, draft.verdict, draft.comments.length]);
+    setDraftStatus(targetKey, submittable ? { verdict: draft.verdict, comments: posting.length } : null);
+  }, [targetKey, submittable, draft.verdict, posting.length]);
   // A new workspace of the review may already show its draft: the status goes with the last one.
   useEffect(() => holdReview("draft", targetKey, () => setDraftStatus(targetKey, null)), [targetKey]);
   // The diff shows the draft's comments and discussions, and the comment box while it's open there.
-  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting });
-  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting };
+  const latest = useRef({ openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting, setFix });
+  latest.current = { openComposer, removeComment, addComment, askAgent, dismissDiscussion, undo, changeBody, closeComposer, dropSummaryEdit, keepOnCurrentDiff, restoreComments, cancelComposer, suggestChange, markPreExisting, setFix };
   const open = useCallback((at: CommentLocation & { startLine?: number }, start?: CommentStart) => latest.current.openComposer(at, true, false, start), []);
   const ask = useCallback((at: CommentLocation) => latest.current.openComposer(at, true, true), []);
   const remove = useCallback((comment: DraftComment) => { void latest.current.removeComment(comment); }, []);
   const dismiss = useCallback((at: CommentLocation) => { void latest.current.dismissDiscussion(at); }, []);
   const undoAt = useCallback((at: CommentLocation) => { void latest.current.undo(at); }, []);
   const markAt = useCallback((comment: DraftComment, preExisting: boolean) => { void latest.current.markPreExisting(comment, preExisting); }, []);
+  const fixAt = useCallback((comment: DraftComment, state: FixChange) => latest.current.setFix(comment, state), []);
   const editable = loaded && !loadError && !closed;
   // On your own PR, Comment is the only verdict GitHub takes.
   useEffect(() => { if (ownPr && editable && !isLocal && draft.verdict !== "COMMENT" && !pendingVerdict.current) chooseVerdict("COMMENT"); }, [ownPr, editable, isLocal, draft.verdict]);
@@ -696,10 +720,10 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
   const chat = useMemo(() => onOpenPanel ? () => onOpenPanel("agent") : null, [onOpenPanel]);
   const editingLine = showComposer && !summaryBox && !asking;
   const inlineDraft = useMemo<InlineDraft>(() => ({
-    targetKey, comments: draft.comments, stale, discussions: lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undo: undoAt, markPreExisting: markAt, chat,
+    targetKey, comments: draft.comments, stale, discussions: lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undo: undoAt, markPreExisting: markAt, chat, checks, setFix: fixAt,
     composer: composerInDiff ? { file, line: Number(line), side, ...(startLine ? { startLine } : {}), editing: editing !== null, asking } : null,
     editingAt: editingLine ? { file, line: Number(line), side } : null,
-  }), [targetKey, draft.comments, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, markAt, chat, composerInDiff, editingLine, file, line, side, startLine, editing, asking]);
+  }), [targetKey, draft.comments, stale, lineDiscussions, editable, busy, writing, hideNits, open, ask, remove, dismiss, undoAt, markAt, chat, checks, fixAt, composerInDiff, editingLine, file, line, side, startLine, editing, asking]);
   const canSuggest = !!suggestable;
   const inlineComposer = useMemo<InlineComposer | null>(() => composerInDiff ? {
     body, edited, replacing, changedWhileEditing, textareaRef: bodyRef, error: composerError, rebuilding, keepOnCurrentDiff: olderDiff ? () => latest.current.keepOnCurrentDiff() : null,
@@ -743,18 +767,19 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
     ...(approval ? approveDoubts(approval) : []),
     ...(unreadApproval ? [`The agent suggests Approve but read ${readOf(unreadApproval)}.`] : []),
   ];
-  const commentCount = draft.comments.length;
+  // What Submit posts, counted.
+  const commentCount = posting.length;
   // Kept apart, a problem the PR didn't introduce doesn't count against Approve.
   const preExistingOn = useKnob("preExistingFindings");
-  const preExistingCount = preExistingOn ? draft.comments.filter(isPreExisting).length : 0;
+  const preExistingCount = preExistingOn ? posting.filter(isPreExisting).length : 0;
   const blocks = (comment: DraftComment) => comment.severity === "blocking" && !(preExistingOn && isPreExisting(comment));
-  const blockingCount = draft.comments.filter(blocks).length;
+  const blockingCount = posting.filter(blocks).length;
   // Approving says nothing blocks; blocking comments in the draft say otherwise.
   const approvingBlocked = draft.verdict === "APPROVE" && blockingCount > 0;
-  const counts = severityCounts(draft.comments);
+  const counts = severityCounts(posting);
   const nitCount = draft.comments.filter((comment) => comment.severity === "nit").length;
   return {
-    targetKey, loadError, load, refresh, loaded, closed, review, draft, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
+    targetKey, loadError, load, refresh, loaded, closed, review, draft, posting, checks, setFix, completed, submittedVerdict, receiptUrl, setWriteAnother, status,
     summaryRef, summaryDiscussion, editable, busy, submitting, writing, onSummary, summaryComposer, isLocal, chat, asking, summaryBase, openComposer, saveSummary, revisionRef, undo, requestSummary,
     showComposer, inline, edited, replacing, counts, preExistingCount, blocks, markPreExisting, hideNits, nitCount, toggleNits, removeNits, listRef, sortedComments, stale, discussions, body, removeComment, setCommentSeverity, moveToSummary,
     file, boxLines, line, side, files, setFile, editing, showBoxInDiff, startLine, setLine, setSide, bodyRef, changeBody, canAdd, addComment, cancelComposer, composerError, rebuilding, olderDiff, keepOnCurrentDiff, composerControls, severity, setSeverity, suggestable, suggestChange,

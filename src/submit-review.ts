@@ -1,7 +1,7 @@
 import { bindGhAccount } from "./gh-identity";
 import { ghErrorMessage, ghPrHeadArgs, ghPrReviewsArgs, ghSubmitReviewArgs, type runGh } from "./gh";
 import { classifyWriteError, PAGE_BUDGET_MS, refusalText, type GithubWrites } from "./github-writes";
-import { sameComments, SUBMIT_WARNINGS, toGithubReviewPayload, type Draft, type DraftComment, type Verdict } from "./draft";
+import { postable, sameComments, sameLocation, SUBMIT_WARNINGS, toGithubReviewPayload, type CommentLocation, type Draft, type DraftComment, type Verdict } from "./draft";
 import type { ReviewMeta } from "./store";
 import { reviewRevision } from "./review-revision";
 import { summaryLine, withSummaryLine } from "../lib/move-to-summary";
@@ -59,6 +59,8 @@ export type SubmitResult = {
   newCommits?: { count: number | null; url: string };
   /** Checking only: the summary and comments that would post, past the warnings, with what GitHub can't place in the summary. */
   posting?: { body: string; comments: DraftComment[] };
+  /** Checking only: where the comments that post are, before any moves into the summary, for the Submit that posts them (`posting`). */
+  posts?: CommentLocation[];
 };
 type Warned = [SubmitWarning, string][];
 
@@ -78,13 +80,17 @@ function moveToSummary(draft: Draft, moved: readonly DraftComment[], preExisting
     body: moved.reduce((body, c) => withSummaryLine(body, summaryLine(c, preExisting)), draft.body),
   };
 }
+/** A comment a Send took, or you resolved or dismissed, which may not post (draft.ts postable). */
+const tracked = (c: Pick<DraftComment, "state">) => !!c.state && c.state !== "open";
+/** The same places, in any order. */
+const sameLocations = (a: readonly CommentLocation[], b: readonly CommentLocation[]) => a.length === b.length && a.every((at) => b.some((other) => sameLocation(at, other)));
 const pendingReview = (result: { stdout: string; stderr: string }, args: string[]) => classifyWriteError({ stdout: result.stdout, stderr: result.stderr }, { args, action: "review" }).kind === "pending-review";
 
 /**
  * `pace` runs the POST in the server's line of writes to GitHub (GithubWrites.pace): once, never retried, as a review
  * GitHub may have taken is looked for instead, and only if it can start within the page's wait.
  */
-export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, receipts: PostReceipts = postReceipts(), pace: GithubWrites["pace"] = (write) => write(Infinity)) {
+export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, receipts: PostReceipts = postReceipts(), pace: GithubWrites["pace"] = (write) => write(Infinity), login: () => Promise<string | null> = async () => (await run(["api", "user", "--jq", ".login"])).stdout.trim() || null) {
   const inFlight = new Set<string>();
   /**
    * Record what GitHub took. One on an earlier head than the review's, as after a rebuild, leaves the summary and verdict:
@@ -100,12 +106,25 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
    * still match them. `force` submits past the warnings it names, or with true past all of them (Submit anyway).
    * `check` only checks what would stop it, or warn, with `summary` as it would post, without posting. `alone` posts
    * `summary` by itself, with no line comments, as a Ready to approve row does: the draft's comments stay in it, and its
-   * own summary unless it's the one posted. `reviewed`, the head it was asked on, must still be the review's.
+   * own summary unless it's the one posted. `reviewed`, the head it was asked on, must still be the review's. `posting`,
+   * the comments the caller showed as posting: a draft whose comments that post differ, as after a Reopen or a Send
+   * since, is refused; without it, so is one with a comment sent, resolved or dismissed.
    */
-  return async (targetKey: string, revision: string | undefined, account: string | undefined, shown: Pick<DraftComment, "file" | "line" | "side" | "severity" | "introduced" | "body">[], summary: { body: string; verdict: Verdict }, { force, check, alone, reviewed }: { force?: boolean | readonly SubmitWarning[]; check?: boolean; alone?: boolean; reviewed?: string } = {}): Promise<SubmitResult> => {
+  return async (targetKey: string, revision: string | undefined, account: string | undefined, shown: Pick<DraftComment, "file" | "line" | "side" | "severity" | "introduced" | "body">[], summary: { body: string; verdict: Verdict }, { force, check, alone, reviewed, posting }: { force?: boolean | readonly SubmitWarning[]; check?: boolean; alone?: boolean; reviewed?: string; posting?: readonly CommentLocation[] } = {}): Promise<SubmitResult> => {
     const allowed = (kind: SubmitWarning) => force === true || (Array.isArray(force) && force.includes(kind));
     if (inFlight.has(targetKey)) return { ok: false, error: "This review is already being submitted." };
     inFlight.add(targetKey);
+    // Whether the PR is yours, read outside the store's turn, as GitHub may be asked who you are; only a draft with a
+    // comment sent, resolved or dismissed needs it. On your own change only open comments post. `own` null: not known.
+    const ownOf = async (): Promise<{ needed: boolean; own: boolean | null }> => {
+      const review = await store.getReview(targetKey);
+      if (!review || !(await store.getDraft(targetKey)).comments.some(tracked)) return { needed: false, own: false };
+      if (review.kind === "ref" || review.feature) return { needed: true, own: true };
+      if (typeof review.ownPr === "boolean") return { needed: true, own: review.ownPr };
+      if (!review.author) return { needed: true, own: false };
+      const viewer = await login().catch(() => null);
+      return { needed: true, own: viewer ? viewer.toLowerCase() === review.author.toLowerCase() : null };
+    };
     try {
       // A review GitHub took that couldn't be recorded: recorded now. The same draft, on the head it was for, isn't posted
       // again; a changed one, or one on a newer head, is a new review, but the comments GitHub has leave the draft first.
@@ -113,22 +132,32 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
       if (earlier) {
         let current = false;
         let taken = { comments: 0, summary: false };
+        // What GitHub took was the shown comments that post: those that don't stay in the draft.
+        let kept: DraftComment[] = [];
         try {
           const review = await store.getReview(targetKey);
           current = review?.headSha === earlier.headSha;
           // Recorded whole each time, as both writes can be made again: a record can fail between them, and the sync
           // replaces submittedAt with GitHub's time, so the review's state can't tell what was recorded.
           if (review) taken = await record(targetKey, earlier, !current);
+          const { own } = await ownOf();
+          kept = (await store.getDraft(targetKey)).comments.filter((c) => !postable(c, own !== false));
         } catch (error) {
           // Put in kv again, as it may be in memory alone.
           return { ok: false, error: notRecorded("review", error, await receipts.put(reviewReceiptKey(targetKey), earlier), earlier.url) };
         }
         await receipts.drop(reviewReceiptKey(targetKey));
-        if (current && sameComments(asReceipted(earlier.draft.comments), asReceipted(shown)) && receiptText(earlier.draft.body) === receiptText(summary.body) && earlier.draft.verdict === summary.verdict) return { ok: true, ...(earlier.url ? { url: earlier.url } : {}) };
+        const shownPosting = shown.filter((c) => !kept.some((k) => sameLocation(k, c)));
+        if (current && sameComments(asReceipted(earlier.draft.comments), asReceipted(shownPosting)) && receiptText(earlier.draft.body) === receiptText(summary.body) && earlier.draft.verdict === summary.verdict) return { ok: true, ...(earlier.url ? { url: earlier.url } : {}) };
         const from = `from your review of ${earlier.headSha.slice(0, 7)}${earlier.url ? ` (${earlier.url})` : ""}`;
         if (taken.comments) return { ok: false, error: `GitHub already has ${taken.comments} of these comments, ${from}, so ${taken.comments === 1 ? "it was" : "they were"} taken out of your draft. Check the draft, then submit again.` };
         if (taken.summary) return { ok: false, error: `GitHub already has your summary and verdict, ${from}, so they were taken out of your draft. Check the draft, then submit again.` };
       }
+      const ownership = alone ? { needed: false, own: false } : await ownOf();
+      // Unknown, a comment sent to fix could post: nothing does.
+      if (ownership.needed && ownership.own === null) return { ok: false, error: "Couldn't tell whether this PR is yours, so nothing posted. Try again in a moment." };
+      const own = ownership.own === true;
+      const posts = (c: DraftComment) => postable(c, own);
       // The review and the draft it checks, in one turn: what GitHub would refuse stops it; the rest warns.
       const warned: Warned = [];
       const checked = await store.exclusive(async (tx): Promise<{ error: string; offers?: SubmitOffer[] } | { m: ReviewMeta & { number: number; repo: string }; draft: Draft; stale: DraftComment[]; outside: DraftComment[] }> => {
@@ -141,14 +170,20 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
         if (!m.headSha) warned.push(["no-head", "The commit you reviewed isn't known, so the review would go on the PR's latest commit."]);
         const saved = await tx.getDraft(targetKey);
         if (!alone && !sameComments(saved.comments, shown)) return { error: DRAFT_CHANGED };
-        // Checking only, the summary and verdict are the ones it would post with; alone, they're all it posts.
-        const draft = alone ? { ...saved, comments: [], body: summary.body, verdict: summary.verdict } : check ? { ...saved, body: summary.body, verdict: summary.verdict } : saved;
-        if (draft.body !== summary.body || draft.verdict !== summary.verdict) return { error: DRAFT_CHANGED };
+        // A comment sent since ownership was read.
+        if (!alone && !ownership.needed && saved.comments.some(tracked)) return { error: DRAFT_CHANGED };
+        // Checking only, the summary and verdict are the ones it would post with; alone, they're all it posts. Only the
+        // comments that post are checked, posted, moved into the summary, or taken out of the draft once GitHub has them.
+        const read = alone ? { ...saved, comments: [], body: summary.body, verdict: summary.verdict } : check ? { ...saved, body: summary.body, verdict: summary.verdict } : saved;
+        if (read.body !== summary.body || read.verdict !== summary.verdict) return { error: DRAFT_CHANGED };
+        const draft = { ...read, comments: read.comments.filter(posts) };
+        // What the caller showed as posting is what posts: a Reopen, a Send or a Resolve since changes it.
+        if (!alone && !check && (posting ? !sameLocations(posting, draft.comments) : saved.comments.some(tracked))) return { error: DRAFT_CHANGED };
         if (draft.verdict === "COMMENT" && !draft.body.trim() && !draft.comments.length) return { error: "Add a summary or at least one comment before submitting a Comment review." };
         if (draft.verdict === "REQUEST_CHANGES" && !draft.body.trim()) return { error: "Add a summary explaining the requested changes before submitting." };
         if (account && m.author && draft.verdict !== "COMMENT" && account.toLowerCase() === m.author.toLowerCase()) return { error: "GitHub allows only a Comment review on your own PR.", offers: ["comment"] };
         if (draft.comments.some((c) => !c.body.trim())) return { error: "Draft comments can't be blank." };
-        const stale = alone ? [] : await tx.staleDraftComments(targetKey);
+        const stale = alone ? [] : (await tx.staleDraftComments(targetKey)).filter(posts);
         if (stale.length) warned.push(["older-diff", `${count(stale, "was", "were")} drafted on an older diff (${places(stale)}). Submitting anyway moves ${stale.length === 1 ? "it" : "them"} into the summary.`]);
         const staleSet = new Set(stale.map((c) => JSON.stringify([c.file, c.line, c.side])));
         const outside = invalidComments(await tx.patch(targetKey), draft.comments).filter((c) => !staleSet.has(JSON.stringify([c.file, c.line, c.side])));
@@ -184,7 +219,7 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
       // Checking only: what would post, past what it warns about.
       if (check) {
         const preExisting = (await store.getPreferences()).preferences.knobs.preExistingFindings;
-        return { ...warning, posting: moveToSummary(draft, [...checked.stale, ...checked.outside], preExisting) };
+        return { ...warning, posting: moveToSummary(draft, [...checked.stale, ...checked.outside], preExisting), posts: draft.comments.map(({ file, line, side }) => ({ file, line, side })) };
       }
       if (held.length) return warning;
       // Checked again as it posts, in one turn.
@@ -196,9 +231,9 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
       });
       if (preExistingFindings === null) return { ok: false, error: "The review changed during submission. Wait for generation and review the draft again." };
       // Comments GitHub can't place, once you submit anyway, go in the summary instead, as one bad comment likely fails the whole review.
-      const posting = { ...draft, ...moveToSummary(draft, [...(allowed("older-diff") ? checked.stale : []), ...(allowed("outside-diff") ? checked.outside : [])], preExistingFindings) };
+      const sending = { ...draft, ...moveToSummary(draft, [...(allowed("older-diff") ? checked.stale : []), ...(allowed("outside-diff") ? checked.outside : [])], preExistingFindings) };
       // On the version you reviewed, past new commits: GitHub takes an older commit.
-      const payload = { ...toGithubReviewPayload(posting, preExistingFindings), commit_id: m.headSha ?? current };
+      const payload = { ...toGithubReviewPayload(sending, preExistingFindings, own), commit_id: m.headSha ?? current };
       const attempted = Date.now();
       const args = ghSubmitReviewArgs(m.repo, m.number);
       const result = await pace(() => authenticatedRun(args, { timeoutMs: POST_TIMEOUT_MS, stdin: JSON.stringify(payload) }), PAGE_BUDGET_MS);

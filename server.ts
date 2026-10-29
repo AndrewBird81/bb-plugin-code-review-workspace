@@ -171,7 +171,8 @@ async function openStore(bb: BbPluginApi, backend: Store, interrupted: Interrupt
 function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaited<ReturnType<typeof openStore>>, sharedWithReplaced = false): Served {
   const receipts = postReceipts(bb.storage.kv);
   const githubWrites = createGithubWrites();
-  const submitReview = createReviewSubmitter(store, runGh, receipts, githubWrites.pace);
+  // Who you are as the sync last read it, or reads it now, to tell your own PR from a teammate's before the sync has.
+  const submitReview = createReviewSubmitter(store, runGh, receipts, githubWrites.pace, () => sync.login());
   const deps = { bb, store, gh: { runGh, runGit } };
   const notifications = completionNotifications(bb, store);
   const suggester = createInstructionSuggester(bb, store, () => bb.realtime.publish("learning", {}));

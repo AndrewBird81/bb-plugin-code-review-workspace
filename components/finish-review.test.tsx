@@ -524,6 +524,22 @@ test("on your own PR it offers Comment only, and Fix in a new thread beside Subm
   slot.lifecycle.unmount();
 });
 
+test("on your own PR, Finish counts only the comments that post: one sent to fix stays in BB, and Submit says so", async () => {
+  const sentToFix = [{ ...comments[0], id: "c1", state: "sent", sendN: 1 }, comments[1]];
+  const { slot, rpc } = await renderWorkspace({ review: { ownPr: true }, rpc: { getDraft: vi.fn(() => ({ draft: draftOf({ comments: structuredClone(sentToFix) }), stale: [] })) } });
+  const view = await finish(slot);
+  expect(view.getByText("1 comment").parentElement!.textContent).toBe("1 comment ·\u00a01 nit");
+  expect(view.getByText("1 sent to fix won’t post to GitHub. Reopen it to post it.")).toBeTruthy();
+  // The blocking one is with the main thread: nothing here blocks.
+  expect(submit(view).textContent).toBe("Submit to GitHub · Comment");
+  fireEvent.click(submit(view));
+  await waitFor(() => expect(rpc.submitReview).toHaveBeenCalled());
+  // What the page shows goes as it is, for the server's check; it posts only what's open.
+  expect((rpc.submitReview as any).mock.calls[0][0].comments).toHaveLength(2);
+  expect(await view.findByText("1 comment")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
 test("a closed PR keeps its unsubmitted draft to read, with nothing to submit", async () => {
   const { slot } = await renderWorkspace({ review: { prState: "CLOSED", archivedAt: 1 } });
   fireEvent.keyDown(document.body, { key: "s" });

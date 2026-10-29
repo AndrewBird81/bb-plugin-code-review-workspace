@@ -274,3 +274,84 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     expect(vi.mocked(runGh).mock.calls.filter(([args]) => args.includes("POST"))).toHaveLength(1);
   } finally { await browser.close(); await harness.lifecycle.dispose(); }
 }, 60_000);
+
+// The loop on a local review (notes/design/E7-plan.md QA 3): Send 3 to the main thread, which reports each, then Resolve
+// 2 and Reopen 1 on their cards; the next Send carries only the one reopened.
+test.skipIf(!process.env.BB_E2E_URL)("Send 3 → reports → Resolve 2 / Reopen 1 → the next Send carries 1", async () => {
+  const base = loopbackUrl("BB_E2E_URL", process.env.BB_E2E_URL!);
+  vi.mocked(runGh).mockImplementation(async () => ({ code: 1, stderr: "no GitHub here", stdout: "" }));
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
+    get: async ({ threadId }: { threadId: string }) => ({ id: threadId, title: "Retry uploads", titleFallback: null, archivedAt: null, deletedAt: null, environmentId: null, status: "idle", visibility: "visible", originPluginId: null }),
+    send: async () => ({ ok: true, delivery: "sent" }),
+    experimental_listAncestors: async ({ threadIds }: { threadIds: string[] }) => ({ threads: threadIds.map((threadId) => ({ threadId, ancestorIds: [] })) }),
+    stop: async () => ({}), update: async () => ({}), archive: async () => ({}),
+  }, projects: { defaultExecutionOptions: async () => ({ providerId: "codex", model: "gpt-6", reasoningLevel: "low", permissionMode: "auto" }) } } as any });
+  await plugin(bb);
+  const store = queueStore(createStore(bb));
+  const key = "e2e-loop";
+  await store.saveReview({ targetKey: key, kind: "ref", gitRef: "main...retry-uploads", title: "Retry uploads", status: "ready", createdAt: Date.now(), projectId: "test-project" });
+  await store.setLifecycle(key, { sourceThreadId: "coder", sourceThreadAt: Date.now() });
+  await store.saveGuide(key, { title: "Retry uploads", intent: "Retry a failed upload.", sections: [{ id: "retry", title: "Retries", overview: "Uploads retry.", diffs: [{ file: "src/upload.ts", description: "Retry" }] }], unplacedFiles: [] } as any);
+  await store.savePatch(key, "diff --git a/src/upload.ts b/src/upload.ts\n--- a/src/upload.ts\n+++ b/src/upload.ts\n@@ -0,0 +1,3 @@\n+const tries = 3;\n+const wait = 100;\n+retry(upload, tries, wait);\n");
+  for (const line of [1, 2, 3]) await store.upsertDraftComment(key, { file: "src/upload.ts", line, side: "RIGHT", body: `Fix line ${line}.` });
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  page.setDefaultTimeout(10_000);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("**/api/v1/plugins/code-review-workspace/rpc/*", async (route) => {
+    const method = new URL(route.request().url()).pathname.split("/").pop()!;
+    const helpers: Record<string, unknown> = {
+      getSetupStatus: { account: "reviewer", githubCli: true, agentAvailable: true, projectAvailable: true },
+      getGhAccounts: { active: "reviewer", accounts: [{ login: "reviewer", active: true }] },
+      getChecks: { bucket: "none", checks: [] },
+    };
+    try {
+      const result = helpers[method] ?? await harness.behavior.callRpc(method, route.request().postDataJSON());
+      await route.fulfill({ json: { ok: true, result } });
+    } catch (error) { await route.fulfill({ status: 500, json: { ok: false, error: { message: String(error) } } }); }
+  });
+  /** What the main thread was sent, oldest first. */
+  const sent = () => harness.inspection.sdk.callsTo("threads.send").map(([args]) => (args as { input: Array<{ text: string }> }).input[0]!.text);
+  const card = (line: number) => page.getByRole("article", { name: `Draft comment on src/upload.ts:${line}`, exact: true });
+  /** Finish review's Send, all it offers. */
+  async function sendAll(count: number) {
+    const comments = page.getByRole("group", { name: "Review commands" }).getByRole("button", { name: "Comments", exact: true });
+    if (await comments.getAttribute("aria-pressed") !== "true") await comments.click();
+    await page.getByRole("complementary", { name: "Comments and agent", exact: true }).getByRole("button", { name: "Finish review", exact: true }).click();
+    await page.getByRole("button", { name: `Send ${count} to main thread`, exact: true }).click();
+    await page.getByRole("group", { name: "Comments to send", exact: true }).getByRole("button", { name: "Send", exact: true }).click();
+    await page.getByRole("region", { name: "Send to the main thread", exact: true }).getByText(`Sent ${count} comment${count === 1 ? "" : "s"} to Retry uploads.`).waitFor();
+  }
+  try {
+    await page.goto(`${base}/plugins/code-review-workspace/review/${key}`);
+    const collapseOffice = page.getByRole("button", { name: "Collapse office to current worker", exact: true });
+    await collapseOffice.waitFor({ timeout: 5000 }).then(() => collapseOffice.click()).catch(() => {});
+    await page.getByRole("button", { name: /^Start reading: Retries/ }).click();
+    await card(1).waitFor();
+    await sendAll(3);
+    expect(sent()).toHaveLength(1);
+    for (const id of ["c1", "c2", "c3"]) expect(sent()[0]).toContain(id);
+    // The main thread reports each.
+    for (const [id, outcome] of [["c1", "done"], ["c2", "done"], ["c3", "declined"]]) {
+      expect(await harness.behavior.runCli(["report", id!, outcome!, "--note", `Note on ${id}.`], { threadId: "coder", projectId: "test-project" })).toMatchObject({ exitCode: 0 });
+    }
+    await page.reload();
+    await card(1).getByText("Done · Note on c1").waitFor();
+    await card(1).getByRole("button", { name: "Resolve", exact: true }).click();
+    await card(1).getByText("Resolved", { exact: true }).waitFor();
+    await card(2).getByRole("button", { name: "Resolve", exact: true }).click();
+    await card(2).getByText("Resolved", { exact: true }).waitFor();
+    await card(3).getByRole("button", { name: "Reopen", exact: true }).click();
+    await card(3).getByText("Open", { exact: true }).waitFor();
+    await page.screenshot({ animations: "disabled", path: "docs/verification/2026-09-09/fix-cards-desktop.png" });
+    expect((await store.getDraft(key)).comments.map((comment) => [comment.id, comment.state])).toEqual([["c1", "resolved"], ["c2", "resolved"], ["c3", "open"]]);
+    // The next Send carries the one reopened, by its id.
+    await sendAll(1);
+    expect(sent()).toHaveLength(2);
+    expect(sent()[1]).toContain("c3");
+    expect(sent()[1]).not.toMatch(/\bc[12]\b/);
+    expect((await store.getDraft(key)).comments.map((comment) => [comment.id, comment.state, comment.sendN])).toEqual([["c1", "resolved", 1], ["c2", "resolved", 1], ["c3", "sent", 2]]);
+    expect(errors).toEqual([]);
+  } finally { await browser.close(); await harness.lifecycle.dispose(); }
+}, 60_000);

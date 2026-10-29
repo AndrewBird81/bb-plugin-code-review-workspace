@@ -155,8 +155,8 @@ export function register(deps: ServeDeps) {
       });
       if (!recorded.ok) return failed(recorded.error);
       bb.realtime.publish(`feedback:${review.targetKey}`, { ts: Date.now() });
-      // What it inferred the main thread did shows on the comments.
-      if (input.items.some((item) => item.claimed)) bb.realtime.publish(`draft:${review.targetKey}`, {});
+      // What it found of each sent comment (c12), and what it inferred the main thread did, shows on the comments.
+      if (input.items.some((item) => item.claimed || /^c\d+$/.test(item.id))) bb.realtime.publish(`draft:${review.targetKey}`, {});
       await sync.evaluate(review.targetKey);
       changed(review.targetKey);
       return recorded.text;

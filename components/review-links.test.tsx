@@ -150,7 +150,7 @@ test("on your own change a sent comment's icon says where its fix stands, and a 
   ];
   const slot = await renderSent({ status: { ...LOCAL, sends: [{ n: 1, at: now, threadId: "coder", ids: ["c1", "c2", "c3"] }] } }, drafted);
   const card = async (name: string) => within(slot.getByTestId("filediff")).findByRole("article", { name });
-  const icon = async (name: string) => (await card(name)).querySelector(":scope > div > svg")!.getAttribute("data-icon");
+  const icon = async (name: string) => (await card(name)).querySelector(":scope > div > span > svg")!.getAttribute("data-icon");
   // The thread's words, without their closing stop; its code as code, and markup as the text it is.
   expect(await statusOf(slot, "Draft comment on src/a.ts:1")).toBe("Done · Renamed it total <b>now</b> · now");
   expect((await card("Draft comment on src/a.ts:1")).querySelector("code")?.textContent).toBe("total");
