@@ -409,13 +409,16 @@ export const rpcContract = defineRpcContract({
   /** Write a local review's guide again, for its diff now. */
   rewriteGuide: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
   /**
-   * Have the main thread commit the changes you reviewed, then push that commit. force: push past the warning that
-   * files changed since you reviewed; the push itself is never a force-push.
+   * Have the main thread commit the changes you reviewed, then push that commit (src/push.ts); where it stands is the
+   * review's `push`. force: Push anyway, past the warning that the commit isn't what you reviewed, on the commit `sha`
+   * the page showed and the warning it answers, by when it came (`at`); the push itself is never a force-push. note: nothing was asked, as when GitHub has the commit already.
    */
   push: {
-    input: z.object({ targetKey: z.string(), force: z.boolean().optional() }).strict(),
-    output: z.object({ ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(), delivery: z.enum(["sent", "queued"]).optional() }),
+    input: z.object({ targetKey: z.string(), force: z.boolean().optional(), sha: z.string().regex(/^[0-9a-f]{40}$/).optional(), at: z.number().optional() }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional(), warning: z.string().optional(), note: z.string().optional(), delivery: z.enum(["sent", "queued"]).optional() }),
   },
+  /** Clear the review's Push: Got it to what it says, or Cancel while it waits. Nothing is told to the main thread. */
+  dismissPush: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional() }) },
   /**
    * Ask the review agent to draft the PR's title and description, shown in a Post form whose Post opens the PR. note:
    * what happened instead, as when the branch has a PR already, which the review then becomes; or, not ok, what has to

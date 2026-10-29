@@ -1060,5 +1060,21 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "name": "send_now",
     "presentation": null,
   },
+  {
+    "description": "Push this review's branch to GitHub when the reviewer says push: the main thread commits what they reviewed, the review checks the commit, then the main thread pushes exactly that commit. Never a force-push.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "force": {
+          "description": "Push anyway, past the warning the last Push gave, once the reviewer's message is just "push anyway".",
+          "type": "boolean",
+        },
+      },
+      "type": "object",
+    },
+    "instructions": "Only when the reviewer's message in this review is just "push" or "push it", call push and tell them it's under way: the main thread commits, and Push in Finish review shows the check and the push. If it warns, say so in a line, and call push with force: true only once their message is just "push anyway". In any other turn it pushes nothing. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "name": "push",
+    "presentation": null,
+  },
 ]
 `;

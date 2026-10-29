@@ -48,6 +48,7 @@ bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--cont
 
 ```sh
 bb review report <id> done|declined [--note <text>] [--commit <sha>]
+bb review report --commit <sha>
 bb review ready [<review>]
 ```
 
@@ -55,6 +56,9 @@ bb review ready [<review>]
   did, or `declined` with why, in `--note`; `--commit` names the commit with the fix.
 - Run `bb review ready` once you've finished with them all, even if you declined some: the review goes back to the
   reviewer to re-review. Going idle doesn't count: run it once your subagents' work is in too.
+- When the reviewer's Push asks you to commit, commit the changes they reviewed and run
+  `bb review report --commit <sha>` with the commit's SHA, without pushing. It checks the commit, and says either to
+  push exactly it, with the command to run, or to wait for the reviewer.
 
 ## List reviews
 

@@ -142,10 +142,10 @@ test("a branch that isn't on GitHub yet: the tool and Finish's Open PR say to Pu
   github.branch = null;
   const result = await tool({ title: "Snooze flaky checks" });
   expect(toolFailed(result)).toBe(true);
-  expect(toolText(result)).toBe("Push feat/qa to GitHub first, then open the PR. It isn’t there yet. Tell the reviewer; never push it yourself.");
+  expect(toolText(result)).toBe("feat/qa isn’t on GitHub yet. Push it first, with Push in Finish review, then open the PR. Tell the reviewer; never push it yourself.");
   expect(harness.inspection.pendingInteractions).toEqual([]);
   // Finish says it as a note: not yet, rather than wrong.
-  expect(await harness.behavior.callRpc("openPr", { targetKey: KEY })).toEqual({ ok: false, note: "Push feat/qa to GitHub first, then open the PR. It isn’t there yet." });
+  expect(await harness.behavior.callRpc("openPr", { targetKey: KEY })).toEqual({ ok: false, note: "`feat/qa` isn’t on GitHub yet. Push it first with **Push** above, then open the PR." });
   expect(sent).toEqual([]);
   expect(opens()).toEqual([]);
   // Nothing pushes from here: no git, and no gh but the reads.

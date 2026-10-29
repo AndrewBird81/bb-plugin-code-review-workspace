@@ -46,6 +46,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "dismissFlagged",
       "dismissInstructionSuggestion",
       "dismissKeptBranch",
+      "dismissPush",
       "dismissReady",
       "getAgentDefaults",
       "getAgentLearning",
@@ -154,6 +155,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "open_pr",
       "generate_review_guide",
       "send_now",
+      "push",
     ]
   `);
   // What agents read of each tool, word for word.
@@ -194,8 +196,8 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
         },
         {
           "name": "report",
-          "summary": "Say what you did with a comment the reviewer sent you: done or declined",
-          "usage": "bb review report <id> done|declined [--note <text>] [--commit <sha>]",
+          "summary": "Say what you did with a comment the reviewer sent you, done or declined, or which commit Push pushes",
+          "usage": "bb review report <id> done|declined [--note <text>] [--commit <sha>] | --commit <sha>",
         },
         {
           "name": "ready",
@@ -220,10 +222,10 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "message.cancelled": 3,
       "message.dispatched": 3,
       "thread.active": 1,
-      "thread.archived": 1,
-      "thread.deleted": 1,
-      "thread.failed": 3,
-      "thread.idle": 3,
+      "thread.archived": 2,
+      "thread.deleted": 2,
+      "thread.failed": 4,
+      "thread.idle": 4,
       "thread.unarchived": 1,
     }
   `);
@@ -282,6 +284,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
           "github_pr",
           "open_pr",
           "send_now",
+          "push",
         ],
       },
       "other": {

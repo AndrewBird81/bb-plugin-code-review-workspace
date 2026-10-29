@@ -82,7 +82,7 @@ export const SUBCOMMANDS: PluginCliCommandInfo[] = [
   { name: "list", summary: "List your reviews, in Needs review's order, with whose turn it is", usage: "bb review list [--json]" },
   { name: "ask", summary: "Send a message to a review's agent, relayed from this thread, starting the agent if needed", usage: "bb review ask <review> <text>" },
   { name: "approve", summary: "Line PRs' approvals up in Needs review for the reviewer's click; never posts", usage: "bb review approve <review…> [--body <text>]" },
-  { name: "report", summary: "Say what you did with a comment the reviewer sent you: done or declined", usage: "bb review report <id> done|declined [--note <text>] [--commit <sha>]" },
+  { name: "report", summary: "Say what you did with a comment the reviewer sent you, done or declined, or which commit Push pushes", usage: "bb review report <id> done|declined [--note <text>] [--commit <sha>] | --commit <sha>" },
   { name: "ready", summary: "Say you've finished with the comments the reviewer sent you, for them to re-review", usage: "bb review ready [<review>]" },
   { name: "storage", summary: "Show where the reviews are kept, and move them between SQLite and Postgres", usage: "bb review storage <status | verify | migrate | export-sqlite [--replace-data-db]>" },
 ];
@@ -96,9 +96,9 @@ export const ASSISTANT_TOOL_NAMES = ["read_review_patch", "list_review_files", "
  * The tools that act on GitHub or send to other threads, given besides only while Settings lets the review agent act
  * when asked (reviewAgentActs). Each also checks the knob when it runs, since a running agent keeps the tools it started with.
  */
-export const ASSISTANT_WRITE_TOOL_NAMES = ["submit_review", "post_reply", "resolve_thread", "github_pr", "open_pr", "send_now"];
+export const ASSISTANT_WRITE_TOOL_NAMES = ["submit_review", "post_reply", "resolve_thread", "github_pr", "open_pr", "send_now", "push"];
 // Raise when the review assistant's tools, or their instructions, change.
-export const ASSISTANT_TOOLS = 17;
+export const ASSISTANT_TOOLS = 18;
 
 /** A tool's answer that it failed, with why. */
 export const failed = (text: string): PluginAgentToolResult => ({ content: [{ type: "text", text }], isError: true });

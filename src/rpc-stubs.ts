@@ -9,8 +9,6 @@ export function register() {
     resolveComment: notYet("Resolve"), // Step 2.3.
 
     reopenComment: notYet("Reopen"), // Step 2.3.
-
-    push: notYet("Push"), // Step 5.1.
   } satisfies Partial<RpcHandlers>;
   return { handlers };
 }

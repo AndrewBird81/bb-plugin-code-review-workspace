@@ -416,7 +416,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
     const unchanged = composed.comments.filter((sent) => comments.some((comment) => sameLocation(comment, sent) && comment.body === sent.body));
     if (unchanged.length) await tx.trackComments(targetKey, unchanged.map((comment) => ({ at: comment, state: "sent" as const, sendN: n, claim: undefined })));
     const at = Date.now();
-    const entry: SendEntry = { n, at, threadId: went.threadId, ids: [...composed.comments.map((comment) => comment.id), ...composed.items.map((item) => item.id)], ...add.patch === undefined ? {} : { patch: add.patch }, ...went.queued ? { queued: went.queued } : {} };
+    const entry: SendEntry = { n, at, threadId: went.threadId, ids: [...composed.comments.map((comment) => comment.id), ...composed.items.map((item) => item.id)], ...add.patch === undefined ? {} : { patch: add.patch }, ...went.queued ? { queued: went.queued } : {}, ...letPush ? { letPush: true as const } : {} };
     // 1.7.0's record, which its Send to thread reads: comments sent to this thread before stay marked, one sent again is marked now.
     const earlier = now.sent?.threadId === went.threadId ? now.sent.comments.filter((comment) => !composed.comments.some((sent) => sameLocation(sent, comment))) : [];
     await tx.setLifecycle(targetKey, {

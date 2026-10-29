@@ -164,6 +164,49 @@ export interface ReviewLifecycle {
   flaggedSeen?: string[];
   /** What the review agent did on GitHub or sent, oldest first: the last 100 (setLifecycle drops the rest). */
   activity?: ActivityEntry[];
+  /** Push (src/push.ts): the last one, from your click to GitHub, or a push no one asked for. Null once you said Got it. */
+  push?: PushRun | null;
+  /**
+   * On your own PR, what Not pushed yet showed when you last opened it: the folder, and the PR's head it compared with.
+   * Its files' revisions are kept beside the snapshots (lib/push.ts NOT_PUSHED): Push checks a fixer's commit against them.
+   */
+  notPushedSeen?: { environmentId: string; base: string; at: number } | null;
+  /** The review's branch on GitHub as last read, to tell when it moves with no Push: its head, null for not there. */
+  remoteHead?: { repo: string; head: string; sha: string | null; at: number } | null;
+}
+
+/**
+ * A Push, as the review shows it. committing: the main thread was told to commit what you reviewed and report the
+ * commit. mismatch: the commit isn't what you reviewed, or GitHub has commits the folder doesn't (`behind`); `warning`
+ * says how, `files` which; it waits for Push anyway or Update first. pushing: the thread was told to push `sha`. pushed:
+ * GitHub has it. flagged: GitHub has `remote` instead after the push ("differs"), the branch moved with no Push
+ * ("unrequested"), or the main thread stopped before it pushed ("stopped", `why`).
+ */
+export interface PushRun {
+  state: "committing" | "mismatch" | "pushing" | "pushed" | "flagged";
+  at: number;
+  /** The thread told to commit and push: the main thread. */
+  threadId: string;
+  /** Where it goes on GitHub: the repo, and the branch. */
+  repo: string;
+  head: string;
+  /** The commit, once checked, by its full SHA: the one pushed. A commit the check couldn't place has none. */
+  sha?: string;
+  warning?: string;
+  files?: string[];
+  /** mismatch: secret-looking files the review hid that the push would take to GitHub. */
+  secrets?: string[];
+  /** mismatch: GitHub has commits the folder doesn't, so a push without force may be refused. */
+  behind?: true;
+  /** You chose Push anyway past `behind`: it isn't asked again for this Push. */
+  pastBehind?: true;
+  flag?: "differs" | "unrequested" | "stopped";
+  /** GitHub's head of the branch when flagged; null for no such branch. */
+  remote?: string | null;
+  /** pushed: by a fixer on its own, as its chat can tell it, a commit of its folder. */
+  byFixer?: true;
+  /** stopped: how the main thread did. */
+  why?: "failed" | "archived" | "deleted";
 }
 
 /** A local review's folder and branch. */
@@ -248,6 +291,8 @@ export interface SendEntry {
   stopped?: { at: number; why: "idle" | "archived" | "deleted" };
   /** When the Check fixes the plugin starts on its own, once it's ready, started for this Send: once per Send. Your clicks check any time. */
   checkedAt?: number;
+  /** It let the thread push when done (Let it push when done), so a push after it was asked for. */
+  letPush?: true;
 }
 
 /**

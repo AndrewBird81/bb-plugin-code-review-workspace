@@ -144,7 +144,7 @@ test("beside your own PR, which lists everyone's threads, a teammate's PR still 
 test("a teammate's PR has no main thread, Sends or feature to show", async () => {
   const { call } = await teammatePr();
   const { review } = await call("getReviewBundle", { targetKey: KEY });
-  for (const key of ["mainThread", "feature", "implementers", "sends", "threadSends", "readyToApprove", "letPush"]) expect(review).not.toHaveProperty(key);
+  for (const key of ["mainThread", "feature", "implementers", "sends", "threadSends", "readyToApprove", "letPush", "push", "remoteHead"]) expect(review).not.toHaveProperty(key);
 });
 
 test("a Send on a teammate's PR warns first, and sent anyway, never changes what Submit posts", async () => {

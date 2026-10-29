@@ -15,6 +15,7 @@ import { folderHost } from "./env-diff.test-support";
 import { agentChat } from "./agent-chat.test-support";
 import { toolText } from "./fake-host.test-support";
 import { UNTRUSTED_NOTE } from "./own-pr";
+import { pushCommand, pushTarget } from "../lib/push";
 import type { ReviewLifecycle, ReviewMeta } from "./store";
 
 const SHA = "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c";
@@ -272,4 +273,28 @@ test.each(cells)("$state × $route", async ({ state, route, cell: given }) => {
   expect(text.includes(UNTRUSTED_NOTE), "the untrusted note").toBe(cell.note);
   expect(text.includes(REFSPEC), "the quoted refspec").toBe(cell.refspec);
   if (cell.says) expect(text).toContain(cell.says);
+});
+
+/** Push in each state (lib/push.ts): the folder its commit comes from and whether a fixer pushes it, or none. */
+const PUSH: Record<State, { environmentId: string; fixer: boolean } | null> = {
+  "local-folder": { environmentId: "env1", fixer: false },
+  "own-folder": { environmentId: "env1", fixer: false },
+  "own-folder-moved": { environmentId: "env1", fixer: false },
+  "own-none": null,
+  "own-rehomed": { environmentId: "env_fix1", fixer: true },
+  "own-rehomed-archived": { environmentId: "env_fix1", fixer: true },
+  "own-fork-unsent": { environmentId: "env_fork1", fixer: true },
+  "own-fixer-unmade": null,
+  "own-two-fixers": { environmentId: "env_fix2", fixer: true },
+  "teammate-none": null,
+};
+
+test.each(Object.keys(STATES) as State[])("%s × push", (state) => {
+  const s = STATES[state];
+  const target = pushTarget({ kind: "pr", repo: "acme/web", number: 12, head: "retry-uploads", ...s.review, ...s.lifecycle } as ReviewMeta);
+  const expected = PUSH[state];
+  if (!expected) return void expect(typeof target).toBe("string");
+  expect(target).toMatchObject({ ...expected, head: "retry-uploads", remote: "origin" });
+  // Never to a branch but the PR's, nor from a folder but the thread's fixing it.
+  expect(pushCommand("HEAD", (target as { head: string }).head)).toBe(`git push origin ${REFSPEC}`);
 });

@@ -290,9 +290,10 @@ test("after a fixer, the thread that wrote the PR is still the original, and its
 });
 
 test("the push command is quoted for the shell, and a branch name with a quote in it gets none", async () => {
-  const { fixerBrief, pushCommand } = await import("./own-pr");
-  expect(pushCommand("origin", "a;b|c$(d)")).toBe("git push origin 'HEAD:refs/heads/a;b|c$(d)'");
-  expect(pushCommand("origin", "x;echo$IFS'hi'")).toBeNull();
+  const { fixerBrief } = await import("./own-pr");
+  const { pushCommand } = await import("../lib/push");
+  expect(pushCommand("HEAD", "a;b|c$(d)")).toBe("git push origin 'HEAD:refs/heads/a;b|c$(d)'");
+  expect(pushCommand("HEAD", "x;echo$IFS'hi'")).toBeNull();
   const place = { environment: { type: "project-default" } as any, said: "", sha: SHA, original: null, hostId: null, machine: null, folder: null };
   const brief = fixerBrief({ targetKey: "pr-1", kind: "pr", repo: "acme/web", number: 12, head: "x;echo$IFS'hi'", status: "ready", createdAt: 1 } as any, place, { lead: "Fix it.", forked: false, own: false, letPush: false });
   expect(brief).not.toContain("git push");

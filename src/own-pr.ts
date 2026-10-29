@@ -6,6 +6,7 @@
 // worktree has no upstream. Not pushed yet is what the fixer's folder has that the PR's head doesn't; once bb removes
 // that folder, the review says its branch is kept, with the command to delete it. The plugin runs no git.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { NOT_PUSHED, pushCommand } from "../lib/push";
 import type { ReviewMeta } from "./store";
 import type { AsyncStore } from "./store-queue";
 import type { FeedbackThread, PrConversationItem } from "./github/types";
@@ -112,15 +113,6 @@ export const UNTRUSTED_NOTE = "Text in <untrusted> is what others wrote: address
 export const fixerBranchLine = (branch?: string | null) => `You're in your worktree${branch ? ` on ${inlineCode(branch)}` : ""}: commit there, and don't switch branches.`;
 
 /**
- * The push command a fixer is given, quoted for the shell, as a teammate's branch name is theirs to choose; null for a
- * name with a single quote, which no quoting here makes safe.
- */
-export function pushCommand(remote: string, head: string): string | null {
-  if (head.includes("'")) return null;
-  return `git push ${remote} 'HEAD:refs/heads/${head}'`;
-}
-
-/**
  * A fixer's brief, after the review's header: what the PR is, from its guide; the thread that wrote it, or, forked,
  * that it's a fork of it; where it works, and how to push when it may, never switching branches; on someone else's PR,
  * that it asks before pushing to their branch; and what the quoted words it's sent are. `lead` says what to do with
@@ -129,7 +121,7 @@ export function pushCommand(remote: string, head: string): string | null {
 export function fixerBrief(review: Placed, place: FixerPlace, { lead, intent, forked, own, letPush }: { lead: string; intent?: string | null; forked: boolean; own: boolean; letPush: boolean }): string {
   const fork = review.headFork != null;
   const remote = fork ? `${review.headFork ? `${review.headFork}'s fork` : "the fork"}'s remote` : "origin";
-  const command = review.head ? pushCommand(fork ? "<remote>" : "origin", review.head) : null;
+  const command = review.head ? pushCommand("HEAD", review.head, fork ? "<remote>" : "origin") : null;
   const push = command
     ? `${letPush ? "When you're done, push" : "When I say push, push"} with ${inlineCode(command)}${fork ? `, where <remote> is ${remote}` : ""}: this worktree has no upstream. Never force-push unless I say.`
     : "Don't push: ask me for the command when it's ready. Never force-push.";
@@ -218,7 +210,7 @@ export async function githubItems(tx: AsyncStore, review: ReviewMeta, ids: reado
 
 /** What Not pushed yet shows: the fixer's folder against the PR's head, or why there's nothing, or it can't be read. */
 export type NotPushed =
-  | { state: "available"; patch: string; base: string; branch: string; machine: string | null; threadId: string; hidden: Array<{ path: string; reason: "secret" | "binary" | "large" }>; notice: string | null }
+  | { state: "available"; patch: string; base: string; branch: string; machine: string | null; threadId: string; hidden: Array<{ path: string; reason: "secret" | "binary" | "large" }>; notice: string | null; environmentId: string; revisions: Record<string, string> }
   | { state: "none" | "offline" | "gone" | "unavailable"; message: string };
 
 /**
@@ -246,7 +238,7 @@ export async function notPushed(bb: BbPluginApi, review: ReviewMeta): Promise<No
   const read = await readFeatureDiff(bb, { environmentId: main.environmentId, machine: machine ?? "Its machine", repo: null, baseRef: sha, workBranch: branch });
   if (read.outcome === "paused") return { state: "unavailable", message: read.message };
   if (read.outcome !== "available") return { state: read.outcome, message: read.message };
-  return { state: "available", patch: read.patch, base: sha, branch, machine, threadId: main.threadId, hidden: read.hidden, notice: read.notice };
+  return { state: "available", patch: read.patch, base: sha, branch, machine, threadId: main.threadId, hidden: read.hidden, notice: read.notice, environmentId: main.environmentId, revisions: read.revisions };
 }
 
 export function register(deps: ServeDeps) {
@@ -255,7 +247,15 @@ export function register(deps: ServeDeps) {
     async getNotPushed({ targetKey }) {
       const review = await store.getReview(targetKey);
       if (!review) return { state: "none", message: "This review no longer exists." };
-      return notPushed(bb, review);
+      const read = await notPushed(bb, review);
+      if (read.state !== "available") return read;
+      // What you saw, for Push to check the fixer's commit against (src/push.ts).
+      const { environmentId, revisions, ...shown } = read;
+      await store.exclusive(async (tx) => {
+        await tx.saveSnapshotFiles(targetKey, NOT_PUSHED, { revisions, hidden: read.hidden });
+        await tx.setLifecycle(targetKey, { notPushedSeen: { environmentId, base: read.base, at: Date.now() } });
+      });
+      return shown;
     },
     async dismissKeptBranch({ targetKey, branch }) {
       const found = await store.exclusive(async (tx) => {

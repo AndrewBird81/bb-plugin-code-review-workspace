@@ -60,6 +60,7 @@ import { returnFocus } from "./shell/side-parts";
 import { REWRITE_GUIDE, ReviewNotices, useNewCommits, type Notice } from "./shell/ReviewNotices";
 import { useBranchKeptNotices, useFeatureNotices } from "./shell/FeatureNotices";
 import { useFixNotices } from "./shell/FixNotices";
+import { usePushNotices } from "./shell/PushNotices";
 import { SelectionBar } from "./shell/SelectionBar";
 import { SidePanel, sidePanelId } from "./shell/SidePanel";
 import { TopBand, navigatorId } from "./shell/TopBand";
@@ -1385,6 +1386,8 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
   const { thread: mainLink } = useMainThread(targetKey, review);
   // The comments sent to it: Ready to re-review, or reported so far once it stops.
   const fixNotices = useFixNotices(targetKey, review, load);
+  // A Push that GitHub doesn't show, or one no one asked for.
+  const pushNotices = usePushNotices(targetKey, review, load);
   const mainThread = useMemo(() => mainThreadId ? { threadId: mainThreadId, title: mainLink?.title ?? null, machine: mainLink?.machine ?? null } : null, [mainThreadId, mainLink]);
   const commentKeys = useKnob("commentKeys");
   const unattendedAgents = useKnob("unattendedAgents");
@@ -1463,6 +1466,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace({ targetKey }: { ta
     ...featureNotices,
     ...fixNotices,
     ...branchKept,
+    ...pushNotices,
     ...(became?.targetKey === targetKey ? [{ id: "became-pr", tone: "info", icon: "GitPullRequest", text: `This review is now ${became.to}, the PR’s. It was ${became.from}; your comments came with it.`,
       action: <Button variant="outline" size="sm" className={noticeButton} onClick={() => setBecame(null)}>Got it</Button> }] as const : []),
     ...(generatingReplacement ? [{ id: "updating", tone: "warning", icon: "Loading", busy: true, text: "Updating the guide for the new commits. Your current view and unsaved edits stay here.", ...(stopGenerating ? { action: <Button variant="outline" size="sm" className={noticeButton} disabled={stopping} onClick={() => void stopGuide()}>{stopping ? "Stopping…" : "Stop"}</Button> } : {}) }] as const : []),

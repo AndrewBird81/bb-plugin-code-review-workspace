@@ -1,4 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
+
+// Push reads the branch on GitHub when the main thread stops (src/push.ts): here GitHub can't be reached.
+vi.mock("./gh", async (orig) => ({ ...(await orig<any>()), runGh: vi.fn(async () => ({ stdout: "", stderr: "no GitHub here", code: 1 })) }));
 import { runReviewCommand } from "./review-command";
 import { becomePr, checkFeature, updateFeature } from "./feature-review";
 import { featureKey, prReviewKey, targetKey } from "./targets";

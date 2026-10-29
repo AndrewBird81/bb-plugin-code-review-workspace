@@ -88,8 +88,14 @@ function lifecycle(r: Rng): ReviewLifecycle {
       letPush: r.bool(), includeHidden: FILES.filter(() => r.bool(0.2)),
     },
     {
+      push: r.pick([null, { state: r.pick(["committing", "mismatch", "pushing", "pushed", "flagged"] as const), at: r.pick(TIMES), threadId: r.pick(THREADS), repo: "acme/web", head: "feature",
+        ...(r.bool() ? { sha: r.pick(HEADS) } : {}), ...(r.bool(0.3) ? { warning: r.pick(TEXTS), files: FILES.filter(() => r.bool()) } : {}), ...(r.bool(0.3) ? { flag: r.pick(["differs", "unrequested"] as const), remote: r.pick([null, ...HEADS]) } : {}) }]),
+      remoteHead: r.pick([null, { repo: "acme/web", head: "feature", sha: r.pick([null, ...HEADS]), at: r.pick(TIMES) }]),
+      notPushedSeen: r.pick([null, { environmentId: "env-1", base: r.pick(HEADS), at: r.pick(TIMES) }]),
+    },
+    {
       // Past the 20 Sends and 100 actions a review keeps, at times.
-      sends: Array.from({ length: r.int(0, 25) }, (_, i) => ({ n: i + 1, at: r.pick(TIMES), threadId: r.pick(THREADS), ids: [`c${i + 1}`], ...(r.bool(0.1) ? { patch: r.pick(PATCHES) } : {}), ...(r.bool(0.2) ? { readyAt: r.pick(TIMES), checkedAt: r.pick(TIMES) } : {}) })),
+      sends: Array.from({ length: r.int(0, 25) }, (_, i) => ({ n: i + 1, at: r.pick(TIMES), threadId: r.pick(THREADS), ids: [`c${i + 1}`], ...(r.bool(0.1) ? { patch: r.pick(PATCHES) } : {}), ...(r.bool(0.2) ? { readyAt: r.pick(TIMES), checkedAt: r.pick(TIMES) } : {}), ...(r.bool(0.2) ? { letPush: true as const } : {}) })),
       threadSends: r.bool() ? {} : { t1: { id: "c2", sendN: r.int(1, 25), ...(r.bool() ? { claim: claim(r) } : {}) } },
       activity: Array.from({ length: r.pick([0, 2, 104]) }, (_, i) => ({ at: i, text: `Posted reply ${i}`, asking: r.pick(["direct", "relayed", "unattended"] as const), ...(r.bool(0.2) ? { from: r.pick(THREADS) } : {}) })),
       readyToApprove: r.pick([null, { action: r.pick(["approve", "merge", "close"] as const), verdict: r.pick([null, "APPROVE"] as const), body: r.pick(TEXTS), comments: [], headSha: r.pick(HEADS), token: "t1", from: r.pick([null, ...THREADS]), at: r.pick(TIMES) }]),

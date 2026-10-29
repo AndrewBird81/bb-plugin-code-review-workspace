@@ -10,6 +10,9 @@ import { readDraftRecovery } from "../../lib/draft-recovery";
 import { useKnob } from "../../lib/settings";
 import { needsOrder, reviewState, type ReviewItem } from "../../lib/review-state";
 import { reviewIdentity } from "../../lib/review-identity";
+import { pushFlagText, pushTarget } from "../../lib/push";
+import { showNotPushed } from "../../lib/main-thread";
+import { Marked, Mono, updateThenClear } from "../shell/PushNotices";
 import { statusWhy } from "../../lib/status-line";
 import { cn } from "../../lib/utils";
 import { useWorkspace } from "../../lib/workspace-context";
@@ -21,7 +24,7 @@ import { age, timeAgo } from "../time-ago";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "../touch";
 import { Button, buttonVariants } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
-import { Icon } from "../ui/icon";
+import { Icon, type IconName } from "../ui/icon";
 import { InlineCode } from "../ui/inline-code";
 import { MetaLine } from "../MetaLine";
 import { Clamped } from "./CommentCard";
@@ -101,6 +104,7 @@ export function FinishView({ shown, revision }: {
             {isPr ? <GoesToGitHub items={items} replyDrafts={items.filter((item) => item.kind === "thread" && item.replyDraft).length} onList={openList} />
               : <Part title="Stays in BB"><p className="text-sm text-muted-foreground">{d.hint}</p>{notes.show && <PrivateNotes targetKey={targetKey} />}</Part>}
             {(d.isLocal || d.ownPr || api.mainThread) && <FixHandoff targetKey={targetKey} comments={d.sortedComments} revision={revision} />}
+            <Push />
             {d.isLocal && <OpenPr />}
             <AgentActivity />
             {isPr && notes.show && <Part title="Stays in BB"><PrivateNotes targetKey={targetKey} /></Part>}
@@ -118,6 +122,99 @@ function Part({ title, children }: { title: string; children: ReactNode }) {
     <h3 className="px-0.5 text-[11px] font-semibold uppercase tracking-wider text-subtle-foreground">{main}{rest && <span className="font-normal normal-case tracking-normal"> · {rest}</span>}</h3>
     {children}
   </section>;
+}
+
+/**
+ * Push, on a local review of a branch in a GitHub repo, while Send to thread is on (src/push.ts): the main thread commits
+ * what you reviewed, the review checks the commit, and the thread pushes exactly it. It shows where that stands:
+ * waiting on the commit, the commit not what you reviewed (Update first, or Push anyway), pushing, pushed, or flagged.
+ */
+function Push() {
+  const { targetKey, review, reload, panel } = useWorkspace();
+  const rpc = useRpc<typeof rpcContract>();
+  const navigate = useBbNavigate();
+  const sendOn = useKnob("sendToThread");
+  const [busy, setBusy] = useState<"push" | "anyway" | "update" | "dismiss" | null>(null);
+  // What went wrong, or that there was nothing to push.
+  const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
+  // A local review's folder, or on your PR, the thread fixing it, a fixer's or the folder it became a PR from.
+  const target = pushTarget(review);
+  if (!sendOn || typeof target === "string") return null;
+  const who = target.fixer ? "the fixer" : "the main thread";
+  const run = review.push ?? null;
+  const sha = run?.sha ? run.sha.slice(0, 7) : "";
+  async function act(what: NonNullable<typeof busy>, call: () => Promise<{ ok: boolean; error?: string; note?: string }>, done?: string) {
+    if (busy) return;
+    setBusy(what);
+    setSaid(null);
+    try {
+      const result = await call();
+      if (!result.ok) setSaid({ text: result.error ?? "Something went wrong. Try again.", error: true });
+      else if (result.note) setSaid({ text: result.note, error: false });
+      else if (done) toast.success(done);
+      await reload();
+    } catch (e) {
+      setSaid({ text: e instanceof Error ? e.message : "Something went wrong. Try again.", error: true });
+    } finally { setBusy(null); }
+  }
+  // Push anyway goes on the warning shown: its commit, when it has one.
+  const push = (force = false) => act(force ? "anyway" : "push", () => rpc.call("push", { targetKey, ...force && run ? { force, at: run.at, ...run.sha ? { sha: run.sha } : {} } : {} }));
+  const dismiss = () => act("dismiss", () => rpc.call("dismissPush", { targetKey }));
+  // On your PR, what you review before it's pushed is Not pushed yet: Update first opens it.
+  const update = () => target.pr ? act("update", async () => {
+    showNotPushed(targetKey);
+    panel.open("main");
+    return rpc.call("dismissPush", { targetKey });
+  }) : act("update", () => updateThenClear(rpc, targetKey), "Updated. Review what changed, then Push.");
+  const spinner = (on: boolean, icon: IconName) => <Icon name={on ? "Loading" : icon} className={cn("size-4", on && "animate-spin motion-reduce:animate-none")} aria-hidden />;
+  const pushButton = (label: string) => <Button variant="outline" size="sm" className={cn("gap-1.5", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void push()}>
+    {spinner(busy === "push", "ArrowUp")}{busy === "push" ? "Asking the main thread…" : label}
+  </Button>;
+  const quiet = (label: string, onClick: () => void) => <Button variant="ghost" size="sm" className={cn("text-muted-foreground hover:text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={onClick}>{label}</Button>;
+  const cancel = (label = "Cancel") => quiet(label, () => void dismiss());
+  const updateButton = (label: string, filled: boolean) => <Button size="sm" variant={filled ? "default" : "outline"} className={cn("gap-1.5", !filled && "text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void update()}>{spinner(busy === "update", "ArrowReloadHorizontal")}{label}</Button>;
+  const branch = <Mono text={run?.head ?? target.head} />;
+  const flag = pushFlagText(run);
+  const secrets = new Set(run?.secrets ?? []);
+  const files = [...new Set([...run?.files ?? [], ...secrets])];
+  return <Part title="Push">
+    {run?.state === "committing" ? <div className="space-y-2">
+      <p role="status" className="flex gap-1.5 text-sm text-muted-foreground"><Icon name="Loading" className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden />Waiting for {who} to commit. The review checks the commit before anything is pushed.</p>
+      {cancel()}
+    </div>
+    : run?.state === "mismatch" ? <div role="alert" className="space-y-2 rounded-lg border border-warning/25 bg-warning/10 p-2.5 text-xs leading-relaxed text-warning-text">
+      <p><span className="font-medium">Not pushed.</span> {run.warning ? <Marked text={run.warning} /> : <><Mono text={sha} /> isn’t what you reviewed.</>}</p>
+      {files.length > 0 && <ul className="list-disc space-y-0.5 pl-5">{files.slice(0, 5).map((file) => <li key={file}><Mono text={file} />{secrets.has(file) && <span className="font-medium"> · may hold secrets</span>}</li>)}{files.length > 5 && <li>and {files.length - 5} more</li>}</ul>}
+      <div className="flex flex-wrap gap-2">
+        {/* GitHub being ahead isn't something Update fixes; a commit the check couldn't place has nothing to push anyway. */}
+        {!(run.behind && !files.length) && updateButton("Update first", true)}
+        {(run.sha || run.behind) && <Button size="sm" variant="outline" className={cn("gap-1.5 text-foreground", TOUCH_CONTROL, BUSY)} aria-disabled={!!busy || undefined} onClick={() => void push(true)}>{spinner(busy === "anyway", "ArrowUp")}Push anyway</Button>}
+        {cancel()}
+      </div>
+    </div>
+    : run?.state === "pushing" ? <div className="space-y-2">
+      <p role="status" className="flex gap-1.5 text-sm text-muted-foreground"><Icon name="Loading" className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden /><span>Pushing <Mono text={sha} /> to {branch}. The review checks GitHub when {who} finishes.</span></p>
+      {cancel("Stop waiting")}
+    </div>
+    // The strip under the band says it as it happens; here it's a status, so it isn't said twice.
+    : flag ? <div role="status" className={cn("space-y-2 rounded-lg border p-2.5 text-xs leading-relaxed", run?.flag === "unrequested" ? "border-border bg-muted/40 text-foreground" : "border-warning/25 bg-warning/10 text-warning-text")}>
+      <p><Marked text={flag} /></p>
+      <div className="flex flex-wrap gap-2">
+        {run?.flag === "unrequested" ? !target.pr && updateButton("Update", false) : <>
+          {pushButton("Push again")}
+          <Button variant="outline" size="sm" className={cn("text-foreground", TOUCH_CONTROL)} onClick={() => navigate.toThread(run!.threadId)}>Open main thread</Button>
+        </>}
+        {cancel("Got it")}
+      </div>
+    </div>
+    : <>
+      {run?.state === "pushed" ? <p role="status" className="flex gap-1.5 text-sm"><Icon name="CircleCheck" className="mt-0.5 size-4 shrink-0 text-diff-added" aria-hidden /><span>{run.byFixer ? "The fixer pushed" : "Pushed"} <Mono text={sha} /> to {branch}{run.byFixer && " from its folder"}{timeAgo(run.at) && <span className="text-muted-foreground"> · {timeAgo(run.at)}</span>}</span></p>
+        : <p className="text-sm text-muted-foreground">{target.fixer ? "The fixer" : "The main thread"} commits what you reviewed{target.pr ? " in Not pushed yet" : ""}, the review checks it, then it’s pushed to {branch}. Never forced.</p>}
+      {pushButton("Push")}
+    </>}
+    {said?.error && <p role="alert" className="flex gap-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-0.5 size-3.5 shrink-0" aria-hidden />{said.text}</p>}
+    {said && !said.error && <p role="status" className="flex gap-1.5 text-xs text-muted-foreground"><Icon name="Info" className="mt-0.5 size-3.5 shrink-0" aria-hidden /><span><Marked text={said.text} /></span></p>}
+  </Part>;
 }
 
 /**
@@ -149,13 +246,13 @@ function OpenPr() {
     } finally { setBusy(false); }
   }
   return <Part title="Open a PR">
-    <p className="text-sm text-muted-foreground">The review agent drafts a PR from <span className="break-all font-mono">{feature.branch}</span> in <span className="break-all font-mono">{feature.repo}</span>, and shows you its title and description before it opens.</p>
+    <p className="text-sm text-muted-foreground">The review agent drafts a PR from <Mono text={feature.branch} /> in <Mono text={feature.repo} />, and shows you its title and description before it opens.</p>
     <Button variant="outline" size="sm" className={cn("gap-1.5", TOUCH_CONTROL, BUSY)} aria-disabled={busy || undefined} onClick={() => void open()}>
       <Icon name={busy ? "Loading" : "GitPullRequest"} className={cn("size-4", busy && "animate-spin motion-reduce:animate-none")} aria-hidden />
       {busy ? "Asking the agent…" : "Open PR"}
     </Button>
     {said?.error && <p role="alert" className="flex gap-1.5 text-xs text-destructive-text"><Icon name="AlertCircle" className="mt-0.5 size-3.5 shrink-0" aria-hidden />{said.text}</p>}
-    {said && !said.error && <p role="status" className="flex gap-1.5 text-xs text-muted-foreground"><Icon name="Info" className="mt-0.5 size-3.5 shrink-0" aria-hidden />{said.text}</p>}
+    {said && !said.error && <p role="status" className="flex gap-1.5 text-xs text-muted-foreground"><Icon name="Info" className="mt-0.5 size-3.5 shrink-0" aria-hidden /><span><Marked text={said.text} /></span></p>}
   </Part>;
 }
 

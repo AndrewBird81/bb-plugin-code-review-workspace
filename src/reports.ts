@@ -19,10 +19,12 @@ import { isAssistantAnswering } from "./agent";
 import { settleQueued } from "./loop";
 import { reReviewCheckPrompt } from "./preferences";
 import { isMissingThread } from "./thread-errors";
+import { reportCommit } from "./push";
 import type { EventListeners, RpcHandlers, ServeDeps, Subcommands } from "./server-modules";
 
 export const REPORT_USAGE = [
   "usage: bb review report <id> done|declined [--note <text>] [--commit <sha>]",
+  "       bb review report --commit <sha>",
   "",
   "Says what you did with a comment the reviewer sent you, by the id its Send gave it (c12). Run it from any thread;",
   "the review shows which thread reported. Nothing goes to GitHub.",
@@ -31,6 +33,9 @@ export const REPORT_USAGE = [
   "  --note     what you did, or why not, in a line or two (up to 2,000 characters); quote it for your shell",
   "  --commit   the commit with the fix, by its SHA",
   "Run `bb review ready` once you've finished with them all.",
+  "",
+  "With --commit alone, after the reviewer's Push: the commit with the changes they reviewed. The review checks it, and",
+  "says whether to push it.",
 ].join("\n");
 
 export const READY_USAGE = [
@@ -108,6 +113,14 @@ export function register(deps: ServeDeps) {
       if (values[name] !== undefined) return usage(`${arg} is given twice.`, REPORT_USAGE);
       if (i + 1 >= args.length) return usage(`${arg} needs a value.`, REPORT_USAGE);
       values[name] = args[++i];
+    }
+    // After Push: the commit to push, with no comment's id.
+    if (!positional.length && values.commit !== undefined) {
+      if (values.note !== undefined) return usage("--note goes with a comment's id.", REPORT_USAGE);
+      if (!SHA.test(values.commit.trim())) return usage(`${values.commit} isn't a commit's SHA.`, REPORT_USAGE);
+      const denied = await refused(ownReview, ctx.threadId);
+      if (denied) return denied;
+      return reportCommit(deps, values.commit.trim().toLowerCase(), await callerAndAbove(ctx.threadId));
     }
     const [id, outcome] = positional;
     if (positional.length !== 2 || !id) return usage("Give the comment's id and done or declined.", REPORT_USAGE);

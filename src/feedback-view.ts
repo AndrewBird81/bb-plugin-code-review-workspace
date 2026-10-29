@@ -1,5 +1,6 @@
 // Your feedback, the PR's diffs at the commits that matter, and the assistant's
 // check, assembled for Comments and the assistant's tools.
+import { NOT_PUSHED } from "../lib/push";
 import type { ReviewMeta } from "./store";
 import type { runGh } from "./gh";
 import { ghErrorMessage, ghPrHeadArgs } from "./gh";
@@ -90,7 +91,8 @@ const keptDiffs = (review: ReviewMeta) => [review.headSha, baselineOf(review).sh
 
 /** Keep the diffs this review still needs, and a local review's diff's files. */
 export async function pruneDiffs(store: AsyncStore, review: ReviewMeta) {
-  const live = review.feature ? [diffFilesHead(await store.patchHash(review.targetKey))] : [];
+  // A folder's diff's files, and what Not pushed yet showed, for Push.
+  const live = [...review.feature ? [diffFilesHead(await store.patchHash(review.targetKey))] : [], ...review.notPushedSeen ? [NOT_PUSHED] : []];
   await store.pruneSnapshots(review.targetKey, [...keptDiffs(review), ...live]);
 }
 

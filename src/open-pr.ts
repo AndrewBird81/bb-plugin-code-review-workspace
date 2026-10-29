@@ -31,8 +31,9 @@ export function prBase(baseRef: string): string | null {
   return /^[0-9a-f]{40}([0-9a-f]{24})?$/i.test(name) ? null : name;
 }
 
-/** What Open PR says of a branch that isn't on GitHub yet. */
-export const notPushed = (branch: string) => `Push ${branch} to GitHub first, then open the PR. It isn’t there yet.`;
+/** What Open PR says of a branch that isn't on GitHub yet: to the review agent, and (`pushFirst`) in Finish review, under Push. */
+export const notPushed = (branch: string) => `${branch} isn’t on GitHub yet. Push it first, with Push in Finish review, then open the PR.`;
+export const pushFirst = (branch: string) => `\`${branch}\` isn’t on GitHub yet. Push it first with **Push** above, then open the PR.`;
 /** What Open PR says in a fork's folder, whose PR goes to the repo it was forked from. */
 export const FORK = "This folder’s repo is a fork; open its PR on GitHub.";
 
@@ -98,7 +99,7 @@ export function register(deps: ServeDeps) {
       if ("error" in found) return { ok: false, error: found.error };
       if ("fork" in found) return { ok: false, error: FORK };
       // Not yet, rather than wrong: said as a note.
-      if ("missing" in found) return { ok: false, note: notPushed(branch) };
+      if ("missing" in found) return { ok: false, note: pushFirst(branch) };
       if (found.pr) return { ok: true, note: `${branch} has PR #${found.pr.number} on GitHub already, so none was opened. ${await becomeOpened(deps, review, found.pr)}` };
       const base = prBase(baseRef);
       const context = [

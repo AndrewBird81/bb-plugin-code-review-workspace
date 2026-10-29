@@ -108,7 +108,7 @@ export type JustVerb = "post" | "approve" | "request-changes" | "merge" | "close
  * The whole message, as the commands below are read: lowercased, quotes folded, punctuation gone, and a leading "ok",
  * "yes", "sure" or "please", or a trailing "please", "now" or "thanks", taken off.
  */
-function command(text: string): string | null {
+export function command(text: string): string | null {
   const t = plain(text).replace(/[“”"]/g, " ").replace(/[.,!;:]/g, " ");
   // A question, or anything but words (an emoji, a number, another script), isn't a bare command.
   if (/[^a-z' \s]/.test(t)) return null;
