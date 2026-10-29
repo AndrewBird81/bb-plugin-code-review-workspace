@@ -202,3 +202,17 @@ test("on your PR whose folder a fixer took over, Send the rest still asks as a f
   await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sent 2 comments to Fixes for web#12. 1 other isn’t on GitHub as the review last read it, so it didn’t go."));
   slot.lifecycle.unmount();
 });
+
+test("on a teammate's PR with no folder, Send the rest starts a fresh thread as before, asking nothing", async () => {
+  const theirs = {
+    targetKey: KEY, kind: "pr", repo: "acme/web", number: 12, headSha: "a".repeat(40), status: "ready", createdAt: 1, title: "Retry uploads", ownPr: false, author: "per",
+    mainThread: { threadId: "fixer", environmentId: "env_fix", origin: "fresh", since: 1, fixer: { sha: "a".repeat(40), at: 1 } }, sends: [{ ...send, threadId: "fixer", ids: ["c1", "c2", "c3"], stopped: { at: 2, why: "archived" } }],
+    fixes: tally({ sent: 3, reported: 1 }),
+  };
+  const sendToSourceThread = vi.fn(async () => ({ ok: true, delivery: "sent", title: "Fixes for web#12", threadId: "fresh2", sendN: 2 }));
+  const { slot } = await renderWorkspace(theirs, { sendToSourceThread, getReviewThreads: () => ({ threads: [] }), getFeedback: () => ({ feedback: null }), getReplyDrafts: () => ({ drafts: [] }) });
+  const shown = await slot.findByRole("status", { name: "Comments sent" });
+  fireEvent.click(within(shown).getByRole("button", { name: "Send the rest to a fresh thread" }));
+  await waitFor(() => expect(sendToSourceThread).toHaveBeenCalledWith({ targetKey: KEY, comments: [{ file: "src/a.ts", line: 1, side: "LEFT" }, { file: "src/a.ts", line: 2, side: "RIGHT" }], force: true, thread: "fresh" }));
+  slot.lifecycle.unmount();
+});

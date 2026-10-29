@@ -24,9 +24,10 @@ const B = { file: "src/a.ts", line: 2, side: "LEFT" as const };
 const REFSPEC = "'HEAD:refs/heads/retry-uploads'";
 const fixerRecord = { sha: SHA, at: 2 };
 
-type State = "local-folder" | "own-folder" | "own-none" | "own-rehomed" | "own-rehomed-archived" | "own-fork-unsent" | "own-fixer-unmade" | "teammate-none";
-type Route = "send" | "later" | "rest" | "send-now" | "agent" | "start-fresh" | "fork" | "unarchive" | "fix-new";
+type State = "local-folder" | "own-folder" | "own-folder-moved" | "own-none" | "own-rehomed" | "own-rehomed-archived" | "own-fork-unsent" | "own-fixer-unmade" | "own-two-fixers" | "teammate-none";
+type Route = "send" | "later" | "rest" | "send-now" | "agent" | "start-fresh" | "after-start" | "fork" | "unarchive" | "pick" | "fix-new";
 interface T { title: string; archivedAt?: number | null; environmentId?: string | null }
+const ROUTES: Route[] = ["send", "later", "rest", "send-now", "agent", "start-fresh", "after-start", "fork", "unarchive", "pick", "fix-new"];
 
 const folder = { environmentId: "env1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/src/web", branch: "retry-uploads", baseRef: "main", repo: "acme/web" };
 const rehomed = { ...folder, environmentId: "env_fix1", path: "/Users/me/.bb/worktrees/env_fix1", workBranch: "bb/env_fix1" };
@@ -34,10 +35,13 @@ const coder = { threadId: "coder", environmentId: "env_old", origin: "adopted" a
 const fixer1 = { threadId: "fixer1", environmentId: "env_fix1", origin: "fresh" as const, since: 2, branch: "bb/env_fix1", fixer: fixerRecord };
 
 /** Each state: the review, its lifecycle, and the threads BB has. */
-const STATES: Record<State, { key: string; review: Partial<ReviewMeta>; lifecycle: ReviewLifecycle; threads: Record<string, T> }> = {
+const STATES: Record<State, { key: string; review: Partial<ReviewMeta>; lifecycle: ReviewLifecycle; threads: Record<string, T>; branches?: Record<string, string> }> = {
   "local-folder": { key: "br-1", review: { kind: "ref", gitRef: "retry-uploads", repo: undefined, number: undefined, head: undefined, headSha: undefined }, threads: { coder: { title: "Retry uploads", environmentId: "env1" } },
     lifecycle: { feature: folder, mainThread: { ...coder, environmentId: "env1" }, sourceThreadId: "coder" } },
   "own-folder": { key: "pr-1", review: {}, threads: { coder: { title: "Retry uploads", environmentId: "env1" } },
+    lifecycle: { ownPr: true, feature: folder, mainThread: { ...coder, environmentId: "env1" }, sourceThreadId: "coder" } },
+  // The PR's folder, moved on to another branch: its thread there isn't told to stay.
+  "own-folder-moved": { key: "pr-1", review: {}, threads: { coder: { title: "Retry uploads", environmentId: "env1" } }, branches: { env1: "try-another-idea" },
     lifecycle: { ownPr: true, feature: folder, mainThread: { ...coder, environmentId: "env1" }, sourceThreadId: "coder" } },
   "own-none": { key: "pr-1", review: {}, threads: {}, lifecycle: { ownPr: true } },
   "own-rehomed": { key: "pr-1", review: {}, threads: { coder: { title: "Retry uploads", archivedAt: 1, environmentId: "env_old" }, fixer1: { title: "Fixes 1", environmentId: "env_fix1" } },
@@ -48,57 +52,82 @@ const STATES: Record<State, { key: string; review: Partial<ReviewMeta>; lifecycl
     lifecycle: { ownPr: true, feature: rehomed, mainThread: { threadId: "forked1", environmentId: "env_fork1", origin: "forked", since: 4, fixer: fixerRecord }, implementers: [coder, fixer1], sourceThreadId: "forked1", sends: [{ n: 1, at: 2, threadId: "fixer1", ids: [] }] } },
   "own-fixer-unmade": { key: "pr-1", review: {}, threads: { fixer2: { title: "Fixes 1", environmentId: null } },
     lifecycle: { ownPr: true, mainThread: { threadId: "fixer2", environmentId: null, origin: "fresh", since: 2, fixer: fixerRecord }, sourceThreadId: "fixer2", sends: [{ n: 1, at: 2, threadId: "fixer2", ids: [] }] } },
+  // Two fixers, the first open still: Change main thread can pick it again.
+  "own-two-fixers": { key: "pr-1", review: {}, threads: { fixer1: { title: "Fixes 1", environmentId: "env_fix1" }, fixer2: { title: "Fixes 2", environmentId: "env_fix2" } },
+    lifecycle: { ownPr: true, mainThread: { threadId: "fixer2", environmentId: "env_fix2", origin: "fresh", since: 3, branch: "bb/env_fix2", fixer: fixerRecord }, implementers: [fixer1], sourceThreadId: "fixer2", sends: [{ n: 1, at: 2, threadId: "fixer1", ids: [] }, { n: 2, at: 3, threadId: "fixer2", ids: [] }] } },
   "teammate-none": { key: "pr-1", review: { author: "per" }, threads: {}, lifecycle: { ownPr: false } },
 };
 
 /** Where a route went: a choice to make, a fresh fixer at the head, a plain fresh thread, a fork, or a thread already there. */
 type Went = "choice" | "fixer" | "fresh" | "fork" | `thread:${string}`;
-/** What a cell expects of the message, or why the cell can't happen. */
-type Cell = { went: Went; checkOut?: boolean; note?: boolean; refspec?: boolean } | { na: string };
+/**
+ * What a cell expects of the message: where it went, whether it says to check out the PR's branch, the untrusted note,
+ * the quoted refspec, and words it must have; or, for a choice the state ignores or can't take, the cell it lands as.
+ */
+type Cell = { went: Went; checkOut?: boolean; note?: boolean; refspec?: boolean; says?: string } | { same: Route; why: string };
 
-const na = (why: string): Cell => ({ na: why });
+const same = (route: Route, why: string): Cell => ({ same: route, why });
 /** To a fixer: no "Check out", the note; the refspec in its first message. */
 const toFixer = (went: Went, first = false): Cell => ({ went, checkOut: false, note: true, refspec: first });
 /** To the thread in your folder: no "Check out", no fixer's note. */
 const toFolder = (went: Went): Cell => ({ went, checkOut: false, note: false, refspec: false });
+/** To the thread in your PR's folder, on the PR's branch: it stays there. */
+const STAY = "Stay on `retry-uploads`. I reviewed commit `1f2e3d4`.";
+const inPrFolder = (went: Went): Cell => ({ went, checkOut: false, note: false, refspec: false, says: STAY });
+/** To it once the folder moved to another branch: 2.1's line. */
+const MOVED = "Check out the branch `retry-uploads`, or stay on it if it's already checked out. I reviewed commit `1f2e3d4`.";
+const movedFolder = (went: Went): Cell => ({ went, checkOut: true, note: false, refspec: false, says: MOVED });
 const fixNew: Cell = { went: "fresh", checkOut: true, note: false, refspec: false };
-const OPEN = "the main thread is open: a Send goes to it, whatever you choose";
+const OPEN = "the main thread is open: a Send goes to it, whatever you choose, as a stale popover or send_now may";
+const NONE_OPEN = "no former thread is open to pick, so it's a Send";
 
 const TABLE: Record<State, Record<Route, Cell>> = {
   "local-folder": {
-    send: toFolder("thread:coder"), later: toFolder("thread:coder"), rest: na(OPEN), "send-now": toFolder("thread:coder"), agent: toFolder("thread:coder"),
-    "start-fresh": toFolder("fresh"), fork: na("a local review has no fixers to fork"), unarchive: na(OPEN),
+    send: toFolder("thread:coder"), later: toFolder("thread:coder"), rest: same("send", OPEN), "send-now": toFolder("thread:coder"), agent: toFolder("thread:coder"),
+    "start-fresh": toFolder("fresh"), "after-start": toFolder("thread:spawned1"), fork: same("send-now", OPEN), unarchive: same("send-now", OPEN), pick: same("send", NONE_OPEN),
     // A local review's Fix in a new thread stays on its branch.
     "fix-new": { went: "fresh", checkOut: false, note: false, refspec: false },
   },
   "own-folder": {
-    send: toFolder("thread:coder"), later: toFolder("thread:coder"), rest: na(OPEN), "send-now": toFolder("thread:coder"), agent: toFolder("thread:coder"),
-    "start-fresh": toFolder("fresh"), fork: na(OPEN), unarchive: na(OPEN), "fix-new": fixNew,
+    send: inPrFolder("thread:coder"), later: inPrFolder("thread:coder"), rest: same("send", OPEN), "send-now": inPrFolder("thread:coder"), agent: inPrFolder("thread:coder"),
+    "start-fresh": inPrFolder("fresh"), "after-start": inPrFolder("thread:spawned1"), fork: same("send-now", OPEN), unarchive: same("send-now", OPEN), pick: same("send", NONE_OPEN), "fix-new": fixNew,
+  },
+  "own-folder-moved": {
+    send: movedFolder("thread:coder"), later: movedFolder("thread:coder"), rest: same("send", OPEN), "send-now": movedFolder("thread:coder"), agent: movedFolder("thread:coder"),
+    "start-fresh": movedFolder("fresh"), "after-start": movedFolder("thread:spawned1"), fork: same("send-now", OPEN), unarchive: same("send-now", OPEN), pick: same("send", NONE_OPEN), "fix-new": fixNew,
   },
   "own-none": {
-    send: { went: "choice" }, later: toFixer("thread:spawned1"), rest: na("no thread was sent anything, so none stopped"), "send-now": { went: "choice" }, agent: { went: "choice" },
-    "start-fresh": toFixer("fixer", true), fork: na("no thread wrote the PR, so there's none to fork"), unarchive: na("no thread to unarchive"), "fix-new": fixNew,
+    send: { went: "choice" }, later: toFixer("thread:spawned1"), rest: same("send", "nothing was sent, so it asks as a first Send does"), "send-now": { went: "choice" }, agent: { went: "choice" },
+    "start-fresh": toFixer("fixer", true), "after-start": toFixer("thread:spawned1"), fork: same("start-fresh", "no thread wrote the PR: a fork is a fresh fixer"),
+    unarchive: same("send", "no thread to unarchive: it asks"), pick: same("send", NONE_OPEN), "fix-new": fixNew,
   },
   "own-rehomed": {
-    send: toFixer("thread:fixer1"), later: toFixer("thread:fixer1"), rest: na(OPEN), "send-now": toFixer("thread:fixer1"), agent: toFixer("thread:fixer1"),
-    "start-fresh": toFixer("fixer", true), fork: na(OPEN), unarchive: na(OPEN), "fix-new": fixNew,
+    send: toFixer("thread:fixer1"), later: toFixer("thread:fixer1"), rest: same("send", OPEN), "send-now": toFixer("thread:fixer1"), agent: toFixer("thread:fixer1"),
+    "start-fresh": toFixer("fixer", true), "after-start": toFixer("thread:spawned1"), fork: same("send-now", OPEN), unarchive: same("send-now", OPEN), pick: same("send", NONE_OPEN), "fix-new": fixNew,
   },
   "own-rehomed-archived": {
     send: { went: "choice" }, later: toFixer("thread:spawned1"), rest: { went: "choice" }, "send-now": { went: "choice" }, agent: { went: "choice" },
-    "start-fresh": toFixer("fixer", true), fork: toFixer("fork", true), unarchive: toFixer("thread:fixer1"), "fix-new": fixNew,
+    "start-fresh": toFixer("fixer", true), "after-start": toFixer("thread:spawned1"), fork: toFixer("fork", true), unarchive: toFixer("thread:fixer1"), pick: same("send", NONE_OPEN), "fix-new": fixNew,
   },
   "own-fork-unsent": {
     // Nothing reached the fork: the first Send to it is its brief.
-    send: toFixer("thread:forked1", true), later: toFixer("thread:forked1"), rest: na(OPEN), "send-now": toFixer("thread:forked1", true), agent: toFixer("thread:forked1", true),
-    "start-fresh": toFixer("fixer", true), fork: na(OPEN), unarchive: na(OPEN), "fix-new": fixNew,
+    send: toFixer("thread:forked1", true), later: toFixer("thread:forked1"), rest: same("send", OPEN), "send-now": toFixer("thread:forked1", true), agent: toFixer("thread:forked1", true),
+    "start-fresh": toFixer("fixer", true), "after-start": toFixer("thread:spawned1"), fork: same("send-now", OPEN), unarchive: same("send-now", OPEN), pick: same("send", NONE_OPEN), "fix-new": fixNew,
   },
   "own-fixer-unmade": {
-    send: toFixer("thread:fixer2"), later: toFixer("thread:fixer2"), rest: na(OPEN), "send-now": toFixer("thread:fixer2"), agent: toFixer("thread:fixer2"),
-    "start-fresh": toFixer("fixer", true), fork: na(OPEN), unarchive: na(OPEN), "fix-new": fixNew,
+    send: toFixer("thread:fixer2"), later: toFixer("thread:fixer2"), rest: same("send", OPEN), "send-now": toFixer("thread:fixer2"), agent: toFixer("thread:fixer2"),
+    "start-fresh": toFixer("fixer", true), "after-start": toFixer("thread:spawned1"), fork: same("send-now", OPEN), unarchive: same("send-now", OPEN), pick: same("send", NONE_OPEN), "fix-new": fixNew,
+  },
+  "own-two-fixers": {
+    send: toFixer("thread:fixer2"), later: toFixer("thread:fixer2"), rest: same("send", OPEN), "send-now": toFixer("thread:fixer2"), agent: toFixer("thread:fixer2"),
+    "start-fresh": toFixer("fixer", true), "after-start": toFixer("thread:spawned1"), fork: same("send-now", OPEN), unarchive: same("send-now", OPEN),
+    // Picked again, the first fixer is still one.
+    pick: toFixer("thread:fixer1"), "fix-new": fixNew,
   },
   "teammate-none": {
-    send: { went: "choice" }, later: toFixer("thread:spawned1"), rest: na("no thread was sent anything, so none stopped"), "send-now": { went: "choice" }, agent: { went: "choice" },
-    "start-fresh": toFixer("fixer", true), fork: na("Fork is only for your own PRs"), unarchive: na("no thread to unarchive"), "fix-new": fixNew,
+    send: { went: "choice" }, later: toFixer("thread:spawned1"), rest: same("start-fresh", "on a teammate's PR, Send the rest starts a fresh fixer, asking nothing"), "send-now": { went: "choice" }, agent: { went: "choice" },
+    "start-fresh": toFixer("fixer", true), "after-start": toFixer("thread:spawned1"), fork: same("start-fresh", "Fork is only for your own PRs: a fresh fixer"),
+    unarchive: same("send", "no thread to unarchive: it asks"), pick: same("send", NONE_OPEN), "fix-new": fixNew,
   },
 };
 
@@ -111,7 +140,7 @@ async function inState(state: State) {
   let forked = 0;
   const env = (id: string) => ({
     id, hostId: "host_max", path: `/Users/me/${id === "env1" ? "src/web" : `.bb/worktrees/${id}`}`, status: "ready", isGitRepo: true,
-    branchName: id === "env1" ? "retry-uploads" : `bb/${id}`, mergeBaseBranch: "main", baseBranch: null, defaultBranch: "main", projectId: "p1",
+    branchName: s.branches?.[id] ?? (id === "env1" ? "retry-uploads" : `bb/${id}`), mergeBaseBranch: "main", baseBranch: null, defaultBranch: "main", projectId: "p1",
     workspaceProvisionType: id === "env1" || id === "env_old" ? "unmanaged" : "managed-worktree",
   });
   const h = folderHost({ files: [] }, {
@@ -208,6 +237,16 @@ async function run(state: State, route: Route): Promise<{ went: Went; text: stri
     expect(await t.rpc("setMainThread", { fresh: true })).toEqual({ ok: true });
     return t.since(mark, null);
   }
+  if (route === "after-start") {
+    expect(await t.rpc("setMainThread", { fresh: true })).toEqual({ ok: true });
+    return go({ comments: [B], force: true });
+  }
+  if (route === "pick") {
+    // Change main thread back to a thread that was the main thread before, if one's open.
+    const former = [...STATES[state].lifecycle.implementers ?? []].reverse().find((main) => !STATES[state].threads[main.threadId]?.archivedAt && STATES[state].threads[main.threadId]);
+    if (former) expect(await t.rpc("setMainThread", { threadId: former.threadId })).toEqual({ ok: true });
+    return go({ comments: [A] });
+  }
   const mark = t.counts();
   expect(await t.rpc("startFixThread", { comments: [A], force: true })).toMatchObject({ ok: true });
   return t.since(mark, null);
@@ -215,12 +254,16 @@ async function run(state: State, route: Route): Promise<{ went: Went; text: stri
 
 const cells = Object.entries(TABLE).flatMap(([state, routes]) => Object.entries(routes).map(([route, cell]) => ({ state: state as State, route: route as Route, cell })));
 
-test("the table covers every state and every route", () => {
-  expect(cells).toHaveLength(Object.keys(STATES).length * 9);
+test("the table covers every state and every route, and each cell that lands as another names one it checks", () => {
+  expect(cells).toHaveLength(Object.keys(STATES).length * ROUTES.length);
+  for (const routes of Object.values(TABLE)) expect(Object.keys(routes).sort()).toEqual([...ROUTES].sort());
+  for (const { state, cell } of cells) if ("same" in cell) expect("went" in TABLE[state][cell.same], `${state}: ${cell.same}`).toBe(true);
 });
 
-test.each(cells.filter(({ cell }) => !("na" in cell)))("$state × $route", async ({ state, route, cell }) => {
-  if ("na" in cell) return;
+test.each(cells)("$state × $route", async ({ state, route, cell: given }) => {
+  // A cell that lands as another is checked as that one, by running its own route.
+  const cell = "same" in given ? TABLE[state][given.same] : given;
+  if ("same" in cell) throw new Error("a cell lands as a cell that's checked");
   const { went, text } = await run(state, route);
   expect(went).toBe(cell.went);
   if (went === "choice") return;
@@ -228,4 +271,5 @@ test.each(cells.filter(({ cell }) => !("na" in cell)))("$state × $route", async
   expect(/check out the branch/i.test(text), "Check out").toBe(cell.checkOut);
   expect(text.includes(UNTRUSTED_NOTE), "the untrusted note").toBe(cell.note);
   expect(text.includes(REFSPEC), "the quoted refspec").toBe(cell.refspec);
+  if (cell.says) expect(text).toContain(cell.says);
 });

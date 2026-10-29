@@ -353,12 +353,16 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
   const fresh = "fresh" in routed ? routed.fresh : null;
   const fixer = "fixer" in routed ? routed : null;
   // A fixer the review started, sent to again: told it works on a branch of its own, never to check out the PR's.
-  const main = now.mainThread;
-  const toFixer = "to" in routed && main?.threadId === routed.to.threadId && isFixer(main);
+  // Whether it goes to a fixer: the record of the thread the route chose, as the review routing read it had it, so a main
+  // thread changed meanwhile can't make a fixer's message a plain one.
+  const main = "to" in routed ? recordOf(review, routed.to.threadId) : null;
+  const toFixer = !!main && isFixer(main);
   // A fork nothing has reached yet, as when its first send failed: it gets its brief now.
   const unbriefed = toFixer && main!.origin === "forked" && !(now.sends ?? []).some((entry) => entry.threadId === main!.threadId);
   const briefed = unbriefed ? await fixerPlace(bb, store, now) : null;
   const laterFixer = toFixer && !briefed;
+  // To a thread in the PR's own folder: stay on its branch, if the folder is on it.
+  const stayOn = "to" in routed && !toFixer && main && main.environmentId === now.feature?.environmentId ? await folderBranchLine(bb, now) : null;
   const moved = fresh?.from ? newWorktree(shown, fresh.from) : null;
   // A fresh thread is told GitHub's limits as Fix in a new thread is: all of them, or, let push, all but the push.
   const limits = fresh || fixer || briefed ? [letPush ? GUARD_BUT_PUSH : GUARD] : letPush ? [] : [NO_PUSH];
@@ -395,7 +399,7 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
     const brief = fixer ? { place: fixer.fixer, forked: fixer.fork } : briefed ? { place: briefed, forked: true } : null;
     const opening = brief
       ? fixerBrief(shown, brief.place, { lead: `${named.length ? "Fix these comments from my review of" : "Address this feedback on"} ${prWhat(shown)}.`, intent: (await tx.getGuide(targetKey))?.intent, forked: brief.forked, own, letPush })
-      : moved ? where(moved.shown, moved.branch, lead) : where(shown, laterFixer ? fixerBranchLine(main?.branch) : inPrFolder(now, main) ?? undefined, lead);
+      : moved ? where(moved.shown, moved.branch, lead) : where(shown, laterFixer ? fixerBranchLine(main?.branch) : stayOn ?? undefined, lead);
     // A fixer sent to again stays on its branch, and is told again what the quoted words are.
     const text = [message, opening, ...texts, ...apply, summary, ...limits, ...laterFixer ? [UNTRUSTED_NOTE] : [], REPORT].filter(Boolean).join("\n\n");
     return { comments: named, items: items.map((item, i) => ({ githubId: githubId(item), id: itemIds[i] })), skipped: github.length - items.length, patch, files, text };
@@ -436,9 +440,18 @@ export async function send(deps: Deps, targetKey: string, picked: readonly Comme
 }
 
 /** On a PR whose folder is there, the branch a thread in it stays on: it's checked out there already. */
-const folderBranchLine = (review: ReviewMeta) => review.kind === "pr" && review.feature && !review.feature.folderGone ? `Stay on ${inlineCode(review.feature.workBranch ?? review.feature.branch)}.` : null;
-/** A Send to a thread working in the PR's own folder stays on its branch. */
-const inPrFolder = (review: ReviewMeta, main: ReviewMeta["mainThread"]) => main && main.environmentId === review.feature?.environmentId ? folderBranchLine(review) : null;
+async function folderBranchLine(bb: BbPluginApi, review: ReviewMeta): Promise<string | null> {
+  const feature = review.kind === "pr" && !review.feature?.folderGone ? review.feature : null;
+  if (!feature) return null;
+  // Only while the folder is on that branch now: moved to another, 2.1's line, to check it out, says what's true.
+  const branch = feature.workBranch ?? feature.branch;
+  const env = await (async () => bb.sdk.environments.get({ environmentId: feature.environmentId }))().catch(() => null);
+  if (env?.branchName !== branch) return null;
+  return `Stay on ${inlineCode(branch)}.${review.headSha ? ` I reviewed commit \`${review.headSha.slice(0, 7)}\`.` : ""}`;
+}
+
+/** A thread as the review records it, its main thread or one before: whether it's a fixer, and its branch. */
+const recordOf = (review: ReviewMeta, threadId: string) => [review.mainThread, ...[...review.implementers ?? []].reverse()].find((main) => main?.threadId === threadId) ?? null;
 
 /** A GitHub item's id: its thread's, or its review summary's or comment's, as GitHub names them. */
 const githubId = (item: Awaited<ReturnType<typeof githubItems>>[number]) => item.kind === "thread" ? item.thread.id : item.item.id;
@@ -491,7 +504,11 @@ export async function setMainThread(deps: Deps, targetKey: string, threadId: str
   if (review.feature && !review.feature.folderGone && !usesFixer(review) && thread.environmentId !== review.feature.environmentId) return { ok: false, error: `That thread works in another folder. Choose one working in ${homeShort(review.feature.path)}.` };
   await store.exclusive(async (tx) => {
     const now = await tx.getReview(targetKey);
-    if (now && now.mainThread?.threadId !== threadId) await tx.setLifecycle(targetKey, mainThreadState(now, thread, Date.now()));
+    if (!now || now.mainThread?.threadId === threadId) return;
+    // A fixer chosen again stays one: its record and branch go with it.
+    const before = recordOf(now, threadId);
+    const state = before && isFixer(before) ? mainThreadState(now, thread, Date.now(), before.origin, before.fixer) : mainThreadState(now, thread, Date.now());
+    await tx.setLifecycle(targetKey, before?.branch && state.mainThread ? { ...state, mainThread: { ...state.mainThread, branch: before.branch } } : state);
   });
   deps.changed(targetKey);
   return { ok: true };
@@ -518,7 +535,7 @@ export async function startMainThread(deps: Deps, targetKey: string): Promise<{ 
     const letPush = review.letPush ?? false;
     const text = fixer
       ? [fixerBrief(shown, fixer, { lead: told, intent: (await store.getGuide(targetKey))?.intent, forked: false, own: await isOwnChange(review), letPush }), letPush ? GUARD_BUT_PUSH : GUARD].join("\n\n")
-      : [`${header(shown)}\n${told}`, moved?.branch ?? (fresh.environment?.type === "reuse" ? folderBranchLine(review) : null) ?? branchLine(shown), letPush ? GUARD_BUT_PUSH : GUARD].join("\n\n");
+      : [`${header(shown)}\n${told}`, moved?.branch ?? (fresh.environment?.type === "reuse" ? await folderBranchLine(bb, review) : null) ?? branchLine(shown), letPush ? GUARD_BUT_PUSH : GUARD].join("\n\n");
     went = await go(deps, shown, fixer ? { fixer, fork: false } : { fresh }, text);
   } catch (failure) {
     return { ok: false, error: error(failure) };
