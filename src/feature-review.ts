@@ -186,10 +186,10 @@ export const folderBranchOf = (feature: Pick<FeatureReview, "branch" | "workBran
 /**
  * The review of a folder at the branch it's on, by where the review reads it (folderBranchOf), as the thread pages'
  * index links it: one re-homed to a fixer's worktree keeps a key of its old folder's. Newest first; never one whose
- * folder is gone.
+ * folder is gone, nor one the sync archived as its PR merged or closed (one you archived comes back).
  */
 export function reviewOfFolder(reviews: readonly ReviewMeta[], environmentId: string, branch: string): (ReviewMeta & { feature: FeatureReview }) | null {
-  return reviews.map(featureOf).filter((review) => !!review && !review.feature.folderGone && review.feature.environmentId === environmentId && folderBranchOf(review.feature) === branch)
+  return reviews.map(featureOf).filter((review) => !!review && !review.feature.folderGone && !review.archivedAt && review.feature.environmentId === environmentId && folderBranchOf(review.feature) === branch)
     .sort((a, b) => b!.createdAt - a!.createdAt)[0] ?? null;
 }
 

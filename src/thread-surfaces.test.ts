@@ -193,3 +193,16 @@ test("a hidden subagent of a visible main thread may run bb review with no argum
   expect(await s.harness.behavior.runCli([], { threadId: "hiddenSub", projectId: "proj_api", cwd: "/Users/me/src/api" })).toMatchObject({ exitCode: 0 });
   expect((await testStore(s.bb).getReview(key))?.mainThread?.threadId).toBe("main");
 });
+
+test("a re-homed review whose PR merged, archived by the sync, isn't the fixer's folder's review any more: bb review there starts a new one", async () => {
+  const s = await setup({ branchName: "bb/env_fix1" });
+  const store = testStore(s.bb);
+  const rehomed = { environmentId: "env_fix1", hostId: "host_max", machine: "MaxBook", path: "/Users/me/.bb/worktrees/env_fix1", branch: "retry-uploads", baseRef: "main", repo: "acme/api", workBranch: "bb/env_fix1" };
+  await store.saveReview({ targetKey: "pr-1", kind: "pr", repo: "acme/api", number: 1, status: "ready", createdAt: 1 });
+  await store.setLifecycle("pr-1", { ownPr: true, prState: "MERGED", feature: rehomed, mainThread: { threadId: "fixer1", environmentId: "env_fix1", origin: "fresh", since: 2 }, archivedAt: 5 });
+  s.threads.fixer1 = { id: "fixer1", environmentId: "env_fix1", title: "Fixes 1" };
+  expect(await s.harness.behavior.runCli([], { threadId: "fixer1", projectId: "proj_api", cwd: "/Users/me/.bb/worktrees/env_fix1" })).toMatchObject({ exitCode: 0, stdout: expect.stringContaining("Started a review") });
+  const fresh = featureKey("env_fix1", "bb/env_fix1");
+  expect((await store.listReviews()).map((review) => review.targetKey).sort()).toEqual([fresh, "pr-1"].sort());
+  expect((await store.getReview("pr-1"))?.archivedAt).toBe(5);
+});
