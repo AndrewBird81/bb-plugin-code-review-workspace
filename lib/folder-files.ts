@@ -21,3 +21,16 @@ export function hiddenFileNotice(file: HiddenFile): string {
 
 /** What the review says about a committed file that looks like a secret. */
 export const flaggedFileNotice = (path: string) => `${path} looks like a secret and is committed. Check it belongs in the repo.`;
+
+/**
+ * Where a file's diff says it links to, when it's a symbolic link (mode 120000) on its new side; null otherwise. A file
+ * that changed type, as a regular file replaced by a link, has two blocks, the old file's deletion then the link.
+ */
+export function symlinkTarget(fileDiff: string): string | null {
+  for (const block of fileDiff.split(/^(?=diff --git )/m)) {
+    if (!/^(?:new file mode|new mode) 120000$|^index \S+ 120000$/m.test(block)) continue;
+    const line = block.split("\n").find((row) => row.startsWith("+") && !row.startsWith("+++"));
+    return line ? line.slice(1) : null;
+  }
+  return null;
+}

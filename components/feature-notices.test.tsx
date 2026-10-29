@@ -138,7 +138,11 @@ test("Changed leads the rest; Got it quiets a committed secret; each secret is s
   await waitFor(() => expect(dismissFlagged).toHaveBeenCalledWith({ targetKey: KEY, files: ["config/.env.production"] }));
   fireEvent.click(within(notice(slot, ".env.local looks like a secret, so it isn’t shown or sent to agents.")).getByRole("button", { name: "Send .env.local to agents" }));
   await waitFor(() => expect(includeHidden).toHaveBeenCalledWith({ targetKey: KEY, files: [".env.local"], included: true }));
-  expect(within(notice(slot, "certs/dev.pem looks like a secret, so it isn’t shown or sent to agents.")).getByRole("button", { name: "Send certs/dev.pem to agents" })).toBeTruthy();
+  // Its name whole on the button, its path in the text, the hover and the button's name.
+  const pem = within(notice(slot, "certs/dev.pem looks like a secret, so it isn’t shown or sent to agents.")).getByRole("button", { name: "Send dev.pem to agents (certs/dev.pem)" });
+  expect(pem.textContent).toBe("Send dev.pem to agents");
+  expect(within(pem).getByText("Send dev.pem to agents").getAttribute("title")).toBe("certs/dev.pem");
+  expect(pem.className).not.toContain("max-w-64");
   const rest = notice(slot, "2 files aren’t shown: logo.png and dump.sql.");
   fireEvent.click(within(rest).getByRole("button", { name: "Include logo.png" }));
   await waitFor(() => expect(includeHidden).toHaveBeenLastCalledWith({ targetKey: KEY, files: ["logo.png"], included: true }));
@@ -153,7 +157,8 @@ test("other threads editing the folder: the first named, the rest listed from �
   const check: FeatureCheck = { ...nothing, alsoActive: [{ threadId: "thr_docs", title: "Fix the docs" }, { threadId: "thr_deps", title: "Bump deps" }, { threadId: "thr_ci", title: "Fix CI" }] };
   const { slot } = await renderWorkspace({ checkFeature: () => check });
   const active = await slot.findByRole("status", { name: "Also editing this folder" });
-  expect(active.textContent).toBe("Fix the docs and 2 more are also editing this folder; their changes are in this review.Open");
+  // Beside the others, Open names the one it opens.
+  expect(active.textContent).toBe("Fix the docs and 2 more are also editing this folder; their changes are in this review.Open Fix the docs");
   fireEvent.click(within(active).getByRole("button", { name: "2 more" }));
   const list = await within(document.body).findByRole("list", { name: "Also editing this folder" });
   expect(within(list).getAllByRole("button").map((button) => button.textContent)).toEqual(["Bump deps", "Fix CI"]);

@@ -250,7 +250,8 @@ export const ReviewHeader = memo(function ReviewHeader({ review, guideTitle, che
   // The checks as just read, once they are; until then, as the last sync saw them.
   const ci = checks ? (checks.bucket === "fail" || checks.bucket === "pending" || checks.bucket === "pass" ? checks.bucket : "none") : undefined;
   const unattendedAgents = useKnob("unattendedAgents");
-  const facts = statusLine(review, { passingChecks: true, ci, knobs: { unattendedAgents } })
+  const localDiffChanges = useKnob("localDiffChanges");
+  const facts = statusLine(review, { passingChecks: true, ci, knobs: { unattendedAgents, localDiffChanges } })
     // A review that's simply ready has nothing to say about whose turn it is.
     .filter((part) => HERO_FACTS.has(part.kind) && !(part.kind === "why" && turn.label === "Ready"))
     .map((part) => part.kind === "progress" && progress ? (

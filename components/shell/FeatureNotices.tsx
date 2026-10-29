@@ -23,6 +23,7 @@ const Code = ({ children }: { children: string }) => <span className="whitespace
 const listed = (names: string[], shown = 2) => names.length > shown ? `${names.slice(0, shown).join(", ")} and ${names.length - shown} more`
   : names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "";
 const files = (n: number) => `${n} file${n === 1 ? "" : "s"}`;
+const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 /** "and 2 more", which opens a list of those threads, each going to its thread. */
 function MoreThreads({ threads, onOpen }: { threads: FeatureCheck["alsoActive"]; onOpen: (threadId: string) => void }) {
@@ -82,8 +83,9 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
     }
   };
   // On a warning's tint, the button's border takes the tint's colour, so it shows in the dark.
-  const button = (id: string, label: string, onClick: () => void, { aria, warning }: { aria?: string; warning?: boolean } = {}) => (
-    <Button variant="outline" size="sm" className={cn(BUTTON, "max-w-64", warning && "border-warning/40")} disabled={!!busy} aria-label={aria} onClick={onClick}><span className="truncate">{busy === id ? `${label}…` : label}</span></Button>
+  // `whole`: a label that must never be cut, as a file's name is; `hint`, the hover text.
+  const button = (id: string, label: string, onClick: () => void, { aria, warning, whole, hint }: { aria?: string; warning?: boolean; whole?: boolean; hint?: string } = {}) => (
+    <Button variant="outline" size="sm" className={cn(BUTTON, !whole && "max-w-64", warning && "border-warning/40")} disabled={!!busy} aria-label={aria} onClick={onClick}><span title={hint} className={cn(!whole && "truncate")}>{busy === id ? `${label}…` : label}</span></Button>
   );
   const checkAgain = button("check", "Check again", () => { setBusy("check"); rpc.call("checkFeature", { targetKey }).then((next) => setRead({ targetKey, check: next }), () => {}).finally(() => setBusy(null)); });
 
@@ -130,11 +132,14 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
   if (check.prReview) {
     add({ id: "pr-review", tone: "info", icon: "GitPullRequest", text: "This branch’s PR has a review of its own.", action: button("pr", "Open PR review", () => navigate.toPluginPanel("review", { subPath: check.prReview! })) });
   }
-  // A secret goes to agents only from a button that names it.
+  // A secret goes to agents only from a button that names it: its name, whole, on the button; its path in the text, the
+  // hover and the button's accessible name.
   for (const file of check.hidden.filter((hidden) => hidden.reason === "secret")) {
+    const label = `Send ${fileName(file.path)} to agents`;
     add({ id: `folder-secret:${file.path}`, tone: "info", icon: "EyeOff", label: "File not shown",
       text: `${file.path} looks like a secret, so it isn’t shown or sent to agents.`,
-      action: button(`secret:${file.path}`, `Send ${file.path} to agents`, () => void act(`secret:${file.path}`, () => rpc.call("includeHidden", { targetKey, files: [file.path], included: true }), "Couldn’t include it.")) });
+      action: button(`secret:${file.path}`, label, () => void act(`secret:${file.path}`, () => rpc.call("includeHidden", { targetKey, files: [file.path], included: true }), "Couldn’t include it."),
+        { whole: true, hint: file.path, ...file.path !== fileName(file.path) ? { aria: `${label} (${file.path})` } : {} }) });
   }
   // Binaries can be included, as a line saying they differ; a diff too large to show can't.
   const rest = check.hidden.filter((hidden) => hidden.reason !== "secret");
@@ -152,7 +157,8 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
       text: more.length
         ? <><em className="font-medium">{first!.title}</em> and <MoreThreads threads={more} onOpen={open} /> are also editing this folder; their changes are in this review.</>
         : <><em className="font-medium">{first!.title}</em> is also editing this folder; its changes are in this review.</>,
-      action: button("open", "Open", () => open(first!.threadId), { aria: `Open ${first!.title}` }) });
+      // With others beside it, the button names the one it opens.
+      action: more.length ? button("open", `Open ${first!.title}`, () => open(first!.threadId)) : button("open", "Open", () => open(first!.threadId), { aria: `Open ${first!.title}` }) });
   }
   return notices;
 }

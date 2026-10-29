@@ -2,7 +2,8 @@
 // starts, and what its tools return. Nothing here writes to GitHub.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { FeatureReview, ReviewMeta } from "./store";
-import { isSecretPath } from "../lib/folder-files";
+import { isSecretPath, symlinkTarget } from "../lib/folder-files";
+import { folderLinkNow } from "./env-diff";
 import { readFeatureFile } from "./file-contents";
 import { ghErrorMessage, type runGh, type runGit } from "./gh";
 import { messageAssistant } from "./agent";
@@ -167,31 +168,32 @@ async function localFile(git: typeof runGit, review: ReviewMeta, path: string, r
 /** The most of a folder's file read_file reads, as the diff's whole files. */
 const MAX_FOLDER_FILE_BYTES = 2 * 1024 * 1024;
 
-/** Where a file's diff says it links to, when it's a symbolic link (mode 120000) on its new side. */
-export function symlinkTarget(fileDiff: string): string | null {
-  if (!/^(?:new file mode|new mode) 120000$|^index \S+ 120000$/m.test(fileDiff)) return null;
-  const line = fileDiff.split("\n").find((row) => row.startsWith("+") && !row.startsWith("+++"));
-  return line ? line.slice(1) : null;
-}
-
 /**
  * A folder's review's file, on the folder's machine: as the folder has it now, read through BB inside the folder; or
  * where its diff starts. A secret-looking file the review doesn't show stays unread unless the reviewer included it
- * (src/env-diff.ts), and so does a link the diff shows to one. `diff`: the file's diff in the review, if it has one.
- * BB reads through a link inside the folder and answers with the link's own path, so only the diff tells a link apart.
+ * (src/env-diff.ts), and so does a link to one, as the review's diff (`diff`, every block of the file's) or the folder's
+ * own diff now shows it. BB reads through a link inside the folder and answers with the link's own path, so only a diff
+ * tells a link apart: a link committed before the diff's base, and unchanged since, still reads as its target.
  */
 async function folderFile(folder: { bb: BbPluginApi; diff?: string }, review: ReviewMeta & { feature: FeatureReview }, path: string, ref: FileRef): Promise<{ at: string; text: string } | string> {
   const { feature } = review;
   if (ref === "reviewed") return "A local review has no reviewed commit. Use ref \"current\" or \"base\".";
   const included = review.includeHidden ?? [];
   if (isSecretPath(path) && folder.diff === undefined && !included.includes(path)) return `${path} looks like a secret, so it isn't read for agents. The reviewer can include it from the review.`;
-  const target = folder.diff !== undefined ? symlinkTarget(folder.diff) : null;
-  if (ref === "current" && target && isSecretPath(target) && !included.includes(path)) return `${path} links to ${target}, which looks like a secret, so it isn't read for agents.`;
   if (ref === "base") {
     const read = await readFeatureFile(folder.bb, feature, "old", path);
     return "error" in read ? read.error : { at: short(feature.mergeBaseRef), text: read.text };
   }
-  if (feature.folderGone) return `bb removed this review's folder, so ${path} can't be read as it is now. Use ref "base".`;
+  if (feature.folderGone) return `BB removed this review's folder, so ${path} can't be read as it is now. Use ref "base".`;
+  // A link made, or pointed elsewhere, since the review read the folder shows only in its diff now.
+  const now = await folderLinkNow(folder.bb, feature, path);
+  if ("error" in now) return `Couldn't check ${path} in the folder before reading it: ${now.error}`;
+  const reviewed = folder.diff !== undefined ? symlinkTarget(folder.diff) : null;
+  for (const target of [reviewed, now.link]) {
+    if (target === null || included.includes(path)) continue;
+    if (target === "") return `${path} is a link BB didn't say the target of, so it isn't read for agents.`;
+    if (isSecretPath(target)) return `${path} links to ${target}, which looks like a secret, so it isn't read for agents.`;
+  }
   const root = feature.path.replace(/\/+$/, "");
   try {
     const out = await folder.bb.sdk.files.read({ hostId: feature.hostId, rootPath: root, path: `${root}/${path}` });

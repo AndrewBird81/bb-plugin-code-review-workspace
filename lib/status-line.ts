@@ -31,7 +31,8 @@ export interface StatusPart {
 const why = (text: string, tone: StatusTone, icon?: IconName, extra: Partial<StatusPart> = {}): StatusPart => ({ kind: "why", text, tone, ...(icon ? { icon } : {}), ...extra });
 
 /** Why the review is where it is: agent work under way, whose turn it is and why, or how it ended. */
-export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | null {
+/** `knobs`: the settings it reads, Notice when a local review's code changes for a folder's "3 files changed". */
+export function statusWhy(review: ReviewItem, now = Date.now(), knobs: Pick<Knobs, "localDiffChanges"> = defaultKnobs): StatusPart | null {
   const turn = reviewState(review);
   const s = review.signals ?? {};
   const by = (prefix: string, login: string | null | undefined, otherwise: string) => login ? `${prefix} @${login}` : otherwise;
@@ -60,7 +61,7 @@ export function statusWhy(review: ReviewItem, now = Date.now()): StatusPart | nu
     case "dismissed": return why("Your review was dismissed", "warning", "AlertCircle");
     case "own": return why("Your PR", "neutral", "UserRound");
     // A folder's review says what changed in its folder since it was read, as last checked.
-    case "new": return review.kind === "ref" ? review.feature?.changedFiles ? why(`${review.feature.changedFiles} file${review.feature.changedFiles === 1 ? "" : "s"} changed`, "foreground", "FileDiff") : why("Local review", "neutral", "GitBranch")
+    case "new": return review.kind === "ref" ? review.feature?.changedFiles && knobs.localDiffChanges ? why(`${review.feature.changedFiles} file${review.feature.changedFiles === 1 ? "" : "s"} changed`, "foreground", "FileDiff") : why("Local review", "neutral", "GitBranch")
       : review.status === "tracked" ? why("No guide yet", "neutral") : why("Guide ready", "neutral");
     case "waiting": return review.submittedVerdict === "COMMENT" ? why(`You commented${ago(turn.at)}`, "neutral", "MessageSquare")
       : why(`You requested changes${ago(turn.at)}`, "neutral", "FileDiff");
@@ -99,13 +100,13 @@ const CHECKS: Record<"pass" | "fail" | "pending" | "expected", Pick<StatusPart, 
  * `passingChecks`. `ci` is the checks as just read, where a page has them, in place of the last sync's. `knobs` are the
  * current settings, which a run's reason for not starting may name.
  */
-export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks = false, ci = review.signals?.ci, knobs = defaultKnobs }: { now?: number; passingChecks?: boolean; ci?: TurnSignals["ci"]; knobs?: Pick<Knobs, "unattendedAgents"> } = {}): StatusPart[] {
+export function statusLine(review: ReviewItem, { now = Date.now(), passingChecks = false, ci = review.signals?.ci, knobs = defaultKnobs }: { now?: number; passingChecks?: boolean; ci?: TurnSignals["ci"]; knobs?: Pick<Knobs, "unattendedAgents"> & Partial<Pick<Knobs, "localDiffChanges">> } = {}): StatusPart[] {
   const turn = reviewState(review);
   const s = review.signals ?? {};
   const parts: StatusPart[] = [];
   const done = turn.group === "archive";
   if (turn.blocking) parts.push({ kind: "blocking", text: "Blocks merge", tone: "warning", icon: "Lock", detail: "Everyone else approved: only your changes requested is left" });
-  const reason = statusWhy(review, now);
+  const reason = statusWhy(review, now, { localDiffChanges: knobs.localDiffChanges ?? defaultKnobs.localDiffChanges });
   if (reason) parts.push(reason);
   if (review.skippedRun && !review.archivedAt) parts.push({ kind: "not-run", text: notRunReason(review, knobs), tone: "warning", icon: "Lock" });
   if (review.unreachable && turn.reason !== "unreachable") {

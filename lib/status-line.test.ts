@@ -123,6 +123,10 @@ test("a folder's review says what changed in its folder, that it's paused on ano
   expect(said(review(turn("needs", "new"), { kind: "ref", feature: { ...feature, changedFiles: 3 } }))).toEqual(["3 files changed", "foreground", "FileDiff"]);
   expect(said(review(turn("needs", "new"), { kind: "ref", feature: { ...feature, changedFiles: 1 } }))).toEqual(["1 file changed", "foreground", "FileDiff"]);
   expect(said(review(turn("needs", "new"), { kind: "ref", feature: { ...feature, changedFiles: null } }))).toEqual(["Local review", "neutral", "GitBranch"]);
+  // With Notice when a local review's code changes off, the last count isn't said.
+  expect(statusWhy(review(turn("needs", "new"), { kind: "ref", feature: { ...feature, changedFiles: 3 } }), now, { localDiffChanges: false })?.text).toBe("Local review");
+  expect(line(review(turn("needs", "new"), { kind: "ref", feature: { ...feature, changedFiles: 3 } }))).toContain("3 files changed");
+  expect(statusLine(review(turn("needs", "new"), { kind: "ref", feature: { ...feature, changedFiles: 3 } }), { now, knobs: { unattendedAgents: true, localDiffChanges: false } }).map((part) => part.text)).toContain("Local review");
   expect(said(review(turn("waiting", "paused", "Paused"), { kind: "ref", feature: { ...feature, pausedOn: "bb/fix-docs-thr_cd34" } }))).toEqual(["Paused: on fix-docs", "neutral", "GitBranch"]);
   expect(said(review(turn("archive", "folder-gone", "Folder removed"), { kind: "ref", feature: { ...feature, folderGone: true } }))).toEqual(["Folder removed", "neutral", "Folder"]);
 });

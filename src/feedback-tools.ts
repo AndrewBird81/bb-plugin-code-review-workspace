@@ -93,8 +93,10 @@ export function register(deps: ServeDeps) {
         return targetKey ? await tx.getReview(targetKey) : null;
       });
       if (!review) return failed("This conversation is no longer a review's assistant.");
-      // A folder's review reads its folder, with the file's diff, which says whether it shows it and whether it's a link.
-      const folder = review.feature && review.kind === "ref" ? { bb, diff: splitPatchByFile(await store.patch(review.targetKey)).find((file) => file.path === path)?.text } : undefined;
+      // A folder's review reads its folder, with the file's diff, which says whether it shows it and whether it's a link:
+      // every block of it, as a file replaced by a link has two.
+      const blocks = review.feature && review.kind === "ref" ? splitPatchByFile(await store.patch(review.targetKey)).filter((file) => file.path === path) : [];
+      const folder = review.feature && review.kind === "ref" ? { bb, diff: blocks.length ? blocks.map((file) => file.text).join("\n") : undefined } : undefined;
       const read = await readFileAt(runGh, runGit, review, path, ref ?? "current", startLine, endLine, folder);
       if (!read.ok) return failed(read.error);
       // A changed file it got as the change leaves it: what it read through Code Review Workspace. Its base or reviewed commit isn't the change.

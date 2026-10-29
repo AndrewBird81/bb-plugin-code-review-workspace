@@ -38,6 +38,7 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
   const titleId = useId();
   const actions = useReviewActions(review, onChanged);
   const unattendedAgents = useKnob("unattendedAgents");
+  const localDiffChanges = useKnob("localDiffChanges");
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   /**
@@ -93,7 +94,7 @@ export function InboxRow({ review, pinnable, short = false, onOpen, onChanged }:
           {/* Narrow, where the PR is follows its status, which comes first when there's no room for both. The labels end the
               line, under the age. */}
           <span className="mt-0.5 flex min-w-0 items-center gap-3">
-            <StatusLine parts={statusLine(review, { knobs: { unattendedAgents } })} after={where ? { content: <span className="text-[11px] text-muted-foreground">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
+            <StatusLine parts={statusLine(review, { knobs: { unattendedAgents, localDiffChanges } })} after={where ? { content: <span className="text-[11px] text-muted-foreground">{where}</span>, className: "@min-[720px]/inbox:hidden" } : undefined}
               className="min-w-0 flex-1 text-xs leading-4 text-muted-foreground" />
             {labels.length > 0 && <span className="hidden max-w-[45%] shrink-0 items-center gap-1 overflow-hidden @min-[560px]/inbox:flex">
               <span className="sr-only">Labels: </span>

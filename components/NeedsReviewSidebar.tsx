@@ -62,6 +62,15 @@ function useSlot(active: boolean, at: "first" | "last", find: () => Element | nu
   return node;
 }
 
+/**
+ * A branch or folder as the sidebar has room for it beside the name: its last part (feature/snooze-checks is
+ * snooze-checks), cut in the middle past 16 characters, so both its ends, and the name, stay readable.
+ */
+export function shortName(name: string): string {
+  const last = name.split("/").filter(Boolean).at(-1) ?? name;
+  return last.length > 16 ? `${last.slice(0, 7)}…${last.slice(-8)}` : last;
+}
+
 /** Whether Settings shows reviews in BB's thread list; null until the settings load. */
 export function useThreadListReviews(): boolean | null {
   const rpc = useRpc<typeof rpcContract>();
@@ -197,7 +206,7 @@ export function NeedsReviewSidebar() {
               A local review's branch tells apart two of one name, or, where they share it, the folder's end the id adds. */}
           <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
             {!!review.number && <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">#{review.number}</span>}
-            {!review.number && review.kind === "ref" && identity.idTail && <span className="min-w-0 max-w-[45%] shrink-0 truncate font-mono text-[11px] text-muted-foreground">{review.place?.folder ? `(${review.place.folder})` : identity.idTail.replace(/^:/, "")}</span>}
+            {!review.number && review.kind === "ref" && identity.idTail && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{review.place?.folder ? `(${shortName(review.place.folder)})` : shortName(identity.idTail.replace(/^:/, ""))}</span>}
             <span className="min-w-0 flex-1 truncate">{title}</span>
           </span>
           {waited && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{waited}</span>}

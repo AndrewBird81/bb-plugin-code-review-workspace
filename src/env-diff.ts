@@ -11,7 +11,7 @@ import { z } from "zod";
 import { ensureGitHeaders } from "./patch";
 import { machineStatus } from "./machines";
 import type { FeatureReview } from "./store";
-import { isSecretPath, type HiddenFile } from "../lib/folder-files";
+import { isSecretPath, symlinkTarget, type HiddenFile } from "../lib/folder-files";
 
 export const GIT_PLUGIN = "bb--git";
 type Environment = Awaited<ReturnType<BbPluginApi["sdk"]["environments"]["get"]>>;
@@ -250,5 +250,31 @@ export async function readFeatureDiff(bb: BbPluginApi, feature: Pick<FeatureRevi
     // The Git plugin can't reach a machine that went to sleep since it was last seen.
     if ((await machineStatus(bb, env.hostId))?.connected === false) return offline();
     return { outcome: "unavailable", message: `Couldn’t read the folder’s changes: ${errorText(error)}` };
+  }
+}
+
+/**
+ * Where `path` links to in the folder now, as its diff against the review's base shows it: null when it isn't a link
+ * there now, or isn't changed since that base; "" for a link whose target BB didn't show.
+ */
+export async function folderLinkNow(bb: BbPluginApi, feature: Pick<FeatureReview, "environmentId" | "mergeBaseRef">, path: string): Promise<{ link: string | null } | { error: string }> {
+  if (!feature.mergeBaseRef) return { error: "the review hasn’t read its folder yet." };
+  const target = { type: "all", mergeBaseBranch: feature.mergeBaseRef };
+  try {
+    const listed = await callGit(bb, "files", { environmentId: feature.environmentId, target, ignoreWhitespace: false }, filesOutput);
+    if (listed.outcome !== "available") return { error: unreadable(listed).message };
+    // A revision is oldMode:oldBlob:newMode:newBlob.
+    const file = listed.files.find((changed) => changed.path === path);
+    if (file?.revision.split(":")[2] !== "120000") return { link: null };
+    let patch = listed.initialPatches.find((initial) => initial.path === path)?.patch;
+    if (patch === undefined) {
+      const key = JSON.stringify([feature.environmentId, target, false, path, file.revision]);
+      const read = (await callGit(bb, "patches", { keys: [key] }, patchesOutput))[key];
+      if (read?.outcome !== "available") return { error: `BB sent no diff for ${path}.` };
+      patch = read.patch.patch;
+    }
+    return { link: symlinkTarget(patch) ?? "" };
+  } catch (error) {
+    return { error: errorText(error) };
   }
 }

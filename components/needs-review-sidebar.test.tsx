@@ -100,6 +100,12 @@ test("a PR's row has its number before its name, muted, the repository staying i
   const again = await renderSidebar([{ targetKey: "br-2", kind: "ref", gitRef: "feat", title: "Local work", status: "ready", turn: turn("needs", "new", 1), place: { folder: "web-wt" } }]);
   expect(await within(document.body).findByRole("link", { name: "(web-wt) Local work 1h" })).toBeTruthy();
   again.lifecycle.unmount();
+  cleanup();
+  // A long branch by its last part, cut in the middle: both its ends, and the name, stay readable.
+  threadList();
+  const long = await renderSidebar([{ targetKey: "ref-2", kind: "ref", gitRef: "main...feature/snooze-flaky-checks-on-retries", title: "Local work", status: "ready", turn: turn("needs", "new", 1) }]);
+  expect(await within(document.body).findByRole("link", { name: "snooze-…-retries Local work 1h" })).toBeTruthy();
+  long.lifecycle.unmount();
 });
 
 test("a renamed review's row says your name, with the PR's title first in its tooltip and description", async () => {

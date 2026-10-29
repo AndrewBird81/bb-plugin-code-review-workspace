@@ -16,9 +16,15 @@ export interface FolderFile {
   reverted?: boolean;
   old?: string;
   new?: string;
+  /** A symbolic link to this target; with `replaced`, a regular file that became one, as BB's Git plugin sends it: two blocks. */
+  link?: string;
+  replaced?: boolean;
 }
 
-const headers = (file: FolderFile) => file.binary
+const headers = (file: FolderFile): string => file.link !== undefined
+  ? `${file.replaced ? `diff --git a/${file.path} b/${file.path}\ndeleted file mode 100644\nindex 11375b33..00000000\n--- a/${file.path}\n+++ /dev/null\n@@ -1 +0,0 @@\n-# Readme\n` : ""}`
+    + `diff --git a/${file.path} b/${file.path}\nnew file mode 120000\nindex 00000000..557bd922\n--- /dev/null\n+++ b/${file.path}\n@@ -0,0 +1 @@\n+${file.link}\n\\ No newline at end of file\n`
+  : file.binary
   ? `diff --git a/${file.path} b/${file.path}\nnew file mode 100644\nindex 0000000..1111111\nGIT binary patch\nliteral 4\nLcmZ?wbYuVk0Db@\n\nliteral 0\nHcmV?d00001\n`
   : `diff --git a/${file.path} b/${file.path}\nindex 1111111..2222222 100644\n--- a/${file.path}\n+++ b/${file.path}\n${file.body ?? "@@ -1 +1 @@\n-a\n+b\n"}`;
 
@@ -48,7 +54,8 @@ export interface Folder {
  */
 export function folderHost(folder: Folder, sdk: Record<string, unknown> = {}) {
   const calls: Array<{ method: string; input: any }> = [];
-  const revision = (file: FolderFile) => `100644:${file.path.length}:100644:${(file.body ?? "").length}`;
+  const revision = (file: FolderFile) => file.link !== undefined ? `${file.replaced ? "100644" : "000000"}:${file.path.length}:120000:${file.link.length}`
+    : `100644:${file.path.length}:100644:${(file.body ?? "").length}`;
   const git: Record<string, (input: any) => unknown> = {
     files: (input) => {
       if (folder.filesFailure) return folder.filesFailure;
