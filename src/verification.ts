@@ -7,11 +7,15 @@ import { changedLinkNow, pathAndFolders } from "./env-diff";
 import { splitPatchByFile } from "./patch";
 import { posix } from "node:path";
 import { readFeatureFile } from "./file-contents";
-import { ghErrorMessage, type runGh, type runGit } from "./gh";
+import { existsSync } from "node:fs";
+import { ghErrorMessage, gitDiffArgs, type runGh, type runGit } from "./gh";
+import { ensureGitHeaders } from "./patch";
+import { readFeatureDiff, type HiddenFile } from "./env-diff";
 import { messageAssistant } from "./agent";
 import { reReviewCheckPrompt } from "./preferences";
 import { baselineOf, diffAt, feedbackView, headOf, isSummaryItem, summarize } from "./feedback-view";
 import { describeInterdiff, interdiff } from "./interdiff";
+import { sendBaselineOf } from "../lib/send-baseline";
 import type { AssessmentItem, AssessmentVerdict } from "../lib/feedback";
 import type { Verdict } from "./draft";
 import { untrusted } from "./untrusted";
@@ -109,6 +113,59 @@ export async function changesSinceReview(store: AsyncStore, run: Run, review: Re
     commits ? `Commits since:\n${commits}` : "",
     describeInterdiff(interdiff(before, now), { file }),
   ].filter(Boolean).join("\n\n");
+}
+
+/** What reads the code now: GitHub for a PR, git for a checkout's review, BB for a folder's. */
+export interface CodeReaders { bb: BbPluginApi; run: Run; git: typeof runGit }
+
+/**
+ * read_changes_since_review for a Send: the code now compared with the diff Send `n` went at, or the last Send's. Only
+ * the Send's own snapshot counts: without it, it fails, never saying that nothing changed. The code now is a PR's diff
+ * at its head, a folder's read again on its machine, or a checkout's run again; one that can't be read fails too. A
+ * folder's Send also needs what it kept out of the diff, which a file shown on one side only would otherwise misread.
+ */
+export async function changesSinceSend(store: AsyncStore, readers: CodeReaders, review: ReviewMeta, n: number | undefined, file?: string): Promise<string> {
+  const send = sendBaselineOf(review, n);
+  if (!send) throw new Error(n === undefined ? "Nothing has been sent from this review yet, so there's nothing to compare." : `This review keeps no Send ${n}.`);
+  const [before, sentFiles] = await store.exclusive(async (tx) => [await tx.getSnapshot(review.targetKey, send.key), await tx.getSnapshotFiles(review.targetKey, send.key)] as const);
+  if (before === null) throw new Error(`The diff Send ${send.n} went at isn't kept anymore, so what changed since can't be told. Read the whole diff with read_review_patch.`);
+  const folder = review.feature && review.kind === "ref";
+  if (folder && !sentFiles) throw new Error(`Which files Send ${send.n} kept out of the diff isn't known anymore, so what changed since can't be told. Read the whole diff with read_review_patch.`);
+  const now = await codeNow(store, readers, review);
+  const hiddenThen = new Set(sentFiles?.hidden.map((hidden) => hidden.path) ?? []);
+  const hiddenNow = new Set(now.hidden?.map((hidden) => hidden.path) ?? []);
+  const shownNow = [...hiddenThen].filter((path) => !hiddenNow.has(path));
+  const keptOutNow = [...hiddenNow].filter((path) => !hiddenThen.has(path));
+  return [
+    `Changes between the diff Send ${send.n} went at (${date(send.at)}) and the code now${now.at ? ` (${short(now.at)})` : ""}, file by file.`,
+    folder && (shownNow.length || keptOutNow.length) ? [
+      shownNow.length ? `Kept out of the diff at Send ${send.n}, shown now, so read as added: ${shownNow.join(", ")}.` : "",
+      keptOutNow.length ? `Kept out of the diff now, shown at Send ${send.n}, so read as removed: ${keptOutNow.join(", ")}.` : "",
+    ].filter(Boolean).join(" ") : "",
+    describeInterdiff(interdiff(before, now.patch), { file, since: `Send ${send.n}` }),
+  ].filter(Boolean).join("\n\n");
+}
+
+/**
+ * The review's diff as the code is now: a PR's at the head being checked, a folder's read again on its machine, with
+ * the files it keeps out, or a checkout's run again.
+ */
+async function codeNow(store: AsyncStore, { bb, run, git }: CodeReaders, review: ReviewMeta): Promise<{ patch: string; at?: string; hidden?: HiddenFile[] }> {
+  if (review.feature && review.kind === "ref") {
+    const read = await readFeatureDiff(bb, review.feature, review.includeHidden ?? []);
+    if (read.outcome !== "available") throw new Error(`Couldn't read the folder now, so what changed since the Send can't be told: ${read.message}`);
+    return { patch: read.patch, hidden: read.hidden };
+  }
+  if (review.kind === "pr") {
+    const head = checkedHead(review);
+    if (head && head !== review.headSha) return { patch: await diffAt(store, run, review, head), at: head };
+    return { patch: await store.patch(review.targetKey) };
+  }
+  // Without its checkout, the code now can't be told from the diff shown.
+  if (!review.cwd || !review.gitRef || !existsSync(review.cwd)) throw new Error("Couldn't read this local review's code now, so what changed since the Send can't be told.");
+  const diff = await git(gitDiffArgs(review.gitRef), { cwd: review.cwd });
+  if (diff.code !== 0) throw new Error(`Couldn't read this local review's code now: ${diff.stderr.trim() || "git diff failed"}`);
+  return { patch: ensureGitHeaders(diff.stdout) };
 }
 
 /** GitHub lists at most 250 of a PR's commits. */

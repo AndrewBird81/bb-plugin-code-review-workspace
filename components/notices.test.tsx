@@ -194,15 +194,32 @@ test("the opening review's placeholder says in words what it shows in shapes", a
   slot.lifecycle.unmount();
 });
 
-test("a local review whose code changed since its guide says so, with Update guide; with its switch off it never asks", async () => {
+test("a local review whose code changed says so, with Update, which keeps the guide, and Rewrite guide, which starts the guide writer; with its switch off it never asks", async () => {
   const local = () => ({ review: { targetKey: "pr-42", kind: "ref", gitRef: "HEAD", cwd: "/repo", status: "ready", createdAt: 1, title: "HEAD" } });
   const checkForUpdates = vi.fn(() => ({ hasNewCommits: false, localChanged: true }));
-  const { slot, rpc } = await renderWorkspace({ checkForUpdates }, local);
-  const text = "The code changed since this guide.";
+  const updateFeature = vi.fn(() => ({ ok: true }));
+  const rewriteGuide = vi.fn(() => ({ ok: true }));
+  const { slot, rpc } = await renderWorkspace({ checkForUpdates, updateFeature, rewriteGuide }, local);
+  const text = "The code changed. Update keeps this guide; Rewrite guide has the guide writer write a new one.";
   await slot.findByText(text);
-  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Update guide" }));
-  await waitFor(() => expect(rpc.rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(within(notice(slot, text)).queryByRole("button", { name: "Update guide" })).toBeNull();
+  const rewrite = within(notice(slot, text)).getByRole("button", { name: "Rewrite guide" });
+  expect(rewrite.getAttribute("aria-description")).toBe("Starts the guide writer to write a new guide for the code now.");
+  expect(rewrite.querySelector("svg")?.getAttribute("data-icon")).toBe("Sparkles");
+  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Update" }));
+  await waitFor(() => expect(updateFeature).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  fireEvent.click(within(notice(slot, text)).getByRole("button", { name: "Rewrite guide" }));
+  await waitFor(() => expect(rewriteGuide).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+  expect(rpc.rereview).not.toHaveBeenCalled();
   slot.lifecycle.unmount();
+  cleanup();
+
+  // Update's error stays on the page, with what to do.
+  const failing = await renderWorkspace({ checkForUpdates, updateFeature: () => ({ ok: false, error: "No changes found." }) }, local);
+  await failing.slot.findByText(text);
+  fireEvent.click(within(notice(failing.slot, text)).getByRole("button", { name: "Update" }));
+  expect(await failing.slot.findByText("No changes found.")).toBeTruthy();
+  failing.slot.lifecycle.unmount();
   cleanup();
 
   const off = vi.fn(() => ({ hasNewCommits: false, localChanged: true }));

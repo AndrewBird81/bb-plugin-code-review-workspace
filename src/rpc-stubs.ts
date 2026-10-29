@@ -15,8 +15,6 @@ export function register() {
 
     checkFixes: notYet("Check fixes"), // Step 2.2.
 
-    rewriteGuide: notYet("Rewrite guide"), // Step 1.5.
-
     push: notYet("Push"), // Step 5.1.
 
     openPr: notYet("Open PR"), // Step 5.2.

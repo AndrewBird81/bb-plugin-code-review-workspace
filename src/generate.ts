@@ -292,8 +292,10 @@ export async function beginGuide(
         if (!await tx.isCurrentGeneration(targetKey, id)) return null;
         const ok = !controller.signal.aborted && await tx.getGuide(targetKey) !== null;
         const before = ok ? await tx.guideBackupHead(targetKey) : null;
-        // A failed rebuild keeps the guide you had; a guide this run already submitted stands.
+        // A failed rebuild keeps the guide you had; a guide this run already submitted stands, and is the diff's now.
         if (ok) await tx.dropGuideBackup(targetKey);
+        const feature = ok ? (await tx.getReview(targetKey))?.feature : null;
+        if (feature?.guideOlderThanDiff) await tx.setLifecycle(targetKey, { feature: { ...feature, guideOlderThanDiff: null } });
         const putBack = !ok && await tx.restoreGuide(targetKey);
         // A rebuild you stopped is the guide you had, ready; a first guide you stopped waits for Build the guide.
         const restored = stopped && putBack;

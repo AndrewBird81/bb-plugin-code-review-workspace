@@ -12,6 +12,7 @@ import { rerunReview } from "./rereview";
 import { readFileAt } from "./verification";
 import { symlinkTarget } from "../lib/folder-files";
 import plugin from "../server";
+import { toolFailed, toolText } from "./fake-host.test-support";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -377,6 +378,8 @@ test("Include brings a secret-looking file into the review and keeps it in; the 
   expect(await s.harness.behavior.callRpc("includeHidden", { targetKey: key, files: [".env"], included: true })).toEqual({ ok: true });
   const review = (await s.store.getReview(key))!;
   expect(review.includeHidden).toEqual([".env"]);
+  // The guide wasn't written with it: the review says which files changed, not that you clicked Update.
+  expect(review.feature?.guideOlderThanDiff).toBe("include");
   expect(await s.store.patch(key)).toContain("hunter2");
   expect((await checkFeature(s.deps, key)).hidden).toEqual([]);
   expect((await read(".env")).ok).toBe(true);
@@ -490,4 +493,61 @@ test("the main thread going idle checks its folder and asks open pages to look a
   await idle("main");
   expect((await s.store.getReview(key))?.feature?.pausedOn).toBe("feat/other");
   expect(s.harness.inspection.realtimeSignals.some((signal) => signal.channel === `folder:${key}`)).toBe(true);
+});
+
+test("the page's Update reads a folder's review from its folder, not a checkout, and then says the guide is older than the diff", async () => {
+  const s = setup();
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  const call = (method: string) => s.harness.behavior.callRpc(method, { targetKey: key }) as Promise<any>;
+  // Nothing new: the guide is still the diff's.
+  expect(await call("updateFeature")).toEqual({ ok: true });
+  expect((await s.store.getReview(key))?.feature?.guideOlderThanDiff).toBeUndefined();
+  s.folder.files.push({ path: "src/b.ts" });
+  // A folder's review has no checkout, so the checkout's notice never fires; its folder's notices say what changed.
+  expect((await call("checkForUpdates")).localChanged).toBeUndefined();
+  expect(await call("updateFeature")).toEqual({ ok: true });
+  expect(changedFiles(await s.store.patch(key))).toEqual(["src/a.ts", "src/b.ts"]);
+  expect((await s.store.getReview(key))?.feature?.guideOlderThanDiff).toBe("update");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(s.spawns).toHaveLength(1);
+  // A rewrite that doesn't give a guide (this writer fails at once) leaves it said: the guide is still the older one.
+  expect(await call("rewriteGuide")).toEqual({ ok: true });
+  await vi.waitFor(() => expect(s.spawns).toHaveLength(2));
+  await vi.waitFor(async () => expect((await s.store.getReview(key))?.status).not.toBe("generating"));
+  expect((await s.store.getReview(key))?.feature?.guideOlderThanDiff).toBe("update");
+});
+
+test("read_changes_since_review compares a folder's Send with the folder now, and fails, never saying nothing changed, when it can't tell", async () => {
+  const s = setup(undefined, { "agent-1": { id: "agent-1", environmentId: null, title: `Review agent: ${key}`, visibility: "hidden", originPluginId: "code-review-workspace" } });
+  await plugin(s.bb);
+  await run(s, "main");
+  await settled(s);
+  // Send 1 went at the diff the review shows, src/b.ts kept out as too large; Send 2's files weren't kept.
+  const sent = await s.store.patch(key);
+  for (const n of [1, 2]) await s.store.saveSnapshot(key, `send:${n}`, sent);
+  await s.store.saveSnapshotFiles(key, "send:1", { revisions: {}, hidden: [{ path: "src/b.ts", reason: "large" }] });
+  await s.store.setLifecycle(key, { sends: [1, 2].map((n) => ({ n, at: n, threadId: "main", ids: [`c${n}`] })) });
+  await s.store.setAssistantThread(key, "agent-1");
+  const read = (send: number) => s.harness.behavior.callAgentTool("read_changes_since_review", { send }, { threadId: "agent-1" });
+  // The main thread fixed src/a.ts and added src/b.ts; nobody clicked Update, so the review still shows Send 1's diff.
+  s.folder.files[0]!.body = "@@ -1,3 +1,3 @@\n one\n-two\n+Two\n three\n";
+  s.folder.files.push({ path: "src/b.ts" });
+  const changes = await read(1);
+  expect(toolFailed(changes)).toBe(false);
+  expect(toolText(changes)).toContain("Kept out of the diff at Send 1, shown now, so read as added: src/b.ts.");
+  expect(toolText(changes)).toContain("Since Send 1: 1 changed, 1 added, 0 removed, 0 unchanged files.");
+  expect(toolText(changes)).toContain("+Two");
+  // Which files Send 2 kept out isn't known: unknown, so it fails.
+  const unknown = await read(2);
+  expect(toolFailed(unknown)).toBe(true);
+  expect(toolText(unknown)).toContain("Which files Send 2 kept out of the diff isn't known anymore");
+  // The machine asleep: it says why.
+  s.folder.connected = false;
+  const offline = await read(1);
+  expect(toolFailed(offline)).toBe(true);
+  expect(toolText(offline)).toContain("Couldn't read the folder now");
+  expect(toolText(offline)).toContain("MaxBook is offline");
+  expect(toolText(offline)).not.toMatch(/No changes/);
 });

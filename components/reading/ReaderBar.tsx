@@ -7,7 +7,8 @@ import { cn } from "../../lib/utils";
 import { OVERVIEW, useWorkspace } from "../../lib/workspace-context";
 import { phoneWindow } from "../../lib/workspace-layout";
 import { usePageTitleShown, useTitleBarMounted } from "../../lib/workspace-store";
-import { compareLabel, ComparePicker, lastReviewed } from "../ComparePicker";
+import { compareLabel, ComparePicker, sinceFrom } from "../ComparePicker";
+import { sendBaselineOf } from "../../lib/send-baseline";
 import { ReviewIdChip } from "../ReviewIdChip";
 import { ChapterStep } from "../shell/ChapterStep";
 import { TopBand } from "../shell/TopBand";
@@ -134,10 +135,13 @@ export function ReaderBar({ threads, onCompareShown }: { threads: boolean; onCom
   const short = layout.mode === "short";
   const index = activeId === OVERVIEW ? -1 : sections.findIndex((section) => section.id === activeId);
   const chapter = sections[index];
-  // A re-review compares with your last review; a first review shows its comparison once you pick a commit. The select
-  // is sized for its longer label either way, so what it says doesn't move it out of the band.
-  const comparable = !!chapter && (!!lastReviewed(compare) || !!compare.from);
-  const longer = (brief: boolean) => [compareLabel(false, null), compareLabel(true, compare.from, brief)].reduce((a, b) => b.length > a.length ? b : a);
+  // A re-review compares with your last review, a review with a Send with your last Send, and a first review shows its
+  // comparison once you pick a commit. The select is sized for its longest label, so what it says doesn't move it out
+  // of the band.
+  const comparable = !!chapter && sinceFrom(compare, review) !== undefined;
+  const lastSend = sendBaselineOf(review)?.key;
+  const longer = (brief: boolean) => [compareLabel(false, null), compareLabel(true, compare.from, brief), ...(lastSend ? [compareLabel(true, lastSend, brief)] : [])]
+    .reduce((a, b) => b.length > a.length ? b : a);
   const sized = (brief: boolean) => selectWidth(longer(brief)) + (compare.error ? 18 : 0);
   const buttons = (layout.nav === "docked" ? 0 : 2) + 1 + (chapter ? 2 : 0);
   // The review's commands end the band where BB's title bar doesn't show them, nor the review's name.

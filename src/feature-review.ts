@@ -424,9 +424,10 @@ export async function checkFeature(deps: Deps, key: string): Promise<FeatureChec
 
 /**
  * Update: read a feature review's folder again and show it, the comments following their lines, without the guide
- * writer. Not while its guide is being written, and not from another branch: the review waits for its own.
+ * writer. Not while its guide is being written, and not from another branch: the review waits for its own. A diff that
+ * moves is newer than the guide: `why` says what moved it, your Update or Include and Keep out.
  */
-export async function updateFeature(deps: Deps, key: string): Promise<{ ok: boolean; error?: string }> {
+export async function updateFeature(deps: Deps, key: string, why: "update" | "include" = "update"): Promise<{ ok: boolean; error?: string }> {
   const { bb, store } = deps;
   const review = featureOf(await store.getReview(key));
   if (!review || review.kind !== "ref") return { ok: false, error: "Only a local review of a folder updates this way. Use Update guide." };
@@ -444,7 +445,9 @@ export async function updateFeature(deps: Deps, key: string): Promise<{ ok: bool
     const now = featureOf(await tx.getReview(key));
     if (!now || now.kind !== "ref") return { ok: false, error: "This review changed meanwhile. Reload it." };
     if (now.status === "generating") return { ok: false, error: "The guide writer is writing this review’s guide. Update once it’s done." };
-    await saveRead(tx, key, now.feature, read);
+    // A diff the guide wasn't written for: the review says so, with Rewrite guide.
+    const moved = await tx.patch(key) !== read.patch;
+    await saveRead(tx, key, moved ? { ...now.feature, guideOlderThanDiff: why } : now.feature, read);
     return { ok: true };
   });
   if (saved.ok) deps.changed(key);
@@ -483,9 +486,6 @@ export function register(deps: ServeDeps) {
     async checkFeature({ targetKey }) {
       return checkFeature(deps, targetKey);
     },
-    async updateFeature({ targetKey }) {
-      return updateFeature(deps, targetKey);
-    },
     async includeHidden({ targetKey, files, included }) {
       const review = featureOf(await store.getReview(targetKey));
       if (!review) return { ok: false, error: "Only a local review of a folder keeps files out." };
@@ -496,7 +496,7 @@ export function register(deps: ServeDeps) {
       deps.changed(targetKey);
       // Shown, or kept out again, once the folder is read: now, unless it can't be.
       if (review.kind !== "ref" || review.status === "generating") return { ok: true };
-      const updated = await updateFeature(deps, targetKey);
+      const updated = await updateFeature(deps, targetKey, "include");
       return updated.ok ? updated : { ok: false, error: `${included ? "Included" : "Kept out"}; it shows once the review updates. ${updated.error ?? ""}`.trim() };
     },
     async dismissFlagged({ targetKey, files }) {

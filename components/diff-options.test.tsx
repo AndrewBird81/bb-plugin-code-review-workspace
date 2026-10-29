@@ -125,3 +125,17 @@ test("on a phone Diff options is a drawer from the chapters sheet, with Fold com
   expect(within(slot.getByRole("radiogroup", { name: "Show changes" })).getByRole("radio", { name: "Since your review" }).getAttribute("aria-checked")).toBe("true");
   slot.lifecycle.unmount();
 });
+
+test("on a phone, a local review with a Send switches between all changes and since your last Send in Diff options, and the diff says which", async () => {
+  fakeScreen(390, 844, false);
+  const slot = await renderWorkspace({ kind: "ref", gitRef: "main...feature", headSha: null, sends: [{ n: 2, at: 1, threadId: "thr_main", ids: ["c2"] }] });
+  fireEvent.click(slot.getByRole("button", { name: /Chapters:/ }));
+  fireEvent.click(within(slot.getByRole("dialog", { name: "Chapters" })).getByRole("button", { name: "Diff options" }));
+  const changes = within(await slot.findByRole("radiogroup", { name: "Show changes" }));
+  expect(changes.getAllByRole("radio").map((choice) => choice.textContent)).toEqual(["All", "Since your last Send"]);
+  expect(slot.queryByRole("button", { name: "Compare with a commit…" })).toBeNull();
+  fireEvent.click(changes.getByRole("radio", { name: "Since your last Send" }));
+  await waitFor(() => expect(slot.getAllByTestId("filediff")).toHaveLength(1));
+  expect(within(slot.getByRole("radiogroup", { name: "Changes shown" })).getByRole("radio", { name: "Since your last Send · 1 of 2 files" }).getAttribute("aria-checked")).toBe("true");
+  slot.lifecycle.unmount();
+});

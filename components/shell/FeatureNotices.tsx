@@ -10,11 +10,14 @@ import { useKnob } from "../../lib/settings";
 import { cn } from "../../lib/utils";
 import { TOUCH_CONTROL } from "../touch";
 import { Button } from "../ui/button";
+import { Hint } from "../ui/hint";
+import { Icon } from "../ui/icon";
+import { useFullscreenPortalContainer } from "../../lib/portal-scope";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
-import type { Notice } from "./ReviewNotices";
+import { REWRITE_GUIDE, type Notice } from "./ReviewNotices";
 
 /** The review, as far as its folder's notices read it. */
-interface Reviewed { kind?: "pr" | "ref"; feature?: FeatureReview | null; archivedAt?: number | null; userArchivedAt?: number | null }
+interface Reviewed { kind?: "pr" | "ref"; status?: string; feature?: FeatureReview | null; archivedAt?: number | null; userArchivedAt?: number | null }
 
 const BUTTON = cn("h-7", TOUCH_CONTROL);
 // A branch's name never breaks across lines.
@@ -45,7 +48,7 @@ function MoreThreads({ threads, onOpen }: { threads: FeatureCheck["alsoActive"];
 /**
  * A local review's notices about its folder (src/feature-review.ts checkFeature), the most pressing first: BB removed
  * it; it's on another branch, which pauses the review, with Open or Start that branch's review; its machine is offline;
- * it changed, with Update; committed files that look like secrets, with Got it; the review its PR had already; files it
+ * it changed, with Update; its guide is older than what Update last showed, with Rewrite guide; committed files that look like secrets, with Got it; the review its PR had already; files it
  * keeps out, each secret named on its own button; and the other threads editing it. Asked on open, and again when the
  * review or its folder changes. `onChanged` reloads the review.
  */
@@ -53,6 +56,7 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
   const localDiffChanges = useKnob("localDiffChanges");
+  const container = useFullscreenPortalContainer();
   const local = !!review?.feature && review.kind === "ref";
   const [read, setRead] = useState<{ targetKey: string; check: FeatureCheck } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -83,10 +87,13 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
     }
   };
   // On a warning's tint, the button's border takes the tint's colour, so it shows in the dark.
-  // `whole`: a label that must never be cut, as a file's name is; `hint`, the hover text.
-  const button = (id: string, label: string, onClick: () => void, { aria, warning, whole, hint }: { aria?: string; warning?: boolean; whole?: boolean; hint?: string } = {}) => (
-    <Button variant="outline" size="sm" className={cn(BUTTON, !whole && "max-w-64", warning && "border-warning/40")} disabled={!!busy} aria-label={aria} onClick={onClick}><span title={hint} className={cn(!whole && "truncate")}>{busy === id ? `${label}…` : label}</span></Button>
-  );
+  // `whole`: a label that must never be cut, as a file's name is; `hint`, the hover text; `description`, what it does
+  // beyond its label, which is its hint too and its description for screen readers.
+  // `agent`: it starts an agent, so it wears the agent's sparkle.
+  const button = (id: string, label: string, onClick: () => void, { aria, warning, whole, hint, description, agent }: { aria?: string; warning?: boolean; whole?: boolean; hint?: string; description?: string; agent?: boolean } = {}) => {
+    const shown = <Button variant="outline" size="sm" className={cn(BUTTON, !whole && "max-w-64", warning && "border-warning/40")} disabled={!!busy} aria-label={aria} aria-description={description} onClick={onClick}>{agent && <Icon name="Sparkles" className="text-(--ansi-13)" aria-hidden />}<span title={hint} className={cn(!whole && "truncate")}>{busy === id ? `${label}…` : label}</span></Button>;
+    return description ? <Hint label={description} container={container}>{shown}</Hint> : shown;
+  };
   const checkAgain = button("check", "Check again", () => { setBusy("check"); rpc.call("checkFeature", { targetKey }).then((next) => setRead({ targetKey, check: next }), () => {}).finally(() => setBusy(null)); });
 
   // Each with one action, its icon and the action on the text's first line however it wraps.
@@ -123,6 +130,14 @@ export function useFeatureNotices(targetKey: string, review: Reviewed | null, on
     add({ id: "folder-changed", tone: "info", icon: "FileDiff", label: "Folder changed",
       text: `${files(check.changedFiles ?? 1)} changed since your last update.`,
       action: button("update", "Update", () => void act("update", () => rpc.call("updateFeature", { targetKey }), "Couldn’t update the review.")) });
+  }
+  // While a guide is being written, its own notice says so.
+  // Not while a guide is being written, which has its own notice, nor once Rewrite guide can't run: the folder's gone,
+  // or the review's archived.
+  if (feature.guideOlderThanDiff && review.kind === "ref" && review.status !== "generating" && check.state !== "gone" && !review.archivedAt && !review.userArchivedAt) {
+    add({ id: "guide-behind", tone: "info", icon: "Route", label: "Guide out of date",
+      text: feature.guideOlderThanDiff === "include" ? "The guide was written before you changed which files are shown." : "The guide was written before your last Update.",
+      action: button("rewrite", "Rewrite guide", () => void act("rewrite", () => rpc.call("rewriteGuide", { targetKey }), "Couldn’t rewrite the guide."), { description: REWRITE_GUIDE, agent: true }) });
   }
   if (check.flagged.length) {
     add({ id: "folder-flagged", tone: "warning", icon: "AlertTriangle",

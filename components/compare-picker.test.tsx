@@ -251,3 +251,37 @@ test("on a PR you haven't reviewed, a picked commit can be cleared", async () =>
   expect(rpc.getSinceReview).toHaveBeenCalledTimes(1);
   slot.lifecycle.unmount();
 }, 15_000);
+
+test("a local review with a Send offers Since your last Send, which says which Send, narrows to what changed since, and goes once there's a newer Send", async () => {
+  diffs["send:2"] = at("a1", "b2");
+  const review: Record<string, unknown> = { kind: "ref", gitRef: "main...feature", headSha: null, sends: [{ n: 1, at: 1, threadId: "thr_main", ids: ["c1"] }, { n: 2, at: Date.now() - 5 * 60_000, threadId: "thr_main", ids: ["c2"] }] };
+  const { slot, rpc } = await renderWorkspace(review);
+  const menu = await bandMenu(slot, "Show changes: All changes");
+  expect(choices(menu).map((item) => item.textContent)).toEqual(["All changes", "Since your last SendSend 2 · 5m ago"]);
+  expect(menu.queryByRole("group", { name: "Since a commit" })).toBeNull();
+  fireEvent.click(menu.getByRole("menuitemradio", { name: /^Since your last Send/ }));
+  await slot.findByRole("button", { name: "Show changes: Since your last Send" });
+  expect(rpc.getSinceReview).toHaveBeenLastCalledWith({ targetKey: "pr-42", from: "send:2" });
+  expect(rpc.getPrCommits).not.toHaveBeenCalled();
+  await waitFor(() => expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeNull());
+  expect(slot.getByText("1 file unchanged since your last Send")).toBeTruthy();
+  expect(within(slot.container.querySelector<HTMLElement>('[data-file="src/a.ts"]')!).getByTitle("Changed since your last Send")).toBeTruthy();
+  // A new Send is a new starting point: the choice goes, as a new push's does.
+  review.sends = [...(review.sends as unknown[]), { n: 3, at: Date.now(), threadId: "thr_main", ids: ["c3"] }];
+  await slot.emitRealtime("review:pr-42", {});
+  await slot.findByRole("button", { name: "Show changes: All changes" });
+  expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
+  slot.lifecycle.unmount();
+}, 15_000);
+
+test("a Send whose diff isn't kept says so where you compare, and the diff shows all changes", async () => {
+  const { slot } = await renderWorkspace({ kind: "ref", gitRef: "main...feature", headSha: null, sends: [{ n: 2, at: 1, threadId: "thr_main", ids: ["c2"] }] }, {
+    getSinceReview: () => ({ baseline: null, files: [], error: "The diff Send 2 went at isn’t kept anymore." }),
+  });
+  fireEvent.click((await bandMenu(slot, "Show changes: All changes")).getByRole("menuitemradio", { name: /^Since your last Send/ }));
+  const problem = "Couldn’t compare with your last Send: The diff Send 2 went at isn’t kept anymore.";
+  await slot.findByRole("button", { name: `Show changes: All changes. ${problem}` });
+  expect(slot.container.querySelector('[data-file="src/b.ts"]')).toBeTruthy();
+  expect((await bandMenu(slot)).getByRole("status").textContent).toBe(problem);
+  slot.lifecycle.unmount();
+}, 15_000);

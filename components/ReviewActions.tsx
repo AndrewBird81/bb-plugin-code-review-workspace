@@ -18,8 +18,11 @@ import { MENU_ITEM, SnoozeChoices } from "./SnoozeChoices";
 import { TOUCH_CONTROL, TOUCH_TARGET } from "./touch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
-/** An item a page adds to a review's menu. `keys`: its key, shown at its right where there's a keyboard. */
-export type ReviewMenuItem = { label: string; icon: IconName; onSelect: () => void; keys?: string };
+/**
+ * An item a page adds to a review's menu. `keys`: its key, shown at its right where there's a keyboard. `description`:
+ * what it does beyond its label, for screen readers. `agent`: it starts an agent, so its icon takes the agent's tone.
+ */
+export type ReviewMenuItem = { label: string; icon: IconName; onSelect: () => void; keys?: string; description?: string; agent?: boolean };
 
 /**
  * What can be done to a review from its menu or its row in the list, each said in a toast. Snooze, Pin, Rename and
@@ -67,16 +70,18 @@ export function useReviewActions(review: ReviewItem, onChanged?: () => void) {
 }
 
 /**
- * Review actions (⋯): the page's own first (`items`, such as Update guide), then Build the guide, Snooze ›, Pin, Rename…
- * and Archive, then Open on GitHub and the page's `trailing` items, then Delete…, which asks first. A tracked review
+ * Review actions (⋯): the page's own first (`items`, such as Update guide), then Build the guide, Snooze ›, Pin, Rename…,
+ * the page's `afterRename` items, and Archive, then Open on GitHub and the page's `trailing` items, then Delete…, which asks first. A tracked review
  * builds its guide; a review you gave can wait until its author responds, and any request until a time you pick.
  */
-export function ReviewActions({ review, items, trailing, pinnable = false, onChanged, onMoved, onDeleted, describedBy, className }: {
+export function ReviewActions({ review, items, afterRename, trailing, pinnable = false, onChanged, onMoved, onDeleted, describedBy, className }: {
   review: ReviewItem;
   /** Offer Pin: Settings shows reviews in BB's thread list. */
   pinnable?: boolean;
   /** Listed first, such as the workspace's Update guide. */
   items?: ReviewMenuItem[];
+  /** Listed after Rename…, such as a local review's Rewrite guide: what starts an agent isn't where the menu opens. */
+  afterRename?: ReviewMenuItem[];
   /** Listed after Open on GitHub, such as Keyboard shortcuts. */
   trailing?: ReviewMenuItem[];
   onChanged?: () => void;
@@ -133,8 +138,8 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
     switched.current = true;
     setView(next);
   };
-  const item = (entry: ReviewMenuItem) => <Button key={entry.label} variant="ghost" size="sm" aria-keyshortcuts={entry.keys} className={MENU_ITEM} onClick={() => pick(entry.onSelect)}>
-    <Icon name={entry.icon} aria-hidden />{entry.label}{entry.keys && <kbd aria-hidden className="ml-auto hidden font-sans text-xs text-subtle-foreground pointer-fine:inline">{entry.keys}</kbd>}
+  const item = (entry: ReviewMenuItem) => <Button key={entry.label} variant="ghost" size="sm" aria-keyshortcuts={entry.keys} aria-description={entry.description} className={MENU_ITEM} onClick={() => pick(entry.onSelect)}>
+    <Icon name={entry.icon} className={cn(entry.agent && "text-(--ansi-13)")} aria-hidden />{entry.label}{entry.keys && <kbd aria-hidden className="ml-auto hidden font-sans text-xs text-subtle-foreground pointer-fine:inline">{entry.keys}</kbd>}
   </Button>;
 
   async function saveName(event: FormEvent) {
@@ -180,6 +185,7 @@ export function ReviewActions({ review, items, trailing, pinnable = false, onCha
             </Button>}
           {pin && item({ label: review.pinnedAt ? "Unpin" : "Pin", icon: review.pinnedAt ? "PinOff" : "Pin", onSelect: () => void actions.setPinned(!review.pinnedAt) })}
           {item({ label: "Rename…", icon: "Edit", onSelect: () => { setDraft(title); setRenaming(true); } })}
+          {afterRename?.map(item)}
           {archivable && item({ label: review.userArchivedAt ? "Unarchive" : "Archive", icon: review.userArchivedAt ? "ArchiveRestore" : "Archive", onSelect: () => void moving(actions.setArchived(!review.userArchivedAt)) })}
           <div role="separator" className="my-1 h-px bg-border" />
           {review.url && <Button variant="ghost" size="sm" className={MENU_ITEM} onClick={() => pick(() => navigate.openUrl(review.url!))}>

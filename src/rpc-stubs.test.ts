@@ -10,7 +10,6 @@ const CALLS: Record<string, unknown> = {
   resolveComment: { targetKey: "pr-1", ...at, state: "dismissed" },
   reopenComment: { targetKey: "pr-1", ...at },
   checkFixes: { targetKey: "pr-1" },
-  rewriteGuide: { targetKey: "pr-1" },
   push: { targetKey: "pr-1", force: true },
   openPr: { targetKey: "pr-1" },
   setMainThread: { targetKey: "pr-1", threadId: "thr_main" },

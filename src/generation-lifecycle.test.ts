@@ -287,3 +287,45 @@ test("a guide submitted after Stop is refused, and Stop doesn't say a guide was 
   expect(await store.getGuide("target")).toBeNull();
   expect(await store.getReview("target")).toMatchObject({ status: "error", guideError: { text: "Stopped" } });
 });
+
+// A folder's review after an Update, as src/feature-review.ts keeps it.
+const folder = { environmentId: "env1", hostId: "h1", machine: "MaxBook", path: "/w", branch: "feat", baseRef: "main", repo: null, guideOlderThanDiff: "update" as const };
+
+test("a folder's guide older than its diff stays said so until a new guide is accepted, through a stopped rewrite", async () => {
+  const { bb, harness, waiting } = stoppableHost();
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "target", kind: "ref", gitRef: "feat", status: "ready", createdAt: 1, projectId: "p1" });
+  await store.setLifecycle("target", { feature: folder });
+  await store.saveGuide("target", { ...guide, title: "Before" });
+  await store.savePatch("target", "updated patch");
+  await store.backupGuide("target");
+  const run = generateGuide(bb, store, "target", "p1");
+  await vi.waitFor(() => expect(waiting()).toBe(true));
+  // Stopped: the guide you had is back over the newer diff, and still says it's older.
+  expect(await harness.behavior.callRpc("stopGuide", { targetKey: "target" })).toEqual({ ok: true, restored: true });
+  await run;
+  expect((await store.getGuide("target"))?.title).toBe("Before");
+  expect((await store.getReview("target"))?.feature?.guideOlderThanDiff).toBe("update");
+});
+
+test("a folder's guide accepted for its diff is no longer older than it", async () => {
+  let prompt = "";
+  const { bb, harness } = createFakePluginHost({ pluginId: "code-review-workspace", sdk: { threads: {
+    spawn: async (args: { prompt: string }) => { prompt = args.prompt; return { id: "worker" }; },
+    wait: ({ signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })),
+    archive: async () => ({}), stop: async () => ({}),
+  } } as any });
+  await plugin(bb);
+  const store = testStore(bb);
+  await store.saveReview({ targetKey: "target", kind: "ref", gitRef: "feat", status: "ready", createdAt: 1 });
+  await store.setLifecycle("target", { feature: folder });
+  const run = generateGuide(bb, store, "target", "p1", { notify: false });
+  await vi.waitFor(() => expect(prompt).toContain("generationId"));
+  const generationId = prompt.match(/generationId "([^"]+)"/)![1];
+  // While it's written, the flag stands: the notice hides on its own, and a stop would need it.
+  expect((await store.getReview("target"))?.feature?.guideOlderThanDiff).toBe("update");
+  expect(toolFailed(await harness.behavior.callAgentTool("generate_review_guide", { targetKey: "target", generationId, guide }))).toBeFalsy();
+  await run;
+  expect((await store.getReview("target"))?.feature?.guideOlderThanDiff).toBeNull();
+}, 5_000);

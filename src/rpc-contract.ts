@@ -195,7 +195,7 @@ export const rpcContract = defineRpcContract({
   /** hasNewCommits: the guide is behind the PR, by new commits or, with baseChanged, a new base branch. */
   checkForUpdates: {
     input: targetKey,
-    // localChanged: a local review's diff, run again, differs from its guide's.
+    // localChanged: a local review's diff, run again, differs from the diff it shows.
     output: z.object({ hasNewCommits: z.boolean(), current: z.string().optional(), stored: z.string().optional(), baseChanged: z.object({ from: z.string(), to: z.string() }).optional(), localChanged: z.boolean().optional() }),
   },
   rereview: {
@@ -499,11 +499,11 @@ export const rpcContract = defineRpcContract({
 
   /**
    * The displayed diff compared with the diff at your last review (src/interdiff.ts FileInterdiff[]).
-   * baseline null: you haven't reviewed it, or it's the same commit.
+   * baseline null: you haven't reviewed it, or it's the same commit. A Send's baseline has `sha` "send:<n>".
    */
   getSinceReview: {
-    // from: compare with the diff at this commit instead, one of getPrCommits'.
-    input: z.object({ targetKey: z.string(), from: z.string().regex(/^[0-9a-f]{7,40}$/).optional() }).strict(),
+    // from: compare with the diff at this commit instead, one of getPrCommits', or at a Send, as "send:<n>".
+    input: z.object({ targetKey: z.string(), from: z.string().regex(/^([0-9a-f]{7,40}|send:\d+)$/).optional() }).strict(),
     output: z.object({
       baseline: z.object({ sha: z.string(), at: z.number().nullable(), verdict: z.string().nullable() }).nullable(),
       files: z.array(z.any()),

@@ -17,7 +17,8 @@ import { GUIDE_WORKER_TITLE, stopGuide } from "./generate";
 import { pluginThreadsTitled } from "./thread-review";
 import { recordFormerWorker } from "./former-workers";
 import { parseChecks } from "./threads";
-import { localDiffChanged, rerunReview } from "./rereview";
+import { localDiffChanged, rerunReview, updateReview } from "./rereview";
+import { updateFeature as updateFolder } from "./feature-review";
 import { feedbackProgress, type TurnOptions } from "../lib/turn";
 import { findStacks } from "../lib/stacks";
 import { defaultName } from "../lib/review-name";
@@ -205,6 +206,20 @@ export function register(deps: ServeDeps) {
       if (!(await store.getPreferences()).preferences.knobs.stopGenerating) return { ok: false, error: "Stopping a guide is off in Settings." };
       // No alert either way: you stopped it.
       return await stopGuide(bb, store, targetKey) === "restored" ? { ok: true, restored: true } : { ok: true };
+    },
+    async updateFeature({ targetKey }) {
+      // A folder's review reads its folder on whichever machine it's on; a checkout's runs its diff again.
+      if ((await store.getReview(targetKey))?.feature) return updateFolder(deps, targetKey);
+      const result = await updateReview(deps, targetKey);
+      if (result.ok) changed(targetKey);
+      return result;
+    },
+    async rewriteGuide({ targetKey }) {
+      const review = await store.getReview(targetKey);
+      // As Update guide's: an archived review keeps its guide, and one being written is for the code as just read.
+      if (review?.archivedAt && await store.getGuide(targetKey)) return { ok: false, error: "This review is archived. Its guide and conversation are still available." };
+      if (review?.status === "generating") return { ok: true };
+      return rerunReview(deps, targetKey);
     },
     async archiveReview({ targetKey, archived }) {
       return store.exclusive(async (tx) => {

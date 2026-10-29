@@ -180,6 +180,11 @@ export interface FeatureReview {
   prReview?: string;
   /** How many files changed in the folder since the review read it, as last checked; null for none or not checked. */
   changedFiles?: number | null;
+  /**
+   * The diff shown is newer than its guide: your Update read the folder again ("update"), or Include or Keep out changed
+   * which files it shows ("include"). Null once a new guide is accepted.
+   */
+  guideOlderThanDiff?: "update" | "include" | null;
 }
 
 /** A thread that fixes the review's comments. */

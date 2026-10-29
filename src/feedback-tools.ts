@@ -8,7 +8,8 @@ import { recordAgentReads } from "./agent-reads";
 import { writeSummary } from "./draft-summary";
 import { runGh, runGit } from "./gh";
 import { toolThreadReview } from "./thread-review";
-import { assess, changesSinceReview, describeFeedback, readFileAt } from "./verification";
+import { assess, changesSinceReview, changesSinceSend, describeFeedback, readFileAt } from "./verification";
+import { baselineOf } from "../lib/turn";
 import type { ReviewMeta } from "./store";
 import { trustedAuthor } from "../lib/trust";
 import { failed, type ServeDeps } from "./server-modules";
@@ -39,11 +40,19 @@ export function register(deps: ServeDeps) {
   });
   bb.agents.registerTool({
     name: "read_changes_since_review",
-    description: "What changed in this PR since the reviewer's last review: the PR's diff then compared with its diff now, file by file (rebases and base-branch merges don't show), plus the commits since. Pass file for one file.",
-    parameters: z.object({ file: z.string().optional().describe("Repo-relative path, as the diff shows it.") }),
-    async execute({ file }, { threadId }) {
+    description: "What changed in this PR since the reviewer's last review: the PR's diff then compared with its diff now, file by file (rebases and base-branch merges don't show), plus the commits since. Pass file for one file. Pass send for what changed since that Send of comments to the main thread; a review with Sends and no review of the PR compares with its last Send.",
+    parameters: z.object({
+      file: z.string().optional().describe("Repo-relative path, as the diff shows it."),
+      send: z.number().int().positive().optional().describe("A Send's number, as a sent comment's Send names it."),
+    }),
+    async execute({ file, send }, { threadId }) {
       const targetKey = await toolThreadReview(bb, store, threadId);
       const review = targetKey ? await store.getReview(targetKey) : null;
+      // A Send's comparison is the review's own snapshots, with no GitHub to read: for a local review too.
+      if (review && (send !== undefined || review.sends?.length && !baselineOf(review).sha)) {
+        try { return await changesSinceSend(store, { bb, run: runGh, git: runGit }, review, send, file); }
+        catch (error) { return failed(error instanceof Error ? error.message : "Couldn't compare with the Send."); }
+      }
       if (!review || review.kind !== "pr") return failed("There's no PR review to compare.");
       try { return await changesSinceReview(store, runGh, review, file); }
       catch (error) { return failed(error instanceof Error ? error.message : "Couldn't compare with the reviewer's last review."); }

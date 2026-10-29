@@ -10,6 +10,7 @@ import type { WorkspaceApi } from "../lib/workspace-context";
 import { CompactViewportOverrideProvider } from "./ui/hooks/use-compact-viewport";
 import { Button } from "./ui/button";
 import { Hint } from "./ui/hint";
+import { REWRITE_GUIDE } from "./shell/ReviewNotices";
 import { useMediaQuery } from "./ui/hooks/use-media-query";
 import { Icon } from "./ui/icon";
 import { ReviewActions, type ReviewMenuItem } from "./ReviewActions";
@@ -112,7 +113,8 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
 }
 
 /**
- * Review actions (⋯): the workspace's Update or Rebuild guide first, then the review's own, with the workspace's Keyboard
+ * Review actions (⋯): the workspace's Update or Rebuild guide first, then the review's own, a local review's Rewrite guide
+ * after its Rename…, so the menu doesn't open on what starts the guide writer, with the workspace's Keyboard
  * shortcuts and Review settings… after Open on GitHub. An archived review's guide isn't rebuilt. A phone, without a
  * mouse to say a keyboard may be there, has no Keyboard shortcuts; an iPad keeps them, for its keyboard. Neither has
  * them while Settings turns single-key shortcuts off.
@@ -120,10 +122,12 @@ function ReviewControls({ api, placement }: { api: WorkspaceApi; placement: Titl
 export function ReviewMenu({ api, className }: { api: WorkspaceApi; className?: string }) {
   const fine = useMediaQuery("(any-pointer: fine)");
   const keys = api.shortcuts && (fine || !phoneWindow());
-  const items: ReviewMenuItem[] = api.review.archivedAt ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() }];
+  const local = api.review.kind === "ref";
+  const items: ReviewMenuItem[] = api.review.archivedAt || local ? [] : [{ label: api.newCommits ? "Update guide" : "Rebuild guide", icon: "ArrowReloadHorizontal", onSelect: () => void api.rebuild() }];
+  const afterRename: ReviewMenuItem[] = api.review.archivedAt || !local ? [] : [{ label: "Rewrite guide", icon: "Sparkles", agent: true, description: REWRITE_GUIDE, onSelect: () => void api.rebuild() }];
   const trailing: ReviewMenuItem[] = [
     ...(keys ? [{ label: "Keyboard shortcuts", icon: "CircleQuestion", keys: "?", onSelect: api.showShortcuts } satisfies ReviewMenuItem] : []),
     { label: "Review settings…", icon: "Settings", onSelect: () => void api.leave(`settings/${api.targetKey}`) },
   ];
-  return <ReviewActions review={api.review} className={className} pinnable={api.pinnable} items={items} trailing={trailing} onChanged={() => void api.reload()} onDeleted={() => void api.leave()} />;
+  return <ReviewActions review={api.review} className={className} pinnable={api.pinnable} items={items} afterRename={afterRename} trailing={trailing} onChanged={() => void api.reload()} onDeleted={() => void api.leave()} />;
 }

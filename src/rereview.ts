@@ -113,6 +113,33 @@ export async function rebuildReview(deps: Pick<Deps, "bb" | "store">, tx: AsyncS
 }
 
 /**
+ * Update: read a local review's code again and show it, the comments following their lines, without the guide writer.
+ * The guide stays as it was written; Rewrite guide (rerunReview) writes a new one.
+ */
+export async function updateReview(deps: Pick<Deps, "store" | "gh">, targetKey: string): Promise<{ ok: boolean; error?: string }> {
+  const m = await deps.store.getReview(targetKey);
+  if (!m) return { ok: false, error: "This review no longer exists." };
+  if (m.kind !== "ref" || !m.gitRef) return { ok: false, error: "Only a local review updates without its guide. Use Update guide." };
+  if (!m.cwd) return { ok: false, error: "Updating a local review needs its original working dir; re-run `bb review` in the terminal." };
+  const diff = await deps.gh.runGit(gitDiffArgs(m.gitRef), { cwd: m.cwd });
+  if (diff.code !== 0) return { ok: false, error: diff.stderr || "git diff failed" };
+  if (!diff.stdout.trim()) return { ok: false, error: "No changes found." };
+  return deps.store.exclusive(async (tx) => {
+    const now = await tx.getReview(targetKey);
+    if (!now) return { ok: false, error: "This review was deleted." };
+    // The guide being written is for the diff it was given: an Update meanwhile would show it another.
+    if (now.status === "generating") return { ok: false, error: "The guide writer is writing this review’s guide. Update once it’s done." };
+    const previous = await tx.patch(targetKey);
+    const next = ensureGitHeaders(diff.stdout);
+    await tx.savePatch(targetKey, next);
+    // The comments follow their lines into the new diff, as on a rebuild.
+    await tx.rebaseDraftComments(targetKey, await reanchorDraft(tx, targetKey, previous, next));
+    await pruneDiffs(tx, now);
+    return { ok: true };
+  });
+}
+
+/**
  * Whether a local review's diff, run again in its checkout, is no longer the one its guide was written for. False while
  * its guide is building, and when the diff can't be run, as without its checkout, or comes back empty.
  */

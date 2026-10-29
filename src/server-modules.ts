@@ -89,7 +89,7 @@ export const ASSISTANT_TOOL_NAMES = ["read_review_patch", "list_review_files", "
  */
 export const ASSISTANT_WRITE_TOOL_NAMES: string[] = [];
 // Raise when the review assistant's tools, or their instructions, change.
-export const ASSISTANT_TOOLS = 10;
+export const ASSISTANT_TOOLS = 11;
 
 /** A tool's answer that it failed, with why. */
 export const failed = (text: string): PluginAgentToolResult => ({ content: [{ type: "text", text }], isError: true });

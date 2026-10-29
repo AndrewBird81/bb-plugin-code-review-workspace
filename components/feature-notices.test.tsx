@@ -176,3 +176,46 @@ test("a review that isn't of a folder, or became its PR's, asks nothing about on
   expect(checkFeature).not.toHaveBeenCalled();
   ref.slot.lifecycle.unmount();
 });
+
+test("after Update, a guide written before it says so, after Changed, with Rewrite guide, which says it starts the guide writer", async () => {
+  const rewriteGuide = vi.fn(() => ({ ok: true }));
+  const review = { ...local, feature: { ...feature, guideOlderThanDiff: "update" } };
+  const { slot } = await renderWorkspace({ checkFeature: () => ({ ...nothing, state: "changed", changedFiles: 1 }), rewriteGuide }, review);
+  const text = "The guide was written before your last Update.";
+  // Changed first: it's what Update answers.
+  const more = await slot.findByRole("button", { name: "1 more notice" });
+  const shown = within(more.closest<HTMLElement>("[aria-live]")!);
+  fireEvent.click(more);
+  await slot.findByText(text);
+  expect(shown.getAllByRole("status").map((row) => row.getAttribute("aria-label"))).toEqual(["Folder changed", "Guide out of date"]);
+  const rewrite = within(notice(slot, text)).getByRole("button", { name: "Rewrite guide" });
+  expect(rewrite.getAttribute("aria-description")).toBe("Starts the guide writer to write a new guide for the code now.");
+  expect(rewrite.querySelector("svg")?.getAttribute("data-icon")).toBe("Sparkles");
+  fireEvent.click(rewrite);
+  await waitFor(() => expect(rewriteGuide).toHaveBeenCalledWith({ targetKey: KEY }));
+  slot.lifecycle.unmount();
+  cleanup();
+
+  // While the guide is being written, its own notice says so instead; and Rewrite guide can't run once the folder's gone
+  // or the review's archived, so it isn't offered.
+  for (const [rpc, shown] of [
+    [{ checkFeature: () => nothing }, { ...review, status: "generating" }],
+    [{ checkFeature: () => ({ ...nothing, state: "gone", message: "BB removed this folder." }) }, review],
+    [{ checkFeature: () => nothing }, { ...review, archivedAt: 5 }],
+    [{ checkFeature: () => nothing }, { ...review, userArchivedAt: 5 }],
+  ] as const) {
+    const quiet = await renderWorkspace(rpc, shown);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Not under +N either.
+    const more = quiet.slot.queryByRole("button", { name: /more notices?$/ });
+    if (more) fireEvent.click(more);
+    expect(quiet.slot.queryByText(text)).toBeNull();
+    quiet.slot.lifecycle.unmount();
+    cleanup();
+  }
+
+  // After Include or Keep out, it says what changed.
+  const included = await renderWorkspace({ checkFeature: () => nothing }, { ...local, feature: { ...feature, guideOlderThanDiff: "include" } });
+  expect(await included.slot.findByText("The guide was written before you changed which files are shown.")).toBeTruthy();
+  included.slot.lifecycle.unmount();
+});

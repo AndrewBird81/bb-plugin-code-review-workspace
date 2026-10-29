@@ -163,19 +163,20 @@ export function interdiff(reviewedPatch: string, currentPatch: string): FileInte
   return out;
 }
 
-/** A plain-text report for an AI assistant: a summary line (counts of changed/added/removed/unchanged files), then for each changed/added/removed file (or only `file`): a header, its `patch`, and "Gone since your review:" + `dropped` when present. Truncated at maxChars (default 60_000) with a note saying how to ask for one file, or, when that's what was asked for, to read the rest with read_file. "No changes since your review." when nothing changed. */
-export function describeInterdiff(files: FileInterdiff[], options: { file?: string; maxChars?: number } = {}): string {
+/** A plain-text report for an AI assistant: a summary line (counts of changed/added/removed/unchanged files), then for each changed/added/removed file (or only `file`): a header, its `patch`, and "Gone since your review:" + `dropped` when present. Truncated at maxChars (default 60_000) with a note saying how to ask for one file, or, when that's what was asked for, to read the rest with read_file. "No changes since your review." when nothing changed. `since` names what it's compared with, "your review" by default. */
+export function describeInterdiff(files: FileInterdiff[], options: { file?: string; maxChars?: number; since?: string } = {}): string {
+  const since = options.since ?? "your review";
   const count = (s: FileInterdiff["status"]) => files.filter((f) => f.status === s).length;
-  if (files.every((f) => f.status === "unchanged")) return "No changes since your review.";
+  if (files.every((f) => f.status === "unchanged")) return `No changes since ${since}.`;
   const shown = files.filter((f) => f.status !== "unchanged" && (options.file == null || f.file === options.file));
-  if (options.file != null && !shown.length) return `No changes to ${options.file} since your review.`;
+  if (options.file != null && !shown.length) return `No changes to ${options.file} since ${since}.`;
   const parts = [
-    `Since your review: ${count("changed")} changed, ${count("added")} added, ${count("removed")} removed, ${count("unchanged")} unchanged files.`,
+    `Since ${since}: ${count("changed")} changed, ${count("added")} added, ${count("removed")} removed, ${count("unchanged")} unchanged files.`,
   ];
   for (const f of shown) {
     parts.push(`=== ${shownPath(f.file)} (${f.status}) ===`);
     if (f.patch) parts.push(f.patch.trimEnd());
-    if (f.dropped) parts.push("Gone since your review:\n" + f.dropped.trimEnd());
+    if (f.dropped) parts.push(`Gone since ${since}:\n` + f.dropped.trimEnd());
   }
   const text = parts.join("\n\n");
   const maxChars = options.maxChars ?? 60_000;
@@ -183,6 +184,6 @@ export function describeInterdiff(files: FileInterdiff[], options: { file?: stri
   const cut = text.slice(0, maxChars);
   const nl = cut.lastIndexOf("\n");
   // The tool reads no further into one file's changes, so asking for that file again would show the same.
-  const rest = options.file != null ? `Use read_file with ref "current" to read the rest of ${shownPath(options.file)} as it is now.` : "Ask for one file's changes since your review by its path to see it in full.";
+  const rest = options.file != null ? `Use read_file with ref "current" to read the rest of ${shownPath(options.file)} as it is now.` : `Ask for one file's changes since ${since} by its path to see it in full.`;
   return `${nl > 0 ? cut.slice(0, nl) : cut}\n\n[Truncated at ${maxChars} characters. ${rest}]`;
 }

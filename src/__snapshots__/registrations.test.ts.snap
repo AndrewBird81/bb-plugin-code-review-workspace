@@ -359,13 +359,19 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
-    "description": "What changed in this PR since the reviewer's last review: the PR's diff then compared with its diff now, file by file (rebases and base-branch merges don't show), plus the commits since. Pass file for one file.",
+    "description": "What changed in this PR since the reviewer's last review: the PR's diff then compared with its diff now, file by file (rebases and base-branch merges don't show), plus the commits since. Pass file for one file. Pass send for what changed since that Send of comments to the main thread; a review with Sends and no review of the PR compares with its last Send.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "file": {
           "description": "Repo-relative path, as the diff shows it.",
           "type": "string",
+        },
+        "send": {
+          "description": "A Send's number, as a sent comment's Send names it.",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
         },
       },
       "type": "object",

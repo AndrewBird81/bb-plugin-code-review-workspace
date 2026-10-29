@@ -210,6 +210,22 @@ test("Review actions offers Update guide for new commits, else Rebuild guide, th
   await waitFor(() => expect(rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
 });
 
+test("a local review's Review actions offers Rewrite guide after Rename, with the agent's sparkle, as its notice's Update keeps the guide", async () => {
+  fakeSize(1400, 900);
+  const rereview = vi.fn(() => ({ ok: true }));
+  const { bar } = await renderReview({ review: { kind: "ref", gitRef: "main...feature", cwd: "/repo" }, rpc: { rereview } });
+  fireEvent.click(await bar!.findByRole("button", { name: "Review actions" }));
+  const rewrite = await bar!.findByRole("button", { name: "Rewrite guide" });
+  // Not where the menu opens: after Rename….
+  const names = Array.from(rewrite.parentElement!.querySelectorAll("button")).map((item) => item.textContent);
+  expect(names.indexOf("Rewrite guide")).toBe(names.indexOf("Rename…") + 1);
+  expect(rewrite.querySelector("svg")?.getAttribute("data-icon")).toBe("Sparkles");
+  expect(rewrite.getAttribute("aria-description")).toBe("Starts the guide writer to write a new guide for the code now.");
+  expect(bar!.queryByRole("button", { name: /^(Update|Rebuild) guide$/ })).toBeNull();
+  fireEvent.click(rewrite);
+  await waitFor(() => expect(rereview).toHaveBeenCalledWith({ targetKey: "pr-42" }));
+});
+
 test("an iPad without a mouse keeps Keyboard shortcuts in Review actions, for its keyboard", async () => {
   fakeSize(1032, 1376);
   const { bar } = await renderReview();
