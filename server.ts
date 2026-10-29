@@ -37,7 +37,7 @@ import { createConfigureView } from "./src/configure-view";
 import { chooseStorage, openPostgres, unlessAborted } from "./src/storage";
 import { createStorageCommand } from "./src/storage-cli";
 import { migratePg, pgSchemaMigrated } from "./src/db/pg-migrations";
-import { listen, merge, ASSISTANT_TOOLS, ASSISTANT_TOOL_NAMES, SUBCOMMANDS, WRITER_TOOL_NAMES, type RpcHandlers, type ServeDeps, type Subcommands } from "./src/server-modules";
+import { listen, merge, ASSISTANT_TOOLS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOL_NAMES, SUBCOMMANDS, WRITER_TOOL_NAMES, type RpcHandlers, type ServeDeps, type Subcommands } from "./src/server-modules";
 import * as settingsRpc from "./src/settings-rpc";
 import * as reviewsRpc from "./src/reviews-rpc";
 import * as githubThreadsRpc from "./src/github-threads-rpc";
@@ -330,7 +330,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       const targetKey = configured.threadReview(context.thread!);
       const review = targetKey ? configured.review(targetKey) : null;
       return {
-        tools: [...ASSISTANT_TOOL_NAMES], skills: [],
+        tools: [...ASSISTANT_TOOL_NAMES, ...(configured.preferences().knobs.reviewAgentActs ? ASSISTANT_WRITE_TOOL_NAMES : [])], skills: [],
         ...(review ? { instructions: assistantInstructions(review.targetKey, configured.guide(review.targetKey), configured.preferences(), mayRunChecks(review, configured.preferences()) ? review.number : undefined) } : {}),
       };
     }

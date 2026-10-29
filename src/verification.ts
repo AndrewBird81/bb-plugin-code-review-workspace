@@ -28,7 +28,7 @@ export function verificationContext(review: ReviewMeta, reason: string): string 
     review.headSha && head && review.headSha !== head
       ? `The guide and read_review_patch still show commit ${short(review.headSha)}. For the code now, use read_changes_since_review and read_file with ref "current". add_draft_comment only accepts lines in the diff at ${short(review.headSha)}; put new problems in your reply and in assess_feedback's suggestedBody, as file:line at ${short(head)}.`
       : "read_review_patch shows the PR as it is now.",
-    `Use list_feedback for the reviewer's feedback, read_changes_since_review for what changed since their review, and record every item with assess_feedback (it applies to head ${short(head)}). Only the reviewer posts to GitHub.`,
+    `Use list_feedback for the reviewer's feedback, read_changes_since_review for what changed since their review, and record every item with assess_feedback (it applies to head ${short(head)}). Post nothing to GitHub for the check itself.`,
   ].join("\n");
 }
 

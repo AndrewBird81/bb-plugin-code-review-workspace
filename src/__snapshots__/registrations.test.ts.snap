@@ -73,7 +73,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
-    "description": "Add an inline comment to the reviewer's local draft for this review, on a line of the current diff, or with startLine on lines startLine to line. Nothing reaches GitHub: the reviewer edits, removes, or submits it. Refuses a line that already has a draft comment.",
+    "description": "Add an inline comment to the reviewer's local draft for this review, on a line of the current diff, or with startLine on lines startLine to line. It reaches GitHub only when the review is submitted. Refuses a line that already has a draft comment.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -148,7 +148,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
       ],
       "type": "object",
     },
-    "instructions": "During a review pass, or when the reviewer asks, add each verified issue with add_draft_comment on the line it concerns, or the lines (startLine to line). In ordinary chat, answer in chat. Put one issue in each comment. Give its severity (blocking, should-fix, question, or nit), then say concretely what fails and the fix. Put how you confirmed it in evidence, with file:line: only what you read or ran. Prefer a \`\`\`suggestion block for a small, mechanical fix: it holds the exact replacement, indentation included, for exactly the commented lines, line alone or startLine to line, and the author applies it with one click. Give a range that covers every line the suggestion replaces, and no more. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment, and the comments the reviewer removed: don't raise those again unless their code changed. edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit, remove, and submit it. Never post to GitHub yourself, for example with gh pr review, gh pr comment, gh api writes, or git push.",
+    "instructions": "During a review pass, or when the reviewer asks, add each verified issue with add_draft_comment on the line it concerns, or the lines (startLine to line). In ordinary chat, answer in chat. Put one issue in each comment. Give its severity (blocking, should-fix, question, or nit), then say concretely what fails and the fix. Put how you confirmed it in evidence, with file:line: only what you read or ran. Prefer a \`\`\`suggestion block for a small, mechanical fix: it holds the exact replacement, indentation included, for exactly the commented lines, line alone or startLine to line, and the author applies it with one click. Give a range that covers every line the suggestion replaces, and no more. Points about the change as a whole go in the review summary, with set_review_summary. list_draft_comments shows the draft and who added each comment, and the comments the reviewer removed: don't raise those again unless their code changed. edit_draft_comment and delete_draft_comment change it. Change or delete the reviewer's own comments only when they ask. The draft is the reviewer's: they edit and remove it, and it's submitted only when they say so.",
     "name": "add_draft_comment",
     "presentation": null,
   },
@@ -354,7 +354,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
       "properties": {},
       "type": "object",
     },
-    "instructions": "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review, then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, and each distinct ask in the summaries as "summary:<n>" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or "Fixed in abc123, thanks." The reviewer posts replies and resolves threads; you never do.",
+    "instructions": "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review, then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, and each distinct ask in the summaries as "summary:<n>" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or "Fixed in abc123, thanks."",
     "name": "list_feedback",
     "presentation": null,
   },
@@ -502,7 +502,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "presentation": null,
   },
   {
-    "description": "Draft a reply on one of the reviewer's review threads. It waits on the thread in Comments; only the reviewer sends it to GitHub.",
+    "description": "Draft a reply on one of the reviewer's review threads. It waits on the thread in Comments, unposted.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

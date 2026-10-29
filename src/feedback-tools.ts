@@ -28,7 +28,7 @@ export function register(deps: ServeDeps) {
   bb.agents.registerTool({
     name: "list_feedback",
     description: "List the reviewer's feedback on this PR: each review thread they started (id, location, their comment, replies, resolved/outdated state, any earlier verdict) and their review summaries.",
-    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review, then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or \"Fixed in abc123, thanks.\" The reviewer posts replies and resolves threads; you never do.",
+    instructions: "When a review comes back to the reviewer, check whether each piece of their feedback was properly addressed: list_feedback, then read_changes_since_review, then read_file where you need context. Judge the fix itself, not just whether the lines changed: a renamed variable doesn't fix a race. Record every thread, and each distinct ask in the summaries as \"summary:<n>\" with a title, with assess_feedback: addressed, partial, not_addressed, disputed (the author argues against it; say why in the evidence), or unclear. Then suggest a verdict and a short summary the reviewer could submit, with assess_feedback: they go into the reviewer's draft, where the reviewer picks the verdict. A summary the reviewer wrote stays theirs, and yours waits in Finish review. Draft a reply with draft_thread_reply only on open threads where one adds something, such as what's still missing, or \"Fixed in abc123, thanks.\"",
     parameters: z.object({}),
     async execute(_input, { threadId }) {
       const review = await assistantReviewOf(threadId);
@@ -149,7 +149,7 @@ export function register(deps: ServeDeps) {
   });
   bb.agents.registerTool({
     name: "draft_thread_reply",
-    description: "Draft a reply on one of the reviewer's review threads. It waits on the thread in Comments; only the reviewer sends it to GitHub.",
+    description: "Draft a reply on one of the reviewer's review threads. It waits on the thread in Comments, unposted.",
     parameters: z.object({ threadId: z.string().min(1).describe("The thread id from list_feedback."), body: z.string().trim().min(1).max(65_000).describe("The reply, in GitHub Markdown.") }),
     async execute({ threadId: thread, body }, { threadId }) {
       const review = await assistantReviewOf(threadId);
