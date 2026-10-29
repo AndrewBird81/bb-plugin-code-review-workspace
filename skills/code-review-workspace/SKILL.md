@@ -37,7 +37,7 @@ bb review [<pr-url | owner/repo#n | pr-number | git-ref> [--base <ref>]] [--cont
 - `--name <text>` gives the review the reviewer's name for it in BB, when they ask for one; `''`
   puts the PR's title or the ref back.
 - It prints the review's id (`api#4512`, or `api:branch` for local work), its name, its key
-  (`pr-…` or `ref-…`) and where to open it. An agent writes the guide
+  (`pr-…`, `ref-…`, or `br-…` for a folder's) and where to open it. An agent writes the guide
   in the background; you needn't wait for it, but comments and the summary do: run
   `bb review list` until the review says guide ready.
 - Running it with a PR or ref makes this thread the review's source; with none, the main thread is. The reviewer can send
@@ -73,7 +73,7 @@ its guide is ready. A review the reviewer renamed adds `named "…"`, the name t
 
 ## Draft comments
 
-A `<review>` is a PR's URL, `owner/repo#n`, or a review's key (`pr-…` or `ref-…`). A line is its
+A `<review>` is a PR's URL, `owner/repo#n`, or a review's key (`pr-…`, `ref-…`, or `br-…`). A line is its
 number in the new file; add `--side LEFT` for a removed line, numbered in the old file.
 
 ```sh
