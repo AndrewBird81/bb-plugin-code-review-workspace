@@ -73,9 +73,6 @@ export function mismatchText(files: readonly string[], secrets: readonly string[
 /** What Push says when GitHub has commits the folder doesn't: a push without force would be refused. */
 export const behindText = (head: string) => `GitHub has commits on ${code(head)} that this folder doesn’t. Pull first, or Push anyway to try.`;
 
-/** What Push says when a fixer pushed a commit of its folder on its own, as you can tell it in its chat. */
-export const pushedByFixer = (head: string, commit: string) => `The fixer pushed ${sha(commit)} to ${code(head)} from its folder.`;
-
 /** What Push says when GitHub has the commit already. */
 export const nothingToPush = (head: string, commit: string) => `Nothing to push. GitHub already has ${sha(commit)} on ${code(head)}.`;
 
@@ -85,7 +82,7 @@ export const nothingToPush = (head: string, commit: string) => `Nothing to push.
  */
 export function pushFlagText(run: PushRun | null | undefined): string | null {
   if (run?.state !== "flagged") return null;
-  if (run.flag === "unrequested") return `${code(run.head)} has new commits on GitHub (now ${sha(run.remote ?? "")}) that didn’t come from Push. A teammate, CI or a thread may have pushed them.`;
+  if (run.flag === "unrequested") return `${code(run.head)} has new commits on GitHub (now ${sha(run.remote ?? "")}) that didn’t come from Push. ${run.fixer ? "The fixer, a teammate or CI" : "A teammate, CI or a thread"} may have pushed them.`;
   if (run.flag === "stopped") return `${code(run.head)} wasn’t pushed: the main thread ${run.why === "failed" ? "failed" : `was ${run.why ?? "stopped"}`} before it finished.`;
   if (!run.remote) return `${code(run.head)} isn’t on GitHub, so ${sha(run.sha ?? "")} wasn’t pushed. Check the main thread.`;
   return `GitHub’s ${code(run.head)} is at ${sha(run.remote)}, not ${sha(run.sha ?? "")}. The push may have failed: check the main thread.`;

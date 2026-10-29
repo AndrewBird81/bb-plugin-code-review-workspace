@@ -208,7 +208,7 @@ function Push() {
       </div>
     </div>
     : <>
-      {run?.state === "pushed" ? <p role="status" className="flex gap-1.5 text-sm"><Icon name="CircleCheck" className="mt-0.5 size-4 shrink-0 text-diff-added" aria-hidden /><span>{run.byFixer ? "The fixer pushed" : "Pushed"} <Mono text={sha} /> to {branch}{run.byFixer && " from its folder"}{timeAgo(run.at) && <span className="text-muted-foreground"> · {timeAgo(run.at)}</span>}</span></p>
+      {run?.state === "pushed" ? <p role="status" className="flex gap-1.5 text-sm"><Icon name="CircleCheck" className="mt-0.5 size-4 shrink-0 text-diff-added" aria-hidden /><span>Pushed <Mono text={sha} /> to {branch}{timeAgo(run.at) && <span className="text-muted-foreground"> · {timeAgo(run.at)}</span>}</span></p>
         : <p className="text-sm text-muted-foreground">{target.fixer ? "The fixer" : "The main thread"} commits what you reviewed{target.pr ? " in Not pushed yet" : ""}, the review checks it, then it’s pushed to {branch}. Never forced.</p>}
       {pushButton("Push")}
     </>}

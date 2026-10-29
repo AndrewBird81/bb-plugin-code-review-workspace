@@ -961,10 +961,10 @@ test("on your PR with a fixer, Push says the fixer commits what Not pushed yet s
   slot.lifecycle.unmount();
 });
 
-test("a fixer's own push of a commit its folder has reads as the fixer's push, not a flag", async () => {
-  const { slot, part } = await renderPush({ state: "pushed", byFixer: true, at: now, threadId: "fixer", repo: "acme/web", head: "feat/qa", sha: HEAD }, {}, fixerReview);
-  expect(within(part()).getByRole("status").textContent).toMatch(/^The fixer pushed abc1234 to feat\/qa from its folder · /);
-  expect(slot.queryByRole("alert", { name: "Push not on GitHub" })).toBeNull();
-  expect(slot.queryByRole("status", { name: "New commits on GitHub" })).toBeNull();
+test("on your PR with a fixer, new commits on GitHub that didn't come from Push name the fixer among who may have pushed them", async () => {
+  const { slot, part } = await renderPush({ state: "flagged", flag: "unrequested", fixer: true, at: now, threadId: "fixer", repo: "acme/web", head: "feat/qa", remote: HEAD }, {}, fixerReview);
+  const said = "feat/qa has new commits on GitHub (now abc1234) that didn’t come from Push. The fixer, a teammate or CI may have pushed them.";
+  expect(within(part()).getByRole("status").textContent).toContain(said);
+  expect(slot.getByRole("status", { name: "New commits on GitHub" }).textContent).toContain(said);
   slot.lifecycle.unmount();
 });

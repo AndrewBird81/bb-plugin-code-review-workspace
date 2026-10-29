@@ -206,7 +206,7 @@ async function tell(deps: Deps, review: ReviewMeta, threadId: string, text: stri
  * What Push answers: what it asked the thread, to commit, to push, or to push anyway; or `note`, nothing was asked; or
  * `warning`, it waits for your choice; or an error.
  */
-type Started = { ok: boolean; error?: string; warning?: string; note?: string; delivery?: "sent" | "queued"; asked?: "commit" | "push" | "anyway" };
+type Started = { ok: boolean; error?: string; warning?: string; note?: string; delivery?: "sent" | "queued"; asked?: "commit" | "push" | "anyway"; at?: number };
 
 const BUSY = (run: PushRun | null) => run?.state === "committing" || run?.state === "pushing" ? `Push is waiting on the main thread already, to ${run.state === "committing" ? "commit" : "push"}. ${run.state === "committing" ? "Cancel" : "Stop waiting"} in Finish review, then Push again.` : null;
 
@@ -268,14 +268,14 @@ export async function startPush(deps: Deps, targetKey: string, { force = false, 
     if (behind) {
       const warning = behindWarning(behind, place, machineOf(review!, place));
       const swapped = await swapPush(deps, targetKey, ours, { ...run, state: "mismatch", behind: true, warning });
-      return "error" in swapped ? { ok: false, error: swapped.error } : { ok: true, warning: plainText(warning) };
+      return "error" in swapped ? { ok: false, error: swapped.error } : { ok: true, warning: plainText(warning), at: run.at };
     }
     // Nothing to commit: the folder's head is the commit.
     if (head?.sha && !head.dirty) {
       const checked = await checkCommit(deps, review!, place, head.sha, github?.sha);
       if (!checked.ok) {
         const swapped = await swapPush(deps, targetKey, ours, { ...run, state: "mismatch", ...checked.sha ? { sha: checked.sha } : {}, warning: checked.warning, files: checked.files, ...checked.secrets ? { secrets: checked.secrets } : {} });
-        return "error" in swapped ? { ok: false, error: swapped.error } : { ok: true, warning: plainText(checked.warning) };
+        return "error" in swapped ? { ok: false, error: swapped.error } : { ok: true, warning: plainText(checked.warning), at: run.at };
       }
       const text = pushText(place, checked.sha);
       if (!text) { await savePush(deps, targetKey, claimed.was); return { ok: false, error: UNSAFE }; }
@@ -353,8 +353,6 @@ async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, wh
     if (typeof place === "string") continue;
     const read = await githubHead(gh.runGh, place);
     const github = "sha" in read ? { repo: place.repo, head: place.head, sha: read.sha } : null;
-    // A fixer may push when you tell it to in its own chat, as its brief says: a new head its folder has is its push.
-    const fromFixer = place.fixer && !!github?.sha && github.sha !== review.remoteHead?.sha && await behindGithub(deps, place.environmentId, github.sha) === false;
     await store.exclusive(async (tx) => {
       const now = await tx.getReview(review.targetKey);
       if (!now) return;
@@ -369,9 +367,10 @@ async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, wh
         next = github.sha?.startsWith(run.sha) ? { ...run, state: "pushed", at: Date.now(), sha: github.sha, flag: undefined, remote: undefined }
           : run.state === "flagged" && run.remote === github.sha || run.state === "pushing" && thread.queued ? undefined
           : { ...run, state: "flagged", flag: "differs", remote: github.sha, at: Date.now() };
-      } else if (was && github.sha && was.sha !== github.sha && !(now.sends ?? []).some((send) => send.letPush && send.at > was.at)) {
-        next = fromFixer ? { state: "pushed", byFixer: true, at: Date.now(), threadId: thread.id, repo: place.repo, head: place.head, sha: github.sha }
-          : { state: "flagged", flag: "unrequested", at: Date.now(), threadId: thread.id, repo: place.repo, head: place.head, remote: github.sha };
+      } else if (was && github.sha && was.sha !== github.sha && run?.state !== "flagged" && !(now.sends ?? []).some((send) => send.letPush && send.at > was.at)) {
+        // Whoever pushed it, a fixer told in its own chat, a teammate or CI: said plainly, never as checked. A flag you
+        // haven't dismissed stays as it is.
+        next = { state: "flagged", flag: "unrequested", at: Date.now(), threadId: thread.id, repo: place.repo, head: place.head, remote: github.sha, ...place.fixer ? { fixer: true as const } : {} };
       }
       await tx.setLifecycle(review.targetKey, { ...github ? { remoteHead: noted(was, github) } : {}, ...next !== undefined ? { push: next } : {} });
       if (next !== undefined) deps.changed(review.targetKey);
@@ -389,7 +388,7 @@ export function register(deps: ServeDeps) {
     async push({ targetKey, force, sha, at }) {
       // Push anyway from the page goes on the warning it shows, by when it came.
       if (force && at === undefined) return { ok: false, error: "Push anyway needs the warning it answers. Reload, then choose." };
-      const { asked: _asked, ...started } = await startPush(deps, targetKey, { force, sha, at });
+      const { asked: _asked, at: _at, ...started } = await startPush(deps, targetKey, { force, sha, at });
       return started;
     },
     async dismissPush({ targetKey }) {
@@ -416,11 +415,12 @@ export function register(deps: ServeDeps) {
   bb.agents.registerTool({
     name: "push",
     description: "Push this review's branch to GitHub when the reviewer says push: the main thread commits what they reviewed, the review checks the commit, then the main thread pushes exactly that commit. Never a force-push.",
-    instructions: `Only when the reviewer's message in this review is just "push" or "push it", call push and tell them it's under way: the main thread commits, and Push in Finish review shows the check and the push. If it warns, say so in a line, and call push with force: true only once their message is just "push anyway". In any other turn it pushes nothing. ${ONLY_WITH_THESE_TOOLS}`,
+    instructions: `Only when the reviewer's message in this review is just "push" or "push it", call push and tell them it's under way: the main thread commits, and Push in Finish review shows the check and the push. If it warns, tell them the warning in a line, with its at; call push with force: true and that at only once their message is just "push anyway". In any other turn it pushes nothing. ${ONLY_WITH_THESE_TOOLS}`,
     parameters: z.object({
       force: z.boolean().optional().describe("Push anyway, past the warning the last Push gave, once the reviewer's message is just \"push anyway\"."),
+      at: z.number().optional().describe("With force: the at of the warning you told the reviewer, as push gave it."),
     }),
-    execute: async ({ force }, { threadId }) => {
+    execute: async ({ force, at }, { threadId }) => {
       const targetKey = await store.exclusive((tx) => assistantReview(tx, threadId));
       if (!targetKey) return failed("This conversation is no longer a review's assistant, so it has nothing to push.");
       if (!(await store.getPreferences()).preferences.knobs.reviewAgentActs) return failed("Settings has the review agent only draft now, so nothing was pushed. The reviewer can use Push in Finish review.");
@@ -431,7 +431,13 @@ export function register(deps: ServeDeps) {
       if (order === null || !(force ? PUSH_ANYWAY : [...PUSH, ...PUSH_ANYWAY]).includes(order)) {
         return failed(`Not pushed: only the reviewer starts ${force ? "Push anyway" : "a push"}, with a message in this review that's just "${force ? "push anyway" : "push"}". Suggest it in your reply; they can use Push in Finish review.`);
       }
-      const started = await startPush(deps, targetKey, { force });
+      // Push anyway goes on the warning the reviewer was told: without its at, the agent is told the warning now.
+      if (force && at === undefined) {
+        const run = (await store.getReview(targetKey))?.push;
+        if (run?.state !== "mismatch") return failed("Not pushed: No commit is waiting on Push anyway. Push to start again.");
+        return failed(`Not pushed yet. The warning now: ${plainText(run.warning ?? "the commit isn't what the reviewer reviewed.")} (at: ${run.at}). Tell the reviewer; only if they then say "push anyway", call push with force: true and at: ${run.at}.`);
+      }
+      const started = await startPush(deps, targetKey, { force, ...at === undefined ? {} : { at } });
       if (!started.ok) return failed(`Not pushed: ${started.error}`);
       if (started.asked) {
         const text = { commit: "Asked the main thread to commit, for Push", push: "Asked the main thread to push", anyway: "Asked the main thread to push anyway" }[started.asked];
@@ -446,7 +452,7 @@ export function register(deps: ServeDeps) {
         push: "The commit is what the reviewer reviewed, and the main thread was told to push exactly it.",
         anyway: "The main thread was told to push the commit as it is.",
       }[started.asked ?? "commit"];
-      return { content: [{ type: "text", text: `${told} Tell the reviewer; Push in Finish review shows where it stands.` }] };
+      return { content: [{ type: "text", text: `${told}${started.warning && started.at !== undefined ? ` (at: ${started.at})` : ""} Tell the reviewer; Push in Finish review shows where it stands.` }] };
     },
   });
   return { handlers, events };

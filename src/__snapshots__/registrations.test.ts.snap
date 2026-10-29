@@ -1065,6 +1065,10 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
+        "at": {
+          "description": "With force: the at of the warning you told the reviewer, as push gave it.",
+          "type": "number",
+        },
         "force": {
           "description": "Push anyway, past the warning the last Push gave, once the reviewer's message is just "push anyway".",
           "type": "boolean",
@@ -1072,7 +1076,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
       },
       "type": "object",
     },
-    "instructions": "Only when the reviewer's message in this review is just "push" or "push it", call push and tell them it's under way: the main thread commits, and Push in Finish review shows the check and the push. If it warns, say so in a line, and call push with force: true only once their message is just "push anyway". In any other turn it pushes nothing. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "instructions": "Only when the reviewer's message in this review is just "push" or "push it", call push and tell them it's under way: the main thread commits, and Push in Finish review shows the check and the push. If it warns, tell them the warning in a line, with its at; call push with force: true and that at only once their message is just "push anyway". In any other turn it pushes nothing. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
     "name": "push",
     "presentation": null,
   },

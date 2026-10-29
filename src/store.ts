@@ -203,8 +203,8 @@ export interface PushRun {
   flag?: "differs" | "unrequested" | "stopped";
   /** GitHub's head of the branch when flagged; null for no such branch. */
   remote?: string | null;
-  /** pushed: by a fixer on its own, as its chat can tell it, a commit of its folder. */
-  byFixer?: true;
+  /** unrequested: on your PR with a fixer, which may have pushed it, as its brief lets it when you say so in its chat. */
+  fixer?: true;
   /** stopped: how the main thread did. */
   why?: "failed" | "archived" | "deleted";
 }

@@ -20,7 +20,7 @@ import { sendToAgent } from "./asking";
 import { startPlugin } from "./plugin-store.test-support";
 import { featureKey } from "./targets";
 import { diffFilesHead } from "./env-diff";
-import { pushCommand } from "../lib/push";
+import { pushCommand, pushFlagText } from "../lib/push";
 
 const KEY = featureKey("env1", "feat/qa");
 const PATCH = "diff --git a/src/a.ts b/src/a.ts\nindex 1111111..2222222 100644\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
@@ -347,7 +347,16 @@ test("the review agent's push needs the reviewer's own words: push, and for Push
   chat.say("push it");
   expect(toolFailed(await tool({ force: true }))).toBe(true);
   chat.say("push it anyway");
-  expect(toolText(await tool({ force: true }))).toBe("The main thread was told to push the commit as it is. Tell the reviewer; Push in Finish review shows where it stands.");
+  // Without the warning's at, the agent is told the warning now, and nothing goes.
+  const told = toolText(await tool({ force: true }));
+  const at = (await run())!.at;
+  expect(told).toBe(`Not pushed yet. The warning now: 1 file changed since you reviewed. (at: ${at}). Tell the reviewer; only if they then say "push anyway", call push with force: true and at: ${at}.`);
+  expect(sent).toHaveLength(1);
+  // A warning that isn't the one now: refused.
+  chat.say("push it anyway");
+  expect(toolText(await tool({ force: true, at: at - 1 }))).toBe("Not pushed: Push changed meanwhile. Look again, then choose.");
+  chat.say("push it anyway");
+  expect(toolText(await tool({ force: true, at }))).toBe("The main thread was told to push the commit as it is. Tell the reviewer; Push in Finish review shows where it stands.");
   expect(await run()).toMatchObject({ state: "pushing", sha: HEAD });
   expect(sent.at(-1).input[0].text).toContain(refspec(HEAD));
 });
@@ -425,7 +434,7 @@ test("the agent's push takes only a short command of the reviewer's own: not a n
   }
   expect(await run()).toMatchObject({ state: "mismatch" });
   chat.say("Push it anyway.");
-  expect(toolFailed(await tool({ force: true }))).toBe(false);
+  expect(toolFailed(await tool({ force: true, at: (await run())!.at }))).toBe(false);
 });
 
 test("GitHub with commits the folder doesn't warns before the thread is told anything; Push anyway goes on, and isn't asked again", async () => {
@@ -546,22 +555,42 @@ test("on your PR, a fixer commit that isn't what Not pushed yet showed warns, as
   expect(await run()).toMatchObject({ state: "mismatch", sha: HEAD, files: ["src/a.ts"], warning: "1 file changed since you reviewed." });
 });
 
-test("a fixer's own push, a commit its folder has, isn't a push no one asked for: it says the fixer pushed it; a head nobody can place is still flagged", async () => {
-  const { idle, run, github, folder } = await setup({ pr: {} });
-  github.sha = PR_HEAD;
-  await idle();
-  github.sha = HEAD;
-  await idle();
-  expect(await run()).toMatchObject({ state: "pushed", byFixer: true, sha: HEAD, threadId: "fixer" });
+test("any move on GitHub that didn't come from Push is flagged plainly, the fixer named as one who may have pushed: after a commit request, past a secrets warning, a force-push back, and over a flag not dismissed", async () => {
+  // The fixer pushes from its folder while Push waits on its commit: flagged, never "pushed".
+  const committing = await setup({ pr: {} });
+  committing.github.sha = PR_HEAD;
+  await committing.idle();
+  await committing.push();
+  committing.github.sha = HEAD;
+  await committing.idle();
+  expect(await committing.run()).toMatchObject({ state: "flagged", flag: "unrequested", remote: HEAD, fixer: true });
+  expect(pushFlagText(await committing.run())).toBe("`feat/qa` has new commits on GitHub (now `abc1234`) that didn’t come from Push. The fixer, a teammate or CI may have pushed them.");
 
-  const unknown = await setup({ pr: {} });
-  unknown.github.sha = PR_HEAD;
-  await unknown.idle();
-  unknown.folder.behind = true;
-  unknown.github.sha = OTHER;
-  await unknown.idle();
-  expect(await unknown.run()).toMatchObject({ state: "flagged", flag: "unrequested", remote: OTHER });
-  void folder;
+  // Past a secrets warning you haven't answered.
+  const secret = await setup({ pr: {} });
+  secret.github.sha = PR_HEAD;
+  await secret.idle();
+  await secret.harness.behavior.callRpc("getNotPushed", { targetKey: secret.key });
+  await secret.store.saveSnapshotFiles(secret.key, "not-pushed", { revisions: { "src/a.ts": REVIEWED["src/a.ts"], ".env": REVIEWED[".env"] }, hidden: [{ path: ".env", reason: "secret" }] });
+  secret.folder.committed = { ...REVIEWED };
+  await secret.push();
+  await secret.cli("fixer", "report", "--commit", HEAD);
+  expect(await secret.run()).toMatchObject({ state: "mismatch", secrets: [".env"] });
+  secret.github.sha = HEAD;
+  await secret.idle();
+  expect(await secret.run()).toMatchObject({ state: "flagged", flag: "unrequested", remote: HEAD });
+
+  // A force-push back to an older head the folder has.
+  const back = await setup({ pr: {} });
+  back.github.sha = HEAD;
+  await back.idle();
+  back.github.sha = PR_HEAD;
+  await back.idle();
+  expect(await back.run()).toMatchObject({ state: "flagged", flag: "unrequested", remote: PR_HEAD });
+  // A flag you haven't dismissed stays as it was, through another move.
+  back.github.sha = OTHER;
+  await back.idle();
+  expect(await back.run()).toMatchObject({ state: "flagged", flag: "unrequested", remote: PR_HEAD });
 });
 
 test("a fork's PR is pushed to the fork's remote, named in the message", async () => {
