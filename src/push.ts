@@ -17,7 +17,7 @@ import { reviewIdentity } from "../lib/review-identity";
 import { behindText, mismatchText, pushAnywayOffered, pushFlagText, NOT_PUSHED, nothingToPush, plainText, pushCommand, pushTarget, type PushTarget } from "../lib/push";
 import { command } from "./post-preview";
 import { inlineCode } from "./untrusted";
-import type { PushRun, ReviewLifecycle, ReviewMeta } from "./store";
+import type { PushRun, ReviewLifecycle, ReviewMeta, SendEntry } from "./store";
 import { failed, type EventListeners, type RpcHandlers, type ServeDeps } from "./server-modules";
 import { ONLY_WITH_THESE_TOOLS } from "./review-agent-tools";
 
@@ -103,24 +103,25 @@ type Github = { repo: string; head: string; sha: string | null };
 
 /**
  * GitHub's head, read, against the last head you accepted (`remoteHead`), whatever stands with Push: the same; one to
- * accept, the first read, which is where watching starts, or a move a Let it push Send covers; or a move nothing
- * explains, to flag. Besides these, only Push landing on exactly its checked commit, and Got it on a flag, move what's
- * accepted. A branch gone from GitHub pushed nothing. `write` is what the read changes, whatever it finds.
+ * accept, the first read, which is where watching starts (unless `first` is "skip"), or a move a Let it push Send
+ * covers; or a move nothing explains, to flag. Besides these, only Push landing on exactly its checked commit, and Got
+ * it on a flag, move what's accepted. A branch gone from GitHub pushed nothing. `write` is what the read changes,
+ * whatever it finds.
  *
- * A Let it push Send covers moves from its time on, until the first read after it's ready, or its thread failed or was
- * archived or deleted, which still counts, as the thread may report and then push in the same turn; then its cover is
- * closed, for good. An idle thread may be waiting on its subagents, so its Send stays open. A covered move
- * keeps the accepted head's time, so the Send covers the thread's next push too. A read that finds no change while no
- * cover is open stamps the time again.
+ * A Let it push Send covers moves from its time on. Once it's ready, the next read still counts, as the thread may
+ * report and then push in the same turn, and then its cover is closed, for good. Its thread failing, or being archived
+ * or deleted, closes it at once (readAfter does so on the event itself). An idle thread may be waiting on its
+ * subagents, so its Send stays open. A covered move keeps the accepted head's time, so the Send covers the thread's next
+ * push too. A read that finds no change while no cover is open stamps the time again.
  */
-function judge(now: ReviewMeta, github: Github): { verdict: "same" | "accept" | "flag"; write: ReviewLifecycle } {
+function judge(now: ReviewMeta, github: Github, first: "accept" | "skip" = "accept"): { verdict: "same" | "accept" | "flag"; write: ReviewLifecycle } {
   const was = now.remoteHead?.repo === github.repo && now.remoteHead.head === github.head ? now.remoteHead : null;
   const sends = now.sends ?? [];
-  const open = sends.filter((send) => send.letPush && !send.coverClosed && (!was || send.at > was.at));
-  // Idle alone isn't done: a main thread idles while its subagents work, and its Send stays open.
-  const ending = open.filter((send) => send.readyAt !== undefined || send.stopped !== undefined && send.stopped.why !== "idle");
-  const write: ReviewLifecycle = ending.length ? { sends: sends.map((send) => ending.includes(send) ? { ...send, coverClosed: true as const } : send) } : {};
-  if (!was) return { verdict: "accept", write: { ...write, ...accepted(github) } };
+  const gone = (send: SendEntry) => !!send.stopped && send.stopped.why !== "idle";
+  const open = sends.filter((send) => send.letPush && !send.coverClosed && !gone(send) && (!was || send.at > was.at));
+  const closing = sends.filter((send) => send.letPush && !send.coverClosed && (gone(send) || open.includes(send) && send.readyAt !== undefined));
+  const write: ReviewLifecycle = closing.length ? { sends: sends.map((send) => closing.includes(send) ? { ...send, coverClosed: true as const } : send) } : {};
+  if (!was) return { verdict: "same", write: { ...write, ...first === "accept" ? accepted(github) : {} } };
   if (github.sha === null || was.sha === github.sha) return { verdict: "same", write: { ...write, ...!open.length && github.sha !== null ? accepted(github) : {} } };
   if (open.length) return { verdict: "accept", write: { ...write, remoteHead: { ...github, at: was.at } } };
   return { verdict: "flag", write };
@@ -359,13 +360,16 @@ export async function reportCommit(deps: Deps, sha: string, mine: ReadonlySet<st
     ...!checked.ok && checked.secrets ? { secrets: checked.secrets } : {}, ...behind ? { behind: true as const } : {},
   } : { ...run, state: nothing ? "pushed" : "pushing", at: Date.now(), sha: checked.sha };
   // Unless the reviewer cancelled meanwhile, or the branch moved on GitHub with no Push, as when the thread pushed before
-  // it reported: that's flagged, whatever the check found.
+  // it reported: that's flagged, whatever the check found. The report never starts watching: with nothing accepted yet,
+  // GitHub at the very commit reported means the thread pushed it first.
   const saved = await store.exclusive(async (tx) => {
     const review = await tx.getReview(key);
     const now = review?.push ?? null;
     if (now?.state !== "committing" || now.at !== run.at) return now;
-    const { verdict, write } = github ? judge(review!, github) : { verdict: "same" as const, write: {} };
-    if (verdict === "flag") {
+    const baseline = review!.remoteHead?.repo === place.repo && review!.remoteHead.head === place.head;
+    const pushedFirst = !baseline && !!github?.sha && (github.sha.startsWith(sha) || checked.ok && github.sha === checked.sha);
+    const { verdict, write } = github ? judge(review!, github, "skip") : { verdict: "same" as const, write: {} };
+    if (verdict === "flag" || pushedFirst) {
       await tx.setLifecycle(key, { ...write, push: moved(place, github!.sha, run.threadId) });
       return "moved" as const;
     }
@@ -398,10 +402,16 @@ async function readAfter(deps: Deps, thread: { id: string; queued: boolean }, wh
     const read = await githubHead(gh.runGh, place);
     const github = "sha" in read ? { repo: place.repo, head: place.head, sha: read.sha } : null;
     await store.exclusive(async (tx) => {
-      const now = await tx.getReview(review.targetKey);
-      if (!now) return;
+      const stored = await tx.getReview(review.targetKey);
+      if (!stored) return;
+      // A thread that failed, or was archived or deleted, closes its Sends' cover now, on this event, before anything is
+      // judged, and whether or not GitHub could be read.
+      const closing = why ? (stored.sends ?? []).filter((send) => send.threadId === thread.id && send.letPush && !send.coverClosed) : [];
+      const now = closing.length ? { ...stored, sends: stored.sends!.map((send) => closing.includes(send) ? { ...send, coverClosed: true as const } : send) } : stored;
       const run = now.push ?? null;
-      const { verdict: judged, write } = github ? judge(now, github) : { verdict: "same" as const, write: {} };
+      const judgedRead = github ? judge(now, github) : { verdict: "same" as const, write: {} as ReviewLifecycle };
+      const judged = judgedRead.verdict;
+      const write: ReviewLifecycle = closing.length ? { sends: now.sends, ...judgedRead.write } : judgedRead.write;
       const stopped = !!why && run?.state === "committing" && run.threadId === thread.id;
       let next: PushRun | null | undefined;
       let accept = false;

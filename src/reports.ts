@@ -260,7 +260,7 @@ export function register(deps: ServeDeps) {
 
   // A main thread that stops may have changed the folder, and may have stopped short of reporting: its reviews check
   // their folders and say so. One read of the reviews, for both (1.4's folder check, taken over here).
-  const stopped: PluginThreadEventHandler<"thread.idle"> = async ({ thread }) => {
+  const stopped = (why: "idle" | "failed"): PluginThreadEventHandler<"thread.idle"> => async ({ thread }) => {
     // The plugin's own agents are hidden, and never a main thread.
     if (thread.visibility === "hidden") return;
     const reviews = await store.listReviews();
@@ -271,7 +271,7 @@ export function register(deps: ServeDeps) {
         bb.realtime.publish(`folder:${review.targetKey}`, { ts: Date.now() });
       }
     }
-    await stoppedOn(reviews, thread.id, "idle");
+    await stoppedOn(reviews, thread.id, why);
   };
   /** Archived or deleted, a main thread won't report the rest; back from the archive, it's idle until it works. */
   const ended = (why: Stop) => async ({ thread }: { thread: { id: string; visibility?: string } }) => {
@@ -325,7 +325,7 @@ export function register(deps: ServeDeps) {
         if (took !== null) await settleQueued(deps, { id: send.queued!, threadId }, took);
       }
       const idle = !!thread && ["idle", "error"].includes(thread.status) && thread.queuedMessageCount === 0;
-      await stoppedOn(await store.listReviews(), threadId, !thread || thread.deletedAt ? "deleted" : thread.archivedAt ? "archived" : idle ? "idle" : null);
+      await stoppedOn(await store.listReviews(), threadId, !thread || thread.deletedAt ? "deleted" : thread.archivedAt ? "archived" : idle ? thread.status === "error" ? "failed" : "idle" : null);
     }
   }
 
@@ -348,9 +348,9 @@ export function register(deps: ServeDeps) {
   } satisfies Partial<RpcHandlers>;
 
   const events: EventListeners = {
-    "thread.idle": [stopped],
+    "thread.idle": [stopped("idle")],
     "thread.active": [resumed],
-    "thread.failed": [({ thread }) => stopped({ thread, lastAssistantText: null })],
+    "thread.failed": [({ thread }) => stopped("failed")({ thread, lastAssistantText: null })],
     "thread.archived": [ended("archived")],
     "thread.unarchived": [ended("idle")],
     "thread.deleted": [ended("deleted")],

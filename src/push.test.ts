@@ -647,9 +647,6 @@ const SEQUENCES: Array<[string, (t: Awaited<ReturnType<typeof setup>>) => Promis
   ["commit → report → push: your own Push lands on its checked commit, which is then the head you accepted", async (t) => {
     await t.push(); await t.cli("coder", "report", "--commit", HEAD); t.github.sha = HEAD; await t.idle();
     expect(await t.run()).toMatchObject({ state: "pushed", sha: HEAD });
-    // Read again, GitHub at the commit is no move.
-    await t.idle();
-    expect(await t.run()).toMatchObject({ state: "pushed", sha: HEAD });
   }, "accepted"],
   ["commit → push → report: the thread pushed before it reported", async (t) => {
     await t.push(); t.github.sha = HEAD;
@@ -672,18 +669,16 @@ const SEQUENCES: Array<[string, (t: Awaited<ReturnType<typeof setup>>) => Promis
     t.github.sha = HEAD; await t.idle();
     expect((await t.store.getReview(KEY))!.sends![0]!.coverClosed).toBe(true);
   }, "accepted"],
-  ["two pushes under one open Let it push Send, its thread still at work", async (t) => {
+  ["a Let it push Send whose thread pushed, then failed: closed on the event, with no read after", async (t) => {
     await t.store.setLifecycle(KEY, { sends: [{ n: 1, at: Date.now() + 1, threadId: "coder", ids: ["c1"], letPush: true }] });
-    t.github.sha = HEAD; await t.idle();
-    t.github.sha = OTHER; await t.idle();
-  }, "accepted"],
-  ["a Let it push Send that never became ready, its thread archived, then a later move", async (t) => {
-    await t.store.setLifecycle(KEY, { sends: [{ n: 1, at: Date.now() + 1, threadId: "coder", ids: ["c1"], letPush: true }] });
-    // An archived thread doesn't idle again: what BB says of it is that it's archived.
-    const archived = () => t.harness.behavior.emitThreadEvent("thread.archived", { thread: makeThreadResponse({ id: "coder" }) } as any);
-    await archived(); await archived();
+    t.github.sha = HEAD;
+    await t.harness.behavior.emitThreadEvent("thread.failed", { thread: makeThreadResponse({ id: "coder" }) } as any);
     expect((await t.store.getReview(KEY))!.sends![0]!.coverClosed).toBe(true);
-    t.github.sha = HEAD; await archived();
+  }, "flagged"],
+  ["a Let it push Send whose thread pushed, then was archived, told once", async (t) => {
+    await t.store.setLifecycle(KEY, { sends: [{ n: 1, at: Date.now() + 1, threadId: "coder", ids: ["c1"], letPush: true }] });
+    t.github.sha = HEAD;
+    await t.harness.behavior.emitThreadEvent("thread.archived", { thread: makeThreadResponse({ id: "coder" }) } as any);
   }, "flagged"],
   ["a finished Let it push Send, then a much later move", async (t) => {
     await t.store.setLifecycle(KEY, { sends: [{ n: 1, at: Date.now() + 1, threadId: "coder", ids: ["c1"], letPush: true, readyAt: Date.now() + 2 }] });
@@ -728,4 +723,22 @@ test("the agent's Push anyway needs a \"push anyway\" from the reviewer that cam
   await unplaced.cli("coder", "report", "--commit", HEAD);
   unplaced.chat.say("push it anyway");
   expect(toolText(await unplaced.harness.behavior.callAgentTool("push", { force: true }, { threadId: "agent" }))).toBe("Not pushed: No commit is waiting on Push anyway. Push to start again.");
+});
+
+test("the commit report never starts watching: with nothing accepted yet, GitHub at the very commit reported was pushed first, and is flagged", async () => {
+  const t = await setup();
+  await t.push();
+  // As when Push couldn't read GitHub: nothing accepted yet.
+  await t.store.setLifecycle(KEY, { remoteHead: null });
+  t.github.sha = HEAD;
+  expect(await t.cli("coder", "report", "--commit", HEAD.slice(0, 9))).toMatchObject({ exitCode: 1 });
+  expect(await t.run()).toMatchObject({ state: "flagged", flag: "unrequested", remote: HEAD });
+  expect((await t.store.getReview(KEY))!.remoteHead).toBeNull();
+
+  // GitHub somewhere else: the report goes on, and still takes nothing as the starting point.
+  const u = await setup();
+  await u.push();
+  await u.store.setLifecycle(KEY, { remoteHead: null });
+  expect((await u.cli("coder", "report", "--commit", HEAD)).stdout).toContain(refspec(HEAD));
+  expect((await u.store.getReview(KEY))!.remoteHead).toBeNull();
 });

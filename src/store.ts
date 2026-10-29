@@ -288,7 +288,7 @@ export interface SendEntry {
    * Its thread stopped before it was ready: went idle or failed, which alone never means done, or was archived or
    * deleted, which leaves the rest to you. Cleared when it works again.
    */
-  stopped?: { at: number; why: "idle" | "archived" | "deleted" };
+  stopped?: { at: number; why: "idle" | "failed" | "archived" | "deleted" };
   /** When the Check fixes the plugin starts on its own, once it's ready, started for this Send: once per Send. Your clicks check any time. */
   checkedAt?: number;
   /** It let the thread push when done (Let it push when done), so a push after it was asked for. */
