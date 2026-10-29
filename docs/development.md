@@ -15,6 +15,7 @@ bb plugin dev
 - Development checks use the SDK test harness, temporary Git repositories, and mocked GitHub writes. A backend test that runs the real `gh` fails: a stand-in `gh` goes first on `PATH`.
 - Frontend tests are collected from `components/`, `lib/`, and `hooks/`, in `.ts` or `.tsx`.
 - `npm run typecheck` covers the server's tests, the browser tests, and the vitest config too.
+- `server.ts` opens the store and starts what runs on it. Each area of the server is a module in `src/` whose `register(deps)` registers its agent tools and returns its RPC handlers, its listeners to BB's events, and the `bb review` subcommands it runs; `src/server-modules.ts` has what they get and give, the subcommand table, and the tools each thread gets. `src/registrations.test.ts` snapshots everything the plugin registers: a change that adds or changes a tool, RPC method or subcommand updates it with `npx vitest run src/registrations.test.ts -u`.
 - The plugin builds and tests against the SDK pinned in devDependencies (0.6.94), and uses only what the SDK floor, 0.6.14, has.
 - Use a Node.js version compatible with the installed `better-sqlite3` package (this release was verified on Node.js 24).
 - BB builds the plugin from source when it installs or updates it, so the build output in `dist/` isn't committed.
