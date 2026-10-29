@@ -409,6 +409,12 @@ test("read_file never reads through a changed link: it names where the link poin
   // A file replaced by a link: every block of the review's diff for it.
   expect(await readFile("README.md")).toEqual(refused("README.md links to .env; read that instead."));
   expect(await readFile(".env")).toEqual(secret);
+  // In another case, as a Mac's folders read it: the same links, the same secret.
+  expect(await readFile("readme.md")).toEqual(refused("README.md links to .env; read that instead."));
+  expect(await readFile("D/x")).toEqual(refused("d links to sub; read sub/x instead."));
+  expect(await readFile(".ENV")).toEqual(refused(".ENV looks like a secret, so it isn't read for agents. The reviewer can include it from the review."));
+  // A backslash isn't a path here.
+  expect(await readFile("sub\\x")).toEqual(refused("sub\\x isn't a repo-relative file path."));
   // A link to a link: each names the next, and the secret at the end stays unread.
   expect(await readFile("a.md")).toEqual(refused("a.md links to b.md; read that instead."));
   expect(await readFile("b.md")).toEqual(refused("b.md links to .env; read that instead."));
@@ -420,6 +426,7 @@ test("read_file never reads through a changed link: it names where the link poin
   s.folder.files.push({ path: "notes.txt", link: "config/.env.local" }, { path: "src", link: "../elsewhere" });
   s.folder.files.find((file) => file.path === "a.md")!.link = ".env.production";
   expect(await readFile("notes.txt")).toEqual(refused("notes.txt links to config/.env.local; read that instead."));
+  expect(await readFile("NOTES.txt")).toEqual(refused("notes.txt links to config/.env.local; read that instead."));
   expect(await readFile("a.md")).toEqual(refused("a.md links to b.md; read that instead."));
   expect(await readFile("src/a.ts")).toEqual(refused("src links to ../elsewhere, outside the folder, so it isn't read."));
   expect(reads).toEqual(["/Users/me/src/api/src/a.ts"]);
@@ -430,6 +437,9 @@ test("read_file never reads through a changed link: it names where the link poin
   // The review's diff still names the link in a list cut short.
   expect(await readFile("README.md")).toEqual(refused("README.md links to .env; read that instead."));
   s.folder.listLimit = undefined;
+  // Gone from the folder's diff now, the review's diff still names it, in any case.
+  s.folder.files = s.folder.files.filter((file) => file.path !== "README.md");
+  expect(await readFile("readme.md")).toEqual(refused("README.md links to .env; read that instead."));
   s.folder.throws = "Host request timed out";
   expect(await readFile("src/a.ts")).toEqual(refused("Couldn't check src/a.ts in the folder before reading it: Host request timed out"));
 });

@@ -268,9 +268,9 @@ export async function changedLinkNow(bb: BbPluginApi, feature: Pick<FeatureRevie
     const listed = await callGit(bb, "files", { environmentId: feature.environmentId, target, ignoreWhitespace: false }, filesOutput);
     if (listed.outcome !== "available") return { error: unreadable(listed).message };
     if (listed.truncated) return { error: "BB lists only part of the folder’s changes, so it can’t tell whether this path goes through a link." };
-    // A revision is oldMode:oldBlob:newMode:newBlob.
-    const links = new Map(listed.files.filter((changed) => changed.revision.split(":")[2] === "120000").map((changed) => [changed.path, changed]));
-    const file = pathAndFolders(path).map((at) => links.get(at)).find((found) => found);
+    // A revision is oldMode:oldBlob:newMode:newBlob. Paths compare in any case, as a Mac's folders do.
+    const links = new Map(listed.files.filter((changed) => changed.revision.split(":")[2] === "120000").map((changed) => [changed.path.toLowerCase(), changed]));
+    const file = pathAndFolders(path).map((at) => links.get(at.toLowerCase())).find((found) => found);
     if (!file) return { link: null };
     let patch = listed.initialPatches.find((initial) => initial.path === file.path)?.patch;
     if (patch === undefined) {

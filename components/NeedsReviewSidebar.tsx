@@ -234,7 +234,7 @@ export function NeedsReviewSidebar() {
               A local review's branch tells apart two of one name, or, where they share it, the folder's end the id adds. */}
           <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
             {!!review.number && <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">#{review.number}</span>}
-            {!review.number && review.kind === "ref" && (review.place?.folder || branches[at]) && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{review.place?.folder ? `(${review.place.folder})` : branches[at]}</span>}
+            {!review.number && review.kind === "ref" && (review.place?.folder || branches[at]) && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{review.place?.folder ? `(${cutMiddle(review.place.folder)})` : branches[at]}</span>}
             <span className="min-w-0 flex-1 truncate">{title}</span>
           </span>
           {waited && <span className="shrink-0 text-xs tabular-nums text-subtle-foreground">{waited}</span>}

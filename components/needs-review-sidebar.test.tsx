@@ -102,6 +102,12 @@ test("a PR's row has its number before its name, muted, the repository staying i
   expect(await within(document.body).findByRole("link", { name: "(web-wt) Local work 1h" })).toBeTruthy();
   again.lifecycle.unmount();
   cleanup();
+  // A long folder end is cut in the middle, so the name keeps its room.
+  threadList();
+  const deep = await renderSidebar([{ targetKey: "br-3", kind: "ref", gitRef: "feat", title: "Local work", status: "ready", turn: turn("needs", "new", 1), place: { folder: "thr_abcdef123456-1/web-frontend" } }]);
+  expect(await within(document.body).findByRole("link", { name: "(thr_abc…frontend) Local work 1h" })).toBeTruthy();
+  deep.lifecycle.unmount();
+  cleanup();
   // A long branch by its last part, cut in the middle: both its ends, and the name, stay readable.
   threadList();
   const long = await renderSidebar([{ targetKey: "ref-2", kind: "ref", gitRef: "main...feature/snooze-flaky-checks-on-retries", title: "Local work", status: "ready", turn: turn("needs", "new", 1) }]);

@@ -4,9 +4,9 @@ import type { SnapshotFiles } from "../src/store";
 /** A file kept out of the patch, and why: it looks like a secret, it's binary, or its diff is too large. */
 export type HiddenFile = SnapshotFiles["hidden"][number];
 
-/** Untracked files with these names stay out until included: `.env*`, `*.pem`, `*.key`, `credentials*`. */
+/** Untracked files with these names, in any case, stay out until included: `.env*`, `*.pem`, `*.key`, `credentials*`. */
 export function isSecretPath(path: string): boolean {
-  const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
+  const name = path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1).toLowerCase();
   return name.startsWith(".env") || name.endsWith(".pem") || name.endsWith(".key") || name.startsWith("credentials");
 }
 

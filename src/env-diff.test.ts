@@ -33,7 +33,7 @@ test("a committed .env shows, flagged", async () => {
 });
 
 test("secret-looking names", () => {
-  for (const path of [".env", "app/.env.local", ".envrc", "server.pem", "id.KEY", "credentials.json", "aws/Credentials"]) expect(isSecretPath(path)).toBe(true);
+  for (const path of [".env", "app/.env.local", ".envrc", "server.pem", "id.KEY", "credentials.json", "aws/Credentials", ".ENV", "app\\.env.local"]) expect(isSecretPath(path), path).toBe(true);
   for (const path of ["env.ts", "src/environment.ts", "keys.ts", "docs/credential-rotation.md", "pem/readme.md"]) expect(isSecretPath(path)).toBe(false);
 });
 

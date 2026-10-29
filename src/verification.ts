@@ -186,16 +186,19 @@ function throughLink(path: string, link: { path: string; target: string }): stri
  * A folder's review's file, on the folder's machine: as the folder has it now, read through BB inside the folder; or
  * where its diff starts. A secret-looking file the review doesn't show stays unread unless the reviewer included it
  * (src/env-diff.ts). It never reads through a changed link, the file's own or a folder's above it, as the review's
- * diff (`patch`) or the folder's diff now shows one: it names where the link points instead. BB reads through a link
- * inside the folder and answers with the link's own path, so only a diff tells a link apart: a link committed before
- * the diff's base, and unchanged since, still reads as its target.
+ * diff (`patch`) or the folder's diff now shows one: it names where the link points instead. Paths compare in any
+ * case, as a Mac's folders do. BB reads through a link inside the folder and answers with the link's own path, so only
+ * a diff tells a link apart: a link committed before the diff's base, and unchanged since, still reads as its target,
+ * and so does a path through one into a changed link (an old `o → sub` with a new `sub/x → ../.env`: `o/x`). This is a
+ * filter for the plugin's own tool; the agent's shell reads what it likes.
  */
 async function folderFile(folder: { bb: BbPluginApi; patch?: string }, review: ReviewMeta & { feature: FeatureReview }, path: string, ref: FileRef): Promise<{ at: string; text: string } | string> {
   const { feature } = review;
   if (ref === "reviewed") return "A local review has no reviewed commit. Use ref \"current\" or \"base\".";
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
   const included = review.includeHidden ?? [];
   const files = splitPatchByFile(folder.patch ?? "");
-  if (isSecretPath(path) && !files.some((file) => file.path === path) && !included.includes(path)) return `${path} looks like a secret, so it isn't read for agents. The reviewer can include it from the review.`;
+  if (isSecretPath(path) && !files.some((file) => same(file.path, path)) && !included.some((at) => same(at, path))) return `${path} looks like a secret, so it isn't read for agents. The reviewer can include it from the review.`;
   if (ref === "base") {
     const read = await readFeatureFile(folder.bb, feature, "old", path);
     return "error" in read ? read.error : { at: short(feature.mergeBaseRef), text: read.text };
@@ -203,9 +206,9 @@ async function folderFile(folder: { bb: BbPluginApi; patch?: string }, review: R
   if (feature.folderGone) return `BB removed this review's folder, so ${path} can't be read as it is now. Use ref "base".`;
   // A link the review's diff shows: every block of each, as a file replaced by a link has two.
   for (const at of pathAndFolders(path)) {
-    const blocks = files.filter((file) => file.path === at);
+    const blocks = files.filter((file) => same(file.path, at));
     const target = blocks.length ? symlinkTarget(blocks.map((file) => file.text).join("\n")) : null;
-    if (target !== null) return throughLink(path, { path: at, target });
+    if (target !== null) return throughLink(path, { path: blocks[0]!.path, target });
   }
   // A link made, or pointed elsewhere, since the review read the folder shows only in its diff now.
   const now = await changedLinkNow(folder.bb, feature, path);
@@ -230,9 +233,10 @@ const MAX_FILE_LINES = 400;
  * numbers. A folder's review reads its folder through `folder` (folderFile).
  */
 export async function readFileAt(run: Run, git: typeof runGit, review: ReviewMeta, path: string, ref: FileRef, startLine = 1, endLine?: number, folder?: { bb: BbPluginApi; patch?: string }): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  // A repo-relative path only: no "." or ".." segments that could reach another GitHub endpoint.
+  // A repo-relative path only: no "." or ".." segments that could reach another GitHub endpoint, and no backslashes, which
+  // a Windows folder takes as separators.
   const segments = path.split("/");
-  if (path.startsWith("/") || segments.some((segment) => !segment || segment === "." || segment === "..")) return { ok: false, error: `${path} isn't a repo-relative file path.` };
+  if (path.startsWith("/") || path.includes("\\") || segments.some((segment) => !segment || segment === "." || segment === "..")) return { ok: false, error: `${path} isn't a repo-relative file path.` };
   const from = Math.max(1, startLine);
   if (endLine !== undefined && endLine < from) return { ok: false, error: `endLine ${endLine} is before startLine ${from}.` };
   const file = review.kind === "pr" ? await prFile(run, review, path, ref)
