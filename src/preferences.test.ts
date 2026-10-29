@@ -93,7 +93,7 @@ test("workers receive current customization without private notes", async () => 
   await store.savePreferences({ ...defaultPreferences, guideInstructions: "Explain public contracts", assistantInstructions: "Focus on security" }, 0);
   await generateGuide(bb, store, "target", "project");
   expect(harness.inspection.sdk.callsTo("threads.spawn")[0][0]).toMatchObject({ prompt: expect.stringContaining("Explain public contracts") });
-  await startConversation(bb, store, { targetKey: "target", text: "Explain this", agent: { providerId: "codex", model: "gpt-6", reasoningLevel: "low" } });
+  await startConversation(bb, store, { targetKey: "target", text: "Explain this", agent: { providerId: "codex", model: "gpt-6", reasoningLevel: "low" }, kind: "ask" });
   // Assistant preferences reach the conversation as instructions, not in its messages.
   expect(JSON.stringify(harness.inspection.sdk.callsTo("threads.spawn"))).not.toMatch(/PRIVATE-SCRATCHPAD|Focus on security/);
 });
@@ -145,7 +145,7 @@ test("each agent starts with its own selection, sourced as the user's choice; on
 
   await store.savePreferences({ ...defaultPreferences, guideAgent: codex, assistantAgent: claude }, 0);
   await generateGuide(bb, store, "target", "project");
-  await startConversation(bb, store, { targetKey: "target", text: "Explain this", agent: { providerId: claude.providerId, model: claude.model, reasoningLevel: claude.reasoningLevel } });
+  await startConversation(bb, store, { targetKey: "target", text: "Explain this", agent: { providerId: claude.providerId, model: claude.model, reasoningLevel: claude.reasoningLevel }, kind: "ask" });
   const [, guide, assistant] = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any);
   expect(guide).toMatchObject({ title: "Generate guide: target", ...codex, executionInputSources: { ...explicit, serviceTier: "explicit" } });
   expect(assistant).toMatchObject({ title: "Review agent: target", ...claude, executionInputSources: explicit });

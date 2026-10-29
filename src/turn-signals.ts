@@ -117,7 +117,9 @@ export function threadSignals(all: ReadonlyArray<FeedbackThread & { resolvedSeen
 }
 
 /** The Needs You alert's text: why it's your turn, then progress, CI, and commits. */
-export function alertBody(review: ReviewMeta, turn: Turn): string {
+export function alertBody(review: ReviewMeta, ready: Turn): string {
+  // A row waiting to be approved alerts for the turn beneath it.
+  const turn = { ...ready, ...ready.under };
   const s = review.signals ?? {};
   const author = s.author ? `@${s.author}` : "The author";
   const why: Partial<Record<Turn["reason"], string>> = {

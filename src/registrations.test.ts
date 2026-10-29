@@ -45,6 +45,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "dismissDiscussion",
       "dismissFlagged",
       "dismissInstructionSuggestion",
+      "dismissReady",
       "getAgentDefaults",
       "getAgentLearning",
       "getCheckFailures",
@@ -76,6 +77,7 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
       "markSeen",
       "moveToSummary",
       "newConversation",
+      "noteInserted",
       "openPr",
       "pinReview",
       "push",
@@ -174,6 +176,16 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
           "usage": "bb review list [--json]",
         },
         {
+          "name": "ask",
+          "summary": "Send a message to a review's agent, relayed from this thread, starting the agent if needed",
+          "usage": "bb review ask <review> <text>",
+        },
+        {
+          "name": "approve",
+          "summary": "Line PRs' approvals up in Needs review for the reviewer's click; never posts",
+          "usage": "bb review approve <review…> [--body <text>]",
+        },
+        {
           "name": "storage",
           "summary": "Show where the reviews are kept, and move them between SQLite and Postgres",
           "usage": "bb review storage <status | verify | migrate | export-sqlite [--replace-data-db]>",
@@ -188,10 +200,10 @@ test("the plugin registers the same RPC methods, tools, CLI subcommands, listene
   expect(Object.fromEntries(Object.entries(registered.threadEventHandlers).filter(([, count]) => count > 0))).toMatchInlineSnapshot(`
     {
       "experimental_environment.removed": 1,
-      "message.cancelled": 1,
-      "message.dispatched": 1,
+      "message.cancelled": 2,
+      "message.dispatched": 2,
       "thread.failed": 2,
-      "thread.idle": 2,
+      "thread.idle": 3,
     }
   `);
   expect(registered.services.map(({ name }) => name)).toMatchInlineSnapshot(`

@@ -292,7 +292,7 @@ test("a check queued behind another message ends with its own turn, not with an 
   const idle = () => harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: null });
   const row = makeQueueEntry({ id: "q-check", threadId: "assistant" });
   harness.inspection.sdk.stub("threads.send", async () => ({ ok: true, delivery: "queued", queuedMessage: row }));
-  expect(await startVerification(bb, store, "pr-1", "the author pushed")).toBe(true);
+  expect(await startVerification(bb, store, "pr-1", "the author pushed", "automatic")).toBe(true);
   expect((await store.getReview("pr-1"))?.verifyingMessageId).toBe("q-check");
   // The earlier turn's idle, heard after the queue let the check go but before it dispatched.
   harness.inspection.sdk.stub("threads.queuedMessages.list", async () => []);
@@ -318,7 +318,7 @@ test("a check BB dispatches before its send returns ends with the turn that runs
     return { ok: true, delivery: "queued", queuedMessage: row };
   });
   harness.inspection.sdk.stub("threads.queuedMessages.list", async () => []);
-  expect(await startVerification(bb, store, "pr-1", "the author pushed")).toBe(true);
+  expect(await startVerification(bb, store, "pr-1", "the author pushed", "automatic")).toBe(true);
   expect(await store.getReview("pr-1")).toMatchObject({ verifyingSince: expect.any(Number), verifyingMessageId: null });
   await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: null });
   expect(await store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null });
@@ -335,7 +335,7 @@ test("a check BB dispatches before its send returns, telling the plugin without 
     return { ok: true, delivery: "queued", queuedMessage: row };
   });
   harness.inspection.sdk.stub("threads.queuedMessages.list", async () => []);
-  expect(await startVerification(bb, store, "pr-1", "the author pushed")).toBe(true);
+  expect(await startVerification(bb, store, "pr-1", "the author pushed", "automatic")).toBe(true);
   expect(await store.getReview("pr-1")).toMatchObject({ verifyingSince: expect.any(Number), verifyingMessageId: null });
   await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "assistant" }), lastAssistantText: null });
   expect(await store.getReview("pr-1")).toMatchObject({ verifyingSince: null, verifyingHead: null });
@@ -350,7 +350,7 @@ test("a check deleted from the queue before its send returns never waits (95-rec
     await harness.behavior.emitThreadEvent("message.cancelled", { entry: row });
     return { ok: true, delivery: "queued", queuedMessage: row };
   });
-  expect(await startVerification(bb, store, "pr-1", "the author pushed")).toBe(true);
+  expect(await startVerification(bb, store, "pr-1", "the author pushed", "automatic")).toBe(true);
   const review = await store.getReview("pr-1");
   expect([review?.verifyingSince ?? null, review?.verifyingMessageId ?? null]).toEqual([null, null]);
 });
@@ -361,7 +361,7 @@ test("a queued check deleted from the queue stops the wait for it", async () => 
   const { startVerification } = await import("./verification");
   const row = makeQueueEntry({ id: "q-check", threadId: "assistant" });
   harness.inspection.sdk.stub("threads.send", async () => ({ ok: true, delivery: "queued", queuedMessage: row }));
-  await startVerification(bb, store, "pr-1", "the author pushed");
+  await startVerification(bb, store, "pr-1", "the author pushed", "automatic");
   await harness.behavior.emitThreadEvent("message.cancelled", { entry: makeQueueEntry({ id: "someone-else", threadId: "assistant" }) });
   expect((await store.getReview("pr-1"))?.verifyingSince).toEqual(expect.any(Number));
   await harness.behavior.emitThreadEvent("message.cancelled", { entry: row });

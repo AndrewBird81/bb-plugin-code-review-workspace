@@ -14,7 +14,8 @@ export type TurnReason =
   | "approved" | "commented"
   | "own" | "new-comments"
   // A local review whose folder is on another branch, or that bb removed (src/feature-review.ts).
-  | "paused" | "folder-gone";
+  | "paused" | "folder-gone"
+  | "ready-to-approve";
 
 /** Your review threads on the PR, by where each stands. */
 export interface ThreadTally {
@@ -120,6 +121,8 @@ export interface TurnInput {
   heldTurn?: { reason: TurnReason; label: string; signal: string; at: number } | null;
   /** A local review's folder: on another branch, which pauses it, or removed by bb (src/feature-review.ts). */
   feature?: { pausedOn?: string | null; folderGone?: boolean } | null;
+  /** A relayed approve, merge or close waiting for your click, since `at`. */
+  readyToApprove?: { at: number } | null;
 }
 
 export interface TurnOptions {
@@ -156,6 +159,8 @@ export interface Turn {
   eventAt: number | null;
   /** The guide couldn't be (re)generated; the turn underneath still stands. */
   failed: boolean;
+  /** Ready to approve: the turn beneath the row, whose alert it carries. */
+  under?: { reason: TurnReason; label: string };
 }
 
 export const QUIET_MS = 10 * 60_000;
@@ -189,6 +194,15 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   if (review.prState === "CLOSED" || review.archivedAt) return make("archive", "closed", "Closed");
   // Deleted, or out of your reach for good; access refused (say, for SSO) may come back.
   if (review.unreachable?.reason === "not-found" && now - review.unreachable.since >= UNREACHABLE_MS) return make("archive", "unreachable", "Can’t read on GitHub");
+  // A relayed approve, merge or close waits for your click, whatever else the review waits on, your own archive too. You
+  // asked for it, so it alerts nothing of its own; the turn beneath it alerts as it would, a snooze's end included.
+  const ready = review.readyToApprove;
+  if (ready) {
+    const under = computeTurn({ ...review, readyToApprove: null }, options, now);
+    return make("needs", "ready-to-approve", "Ready to approve", {
+      at: ready.at, signal: under.signal, notify: under.notify, eventAt: under.eventAt, under: { reason: under.reason, label: under.label },
+    });
+  }
 
   // A local receipt counts until GitHub reports the review.
   const lastReviewAt = Math.max(s.lastReviewAt ?? 0, review.submittedAt ?? 0) || null;

@@ -240,10 +240,13 @@ export interface ReadyToApprove {
   comments: GithubReviewComment[];
   /** The head it was asked on. A live head that differs holds it. */
   headSha: string;
+  /** For merge: how, as asked. */
+  merge?: { method: "merge" | "squash" | "rebase"; auto: boolean; deleteBranch: boolean };
   /** The preview token of exactly this. */
   token: string;
-  /** The thread that relayed it; null for a shell outside any thread. */
+  /** The thread that relayed it, and its title then; null for a shell outside any thread. */
   from: string | null;
+  fromTitle?: string;
   at: number;
 }
 

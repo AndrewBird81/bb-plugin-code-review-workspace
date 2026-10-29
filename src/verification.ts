@@ -12,6 +12,7 @@ import { ghErrorMessage, gitDiffArgs, type runGh, type runGit } from "./gh";
 import { ensureGitHeaders } from "./patch";
 import { readFeatureDiff, type HiddenFile } from "./env-diff";
 import { messageAssistant } from "./agent";
+import type { TurnKind } from "./asking";
 import { reReviewCheckPrompt } from "./preferences";
 import { baselineOf, diffAt, feedbackView, headOf, isSummaryItem, summarize } from "./feedback-view";
 import { describeInterdiff, interdiff } from "./interdiff";
@@ -51,13 +52,16 @@ export function noteLeftQueue(messageId: string, how: "dispatched" | "cancelled"
   if (leftQueue.size > 100) leftQueue.delete(leftQueue.keys().next().value!);
 }
 
-/** Ask the review's assistant to check your feedback. False when it's turned off or can't start. */
-export async function startVerification(bb: BbPluginApi, store: AsyncStore, targetKey: string, reason: string): Promise<boolean> {
+/**
+ * Ask the review's assistant to check your feedback: on your click (`kind` ask), or as the plugin starts it on its own
+ * (automatic). False when it's turned off or can't start.
+ */
+export async function startVerification(bb: BbPluginApi, store: AsyncStore, targetKey: string, reason: string, kind: TurnKind): Promise<boolean> {
   const { prompt, review } = await store.exclusive(async (tx) => ({ prompt: reReviewCheckPrompt((await tx.getPreferences()).preferences), review: await tx.getReview(targetKey) }));
   if (!prompt || !review || review.kind !== "pr" || !baselineOf(review).at) return false;
   let sent: Awaited<ReturnType<typeof messageAssistant>>;
   try {
-    sent = await messageAssistant(bb, store, targetKey, prompt, verificationContext(review, reason));
+    sent = await messageAssistant(bb, store, targetKey, prompt, verificationContext(review, reason), { kind });
   } catch (error) {
     bb.log.warn(`The feedback check for ${targetKey} didn't start: ${String(error)}`);
     return false;

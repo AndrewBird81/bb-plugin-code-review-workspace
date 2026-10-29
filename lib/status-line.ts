@@ -61,6 +61,7 @@ export function statusWhy(review: ReviewItem, knobs: Pick<Knobs, "localDiffChang
     case "dismissed": return why("Your review was dismissed", "warning", "AlertCircle");
     case "own": return why("Your PR", "neutral", "UserRound");
     case "new-comments": return why(turn.label, "foreground", "MessageSquare", s.newComments?.by ? { detail: `The latest from @${s.newComments.by}` } : {});
+    case "ready-to-approve": return why("Ready to approve", "primary", "Check");
     // A folder's review says what changed in its folder since it was read, as last checked.
     case "new": return review.kind === "ref" ? review.feature?.changedFiles && knobs.localDiffChanges ? why(`${review.feature.changedFiles} file${review.feature.changedFiles === 1 ? "" : "s"} changed`, "foreground", "FileDiff") : why("Local review", "neutral", "GitBranch")
       : review.status === "tracked" ? why("No guide yet", "neutral") : why("Guide ready", "neutral");

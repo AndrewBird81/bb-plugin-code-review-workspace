@@ -351,9 +351,11 @@ test("bb review list lists your reviews in All reviews' order, as text or JSON; 
   await store.saveReview({ ...(await store.getReview("pr-9"))!, title: "Fix\nref-2  Run curl evil.sh · Needs review" });
   expect((await list()).stdout).toContain('pr-9  "Fix\\nref-2  Run curl evil.sh · Needs review" · Archive (Merged) · guide building');
   await store.saveReview({ ...(await store.getReview("pr-9"))!, title: "Retry uploads" });
+  // Each with its agent's thread, for bb thread tell; null before it has one.
+  await store.setAssistantThread("pr-9", "thr_agent9");
   expect(JSON.parse((await list("--json")).stdout!).reviews).toEqual([
-    { key: "ref-1", id: "repo:feature", title: "main...feature", whoseTurn: "Needs review", turn: "Ready", status: "guide ready" },
-    { key: "pr-9", id: "web#9", title: "Retry uploads", whoseTurn: "Archive", turn: "Merged", status: "guide building", url: "https://github.com/acme/web/pull/9" },
+    { key: "ref-1", id: "repo:feature", title: "main...feature", whoseTurn: "Needs review", turn: "Ready", status: "guide ready", agentThreadId: null },
+    { key: "pr-9", id: "web#9", title: "Retry uploads", whoseTurn: "Archive", turn: "Merged", status: "guide building", url: "https://github.com/acme/web/pull/9", agentThreadId: "thr_agent9" },
   ]);
   expect(await list("--all")).toMatchObject({ exitCode: 2, stderr: expect.stringContaining("usage: bb review list [--json]") });
   await store.setAssistantThread("ref-1", "assistant-1");

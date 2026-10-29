@@ -7,6 +7,7 @@ import type { ReviewItem } from "../lib/review-state";
 import { commentsKey, isPreExisting, isSummary, linesOf, rangeOf, sameLocation, SEVERITIES, severityCounts, SEVERITY_LABEL, summaryChanges, SUMMARY_AT, VERDICT_LABEL, type CommentLocation, type Discussion, type Draft, type DraftComment, type Severity, type Verdict } from "../src/draft";
 import { diffPositions, orderRange, type FilePositions } from "../src/review-positions";
 import { splitPatchByFile } from "../src/patch";
+import { carries, insertLines } from "../src/post-preview";
 import { getHideNits, setHideNits, type PanelView } from "../lib/panel-state";
 import { approveDoubts, type ApproveGuard } from "../lib/approve-guard";
 import { readOf, type AgentCoverage } from "../lib/agent-coverage";
@@ -392,18 +393,22 @@ function useDraftState({ targetKey, activeChapterId, activeFiles, files = active
         refresh();
       });
   }
-  /** Send the box's text to the agent, which answers in the line's discussion, or the summary's. */
+  /**
+   * Send the box's text to the agent, which answers in the line's discussion, or the summary's. Still carrying text the
+   * box opened with, such as a check's failure quoted, it confirms no post (src/asking.ts).
+   */
   async function askAgent() {
     if (!body.trim()) return;
+    const inserted = carries(body, insertLines(openedBody.current));
     await mutate(async () => {
-      const result = await enqueue(() => rpc.call("askAgent", { targetKey, file, line: Number(line), side, ...(startLine ? { startLine } : {}), body: body.trim() }));
+      const result = await enqueue(() => rpc.call("askAgent", { targetKey, file, line: Number(line), side, ...(startLine ? { startLine } : {}), body: body.trim(), inserted }));
       apply(result as { draft: Draft }); closeComposer();
     });
   }
-  /** A message to the agent from the summary, without the box: write it, or update it. */
+  /** A message to the agent from the summary, without the box: write it, or update it. The plugin wrote it. */
   async function requestSummary(text: string) {
     await mutate(async () => {
-      apply(await enqueue(() => rpc.call("askAgent", { targetKey, ...SUMMARY_AT, body: text })) as { draft: Draft });
+      apply(await enqueue(() => rpc.call("askAgent", { targetKey, ...SUMMARY_AT, body: text, inserted: true })) as { draft: Draft });
       focusSummary();
     });
   }

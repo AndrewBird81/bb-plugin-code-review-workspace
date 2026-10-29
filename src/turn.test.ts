@@ -330,3 +330,21 @@ test("a non-blocking thread doesn't hold Feedback handled or count in progress, 
   expect(turn(comment)).toMatchObject({ group: "reviewed", label: "Commented" });
   expect(feedbackProgress(comment)).toBeNull();
 });
+
+test("a relayed approval waiting for your click is in Needs review, whatever the review waited on, and alerts nothing of its own; a merged PR's is done", () => {
+  const ready = { readyToApprove: { at: t(1) } };
+  for (const review of [changesRequested(ready), changesRequested({ ...ready, userArchivedAt: t(2) }), changesRequested({ ...ready, snoozedAt: t(2) })]) {
+    expect(computeTurn(review, undefined, NOW)).toMatchObject({ group: "needs", reason: "ready-to-approve", label: "Ready to approve", at: t(1), notify: false, signal: null });
+  }
+  expect(computeTurn(changesRequested({ ...ready, prState: "MERGED" }), undefined, NOW)).toMatchObject({ group: "archive", reason: "merged" });
+});
+
+test("a row waiting to be approved carries the alert of the turn beneath it: a new comment on your own PR, or a re-request", () => {
+  const ready = { readyToApprove: { at: t(1) } };
+  const own: TurnInput = { targetKey: "pr-1", kind: "pr", status: "tracked", prState: "OPEN", ownPr: true, ...ready, signals: { newComments: { count: 2, at: t(0.5), by: "bob" } } };
+  expect(computeTurn(own, undefined, NOW)).toEqual({ ...computeTurn({ ...own, readyToApprove: null }, undefined, NOW), reason: "ready-to-approve", label: "Ready to approve", at: t(1),
+    under: { reason: "new-comments", label: "Your PR · 2 new comments" } });
+  expect(computeTurn(own, undefined, NOW)).toMatchObject({ signal: `comments:${t(0.5)}`, notify: true, eventAt: t(0.5) });
+  const asked = changesRequested(ready, { requestedAt: t(0.5), requestedVia: "user" });
+  expect(computeTurn(asked, undefined, NOW)).toMatchObject({ reason: "ready-to-approve", signal: `re-requested:${t(0.5)}`, notify: true, under: { reason: "re-requested" } });
+});

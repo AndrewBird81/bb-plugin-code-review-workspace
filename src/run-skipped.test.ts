@@ -15,6 +15,7 @@ import plugin from "../server";
 import type { ReviewLifecycle } from "./store";
 import { defaultPreferences } from "./preferences";
 import { defaultKnobs } from "../lib/knobs";
+import { MARK_PART } from "./agent-chat.test-support";
 
 const PATCH = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
 
@@ -84,6 +85,7 @@ test("Run review on a review that has a conversation sends the review to it", as
   expect(sent).toMatchObject({ threadId: "assistant", mode: "queue-if-active", input: [
     { type: "text", text: defaultPreferences.automaticReview },
     { type: "text", visibility: "agent-only", text: expect.stringContaining('<untrusted source="review context">\nImplements LIN-42.\n</untrusted>') },
+    MARK_PART,
   ] });
   expect(await store.getReview("pr-1")).toMatchObject({ approvedHead: "sha1", skippedRun: null });
 });

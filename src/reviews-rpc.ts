@@ -288,7 +288,9 @@ export function register(deps: ServeDeps) {
   const commands = {
     async list(args, ctx, ownReview) {
       if (!(await store.getPreferences()).preferences.knobs.reviewCommandInThreads) return runReviewCommand(deps, ["list", ...args], ctx, ownReview);
-      return ownReview === undefined ? runListCommand(await listed(), args) : { exitCode: 2, stderr: NOT_LISTED };
+      if (ownReview !== undefined) return { exitCode: 2, stderr: NOT_LISTED };
+      const agents = new Map((await store.listAssistantThreads()).map(({ targetKey, threadId }) => [targetKey, threadId]));
+      return runListCommand(await listed(), args, agents);
     },
   } satisfies Subcommands;
   return { handlers, commands };

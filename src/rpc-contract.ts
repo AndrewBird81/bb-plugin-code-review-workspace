@@ -236,8 +236,9 @@ export const rpcContract = defineRpcContract({
     output: draftOutput,
   },
   // A message from a line's discussion, or the summary's (src/draft.ts SUMMARY_AT), to the review assistant, which answers there.
+  // inserted: the plugin wrote any of body, by filling the box or composing it, so it confirms no post.
   askAgent: {
-    input: z.object({ targetKey: z.string(), ...location, startLine: startLine.optional(), body: z.string().trim().min(1).max(20_000) }).strict(),
+    input: z.object({ targetKey: z.string(), ...location, startLine: startLine.optional(), body: z.string().trim().min(1).max(20_000), inserted: z.boolean() }).strict(),
     output: draftOutput,
   },
   /** Ask the review agent for a closer pass over a medium- or high-risk chapter, at high effort; its comments arrive in the draft. */
@@ -320,8 +321,15 @@ export const rpcContract = defineRpcContract({
     }),
   },
   startConversation: {
-    input: z.object({ targetKey: z.string(), text: z.string().min(1), agent: agentChoiceSchema }).strict(),
+    // typed: what you typed, without the file or lines quoted after it, which are the PR's words. inserted: the plugin put
+    // a quote or context in it, so it confirms no post.
+    input: z.object({ targetKey: z.string(), text: z.string().min(1), typed: z.string(), inserted: z.boolean(), agent: agentChoiceSchema }).strict(),
     output: z.object({ threadId: z.string() }),
+  },
+  // Text the dock is about to put in the conversation's composer: a message that carries it confirms no post.
+  noteInserted: {
+    input: z.object({ targetKey: z.string(), threadId: z.string().min(1), text: z.string().min(1).max(200_000) }).strict(),
+    output: z.object({ ok: z.literal(true) }),
   },
   newConversation: { input: targetKey, output: z.object({ ok: z.boolean() }) },
   // A visible coding thread that fixes draft comments on your own PR or a local review; the draft stays.
@@ -435,7 +443,13 @@ export const rpcContract = defineRpcContract({
    */
   approveReady: {
     input: z.object({ rows: z.array(z.object({ targetKey: z.string(), token: z.string().min(1) }).strict()).min(1).max(100), alsoHeld: z.boolean().optional() }).strict(),
-    output: z.object({ results: z.array(z.object({ targetKey: z.string(), outcome: z.enum(["posted", "held", "failed"]), error: z.string().optional(), url: z.string().optional() })) }),
+    // commits: a held row's commits since it was asked, when GitHub said.
+    output: z.object({ results: z.array(z.object({ targetKey: z.string(), outcome: z.enum(["posted", "held", "failed"]), error: z.string().optional(), url: z.string().optional(), commits: z.number().nullable().optional() })) }),
+  },
+  /** Don't approve: take a Ready to approve row, the one its token names, out of Needs review. */
+  dismissReady: {
+    input: z.object({ targetKey: z.string(), token: z.string().min(1) }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
 
   // GitHub account indicator + switcher

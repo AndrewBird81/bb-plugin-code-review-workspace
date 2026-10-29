@@ -24,6 +24,7 @@ import { SaveView, ViewTabs } from "./FilterViews";
 import { FirstRun } from "./FirstRun";
 import { InboxRow } from "./InboxRow";
 import { InboxPart, InboxSection, ROWS_CARD } from "./InboxSection";
+import { ReadyPostedNotice, ReadyToApprove, type ReadyPosted } from "./ReadyToApprove";
 import { ListTitleBar } from "./ListTitleBar";
 import { Omnibox } from "./Omnibox";
 import { TOUCH_CONTROL } from "../touch";
@@ -36,6 +37,7 @@ const SECTIONS: Array<{ group: TurnGroup; title: string }> = [
   { group: "archive", title: "Archive" },
 ];
 const NEEDS_PARTS: Array<{ part: NeedsGroup; title: string }> = [
+  { part: "ready", title: "Ready to approve" },
   { part: "back", title: "Back to you" },
   { part: "new", title: "New" },
   { part: "team", title: "Team requests" },
@@ -127,6 +129,8 @@ export function Inbox() {
   const [syncError, setSyncError] = useState(false);
   const [health, setHealth] = useState<SyncHealth>();
   const [searchOpen, setSearchOpen] = useState(false);
+  // What Ready to approve last posted, shown in Needs review until dismissed, after its rows have gone.
+  const [readyPosted, setReadyPosted] = useState<ReadyPosted | null>(null);
   const [boxFocused, setBoxFocused] = useState(false);
   const [pageEl, setPageEl] = useState<HTMLDivElement | null>(null);
   const findBox = useRef<HTMLInputElement>(null);
@@ -335,12 +339,15 @@ export function Inbox() {
             : <div className="space-y-1 pt-1">
               {SECTIONS.map(({ group, title }) => {
                 const list = sections[group];
-                if (!list.length && (group !== "needs" || filtering)) return null;
+                if (!list.length && (group !== "needs" || filtering) && !(group === "needs" && readyPosted)) return null;
                 return <InboxSection key={group} title={title} count={list.length} urgent={group === "needs"} collapsed={isCollapsed(group)} onToggle={() => toggle(group)} short={short} stickyTop={phoneBox ? "top-14 pointer-coarse:top-[60px]" : undefined}>
+                  {group === "needs" && readyPosted && <div className="px-1.5 pb-1 pt-2"><ReadyPostedNotice posted={readyPosted} onDismiss={() => setReadyPosted(null)} /></div>}
                   {group !== "needs" ? rows(list)
                     : list.length ? NEEDS_PARTS.map(({ part, title: partTitle }) => {
                       const partRows = list.filter((review) => needsGroup(review) === part);
-                      return partRows.length > 0 && <InboxPart key={part} title={partTitle} count={partRows.length} short={short}>{rows(partRows)}</InboxPart>;
+                      return partRows.length > 0 && <InboxPart key={part} title={partTitle} count={partRows.length} short={short}>
+                        {part === "ready" ? <ReadyToApprove reviews={partRows.filter((review) => !!review.readyToApprove) as Parameters<typeof ReadyToApprove>[0]["reviews"]} onOpen={open} onChanged={relist} onPosted={setReadyPosted} /> : rows(partRows)}
+                      </InboxPart>;
                     })
                     : <p className="flex items-center gap-2 rounded-xl border border-dashed border-border px-3 py-3 text-sm text-muted-foreground"><Icon name="CircleCheck" className="size-4 shrink-0 text-diff-added" aria-hidden />
                       Nothing needs you right now{waiting > 0 && ` · ${waiting} waiting on ${waiting === 1 ? "an author" : "authors"}`}

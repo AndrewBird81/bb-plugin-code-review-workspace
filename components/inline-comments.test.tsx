@@ -409,7 +409,7 @@ test("asking the agent about its comment opens a box under it, and the agent ans
   expect(panel().getByText("Writing to the agent about src/a.ts:2")).toBeTruthy();
   fireEvent.change(box, { target: { value: "It is, in a.test.ts." } });
   fireEvent.click(diff().getByRole("button", { name: "Send to agent" }));
-  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "ask", file: "src/a.ts", line: 2, side: "RIGHT", body: "It is, in a.test.ts." }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "ask", file: "src/a.ts", line: 2, side: "RIGHT", body: "It is, in a.test.ts.", inserted: false }));
   const discussion = await diff().findByRole("region", { name: "Discussion with agent on src/a.ts:2" });
   expect(within(discussion).getByText("It is, in a.test.ts.")).toBeTruthy();
   expect(within(discussion).getByRole("status").textContent).toBe("Waiting for agent…");
@@ -435,7 +435,7 @@ test("the comment box can send its text to the agent instead, which starts a dis
   fireEvent.click(diff().getByRole("button", { name: "Gutter +" }));
   fireEvent.change(diff().getByRole("textbox", { name: "Draft comment" }), { target: { value: "Why two lines?" } });
   fireEvent.click(diff().getByRole("button", { name: "Ask agent" }));
-  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "question", file: "src/a.ts", line: 2, side: "RIGHT", body: "Why two lines?" }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "question", file: "src/a.ts", line: 2, side: "RIGHT", body: "Why two lines?", inserted: false }));
   expect(saveDraftComment).not.toHaveBeenCalled();
   const discussion = await diff().findByRole("region", { name: "Discussion with agent on src/a.ts:2" });
   expect(diff().getByText("Private · with the agent")).toBeTruthy();
@@ -470,7 +470,7 @@ test("asking about selected lines opens a message box at the last line, and quot
   expect(box.closest("[data-draft-at]")?.getAttribute("data-draft-at")).toBe("src/a.ts:2:RIGHT");
   fireEvent.change(box, { target: { value: "Why both?" } });
   fireEvent.click(slot.getByRole("button", { name: "Send to agent" }));
-  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "lines", file: "src/a.ts", line: 2, side: "RIGHT", startLine: 1, body: "Why both?" }));
+  await waitFor(() => expect(askAgent).toHaveBeenCalledWith({ targetKey: "lines", file: "src/a.ts", line: 2, side: "RIGHT", startLine: 1, body: "Why both?", inserted: false }));
   slot.lifecycle.unmount();
 });
 

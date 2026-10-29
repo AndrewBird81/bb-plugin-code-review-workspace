@@ -12,6 +12,7 @@ import { spawningFor } from "./thread-review";
 import { recordFormerWorker } from "./former-workers";
 import { untrusted } from "./untrusted";
 import type { AsyncStore } from "./store-queue";
+import { sendToAgent, spawnAgent, type Marking } from "./asking";
 
 type ThreadSendArgs = Parameters<BbPluginApi["sdk"]["threads"]["send"]>[0];
 
@@ -162,8 +163,14 @@ const starts = new WeakMap<BbPluginApi, Map<string, Promise<{ threadId: string }
 /** A conversation being started for the review, until its thread is stored. */
 const starting = (bb: BbPluginApi, targetKey: string) => starts.get(bb)?.get(targetKey);
 
-/** Start the review's assistant thread with the reviewer's first message, plus `context` only the assistant sees. */
-export async function startConversation(bb: BbPluginApi, store: AsyncStore, args: { targetKey: string; text: string; context?: string; agent: AgentChoice }): Promise<{ threadId: string }> {
+/** How a message to the review agent came: whose it is (src/asking.ts), for a relay the thread that asked, and your own words in it. */
+export type Sent = Marking;
+
+/**
+ * Start the review's assistant thread with the first message, plus `context` only the assistant sees: the reviewer's
+ * own, or `kind`'s.
+ */
+export async function startConversation(bb: BbPluginApi, store: AsyncStore, args: { targetKey: string; text: string; context?: string; agent: AgentChoice } & Sent): Promise<{ threadId: string }> {
   // One start at a time per review: a later caller waits, then finds the conversation it started.
   for (let pending = starting(bb, args.targetKey); pending; pending = starting(bb, args.targetKey)) await pending.catch(() => {});
   // Registered before anything awaits, so a caller that comes meanwhile waits for this one.
@@ -186,7 +193,7 @@ export async function startConversation(bb: BbPluginApi, store: AsyncStore, args
   }
 }
 
-async function spawnConversation(bb: BbPluginApi, store: AsyncStore, args: { targetKey: string; text: string; context?: string; agent: AgentChoice }, projectId: string): Promise<{ threadId: string }> {
+async function spawnConversation(bb: BbPluginApi, store: AsyncStore, args: { targetKey: string; text: string; context?: string; agent: AgentChoice } & Sent, projectId: string): Promise<{ threadId: string }> {
   const unavailable = await machineUnavailable(bb, args.agent, "review assistant");
   if (unavailable) throw new Error(unavailable);
   const { assistantAgent, messages, review, all, guideTitle } = await store.exclusive(async (tx) => ({
@@ -202,7 +209,7 @@ async function spawnConversation(bb: BbPluginApi, store: AsyncStore, args: { tar
   const title = `${ASSISTANT_TITLE}${[...new Set([...named, args.targetKey])].join(" · ")}`;
   const placement = await agentPlacement(bb, args.agent, projectId);
   const worker = await spawningFor(bb, title, args.targetKey, async () => {
-    const worker = await bb.sdk.threads.spawn({
+    const worker = await spawnAgent(bb, {
       ...placement,
       input: [
         { type: "text", text: args.text, mentions: [] },
@@ -215,7 +222,7 @@ async function spawnConversation(bb: BbPluginApi, store: AsyncStore, args: { tar
       pluginMetadata: { targetKey: args.targetKey },
       // The default's permission mode applies only to the provider it was chosen for.
       ...spawnExecution({ ...args.agent, ...(assistantAgent?.providerId === args.agent.providerId ? { permissionMode: assistantAgent.permissionMode } : {}) }),
-    });
+    }, { kind: args.kind, ...(args.from === undefined ? {} : { from: args.from }), ...(args.said === undefined ? {} : { said: args.said }), ...(args.inserted ? { inserted: true } : {}) });
     await store.setAssistantThread(args.targetKey, worker.id);
     return worker;
   });
@@ -259,10 +266,10 @@ export async function startAutomaticReview(bb: BbPluginApi, store: AsyncStore, t
       const review = await tx.getReview(targetKey);
       return !!review && preferences.knobs.recheckOnNewCommits && mayRunUnattended(review, preferences, review.headSha) && (await tx.getDraft(targetKey)).comments.some((comment) => comment.author === "agent");
     })) return "conversation";
-    await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [{
+    await sendToAgent(bb, { threadId, mode: "queue-if-active", input: [{
       type: "text", mentions: [], visibility: "agent-only",
       text: `New commits: ${newCommits.from.slice(0, 7)}→${newCommits.to.slice(0, 7)}. Re-check your draft comments against the new diff, delete the ones the commits fixed, and review only what changed.`,
-    }] });
+    }] }, { kind: "automatic" });
     return "new-commits";
   }
   if (!prompt) return "off";
@@ -293,11 +300,11 @@ export async function startAutomaticReview(bb: BbPluginApi, store: AsyncStore, t
   }
   if (notes === null) return "waiting";
   if (threadId) {
-    // After its current work, as a message you send it.
-    await bb.sdk.threads.send({ threadId, mode: "queue-if-active", input: [
+    // After its current work, as a message you send it. Even on your click it's the automatic review, which only drafts.
+    await sendToAgent(bb, { threadId, mode: "queue-if-active", input: [
       { type: "text", text: prompt, mentions: [] },
       ...(notes ? [{ type: "text" as const, text: notes, mentions: [], visibility: "agent-only" as const }] : []),
-    ] });
+    ] }, { kind: "automatic" });
     return "sent";
   }
   // A conversation the reviewer is starting comes first; your click sends the review to it once it's up.
@@ -307,7 +314,7 @@ export async function startAutomaticReview(bb: BbPluginApi, store: AsyncStore, t
     await pending.catch(() => {});
     return startAutomaticReview(bb, store, targetKey, newCommits, { clicked });
   }
-  await startConversation(bb, store, { targetKey, text: prompt, agent: defaults!, ...(notes ? { context: notes } : {}) });
+  await startConversation(bb, store, { targetKey, text: prompt, agent: defaults!, ...(notes ? { context: notes } : {}), kind: "automatic" });
   return "started";
 }
 
@@ -357,34 +364,33 @@ async function raisedLevel(bb: BbPluginApi, store: AsyncStore, targetKey: string
 }
 
 /**
- * Send the reviewer's message to the review's assistant, after its current
- * work if it's busy, plus `context` only the assistant sees. Without a
- * conversation, this starts one on the agent a new conversation defaults to.
- * `effort` raises the message's reasoning level to it (raisedLevel).
+ * Send a message to the review's assistant, after its current work if it's busy, plus `context` only the assistant sees:
+ * the reviewer's, as from a click, or `kind`'s. Without a conversation, this starts one on the agent a new conversation
+ * defaults to. `effort` raises the message's reasoning level to it (raisedLevel).
  */
-export async function messageAssistant(bb: BbPluginApi, store: AsyncStore, targetKey: string, text: string, context: string, effort?: string): Promise<{ started: boolean; threadId: string; queuedMessageId?: string }> {
+export async function messageAssistant(bb: BbPluginApi, store: AsyncStore, targetKey: string, text: string, context: string, { effort, ...sent }: Sent & { effort?: string }): Promise<{ started: boolean; threadId: string; queuedMessageId?: string }> {
   const { threadId, defaults } = await getConversation(bb, store, targetKey);
   if (threadId) {
     const providerId = effort ? (await bb.sdk.threads.get({ threadId }).catch(() => null))?.providerId : undefined;
     const reasoningLevel = effort && providerId ? await raisedLevel(bb, store, targetKey, effort, providerId) : undefined;
     // Any level BB lists; an older SDK's types name eight.
-    const sent = await bb.sdk.threads.send({ threadId, mode: "queue-if-active", ...(reasoningLevel ? { reasoningLevel: reasoningLevel as ThreadSendArgs["reasoningLevel"] } : {}), input: [
+    const delivered = await sendToAgent(bb, { threadId, mode: "queue-if-active", ...(reasoningLevel ? { reasoningLevel: reasoningLevel as ThreadSendArgs["reasoningLevel"] } : {}), input: [
       { type: "text", text, mentions: [] },
       { type: "text", text: context, mentions: [], visibility: "agent-only" },
-    ] });
+    ] }, sent);
     // Queued behind the assistant's current work, the message runs in a later turn.
-    const queuedMessageId = sent?.delivery === "queued" ? sent.queuedMessage?.id : undefined;
+    const queuedMessageId = delivered?.delivery === "queued" ? delivered.queuedMessage?.id : undefined;
     return { started: false, threadId, ...(queuedMessageId ? { queuedMessageId } : {}) };
   }
   // A conversation being started takes this message once it's up.
   const pending = starting(bb, targetKey);
   if (pending) {
     await pending.catch(() => {});
-    return messageAssistant(bb, store, targetKey, text, context, effort);
+    return messageAssistant(bb, store, targetKey, text, context, { effort, ...sent });
   }
   if (!defaults) throw new Error("Choose this review's agent first: open Ask agent and send it a message.");
   const reasoningLevel = effort ? await raisedLevel(bb, store, targetKey, effort, defaults.providerId) : undefined;
-  const started = await startConversation(bb, store, { targetKey, text, context, agent: reasoningLevel ? { ...defaults, reasoningLevel } : defaults });
+  const started = await startConversation(bb, store, { targetKey, text, context, agent: reasoningLevel ? { ...defaults, reasoningLevel } : defaults, ...sent });
   return { started: true, threadId: started.threadId };
 }
 

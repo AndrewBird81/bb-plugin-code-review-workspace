@@ -28,7 +28,53 @@ export function shownText(shown: PostShown): string {
     ...shown.parts.map(({ label, body }) => `${label}:\n\n${body.split("\n").map((line) => `    ${line}`).join("\n")}`)].join("\n\n");
 }
 
-const plain = (text: string) => text.toLowerCase().replace(/[‘’]/g, "'");
+/**
+ * The lines of text the plugin put in a message, by which it can be told the message carries it: each trimmed, its
+ * spaces run together, of 3 characters or more.
+ */
+export function insertLines(text: string): string[] {
+  return [...new Set(text.split(/\r\n?|\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter((line) => line.length >= 3))];
+}
+/** Whether `text` has any of `lines` in it, its spaces run together as theirs are. */
+export function carries(text: string, lines: readonly string[]): boolean {
+  const flat = text.replace(/\s+/g, " ");
+  return lines.some((line) => flat.includes(line));
+}
+
+/**
+ * What of a message is the sender's own words: not a fenced block, a `>` quote line, or inline code, where the plugin and
+ * bb put what they quote into it (a file's path, selected lines, a check's log), which the PR wrote. A fence or inline
+ * code left open runs to the end. Only a backstop: a message carrying text the plugin put in it confirms nothing.
+ */
+export function ownWords(text: string): string {
+  const kept: string[] = [];
+  let fence: string | null = null;
+  for (const line of text.split(/\r\n?|\n/)) {
+    const marker = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (fence) {
+      if (marker && marker[0] === fence[0] && marker.length >= fence.length && /^\s*[`~]+\s*$/.test(line)) fence = null;
+      continue;
+    }
+    if (marker) { fence = marker; continue; }
+    if (!/^\s*>/.test(line)) kept.push(line);
+  }
+  return withoutCode(kept.join("\n"));
+}
+/** `text` without its inline code: a run of backticks to the next run of as many, or to the end. */
+function withoutCode(text: string): string {
+  let out = "";
+  let rest = text;
+  for (let open = rest.match(/`+/); open; open = rest.match(/`+/)) {
+    out += `${rest.slice(0, open.index)} `;
+    const after = rest.slice(open.index! + open[0].length);
+    const close = after.match(new RegExp(`(?<!\`)\`{${open[0].length}}(?!\`)`));
+    if (!close) return out;
+    rest = after.slice(close.index! + open[0].length);
+  }
+  return out + rest;
+}
+/** A message's own words as the yes and just-post-it rules read them. */
+const plain = (text: string) => ownWords(text).toLowerCase().replace(/[‘’]/g, "'");
 /** Words that turn a message into something other than a yes or a go-ahead: a condition, a change, a question, a no. */
 const NEGATED = /\b(not|no|never|don't|dont|do not|can't|cant|cannot|won't|wont|shouldn't|shouldnt)\b/;
 const NOT_YES = new RegExp(`${NEGATED.source}|\\b(but|nope|nah|wait|instead|first|hold|stop|cancel|change|edit|fix|later|unless|except|why|what|how|rather)\\b`);

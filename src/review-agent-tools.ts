@@ -14,7 +14,8 @@ import { readReviewThreads } from "./github-threads-rpc";
 import { addAssignees, mergePr, pushback, readMergeSettings, readWriteFacts, refusalText, type WriteAction, type WriteFacts, type WriteRefusal } from "./github-writes";
 import { postDraftedReply } from "./post-receipts";
 import { affirms, justPost, POST_PREVIEW_RENDERER, shownText, type JustVerb, type PostButton, type PostShown } from "./post-preview";
-import type { Turn } from "./asking";
+import { holdForApproval } from "./relays";
+import type { Turn, TurnMessage } from "./asking";
 import type { ActivityEntry, ReviewMeta } from "./store";
 import type { SubmitResult, SubmitWarning } from "./submit-review";
 import { failed, type ServeDeps } from "./server-modules";
@@ -44,13 +45,17 @@ type Write =
   | { kind: "close" }
   | { kind: "meta"; action: MetaAction; names: string[] }
   | { kind: "resolve"; thread: string; resolved: boolean; at: string | null };
-/** The post an agent's Post form shows, kept until it's posted: one per review agent. */
-interface Preview { token: string; targetKey: string; account: string | null; at: number; write: Write; shown: PostShown; usedAt?: number }
+/**
+ * The post an agent's Post form shows, kept until it's posted: one per review agent. `from`, for a relayed ask, is the
+ * thread it was shown to instead, whose yes confirms it; unset when it was shown to the reviewer in the review.
+ */
+interface Preview { token: string; targetKey: string; account: string | null; at: number; write: Write; shown: PostShown; usedAt?: number; from?: string | null }
 /** What a write did: the line for the agent, the review's activity, and where it is on GitHub. */
 type Done = { ok: true; text: string; activity: string; url?: string } | { ok: false; text: string };
 
-const confirm = z.enum(["yes", "just-post-it"]).optional().describe("\"yes\": the reviewer answered yes in chat to what the Post form showed; give the same input again. \"just-post-it\": the reviewer's own message says to post it without showing it first (\"just post it\"; for an approve, request changes, merge or close, the message is only that command: \"just merge it\").");
-const RELAYED_APPROVAL = "Approving, merging and closing need the reviewer's own message or click in this review. Nothing was done: ask them here.";
+const confirm = z.enum(["yes", "just-post-it"]).optional().describe("\"yes\": the reviewer, or the thread it was sent to, answered yes to exactly what was shown; give the same input again. \"just-post-it\": the reviewer's own message, or the relayed one, says to post it without showing it first (\"just post it\"; for request changes, the message is only that command: \"just request changes\").");
+/** What a relayed approve, merge or close says it did: it waits for the reviewer's click. */
+const HELD = (what: string) => `Nothing was done: ${what} needs the reviewer's own click. It waits in their Needs review as Ready to approve, showing exactly what posts. Tell the thread that asked.`;
 const UNATTENDED = "This turn wasn't started by the reviewer, so nothing went to GitHub.";
 const OFF = "Settings has the review agent drafting only now, so nothing went to GitHub. Put it in the reviewer's draft instead.";
 const TEAMMATES = "On someone else's PR, push back once before changing its labels, reviewers, assignees, title or description, resolving its threads, or closing it, and offer a comment instead; then do what the reviewer says.";
@@ -69,8 +74,13 @@ export function register(deps: ServeDeps, { submit }: {
 }) {
   const { bb, store, receipts, githubWrites, submitReview, sync, changed, refreshThreads, classify } = deps;
   const key = (threadId: string) => `post-preview:${threadId}`;
-  /** The messageSeq of the message that last confirmed a write: each message confirms one. */
+  /** The message that last confirmed a write, by bb's id for its request, and when it was sent: each message confirms one. */
   const confirmedKey = (threadId: string) => `post-confirmed:${threadId}`;
+  /** Whether `message` may confirm a write: not the one that confirmed the last, nor older. */
+  const fresh = async (threadId: string, message: TurnMessage) => {
+    const last = await bb.storage.kv.get<{ id: string; at: number }>(confirmedKey(threadId));
+    return !last || (message.id !== last.id && message.at >= last.at);
+  };
   /** Each open Post form, by its token, to cancel when a yes in chat posts it, or a newer one replaces it. */
   const forms = new Map<string, AbortController>();
 
@@ -102,26 +112,26 @@ export function register(deps: ServeDeps, { submit }: {
   }
 
   /**
-   * Mark the preview with `token` used, once, in one turn: null when it's not there, or already used. `message`, the
-   * messageSeq of the message that confirmed it, confirms no other: "message" when it already did, or isn't known.
+   * Mark the preview with `token` used, once, in one turn: null when it's not there, or already used. `message`, the one
+   * that confirmed it, confirms no other: "message" when it already did. A click (null) needs none.
    */
-  async function consume(threadId: string, token: string, message: number | undefined | null): Promise<Preview | null | "message"> {
+  async function consume(threadId: string, token: string, message: TurnMessage | null): Promise<Preview | null | "message"> {
     return store.exclusive(async () => {
       const preview = await bb.storage.kv.get<Preview>(key(threadId));
       if (!preview || preview.token !== token || preview.usedAt) return null;
-      if (message !== null) {
-        if (message === undefined || message <= (await bb.storage.kv.get<number>(confirmedKey(threadId)) ?? -1)) return "message";
-        await bb.storage.kv.set(confirmedKey(threadId), message);
+      if (message) {
+        if (!await fresh(threadId, message)) return "message";
+        await bb.storage.kv.set(confirmedKey(threadId), { id: message.id, at: message.at });
       }
       await bb.storage.kv.set(key(threadId), { ...preview, usedAt: Date.now() });
       return preview;
     });
   }
-  /** Take the message with `seq` as the confirmation of one write: false when it already confirmed one, or isn't known. */
-  async function claim(threadId: string, seq: number | undefined): Promise<boolean> {
+  /** Take `message` as the confirmation of one write: false when it already confirmed one. */
+  async function claim(threadId: string, message: TurnMessage): Promise<boolean> {
     return store.exclusive(async () => {
-      if (seq === undefined || seq <= (await bb.storage.kv.get<number>(confirmedKey(threadId)) ?? -1)) return false;
-      await bb.storage.kv.set(confirmedKey(threadId), seq);
+      if (!await fresh(threadId, message)) return false;
+      await bb.storage.kv.set(confirmedKey(threadId), { id: message.id, at: message.at });
       return true;
     });
   }
@@ -234,21 +244,27 @@ export function register(deps: ServeDeps, { submit }: {
 
   /**
    * Post `w` as the reviewer asked: shown first in the Post form, unless they said yes in chat to exactly what it
-   * showed, or their own message said to post it without showing it. Each message of theirs confirms one write. The
-   * form's click posts it; its result reaches the agent when it comes.
+   * showed, or their own message said to post it without showing it. Asked from another of their threads, it's shown
+   * to that thread instead, with no form, and its yes, or the reviewer's, posts it. Each message confirms one write, and
+   * one carrying text the plugin put in it, such as a quote from the PR, none. The form's click posts it; its result
+   * reaches the agent when it comes.
    */
   async function previewed(threadId: string, signal: AbortSignal, review: Review, turn: Turn, w: Write, verb: JustVerb, shown: (account: string | null) => PostShown, answer: "yes" | "just-post-it" | undefined): Promise<PluginAgentToolResult> {
     const account = await login();
     const token = previewToken(review.targetKey, account, w);
     const preview: Preview = { token, targetKey: review.targetKey, account, at: Date.now(), write: w, shown: shown(account) };
-    const message = turn.asking === "direct" ? turn.message : null;
-    const usedUp = "The reviewer's message already confirmed another post, or can't be told apart. Nothing more was posted: show it to them with the form.";
+    // Who asked: the reviewer in the review, or their other thread, relaying; a turn no one started has no one to ask.
+    const message = turn.asking === "unattended" ? null : turn.message;
+    const relayed = turn.asking === "relayed";
+    const usedUp = "That message already confirmed another post. Nothing more was posted: show it to them first.";
+    const quoting = "That message carries text the plugin put in it, such as a quote from the PR, so it confirms no post. Nothing was posted:";
     if (answer === "just-post-it") {
+      if (message?.inserted) return failed(`${quoting} call again without confirm to show it to them.`);
       if (!message || !justPost(message.text, verb)) return failed(verb === "post"
-        ? "Only the reviewer's own message, saying \"just post it\", skips the form. Nothing was posted: call again without confirm to show it to them."
+        ? "Only the reviewer's own message, or one relayed from their thread, saying \"just post it\", skips the form. Nothing was posted: call again without confirm to show it to them."
         : `Only a message that is just the command, such as "just ${verb === "request-changes" ? "request changes" : `${verb} it`}", skips the form. Nothing was posted: call again without confirm to show it to them.`);
       // Taken without touching a form that's open for something else: a refused one leaves it be.
-      if (!await claim(threadId, message.seq)) return failed(usedUp);
+      if (!await claim(threadId, message)) return failed(usedUp);
       // The form open for exactly this is answered by it: used now and closed, so its click can't post it again.
       const open = await bb.storage.kv.get<Preview>(key(threadId));
       if (open?.token === token) {
@@ -261,8 +277,11 @@ export function register(deps: ServeDeps, { submit }: {
     const open = await bb.storage.kv.get<Preview>(key(threadId));
     if (answer === "yes" && open?.token === token) {
       if (open.usedAt) return failed("That was posted already, from the Post form. Nothing more was posted.");
-      if (!message || message.at <= open.at || !affirms(message.text, open.shown.button, open.shown.action)) return failed(`The reviewer hasn't answered yes to it in this review since it was shown: only a short yes${open.shown.button === "Post" ? "" : ` or "${open.shown.button.toLowerCase()} it"`} counts. Nothing was posted: ask them, or wait for their click.`);
-      const used = await consume(threadId, token, message.seq);
+      // A yes since it was shown: the reviewer's in the review, or the thread's it was sent to.
+      const fromThem = !relayed || (open.from !== undefined && message?.senderThreadId === open.from);
+      if (message?.inserted && message.at > open.at) return failed(`${quoting} ask them for a yes in a message of their own, or wait for their click.`);
+      if (!message || message.at <= open.at || !fromThem || !affirms(message.text, open.shown.button, open.shown.action)) return failed(`No yes to it has come since it was shown, from the reviewer in this review or the thread it was sent to: only a short yes${open.shown.button === "Post" ? "" : ` or "${open.shown.button.toLowerCase()} it"`} counts. Nothing was posted: ask them, or wait for their click.`);
+      const used = await consume(threadId, token, message);
       if (used === "message") return failed(usedUp);
       if (!used) return failed("That was posted already, from the Post form. Nothing more was posted.");
       forms.get(token)?.abort("confirmed");
@@ -270,8 +289,11 @@ export function register(deps: ServeDeps, { submit }: {
       return done.ok ? done.text : failed(done.text);
     }
     if (open?.token === token && !open.usedAt && forms.has(token)) return failed("The form for exactly this is already open. Wait for the reviewer's click, or their answer in chat.");
-    await replace(threadId, preview);
+    const sender = message?.senderThreadId ?? null;
+    await replace(threadId, relayed ? { ...preview, from: sender } : preview);
     const changedSince = answer === "yes" ? "It changed since it was shown, so it's shown again. " : "";
+    // Relayed, it goes back to the thread that asked: a form in this hidden chat would wait for no one.
+    if (relayed) return `${changedSince}Nothing was posted yet. ${sender ? `Send exactly this to the thread that asked, with \`bb thread tell ${sender}\`` : "Show exactly this in your reply"}, then end your turn. When it says yes, call again with the same input and confirm: "yes".\n\n${shownText(preview.shown)}`;
     const inChat = `Show the reviewer exactly this, then ask. When they say yes, call again with the same input and confirm: "yes".\n\n${shownText(preview.shown)}`;
     if (!bb.ui?.requestInput) return `${changedSince}${inChat}`;
     const form = new AbortController();
@@ -312,14 +334,16 @@ export function register(deps: ServeDeps, { submit }: {
   }
 
   /**
-   * A change without text: done when asked, but shown in the form first when another thread relayed it and the PR
-   * isn't the reviewer's, where relays count as theirs only for their own PRs.
+   * A change without text: done when asked, but shown first when another thread relayed it and the PR isn't the
+   * reviewer's, where relays count as theirs only for their own PRs, or when the ask came into a turn no one asked for,
+   * such as the automatic review's, which the PR's text may have steered before it came.
    */
   async function change(threadId: string, signal: AbortSignal, review: Review, turn: Turn, w: Extract<Write, { kind: "meta" | "resolve" }>, facts: WriteFacts, what: string, answer: "yes" | "just-post-it" | undefined): Promise<PluginAgentToolResult> {
-    if (turn.asking === "relayed" && !ownPr(review, facts)) {
+    const relayedOnTheirs = turn.asking === "relayed" && !ownPr(review, facts);
+    if (relayedOnTheirs || turn.joined) {
       return previewed(threadId, signal, review, turn, w, "post", (account) => ({
         title: `Change ${where(review)}${account ? ` as @${account}` : ""}`, action: w.kind === "resolve" ? (w.resolved ? "Resolve thread" : "Unresolve thread") : META_LABEL[w.action], button: "Apply",
-        parts: [], notes: ["Asked from another thread, on someone else's PR."], details: [what],
+        parts: [], notes: [relayedOnTheirs ? "Asked from another thread, on someone else's PR." : "Asked while the agent was on a turn you didn't start."], details: [what],
       }), answer);
     }
     const done = await write(review, w, await login());
@@ -340,7 +364,7 @@ export function register(deps: ServeDeps, { submit }: {
   bb.agents.registerTool({
     name: "submit_review",
     description: "Submit the reviewer's review of this PR to GitHub: their draft's comments, with the verdict, and the summary given or the draft's. The reviewer sees exactly what posts, with a button naming the verdict, before it posts.",
-    instructions: `When the reviewer asks you to submit their review, approve, or request changes, call submit_review. It opens a form showing them exactly what posts: say it's there, and end your turn. If they answer with a short yes in chat instead, call it again with the same input and confirm: "yes". Pass confirm: "just-post-it" only when their own message says to post without showing it, and for an approval names it ("approve it, just post it"). If it comes back with a warning, such as new commits since they reviewed, tell them in a line, and call again with force: true only if they want it posted anyway. In a turn the reviewer didn't start, it only marks your suggested verdict. ${ONLY_WITH_THESE_TOOLS}`,
+    instructions: `When the reviewer asks you to submit their review, approve, or request changes, call submit_review. It opens a form showing them exactly what posts: say it's there, and end your turn. If they answer with a short yes in chat instead, call it again with the same input and confirm: "yes". Pass confirm: "just-post-it" only when their own message says to post without showing it, and for an approval names it ("approve it, just post it"). Asked from another of their threads, it gives you the text to send back there, and an approval waits for the reviewer's click in Needs review. If it comes back with a warning, such as new commits since they reviewed, tell them in a line, and call again with force: true only if they want it posted anyway. In a turn the reviewer didn't start, it only marks your suggested verdict. ${ONLY_WITH_THESE_TOOLS}`,
     parameters: z.object({
       verdict: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]),
       body: z.string().trim().max(65_000).optional().describe("The summary to post with it, in GitHub Markdown, replacing the draft's when it posts. Without it, the draft's summary posts."),
@@ -359,12 +383,18 @@ export function register(deps: ServeDeps, { submit }: {
         bb.realtime.publish(`draft:${k}`, {});
         return `Marked ${VERDICT_LABEL[verdict]} as your suggested verdict in the reviewer's draft${saved?.ok ? ", with your summary" : ""}. ${UNATTENDED}`;
       }
-      if (turn.asking === "relayed" && verdict === "APPROVE") return failed(RELAYED_APPROVAL);
       const { draft, preExisting } = await store.exclusive(async (tx) => ({ draft: await tx.getDraft(k), preExisting: (await tx.getPreferences()).preferences.knobs.preExistingFindings }));
       const comments: Comment[] = draft.comments.map(({ file, line, side, startLine, startSide, severity, introduced, body }) => ({ file, line, side, body, ...(startLine === undefined ? {} : { startLine, startSide }), ...(severity ? { severity } : {}), ...(introduced === false ? { introduced } : {}) }));
       const summary = body ?? draft.body;
       // What GitHub refuses, said before anything is shown.
       if (verdict !== "COMMENT" && review.ownPr) return failed("GitHub allows only a Comment review on your own PR, so nothing was posted. Offer to post it as a Comment review instead.");
+      // Relayed, an approval waits for the reviewer's own click, with the summary alone: the draft's comments stay.
+      if (turn.asking === "relayed" && verdict === "APPROVE") {
+        if (!review.headSha) return failed("The commit the reviewer reviewed isn't known, so there's nothing to approve yet. Nothing was done.");
+        await holdForApproval(bb, store, { ...review, headSha: review.headSha }, { action: "approve", verdict, body: summary, from: turn.message?.senderThreadId ?? null });
+        changed(k);
+        return HELD("approving");
+      }
       // What would stop it or warn, before it's shown: a warning is the one pushback, and with force it's in the form,
       // in the form's own words, with the summary as it would post.
       const checked = await submitReview(k, undefined, (await login()) ?? undefined, comments, { body: summary, verdict }, { check: true });
@@ -403,7 +433,13 @@ export function register(deps: ServeDeps, { submit }: {
       const yours = (await store.listFeedbackThreads(k)).find((t) => t.id === thread);
       if (turn.asking === "unattended") {
         if (!yours) return failed(`${UNATTENDED} Suggest the reply in chat.`);
-        await store.setReplyDraft(k, thread, body, "agent");
+        // A reply the reviewer drafted there stays theirs.
+        const drafted = await store.exclusive(async (tx) => {
+          if ((await tx.listReplyDrafts(k)).get(thread)?.author === "reviewer") return false;
+          await tx.setReplyDraft(k, thread, body, "agent");
+          return true;
+        });
+        if (!drafted) return failed(`The reviewer has a reply drafted on that thread, so it stays as they wrote it. ${UNATTENDED} Suggest yours in chat.`);
         bb.realtime.publish(`feedback:${k}`, { ts: Date.now() });
         return `Drafted the reply on the thread, for the reviewer to send. ${UNATTENDED}`;
       }
@@ -461,7 +497,6 @@ export function register(deps: ServeDeps, { submit }: {
       if ("refused" in started) return started.refused;
       const { review, turn } = started;
       if (turn.asking === "unattended") return failed(`${UNATTENDED} Suggest it to the reviewer.`);
-      if (turn.asking === "relayed" && (action === "merge" || action === "close")) return failed(RELAYED_APPROVAL);
       const facts = await readWriteFacts(runGh, review.repo, review.number);
       if ("error" in facts) return failed(facts.error);
       const held = pushback(action === "comment" || action === "edit" || action === "merge" || action === "close" ? action : metaAction(action), facts, review.repo);
@@ -480,6 +515,12 @@ export function register(deps: ServeDeps, { submit }: {
           if (!method) return failed("Say how to merge it: merge, squash or rebase. Ask the reviewer if they didn't say.");
           if (!review.headSha) return failed("The commit the reviewer reviewed isn't known, so it can't be merged at it. Update the review first.");
           if (facts.headSha !== review.headSha) return failed(`The PR has commits the reviewer hasn't reviewed (${review.headSha.slice(0, 7)} reviewed, ${facts.headSha.slice(0, 7)} now), so nothing was merged. Tell them: they Update the review and read those first.`);
+          // Relayed, it waits for the reviewer's own click, with GitHub's commit message for it.
+          if (turn.asking === "relayed") {
+            await holdForApproval(bb, store, { ...review, headSha: review.headSha }, { action: "merge", verdict: null, body: "", merge: { method, auto, deleteBranch }, from: turn.message?.senderThreadId ?? null });
+            changed(review.targetKey);
+            return HELD("merging");
+          }
           // What lands on the base branch, shown and given to GitHub as is: a rebase lands the commits themselves.
           const message: { subject?: string; body?: string; fallback?: string } = method === "rebase" ? {} : await mergeMessage(review, method, { title: newTitle, body });
           const known = { ...message.subject === undefined ? {} : { subject: message.subject }, ...message.body === undefined ? {} : { body: message.body } };
@@ -491,6 +532,12 @@ export function register(deps: ServeDeps, { submit }: {
               ...auto ? ["It merges once checks and reviews pass."] : [], ...deleteBranch ? ["Then it deletes the branch."] : []]), answer);
         }
         case "close":
+          if (turn.asking === "relayed") {
+            if (!review.headSha) return failed("The commit the reviewer reviewed isn't known. Nothing was done.");
+            await holdForApproval(bb, store, { ...review, headSha: review.headSha }, { action: "close", verdict: null, body: "", from: turn.message?.senderThreadId ?? null });
+            changed(review.targetKey);
+            return HELD("closing");
+          }
           return previewed(threadId, signal, review, turn, { kind: "close" }, "close", shown("Close", "Close", "Close", [], ["Closes the PR without merging it."]), answer);
       }
       if (action.startsWith("add-") || action.startsWith("remove-")) {

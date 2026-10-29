@@ -545,7 +545,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
           "type": "string",
         },
         "confirm": {
-          "description": ""yes": the reviewer answered yes in chat to what the Post form showed; give the same input again. "just-post-it": the reviewer's own message says to post it without showing it first ("just post it"; for an approve, request changes, merge or close, the message is only that command: "just merge it").",
+          "description": ""yes": the reviewer, or the thread it was sent to, answered yes to exactly what was shown; give the same input again. "just-post-it": the reviewer's own message, or the relayed one, says to post it without showing it first ("just post it"; for request changes, the message is only that command: "just request changes").",
           "enum": [
             "yes",
             "just-post-it",
@@ -570,7 +570,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
       ],
       "type": "object",
     },
-    "instructions": "When the reviewer asks you to submit their review, approve, or request changes, call submit_review. It opens a form showing them exactly what posts: say it's there, and end your turn. If they answer with a short yes in chat instead, call it again with the same input and confirm: "yes". Pass confirm: "just-post-it" only when their own message says to post without showing it, and for an approval names it ("approve it, just post it"). If it comes back with a warning, such as new commits since they reviewed, tell them in a line, and call again with force: true only if they want it posted anyway. In a turn the reviewer didn't start, it only marks your suggested verdict. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
+    "instructions": "When the reviewer asks you to submit their review, approve, or request changes, call submit_review. It opens a form showing them exactly what posts: say it's there, and end your turn. If they answer with a short yes in chat instead, call it again with the same input and confirm: "yes". Pass confirm: "just-post-it" only when their own message says to post without showing it, and for an approval names it ("approve it, just post it"). Asked from another of their threads, it gives you the text to send back there, and an approval waits for the reviewer's click in Needs review. If it comes back with a warning, such as new commits since they reviewed, tell them in a line, and call again with force: true only if they want it posted anyway. In a turn the reviewer didn't start, it only marks your suggested verdict. Post, approve, merge, close or push only with these tools, never with gh, gh api or git push in your shell.",
     "name": "submit_review",
     "presentation": null,
   },
@@ -586,7 +586,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
           "type": "string",
         },
         "confirm": {
-          "description": ""yes": the reviewer answered yes in chat to what the Post form showed; give the same input again. "just-post-it": the reviewer's own message says to post it without showing it first ("just post it"; for an approve, request changes, merge or close, the message is only that command: "just merge it").",
+          "description": ""yes": the reviewer, or the thread it was sent to, answered yes to exactly what was shown; give the same input again. "just-post-it": the reviewer's own message, or the relayed one, says to post it without showing it first ("just post it"; for request changes, the message is only that command: "just request changes").",
           "enum": [
             "yes",
             "just-post-it",
@@ -615,7 +615,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "confirm": {
-          "description": ""yes": the reviewer answered yes in chat to what the Post form showed; give the same input again. "just-post-it": the reviewer's own message says to post it without showing it first ("just post it"; for an approve, request changes, merge or close, the message is only that command: "just merge it").",
+          "description": ""yes": the reviewer, or the thread it was sent to, answered yes to exactly what was shown; give the same input again. "just-post-it": the reviewer's own message, or the relayed one, says to post it without showing it first ("just post it"; for request changes, the message is only that command: "just request changes").",
           "enum": [
             "yes",
             "just-post-it",
@@ -674,7 +674,7 @@ exports[`the plugin registers the same RPC methods, tools, CLI subcommands, list
           "type": "string",
         },
         "confirm": {
-          "description": ""yes": the reviewer answered yes in chat to what the Post form showed; give the same input again. "just-post-it": the reviewer's own message says to post it without showing it first ("just post it"; for an approve, request changes, merge or close, the message is only that command: "just merge it").",
+          "description": ""yes": the reviewer, or the thread it was sent to, answered yes to exactly what was shown; give the same input again. "just-post-it": the reviewer's own message, or the relayed one, says to post it without showing it first ("just post it"; for request changes, the message is only that command: "just request changes").",
           "enum": [
             "yes",
             "just-post-it",

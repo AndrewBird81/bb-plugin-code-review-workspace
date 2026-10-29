@@ -11,14 +11,16 @@ import { failed, type ServeDeps } from "./server-modules";
 export function register(deps: ServeDeps) {
   const { bb, store, classify } = deps;
   /**
-   * A change to a comment, which on one the reviewer wrote may go ahead when they asked for it in chat, with the review
-   * agent acting when asked; never in a turn they didn't start. Who's asking is read only for theirs, outside the store's
-   * turn, and the change is then checked again in one.
+   * A change to a comment, which on one the reviewer wrote may go ahead when they asked for it in chat, or relayed it
+   * from another of their threads, with the review agent acting when asked; never in a turn they didn't start. Who's
+   * asking is read only for theirs, outside the store's turn, and the change is then checked again in one.
    */
   async function reviewersToo(threadId: string, change: (tx: AsyncStore, targetKey: string, inChat: boolean) => Promise<DraftResult>): Promise<PluginAgentToolResult> {
     const first = await assistantDraft(threadId, true, (tx, targetKey) => change(tx, targetKey, false));
     if (typeof first === "string" || first.content[0]?.type !== "text" || first.content[0].text !== REVIEWERS) return first;
-    if ((await classify(threadId)).asking !== "direct") return first;
+    // Never in a turn they didn't start, nor on an ask that came into one: it would change their words unseen.
+    const turn = await classify(threadId);
+    if (turn.asking === "unattended" || turn.joined) return first;
     return await assistantDraft(threadId, true, async (tx, targetKey) => await change(tx, targetKey, (await tx.getPreferences()).preferences.knobs.reviewAgentActs));
   }
   // The review assistant's draft tools act only on its own review's local draft, checked in the same turn as the change.

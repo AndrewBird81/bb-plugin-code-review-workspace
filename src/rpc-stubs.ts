@@ -22,8 +22,6 @@ export function register() {
     setMainThread: notYet("Changing the main thread"), // Step 2.1.
 
     setLetPush: notYet("Let it push when done"), // Step 2.1.
-
-    approveReady: notYet("Approve"), // Step 3.4.
   } satisfies Partial<RpcHandlers>;
   return { handlers };
 }

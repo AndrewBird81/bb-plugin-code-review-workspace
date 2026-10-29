@@ -81,7 +81,7 @@ export function register(deps: ServeDeps) {
           try {
             // A conversation under way gets the review, as a message you send it.
             const ran = skipped.run === "review" ? ["started", "sent"].includes(await startAutomaticReview(bb, store, targetKey, undefined, { clicked: true }))
-              : await startVerification(bb, store, targetKey, "the reviewer asked for a check");
+              : await startVerification(bb, store, targetKey, "the reviewer asked for a check", "ask");
             result = ran ? { ok: true } : { ok: false, error: skipped.run === "review" ? "The review didn't start. Try again." : "The assistant couldn't start. Open Ask agent to choose its agent." };
           } catch (error) {
             result = { ok: false, error: error instanceof Error ? error.message : "The assistant couldn't start." };
@@ -111,7 +111,7 @@ export function register(deps: ServeDeps) {
         if (!checking) return { ok: false, error: "The re-review check is off. Turn it on in Review settings." };
         if (await isAssistantAnswering(bb, store, targetKey)) return { ok: false, error: "The assistant is still answering. Try again when it finishes." };
         await refreshThreads(review).catch(() => {});
-        if (!await startVerification(bb, store, targetKey, "the reviewer asked for a check")) return { ok: false, error: "The assistant couldn't start. Open Ask agent to choose its agent." };
+        if (!await startVerification(bb, store, targetKey, "the reviewer asked for a check", "ask")) return { ok: false, error: "The assistant couldn't start. Open Ask agent to choose its agent." };
         // The check you ran replaces one that didn't run on its own.
         if (review.skippedRun?.run === "check") await store.setLifecycle(targetKey, { skippedRun: null });
         return { ok: true };

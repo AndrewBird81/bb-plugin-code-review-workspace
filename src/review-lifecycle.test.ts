@@ -1426,6 +1426,47 @@ test("your own PRs join the list in Reviewed, starting nothing; a bot's comment 
   expect(s.actions.checkPushes).not.toHaveBeenCalled();
 });
 
+/** A relayed merge, close or approval waiting in Ready to approve, asked at `hoursAfter`. */
+const readyRow = (action: "approve" | "merge" | "close", hoursAfter: number) => ({ readyToApprove: { action, verdict: null, body: "", comments: [], headSha: "sha1", token: `tok-${action}`, from: "thr-orchestrator", at: T0 + hoursAfter * HOUR } });
+
+test("a new comment on your own PR while its merge waits in Ready to approve still alerts, as the comment it is (3.4-fixes2 P1)", async () => {
+  const s = await ownSetup();
+  await s.sync.all(true);
+  await s.store.setLifecycle(s.key, readyRow("merge", 1));
+  s.comments([ghThread("t-bob", person("bob")), ghThread("t-mine", person("me"), [[person("bob"), 2.5]])]);
+  s.at(3);
+  await s.sync.all(true);
+  const turn = await s.sync.turnOf((await s.store.getReview(s.key))!);
+  expect(turn).toMatchObject({ group: "needs", reason: "ready-to-approve", signal: expect.stringMatching(/^comments:/), under: { reason: "new-comments" } });
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  expect(s.published[0]).toMatchObject({ body: expect.stringContaining("2 new comments on your PR, the latest from @bob") });
+  // The alert stays current while the row waits.
+  s.at(3.1);
+  await s.sync.all(true);
+  expect(s.published).toHaveLength(1);
+  expect((await s.store.getReview(s.key))?.notifiedSignal).toBe(turn.signal);
+});
+
+test("a snooze that ends while a row waits in Ready to approve still wakes, with its alert (3.4-fixes2 P1)", async () => {
+  const s = await setup({ reviewed: true });
+  await s.sync.all();
+  s.pr({ headSha: "sha2", commits: ["sha1", "sha2"], requests: [{ at: T0 + 0.1 * HOUR, by: "alice", via: "user" }] });
+  vi.mocked(s.actions.prepare).mockResolvedValue(false);
+  s.at(0.2);
+  await s.sync.all(true);
+  await vi.waitFor(() => expect(s.published).toHaveLength(1));
+  await s.store.setLifecycle("pr-1", { snoozedAt: T0 + 0.4 * HOUR, snoozedUntil: T0 + HOUR, ...readyRow("approve", 0.5) });
+  s.at(0.5);
+  await s.sync.evaluate("pr-1");
+  expect(await s.sync.turnOf((await s.store.getReview("pr-1"))!)).toMatchObject({ reason: "ready-to-approve", signal: null });
+  s.at(1.1);
+  await s.sync.all();
+  expect(await s.sync.turnOf((await s.store.getReview("pr-1"))!)).toMatchObject({ reason: "ready-to-approve", signal: `re-requested:${T0 + 0.1 * HOUR}` });
+  await vi.waitFor(() => expect(s.published).toHaveLength(2));
+  expect(s.published[1].eventId).toBe(`turn:re-requested:${T0 + 0.1 * HOUR}:woke:${T0 + HOUR}`);
+  expect(s.published[1].body).toMatch(/^@alice re-requested your review/);
+});
+
 test("your PR of a folder's branch makes that folder's review the PR's, not another review; one that can't yet waits for it", async () => {
   const s = await setup();
   await s.sync.all();

@@ -6,6 +6,7 @@ import type { rpcContract } from "../src/rpc-contract";
 import type { AgentMessage, AgentMessageContext } from "../src/store";
 import type { AgentChoice } from "../src/agent";
 import { contextLabel, contextQuote } from "../src/assistant-context";
+import { carries, insertLines } from "../src/post-preview";
 import { composing } from "../lib/composing";
 import { linkImages } from "../lib/link-images";
 import { cn } from "../lib/utils";
@@ -85,6 +86,8 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, i
   const readRevision = useRef(0);
   // An injection from before this mount was already handled.
   const handledInjection = useRef(injection?.nonce ?? null);
+  // Quotes put in the first message's box: a message still carrying one confirms no post (src/asking.ts).
+  const quoted = useRef<string[]>([]);
   const visible = active || mode === "widget";
   const threadId = conversation?.threadId ?? null;
   const hostId = conversation?.defaults?.hostId;
@@ -127,17 +130,23 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, i
       handledInjection.current = injection.nonce;
       const { quote } = injection;
       // A quote goes into the first message's box, unsent, after anything typed there.
-      if (quote) setInput((typed) => typed.trim() ? `${typed.trimEnd()}\n\n${quote}` : quote);
-      else setChip(injection.context);
+      if (quote) {
+        quoted.current.push(quote);
+        setInput((typed) => typed.trim() ? `${typed.trimEnd()}\n\n${quote}` : quote);
+      } else setChip(injection.context);
       requestAnimationFrame(() => composerRef.current?.focus());
       return;
     }
     const composer = composers.find((candidate) => candidate.scope.kind === "thread" && candidate.scope.threadId === threadId);
     if (!composer) return; // ThreadChat's composer has not registered yet.
     handledInjection.current = injection.nonce;
-    composer.insert(injection.quote ?? contextQuote(injection.context, patch), { at: "end", block: true });
-    requestAnimationFrame(() => composer.focus());
-  }, [injection, conversation, threadId, composers, patch]);
+    const text = injection.quote ?? contextQuote(injection.context, patch);
+    // Noted first, so the message that carries it confirms no post (src/asking.ts); unnoted, it isn't put there.
+    rpc.call("noteInserted", { targetKey, threadId, text }).then(() => {
+      composer.insert(text, { at: "end", block: true });
+      requestAnimationFrame(() => composer.focus());
+    }, () => toast.error("Couldn’t add that to the chat. Try again."));
+  }, [injection, conversation, threadId, composers, patch, rpc, targetKey]);
 
   async function start() {
     const message = input.trim();
@@ -145,8 +154,9 @@ export const AgentDock = memo(function AgentDock({ targetKey, reviewId, patch, i
     locked.current = true; setBusy(true);
     try {
       const quote = chip ? contextQuote(chip, patch) : "";
-      const result = await rpc.call("startConversation", { targetKey, text: quote ? `${message}\n\n${quote}` : message, agent });
-      if (mounted.current) { setConversation({ ...conversation, threadId: result.threadId }); setInput(""); setChip(null); }
+      const inserted = !!quote || quoted.current.some((text) => carries(message, insertLines(text)));
+      const result = await rpc.call("startConversation", { targetKey, text: quote ? `${message}\n\n${quote}` : message, typed: message, inserted, agent });
+      if (mounted.current) { setConversation({ ...conversation, threadId: result.threadId }); setInput(""); setChip(null); quoted.current = []; }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "The agent couldn’t start");
     } finally {

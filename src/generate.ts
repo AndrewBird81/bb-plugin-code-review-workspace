@@ -315,7 +315,7 @@ export async function beginGuide(
       const { ok, before, review, trusted } = outcome;
       // The review's assistant reads the new guide when its runtime restarts.
       if (ok) void refreshAssistants(bb, store, [targetKey]).catch((error) => bb.log.warn(`Could not restart the idle review assistant of ${targetKey}: ${String(error)}`));
-      const checking = ok && !!review && !!baselineOf(review).at && trusted && await startVerification(bb, store, targetKey, "the guide was rebuilt for the PR's new commits");
+      const checking = ok && !!review && !!baselineOf(review).at && trusted && await startVerification(bb, store, targetKey, "the guide was rebuilt for the PR's new commits", "automatic");
       const newCommits = before && review?.headSha && before !== review.headSha ? { from: before, to: review.headSha } : undefined;
       if (ok && !checking && !(review && baselineOf(review).at)) await startAutomaticReview(bb, store, targetKey, newCommits).catch(async (error) => {
         return store.exclusive(async (tx) => {

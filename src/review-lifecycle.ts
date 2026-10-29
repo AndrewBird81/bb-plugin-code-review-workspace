@@ -391,7 +391,8 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
       // A snooze until a time ends then. The turn it set aside alerts again, once; one that woke it earlier has alerted.
       let woke: number | null = null;
       if (review.snoozedUntil != null && now >= review.snoozedUntil) {
-        const held = (await turnOf(review, review.snoozedUntil - 1, options)).reason === "snoozed";
+        // Beneath a row waiting to be approved, as the snooze is.
+        const held = (await turnOf({ ...review, readyToApprove: null }, review.snoozedUntil - 1, options)).reason === "snoozed";
         if (held) woke = review.snoozedUntil;
         await tx.setLifecycle(key, { snoozedAt: null, snoozedUntil: null, ...(held ? { notifiedSignal: null, pendingAlert: null } : {}) });
         review = (await tx.getReview(key))!;
@@ -399,18 +400,20 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
       const turn = await turnOf(review, now, options);
       const head = review.latestHeadSha ?? review.headSha ?? null;
       // A person asking again takes the review out of your archive for good.
-      if (review.userArchivedAt && turn.reason === "re-requested") await tx.setLifecycle(key, { userArchivedAt: null });
+      if (review.userArchivedAt && (turn.under ?? turn).reason === "re-requested") await tx.setLifecycle(key, { userArchivedAt: null });
       /** The re-review it prepares, and whether its alert follows it. */
       let preparing: { work: PrepareWork | null; alerts: boolean } | null = null;
       if (turn.group === "needs" && turn.signal) {
         if (turn.signal !== review.notifiedSignal && turn.signal !== review.pendingAlert?.signal) {
           const watching = review.watchingSince ?? null;
-          const request = turn.reason === "requested" || turn.reason === "team-requested";
+          // A row waiting to be approved carries the alert of the turn beneath it.
+          const { reason, label } = turn.under ?? turn;
+          const request = reason === "requested" || reason === "team-requested";
           // An event from before bb watched the PR is history; one without a time is history on the first read.
           const recent = watching !== null && (turn.eventAt === null ? !firstRead : turn.eventAt >= watching);
           const act = recent || request && !!review.newRequest;
           // Handled and looks-ready come from passing states; once they're your turn, they hold until you act.
-          const held = turn.reason === "handled" || turn.reason === "looks-ready" ? { heldTurn: { reason: turn.reason, label: turn.label, signal: turn.signal, at: now } } : {};
+          const held = reason === "handled" || reason === "looks-ready" ? { heldTurn: { reason, label, signal: turn.signal, at: now } } : {};
           if (!act) await tx.setLifecycle(key, { notifiedSignal: turn.signal, preparedSignal: turn.signal, newRequest: null, ...held });
           else {
             await tx.setLifecycle(key, { newRequest: null, ...held });
@@ -507,11 +510,13 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
     const review = await tx.getReview(key);
     if (!review || !turn.signal) return null;
     const preferences = (await tx.getPreferences()).preferences;
-    const request = turn.reason === "requested" || turn.reason === "team-requested";
+    // Beneath a row waiting to be approved, the turn there.
+    const { reason } = turn.under ?? turn;
+    const request = reason === "requested" || reason === "team-requested";
     // Guides for PRs found on GitHub cost a run each; they start only in your auto-start repositories.
     const allowed = review.status !== "tracked" || matchesRepo(preferences.autoStartRepos, review.repo);
     // Off in Settings, a re-review alerts at once; a request still starts its guide in your auto-start repositories.
-    const wanted = PREPARE.has(turn.reason) && preferences.knobs.prepareOnReturn || request && review.status === "tracked";
+    const wanted = PREPARE.has(reason) && preferences.knobs.prepareOnReturn || request && review.status === "tracked";
     if (!actions || !head || !allowed || !wanted || review.status === "generating" || review.autoRunHead === head) {
       await tx.setLifecycle(key, { preparedSignal: turn.signal });
       return null;
@@ -525,7 +530,7 @@ export function createReviewSync(bb: BbPluginApi, store: AsyncStore, run: typeof
       return null;
     }
     await tx.setLifecycle(key, { autoRunHead: head, prepareTriedAt: clock() });
-    return { start: () => (request ? actions.autoStart(key) : actions.prepare(key, turn.reason)).catch(() => false), previous: review.autoRunHead ?? null };
+    return { start: () => (request ? actions.autoStart(key) : actions.prepare(key, reason)).catch(() => false), previous: review.autoRunHead ?? null };
   }
 
   /** Start the work beginPrepare began, and record whether it started. Returns whether it did. */

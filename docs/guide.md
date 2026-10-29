@@ -145,6 +145,22 @@ bb review summary https://github.com/acme/web/pull/42 [--json]
 bb review summary https://github.com/acme/web/pull/42 --body 'One blocker: the retry can double-charge (`src/pay.ts:88`).' --suggest REQUEST_CHANGES
 ```
 
+### Asks and approvals from other threads
+
+Your other threads can relay what you ask to a review's agent, and line approvals up for your click:
+
+```sh
+bb thread tell <agentThreadId> 'Comment that CI is flaky.'   # agentThreadId from bb review list --json
+bb review ask acme/web#42 'Comment that CI is flaky.'        # starts the review's agent if it has none
+bb review approve acme/web#42 acme/web#43 --body 'LGTM'
+```
+
+- The agent answers the thread that asked, and posts as [Posting when you ask](#posting-when-you-ask) says.
+- An approve, merge or close asked this way, or with `bb review approve`, never posts. It waits in **Needs review** under **Ready to approve**: "Approve · `web#42` · LGTM", with exactly what posts, as which GitHub account, "Asked from ‹the thread›", which opens it, and **Approve** and **Dismiss**. **Approve 3** posts each approval shown in turn, the verdict and summary alone, leaving the draft's comments in the draft, each row saying how it went; a merge or close takes its own click. Then "Approved 3 on GitHub", with links, stays at the top of Needs review until you dismiss it. A row waiting doesn't quiet the review's own alerts: a new comment on your PR still alerts, and the row says "2 new comments on your PR, the latest since this was asked", and a snooze still ends.
+- A PR with commits since you read it is held, by what the sync knows and by GitHub's head as each posts: "Held: 2 new commits since you read it. Approving covers them too." **Approve it too** posts it on the commit you read; "2 held: commits since you read them · **Approve them too**" posts every held one.
+- A review's own agents, and threads they start, can't use `bb review ask` or `bb review approve`, and a message from any of them counts as no one's.
+- Who's asking counts only your own words: in a message the plugin writes on your click, such as Dig deeper's, the PR's words (a chapter's title, a file's path) never count as your "yes" or "just post it". A message that carries any text the plugin put in it, such as a quoted selection, file or failing check in the agent's box or a comment box it filled, confirms nothing: use the Post form, or say yes in a message of your own. A turn bb starts on its own, such as a child thread's outcome arriving, is no one's.
+
 ## The review workspace
 
 ### Layout
@@ -247,9 +263,11 @@ With **Let the review agent act when you ask** on, the review agent submits your
 
 - What posts under your name (a review, a reply, a PR comment, a title or description, a merge or a close) shows first in a form in place of the agent's message box, led by what it does: "Approve `flosports/web#4512` as @you", "Merge …", "Post to …", then exactly the text that posts, as written (a merge, the commit title and description that land, as the repo's settings make them, or that the repo's default applies), with one button naming it (**Approve**, **Request changes**, **Merge**, **Close**, or **Post**) and **Don't post**. One click does it; **Don't post** closes it.
 - A short **yes** you type in the review instead ("yes", "go ahead", "approve it") posts exactly what it showed, once, and closes the form; "ok, but…" or "close it" to a Merge form doesn't. "Just post it" in your own message skips the form, for one post; an approve, request changes, merge or close only when your whole message is that short command ("just merge it", "approve it, just post it"); anything more goes through the form. Text that changed since it was shown is shown again.
-- Labels, reviewers, assignees, resolving, reopening and ready-or-draft happen when you ask, without a form; asked from another thread on someone else's PR, they wait for your click.
-- New commits since you reviewed, a changed base and similar warnings come back to you first, in a line; the agent posts past one only if you say so, and the form shows it. Approve, merge and close need your own message or click in that review: asked from another thread, the agent declines.
-- Turns the plugin starts on its own, such as the automatic review, only draft: the agent's verdict is marked as its suggestion, never picked for you.
+- Labels, reviewers, assignees, resolving, reopening and ready-or-draft happen when you ask, without a form. Asked from another thread on someone else's PR, they go back to that thread first, as a post does; asked while the agent is on a turn it didn't start from you, such as the automatic review, they show in the form first, and the agent changes none of your comments.
+- New commits since you reviewed, a changed base and similar warnings come back to you first, in a line; the agent posts past one only if you say so, and the form shows it.
+- Asked from another of your threads (`bb thread tell`, or `bb review ask`), a reply, a comment, a Comment or Request changes review, or your PR's title or description goes back to that thread first, exactly as it would post, with no form; that thread's short yes, your own yes in the review, or "just post it" in the ask, as above, posts it.
+- Approve, merge and close need your own message or click in that review. Asked from another thread, they wait in Needs review as [Ready to approve](#asks-and-approvals-from-other-threads).
+- Turns the plugin starts on its own, such as the automatic review, new-commit checks, and the feedback checks it runs itself, only draft: the agent's verdict is marked as its suggestion, never picked for you, and nothing is posted, sent, or changed in your comments. The plugin marks its own messages to the agent, and a turn it can't tell is treated as no one's.
 - Every post goes through the server's paced line of writes to GitHub and onto **Agent activity** in Finish review: "Posted reply on src/a.ts:12 · 2m ago", with a link, and the thread a relayed ask came from.
 
 ### Guides that stop or fail
@@ -337,7 +355,7 @@ Every layout detail, held either way and on foldables such as the iPhone Duo, is
 
 **All reviews** has four sections, in the order you'll work them. Needs review starts open and the others closed; each remembers what you chose, in this browser.
 
-- **Needs review**: it's your turn. Reviews that came back to you (**Back to you**), new reviews and requests for your review (**New**), and **Team requests**, each longest-waiting first. **Blocks merge** marks a changes-requested review that's the only thing left, since everyone else approved; it comes first. Your own PR comes back to you as **Your PR · 3 new comments in 2 threads** when someone's comment waits for your reply, with an alert; a bot's comment never brings it back. One you started a review of shows here as **Your PR** until you've reviewed it; otherwise your PRs wait in Reviewed, never on an author.
+- **Needs review**: it's your turn. Approvals, merges and closes your other threads asked for (**Ready to approve**, see [Asks and approvals from other threads](#asks-and-approvals-from-other-threads)), reviews that came back to you (**Back to you**), new reviews and requests for your review (**New**), and **Team requests**, each longest-waiting first. **Blocks merge** marks a changes-requested review that's the only thing left, since everyone else approved; it comes first. Your own PR comes back to you as **Your PR · 3 new comments in 2 threads** when someone's comment waits for your reply, with an alert; a bot's comment never brings it back. One you started a review of shows here as **Your PR** until you've reviewed it; otherwise your PRs wait in Reviewed, never on an author.
 - **Waiting on author**: you requested changes, or commented with threads still open, and the author hasn't said they're done. Rows show progress (`2/5 addressed`, `+1 nit`), new commits, CI, outdated threads, and how long the author has been quiet. Snoozed reviews wait here too.
 - **Reviewed**: you approved, or commented with every thread resolved or answered. A push after your approval adds “updated” but doesn't bring it back. Your own PRs with nothing waiting for your reply wait here too.
 - **Archive**: merged, closed, or archived by you; a PR found on GitHub that no longer requests you (**No longer requested**); and one GitHub hasn't found for 7 days (**Can't read on GitHub**).
@@ -687,7 +705,7 @@ The plugin starts its agents in hidden BB threads and gives each only its role's
 - In the local draft, it can add, edit, and delete draft comments, write the summary and suggest a verdict, reply in your discussions with it, record its check of your feedback, and draft replies to your threads for you to send (`add_draft_comment`, `edit_draft_comment`, `delete_draft_comment`, `set_review_summary`, `reply_in_discussion`, `assess_feedback`, `draft_thread_reply`).
 - It refuses to change a comment or summary you wrote, unless you asked on it, or asked in chat for a comment with the switch on.
 - Each review's agents work only on their own review.
-- Agents in your other BB threads get no tools from this plugin. With **Help agents in your threads use bb review** on, they get the `code-review-workspace` skill, and `bb review comment` and `bb review summary` change only the local draft.
+- Agents in your other BB threads get no tools from this plugin. With **Help agents in your threads use bb review** on, they get the `code-review-workspace` skill, and `bb review comment` and `bb review summary` change only the local draft. `bb review ask` relays to a review's agent, and `bb review approve` only lines approvals up for your click.
 - **What the plugin doesn't limit:** beyond these tools, an agent has what its provider and permission mode give it, such as a shell on its machine. Its instructions forbid GitHub writes from its shell, but text in a PR could try to steer it. See below.
 
 The review agent runs in the permission mode of its **Review agent** setting, on a machine whose `gh` login can usually write to GitHub. Its instructions forbid GitHub writes from its shell, but text in a PR could try to steer it, and the automatic review runs unattended; choose its permission mode with that in mind. The guide writer runs hidden and unattended too, using only Code Review Workspace's tools and one that reads a linked ticket; on Project defaults it runs at Accept Edits where its provider allows (see [Agents and machines](#agents-and-machines)). Claude Code, Codex, and OpenCode run at Accept Edits; pi runs only at Full, so an agent on pi runs at Full and can't be restricted, and Settings says so. The agents follow ticket references only in a trusted author's PR, and only ever read tickets: never write to an issue tracker or chat, or quote a private ticket into a draft. What agents write for GitHub is capped at 65,000 characters.

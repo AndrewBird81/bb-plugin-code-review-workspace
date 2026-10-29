@@ -98,9 +98,11 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
   /**
    * `shown` is the list of comments the reviewer's page displays, and `summary` its summary and verdict; the draft must
    * still match them. `force` submits past the warnings it names, or with true past all of them (Submit anyway).
-   * `check` only checks what would stop it, or warn, with `summary` as it would post, without posting.
+   * `check` only checks what would stop it, or warn, with `summary` as it would post, without posting. `alone` posts
+   * `summary` by itself, with no line comments, as a Ready to approve row does: the draft's comments stay in it, and its
+   * own summary unless it's the one posted. `reviewed`, the head it was asked on, must still be the review's.
    */
-  return async (targetKey: string, revision: string | undefined, account: string | undefined, shown: Pick<DraftComment, "file" | "line" | "side" | "severity" | "introduced" | "body">[], summary: { body: string; verdict: Verdict }, { force, check }: { force?: boolean | readonly SubmitWarning[]; check?: boolean } = {}): Promise<SubmitResult> => {
+  return async (targetKey: string, revision: string | undefined, account: string | undefined, shown: Pick<DraftComment, "file" | "line" | "side" | "severity" | "introduced" | "body">[], summary: { body: string; verdict: Verdict }, { force, check, alone, reviewed }: { force?: boolean | readonly SubmitWarning[]; check?: boolean; alone?: boolean; reviewed?: string } = {}): Promise<SubmitResult> => {
     const allowed = (kind: SubmitWarning) => force === true || (Array.isArray(force) && force.includes(kind));
     if (inFlight.has(targetKey)) return { ok: false, error: "This review is already being submitted." };
     inFlight.add(targetKey);
@@ -133,19 +135,20 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
         if (revision && revision !== await reviewRevision(tx, targetKey)) warned.push(["revision", "This review changed in another window since this page loaded it."]);
         const m = await tx.getReview(targetKey);
         if (!m || m.kind !== "pr" || !m.number || !m.repo) return { error: "Submitting requires a GitHub PR target." };
+        if (reviewed !== undefined && m.headSha !== reviewed) return { error: "The review moved to newer commits since this was asked. Approve it from the review." };
         if (m.prState === "MERGED" || m.prState === "CLOSED") warned.push(["closed", `This PR is ${m.prState.toLowerCase()}.`]);
         if (m.status === "generating") warned.push(["generating", "The guide is still rebuilding, so these comments are on the diff from before it."]);
         if (!m.headSha) warned.push(["no-head", "The commit you reviewed isn't known, so the review would go on the PR's latest commit."]);
         const saved = await tx.getDraft(targetKey);
-        if (!sameComments(saved.comments, shown)) return { error: DRAFT_CHANGED };
-        // Checking only, the summary and verdict are the ones it would post with.
-        const draft = check ? { ...saved, body: summary.body, verdict: summary.verdict } : saved;
+        if (!alone && !sameComments(saved.comments, shown)) return { error: DRAFT_CHANGED };
+        // Checking only, the summary and verdict are the ones it would post with; alone, they're all it posts.
+        const draft = alone ? { ...saved, comments: [], body: summary.body, verdict: summary.verdict } : check ? { ...saved, body: summary.body, verdict: summary.verdict } : saved;
         if (draft.body !== summary.body || draft.verdict !== summary.verdict) return { error: DRAFT_CHANGED };
         if (draft.verdict === "COMMENT" && !draft.body.trim() && !draft.comments.length) return { error: "Add a summary or at least one comment before submitting a Comment review." };
         if (draft.verdict === "REQUEST_CHANGES" && !draft.body.trim()) return { error: "Add a summary explaining the requested changes before submitting." };
         if (account && m.author && draft.verdict !== "COMMENT" && account.toLowerCase() === m.author.toLowerCase()) return { error: "GitHub allows only a Comment review on your own PR.", offers: ["comment"] };
         if (draft.comments.some((c) => !c.body.trim())) return { error: "Draft comments can't be blank." };
-        const stale = await tx.staleDraftComments(targetKey);
+        const stale = alone ? [] : await tx.staleDraftComments(targetKey);
         if (stale.length) warned.push(["older-diff", `${count(stale, "was", "were")} drafted on an older diff (${places(stale)}). Submitting anyway moves ${stale.length === 1 ? "it" : "them"} into the summary.`]);
         const staleSet = new Set(stale.map((c) => JSON.stringify([c.file, c.line, c.side])));
         const outside = invalidComments(await tx.patch(targetKey), draft.comments).filter((c) => !staleSet.has(JSON.stringify([c.file, c.line, c.side])));

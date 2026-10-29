@@ -7,6 +7,7 @@ import plugin from "../server";
 import { runGh } from "../src/gh";
 import { loopbackUrl } from "./loopback";
 import { queueStore } from "../src/store-queue";
+import { MARK_PART } from "../src/agent-chat.test-support";
 
 vi.mock("../src/gh", async (original) => ({ ...await original<typeof import("../src/gh")>(), runGh: vi.fn() }));
 
@@ -207,7 +208,7 @@ test.skipIf(!process.env.BB_E2E_URL)("fullscreen verdict → submitted → reloa
     // bb's ThreadChat takes over. The stubbed worker id has no thread in this bb.
     await assistant.getByText("This thread is no longer available.").waitFor();
     expect(harness.inspection.sdk.callsTo("threads.spawn")[0][0]).toMatchObject({ visibility: "hidden", title: `Review agent: web#7 · Validate incoming review data · ${key}`, pluginMetadata: { targetKey: key },
-      input: [{ type: "text", text: "Explain the validation guard\n\nAbout `src/input.ts`." }] });
+      input: [{ type: "text", text: "Explain the validation guard\n\nAbout `src/input.ts`." }, MARK_PART] });
     expect(JSON.stringify(harness.inspection.sdk.callsTo("threads.spawn"))).not.toContain("Private: verify");
     await page.screenshot({ animations: "disabled", path: `${dir}/assistant-panel.png` });
     expect(await page.getByText("Open as thread", { exact: true }).count()).toBe(0);

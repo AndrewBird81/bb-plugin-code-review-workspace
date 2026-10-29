@@ -64,7 +64,8 @@ export async function digDeeper(bb: BbPluginApi, store: AsyncStore, targetKey: s
   });
   let result: Awaited<ReturnType<typeof messageAssistant>>;
   try {
-    result = await messageAssistant(bb, store, targetKey, text, context, DEEP_DIVE_EFFORT);
+    // Your click, with no words of yours: the chapter's title is the PR's.
+    result = await messageAssistant(bb, store, targetKey, text, context, { kind: "ask", effort: DEEP_DIVE_EFFORT });
   } catch (error) {
     await setAsk(store, targetKey, at, null);
     throw error;

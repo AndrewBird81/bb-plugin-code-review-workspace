@@ -35,6 +35,8 @@ export interface ServeDeps {
   reviewOwners(review: ReviewMeta, files: string[]): ReturnType<typeof codeOwners>;
   /** Who's asking in the turn running on a review agent: what its write tools, and its edits to your comments, may do. */
   classify: Classify;
+  /** Whether a thread is one of this plugin's agents, or one they started (null: can't be told): what it runs isn't yours. */
+  fromOwnAgent(threadId: string): Promise<boolean | null>;
 }
 
 /** The RPC handlers the modules give, merged into the one object BB registers; the release's own are plugin-updates'. */
@@ -78,6 +80,8 @@ export const SUBCOMMANDS: PluginCliCommandInfo[] = [
   { name: "comment", summary: "List, add, edit, or delete a review's local draft comments; never posts to GitHub", usage: "bb review comment <list | add | edit | delete> <review> [<file>:<line>] [--side LEFT|RIGHT] [--code <text>] [--body <text>] [--severity <severity>] [--evidence <text>] [--pre-existing] [--json]" },
   { name: "summary", summary: "Show or write a review's local review summary and suggested verdict; never posts to GitHub", usage: "bb review summary <review> [--json] | [--body <text> [--suggest APPROVE|COMMENT|REQUEST_CHANGES]]" },
   { name: "list", summary: "List your reviews, in Needs review's order, with whose turn it is", usage: "bb review list [--json]" },
+  { name: "ask", summary: "Send a message to a review's agent, relayed from this thread, starting the agent if needed", usage: "bb review ask <review> <text>" },
+  { name: "approve", summary: "Line PRs' approvals up in Needs review for the reviewer's click; never posts", usage: "bb review approve <review…> [--body <text>]" },
   { name: "storage", summary: "Show where the reviews are kept, and move them between SQLite and Postgres", usage: "bb review storage <status | verify | migrate | export-sqlite [--replace-data-db]>" },
 ];
 
@@ -92,7 +96,7 @@ export const ASSISTANT_TOOL_NAMES = ["read_review_patch", "list_review_files", "
  */
 export const ASSISTANT_WRITE_TOOL_NAMES = ["submit_review", "post_reply", "resolve_thread", "github_pr"];
 // Raise when the review assistant's tools, or their instructions, change.
-export const ASSISTANT_TOOLS = 12;
+export const ASSISTANT_TOOLS = 13;
 
 /** A tool's answer that it failed, with why. */
 export const failed = (text: string): PluginAgentToolResult => ({ content: [{ type: "text", text }], isError: true });

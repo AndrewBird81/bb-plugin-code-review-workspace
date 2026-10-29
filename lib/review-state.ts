@@ -12,14 +12,18 @@ export function reviewState(review: ReviewItem): Turn {
   return review.turn ?? computeTurn(review);
 }
 
-/** Needs review's parts: reviews you gave that came back to you, first reviews, and requests to a team you're on. */
-export type NeedsGroup = "back" | "new" | "team";
+/**
+ * Needs review's parts: relayed approvals waiting for your click, reviews you gave that came back to you, first reviews,
+ * and requests to a team you're on.
+ */
+export type NeedsGroup = "ready" | "back" | "new" | "team";
 const BACK_TO_YOU = new Set<TurnReason>(["re-requested", "question", "mentioned", "handled", "looks-ready", "dismissed", "new-comments"]);
-const NEEDS_RANK: Record<NeedsGroup, number> = { back: 0, new: 1, team: 2 };
+const NEEDS_RANK: Record<NeedsGroup, number> = { ready: 0, back: 1, new: 2, team: 3 };
 
 /** Which part of Needs review the review is in. A failed guide keeps the reason underneath, so a review you gave is back. */
 export function needsGroup(review: ReviewItem): NeedsGroup {
   const { reason } = reviewState(review);
+  if (reason === "ready-to-approve") return "ready";
   if (reason === "team-requested") return "team";
   return BACK_TO_YOU.has(reason) || baselineOf(review).at !== null ? "back" : "new";
 }

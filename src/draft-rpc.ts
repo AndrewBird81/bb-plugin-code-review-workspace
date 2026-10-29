@@ -31,19 +31,24 @@ export function register(deps: ServeDeps) {
     });
   };
 
-  /** Submit the draft to GitHub, then record what follows: the page's Submit, and the review agent's. */
-  async function submit(targetKey: string, revision: string | undefined, account: string | undefined, comments: Parameters<typeof submitReview>[3], summary: Parameters<typeof submitReview>[4], force?: boolean | readonly SubmitWarning[]) {
+  /**
+   * Submit the draft to GitHub, then record what follows: the page's Submit, and the review agent's. `alone`, a Ready to
+   * approve row's: `summary` alone, the draft and what's about it staying.
+   */
+  async function submit(targetKey: string, revision: string | undefined, account: string | undefined, comments: Parameters<typeof submitReview>[3], summary: Parameters<typeof submitReview>[4], force?: boolean | readonly SubmitWarning[], { alone = false, reviewed }: { alone?: boolean; reviewed?: string } = {}) {
     // The draft the submitter checks next. A change between the two reads fails its check against the page's draft.
     const submitted = await store.getDraft(targetKey);
-    const result = await submitReview(targetKey, revision, account, comments, summary, { force });
+    const result = await submitReview(targetKey, revision, account, comments, summary, { force, alone, ...(reviewed === undefined ? {} : { reviewed }) });
     // The discussions were about this draft. The assistant's conversation keeps them.
     // GitHub has the review and it's recorded: what follows failing mustn't fail the Submit.
     if (result.ok) {
       try {
         await store.exclusive(async (tx) => {
-          await recordOutcomes(tx, targetKey, submitted);
-          await tx.clearDiscussions(targetKey);
-          await clearAsks(tx, targetKey);
+          if (!alone) {
+            await recordOutcomes(tx, targetKey, submitted);
+            await tx.clearDiscussions(targetKey);
+            await clearAsks(tx, targetKey);
+          }
           bb.realtime.publish(`draft:${targetKey}`, {});
           const review = (await tx.getReview(targetKey))!;
           // The diff you reviewed is what "since your review" compares against.

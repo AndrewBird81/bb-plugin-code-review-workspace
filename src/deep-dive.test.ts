@@ -3,6 +3,7 @@ import { createFakePluginHost, makeQueueEntry, makeThreadResponse } from "@get-b
 import plugin from "../server";
 import { ASK_LIFETIME } from "./asks";
 import { testStore } from "./test-store.test-support";
+import { MARK_PART } from "./agent-chat.test-support";
 
 const file = (path: string, hunks: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${hunks}`;
 const patch = file("src/a.ts", "@@ -1 +1 @@\n-a\n+aa\n@@ -9 +9 @@\n-i\n+ii\n") + file("src/b.ts", "@@ -1 +1 @@\n-b\n+bb\n");
@@ -43,7 +44,7 @@ test("Dig deeper sends the chapter's files, hunks and focus, fenced as the guide
   const { dig, sent, store } = await host();
   expect(await dig("parse")).toEqual({ ok: true });
   const [message] = sent();
-  expect(message).toMatchObject({ threadId: "assistant", mode: "queue-if-active", reasoningLevel: "high", input: [{ type: "text", text: "Dig deeper into chapter 1: Parsing" }, { type: "text", visibility: "agent-only" }] });
+  expect(message).toMatchObject({ threadId: "assistant", mode: "queue-if-active", reasoningLevel: "high", input: [{ type: "text", text: "Dig deeper into chapter 1: Parsing" }, { type: "text", visibility: "agent-only" }, MARK_PART] });
   const context: string = message.input[1].text;
   const fenced = context.slice(context.indexOf('<untrusted source="guide">'), context.lastIndexOf("</untrusted>"));
   for (const part of ["Chapter 1: Parsing (high risk)", "- src/a.ts (hunks 2)", "- src/b.ts", "- Check that an empty row is skipped."]) expect(fenced).toContain(part);
@@ -112,7 +113,7 @@ test("without a conversation, Dig deeper starts one at high effort", async () =>
   const { harness, dig } = await host({ conversation: false });
   expect(await dig("parse")).toEqual({ ok: true });
   const [spawn] = harness.inspection.sdk.callsTo("threads.spawn").map(([args]) => args as any);
-  expect(spawn).toMatchObject({ reasoningLevel: "high", input: [{ type: "text", text: "Dig deeper into chapter 1: Parsing" }, { visibility: "agent-only" }] });
+  expect(spawn).toMatchObject({ reasoningLevel: "high", input: [{ type: "text", text: "Dig deeper into chapter 1: Parsing" }, { visibility: "agent-only" }, MARK_PART] });
 });
 
 test("an archived PR's draft can't change, so Dig deeper is refused", async () => {

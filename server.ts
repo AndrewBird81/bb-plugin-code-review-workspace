@@ -53,7 +53,8 @@ import * as guideTool from "./src/guide-tool";
 import * as featureReview from "./src/feature-review";
 import * as rpcStubs from "./src/rpc-stubs";
 import * as reviewAgentTools from "./src/review-agent-tools";
-import { directOnly } from "./src/asking";
+import * as relaysModule from "./src/relays";
+import { createClassifier, fromOwnAgent, ledgerEvents } from "./src/asking";
 
 export { rpcContract } from "./src/rpc-contract";
 
@@ -179,9 +180,9 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       if (!review) return false;
       // An out-of-date guide is rebuilt first; its completion starts the check.
       if (review.status === "tracked" || guideBehind(review)) return (await rerunReview(deps, targetKey, { notify: false, unattended: true })).ok;
-      return startVerification(bb, store, targetKey, reasons[reason] ?? "the review came back to the reviewer");
+      return startVerification(bb, store, targetKey, reasons[reason] ?? "the review came back to the reviewer", "automatic");
     },
-    checkPushes: (targetKey) => startVerification(bb, store, targetKey, "the author pushed new commits and they have settled"),
+    checkPushes: (targetKey) => startVerification(bb, store, targetKey, "the author pushed new commits and they have settled", "automatic"),
     async autoStart(targetKey) {
       return (await rerunReview(deps, targetKey, { notify: false, unattended: true })).ok;
     },
@@ -291,8 +292,10 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
 
   // Each area of the server is a module (src/server-modules.ts). Registering it registers its agent tools, in this
   // order, and gives its RPC handlers, its listeners to BB's events, and the bb review subcommands it runs.
-  // Who's asking in a review agent's turn: step 3.4 replaces directOnly with one that knows the plugin's own messages.
-  const moduleDeps: ServeDeps = { ...deps, receipts, submitReview, githubWrites, notifications, suggester, sync, changed, refreshThreads, reviewOwners, classify: directOnly(bb) };
+  // Who's asking in a review agent's turn. The plugin's own agents, by their recorded ids, never count as you: read from
+  // configure's view and the former workers' kv, as it's asked inside the store's blocks too.
+  const ownThread = async (threadId: string) => !!configured.threadRole({ id: threadId, title: null }) || await formerWorkerReview(bb, threadId) !== null;
+  const moduleDeps: ServeDeps = { ...deps, receipts, submitReview, githubWrites, notifications, suggester, sync, changed, refreshThreads, reviewOwners, classify: createClassifier(bb, ownThread), fromOwnAgent: fromOwnAgent(bb, ownThread) };
   const settings = settingsRpc.register(moduleDeps);
   const reviews = reviewsRpc.register(moduleDeps);
   const githubThreads = githubThreadsRpc.register(moduleDeps);
@@ -303,11 +306,12 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   draftTools.register(moduleDeps);
   feedbackTools.register(moduleDeps);
   reviewAgentTools.register(moduleDeps, { submit: draft.submit });
+  const relays = relaysModule.register(moduleDeps, { submit: draft.submit });
   const events = assistantEvents.register(moduleDeps);
   guideTool.register(moduleDeps);
   const feature = featureReview.register(moduleDeps);
   const stubs = rpcStubs.register();
-  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, feature.handlers, stubs.handlers);
+  const handlers: RpcHandlers = merge(settings.handlers, reviews.handlers, githubThreads.handlers, draft.handlers, assistant.handlers, turn.handlers, feature.handlers, relays.handlers, stubs.handlers);
   const guarded = Object.fromEntries(Object.entries(handlers).map(([name, handler]) =>
     [name, (input: unknown) => updates.run(() => (handler as (input: unknown) => unknown)(input))])) as unknown as typeof handlers;
   bb.rpc.register(rpcContract, {
@@ -318,8 +322,8 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
     setReviewPresence: ({ clientId, open }) => updates.presence(clientId, open),
     applyPluginUpdate: ({ clientId, candidateVersion }) => updates.apply(clientId, candidateVersion),
   });
-  listen(bb, [events.events, feature.events]);
-  const subcommands: Subcommands = merge(reviews.commands, draft.commands);
+  listen(bb, [events.events, feature.events, ledgerEvents(bb)]);
+  const subcommands: Subcommands = merge(reviews.commands, draft.commands, relays.commands);
 
   // Tools go only to THIS plugin's own spawned threads, by the role each is recorded with: a thread can retitle
   // itself, so its title chooses only while its spawn is in flight, before its id is recorded.
