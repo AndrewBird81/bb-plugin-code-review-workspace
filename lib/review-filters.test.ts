@@ -31,6 +31,8 @@ test("a review's values for each field read as the menu shows them", () => {
 
 test("a status is its row's, the same whether or not the PR changed since your review", () => {
   expect(valuesOf(review({ turn: turn("Approved · updated") }), "status")).toEqual(["Approved"]);
+  expect(valuesOf(review({ turn: turn("Your PR · 3 new comments") }), "status")).toEqual(["Your PR"]);
+  expect(valuesOf(review({ turn: turn("Your PR · 1 new comment") }), "status")).toEqual(["Your PR"]);
   expect(choicesFor([review({ turn: turn("Approved") }), review({ turn: turn("Approved · updated") })], "status")).toEqual([{ value: "Approved", count: 2 }]);
 });
 

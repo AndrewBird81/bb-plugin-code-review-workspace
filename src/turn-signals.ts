@@ -2,13 +2,13 @@
 import type { ReviewLifecycle, ReviewMeta } from "./store";
 import type { FeedbackThread, PrFacts } from "./github/types";
 import type { ReviewPreferences } from "./preferences";
-import { feedbackProgress, type Turn, type TurnOptions, type TurnSignals } from "../lib/turn";
+import { feedbackProgress, newCommentsText, type Turn, type TurnOptions, type TurnSignals } from "../lib/turn";
 import { verdictFromMine } from "./review-verdict";
 import { threadLabel } from "./github/threads";
 import { foreignHeadOwner } from "../lib/trust";
 
 export function turnOptions(preferences: ReviewPreferences): TurnOptions {
-  return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks, teamRequests: preferences.trackTeamRequests, mentions: preferences.knobs.mentionsWake };
+  return { wakeOnReplies: preferences.wakeOnReplies, pushChecks: preferences.pushChecks, teamRequests: preferences.trackTeamRequests, mentions: preferences.knobs.mentionsWake, ownPrs: preferences.knobs.trackOwnPrs };
 }
 
 /** What the sync and the agents keep for the GitHub account reading the PR; another account starts without it. */
@@ -89,8 +89,11 @@ export function factsUpdate(previous: ReviewMeta, facts: PrFacts, viewer: string
 
 const RECEIPT_GRACE = 10 * 60_000;
 
-/** Your threads' standing, as signals. Non-blocking threads are counted apart, and hold nothing but questions. */
-export function threadSignals(all: ReadonlyArray<FeedbackThread & { resolvedSeenAt?: number | null }>): Pick<TurnSignals, "threads" | "questionAt" | "questionBy" | "replyAt" | "handledAt"> {
+/**
+ * Your threads' standing, as signals. Non-blocking threads are counted apart, and hold nothing but questions. On your
+ * own PR (`ownPr`), also the comments waiting for your reply on everyone's threads.
+ */
+export function threadSignals(all: ReadonlyArray<FeedbackThread & { resolvedSeenAt?: number | null }>, ownPr = false): Pick<TurnSignals, "threads" | "questionAt" | "questionBy" | "replyAt" | "handledAt" | "newComments"> {
   const threads = all.filter((t) => !threadLabel(t.body)?.nonBlocking);
   const count = (status: FeedbackThread["status"]) => threads.filter((t) => t.status === status).length;
   const tally = {
@@ -101,7 +104,10 @@ export function threadSignals(all: ReadonlyArray<FeedbackThread & { resolvedSeen
   const handled = tally.total > 0 && tally.open === 0 && tally.questions === 0;
   const questionAt = latest(all.filter((t) => t.status === "question").map((t) => t.replyAt));
   const asked = all.find((t) => t.status === "question" && t.replyAt === questionAt);
+  const waiting = all.flatMap((t) => t.needsReply ? [t.needsReply] : []);
+  const newest = waiting.reduce<typeof waiting[number] | null>((max, w) => w.at > (max?.at ?? -Infinity) ? w : max, null);
   return {
+    ...(ownPr ? { newComments: newest ? { count: waiting.reduce((sum, w) => sum + w.comments, 0), threads: waiting.length, at: newest.at, by: newest.by } : null } : {}),
     threads: all.length ? tally : null,
     questionAt,
     questionBy: asked?.replies.filter((r) => r.createdAt === questionAt && !r.mine).at(-1)?.author ?? null,
@@ -121,6 +127,8 @@ export function alertBody(review: ReviewMeta, turn: Turn): string {
     mentioned: `${s.mentionBy ? `@${s.mentionBy}` : author} mentioned you`,
     handled: `Every thread of your feedback is resolved or answered${s.threads?.nonBlocking ? ", apart from nits" : ""}`,
     "looks-ready": "The assistant found all your feedback addressed",
+    "new-comments": s.newComments?.count === 1 ? `${s.newComments.by ? `@${s.newComments.by}` : "Someone"} commented on your PR`
+      : `${s.newComments ? newCommentsText(s.newComments) : "New comments"} on your PR${s.newComments?.by ? `, the latest from @${s.newComments.by}` : ""}`,
   };
   if (turn.reason === "question" && turn.label === "Author replied") why.question = `${author} replied to your feedback`;
   const progress = feedbackProgress(review);

@@ -78,7 +78,7 @@ When the guide is ready, the review agent reviews the change and drafts line com
 **All reviews** sorts every review into Needs review, Waiting on author, Reviewed, and Archive. A push alone never makes a review your turn: authors often push one fix at a time.
 
 - A re-request, a question for you, a mention, or your feedback being handled brings a review back.
-- PRs that request your review join the list from GitHub.
+- PRs that request your review join the list from GitHub, and so do your own open PRs, with everyone's comments: a teammate's comment waiting for your reply brings yours back as **Your PR · 3 new comments**; a bot's never does.
 - Rows show checks, size, and your feedback's progress, such as `2/5 addressed`. Stacked PRs sit together, bottom first.
 - **Snooze**, **Pin**, and **Archive** set reviews aside, each with Undo. BB's thread list shows Needs review too.
 - **Rename…** gives a review a name of your own in your lists; its Overview keeps the PR's title under it, and nothing changes on GitHub.

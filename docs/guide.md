@@ -326,9 +326,9 @@ Every layout detail, held either way and on foldables such as the iPhone Duo, is
 
 **All reviews** has four sections, in the order you'll work them. Needs review starts open and the others closed; each remembers what you chose, in this browser.
 
-- **Needs review**: it's your turn. Reviews that came back to you (**Back to you**), new reviews and requests for your review (**New**), and **Team requests**, each longest-waiting first. **Blocks merge** marks a changes-requested review that's the only thing left, since everyone else approved; it comes first. Your own PRs show here as **Your PR** until you've reviewed them, then in Reviewed; they never wait on an author or alert.
+- **Needs review**: it's your turn. Reviews that came back to you (**Back to you**), new reviews and requests for your review (**New**), and **Team requests**, each longest-waiting first. **Blocks merge** marks a changes-requested review that's the only thing left, since everyone else approved; it comes first. Your own PR comes back to you as **Your PR · 3 new comments in 2 threads** when someone's comment waits for your reply, with an alert; a bot's comment never brings it back. One you started a review of shows here as **Your PR** until you've reviewed it; otherwise your PRs wait in Reviewed, never on an author.
 - **Waiting on author**: you requested changes, or commented with threads still open, and the author hasn't said they're done. Rows show progress (`2/5 addressed`, `+1 nit`), new commits, CI, outdated threads, and how long the author has been quiet. Snoozed reviews wait here too.
-- **Reviewed**: you approved, or commented with every thread resolved or answered. A push after your approval adds “updated” but doesn't bring it back.
+- **Reviewed**: you approved, or commented with every thread resolved or answered. A push after your approval adds “updated” but doesn't bring it back. Your own PRs with nothing waiting for your reply wait here too.
 - **Archive**: merged, closed, or archived by you; a PR found on GitHub that no longer requests you (**No longer requested**); and one GitHub hasn't found for 7 days (**Can't read on GitHub**).
 
 Rows and the box:
@@ -430,6 +430,7 @@ On a re-review, the diff opens on what changed since your review, however you ge
 ### Reviews found on GitHub
 
 - With **Track reviews from GitHub** on (the default), PRs where your review is requested, and open PRs you've reviewed that changed in the last 60 days (unless **Include PRs you've reviewed** is off), join the list without a guide; build one with **Build the guide** on its page or in its menu.
+- So do your own open PRs (unless **Include your own PRs** is off), with everyone's comments. Your PR of a branch you're reviewing locally doesn't join as another review: that local review becomes the PR's, or links to the PR's review if it already has one. No agent starts on them on its own.
 - Requests to a team you're on join only with **Include team requests** (off by default): teams can be asked for many reviews.
 - Turning on either switch fills the list with what it finds already there, without starting guides or alerting.
 - List patterns under **Start guides automatically** (`acme/*`, `acme/api`, or `*`, up to 50 lines) to have the guide ready by the time a request alerts you.
@@ -476,7 +477,7 @@ Needs You is optional. If it is disabled, missing, or restarting, Code Review Wo
 Every comment is the same card in Comments and in the code, and says where it lives, in words as well as looks.
 
 - Anything only in BB is dashed and says so: "Draft · not submitted", "Agent draft · not submitted" for one an agent wrote, until you edit it, and "Older diff · not submitted".
-- A GitHub thread is solid, headed **On GitHub**, with who wrote each comment and when, who resolved it, and its state: "Waiting on author", "Author replied", "Question for you", "Resolved", "Outdated", or "File comment".
+- A GitHub thread is solid, headed **On GitHub**, with who wrote each comment and when, who resolved it, and its state: "Waiting on author", "Author replied", "Question for you", "Resolved", "Outdated", or "File comment". On your own PR, a thread whose latest comment isn't yours or a bot's reads "Needs your reply to @sam", naming whose comment waits, with whose thread it is beside the comment, and is in Needs you; the Overview's "3 new comments" opens them; your reply, or a resolve, settles it. Threads only bots wrote in fold with the resolved ones, as "2 from bots".
 - A discussion with the agent is muted, with a lock: "Private · with the agent".
 - An agent's draft can fold **How the agent checked** under its words: what it read or ran to confirm the problem, with file:line. That stays in BB; submitting never sends it.
 - Images in other people's comments and the agents' words show as links ("Image: alt"), HTML comments stay hidden as on GitHub, and HTML tags other than a few that only format show as text; in code it can't be sure is code, a `<` shows as `&lt;` (see [Untrusted text](#untrusted-text)).
@@ -572,6 +573,7 @@ These switches turn a feature off; each is on by default. A setting that depends
 | Whose turn | Get a review ready before alerting you | The alert comes at once, without rebuilding the guide or checking your feedback first. |
 | Whose turn | Run the re-review check | The review agent doesn't check your earlier feedback; the prompt is kept. |
 | Whose turn | Include PRs you've reviewed | Only requests for your review join the list. |
+| Whose turn | Include your own PRs | Your PRs join only once you start a review of one; ones found before that you haven't started a review of go to Archive. |
 | Reading | Open on the Overview when a review comes back | It reopens where you left it. |
 | Reading | Single-key shortcuts | Only Esc works (see [Keyboard shortcuts](#keyboard-shortcuts)). |
 | Reading | Comment keys | `e`, `x`, `1`–`4`, `0`, and `r` do nothing. |

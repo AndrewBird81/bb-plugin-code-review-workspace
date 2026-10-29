@@ -12,7 +12,7 @@ export type TurnReason =
   | "question" | "mentioned" | "handled" | "looks-ready" | "dismissed"
   | "waiting" | "draft" | "snoozed"
   | "approved" | "commented"
-  | "own"
+  | "own" | "new-comments"
   // A local review whose folder is on another branch, or that bb removed (src/feature-review.ts).
   | "paused" | "folder-gone";
 
@@ -77,6 +77,8 @@ export interface TurnSignals {
   commitsSince?: number | null;
   /** The PR's author. */
   author?: string | null;
+  /** On your own PR: comments waiting for your reply, bots' aside, in how many threads, and the latest's time and author (src/github/threads.ts). */
+  newComments?: { count: number; threads?: number; at: number; by: string | null } | null;
 }
 
 /** The review assistant's latest check of your feedback, for one head commit. */
@@ -131,6 +133,8 @@ export interface TurnOptions {
   teamRequests?: boolean;
   /** false: a mention doesn't make it your turn. */
   mentions?: boolean;
+  /** false: your own PRs found on GitHub, with no review started, leave your list. */
+  ownPrs?: boolean;
 }
 
 export interface Turn {
@@ -215,10 +219,16 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
       return make("needs", "new", "Ready", { at: review.createdAt ?? null });
     }
     const tracked = review.status === "tracked";
-    // Your own PR is yours to review until you have; then nothing brings it back.
+    // Your own PR comes to you when someone's comment waits for your reply, never a bot's. One you started a review of
+    // is yours to review until you have; one found on GitHub waits on its reviewers.
     if (review.ownPr) {
+      if (tracked && options.ownPrs === false) return make("archive", "own", "Your PR");
+      const fresh = s.newComments;
+      if (fresh?.count && after(fresh.at, snoozedAt)) {
+        return make("needs", "new-comments", `Your PR · ${newCommentsText(fresh)}`, { signal: `comments:${fresh.at}`, at: fresh.at, notify: true, eventAt: fresh.at });
+      }
       if (!reviewed && until) return make("waiting", "snoozed", snoozedLabel, { at: snoozedAt });
-      if (!reviewed) return make("needs", "own", "Your PR", { at: review.createdAt ?? null });
+      if (!reviewed && !tracked) return make("needs", "own", "Your PR", { at: review.createdAt ?? null });
       return make("reviewed", "own", updated ? "Your PR · updated" : "Your PR");
     }
     if (!reviewed) {
@@ -286,6 +296,12 @@ export function computeTurn(review: TurnInput, options: TurnOptions = defaultTur
   }
 }
 
+/** "3 new comments in 2 threads", or "2 new comments" when that's one a thread, as Comments' Needs you counts them. */
+export function newCommentsText(fresh: Pick<NonNullable<TurnSignals["newComments"]>, "count" | "threads">): string {
+  const threads = fresh.threads && fresh.threads !== fresh.count ? ` in ${fresh.threads} thread${fresh.threads === 1 ? "" : "s"}` : "";
+  return `${fresh.count} new comment${fresh.count === 1 ? "" : "s"}${threads}`;
+}
+
 /** Whether the head's checks are done, or have been pending or expected so long they never will be. */
 export function ciSettled(s: TurnSignals, now = Date.now()): boolean {
   return (s.ci !== "pending" && s.ci !== "expected") || now - (s.headSeenAt ?? now) >= CI_STALE_MS;
@@ -301,7 +317,8 @@ export function feedbackProgress(review: TurnInput): { done: number; total: numb
   const t = review.signals?.threads;
   const nits = t?.nonBlocking ? { nits: t.nonBlocking } : {};
   if (a && a.total > 0 && a.headSha === head) return { done: a.addressed, total: a.total, source: "assistant", ...nits };
-  if (t && t.total > 0) return { done: t.resolved + t.answered, total: t.total, source: "threads", ...nits };
+  // On your own PR, an answered thread waits for your reply: it isn't progress.
+  if (t && t.total > 0 && !review.ownPr) return { done: t.resolved + t.answered, total: t.total, source: "threads", ...nits };
   return null;
 }
 

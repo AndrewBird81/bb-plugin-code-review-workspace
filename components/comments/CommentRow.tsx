@@ -6,15 +6,20 @@ import { InlineCode } from "../ui/inline-code";
 import { Badge } from "../ui/badge";
 import { Icon } from "../ui/icon";
 import { SEVERITY_LABEL } from "../../src/draft";
-import { CheckBadge, frameOf, ItemIcon, itemWords, placeLabel, plainLine, ReplyDraftBadge, SEVERITY_TONE, TAG_TONE } from "./look";
+import { CheckBadge, frameOf, ItemIcon, itemWords, placeLabel, plainLine, ReplyDraftBadge, SEVERITY_TONE, TAG_TONE, ThreadState } from "./look";
 import { CommentCard, whereOf } from "./CommentCard";
 import { PreExistingBadge } from "../InlineDraft";
 
-/** A row's second line: its latest message, with who wrote it when that isn't who started it. */
+/** Whose thread it is, for one waiting for your reply on someone else's thread: its row names whose comment waits. */
+const threadOf = (item: CommentItem) => item.kind !== "thread" || !item.waitingOn || item.waitingOn === item.who ? null : item.who === "You" ? "Your thread" : `${item.who}’s thread`;
+
+/** A row's second line: its latest message, with who wrote it when that isn't who started it, or whose thread it's on. */
 function latestOf(item: CommentItem): string {
   if (item.kind === "draft") return plainLine(item.comment.body);
   if (!item.latest) return "";
   const first = plainLine(item.latest.body);
+  const thread = threadOf(item);
+  if (thread) return `${thread} · ${first}`;
   return (item.kind === "thread" && item.messages.length > 1) || item.kind === "private" ? `${item.latest.who}: ${first}` : first;
 }
 
@@ -24,7 +29,8 @@ const talkWords = (talk: number) => `${talk} message${talk === 1 ? "" : "s"} wit
 
 /** An item's words for a screen reader: its state, who, where, its severity, whether it's pre-existing, and check, its talk with the agent, its reply draft. */
 function nameOf(item: CommentItem, preExisting: boolean): string {
-  const parts: Array<string | null> = [item.kind === "draft" ? item.label : item.kind === "thread" ? `${item.who} · ${itemWords(item)}` : itemWords(item), whereOf(item)];
+  const thread = threadOf(item);
+  const parts: Array<string | null> = [item.kind === "draft" ? item.label : item.kind === "thread" && item.waitingOn ? [itemWords(item), thread].filter(Boolean).join(" · ") : item.kind === "thread" ? `${item.who} · ${itemWords(item)}` : itemWords(item), whereOf(item)];
   if (item.kind === "draft") {
     parts.push(item.comment.severity ? SEVERITY_LABEL[item.comment.severity] : null, preExisting ? "Pre-existing" : null);
     const talk = talkOf(item);
@@ -72,7 +78,9 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
           className="flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-l-lg px-2.5 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50">
           <span className="flex min-w-0 items-center gap-1.5 text-xs">
             <ItemIcon item={item} />
-            <span className="min-w-0 truncate font-medium text-foreground">{item.kind === "thread" ? `${item.who} · ${itemWords(item)}` : itemWords(item)}</span>
+            {/* Waiting for your reply: the chip the thread's card has, naming whose comment waits. */}
+            {item.kind === "thread" && item.waitingOn ? <span className="flex min-w-0 items-center gap-1 overflow-hidden"><ThreadState item={item} /></span>
+              : <span className="min-w-0 truncate font-medium text-foreground">{item.kind === "thread" ? `${item.who} · ${itemWords(item)}` : itemWords(item)}</span>}
             {place && <span className="ml-auto shrink-0 pl-1 font-mono text-[11px] text-muted-foreground">{place}</span>}
           </span>
           {/* What it is in a word or two, then its latest message: on the next line when the words leave it no room. */}

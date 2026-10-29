@@ -13,6 +13,7 @@ import { readFileAt } from "./verification";
 import { symlinkTarget } from "../lib/folder-files";
 import plugin from "../server";
 import { toolFailed, toolText } from "./fake-host.test-support";
+import { createReviewSync, type GithubReads, type TurnActions } from "./review-lifecycle";
 
 afterEach(() => { vi.useRealTimers(); });
 
@@ -275,6 +276,46 @@ test("a PR that has a review already is linked, not converted", async () => {
   expect(review.feature?.prReview).toBe(prKey);
   expect(s.ghCalls).toEqual([]);
   expect(await becomePr(s.deps, key, { repo: "acme/api", number: 7 })).toBe("linked");
+});
+
+/** The sync, with your PR acme/api#7 of feat/qa found by its own search, converting through becomePr as the server does. */
+function ownPrSync(s: ReturnType<typeof setup>) {
+  const pr = { repo: "acme/api", number: 7, title: "Snooze flaky checks for a day", url: "https://github.com/acme/api/pull/7", author: "me", updatedAt: 1, isDraft: false, requested: false, reviewed: false, own: true as const, head: "feat/qa" };
+  const github: GithubReads = {
+    viewer: { login: async () => "me", teams: async () => new Set<string>(), reset() {} },
+    gate: { poll: async () => ({ kind: "unchanged" }) },
+    facts: vi.fn(async () => new Map()), threads: vi.fn(async () => []), discover: vi.fn(async () => []), ownPrs: vi.fn(async () => [pr]),
+  };
+  const actions: TurnActions = {
+    prepare: vi.fn(async () => false), checkPushes: vi.fn(async () => false), autoStart: vi.fn(async () => false), projectId: async () => "proj_api",
+    becomePr: (key, found) => becomePr(s.deps, key, found),
+  };
+  return createReviewSync(s.bb, s.store, vi.fn() as any, { github, actions });
+}
+
+test("your PR found on GitHub turns the review of its folder and branch into the PR's, the same review, not a second one", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  await s.store.upsertDraftComment(key, { file: "src/a.ts", line: 3, side: "RIGHT", body: "Keep this", author: "reviewer" } as any);
+  await ownPrSync(s).all(true);
+  const reviews = await s.store.listReviews();
+  expect(reviews.map((r) => [r.targetKey, r.kind, r.number])).toEqual([[key, "pr", 7]]);
+  expect(await s.store.patch(key)).toBe(PR_DIFF);
+  expect((await s.store.getDraft(key)).comments.map((c) => c.body)).toEqual(["Keep this"]);
+  expect(await prReviewKey(s.store, { repo: "acme/api", number: 7 })).toBe(key);
+});
+
+test("your PR found on GitHub that has a review already links the folder's review to it", async () => {
+  const s = setup();
+  await run(s, "main");
+  await settled(s);
+  const prKey = targetKey({ kind: "pr", repo: "acme/api", number: 7 });
+  await s.store.saveReview({ targetKey: prKey, kind: "pr", repo: "acme/api", number: 7, url: "https://github.com/acme/api/pull/7", status: "tracked", createdAt: 1 });
+  await ownPrSync(s).all(true);
+  expect((await s.store.listReviews()).map((r) => r.targetKey).sort()).toEqual([key, prKey].sort());
+  expect((await s.store.getReview(key))).toMatchObject({ kind: "ref", feature: expect.objectContaining({ prReview: prKey }) });
+  expect(s.ghCalls).toEqual([]);
 });
 
 test("bb removing the folder: a review that became a PR's goes on; a local one waits for its sent comments, else goes to Archive", async () => {

@@ -1,7 +1,7 @@
 // How a comment-like thing looks wherever it shows, in the code, the list, or Finish (spec §4): dashed with a colored
 // edge while it's only in BB, solid on GitHub with its author, muted with a lock when it's private. Never color alone:
 // its state is always in words too.
-import { CHECK_LABEL, STATE_LABEL, THREAD_FLAG_LABEL, type CommentCheck, type CommentItem, type ThreadItem } from "../../lib/comments";
+import { CHECK_LABEL, THREAD_FLAG_LABEL, type CommentCheck, type CommentItem, type ThreadItem } from "../../lib/comments";
 import type { AssessmentVerdict } from "../../lib/feedback";
 import type { CommentLocation, DraftComment, Severity } from "../../src/draft";
 import { sameLocation } from "../../src/draft";
@@ -55,13 +55,14 @@ const STATE_LOOK: Record<ThreadItem["state"], { tone: Tone; icon?: IconName }> =
   question: { tone: "primary" },
   resolved: { tone: "success", icon: "CircleCheck" },
   open: { tone: "neutral" },
+  "needs-reply": { tone: "primary", icon: "ArrowTurnBackward" },
 };
 
 /** A GitHub thread's state, then Outdated or File comment. */
 export function ThreadState({ item, size = "sm" }: { item: ThreadItem; size?: "sm" | "md" }) {
   const look = STATE_LOOK[item.state];
   return <>
-    <Badge tone={look.tone} size={size} icon={look.icon && <Icon name={look.icon} aria-hidden />}>{STATE_LABEL[item.state]}</Badge>
+    <Badge tone={look.tone} size={size} icon={look.icon && <Icon name={look.icon} aria-hidden />}>{item.label}</Badge>
     {item.outdated && <Badge size={size} icon={<Icon name="GitCommit" aria-hidden />}>{THREAD_FLAG_LABEL.outdated}</Badge>}
     {item.fileComment && <Badge size={size} icon={<Icon name="File" aria-hidden />}>{THREAD_FLAG_LABEL.fileComment}</Badge>}
   </>;

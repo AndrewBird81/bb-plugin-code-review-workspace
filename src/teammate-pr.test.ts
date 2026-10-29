@@ -100,6 +100,24 @@ test("a teammate's PR shows only the threads you started", async () => {
   expect(feedback.items.filter((item: any) => item.kind === "thread").map((item: any) => item.id)).toEqual(["t-mine"]);
 });
 
+test("beside your own PR, which lists everyone's threads, a teammate's PR still lists only yours, and its turn reads nothing of them", async () => {
+  const { store, call } = await teammatePr();
+  const OWN = targetKey({ kind: "pr", repo: "acme/web", number: 2 });
+  await store.saveReview({ targetKey: OWN, kind: "pr", repo: "acme/web", number: 2, url: "https://github.com/acme/web/pull/2", author: "me", headSha: "sha9", createdAt: 1, status: "tracked", projectId: "p1" });
+  await store.setLifecycle(OWN, { prState: "OPEN", ownPr: true });
+  const own = (await call("refreshFeedback", { targetKey: OWN })).feedback;
+  expect(own.items.map((item: any) => [item.id, item.thread.author, item.thread.needsReply?.by]).sort()).toEqual([["t-bob", "bob", "alice"], ["t-mine", undefined, "alice"]]);
+  const { feedback } = await call("refreshFeedback", { targetKey: KEY });
+  expect(feedback.items.map((item: any) => item.id)).toEqual(["t-mine"]);
+  expect(feedback.items[0].thread).not.toHaveProperty("author");
+  expect(feedback.items[0].thread).not.toHaveProperty("needsReply");
+  const teammate = (await store.getReview(KEY))!;
+  expect(teammate.signals).not.toHaveProperty("newComments");
+  const { reviews } = await call("listReviews", null);
+  expect(reviews.find((r: any) => r.targetKey === KEY).turn).toMatchObject({ group: "needs", reason: "re-requested" });
+  expect(reviews.find((r: any) => r.targetKey === OWN).turn).toMatchObject({ group: "needs", reason: "new-comments", label: "Your PR · 3 new comments in 2 threads" });
+});
+
 // The review page.
 
 test("a teammate's PR has no main thread, Sends or feature to show", async () => {

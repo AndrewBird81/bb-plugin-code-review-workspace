@@ -513,7 +513,7 @@ test("1.8.0's switches start on, and each says what it does and what stays with 
   expect(["Let the review agent act when you ask", "Review changes above a thread’s message box", "Include your own PRs"].map((label) => toggle(label).checked)).toEqual([true, true, true]);
   expect(description("reviewAgentActs")).toMatch(/^When you ask, the review agent posts replies, comments and reviews, merges PRs, and sends comments to the main thread to fix;.* shows its exact text first, unless you say “just post it”, and approve, merge and close need your own message or click in that review\. Off, the review agent only drafts, as before\.$/);
   expect(description("reviewChangesLine")).toMatch(/Off, nothing shows there, and bb review in the thread still starts a review\.$/);
-  expect(description("trackOwnPrs")).toMatch(/Off, your PRs show only once you start a review of one\.$/);
+  expect(description("trackOwnPrs")).toMatch(/^Your open PRs on GitHub, with everyone’s comments\. A teammate’s comment waiting for your reply brings one to Needs review; a bot’s doesn’t\. Off, ones you haven’t started a review of go to Archive\.$/);
   slot.lifecycle.unmount();
 });
 

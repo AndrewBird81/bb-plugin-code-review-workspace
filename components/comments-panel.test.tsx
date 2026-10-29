@@ -695,3 +695,49 @@ test("the filter chips' strip leaves room for their 2px focus ring on top as bel
   }
   slot.lifecycle.unmount();
 });
+
+test("on your own PR, every thread whose latest comment isn't yours or a bot's needs your reply, and bots' threads fold", async () => {
+  const bot = { id: "t5", isResolved: false, isOutdated: false, path: "src/b.ts", line: 1, side: "LEFT", subjectType: "LINE", comments: [{ ...said("c6", 116, "ci[bot]", "Coverage dropped.", 3), bot: true }] };
+  const erin = { id: "t6", isResolved: false, isOutdated: false, path: "src/a.ts", line: 1, side: "RIGHT", subjectType: "LINE", comments: [said("c7", 117, "erin", "Why bb?", 2)] };
+  // The server keeps everyone's threads on your PR, erin's too.
+  const { label: _, ...yours } = mine();
+  const erins: FeedbackItem = { ...yours, id: "t6", title: "Why bb?", replyDraft: null, assessment: null, thread: {
+    ...mine().thread!, id: "t6", commentId: 117, path: "src/a.ts", line: 1, body: "Why bb?", replies: [], author: "erin",
+    status: "question", replyAt: now - 2 * HOUR, needsReply: { comments: 1, at: now - 2 * HOUR, by: "erin" },
+  } };
+  const { slot, rpc } = await renderWorkspace({
+    review: { ownPr: true, author: "me" },
+    rpc: {
+      getReviewThreads: vi.fn(() => ({ threads: [...threads(), bot, erin] })),
+      getFeedback: vi.fn(() => ({ feedback: feedbackOf([mine({ assessment: null, replyDraft: null }), erins], null) })),
+      refreshFeedback: vi.fn(() => ({ feedback: feedbackOf([mine({ assessment: null, replyDraft: null }), erins], null) })),
+      getReplyDrafts: vi.fn(() => ({ drafts: [] })),
+    },
+  });
+  const list = await openComments(slot);
+  // alice answered yours; dave's, carol's and erin's wait for you; the bot's doesn't.
+  expect(headings(list)[0]).toBe("Needs you · 5");
+  expect(rows(list).filter((row: string | null) => row?.includes("Needs your reply"))).toEqual([
+    "Needs your reply to @erin · src/a.ts:1",
+    "Needs your reply to @alice · Your thread · src/a.ts:2 · Blocking",
+    "Needs your reply to @dave · Outdated · src/a.ts:9",
+    "Needs your reply to @carol · File comment · src/b.ts",
+  ]);
+  // The row leads with the chip its card has; whose thread it is starts the line under it.
+  const alices = list.getByRole("button", { name: /^Needs your reply to @alice/ });
+  expect(within(alices).getByText("Needs your reply to @alice")).toBeTruthy();
+  expect(alices.textContent).toContain("Your thread · It's a constant.");
+  expect(list.getByRole("button", { name: "1 resolved · 1 from bots" }).getAttribute("aria-expanded")).toBe("false");
+  // No one answers your feedback on your own PR: no "Yours: … handled", and no agent's check of it.
+  expect(list.queryByText(/^Yours:/)).toBeNull();
+  expect(list.queryByRole("button", { name: "Check again" })).toBeNull();
+  // A reply to erin's goes through what the server keeps of your PR's threads, which it reads again at once.
+  const card = await code(slot, "src/a.ts").findByRole("article", { name: "GitHub thread on src/a.ts:1" });
+  expect(within(card).getByText("Needs your reply to @erin")).toBeTruthy();
+  fireEvent.click(within(card).getByRole("button", { name: "Reply" }));
+  fireEvent.change(within(card).getByRole("textbox", { name: "Reply on src/a.ts:1" }), { target: { value: "It reads better." } });
+  fireEvent.click(within(card).getByRole("button", { name: "Send reply" }));
+  await waitFor(() => expect(rpc.replyToFeedback).toHaveBeenCalledWith({ targetKey: "pr-42", threadId: "t6", body: "It reads better.", account: "me" }));
+  expect(rpc.replyToThread).not.toHaveBeenCalled();
+  slot.lifecycle.unmount();
+});

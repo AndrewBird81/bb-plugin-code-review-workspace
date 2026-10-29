@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Turn } from "./turn";
 import { snoozeLabel } from "./turn";
-import { GUIDE_STOPPED, reviewState, type ReviewItem } from "./review-state";
+import { GUIDE_STOPPED, needsGroup, reviewState, type ReviewItem } from "./review-state";
 import { statusLine, statusWhy } from "./status-line";
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
@@ -27,6 +27,11 @@ test("why it's yours says who asked, in words, with an icon and a tone only wher
   expect(said(review(turn("needs", "looks-ready")))).toEqual(["Agent: all feedback addressed", "agent", "Sparkles"]);
   expect(said(review(turn("needs", "dismissed")))).toEqual(["Your review was dismissed", "warning", "AlertCircle"]);
   expect(said(review(turn("needs", "own")))).toEqual(["Your PR", "neutral", "UserRound"]);
+  // Your PR with comments waiting for your reply, which bring it back to you.
+  const commented = review(turn("needs", "new-comments", "Your PR · 3 new comments"), { ownPr: true, signals: { newComments: { count: 3, at: now - HOUR, by: "bob" } } });
+  expect(said(commented)).toEqual(["Your PR · 3 new comments", "foreground", "MessageSquare"]);
+  expect(statusWhy(commented, knobs, now)?.detail).toBe("The latest from @bob");
+  expect(needsGroup(commented)).toBe("back");
   expect(said(review(turn("needs", "new"), { status: "tracked" }))).toEqual(["No guide yet", "neutral", undefined]);
   expect(said(review(turn("needs", "new")))).toEqual(["Guide ready", "neutral", undefined]);
   expect(said(review(turn("needs", "new"), { kind: "ref" }))).toEqual(["Local review", "neutral", "GitBranch"]);

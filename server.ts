@@ -188,6 +188,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       personalProject = (await personalProjectId(bb).catch(() => undefined)) ?? null;
       return personalProject;
     },
+    becomePr: (targetKey, pr) => featureReview.becomePr({ ...deps, changed: (key) => changed(key) }, targetKey, pr),
   } });
   onPrepared(bb, (targetKey) => { void sync.evaluate(targetKey); });
   onAssistantWaitsEnded(bb, (targetKey) => { void sync.evaluate(targetKey); });
@@ -266,7 +267,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
   };
   /** Re-read your threads on a PR now. */
   async function refreshThreads(review: ReviewMeta) {
-    if (review.kind !== "pr" || !review.repo || !review.number || !baselineOf(review).at) return;
+    if (review.kind !== "pr" || !review.repo || !review.number || !baselineOf(review).at && review.ownPr !== true) return;
     const login = await sync.login();
     if (!login) return;
     const threads = await fetchMyThreads(runGh, review.repo, review.number, login, review.author ?? null);
@@ -274,7 +275,8 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
       // The review may have been deleted while GitHub answered.
       if (!await tx.getReview(review.targetKey)) return null;
       const threadsChanged = await tx.saveFeedbackThreads(review.targetKey, threads, (await tx.feedbackFetched(review.targetKey))?.prUpdatedAt ?? null);
-      await tx.setLifecycle(review.targetKey, { signals: { ...(await tx.getReview(review.targetKey))!.signals, ...threadSignals(await tx.listFeedbackThreads(review.targetKey)) } });
+      const now = (await tx.getReview(review.targetKey))!;
+      await tx.setLifecycle(review.targetKey, { signals: { ...now.signals, ...threadSignals(await tx.listFeedbackThreads(review.targetKey), now.ownPr === true) } });
       return threadsChanged;
     });
     if (threadsChanged === null) return;

@@ -353,11 +353,51 @@ test("a file split across chapters puts each item in the chapter with its hunk, 
 test("the words for every state, thread flag, check, reply draft and summary", () => {
   expect(STATE_LABEL).toEqual({
     draft: "Draft · not submitted", "agent-draft": "Agent draft · not submitted", "older-diff": "Older diff · not submitted", private: "Private · with the agent",
-    waiting: "Waiting on author", replied: "Author replied", question: "Question for you", resolved: "Resolved", open: "Open", "summary-ask": "From your review summary",
+    waiting: "Waiting on author", replied: "Author replied", question: "Question for you", resolved: "Resolved", open: "Open", "needs-reply": "Needs your reply",
+    "summary-ask": "From your review summary",
   });
   expect(THREAD_FLAG_LABEL).toEqual({ outdated: "Outdated", fileComment: "File comment" });
   expect(CHECK_LABEL).toEqual({ addressed: "Addressed", partial: "Partial", not_addressed: "Not addressed", disputed: "Author disagrees", unclear: "Unclear" });
   expect(REPLY_DRAFT_LABEL).toEqual({ reviewer: "Reply draft · not sent", agent: "Agent reply draft · not sent" });
   expect(SUMMARY_LABEL).toEqual({ reviewer: "Summary · not submitted", agent: "Agent summary · not submitted" });
   expect(GROUP_TITLE).toEqual({ "needs-you": "Needs you", "not-submitted": "Not submitted · only in BB", "on-github": "On GitHub", private: "Private · with the agent" });
+});
+
+// Your own PR (S6): every thread is yours to answer; bots' are folded.
+
+test("on your own PR a thread whose latest comment that isn't a bot's isn't yours needs your reply; bots' threads fold", () => {
+  const b6 = thread("B6", "src/cache.ts", 20, [said("frank", "Why a Map?", 8), said("ci-bot", "Coverage dropped.", 7, true)]);
+  const own: CommentSources = {
+    draft: null, threads: [t1, t2, b1, b3, b4, b5, b6], sections, patch, viewer: "reviewer", prUrl: PR, ownPr: true,
+    // The server keeps everyone's threads on your PR: none of them makes a thread yours.
+    feedback: { ...feedback, items: [b1, b3, b5].map((live) => ({ ...yours(live, "open"), thread: { ...stored(live, "open"), author: live.comments[0].author, ...live.comments[0].bot ? { authorBot: true as const } : {} } })), run: null },
+  };
+  const items = buildItems(own);
+  const byId = (id: string) => items.find((item) => item.id === id) as ThreadItem;
+  expect([t1, t2, b1, b3, b4, b5, b6].map(({ id }) => [id, byId(id).state, byId(id).label, byId(id).needs, byId(id).mine])).toEqual([
+    ["T1", "needs-reply", "Needs your reply to @alice", "needs-reply", true],
+    ["T2", "open", "Open", null, true],
+    ["B1", "open", "Open", null, false],
+    ["B3", "needs-reply", "Needs your reply to @dave", "needs-reply", false],
+    ["B4", "resolved", "Resolved", null, false],
+    ["B5", "open", "Open", null, false],
+    ["B6", "needs-reply", "Needs your reply to @frank", "needs-reply", false],
+  ]);
+  const list = groups(items);
+  expect(ids(list[0].items).sort()).toEqual(["B3", "B6", "T1"]);
+  expect(list[2].folded).toEqual({ label: "1 resolved · 1 from bots", items: expect.anything() });
+  expect(ids(list[2].folded!.items).sort()).toEqual(["B4", "B5"]);
+  // A thread GitHub didn't list reads from what the server kept, under its own author.
+  const kept = buildItems({ ...own, threads: [] });
+  expect((kept.find((item) => item.id === "B3") as ThreadItem)).toMatchObject({ state: "needs-reply", who: "@dave", mine: false });
+  // One a bot started, which GitHub names without "[bot]", is told by what the server kept, and folds.
+  expect((kept.find((item) => item.id === "B5") as ThreadItem)).toMatchObject({ state: "open", bot: true, needs: null });
+  // Without your login, nothing the server kept is taken for yours.
+  expect((buildItems({ ...own, viewer: null }).find((item) => item.id === "B1") as ThreadItem).mine).toBe(false);
+});
+
+test("on a teammate's PR, bots' threads stay where they were and nothing reads Needs your reply", () => {
+  const items = buildItems(sources);
+  expect(items.some((item) => item.kind === "thread" && (item.state === "needs-reply" || item.bot))).toBe(false);
+  expect(groups(items)[2].folded?.label).toBe("2 resolved · 1 outdated");
 });

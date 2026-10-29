@@ -10,7 +10,7 @@ import { defaultName, NAME_LIMIT, renamedFrom } from "../lib/review-name";
 import { branchLabel, homeShort, reviewIdentity } from "../lib/review-identity";
 import { statusLine, type StatusKind, type StatusTone } from "../lib/status-line";
 import { useKnob } from "../lib/settings";
-import { canSnooze, canSnoozeUntil, type ReviewRound } from "../lib/turn";
+import { canSnooze, canSnoozeUntil, newCommentsText, type ReviewRound } from "../lib/turn";
 import { cn } from "../lib/utils";
 import { Icon } from "./ui/icon";
 import { TONE_TEXT } from "./ui/badge";
@@ -254,7 +254,13 @@ export const ReviewHeader = memo(function ReviewHeader({ review, guideTitle, che
   const facts = statusLine(review, { passingChecks: true, ci, knobs: { unattendedAgents, localDiffChanges } })
     // A review that's simply ready has nothing to say about whose turn it is.
     .filter((part) => HERO_FACTS.has(part.kind) && !(part.kind === "why" && turn.label === "Ready"))
-    .map((part) => part.kind === "progress" && progress ? (
+    .map((part) => part.kind === "why" && turn.reason === "new-comments" && review.signals?.newComments ? (
+      // Yours is said above it: the comments, which open Comments on what needs you.
+      <Fact key={part.kind} icon={<Icon name="MessageSquare" aria-hidden />} tone={part.tone} title={part.detail}>
+        {onShowFeedback ? <button type="button" onClick={onShowFeedback} title="Show them in Comments" className={cn("rounded-sm underline decoration-border underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_TEXT)}>{newCommentsText(review.signals.newComments)}</button>
+          : newCommentsText(review.signals.newComments)}
+      </Fact>
+    ) : part.kind === "progress" && progress ? (
       <button key={part.kind} type="button" onClick={onShowFeedback} title={part.detail ? `${part.detail}. Show your feedback in Comments` : "Show your feedback in Comments"} className={cn("rounded-sm underline decoration-border underline-offset-4 hover:decoration-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", TOUCH_TEXT)}>
         <Fact icon={<Icon name={progress.source === "assistant" ? "Sparkles" : "MessageSquare"} aria-hidden />} tone={progress.done === progress.total ? "success" : "primary"}>{part.text}</Fact>
       </button>

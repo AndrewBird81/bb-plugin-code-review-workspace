@@ -67,6 +67,7 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const navigate = useBbNavigate();
   const coarse = useMediaQuery("(pointer: coarse)");
   const isPr = review.kind === "pr";
+  const ownPr = isPr && review.ownPr === true;
   const visible = shown && !finish;
   const merged = review.prState === "MERGED";
   const closed = merged || review.prState === "CLOSED";
@@ -87,16 +88,17 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
   const sources = useMemo((): CommentSources => ({
     draft: draft.loaded ? { draft: draft.draft, stale: draft.stale, discussions: draft.discussions } : null,
     threads: isPr ? threads : [], feedback: isPr ? feedback : null, replyDrafts: isPr ? replyDrafts : [],
-    sections, patch: draft.patch, viewer: draft.account ?? null, prUrl: review.url ?? null, closed,
-  }), [draft.loaded, draft.draft, draft.stale, draft.discussions, isPr, threads, feedback, replyDrafts, sections, draft.patch, draft.account, review.url, closed]);
+    // Your own PR is yours as its author until your account is verified.
+    sections, patch: draft.patch, viewer: draft.account ?? (ownPr ? review.author : null) ?? null, prUrl: review.url ?? null, closed, ownPr,
+  }), [draft.loaded, draft.draft, draft.stale, draft.discussions, isPr, threads, feedback, replyDrafts, sections, draft.patch, draft.account, review.url, closed, ownPr, review.author]);
   const items = useMemo(() => buildItems(sources), [sources]);
   const sending = useMemo(() => toSend(sources), [sources]);
   // Hidden nits leave the list and the code, not what Submit sends; one that needs you stays.
   const listItems = useMemo(() => draft.hideNits ? items.filter((item) => !(item.kind === "draft" && item.comment.severity === "nit" && !item.needs)) : items, [items, draft.hideNits]);
   const hidden = items.length - listItems.length;
   const preExisting = useKnob("preExistingFindings");
-  const counted = useMemo(() => groups(items, preExisting), [items, preExisting]);
-  const listed = useMemo(() => groups(listItems, preExisting), [listItems, preExisting]);
+  const counted = useMemo(() => groups(items, preExisting, ownPr), [items, preExisting, ownPr]);
+  const listed = useMemo(() => groups(listItems, preExisting, ownPr), [listItems, preExisting, ownPr]);
   const stops = useMemo(() => shownItems(listItems, filter, showFolded), [listItems, filter, showFolded]);
   const needing = counted[0].count;
 
@@ -254,7 +256,8 @@ export function CommentsView({ shown, finish, tab, onTab, onShowThread }: {
         )}
         {isPr && <Chips groups={counted} total={items.length} filter={filter} onFilter={setFilter} />}
         {!isPr && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="Lock" className="size-3.5 shrink-0" aria-hidden />Comments on a local review stay in BB.</p>}
-        {isPr && mine && !closed && <CheckStrip run={feedback?.run ?? null} tally={checkTally(items)} running={!!review.verifyingSince} starting={checking} onCheck={() => void actions?.checkAgain()} />}
+        {/* On your own PR there's no feedback of yours for the agent to check. */}
+        {isPr && mine && !closed && !ownPr && <CheckStrip run={feedback?.run ?? null} tally={checkTally(items)} running={!!review.verifyingSince} starting={checking} onCheck={() => void actions?.checkAgain()} />}
         {isPr && threadsError !== null && <Notice tone="danger" action={actions && <Button variant="outline" size="sm" className={cn("h-7 px-2 text-xs", TOUCH_CONTROL)} disabled={refreshing} onClick={() => void actions.refresh()}>Try again</Button>}>
           {threads.length ? `Couldn’t load every thread: ${threadsError}` : <>Couldn’t load review threads.{threadsError && <span className="mt-0.5 block break-words text-xs">{threadsError}</span>}</>}
         </Notice>}

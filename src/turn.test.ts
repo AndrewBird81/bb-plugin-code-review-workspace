@@ -70,6 +70,42 @@ test("your own PR needs your review until you've reviewed it, then it's Reviewed
   expect(turn(own({ prState: "MERGED" })).group).toBe("archive");
 });
 
+test("your own PR found on GitHub waits in Reviewed until someone's comment waits for your reply, then it's yours, with an alert per comment", () => {
+  const found: TurnInput = { targetKey: "pr-9", kind: "pr", status: "tracked", prState: "OPEN", ownPr: true, createdAt: t(9), signals: { ci: "pass" } };
+  expect(turn(found)).toMatchObject({ group: "reviewed", reason: "own", label: "Your PR", signal: null, notify: false });
+  const commented = { ...found, signals: { ...found.signals, newComments: { count: 3, at: t(1), by: "bob" } } };
+  expect(turn(commented)).toMatchObject({ group: "needs", reason: "new-comments", label: "Your PR · 3 new comments", signal: `comments:${t(1)}`, notify: true, at: t(1), eventAt: t(1) });
+  expect(turn({ ...found, signals: { newComments: { count: 1, at: t(1), by: "bob" } } }).label).toBe("Your PR · 1 new comment");
+  // As many threads as Comments' Needs you counts, when that's not one a comment.
+  expect(turn({ ...found, signals: { newComments: { count: 3, threads: 2, at: t(1), by: "bob" } } }).label).toBe("Your PR · 3 new comments in 2 threads");
+  expect(turn({ ...found, signals: { newComments: { count: 2, threads: 1, at: t(1), by: "bob" } } }).label).toBe("Your PR · 2 new comments in 1 thread");
+  expect(turn({ ...found, signals: { newComments: { count: 2, threads: 2, at: t(1), by: "bob" } } }).label).toBe("Your PR · 2 new comments");
+  // One you started a review of, or reviewed, comes back the same way.
+  expect(turn({ ...commented, status: "ready", submittedVerdict: "COMMENT", submittedAt: t(5) })).toMatchObject({ group: "needs", reason: "new-comments" });
+  // Your reply, or a resolve, ends it: the sync reads no comment waiting.
+  expect(turn({ ...commented, signals: { ...commented.signals, newComments: null } })).toMatchObject({ group: "reviewed", reason: "own" });
+  // A snooze holds the comments it set aside; a newer one wakes it.
+  const snoozed = { ...commented, snoozedAt: t(0.5), snoozedUntil: NOW + hour };
+  expect(turn(snoozed)).toMatchObject({ group: "waiting", reason: "snoozed" });
+  expect(turn({ ...snoozed, signals: { newComments: { count: 4, at: t(0.2), by: "carol" } } })).toMatchObject({ group: "needs", reason: "new-comments" });
+  // A teammate's PR never reads them.
+  expect(turn({ ...commented, ownPr: false, signals: { ...commented.signals, requestPending: true, requestedAt: t(8) } }).reason).toBe("requested");
+});
+
+test("with Include your own PRs off, your PRs found on GitHub leave the list until you start a review of one", () => {
+  const found: TurnInput = { targetKey: "pr-9", kind: "pr", status: "tracked", prState: "OPEN", ownPr: true, signals: { newComments: { count: 2, at: t(1), by: "bob" } } };
+  expect(turn(found, { ownPrs: false })).toMatchObject({ group: "archive", reason: "own" });
+  expect(turn({ ...found, status: "ready" }, { ownPrs: false })).toMatchObject({ group: "needs", reason: "new-comments" });
+  expect(turnOptions({ ...defaultPreferences, knobs: { ...defaultPreferences.knobs, trackOwnPrs: false } }).ownPrs).toBe(false);
+  expect(turnOptions(defaultPreferences).ownPrs).toBe(true);
+});
+
+test("your own PR's threads aren't progress: an answered one waits for your reply", () => {
+  const threads = { total: 3, resolved: 1, answered: 2, questions: 0, open: 0, outdated: 0 };
+  expect(feedbackProgress({ ownPr: true, signals: { threads } })).toBeNull();
+  expect(feedbackProgress({ ownPr: false, signals: { threads } })).toMatchObject({ done: 3, total: 3 });
+});
+
 test("a PR GitHub can't find for a week goes to Archive", () => {
   const gone = (days: number, reason: "not-found" | "forbidden" = "not-found") => changesRequested({ unreachable: { since: NOW - days * 24 * hour, reason } });
   expect(turn(gone(1)).group).toBe("waiting");

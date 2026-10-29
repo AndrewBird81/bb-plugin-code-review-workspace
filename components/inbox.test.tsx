@@ -868,3 +868,17 @@ test("archiving or snoozing a row from its ⋯ menu or Snooze choices moves the 
   expect(document.activeElement).toBe(first);
   slot.lifecycle.unmount();
 });
+
+test("your own PR with comments waiting for your reply is back to you in Needs review, saying how many and from whom; one without waits in Reviewed", async () => {
+  const { slot } = await inbox([
+    { targetKey: "pr-4", kind: "pr", number: 4, repo: "acme/web", title: "Snooze flaky checks", author: "me", ownPr: true, status: "tracked",
+      signals: { newComments: { count: 3, at: now - 3_600_000, by: "bob" } }, turn: turn("needs", "new-comments", "Your PR · 3 new comments", { at: now - 3_600_000 }) },
+    { targetKey: "pr-5", kind: "pr", number: 5, repo: "acme/web", title: "Quiet change", author: "me", ownPr: true, status: "tracked", turn: turn("reviewed", "own", "Your PR") },
+  ]);
+  await slot.findByText("Snooze flaky checks");
+  const needs = slot.getByRole("heading", { name: /^Needs review/ }).closest("section")!;
+  expect(within(needs).getByText("Back to you", { exact: false })).toBeTruthy();
+  expect(within(needs).getByText("Your PR · 3 new comments").getAttribute("title")).toBe("The latest from @bob");
+  expect(within(needs).queryByText("Quiet change")).toBeNull();
+  slot.lifecycle.unmount();
+});

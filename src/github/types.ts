@@ -109,9 +109,17 @@ export interface FeedbackThread {
   status: "resolved" | "question" | "answered" | "open";
   /** That latest reply from someone else after the viewer's last comment. */
   replyAt: number | null;
+  /** On the viewer's own PR, a thread someone else started: who, and whether a bot. Absent: the viewer started it. */
+  author?: string;
+  authorBot?: true;
+  /**
+   * On the viewer's own PR, a thread whose latest comment that isn't a bot's isn't the viewer's: how many comments came
+   * since the viewer's last there, bots' aside, and the latest's time and author. Absent: it doesn't need a reply.
+   */
+  needsReply?: { comments: number; at: number; by: string };
 }
 
-/** A PR the viewer was asked to review or has reviewed, from search. */
+/** A PR the viewer was asked to review, has reviewed, or wrote, from search. */
 export interface DiscoveredPr {
   repo: string;
   number: number;
@@ -124,4 +132,7 @@ export interface DiscoveredPr {
   requested: boolean;
   /** The viewer has reviewed it. */
   reviewed: boolean;
+  /** The viewer wrote it: found by the search for your own PRs, with its head branch. */
+  own?: true;
+  head?: string | null;
 }

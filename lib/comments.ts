@@ -18,15 +18,16 @@ export type CommentState =
   | "draft" | "agent-draft" | "older-diff"
   // A discussion with the agent at a line without a comment.
   | "private"
-  // Your thread on GitHub; someone else's is open or resolved.
-  | "waiting" | "replied" | "question" | "resolved" | "open"
+  // Your thread on GitHub; someone else's is open or resolved. On your own PR, any thread whose latest comment isn't
+  // yours or a bot's needs your reply.
+  | "waiting" | "replied" | "question" | "resolved" | "open" | "needs-reply"
   // An ask from your earlier review summary.
   | "summary-ask";
 
 export const STATE_LABEL: Record<CommentState, string> = {
   draft: "Draft · not submitted", "agent-draft": "Agent draft · not submitted", "older-diff": "Older diff · not submitted",
   private: "Private · with the agent",
-  waiting: "Waiting on author", replied: "Author replied", question: "Question for you", resolved: "Resolved", open: "Open",
+  waiting: "Waiting on author", replied: "Author replied", question: "Question for you", resolved: "Resolved", open: "Open", "needs-reply": "Needs your reply",
   "summary-ask": "From your review summary",
 };
 /** Shown beside a thread's state. */
@@ -39,7 +40,7 @@ export const REPLY_DRAFT_LABEL: Record<Author, string> = { reviewer: "Reply draf
 export const SUMMARY_LABEL: Record<Author, string> = { reviewer: "Summary · not submitted", agent: "Agent summary · not submitted" };
 
 /** Why an item needs you, most urgent first. */
-export const NEEDS = ["older-diff", "question", "check", "replied", "reply-drafted"] as const;
+export const NEEDS = ["older-diff", "question", "needs-reply", "check", "replied", "reply-drafted"] as const;
 export type NeedReason = typeof NEEDS[number];
 // What the agent's check says needs another look.
 const UNADDRESSED = new Set<AssessmentVerdict>(["not_addressed", "partial", "disputed"]);
@@ -87,7 +88,7 @@ export interface CommentCheck {
 interface ItemBase {
   /** "draft:" or "private:" and its file, line and side; a thread's node id, which Resolve and its drafted reply use; or "summary:<n>". */
   id: string;
-  /** Its header's words: STATE_LABEL of its state. */
+  /** Its header's words: STATE_LABEL of its state, and for one waiting for your reply, whose comment waits. */
   label: string;
   group: GroupId;
   needs: NeedReason | null;
@@ -119,9 +120,13 @@ export interface PrivateItem extends ItemBase {
 
 export interface ThreadItem extends ItemBase {
   kind: "thread";
-  state: "waiting" | "replied" | "question" | "resolved" | "open";
+  state: "waiting" | "replied" | "question" | "resolved" | "open" | "needs-reply";
   /** You started it. */
   mine: boolean;
+  /** On your own PR, only bots wrote in it: On GitHub folds it, with the resolved and outdated. */
+  bot: boolean;
+  /** Waiting for your reply: whose comment waits, "@sam". */
+  waitingOn: string | null;
   /** The first comment's database id, which a reply answers. */
   replyTo: number | null;
   /** The first comment, then its replies, oldest first. */
@@ -172,6 +177,8 @@ export interface CommentSources {
   prUrl?: string | null;
   /** A closed or merged PR: nothing on it needs you. */
   closed?: boolean;
+  /** Your own PR: everyone's threads are yours to answer, and `viewer` must be given, as `feedback` holds them all. */
+  ownPr?: boolean;
 }
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -196,7 +203,7 @@ function checkOf(feedback: FeedbackItem | null): CommentCheck | null {
 
 /** Every comment-like item in a review, once each, in reading order: the whole PR's first, then by chapter, file and line. */
 export function buildItems(sources: CommentSources): CommentItem[] {
-  const { draft, threads, feedback, sections, patch, closed = false } = sources;
+  const { draft, threads, feedback, sections, patch, closed = false, ownPr = false } = sources;
   const order = sections.flatMap((section) => section.diffs.map((diff) => `${section.id}\0${diff.file}`));
   // For a file in more than one chapter, chapterAt splits the patch it's given: split it once here, and give it just that file's diff.
   let texts: Map<string, string> | undefined;
@@ -240,7 +247,7 @@ export function buildItems(sources: CommentSources): CommentItem[] {
   }
 
   const feedbackById = new Map((feedback?.items ?? []).map((item) => [item.id, item]));
-  const viewer = sources.viewer || threads.find((live) => feedbackById.has(live.id) && live.comments.length)?.comments[0].author || null;
+  const viewer = sources.viewer || (ownPr ? null : threads.find((live) => feedbackById.has(live.id) && live.comments.length)?.comments[0].author) || null;
   const replyDrafts = sources.replyDrafts ? new Map(sources.replyDrafts.map(({ threadId, ...reply }) => [threadId, reply])) : null;
   const person = (login: string, mine: boolean) => mine ? "You" : `@${login}`;
   /** A thread as GitHub listed it, your feedback on it, or both. */
@@ -254,13 +261,19 @@ export function buildItems(sources: CommentSources): CommentItem[] {
         return { author: comment.author, who: person(comment.author, mine), mine, bot: comment.bot ?? comment.author.toLowerCase().endsWith("[bot]"), body: comment.body, createdAt: comment.createdAt ?? null };
       })
       : stored ? [
-        { author: viewer ?? "", who: "You", mine: true, bot: false, body: stored.body, createdAt: stored.createdAt },
+        // On your own PR, someone else may have started it.
+        stored.author
+          ? { author: stored.author, who: person(stored.author, false), mine: false, bot: !!stored.authorBot, body: stored.body, createdAt: stored.createdAt }
+          : { author: viewer ?? "", who: "You", mine: true, bot: false, body: stored.body, createdAt: stored.createdAt },
         ...stored.replies.map((reply) => ({ author: reply.author, who: person(reply.author, reply.mine), mine: reply.mine, bot: reply.bot, body: reply.body, createdAt: reply.createdAt })),
       ] : [];
-    const mine = !!item || !!messages[0]?.mine;
-    // GitHub's read says whether it's resolved now; your feedback says who answered since your last comment.
+    const mine = ownPr ? !!messages[0]?.mine : !!item || !!messages[0]?.mine;
+    // GitHub's read says whether it's resolved now; your feedback says who answered since your last comment. On your
+    // own PR, the thread's latest comment that isn't a bot's says whether it waits for your reply.
     const resolved = live ? live.isResolved : stored!.isResolved;
-    const state = resolved ? "resolved" : !mine ? "open" : stored && stored.status !== "resolved" ? STATE_OF[stored.status] : "waiting";
+    const latestPerson = messages.filter((message) => !message.bot).at(-1);
+    const state = resolved ? "resolved" : ownPr ? latestPerson && !latestPerson.mine ? "needs-reply" : "open"
+      : !mine ? "open" : stored && stored.status !== "resolved" ? STATE_OF[stored.status] : "waiting";
     const outdated = live ? live.isOutdated : stored!.isOutdated;
     const fileComment = (live?.subjectType ?? stored?.subjectType) === "FILE";
     const path = live ? live.path : stored!.path;
@@ -272,16 +285,18 @@ export function buildItems(sources: CommentSources): CommentItem[] {
     const reply = replyDrafts ? replyDrafts.get(id) ?? null : item?.replyDraft ?? null;
     const check = checkOf(item);
     // Resolved, it's settled, whatever an earlier check said.
-    const needs = state === "resolved" ? null : state === "question" ? "question" : check && UNADDRESSED.has(check.verdict) ? "check" : state === "replied" ? "replied" : reply?.author === "agent" ? "reply-drafted" : null;
+    const needs = state === "resolved" ? null : state === "question" ? "question" : state === "needs-reply" ? "needs-reply" : check && UNADDRESSED.has(check.verdict) ? "check" : state === "replied" ? "replied" : reply?.author === "agent" ? "reply-drafted" : null;
     const tag = threadLabel(messages[0]?.body ?? "");
     const replyTo = live?.comments[0]?.databaseId ?? stored?.commentId ?? null;
     const last = messages.at(-1);
     add({
-      kind: "thread", id, state, label: STATE_LABEL[state], ...needing(needs, "on-github"),
+      // Waiting for your reply, it names whose comment waits: "Needs your reply to @sam".
+      kind: "thread", id, state, label: state === "needs-reply" ? `${STATE_LABEL[state]} to ${latestPerson!.who}` : STATE_LABEL[state], ...needing(needs, "on-github"),
+      waitingOn: state === "needs-reply" ? latestPerson!.who : null,
       at: path ? { file: path, line, side, lines: fileComment || shown === null ? null : line !== null && startLine !== null && startLine !== line ? `${startLine}–${line}` : `${shown}` } : null,
       chapterId: path ? chapterOf(path, line, side) : null,
       who: messages[0]?.who ?? person("unknown", mine), latest: last ? { who: last.who, body: last.body, at: last.createdAt } : null, nonBlocking: !!tag?.nonBlocking,
-      mine, replyTo, messages, resolvedBy: live?.resolvedBy ?? stored?.resolvedBy ?? null, outdated, fileComment, tag: tag?.label ?? null, check,
+      mine, bot: ownPr && messages.length > 0 && messages.every((message) => message.bot), replyTo, messages, resolvedBy: live?.resolvedBy ?? stored?.resolvedBy ?? null, outdated, fileComment, tag: tag?.label ?? null, check,
       replyDraft: reply ? { ...reply, label: REPLY_DRAFT_LABEL[reply.author] } : null,
       url: stored?.url ?? (sources.prUrl && replyTo !== null ? `${sources.prUrl}#discussion_r${replyTo}` : null),
       thread: live, feedback: item,
@@ -321,7 +336,7 @@ export interface CommentGroup {
   items: CommentItem[];
   /** Counted here but shown in Needs you under All: draft comments on an older diff. */
   elsewhere: number;
-  /** On GitHub, its resolved and outdated threads, folded under `label`: "2 resolved · 1 outdated". */
+  /** On GitHub, its resolved and outdated threads, and on your own PR bots', folded under `label`: "2 resolved · 1 outdated · 3 from bots". */
   folded: { label: string; items: CommentItem[] } | null;
 }
 
@@ -330,18 +345,21 @@ export interface CommentGroup {
  * shows once: Needs you, then drafts, then GitHub (yours first), then private discussions. Not submitted's chip also
  * shows the drafts on an older diff, which All shows under Needs you, so its count is what Submit sends. Pass the
  * items the list shows. `preExisting` (Settings' Keep pre-existing problems apart) adds Not submitted's "1 pre-existing".
+ * On your own PR (`ownPr`), On GitHub has no "Yours: …handled": no one answers your feedback there.
  */
-export function groups(items: readonly CommentItem[], preExisting = false): CommentGroup[] {
+export function groups(items: readonly CommentItem[], preExisting = false, ownPr = false): CommentGroup[] {
   const home = (id: GroupId) => items.filter((item) => item.group === id);
   const group = (id: GroupId, shown: CommentItem[], summary: string | null): CommentGroup => ({ id, title: GROUP_TITLE[id], count: shown.length, summary, items: shown, elsewhere: 0, folded: null });
   const drafts = home("not-submitted");
   const everyDraft = items.filter((item) => item.kind === "draft");
   const github = home("on-github");
   const yours = (item: CommentItem) => item.kind === "ask" || item.kind === "thread" && item.mine;
-  const folds = (item: CommentItem) => item.kind === "thread" && (item.state === "resolved" || item.outdated);
+  const folds = (item: CommentItem) => item.kind === "thread" && (item.state === "resolved" || item.outdated || item.bot);
   const ordered = [...github.filter(yours), ...github.filter((item) => !yours(item))];
   const folded = ordered.filter(folds);
   const resolved = folded.filter((item) => item.state === "resolved").length;
+  const outdated = folded.filter((item) => item.kind === "thread" && item.state !== "resolved" && item.outdated).length;
+  const bots = folded.length - resolved - outdated;
   const draftComments = everyDraft.flatMap((item) => item.kind === "draft" ? [item.comment] : []);
   const apart = preExisting ? draftComments.filter(isPreExisting).length : 0;
   return [
@@ -351,8 +369,8 @@ export function groups(items: readonly CommentItem[], preExisting = false): Comm
       count: everyDraft.length, elsewhere: everyDraft.length - drafts.length,
     },
     {
-      ...group("on-github", ordered.filter((item) => !folds(item)), yoursTally(items)), count: github.length,
-      folded: folded.length ? { label: [resolved ? `${resolved} resolved` : "", folded.length - resolved ? `${folded.length - resolved} outdated` : ""].filter(Boolean).join(" · "), items: folded } : null,
+      ...group("on-github", ordered.filter((item) => !folds(item)), ownPr ? null : yoursTally(items)), count: github.length,
+      folded: folded.length ? { label: [resolved ? `${resolved} resolved` : "", outdated ? `${outdated} outdated` : "", bots ? `${bots} from bots` : ""].filter(Boolean).join(" · "), items: folded } : null,
     },
     group("private", home("private"), null),
   ];

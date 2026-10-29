@@ -60,6 +60,7 @@ export function statusWhy(review: ReviewItem, knobs: Pick<Knobs, "localDiffChang
     case "looks-ready": return why("Agent: all feedback addressed", "agent", "Sparkles");
     case "dismissed": return why("Your review was dismissed", "warning", "AlertCircle");
     case "own": return why("Your PR", "neutral", "UserRound");
+    case "new-comments": return why(turn.label, "foreground", "MessageSquare", s.newComments?.by ? { detail: `The latest from @${s.newComments.by}` } : {});
     // A folder's review says what changed in its folder since it was read, as last checked.
     case "new": return review.kind === "ref" ? review.feature?.changedFiles && knobs.localDiffChanges ? why(`${review.feature.changedFiles} file${review.feature.changedFiles === 1 ? "" : "s"} changed`, "foreground", "FileDiff") : why("Local review", "neutral", "GitBranch")
       : review.status === "tracked" ? why("No guide yet", "neutral") : why("Guide ready", "neutral");
@@ -83,7 +84,7 @@ export function statusWhy(review: ReviewItem, knobs: Pick<Knobs, "localDiffChang
 /** When anything last happened on the review: you reviewed it, the author pushed or replied, its turn changed, it was archived. */
 export function lastActivity(review: ReviewItem): number | null {
   const s = review.signals ?? {};
-  const at = Math.max(reviewState(review).at ?? 0, s.lastReviewAt ?? 0, s.headSeenAt ?? 0, s.replyAt ?? 0, review.submittedAt ?? 0, review.userArchivedAt ?? 0, review.archivedAt ?? 0);
+  const at = Math.max(reviewState(review).at ?? 0, s.lastReviewAt ?? 0, s.headSeenAt ?? 0, s.replyAt ?? 0, s.newComments?.at ?? 0, review.submittedAt ?? 0, review.userArchivedAt ?? 0, review.archivedAt ?? 0);
   return at || review.createdAt || null;
 }
 

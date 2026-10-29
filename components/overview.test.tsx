@@ -168,6 +168,23 @@ test("the status line says whose turn it is, how your feedback fared and how the
   slot.lifecycle.unmount();
 });
 
+test("your own PR's comments waiting for your reply say how many, in how many threads, and open Comments on what needs you", async () => {
+  const slot = await renderWorkspace({
+    kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url, author: "me", ownPr: true,
+    signals: { ci: "pass", newComments: { count: 3, threads: 2, at: now - 3_600_000, by: "sam" } },
+    turn: { group: "needs", reason: "new-comments", label: "Your PR · 3 new comments in 2 threads", signal: "comments:1", at: now, notify: true, blocking: false, updated: false, eventAt: now, failed: false },
+  });
+  const comments = await slot.findByRole("button", { name: "3 new comments in 2 threads" });
+  // Yours is said above it, so the status line doesn't say Your PR again.
+  expect(slot.getByText("Yours")).toBeTruthy();
+  expect(slot.queryByText(/^Your PR/)).toBeNull();
+  expect(comments.closest("[title]")?.getAttribute("title")).toBe("Show them in Comments");
+  fireEvent.click(comments);
+  const panel = within(await slot.findByRole("complementary", { name: "Comments and agent" }));
+  await waitFor(() => expect(panel.getByRole("radio", { name: /^Needs you, \d+$/ }).getAttribute("aria-checked")).toBe("true"));
+  slot.lifecycle.unmount();
+});
+
 test("passing checks are a fact in the status line, without a Checks section", async () => {
   const slot = await renderWorkspace({ kind: "pr", number: 42, repo: "acme/web", title: "Fix token refresh race", url }, { getChecks: () => ({ bucket: "pass", checks: [{ name: "build", bucket: "pass", state: "SUCCESS" }] }) });
   expect(await slot.findByText("Checks passing")).toBeTruthy();

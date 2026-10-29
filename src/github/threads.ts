@@ -1,4 +1,4 @@
-// The review threads the viewer started on a PR, and whether each awaits the viewer.
+// The review threads the viewer started on a PR, or on the viewer's own PR everyone's, and whether each awaits the viewer.
 import { mentions } from "./pr-facts";
 import type { FeedbackThread, RunGh } from "./types";
 
@@ -9,7 +9,7 @@ const QUERY = `query($owner:String!,$repo:String!,$number:Int!,$after:String){
   repository(owner:$owner,name:$repo){pullRequest(number:$number){
     reviewThreads(first:${PAGE_SIZE},after:$after){pageInfo{hasNextPage endCursor} nodes{
       id isResolved isOutdated path line originalLine startLine diffSide subjectType resolvedBy{login}
-      first:comments(first:1){nodes{id databaseId author{login} body createdAt pullRequestReview{id}}}
+      first:comments(first:1){nodes{id databaseId author{__typename login} body createdAt pullRequestReview{id}}}
       recent:comments(last:10){nodes{id author{__typename login} body createdAt}}
     }}
   }}
@@ -41,13 +41,15 @@ const isBot = (author: { __typename?: string; login?: string } | null | undefine
 
 /**
  * With the PR's `author` known, only the author's reply answers or asks; anyone else's counts only
- * when it mentions the viewer, as a question. Without it, anyone's does.
+ * when it mentions the viewer, as a question. Without it, anyone's does. On the viewer's own PR, everyone's
+ * threads, and any comment but the viewer's or a bot's answers or asks.
  */
 export function parseMyThreads(json: unknown, viewer: string, author: string | null = null): FeedbackThread[] {
   const nodes: any[] = (json as any)?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+  const own = !!author && same(author, viewer);
   return nodes.flatMap((t) => {
     const first = t?.first?.nodes?.[0];
-    if (!first || !same(first.author?.login, viewer)) return [];
+    if (!first || !own && !same(first.author?.login, viewer)) return [];
     const createdAt = Date.parse(first.createdAt);
     const replies: FeedbackThread["replies"] = (t.recent?.nodes ?? [])
       .filter((c: any) => c && c.id !== first.id)
@@ -63,6 +65,7 @@ export function parseMyThreads(json: unknown, viewer: string, author: string | n
       body: first.body ?? "", createdAt, isResolved: !!t.isResolved, resolvedBy: t.resolvedBy?.login ?? null,
       isOutdated: !!t.isOutdated, replies, status: "resolved", replyAt: null,
     };
+    if (own) return [ownThread(thread, first, viewer)];
     if (thread.isResolved) return [thread];
     const myLast = Math.max(createdAt, ...replies.filter((r) => r.mine).map((r) => r.createdAt));
     const fromAuthor = (r: { author: string }) => !author || same(r.author, author);
@@ -70,6 +73,25 @@ export function parseMyThreads(json: unknown, viewer: string, author: string | n
     if (!reply) return [{ ...thread, status: "open" }];
     return [{ ...thread, status: isQuestion(reply.body, viewer) ? "question" : "answered", replyAt: reply.createdAt }];
   });
+}
+
+/**
+ * A thread on the viewer's own PR. It needs the viewer's reply when its latest comment that isn't a bot's isn't the
+ * viewer's: a bot's comments never ask for one. Its status reads as for the viewer's threads: question or answered then.
+ */
+function ownThread(thread: FeedbackThread, first: any, viewer: string): FeedbackThread {
+  const starter = first.author?.login ?? "ghost";
+  const started = same(starter, viewer) ? {} : { author: starter, ...isBot(first.author) ? { authorBot: true as const } : {} };
+  if (thread.isResolved) return { ...thread, ...started };
+  const comments = [{ author: starter, bot: isBot(first.author), mine: same(starter, viewer), body: thread.body, createdAt: thread.createdAt }, ...thread.replies];
+  const myLast = Math.max(-Infinity, ...comments.filter((c) => c.mine).map((c) => c.createdAt));
+  const since = comments.filter((c) => !c.mine && !c.bot && c.createdAt > myLast);
+  const latest = since.at(-1);
+  if (!latest) return { ...thread, ...started, status: "open" };
+  return {
+    ...thread, ...started, status: isQuestion(latest.body, viewer) ? "question" : "answered", replyAt: latest.createdAt,
+    needsReply: { comments: since.length, at: latest.createdAt, by: latest.author },
+  };
 }
 
 /** Whether a reply asks the viewer something: a "?" outside code spans/blocks and quoted lines, or an @viewer mention. */
