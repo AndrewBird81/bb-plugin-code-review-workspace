@@ -33,3 +33,9 @@ export async function formerWorkerReview(bb: BbPluginApi, threadId: string): Pro
   const worker = (await bb.storage.kv.get<FormerWorker[]>(KEY))?.find((entry) => entry.threadId === threadId);
   return worker ? worker.review ?? NO_REVIEW : null;
 }
+
+/** Every former worker's thread, for the thread pages, whose Review changes their pages never offer. */
+export async function formerWorkers(bb: BbPluginApi): Promise<string[]> {
+  await writes.get(bb);
+  return (await bb.storage.kv.get<FormerWorker[]>(KEY) ?? []).map((worker) => worker.threadId);
+}

@@ -54,7 +54,7 @@ function cardName(item: CommentItem): string {
  * shows it in the code (`onShow`); its chevron opens it here as the full card, which is how PR-level, outdated and
  * file-level items are read and answered.
  */
-export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, current, onShow, onExpand }: {
+export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, current, onShow, showTitle = "Show in the code", onExpand }: {
   targetKey: string;
   item: CommentItem;
   expanded: boolean;
@@ -62,20 +62,23 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
   current: boolean;
   /** Show it in the code; null for the whole PR's, which has no place there. */
   onShow: ((item: CommentItem) => void) | null;
-  onExpand: (id: string | null) => void;
+  /** What `onShow` does, as the row's tooltip. */
+  showTitle?: string;
+  /** Open it here as its full card; without it, as in a thread's Review tab, the row only shows it (`onShow`). */
+  onExpand?: (id: string | null) => void;
 }) {
   const place = placeLabel(item);
   const severity = item.kind === "draft" ? item.comment.severity : null;
   const preExisting = useKnob("preExistingFindings") && item.kind === "draft" && item.comment.introduced === false;
   const talk = talkOf(item);
   const latest = latestOf(item);
-  const show = onShow ? () => onShow(item) : () => onExpand(expanded ? null : item.id);
+  const show = onShow ? () => onShow(item) : () => onExpand?.(expanded ? null : item.id);
   return (
     <li data-comment-row={item.id} className="group/row">
       <div className={cn("flex min-w-0 items-stretch rounded-lg bg-card transition-colors", expanded ? "rounded-b-none" : "hover:bg-state-hover/60", frameOf(item), expanded && "border-b-transparent", current && "ring-2 ring-primary/40")}>
-        <button type="button" aria-label={nameOf(item, preExisting)} aria-current={current || undefined} title={onShow ? "Show in the code" : undefined} onClick={show}
+        <button type="button" aria-label={nameOf(item, preExisting)} aria-current={current || undefined} title={onShow ? showTitle : undefined} onClick={show}
           {...(item.kind === "draft" ? { "data-comment-at": `${item.comment.file}:${item.comment.line}:${item.comment.side}` } : {})}
-          className="flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-l-lg px-2.5 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50">
+          className={cn("flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-0.5 px-2.5 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50", onExpand ? "rounded-l-lg" : "rounded-lg")}>
           <span className="flex min-w-0 items-center gap-1.5 text-xs">
             <ItemIcon item={item} />
             {/* Waiting for your reply: the chip the thread's card has, naming whose comment waits. */}
@@ -100,10 +103,10 @@ export const CommentRow = memo(function CommentRow({ targetKey, item, expanded, 
             {!expanded && latest && <span className="min-w-0 grow basis-24 truncate text-[13px] leading-snug text-muted-foreground"><InlineCode text={latest} /></span>}
           </span>
         </button>
-        <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${cardName(item)}`} aria-expanded={expanded} onClick={() => onExpand(expanded ? null : item.id)}
+        {onExpand && <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${cardName(item)}`} aria-expanded={expanded} onClick={() => onExpand(expanded ? null : item.id)}
           className="flex w-9 shrink-0 items-center justify-center rounded-r-lg text-subtle-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 pointer-coarse:w-11">
           <Icon name="ChevronDown" className={cn("size-4 transition-transform duration-150 motion-reduce:transition-none", expanded && "rotate-180")} aria-hidden />
-        </button>
+        </button>}
       </div>
       {expanded && <div className="[&>article]:rounded-t-none [&>article]:border-t-0"><CommentCard targetKey={targetKey} item={item} variant="row" /></div>}
     </li>

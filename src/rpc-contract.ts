@@ -484,6 +484,24 @@ export const rpcContract = defineRpcContract({
   /** Review the branch a local review's folder is on now, in that branch's own review, addressed to the same main thread. */
   reviewFolderBranch: { input: targetKey, output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }) },
 
+  // BB's thread pages (src/thread-surfaces.ts): Review changes above a thread's message box, and the Review tab.
+  /** Review changes: the review of the folder the thread works in, at its branch now, started or opened as it is, as bb review with no arguments. */
+  reviewThreadChanges: { input: z.object({ threadId: z.string().min(1) }).strict(), output: z.object({ ok: z.boolean(), error: z.string().optional(), targetKey: z.string().optional() }) },
+  /** The reviews not archived, by the threads and the folder each is linked to; whether Review changes is on; the plugin's own agents' threads. */
+  threadLinks: {
+    input: z.null(),
+    output: z.object({
+      reviewChangesLine: z.boolean(),
+      reviews: z.array(z.object({
+        targetKey: z.string(), createdAt: z.number(), main: z.string().nullable(), threads: z.array(z.string()),
+        folder: z.object({ environmentId: z.string(), branch: z.string(), paused: z.boolean() }).nullable(),
+      })),
+      agents: z.array(z.string()),
+    }),
+  },
+  /** One review as a thread page shows it, with its place for its id, and how many of its comments are open; null once it's gone. */
+  threadReview: { input: targetKey, output: z.object({ review: z.any().nullable(), open: z.number().int().min(0) }) },
+
   // What posts as you on GitHub from the review agent's work.
   /**
    * Post Ready to approve rows, each the one its token names, one after another, never past a warning. A row whose PR

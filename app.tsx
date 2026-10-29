@@ -4,8 +4,9 @@
 // The panel routes by subPath: "" renders the review list, anything else
 // renders the chapter/diff workspace for that target; an open review's commands
 // go in the panel's title bar. An app overlay adds Needs review and pinned
-// reviews to BB's thread list, which has no slot for them.
-import { definePluginApp } from "@get-bb/plugin-sdk/app";
+// reviews to BB's thread list, which has no slot for them. A thread's page gets
+// Review changes above its message box, and a Review tab while it's linked to one.
+import { definePluginApp, type ExperimentalThreadContextSegmentProps, type ExperimentalThreadTabProps } from "@get-bb/plugin-sdk/app";
 import { ReviewPanel } from "./components/ReviewPanel";
 import { ReviewSettings } from "./components/ReviewSettings";
 import { NeedsReviewSidebar } from "./components/NeedsReviewSidebar";
@@ -13,6 +14,7 @@ import { TitleBarControls } from "./components/TitleBarControls";
 import { PostPreview } from "./components/PostPreview";
 import { POST_PREVIEW_RENDERER } from "./src/post-preview";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ReviewChangesSegment, ReviewTab, useReviewChangesVisible, useReviewTabVisible } from "./components/ThreadSurfaces";
 import { paletteCommandsAvailable, postPaletteCommand, readClipboard } from "./lib/commands";
 import { useEffect } from "react";
 import { panelPage, showPageTitle, useReviewTitle } from "./lib/workspace-store";
@@ -26,6 +28,19 @@ function SidebarOverlay() {
 /** The review agent's Post form, in place of its message box: should it fail to draw, it says so, and "yes" in chat still posts. */
 function PostForm(props: Parameters<typeof PostPreview>[0]) {
   return <ErrorBoundary fallback={() => <p role="alert" className="p-3 text-sm text-muted-foreground">The Post form couldn’t show. Reply yes to post what the agent showed, or no.</p>}><PostPreview {...props} /></ErrorBoundary>;
+}
+
+/** Review changes, beside BB's Changed files: should it fail to draw, the row shows without it. */
+function ReviewChanges(props: ExperimentalThreadContextSegmentProps) {
+  return <ErrorBoundary resetKey={props.threadId} fallback={() => null}><ReviewChangesSegment {...props} /></ErrorBoundary>;
+}
+
+/** The Review tab: should it fail to draw, it says so and offers to try again. */
+function ThreadReview(props: ExperimentalThreadTabProps) {
+  return <ErrorBoundary resetKey={props.threadId} fallback={(retry) => <div role="alert" className="m-3 space-y-2 rounded-lg border border-border bg-muted/25 p-3 text-sm text-muted-foreground">
+    <p>The review couldn’t show here. Open it from Code Review Workspace, or try again.</p>
+    <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={retry}>Try again</button>
+  </div>}><ReviewTab {...props} /></ErrorBoundary>;
 }
 
 /**
@@ -62,6 +77,11 @@ export default definePluginApp((app) => {
   app.slots.experimental_appOverlay?.({ id: "needs-review", component: SidebarOverlay });
   // The review agent's Post form (src/review-agent-tools.ts). A host without the slot shows none; "yes" in chat posts instead.
   app.slots.pendingInteraction?.({ id: POST_PREVIEW_RENDERER, component: PostForm });
+  // A thread's pages. Optional calls: hosts from before either slot, such as BB 0.47.1's desktop app without the segment,
+  // skip it. Its group is Changed files', "3_git" (experimental_THREAD_CONTEXT_SEGMENT_GROUPS.git), written out: the
+  // build takes that constant from the host, which those hosts lack, and reading it there would stop the plugin loading.
+  app.slots.experimental_threadContextSegment?.({ id: "review-changes", title: "Review", group: "3_git", order: 20, summary: ReviewChanges, useVisible: useReviewChangesVisible });
+  app.slots.experimental_tab?.({ context: { kind: "thread" }, availability: "fixed", id: "review", title: "Review", icon: "code-review-workspace/review", layout: "flush", component: ThreadReview, useVisible: useReviewTabVisible });
   // BB's command palette, each rebindable; the overlay above handles them, so without it they aren't listed.
   app.commands.register({ id: "next-review", title: "Code Review Workspace: Next review that needs me", defaultShortcut: { key: "u", mod: true, shift: true },
     isAvailable: paletteCommandsAvailable, run: () => postPaletteCommand({ kind: "next" }) });

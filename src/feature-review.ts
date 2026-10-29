@@ -14,6 +14,8 @@ import { ensureGitHeaders } from "./patch";
 import { machineStatus } from "./machines";
 import { identityIn, placeFacts, remoteRepo } from "./review-places";
 import { defaultName } from "../lib/review-name";
+import { assistantReview } from "./draft-comments";
+import { formerWorkerReview } from "./former-workers";
 import { parsePrLink } from "../lib/pr-link";
 import type { EventListeners, RpcHandlers, ServeDeps } from "./server-modules";
 
@@ -176,9 +178,57 @@ async function openFolderReview(deps: Deps, folder: Folder, main: Thread | null,
   return "error" in result ? result : { ...result, run };
 }
 
+/** The branch a folder's review reads in its folder: a fresh thread's worktree's own branch, else the review's. */
+export const folderBranchOf = (feature: Pick<FeatureReview, "branch" | "workBranch">) => feature.workBranch ?? feature.branch;
+
+/**
+ * The review of a folder at the branch it's on, by where the review reads it (folderBranchOf), as the thread pages'
+ * index links it: one re-homed to a fixer's worktree keeps a key of its old folder's. Newest first; never one whose
+ * folder is gone.
+ */
+export function reviewOfFolder(reviews: readonly ReviewMeta[], environmentId: string, branch: string): (ReviewMeta & { feature: FeatureReview }) | null {
+  return reviews.map(featureOf).filter((review) => !!review && !review.feature.folderGone && review.feature.environmentId === environmentId && folderBranchOf(review.feature) === branch)
+    .sort((a, b) => b!.createdAt - a!.createdAt)[0] ?? null;
+}
+
+/**
+ * Whether a thread is one of the plugin's own: a review's agent, a guide writer, one that was either, or the Suggest
+ * instructions worker; with `hidden`, any hidden thread too, as they all are. Never a folder review's main thread.
+ */
+async function pluginThread(deps: Deps, thread: Thread, hidden: boolean): Promise<boolean> {
+  if (hidden && thread.visibility === "hidden") return true;
+  if (await deps.store.exclusive(async (tx) => !!await assistantReview(tx, thread.id) || !!await tx.generationOf(thread.id))) return true;
+  return await formerWorkerReview(deps.bb, thread.id) !== null;
+}
+
 /** The parts of `bb review`'s output the no-argument form takes. */
 interface FeatureCommand { name?: string; context?: string; inThreads: boolean }
 interface Ctx { projectId?: string; threadId?: string; cwd?: string }
+
+/**
+ * The folder `threadId` works in and the top thread working there, as `bb review` with no arguments finds them, or why
+ * not: neither may be one of the plugin's own threads, as a thread a review agent started would lead to its agent.
+ */
+async function callerFolder(deps: Deps, threadId: string): Promise<{ caller: Thread; folder: Folder; main: Thread | null } | { exitCode: number; stderr: string }> {
+  const { bb } = deps;
+  let caller: Thread | null;
+  try {
+    caller = await threadOf(bb, threadId);
+  } catch (error) {
+    return { exitCode: 1, stderr: `Couldn’t read this thread from BB: ${error instanceof Error ? error.message : String(error)}. Try again in a moment.` };
+  }
+  if (!caller) return { exitCode: 1, stderr: "BB has no record of this thread. Run `bb review` in a thread that works in a folder." };
+  if (!caller.environmentId) return { exitCode: 2, stderr: "This thread has no folder yet. Run `bb review` once it’s working in one." };
+  const agents = "This thread is one of Code Review Workspace’s agents, or works under one, so it can’t start a review of its folder. Run it in a thread working on the change.";
+  // A hidden subagent of yours may run bb review; the thread it leads to may not be hidden.
+  if (await pluginThread(deps, caller, false)) return { exitCode: 2, stderr: agents };
+  const folder = await folderOf(bb, caller.environmentId);
+  if ("error" in folder) return { exitCode: 1, stderr: folder.error };
+  // Unknown, it starts no review, and an existing one keeps its main thread.
+  const main = await mainThreadOf(bb, caller).catch(() => null);
+  if (main && await pluginThread(deps, main, true)) return { exitCode: 2, stderr: agents };
+  return { caller, folder, main };
+}
 
 /**
  * `bb review` with no arguments: the review of the folder the calling thread works in, at its branch now, started or
@@ -188,18 +238,9 @@ export async function runFeatureCommand(deps: Deps, command: FeatureCommand, ctx
   const { bb, store } = deps;
   if (ownReview !== undefined) return { exitCode: 2, stderr: "A review’s own agent can’t start a review of a folder." };
   if (!ctx.threadId) return { exitCode: 2, stderr: "Run `bb review` with no arguments in a bb thread: it reviews the changes in that thread’s folder. Outside a thread, pass a PR or a git ref." };
-  let caller: Thread | null;
-  try {
-    caller = await threadOf(bb, ctx.threadId);
-  } catch (error) {
-    return { exitCode: 1, stderr: `Couldn’t read this thread from BB: ${error instanceof Error ? error.message : String(error)}. Try again in a moment.` };
-  }
-  if (!caller) return { exitCode: 1, stderr: "BB has no record of this thread. Run `bb review` in a thread that works in a folder." };
-  if (!caller.environmentId) return { exitCode: 2, stderr: "This thread has no folder yet. Run `bb review` once it’s working in one." };
-  const folder = await folderOf(bb, caller.environmentId);
-  if ("error" in folder) return { exitCode: 1, stderr: folder.error };
-  // Unknown, it starts no review, and an existing one keeps its main thread.
-  const main = await mainThreadOf(bb, caller).catch(() => null);
+  const found = await callerFolder(deps, ctx.threadId);
+  if ("stderr" in found) return { exitCode: found.exitCode, stderr: found.stderr };
+  const { folder, main } = found;
   let started: Awaited<ReturnType<typeof openFolderReview>>;
   try {
     started = await openFolderReview(deps, folder, main, command);
@@ -509,6 +550,29 @@ export function register(deps: ServeDeps) {
       if (!found) return { ok: false, error: "Only a local review of a folder flags files." };
       deps.changed(targetKey);
       return { ok: true };
+    },
+    // Review changes, above a thread's message box: what bb review with no arguments does there, with no output.
+    async reviewThreadChanges({ threadId }) {
+      // A review's agents and guide writers, hidden, may work in the folder's checkout: never a review's main thread,
+      // from their page or their shell (callerFolder).
+      const found = await callerFolder(deps, threadId);
+      if ("stderr" in found) return { ok: false, error: found.stderr };
+      // Its page is a thread you see.
+      if (found.caller.visibility === "hidden") return { ok: false, error: "This thread is one of Code Review Workspace’s agents, so it can’t start a review of its folder. Run it in a thread working on the change." };
+      // A review re-homed to a fixer's worktree, on that worktree's branch, opens as it is: its key is its old folder's.
+      const { env } = found.folder;
+      const there = reviewOfFolder(await store.listReviews(), env.id, env.branchName);
+      if (there && there.targetKey !== featureKey(env.id, env.branchName)) return { ok: true, targetKey: there.targetKey };
+      let started: Awaited<ReturnType<typeof openFolderReview>>;
+      try {
+        started = await openFolderReview(deps, found.folder, found.main);
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+      if ("error" in started) return { ok: false, error: started.error };
+      void started.run?.();
+      if (started.opened.changed) deps.changed(started.opened.key);
+      return { ok: true, targetKey: started.opened.key };
     },
     async reviewFolderBranch({ targetKey }) {
       const review = featureOf(await store.getReview(targetKey));
