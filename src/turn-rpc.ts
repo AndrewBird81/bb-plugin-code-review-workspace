@@ -2,7 +2,8 @@
 // checking and replying to your feedback, the suggested verdict, and what changed since your review.
 import { isAssistantAnswering, startAutomaticReview } from "./agent";
 import { commentsKey } from "./draft";
-import { ghReplyThreadArgs, runGh, ghErrorMessage } from "./gh";
+import { ghReplyThreadArgs, runGh } from "./gh";
+import { PAGE_BUDGET_MS, refusalText } from "./github-writes";
 import { requireReviewRevision } from "./review-revision";
 import { forgetPostedReply, postDraftedReply } from "./post-receipts";
 import { rerunReview } from "./rereview";
@@ -15,7 +16,7 @@ import { NOT_THIS_REVIEW, verifiedGh } from "./github-threads-rpc";
 import type { RpcHandlers, ServeDeps } from "./server-modules";
 
 export function register(deps: ServeDeps) {
-  const { bb, store, receipts, notifications, sync, changed, refreshThreads } = deps;
+  const { bb, store, receipts, githubWrites, notifications, sync, changed, refreshThreads } = deps;
   const view = async (store: AsyncStore, targetKey: string) => {
     return store.exclusive(async (tx) => {
       const review = await tx.getReview(targetKey);
@@ -124,10 +125,10 @@ export function register(deps: ServeDeps) {
         const gh = await verifiedGh(account, "reply");
         if ("error" in gh) return { ok: false, error: gh.error };
         const replied = await postDraftedReply(receipts, store, targetKey, threadId, body, async () => {
-          const r = await gh.run(ghReplyThreadArgs(review.repo!, review.number!, thread.commentId), { stdin: JSON.stringify({ body }), timeoutMs: 0 });
-          return r.code !== 0 ? { ok: false, error: ghErrorMessage(r) } : { ok: true };
+          const r = await githubWrites.post(gh.run, ghReplyThreadArgs(review.repo!, review.number!, thread.commentId), { stdin: JSON.stringify({ body }), action: "reply", budgetMs: PAGE_BUDGET_MS });
+          return r.ok ? { ok: true } : { ok: false, error: refusalText(r) };
         });
-        if (!replied.ok) return replied;
+        if (!replied.ok || replied.alreadyPosted) return replied;
         await refreshThreads(review).catch(() => {});
         // GitHub has the reply: a store that can't be read now mustn't fail the Send, or the page drafts it to post again.
         const feedback = await view(store, targetKey).catch((error) => {

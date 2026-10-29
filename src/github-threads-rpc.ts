@@ -3,6 +3,7 @@ import { ghReviewThreadsArgs, ghReplyThreadArgs, ghResolveThreadArgs, ghUnresolv
 import { postDraftedReply } from "./post-receipts";
 import { parseReviewThreads } from "./threads";
 import { bindGhAccount } from "./gh-identity";
+import { PAGE_BUDGET_MS, refusalText, type WriteAction } from "./github-writes";
 import type { RpcHandlers, ServeDeps } from "./server-modules";
 
 /** The review's threads on GitHub, everyone's, read with `run`: every page, up to 1,000. */
@@ -37,9 +38,9 @@ export async function verifiedGh(account: string | undefined, write: keyof typeo
 export const NOT_THIS_REVIEW = "That thread isn't part of this review anymore. Refresh and try again.";
 
 export function register(deps: ServeDeps) {
-  const { bb, store, receipts } = deps;
+  const { bb, store, receipts, githubWrites } = deps;
   /** Resolve or unresolve one of this PR's threads, as the verified account; any other thread id is refused. */
-  async function updateThread(targetKey: string, threadId: string, account: string | undefined, args: string[]): Promise<{ ok: boolean; error?: string }> {
+  async function updateThread(targetKey: string, threadId: string, account: string | undefined, args: string[], action: WriteAction): Promise<{ ok: boolean; error?: string }> {
     const m = await store.getReview(targetKey);
     if (!m || m.kind !== "pr" || !m.number || !m.repo) return { ok: false, error: "Not a PR." };
     const gh = await verifiedGh(account, "update");
@@ -47,8 +48,8 @@ export function register(deps: ServeDeps) {
     const ours = (await store.listFeedbackThreads(targetKey)).some((t) => t.id === threadId)
       || (await readReviewThreads(m.repo, m.number, gh.run)).threads.some((t) => t.id === threadId);
     if (!ours) return { ok: false, error: NOT_THIS_REVIEW };
-    const r = await gh.run(args, { timeoutMs: 0 });
-    return r.code === 0 ? { ok: true } : { ok: false, error: ghErrorMessage(r) };
+    const r = await githubWrites.post(gh.run, args, { action, budgetMs: PAGE_BUDGET_MS });
+    return r.ok ? { ok: true } : { ok: false, error: refusalText(r) };
   }
   const handlers = {
     // GitHub threads, reply/resolve
@@ -63,8 +64,8 @@ export function register(deps: ServeDeps) {
       const gh = await verifiedGh(account, "reply");
       if ("error" in gh) return { ok: false, error: gh.error };
       const post = async (): Promise<{ ok: true } | { ok: false; error: string }> => {
-        const r = await gh.run(ghReplyThreadArgs(m.repo!, m.number!, inReplyTo), { stdin: JSON.stringify({ body }), timeoutMs: 0 });
-        return r.code !== 0 ? { ok: false, error: ghErrorMessage(r) } : { ok: true };
+        const r = await githubWrites.post(gh.run, ghReplyThreadArgs(m.repo!, m.number!, inReplyTo), { stdin: JSON.stringify({ body }), action: "reply", budgetMs: PAGE_BUDGET_MS });
+        return r.ok ? { ok: true } : { ok: false, error: refusalText(r) };
       };
       if (!threadId) return post();
       // The thread's drafted reply went out as this one.
@@ -73,10 +74,10 @@ export function register(deps: ServeDeps) {
       return replied;
     },
     async resolveThread({ targetKey, threadId, account }) {
-      return updateThread(targetKey, threadId, account, ghResolveThreadArgs(threadId));
+      return updateThread(targetKey, threadId, account, ghResolveThreadArgs(threadId), "resolve");
     },
     async unresolveThread({ targetKey, threadId, account }) {
-      return updateThread(targetKey, threadId, account, ghUnresolveThreadArgs(threadId));
+      return updateThread(targetKey, threadId, account, ghUnresolveThreadArgs(threadId), "unresolve");
     },
   } satisfies Partial<RpcHandlers>;
   return { handlers };

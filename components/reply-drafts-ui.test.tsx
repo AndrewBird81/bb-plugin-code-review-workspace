@@ -125,6 +125,19 @@ test("a reply that doesn't go keeps its text, as the thread's draft", async () =
   slot.lifecycle.unmount();
 });
 
+test("a reply GitHub already has says it wasn't sent again, and keeps its text to change", async () => {
+  const { slot, rpc } = await renderWorkspace({ replyToThread: vi.fn(() => ({ ok: true, alreadyPosted: true })) });
+  const bobs = await card(slot, 3);
+  fireEvent.click(within(bobs).getByRole("button", { name: "Reply" }));
+  fireEvent.change(within(bobs).getByRole("textbox"), { target: { value: "Done." } });
+  fireEvent.click(within(bobs).getByRole("button", { name: "Send reply" }));
+  await waitFor(() => expect(toast.info).toHaveBeenCalledWith("GitHub already has this reply, so it wasn’t sent again. Change it to send another."));
+  expect(toast.error).not.toHaveBeenCalled();
+  expect(rpc.replyToThread).toHaveBeenCalledTimes(1);
+  expect((within(bobs).getByRole("textbox") as HTMLTextAreaElement).value).toBe("Done.");
+  slot.lifecycle.unmount();
+});
+
 test("a reply being written outlives its card: the list's copy closes, and the text waits for it", async () => {
   const { slot, rpc } = await renderWorkspace();
   await card(slot, 3);

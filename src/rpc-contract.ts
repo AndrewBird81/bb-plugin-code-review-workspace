@@ -82,7 +82,8 @@ const draftOutput = z.object({
 
 export const rpcContract = defineRpcContract({
   ...releaseRpc,
-  getSetupStatus: { input: z.null(), output: z.object({ account: z.string().nullable(), githubCli: z.boolean(), agentAvailable: z.boolean().nullable(), projectAvailable: z.boolean().nullable() }) },
+  /** missingScopes: the scopes posting needs that gh's token lacks; "unlisted" when GitHub didn't list them, as for a fine-grained token; null when it couldn't be asked. */
+  getSetupStatus: { input: z.null(), output: z.object({ account: z.string().nullable(), githubCli: z.boolean(), agentAvailable: z.boolean().nullable(), projectAvailable: z.boolean().nullable(), missingScopes: z.union([z.array(z.string()), z.literal("unlisted")]).nullable().optional() }) },
   /** patch is null when it's the one knownRevision names, which the page already shows. */
   getReviewBundle: {
     input: z.object({ targetKey: z.string(), knownRevision: z.string().optional() }).strict(),
@@ -179,7 +180,8 @@ export const rpcContract = defineRpcContract({
    */
   replyToThread: {
     input: z.object({ targetKey: z.string(), inReplyTo: z.number().int(), body: z.string().min(1), threadId: z.string().optional(), account: z.string().optional() }).strict(),
-    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
+    // alreadyPosted: GitHub has this reply, posted in the last 15 minutes, so it wasn't sent again and its draft stays.
+    output: z.object({ ok: z.boolean(), error: z.string().optional(), alreadyPosted: z.boolean().optional() }),
   },
   /** Only a thread of this review's PR. */
   resolveThread: {
@@ -447,7 +449,7 @@ export const rpcContract = defineRpcContract({
   /** Post a reply to one of your threads on GitHub, as the account the page verified (see replyToThread), and clear its drafted reply. */
   replyToFeedback: {
     input: z.object({ targetKey: z.string(), threadId: z.string(), body: z.string().trim().min(1).max(65_000), account: z.string().optional() }).strict(),
-    output: z.object({ ok: z.boolean(), error: z.string().optional(), feedback: z.any().optional() }),
+    output: z.object({ ok: z.boolean(), error: z.string().optional(), feedback: z.any().optional(), alreadyPosted: z.boolean().optional() }),
   },
   saveReplyDraft: {
     input: z.object({ targetKey: z.string(), threadId: z.string(), body: z.string().max(65_000) }).strict(),

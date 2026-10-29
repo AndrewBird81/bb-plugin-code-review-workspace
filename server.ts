@@ -15,6 +15,7 @@ import { runGh, runGit } from "./src/gh";
 import { createReviewSync } from "./src/review-lifecycle";
 import { setTimeout as delay } from "node:timers/promises";
 import { createReviewSubmitter } from "./src/submit-review";
+import { createGithubWrites } from "./src/github-writes";
 import { postReceipts } from "./src/post-receipts";
 import { GUIDE_WORKER_TITLE, failUnfinishedGuides, stopGuideGenerations, hasGuideGenerations } from "./src/generate";
 import { pluginThreadsTitled, toolThreadReview } from "./src/thread-review";
@@ -159,7 +160,8 @@ async function openStore(bb: BbPluginApi, backend: Store, interrupted: Interrupt
  */
 function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaited<ReturnType<typeof openStore>>, sharedWithReplaced = false): Served {
   const receipts = postReceipts(bb.storage.kv);
-  const submitReview = createReviewSubmitter(store, runGh, receipts);
+  const githubWrites = createGithubWrites();
+  const submitReview = createReviewSubmitter(store, runGh, receipts, githubWrites.pace);
   const deps = { bb, store, gh: { runGh, runGit } };
   const notifications = completionNotifications(bb, store);
   const suggester = createInstructionSuggester(bb, store, () => bb.realtime.publish("learning", {}));
@@ -284,7 +286,7 @@ function servePlugin(bb: BbPluginApi, { configured, store, interrupted }: Awaite
 
   // Each area of the server is a module (src/server-modules.ts). Registering it registers its agent tools, in this
   // order, and gives its RPC handlers, its listeners to BB's events, and the bb review subcommands it runs.
-  const moduleDeps: ServeDeps = { ...deps, receipts, submitReview, notifications, suggester, sync, changed, refreshThreads, reviewOwners };
+  const moduleDeps: ServeDeps = { ...deps, receipts, submitReview, githubWrites, notifications, suggester, sync, changed, refreshThreads, reviewOwners };
   const settings = settingsRpc.register(moduleDeps);
   const reviews = reviewsRpc.register(moduleDeps);
   const githubThreads = githubThreadsRpc.register(moduleDeps);

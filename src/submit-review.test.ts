@@ -2,6 +2,7 @@ import { expect, test, vi } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { reanchorDraft } from "./store";
 import { createReviewSubmitter } from "./submit-review";
+import { createGithubWrites } from "./github-writes";
 import type { runGh } from "./gh";
 import { reviewRevision } from "./review-revision";
 import plugin from "../server";
@@ -389,6 +390,40 @@ test("a submit blocked by a pending review started on github.com says how to cle
   } });
   expect(await gh.submit("pr-test", undefined, "me", ...await page())).toEqual({ ok: false, error: "You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft has been kept." });
   expect(await store.getDraft("pr-test")).toEqual(draft);
+});
+
+test("the page's Submit waits its turn in the line of writes to GitHub, and is never retried, even rate-limited", async () => {
+  const { store, page } = await setup();
+  const draft = await store.getDraft("pr-test");
+  const gh = github(store, { create: false, result: {
+    code: 1, stderr: "gh: You have exceeded a secondary rate limit. (HTTP 403)\n", stdout: JSON.stringify({ message: "You have exceeded a secondary rate limit." }),
+  } });
+  const writes = createGithubWrites();
+  let release!: () => void;
+  const reply = writes.pace(() => new Promise<void>((resolve) => { release = resolve; }));
+  const submitted = createReviewSubmitter(store, gh.run, undefined, writes.pace)("pr-test", undefined, "me", ...await page());
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(gh.posts()).toBe(0);
+  release();
+  const replied = Date.now();
+  await reply;
+  expect(await submitted).toEqual({ ok: false, error: "GitHub is limiting how fast this account can post, and didn't say for how long. Wait a minute, then try again. (GitHub: You have exceeded a secondary rate limit.) Your draft has been kept." });
+  expect(Date.now() - replied).toBeGreaterThanOrEqual(1_000);
+  expect(gh.posts()).toBe(1);
+  expect(await store.getDraft("pr-test")).toEqual(draft);
+});
+
+test("the page's Submit is refused at once, posting nothing, while GitHub has asked for longer than the page waits", async () => {
+  const { store, page } = await setup();
+  const gh = github(store, { create: true, result: { code: 0, stderr: "", stdout: "{}" } });
+  const writes = createGithubWrites();
+  const limited = vi.fn<typeof runGh>().mockResolvedValue({ code: 1, stderr: "gh: You have exceeded a secondary rate limit. (HTTP 403)", stdout: "HTTP/2.0 403 Forbidden\r\nRetry-After: 90\r\n\r\n{}" });
+  await writes.post(limited, ["api", "-X", "POST", "repos/acme/web/pulls/7/comments/1/replies"], { budgetMs: 20_000 });
+  const started = Date.now();
+  expect(await createReviewSubmitter(store, gh.run, undefined, writes.pace)("pr-test", undefined, "me", ...await page()))
+    .toEqual({ ok: false, error: "GitHub is limiting how fast this account can post. Try again in about 2 min. Your draft has been kept." });
+  expect(Date.now() - started).toBeLessThan(5_000);
+  expect(gh.posts()).toBe(0);
 });
 
 // Submission's last guards, each just before the POST.

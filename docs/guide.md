@@ -738,6 +738,7 @@ Notes for reviews and pages from before the current releases. New installs can s
 - **Setup checks fail.** **Settings → Ready to review** (or All reviews, with no reviews yet) says what's missing:
   - "GitHub CLI isn't on the BB server": install `gh` on the machine running BB, then check again.
   - "Sign in to GitHub on the BB server": run `gh auth login --hostname github.com` there. `gh auth status` shows which account `gh` uses.
+  - "Your GitHub token is missing `read:org`": posting needs `repo`, and team reviewers `read:org`. Run the `gh auth refresh` command it shows on the BB server. Fine-grained tokens don't list their scopes, so Setup says it didn't check them.
   - "No BB agent to write guides": connect an agent provider in BB's Settings.
   - "No BB project to run guides in": add a BB project before starting a review.
 - **All reviews can't read GitHub.** The list says why: GitHub CLI not on the BB server, `gh` not signed in, a rate limit (reading pauses for 15 minutes), or PRs or teams it can't see. Refresh's tooltip says when GitHub was last read.

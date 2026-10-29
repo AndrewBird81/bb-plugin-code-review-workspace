@@ -170,9 +170,21 @@ test("a reply GitHub took whose draft the store couldn't clear is finished by th
   expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed?", post)).toEqual({ ok: true });
   expect(posts).toBe(1);
   expect((await store.listReplyDrafts("pr-1")).size).toBe(0);
-  // Another reply on the thread posts.
-  expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed?", post)).toEqual({ ok: true });
+  // For 15 minutes, a Send of the same text, from a page that gave up waiting on the first or a deliberate repeat, isn't
+  // posted: it says GitHub already has it, and leaves its draft to change.
+  await store.setReplyDraft("pr-1", "T1", "Fixed?", "reviewer");
+  expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed?", post)).toEqual({ ok: true, alreadyPosted: true });
+  expect(posts).toBe(1);
+  expect((await store.listReplyDrafts("pr-1")).size).toBe(1);
+  // Other text posts; so does the same text, after that.
+  expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed, thanks", post)).toEqual({ ok: true });
   expect(posts).toBe(2);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    vi.setSystemTime(Date.now() + 15 * 60_000);
+    expect(await postDraftedReply(postReceipts(bb.storage.kv), store, "pr-1", "T1", "Fixed, thanks", post)).toEqual({ ok: true });
+    expect(posts).toBe(3);
+  } finally { vi.useRealTimers(); }
 }, 15_000);
 
 // Review round 1, BLOCKING 2: a record that saved the submitted state but failed to clear the draft was taken for

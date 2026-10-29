@@ -1,5 +1,6 @@
 import { bindGhAccount } from "./gh-identity";
 import { ghErrorMessage, ghPrHeadArgs, ghPrReviewsArgs, ghSubmitReviewArgs, type runGh } from "./gh";
+import { classifyWriteError, PAGE_BUDGET_MS, refusalText, type GithubWrites } from "./github-writes";
 import { sameComments, toGithubReviewPayload, type Draft, type DraftComment, type Verdict } from "./draft";
 import type { ReviewMeta } from "./store";
 import { requireReviewRevision } from "./review-revision";
@@ -34,13 +35,21 @@ async function postedAnyway(run: typeof runGh, repo: string, number: number, vie
   return null;
 }
 
-/** Why GitHub refused the review, saying how to clear a pending review started on github.com, which blocks it. */
-function refusal(result: { stdout: string; stderr: string }): string {
-  const message = ghErrorMessage(result);
-  return /pending review/i.test(message) ? "You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft has been kept." : message;
+/**
+ * Why GitHub refused the review, saying how to clear a pending review started on github.com, which blocks it. A timeout
+ * is gh's own words, as what follows says whether GitHub took the review anyway.
+ */
+function refusal(result: { stdout: string; stderr: string }, args: string[]): string {
+  const refused = classifyWriteError({ stdout: result.stdout, stderr: result.stderr }, { args, action: "review" });
+  if (refused.kind === "pending-review") return "You have a pending review on this PR, started on github.com. Submit or discard it there, then submit again. Your draft has been kept.";
+  return refused.kind === "rate-limited" ? `${refusalText(refused)} Your draft has been kept.` : refusalText(refused);
 }
 
-export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, receipts: PostReceipts = postReceipts()) {
+/**
+ * `pace` runs the POST in the server's line of writes to GitHub (GithubWrites.pace): once, never retried, as a review
+ * GitHub may have taken is looked for instead, and only if it can start within the page's wait.
+ */
+export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, receipts: PostReceipts = postReceipts(), pace: GithubWrites["pace"] = (write) => write(Infinity)) {
   const inFlight = new Set<string>();
   /**
    * Record what GitHub took. One on an earlier head than the review's, as after a rebuild, leaves the summary and verdict:
@@ -128,14 +137,16 @@ export function createReviewSubmitter(store: AsyncStore, run: typeof runGh, rece
       if (preExistingFindings === null) return { ok: false, error: "The review changed during submission. Wait for generation and review the draft again." };
       const payload = { ...toGithubReviewPayload(draft, preExistingFindings), commit_id: m.headSha };
       const attempted = Date.now();
-      const result = await authenticatedRun(ghSubmitReviewArgs(m.repo, m.number), { timeoutMs: POST_TIMEOUT_MS, stdin: JSON.stringify(payload) });
+      const args = ghSubmitReviewArgs(m.repo, m.number);
+      const result = await pace(() => authenticatedRun(args, { timeoutMs: POST_TIMEOUT_MS, stdin: JSON.stringify(payload) }), PAGE_BUDGET_MS);
+      if ("ok" in result) return { ok: false, error: `${refusalText(result)} Your draft has been kept.` };
       let posted = result.stdout;
       if (result.code !== 0) {
         // gh can fail, or time out, after GitHub created the review: finish with that one, so Submit never posts twice.
         const viewer = account ?? (await authenticatedRun(["api", "user", "--jq", ".login"])).stdout.trim();
         const found = viewer ? await postedAnyway(authenticatedRun, m.repo, m.number, viewer, payload, attempted, { id: m.submittedReviewId, at: m.submittedAt }) : undefined;
-        if (found === undefined) return { ok: false, error: `${refusal(result)} Couldn't check whether GitHub got your review anyway: look at the PR before you submit again. Your draft has been kept.` };
-        if (found === null) return { ok: false, error: refusal(result) };
+        if (found === undefined) return { ok: false, error: `${refusal(result, args)} Couldn't check whether GitHub got your review anyway: look at the PR before you submit again. Your draft has been kept.` };
+        if (found === null) return { ok: false, error: refusal(result, args) };
         posted = found;
       }
       let reviewer: string | undefined;

@@ -8,6 +8,7 @@ import type { ReviewMeta } from "./store";
 import type { runGh, runGit } from "./gh";
 import type { postReceipts } from "./post-receipts";
 import type { createReviewSubmitter } from "./submit-review";
+import type { GithubWrites } from "./github-writes";
 import type { completionNotifications } from "./completion-notifications";
 import type { createInstructionSuggester } from "./learning";
 import type { createReviewSync } from "./review-lifecycle";
@@ -20,6 +21,8 @@ export interface ServeDeps {
   gh: { runGh: typeof runGh; runGit: typeof runGit };
   receipts: ReturnType<typeof postReceipts>;
   submitReview: ReturnType<typeof createReviewSubmitter>;
+  /** The server's one line of writes to GitHub, paced. */
+  githubWrites: GithubWrites;
   notifications: ReturnType<typeof completionNotifications>;
   suggester: ReturnType<typeof createInstructionSuggester>;
   sync: ReturnType<typeof createReviewSync>;

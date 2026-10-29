@@ -5,6 +5,7 @@ import { listMachines, personalProjectId } from "./machines";
 import { runGh } from "./gh";
 import { guideWriterMode } from "./generate";
 import { getGhAccounts, switchGhAccount, checkRepoAccess } from "./gh-accounts";
+import { missingScopes } from "./github-writes";
 import { learningStats } from "./learning";
 import type { RpcHandlers, ServeDeps } from "./server-modules";
 
@@ -12,11 +13,11 @@ export function register(deps: ServeDeps) {
   const { bb, store, suggester, sync } = deps;
   const handlers = {
     async getSetupStatus() {
-      const [cli, user, providers, projects] = await Promise.all([
-        runGh(["--version"]), runGh(["api", "user", "--jq", ".login"]),
+      const [cli, user, scopes, providers, projects] = await Promise.all([
+        runGh(["--version"]), runGh(["api", "user", "--jq", ".login"]), missingScopes(runGh),
         bb.sdk.providers.list().catch(() => null), bb.sdk.projects.list({ includePersonal: true }).catch(() => null),
       ]);
-      return { githubCli: cli.code === 0, account: user.code === 0 ? user.stdout.trim() || null : null, agentAvailable: providers ? providers.some(p => p.available) : null, projectAvailable: projects ? projects.length > 0 : null };
+      return { githubCli: cli.code === 0, account: user.code === 0 ? user.stdout.trim() || null : null, missingScopes: scopes, agentAvailable: providers ? providers.some(p => p.available) : null, projectAvailable: projects ? projects.length > 0 : null };
     },
     async getPreferences() { return await store.getPreferences(); },
     async savePreferences({ preferences, revision }) {
