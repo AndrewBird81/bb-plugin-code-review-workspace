@@ -1,4 +1,4 @@
-For reviewers who need to understand a change before they approve it, often one an agent wrote. The agents read, draft, and explain; you decide what posts.
+For reviewers who need to understand a change before they approve it, often one an agent wrote. The agents read, draft, and explain, and the review agent posts what you ask for, showing its exact text first; replies and comments skip that only when you say "just post it".
 
 ## What you get
 
@@ -13,6 +13,7 @@ For reviewers who need to understand a change before they approve it, often one 
 - **All reviews** sorts your reviews into Needs review, Waiting on author, Reviewed, and Archive. A push alone never makes a review your turn; a re-request, a question for you, or your feedback being handled does.
 - PRs that request your review join the list from GitHub.
 - After new commits, **Since your review** shows only what changed since the commit you reviewed. The review agent checks each of your earlier threads and drafts replies for you to send.
+- Every review leads with its id, `api#4512`, or `api:branch` for local work, in BB's title bar and on every page.
 - Snooze, pin, rename, and archive reviews. Alerts go to the separate Needs You plugin, if you install it.
 
 ## Reading the diff
@@ -23,24 +24,25 @@ For reviewers who need to understand a change before they approve it, often one 
 
 ## Local changes and agent threads
 
-- Run `bb review` in a BB thread to review a local branch or range from a checkout on the BB server.
-- On your own PR or a local review, Finish review sends your comments back to the thread that made the change, or to a new thread.
-- Agents in your other threads can add draft comments with `bb review comment`. Nothing they do posts to GitHub.
+- **Review changes** above a thread's message box, or `bb review` in it, reviews that thread's folder on any machine: one review per folder and branch, uncommitted and new files included.
+- **Send** your comments to the thread that wrote the code, beside the diff in a Main thread tab. It reports each done or declined, and the review comes back **Ready to re-review** with each fix checked.
+- **Push** from the review: the thread commits what you reviewed, the review checks that commit, and the thread pushes exactly it. Then **Open PR**, and the review becomes the PR's. Teammates' comments on your own PR go through the same loop.
+- Agents in your other threads can add draft comments with `bb review comment`, and relay your asks to the review agent.
 
 ## Trust
 
-- Nothing posts to GitHub until you click **Submit to GitHub**, **Send reply**, or **Resolve**. The agents change only the local draft.
+- The review agent does review work when you ask: replies, comments and reviews, merging any PR you can merge, after the Post form, and on your own PRs the title, description, labels, reviewers and assignees. What posts under your name shows its exact text with a **Post** button first, and only your own message or click in that review approves, merges or closes. Turns the plugin starts on its own only draft. A Settings switch returns the agent to drafting only.
 - Agents start on their own only on PRs from the repository's owner, members and collaborators, and not on a branch in someone else's fork. For other PRs, one click runs them.
 - Text from the PR reaches the agents fenced as untrusted data, and the repo's instruction files are read from the PR's base, never its head.
 - Every feature that can get in the way has a switch in Settings.
 
 ## Requirements and costs
 
-- BB 0.45 or later, on Node 24 or later.
+- BB 0.48 or later, on Node 24 or later.
 - `git` and GitHub CLI (`gh`) on the BB server, signed in to github.com. GitHub features support github.com only.
 - A BB agent provider. Guides, reviews, and re-review checks use its usage allowance.
 - At least one BB project.
-- Local reviews need their checkout on the BB server.
+- A review of a local ref needs its checkout on the BB server; a thread's folder can be on any enrolled machine.
 - Each reviewer needs their own BB installation: a shared BB server shares its GitHub credentials and saved reviews.
 
 ## More

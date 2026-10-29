@@ -16,7 +16,7 @@ const { toast } = await import("sonner");
 // jsdom has no scrollIntoView, which Show's reveal lands with.
 Element.prototype.scrollIntoView ??= () => {};
 
-afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.clearAllMocks(); vi.useRealTimers(); });
 
 const now = Date.now();
 const patch = "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,2 @@\n one\n-two\n+TWO\n";
@@ -703,6 +703,9 @@ test("an unsent review of yours on GitHub offers to open it there, in the same v
 });
 
 test("Agent activity lists what the review agent did on GitHub, newest first, a line each with its age and a link, folding from 5", async () => {
+  // The ages count from `now`, however long the file took to get here.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(now);
   const activity = [
     { at: now - 4 * 60_000, text: "Marked as a draft", asking: "direct" },
     { at: now - 3 * 60_000, text: "Posted reply on src/a.ts:12", asking: "direct", url: "https://github.com/acme/web/pull/42#discussion_r1" },
